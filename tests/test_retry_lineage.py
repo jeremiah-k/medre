@@ -13,15 +13,14 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
-import pytest
-
+from medre.adapters.fake_presentation import FakePresentationAdapter
 from medre.core.contracts.adapter import (
     AdapterContext,
     AdapterDeliveryResult,
 )
-from medre.adapters.fake_presentation import FakePresentationAdapter
-from medre.core.events.canonical import CanonicalEvent, DeliveryReceipt
+from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.events.bus import EventBus
+from medre.core.events.canonical import CanonicalEvent, DeliveryReceipt
 from medre.core.events.metadata import EventMetadata
 from medre.core.observability.metrics import Diagnostician
 from medre.core.planning.delivery_plan import (
@@ -38,10 +37,8 @@ from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.core.routing.router import Router
 from medre.core.routing.stats import RouteStats
 from medre.core.runtime.accounting import RuntimeAccounting
-from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.storage.sqlite import SQLiteStorage
 from medre.observability.classification import infer_failure_kind
-
 
 # FallbackResolver that injects a retry_policy into every plan
 
@@ -55,6 +52,7 @@ class _FallbackResolverWithRetry(FallbackResolver):
     def resolve_fallback(self, event, target, capabilities):  # type: ignore[override]
         plan = super().resolve_fallback(event, target, capabilities)
         from dataclasses import replace
+
         return replace(plan, retry_policy=self._retry_policy)
 
 
@@ -101,15 +99,18 @@ def _route_from_receipt(receipt: DeliveryReceipt) -> Route:
     return Route(
         id=receipt.route_id or "retry-route",
         source=RouteSource(adapter=None, event_kinds=(), channel=None),
-        targets=[RouteTarget(
-            adapter=receipt.target_adapter,
-            channel=getattr(receipt, "target_channel", None),
-        )],
+        targets=[
+            RouteTarget(
+                adapter=receipt.target_adapter,
+                channel=getattr(receipt, "target_channel", None),
+            )
+        ],
     )
 
 
 def _plan_from_receipt(
-    receipt: DeliveryReceipt, retry_policy: RetryPolicy,
+    receipt: DeliveryReceipt,
+    retry_policy: RetryPolicy,
 ) -> DeliveryPlan:
     return DeliveryPlan(
         plan_id=receipt.delivery_plan_id,
@@ -166,7 +167,9 @@ class _RetryWorker:
 
             try:
                 await self.pipeline.deliver_to_target(
-                    event, route, plan,
+                    event,
+                    route,
+                    plan,
                     previous_receipt=receipt,
                     source="retry",
                 )
@@ -272,7 +275,8 @@ class TestRetryLineage:
         retry.  The NOT EXISTS SQL in list_due_retry_receipts excludes parent
         receipts that already have a retry child."""
         adapter = _TransientThenSucceedAdapter(
-            adapter_id="dedup_target", fail_count=1,
+            adapter_id="dedup_target",
+            fail_count=1,
         )
         event = _make_event()
         route = Route(
@@ -291,7 +295,10 @@ class TestRetryLineage:
         default_retry_policy = RetryPolicy(max_attempts=3)
         resolver = _FallbackResolverWithRetry(default_retry_policy)
         runner = _build_runner(
-            temp_storage, adapters, router, accounting,
+            temp_storage,
+            adapters,
+            router,
+            accounting,
             fallback_resolver=resolver,
         )
         await _start_adapters(adapters)
@@ -312,7 +319,10 @@ class TestRetryLineage:
             # First retry succeeds
             policy = RetryPolicy(max_attempts=3)
             worker = _RetryWorker(
-                temp_storage, runner, policy, accounting=accounting,
+                temp_storage,
+                runner,
+                policy,
+                accounting=accounting,
             )
             processed = await worker._process_due(future_now)
             assert processed == 1
@@ -329,7 +339,9 @@ class TestRetryLineage:
 
             # Second _process_due: NOT EXISTS excludes the parent
             due_again = await temp_storage.list_due_retry_receipts(
-                future_now, limit=20, max_attempts=3,
+                future_now,
+                limit=20,
+                max_attempts=3,
             )
             assert len(due_again) == 0, (
                 "Parent receipt should be excluded by NOT EXISTS "
@@ -351,7 +363,8 @@ class TestRetryLineage:
         due receipt.  The parent is excluded by NOT EXISTS.  A subsequent
         retry of the child succeeds."""
         adapter = _TransientThenSucceedAdapter(
-            adapter_id="chain_target", fail_count=2,
+            adapter_id="chain_target",
+            fail_count=2,
         )
         event = _make_event()
         route = Route(
@@ -370,7 +383,10 @@ class TestRetryLineage:
         default_retry_policy = RetryPolicy(max_attempts=5)
         resolver = _FallbackResolverWithRetry(default_retry_policy)
         runner = _build_runner(
-            temp_storage, adapters, router, accounting,
+            temp_storage,
+            adapters,
+            router,
+            accounting,
             fallback_resolver=resolver,
         )
         await _start_adapters(adapters)
@@ -391,7 +407,10 @@ class TestRetryLineage:
             first_retry_now = original_receipt.next_retry_at + timedelta(seconds=1)
             policy = RetryPolicy(max_attempts=5)
             worker = _RetryWorker(
-                temp_storage, runner, policy, accounting=accounting,
+                temp_storage,
+                runner,
+                policy,
+                accounting=accounting,
             )
             processed = await worker._process_due(first_retry_now)
             assert processed == 1
@@ -404,7 +423,8 @@ class TestRetryLineage:
 
             # The child (attempt 2) should have next_retry_at
             child_receipt = [
-                r for r in all_receipts
+                r
+                for r in all_receipts
                 if r.parent_receipt_id == original_receipt.receipt_id
             ]
             assert len(child_receipt) == 1
@@ -415,14 +435,16 @@ class TestRetryLineage:
             # Parent excluded by NOT EXISTS; only child is due
             second_retry_now = child.next_retry_at + timedelta(seconds=1)
             due = await temp_storage.list_due_retry_receipts(
-                second_retry_now, limit=20, max_attempts=5,
+                second_retry_now,
+                limit=20,
+                max_attempts=5,
             )
             assert len(due) >= 1
             due_ids = [r.receipt_id for r in due]
             assert child.receipt_id in due_ids
-            assert original_receipt.receipt_id not in due_ids, (
-                "Parent should be excluded by NOT EXISTS in favor of child"
-            )
+            assert (
+                original_receipt.receipt_id not in due_ids
+            ), "Parent should be excluded by NOT EXISTS in favor of child"
 
             # Second retry succeeds
             processed2 = await worker._process_due(second_retry_now)
@@ -448,6 +470,7 @@ class TestRetryLineage:
         """Dead-letter detection for one target does not affect retries for a
         different target on the same event.  Two retry chains for the same
         event but different target adapters are fully isolated."""
+
         class _AlwaysFailAdapter(FakePresentationAdapter):
             def __init__(self):
                 super().__init__(adapter_id="always_fail_target")
@@ -458,7 +481,8 @@ class TestRetryLineage:
                 raise ConnectionError(f"permanent transient #{self._call_count}")
 
         chain_b_adapter = _TransientThenSucceedAdapter(
-            adapter_id="chain_b_target", fail_count=1,
+            adapter_id="chain_b_target",
+            fail_count=1,
         )
         always_fail = _AlwaysFailAdapter()
 
@@ -485,7 +509,10 @@ class TestRetryLineage:
         default_retry_policy = RetryPolicy(max_attempts=3)
         resolver = _FallbackResolverWithRetry(default_retry_policy)
         runner = _build_runner(
-            temp_storage, adapters, router, accounting,
+            temp_storage,
+            adapters,
+            router,
+            accounting,
             fallback_resolver=resolver,
         )
         await _start_adapters(adapters)
@@ -507,8 +534,7 @@ class TestRetryLineage:
 
             # --- Chain A: exhaust retries manually → dead-lettered ---
             fail_a = [
-                r for r in failed_receipts
-                if r.target_adapter == "always_fail_target"
+                r for r in failed_receipts if r.target_adapter == "always_fail_target"
             ][0]
 
             route_a = Route(
@@ -527,8 +553,11 @@ class TestRetryLineage:
             # Attempt 2 (fails)
             try:
                 await runner.deliver_to_target(
-                    event, route_a, plan_a,
-                    previous_receipt=fail_a, source="retry",
+                    event,
+                    route_a,
+                    plan_a,
+                    previous_receipt=fail_a,
+                    source="retry",
                 )
             except Exception:
                 pass
@@ -537,7 +566,8 @@ class TestRetryLineage:
                 event.event_id,
             )
             attempt_2 = [
-                r for r in receipts_after_2
+                r
+                for r in receipts_after_2
                 if r.target_adapter == "always_fail_target"
                 and r.parent_receipt_id == fail_a.receipt_id
             ][0]
@@ -545,8 +575,11 @@ class TestRetryLineage:
             # Attempt 3 (fails → dead-lettered)
             try:
                 await runner.deliver_to_target(
-                    event, route_a, plan_a,
-                    previous_receipt=attempt_2, source="retry",
+                    event,
+                    route_a,
+                    plan_a,
+                    previous_receipt=attempt_2,
+                    source="retry",
                 )
             except Exception:
                 pass
@@ -555,7 +588,8 @@ class TestRetryLineage:
                 event.event_id,
             )
             dead_a = [
-                r for r in receipts_a
+                r
+                for r in receipts_a
                 if r.target_adapter == "always_fail_target"
                 and r.status == "dead_lettered"
             ]
@@ -563,26 +597,29 @@ class TestRetryLineage:
 
             # --- Chain B: retry succeeds despite Chain A dead-letter ---
             fail_b = [
-                r for r in failed_receipts
-                if r.target_adapter == "chain_b_target"
+                r for r in failed_receipts if r.target_adapter == "chain_b_target"
             ][0]
             now_b = fail_b.next_retry_at + timedelta(seconds=1)
 
             policy = RetryPolicy(max_attempts=3)
             worker = _RetryWorker(
-                temp_storage, runner, policy, accounting=accounting,
+                temp_storage,
+                runner,
+                policy,
+                accounting=accounting,
             )
             processed = await worker._process_due(now_b)
             assert processed == 1
-            assert worker.state.succeeded == 1, (
-                "Chain B retry should succeed even though Chain A is dead-lettered"
-            )
+            assert (
+                worker.state.succeeded == 1
+            ), "Chain B retry should succeed even though Chain A is dead-lettered"
 
             final_receipts = await temp_storage.list_receipts_for_event(
                 event.event_id,
             )
             chain_b_sent = [
-                r for r in final_receipts
+                r
+                for r in final_receipts
                 if r.target_adapter == "chain_b_target" and r.status == "sent"
             ]
             assert len(chain_b_sent) == 1
@@ -590,7 +627,8 @@ class TestRetryLineage:
             assert chain_b_sent[0].source == "retry"
 
             chain_a_dead = [
-                r for r in final_receipts
+                r
+                for r in final_receipts
                 if r.target_adapter == "always_fail_target"
                 and r.status == "dead_lettered"
             ]
@@ -604,13 +642,10 @@ class TestRetryLineage:
         linked by parent_receipt_id, replay by replay_run_id, timeline
         shows all 3 correctly ordered, and evidence distinguishes them."""
         from medre.runtime.timeline import assemble_event_timeline
-        from medre.observability.classification import (
-            failure_category,
-            recommended_commands,
-        )
 
         adapter = _TransientThenSucceedAdapter(
-            adapter_id="distinction_target", fail_count=1,
+            adapter_id="distinction_target",
+            fail_count=1,
         )
         event = _make_event()
         route = Route(
@@ -629,7 +664,10 @@ class TestRetryLineage:
         default_retry_policy = RetryPolicy(max_attempts=3)
         resolver = _FallbackResolverWithRetry(default_retry_policy)
         runner = _build_runner(
-            temp_storage, adapters, router, accounting,
+            temp_storage,
+            adapters,
+            router,
+            accounting,
             fallback_resolver=resolver,
         )
         await _start_adapters(adapters)
@@ -656,7 +694,10 @@ class TestRetryLineage:
             now_retry = live_rcpt.next_retry_at + timedelta(seconds=1)
             policy = RetryPolicy(max_attempts=3)
             worker = _RetryWorker(
-                temp_storage, runner, policy, accounting=accounting,
+                temp_storage,
+                runner,
+                policy,
+                accounting=accounting,
             )
             processed = await worker._process_due(now_retry)
             assert processed == 1
@@ -666,8 +707,7 @@ class TestRetryLineage:
                 event.event_id,
             )
             retry_sent = [
-                r for r in receipts
-                if r.source == "retry" and r.status == "sent"
+                r for r in receipts if r.source == "retry" and r.status == "sent"
             ]
             assert len(retry_sent) == 1
             retry_rcpt = retry_sent[0]
@@ -691,7 +731,9 @@ class TestRetryLineage:
                 retry_policy=RetryPolicy(max_attempts=3),
             )
             replay_rcpt = await runner.deliver_to_target(
-                event, replay_route, replay_plan,
+                event,
+                replay_route,
+                replay_plan,
                 source="replay",
                 replay_run_id=replay_run_id,
             )
@@ -709,7 +751,8 @@ class TestRetryLineage:
 
             # === Assert timeline shows all 3 receipts ===
             timeline = await assemble_event_timeline(
-                temp_storage, event.event_id,
+                temp_storage,
+                event.event_id,
             )
             assert timeline is not None
             tl_receipts = timeline["receipts"]
@@ -747,16 +790,16 @@ class TestRetryLineage:
 
             # === Assert recover notes duplicate-risk for replay, not retry ===
             # The trace-layer replay timeline includes duplicate_send_caveat
-            from medre.runtime.trace import (
-                assemble_replay_timeline as _trace_replay_tl,
-            )
+            from medre.runtime.trace import assemble_replay_timeline as _trace_replay_tl
+
             replay_receipts = [
-                r for r in all_receipts
-                if r.replay_run_id == replay_run_id
+                r for r in all_receipts if r.replay_run_id == replay_run_id
             ]
             event_cache = {event.event_id: event}
             replay_tl = _trace_replay_tl(
-                replay_run_id, replay_receipts, event_cache,
+                replay_run_id,
+                replay_receipts,
+                event_cache,
             )
             assert "duplicate_send_caveat" in replay_tl
             assert replay_tl["duplicate_send_caveat"] is not None

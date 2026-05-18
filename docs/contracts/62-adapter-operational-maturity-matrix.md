@@ -13,119 +13,119 @@ This document provides a single cross-adapter view of operational maturity. Ever
 
 From Contract 37 §3:
 
-| Tier | Label | Meaning |
-|------|-------|---------|
-| **1** | Experimental | Architectural skeleton exists. Unit tests pass against mocks. No live validation. Not suitable for real workloads. |
-| **2** | Alpha-operational | Core pipeline works. Unit tests comprehensive. Live smoke test passed against real endpoint. Known limitations documented. Suitable for controlled testing, not production. |
-| **3** | Beta-candidate | Alpha-operational plus: live test evidence recorded, failure modes classified, resource containment reviewed, diagnostics contract satisfied, delivery semantics documented. Suitable for beta release with documented caveats. |
-| **4** | Constrained-beta | Beta-candidate plus: operational runbook validated, edge cases exercised, sustained testing done. Suitable for constrained production use. |
+| Tier  | Label             | Meaning                                                                                                                                                                                                                         |
+| ----- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1** | Experimental      | Architectural skeleton exists. Unit tests pass against mocks. No live validation. Not suitable for real workloads.                                                                                                              |
+| **2** | Alpha-operational | Core pipeline works. Unit tests comprehensive. Live smoke test passed against real endpoint. Known limitations documented. Suitable for controlled testing, not production.                                                     |
+| **3** | Beta-candidate    | Alpha-operational plus: live test evidence recorded, failure modes classified, resource containment reviewed, diagnostics contract satisfied, delivery semantics documented. Suitable for beta release with documented caveats. |
+| **4** | Constrained-beta  | Beta-candidate plus: operational runbook validated, edge cases exercised, sustained testing done. Suitable for constrained production use.                                                                                      |
 
 No transport qualifies as production-ready.
 
 ## 2. Cross-Adapter Maturity Summary
 
-| Field | Matrix | Meshtastic | MeshCore | LXMF |
-|-------|--------|------------|----------|------|
-| **Maturity label** | Beta-candidate (Tier 3) | Beta-candidate (Tier 3) | Experimental / SDK-validated, hardware live validation pending | Experimental / SDK-validated, Reticulum live validation pending |
-| **Fake mode** | ✅ S-tier | ✅ S-tier | ✅ S-tier | ✅ S-tier |
-| **Unit test suite** | ✅ 2,903 LOC / 10 files (S-tier) | ✅ 3,429 LOC / 8 files (S-tier) | ✅ 2,321 LOC / 7 files (S-tier) | ✅ 3,381 LOC / 8 files (S-tier) |
-| **Mocked SDK** | ✅ mindroom-nio (S-tier) | ✅ mtjk (S-tier) | ✅ meshcore_py (S-tier) | ✅ Reticulum/LXMF (S-tier) |
-| **Live startup** | ✅ H-tier (2026-05-10) | ✅ H-tier (2026-05-10) | ❌ NOT EXECUTED | ❌ NOT EXECUTED |
-| **Live send** | ✅ H-tier + R-tier (2026-05-10/12) | ✅ H-tier + R-tier (2026-05-10/12) | ❌ NOT EXECUTED | ❌ NOT EXECUTED |
-| **Live receive** | ⚠️ Partial H-tier (self-echo only) | ✅ H-tier (pubsub callback) | ❌ NOT EXECUTED | ❌ NOT EXECUTED |
-| **Repeated start/stop** | ✅ H-tier (2026-05-10) | ✅ H-tier (2026-05-10) | ❌ NOT EXECUTED | ❌ NOT EXECUTED |
-| **Cleanup/reconnect** | ✅ H-tier (2026-05-10) | ⚠️ R-tier CLI-level only | ❌ NOT EXECUTED | ❌ NOT EXECUTED |
-| **Deterministic suite** | ✅ 4596 passed (2026-05-12) | ✅ included in 4596 | ✅ included in 4596 | ✅ included in 4596 |
-| **Hardware probe** | N/A (cloud service) | ✅ R-tier (2026-05-12) | ⚠️ Hardware probe: serial NOT VIABLE, BLE NOT YET CONNECTED | ❌ Hardware probe: KISS probe NO RESPONSE |
-| **Known blockers** | Third-party inbound (M14) | mtjk not in project venv; BLE untested | Serial: companion heartbeat ≠ SDK serial protocol. BLE: preconditions met, connection not attempted | RNode: KISS probe silent, firmware status unconfirmed. Serial path blocked |
+| Field                   | Matrix                             | Meshtastic                             | MeshCore                                                                                            | LXMF                                                                       |
+| ----------------------- | ---------------------------------- | -------------------------------------- | --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| **Maturity label**      | Beta-candidate (Tier 3)            | Beta-candidate (Tier 3)                | Experimental / SDK-validated, hardware live validation pending                                      | Experimental / SDK-validated, Reticulum live validation pending            |
+| **Fake mode**           | ✅ S-tier                          | ✅ S-tier                              | ✅ S-tier                                                                                           | ✅ S-tier                                                                  |
+| **Unit test suite**     | ✅ 2,903 LOC / 10 files (S-tier)   | ✅ 3,429 LOC / 8 files (S-tier)        | ✅ 2,321 LOC / 7 files (S-tier)                                                                     | ✅ 3,381 LOC / 8 files (S-tier)                                            |
+| **Mocked SDK**          | ✅ mindroom-nio (S-tier)           | ✅ mtjk (S-tier)                       | ✅ meshcore_py (S-tier)                                                                             | ✅ Reticulum/LXMF (S-tier)                                                 |
+| **Live startup**        | ✅ H-tier (2026-05-10)             | ✅ H-tier (2026-05-10)                 | ❌ NOT EXECUTED                                                                                     | ❌ NOT EXECUTED                                                            |
+| **Live send**           | ✅ H-tier + R-tier (2026-05-10/12) | ✅ H-tier + R-tier (2026-05-10/12)     | ❌ NOT EXECUTED                                                                                     | ❌ NOT EXECUTED                                                            |
+| **Live receive**        | ⚠️ Partial H-tier (self-echo only) | ✅ H-tier (pubsub callback)            | ❌ NOT EXECUTED                                                                                     | ❌ NOT EXECUTED                                                            |
+| **Repeated start/stop** | ✅ H-tier (2026-05-10)             | ✅ H-tier (2026-05-10)                 | ❌ NOT EXECUTED                                                                                     | ❌ NOT EXECUTED                                                            |
+| **Cleanup/reconnect**   | ✅ H-tier (2026-05-10)             | ⚠️ R-tier CLI-level only               | ❌ NOT EXECUTED                                                                                     | ❌ NOT EXECUTED                                                            |
+| **Deterministic suite** | ✅ 4596 passed (2026-05-12)        | ✅ included in 4596                    | ✅ included in 4596                                                                                 | ✅ included in 4596                                                        |
+| **Hardware probe**      | N/A (cloud service)                | ✅ R-tier (2026-05-12)                 | ⚠️ Hardware probe: serial NOT VIABLE, BLE NOT YET CONNECTED                                         | ❌ Hardware probe: KISS probe NO RESPONSE                                  |
+| **Known blockers**      | Third-party inbound (M14)          | mtjk not in project venv; BLE untested | Serial: companion heartbeat ≠ SDK serial protocol. BLE: preconditions met, connection not attempted | RNode: KISS probe silent, firmware status unconfirmed. Serial path blocked |
 
 ## 3. Per-Adapter Evidence Detail
 
 ### 3.1 Matrix — Beta-candidate (Tier 3)
 
-| Evidence Field | Status | Tier | Source |
-|----------------|--------|------|--------|
-| **Fake mode** | `FakeMatrixAdapter` confirmed in `fake_matrix.py` | S | Contract 32 M3 |
-| **Unit tests** | 2,903 LOC / 10 test files. `test_matrix_session.py`: 102 test functions. | S | Contract 37 §4.2 |
-| **Mocked SDK** | mindroom-nio mocked across all test files | S | Source audit |
-| **Live startup** | Adapter started, `restore_login` succeeded, sync task running. 13/13 passed (2026-05-10, matrix.org) | H | `operational-evidence.md` §1.1 |
-| **Live send (plaintext)** | `room_send` returned event_id starting with `$`. Confirmed in 13/13 run and 12/12 sk.community run (2026-05-12). | H | `operational-evidence.md` §1.1, `beta-candidate-notes.md` |
-| **Live send (E2EE)** | Encrypted send succeeds with `ignore_unverified_devices=True`. 7/7 passed (2026-05-10). | H | `operational-evidence.md` §1.3 |
-| **Live receive** | Self-echo suppression confirmed live. Third-party inbound: **NOT EXECUTED** (requires second Matrix account, M14). Deterministic unit tests cover full third-party path (8 tests). | H (partial) | `operational-evidence.md` §1.7 |
-| **Repeated start/stop** | Stop → start cycle re-establishes sync; second `health_check()` returns `healthy`. | H | `operational-evidence.md` §1.1 |
-| **Cleanup/reconnect** | Health stays `degraded` during reconnect, `healthy` after recovery. Budget exhaustion → `failed`. | H | `operational-evidence.md` §1.1 |
-| **2026-05-12 live attempt** | sk.community: NOT EXECUTED (access token rejected `M_UNKNOWN_TOKEN`). matrix.org: NOT EXECUTED (password login rejected `M_FORBIDDEN`). | — | `operational-evidence.md` §1.4, §1.4b |
-| **Known blockers** | (1) Third-party inbound live validation blocked — no second account. (2) Fork dependency `mindroom-nio`. (3) E2EE requires `ignore_unverified_devices=True` (upstream nio gap, not MEDRE deferral). | — | `operational-evidence.md` §1.7.4 |
+| Evidence Field              | Status                                                                                                                                                                                              | Tier        | Source                                                    |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | --------------------------------------------------------- |
+| **Fake mode**               | `FakeMatrixAdapter` confirmed in `fake_matrix.py`                                                                                                                                                   | S           | Contract 32 M3                                            |
+| **Unit tests**              | 2,903 LOC / 10 test files. `test_matrix_session.py`: 102 test functions.                                                                                                                            | S           | Contract 37 §4.2                                          |
+| **Mocked SDK**              | mindroom-nio mocked across all test files                                                                                                                                                           | S           | Source audit                                              |
+| **Live startup**            | Adapter started, `restore_login` succeeded, sync task running. 13/13 passed (2026-05-10, matrix.org)                                                                                                | H           | `operational-evidence.md` §1.1                            |
+| **Live send (plaintext)**   | `room_send` returned event_id starting with `$`. Confirmed in 13/13 run and 12/12 sk.community run (2026-05-12).                                                                                    | H           | `operational-evidence.md` §1.1, `beta-candidate-notes.md` |
+| **Live send (E2EE)**        | Encrypted send succeeds with `ignore_unverified_devices=True`. 7/7 passed (2026-05-10).                                                                                                             | H           | `operational-evidence.md` §1.3                            |
+| **Live receive**            | Self-echo suppression confirmed live. Third-party inbound: **NOT EXECUTED** (requires second Matrix account, M14). Deterministic unit tests cover full third-party path (8 tests).                  | H (partial) | `operational-evidence.md` §1.7                            |
+| **Repeated start/stop**     | Stop → start cycle re-establishes sync; second `health_check()` returns `healthy`.                                                                                                                  | H           | `operational-evidence.md` §1.1                            |
+| **Cleanup/reconnect**       | Health stays `degraded` during reconnect, `healthy` after recovery. Budget exhaustion → `failed`.                                                                                                   | H           | `operational-evidence.md` §1.1                            |
+| **2026-05-12 live attempt** | sk.community: NOT EXECUTED (access token rejected `M_UNKNOWN_TOKEN`). matrix.org: NOT EXECUTED (password login rejected `M_FORBIDDEN`).                                                             | —           | `operational-evidence.md` §1.4, §1.4b                     |
+| **Known blockers**          | (1) Third-party inbound live validation blocked — no second account. (2) Fork dependency `mindroom-nio`. (3) E2EE requires `ignore_unverified_devices=True` (upstream nio gap, not MEDRE deferral). | —           | `operational-evidence.md` §1.7.4                          |
 
 **Assessment:** Most complete adapter. Live evidence is H-tier (historical, 2026-05-10). Current-tranche live re-run failed (credential issues, not code issues). All deterministic tests pass. Beta-candidate is justified on H-tier evidence strength plus full deterministic coverage.
 
 ### 3.2 Meshtastic — Beta-candidate (Tier 3)
 
-| Evidence Field | Status | Tier | Source |
-|----------------|--------|------|--------|
-| **Fake mode** | `FakeMeshtasticAdapter` confirmed in `fake_meshtastic.py` | S | Contract 32 M3 |
-| **Unit tests** | 3,429 LOC / 8 test files. `test_meshtastic_adapter.py`: 89 test functions. | S | Contract 37 §5.2 |
-| **Mocked SDK** | mtjk mocked across all test files | S | Source audit |
-| **Live startup (adapter)** | Adapter created client via `_create_client()`, connected and subscribed. `health_check()` returned `healthy`. 10/10 passed (2026-05-10). | H | `operational-evidence.md` §2.1 |
-| **Live send (adapter)** | `sendText()` returned `MeshPacket` with populated `id`. `sendData()` returned `MeshPacket`. Unique packet IDs across sends. | H | `operational-evidence.md` §2.1 |
-| **Live send (CLI)** | `meshtastic --sendtext` on ch0, exit code 0, no error. Device: LilyGO T-LORA V2.1.1.6, firmware 2.7.19. | R | `operational-evidence.md` §2.0.2 |
-| **Live receive** | Pubsub callback fired on packet reception. Received packets have expected shape. Inbound telemetry packet observed. | H | `operational-evidence.md` §2.1 |
-| **Second-node inbound** | **NOT EXECUTED** — second node `!ee4a65b1` observed in node DB (confirms radio range overlap only, NOT message delivery). | — | `operational-evidence.md` §2.0.3 |
-| **Repeated start/stop** | Adapter start → healthy, stop → clean teardown (2026-05-10). Restart idempotency not explicitly tested for Meshtastic. | H | `operational-evidence.md` §2.1 |
-| **Cleanup/reconnect (CLI)** | 4/4 serial connections succeeded across ~7.7 hours device uptime. No serial errors. Device stable (rebootCount unchanged). | R | `operational-evidence.md` §2.0.4 |
-| **Cleanup/reconnect (adapter)** | **NOT EXECUTED** — MEDRE adapter session reconnect with exponential backoff not tested against real hardware. | — | `operational-evidence.md` §2.0.7 |
-| **ACK reliability** | **UNRELIABLE** — no ACK for broadcast sends observed (2026-05-12). | R | `operational-evidence.md` §2.0.6 |
-| **Delivery guarantee** | **BEST EFFORT** — fire-and-forget LoRa broadcast. | R | `operational-evidence.md` §2.0.6 |
-| **Known blockers** | (1) `mtjk` not installed in project venv — blocks MEDRE adapter live pytest against real hardware. (2) BLE untested. (3) No second-node inbound. (4) Fire-and-forget delivery inherent. | — | `operational-evidence.md` §2.0.7, §2.3 |
+| Evidence Field                  | Status                                                                                                                                                                                  | Tier | Source                                 |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | -------------------------------------- |
+| **Fake mode**                   | `FakeMeshtasticAdapter` confirmed in `fake_meshtastic.py`                                                                                                                               | S    | Contract 32 M3                         |
+| **Unit tests**                  | 3,429 LOC / 8 test files. `test_meshtastic_adapter.py`: 89 test functions.                                                                                                              | S    | Contract 37 §5.2                       |
+| **Mocked SDK**                  | mtjk mocked across all test files                                                                                                                                                       | S    | Source audit                           |
+| **Live startup (adapter)**      | Adapter created client via `_create_client()`, connected and subscribed. `health_check()` returned `healthy`. 10/10 passed (2026-05-10).                                                | H    | `operational-evidence.md` §2.1         |
+| **Live send (adapter)**         | `sendText()` returned `MeshPacket` with populated `id`. `sendData()` returned `MeshPacket`. Unique packet IDs across sends.                                                             | H    | `operational-evidence.md` §2.1         |
+| **Live send (CLI)**             | `meshtastic --sendtext` on ch0, exit code 0, no error. Device: LilyGO T-LORA V2.1.1.6, firmware 2.7.19.                                                                                 | R    | `operational-evidence.md` §2.0.2       |
+| **Live receive**                | Pubsub callback fired on packet reception. Received packets have expected shape. Inbound telemetry packet observed.                                                                     | H    | `operational-evidence.md` §2.1         |
+| **Second-node inbound**         | **NOT EXECUTED** — second node `!ee4a65b1` observed in node DB (confirms radio range overlap only, NOT message delivery).                                                               | —    | `operational-evidence.md` §2.0.3       |
+| **Repeated start/stop**         | Adapter start → healthy, stop → clean teardown (2026-05-10). Restart idempotency not explicitly tested for Meshtastic.                                                                  | H    | `operational-evidence.md` §2.1         |
+| **Cleanup/reconnect (CLI)**     | 4/4 serial connections succeeded across ~7.7 hours device uptime. No serial errors. Device stable (rebootCount unchanged).                                                              | R    | `operational-evidence.md` §2.0.4       |
+| **Cleanup/reconnect (adapter)** | **NOT EXECUTED** — MEDRE adapter session reconnect with exponential backoff not tested against real hardware.                                                                           | —    | `operational-evidence.md` §2.0.7       |
+| **ACK reliability**             | **UNRELIABLE** — no ACK for broadcast sends observed (2026-05-12).                                                                                                                      | R    | `operational-evidence.md` §2.0.6       |
+| **Delivery guarantee**          | **BEST EFFORT** — fire-and-forget LoRa broadcast.                                                                                                                                       | R    | `operational-evidence.md` §2.0.6       |
+| **Known blockers**              | (1) `mtjk` not installed in project venv — blocks MEDRE adapter live pytest against real hardware. (2) BLE untested. (3) No second-node inbound. (4) Fire-and-forget delivery inherent. | —    | `operational-evidence.md` §2.0.7, §2.3 |
 
 **Assessment:** Adapter-level live evidence is H-tier (2026-05-10, 10/10 passed). CLI-level R-tier evidence (2026-05-12) confirms hardware/firmware/serial connectivity. MEDRE adapter session reconnect and sustained operation remain NOT EXECUTED. Beta-candidate is justified on H-tier adapter evidence + R-tier hardware evidence. Adapter-level evidence is historical — current-tranche re-run requires `mtjk` in project venv.
 
 ### 3.3 MeshCore — Experimental / SDK-validated, hardware live validation pending
 
-| Evidence Field | Status | Tier | Source |
-|----------------|--------|------|--------|
-| **Fake mode** | `FakeMeshCoreAdapter` confirmed in `fake_meshcore.py` | S | Contract 32 M3 |
-| **Unit tests** | 2,321 LOC / 7 test files. `test_meshcore_session.py`: 18 test functions (lowest session test count). | S | Contract 37 §6.2 |
-| **Mocked SDK** | meshcore_py mocked across all test files | S | Source audit |
-| **SDK factory methods** | ✅ Corrected: session uses `await MeshCore.create_tcp/serial/ble` | S | Code fix |
-| **Live startup** | **NOT EXECUTED** | — | `operational-evidence.md` §3.1 |
-| **Live send** | **NOT EXECUTED** | — | `operational-evidence.md` §3.1 |
-| **Live receive** | **NOT EXECUTED** | — | `operational-evidence.md` §3.1 |
-| **Repeated start/stop** | **NOT EXECUTED** | — | `operational-evidence.md` §3.1 |
-| **Cleanup/reconnect** | **NOT EXECUTED** | — | `operational-evidence.md` §3.1 |
-| **Serial hardware probe** | ⚠️ ttyACM0 speaks 0x27 heartbeat, NOT MeshCore SDK serial (0x3e). Serial path NOT VIABLE for this firmware. | R | `hardware-inventory.md` §4a |
-| **BLE hardware probe** | ⚠️ hci0 UP, bleak importable, MeshCore-B4C6ED2C advertising at C4:4F:33:6A:B0:23. **Connection NOT ATTEMPTED.** | R | `hardware-inventory.md` §4a |
-| **Known blockers** | (1) Serial path blocked: companion heartbeat protocol ≠ SDK serial protocol. (2) BLE connection not attempted despite preconditions met. (3) TCP requires networked node (not available). (4) Lowest session test count (18). | — | Hardware probe findings |
+| Evidence Field            | Status                                                                                                                                                                                                                        | Tier | Source                         |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------------------------------ |
+| **Fake mode**             | `FakeMeshCoreAdapter` confirmed in `fake_meshcore.py`                                                                                                                                                                         | S    | Contract 32 M3                 |
+| **Unit tests**            | 2,321 LOC / 7 test files. `test_meshcore_session.py`: 18 test functions (lowest session test count).                                                                                                                          | S    | Contract 37 §6.2               |
+| **Mocked SDK**            | meshcore_py mocked across all test files                                                                                                                                                                                      | S    | Source audit                   |
+| **SDK factory methods**   | ✅ Corrected: session uses `await MeshCore.create_tcp/serial/ble`                                                                                                                                                             | S    | Code fix                       |
+| **Live startup**          | **NOT EXECUTED**                                                                                                                                                                                                              | —    | `operational-evidence.md` §3.1 |
+| **Live send**             | **NOT EXECUTED**                                                                                                                                                                                                              | —    | `operational-evidence.md` §3.1 |
+| **Live receive**          | **NOT EXECUTED**                                                                                                                                                                                                              | —    | `operational-evidence.md` §3.1 |
+| **Repeated start/stop**   | **NOT EXECUTED**                                                                                                                                                                                                              | —    | `operational-evidence.md` §3.1 |
+| **Cleanup/reconnect**     | **NOT EXECUTED**                                                                                                                                                                                                              | —    | `operational-evidence.md` §3.1 |
+| **Serial hardware probe** | ⚠️ ttyACM0 speaks 0x27 heartbeat, NOT MeshCore SDK serial (0x3e). Serial path NOT VIABLE for this firmware.                                                                                                                   | R    | `hardware-inventory.md` §4a    |
+| **BLE hardware probe**    | ⚠️ hci0 UP, bleak importable, MeshCore-B4C6ED2C advertising at C4:4F:33:6A:B0:23. **Connection NOT ATTEMPTED.**                                                                                                               | R    | `hardware-inventory.md` §4a    |
+| **Known blockers**        | (1) Serial path blocked: companion heartbeat protocol ≠ SDK serial protocol. (2) BLE connection not attempted despite preconditions met. (3) TCP requires networked node (not available). (4) Lowest session test count (18). | —    | Hardware probe findings        |
 
 **Assessment:** SDK integration layer is alpha-operational (factory methods fixed, deterministic tests pass, mock coverage complete). **Hardware path is Tier 1 (experimental)** — serial is confirmed NOT VIABLE for companion_radio_ble firmware, BLE is the only viable path but connection has not been attempted. The maturity label reflects this split: SDK layer at Tier 2, hardware validation at Tier 1. **Cannot promote hardware path beyond experimental until BLE `create_ble()` connection succeeds and appstart returns valid MeshCore instance.** This is the single next action needed.
 
 ### 3.4 LXMF — Experimental / SDK-validated, Reticulum live validation pending
 
-| Evidence Field | Status | Tier | Source |
-|----------------|--------|------|--------|
-| **Fake mode** | `FakeLxmfAdapter` confirmed in `fake_lxmf.py` | S | Contract 32 M3 |
-| **Unit tests** | 3,381 LOC / 8 test files. `test_lxmf_session.py`: 41 test functions. Largest session at 1,260 LOC. | S | Contract 37 §7.2 |
-| **Mocked SDK** | Reticulum/LXMF mocked across all test files | S | Source audit |
-| **SDK diagnostics fix** | ✅ `pending_delivery_count` reporting fixed | S | Code fix |
-| **Live startup** | **NOT EXECUTED** | — | `operational-evidence.md` §4.1 |
-| **Live send** | **NOT EXECUTED** | — | `operational-evidence.md` §4.1 |
-| **Live receive** | **NOT EXECUTED** | — | `operational-evidence.md` §4.1 |
-| **Repeated start/stop** | **NOT EXECUTED** | — | `operational-evidence.md` §4.1 |
-| **Cleanup/reconnect** | **NOT EXECUTED** | — | `operational-evidence.md` §4.1 |
-| **Delivery state model** | Implemented (`OUTBOUND → SENDING → SENT → DELIVERED`) but **NOT validated** against real Reticulum network. State progression may have timing/assumption errors. | — | Contract 37 §7.3 |
-| **RNode hardware probe** | ❌ KISS DETECT sent at 115200 and 57600 baud to ttyUSB0 (CP2104 on T-LoRa V2.1-1.6). NO RESPONSE at either baud rate. Serial path BLOCKED. | R | `hardware-inventory.md` §4a |
-| **Known blockers** | (1) **RNode serial path blocked** — KISS probe silent, firmware status unconfirmed. (2) No working Reticulum transport interface. (3) Identity file is 64-byte raw private key (no encryption). (4) Non-standard license (Reticulum License, not OSI-approved). (5) Reticulum designed for long-running daemons — short-lived processes may not establish stable connectivity. (6) Largest/most complex session — complexity correlates with risk. | — | Hardware probe findings |
+| Evidence Field           | Status                                                                                                                                                                                                                                                                                                                                                                                                                                             | Tier | Source                         |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------------------------------ |
+| **Fake mode**            | `FakeLxmfAdapter` confirmed in `fake_lxmf.py`                                                                                                                                                                                                                                                                                                                                                                                                      | S    | Contract 32 M3                 |
+| **Unit tests**           | 3,381 LOC / 8 test files. `test_lxmf_session.py`: 41 test functions. Largest session at 1,260 LOC.                                                                                                                                                                                                                                                                                                                                                 | S    | Contract 37 §7.2               |
+| **Mocked SDK**           | Reticulum/LXMF mocked across all test files                                                                                                                                                                                                                                                                                                                                                                                                        | S    | Source audit                   |
+| **SDK diagnostics fix**  | ✅ `pending_delivery_count` reporting fixed                                                                                                                                                                                                                                                                                                                                                                                                        | S    | Code fix                       |
+| **Live startup**         | **NOT EXECUTED**                                                                                                                                                                                                                                                                                                                                                                                                                                   | —    | `operational-evidence.md` §4.1 |
+| **Live send**            | **NOT EXECUTED**                                                                                                                                                                                                                                                                                                                                                                                                                                   | —    | `operational-evidence.md` §4.1 |
+| **Live receive**         | **NOT EXECUTED**                                                                                                                                                                                                                                                                                                                                                                                                                                   | —    | `operational-evidence.md` §4.1 |
+| **Repeated start/stop**  | **NOT EXECUTED**                                                                                                                                                                                                                                                                                                                                                                                                                                   | —    | `operational-evidence.md` §4.1 |
+| **Cleanup/reconnect**    | **NOT EXECUTED**                                                                                                                                                                                                                                                                                                                                                                                                                                   | —    | `operational-evidence.md` §4.1 |
+| **Delivery state model** | Implemented (`OUTBOUND → SENDING → SENT → DELIVERED`) but **NOT validated** against real Reticulum network. State progression may have timing/assumption errors.                                                                                                                                                                                                                                                                                   | —    | Contract 37 §7.3               |
+| **RNode hardware probe** | ❌ KISS DETECT sent at 115200 and 57600 baud to ttyUSB0 (CP2104 on T-LoRa V2.1-1.6). NO RESPONSE at either baud rate. Serial path BLOCKED.                                                                                                                                                                                                                                                                                                         | R    | `hardware-inventory.md` §4a    |
+| **Known blockers**       | (1) **RNode serial path blocked** — KISS probe silent, firmware status unconfirmed. (2) No working Reticulum transport interface. (3) Identity file is 64-byte raw private key (no encryption). (4) Non-standard license (Reticulum License, not OSI-approved). (5) Reticulum designed for long-running daemons — short-lived processes may not establish stable connectivity. (6) Largest/most complex session — complexity correlates with risk. | —    | Hardware probe findings        |
 
 **Assessment:** **Experimental / SDK-validated, Reticulum live validation pending.** The hardware probe confirmed that the RNode serial device (ttyUSB0) does not respond to KISS commands at standard baud rates. This means the Reticulum RNodeInterface — the primary intended transport for LXMF over LoRa — cannot be initialized. SDK layer validated via unit tests and diagnostics fix, but the complete absence of any working transport path makes the overall adapter experimental. The delivery state model (1,260 LOC session) is unvalidated against real infrastructure. **Promotion from Experimental requires:** (1) RNode firmware confirmed active on serial device, (2) Reticulum RNodeInterface successfully initialized, (3) at least one live send/receive cycle observed.
 
 ## 4. Evidence Tier Distribution
 
-| Adapter | S-tier fields | H-tier fields | R-tier fields | NOT EXECUTED fields |
-|---------|---------------|---------------|---------------|---------------------|
-| Matrix | 3 (fake, unit, mock) | 6 (startup, send-plain, send-e2ee, start/stop, reconnect, receive-partial) | 0 | 1 (third-party inbound live) |
-| Meshtastic | 3 (fake, unit, mock) | 4 (startup, send-adapter, receive, start/stop) | 2 (send-CLI, reconnect-CLI) | 2 (adapter reconnect, second-node inbound) |
-| MeshCore | 4 (fake, unit, mock, sdk-factory-fix) | 0 | 2 (serial-probe, ble-probe) | 5 (startup, send, receive, start/stop, reconnect) |
-| LXMF | 4 (fake, unit, mock, diagnostics-fix) | 0 | 1 (rnode-kiss-probe) | 5 (startup, send, receive, start/stop, reconnect) |
+| Adapter    | S-tier fields                         | H-tier fields                                                              | R-tier fields               | NOT EXECUTED fields                               |
+| ---------- | ------------------------------------- | -------------------------------------------------------------------------- | --------------------------- | ------------------------------------------------- |
+| Matrix     | 3 (fake, unit, mock)                  | 6 (startup, send-plain, send-e2ee, start/stop, reconnect, receive-partial) | 0                           | 1 (third-party inbound live)                      |
+| Meshtastic | 3 (fake, unit, mock)                  | 4 (startup, send-adapter, receive, start/stop)                             | 2 (send-CLI, reconnect-CLI) | 2 (adapter reconnect, second-node inbound)        |
+| MeshCore   | 4 (fake, unit, mock, sdk-factory-fix) | 0                                                                          | 2 (serial-probe, ble-probe) | 5 (startup, send, receive, start/stop, reconnect) |
+| LXMF       | 4 (fake, unit, mock, diagnostics-fix) | 0                                                                          | 1 (rnode-kiss-probe)        | 5 (startup, send, receive, start/stop, reconnect) |
 
 ## 5. Live Evidence Consolidation Plan
 
@@ -138,17 +138,17 @@ No transport qualifies as production-ready.
 
 ### 5.2 Follow-Up Validation Requirements
 
-| Adapter | Minimum follow-up deliverable | Evidence tier target | Success criteria |
-|---------|-----------------------------|---------------------|------------------|
-| Matrix | Current-tranche live re-run with valid credentials | C-tier | ≥13/13 plaintext passed. Previously passing tests still pass. |
-| Matrix | Third-party inbound live test | C-tier or R-tier | `test_inbound_message_received` passes with second account sending during 30s window. |
-| Meshtastic | `mtjk` installed in project venv + adapter live re-run | C-tier | ≥10/10 passed against real hardware. Adapter lifecycle (start/stop/health) confirmed current-tranche. |
-| Meshtastic | Adapter-level reconnect against real hardware | C-tier or R-tier | MEDRE session reconnect with exponential backoff observed, not just CLI-level. |
-| MeshCore | **BLE connection attempt** via `MeshCore.create_ble("C4:4F:33:6A:B0:23")` | R-tier (minimum) | appstart succeeds, `is_connected` returns True. |
-| MeshCore | Hardware-validated send/receive via BLE | R-tier | Send to real radio, confirm delivery at application level. |
-| LXMF | **RNode firmware verification** on ttyUSB0 | R-tier (minimum) | `rnodeconf --info` or KISS DETECT returns valid device response. |
-| LXMF | RNode serial path confirmed working + adapter lifecycle test | R-tier | Reticulum RNodeInterface initializes, live adapter start/stop succeeds. |
-| LXMF | Delivery state model validation | R-tier | Observe actual `OUTBOUND → SENDING → SENT → DELIVERED` transitions on real network. |
+| Adapter    | Minimum follow-up deliverable                                             | Evidence tier target | Success criteria                                                                                      |
+| ---------- | ------------------------------------------------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------------- |
+| Matrix     | Current-tranche live re-run with valid credentials                        | C-tier               | ≥13/13 plaintext passed. Previously passing tests still pass.                                         |
+| Matrix     | Third-party inbound live test                                             | C-tier or R-tier     | `test_inbound_message_received` passes with second account sending during 30s window.                 |
+| Meshtastic | `mtjk` installed in project venv + adapter live re-run                    | C-tier               | ≥10/10 passed against real hardware. Adapter lifecycle (start/stop/health) confirmed current-tranche. |
+| Meshtastic | Adapter-level reconnect against real hardware                             | C-tier or R-tier     | MEDRE session reconnect with exponential backoff observed, not just CLI-level.                        |
+| MeshCore   | **BLE connection attempt** via `MeshCore.create_ble("C4:4F:33:6A:B0:23")` | R-tier (minimum)     | appstart succeeds, `is_connected` returns True.                                                       |
+| MeshCore   | Hardware-validated send/receive via BLE                                   | R-tier               | Send to real radio, confirm delivery at application level.                                            |
+| LXMF       | **RNode firmware verification** on ttyUSB0                                | R-tier (minimum)     | `rnodeconf --info` or KISS DETECT returns valid device response.                                      |
+| LXMF       | RNode serial path confirmed working + adapter lifecycle test              | R-tier               | Reticulum RNodeInterface initializes, live adapter start/stop succeeds.                               |
+| LXMF       | Delivery state model validation                                           | R-tier               | Observe actual `OUTBOUND → SENDING → SENT → DELIVERED` transitions on real network.                   |
 
 ### 5.3 What stays as-is (no follow-up dependency)
 
@@ -162,14 +162,14 @@ No transport qualifies as production-ready.
 
 ### 5.4 Maturity promotion gates
 
-| From → To | Required evidence | Current status |
-|-----------|-------------------|----------------|
-| MeshCore: Alpha → Beta-candidate | ≥1 R-tier BLE connection + send + receive against real MeshCore node. Session reconnect observed. | ⚠️ BLE preconditions met, connection NOT ATTEMPTED. Serial NOT VIABLE. |
-| MeshCore: Experimental → Alpha | BLE `create_ble()` returns connected MeshCore instance (not None). | ⏳ Single next action: run `await MeshCore.create_ble("C4:4F:33:6A:B0:23")`. |
-| LXMF: Experimental → Alpha | RNode serial path confirmed working. `rnodeconf --info` or KISS DETECT returns valid response. | ❌ KISS probe silent at 115200 and 57600. May need firmware reflash. |
-| LXMF: Alpha → Beta-candidate | ≥1 R-tier live startup + send + receive against real Reticulum. Delivery state model confirmed. | ❌ Blocked on RNode serial path. |
-| Meshtastic: H-tier → C-tier | Current-tranche adapter live re-run with `mtjk` in venv. | ⏳ `mtjk` installation needed. |
-| Matrix: H-tier → C-tier | Current-tranche live re-run with valid credentials. | ⏳ Credential refresh needed. |
+| From → To                        | Required evidence                                                                                 | Current status                                                               |
+| -------------------------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| MeshCore: Alpha → Beta-candidate | ≥1 R-tier BLE connection + send + receive against real MeshCore node. Session reconnect observed. | ⚠️ BLE preconditions met, connection NOT ATTEMPTED. Serial NOT VIABLE.       |
+| MeshCore: Experimental → Alpha   | BLE `create_ble()` returns connected MeshCore instance (not None).                                | ⏳ Single next action: run `await MeshCore.create_ble("C4:4F:33:6A:B0:23")`. |
+| LXMF: Experimental → Alpha       | RNode serial path confirmed working. `rnodeconf --info` or KISS DETECT returns valid response.    | ❌ KISS probe silent at 115200 and 57600. May need firmware reflash.         |
+| LXMF: Alpha → Beta-candidate     | ≥1 R-tier live startup + send + receive against real Reticulum. Delivery state model confirmed.   | ❌ Blocked on RNode serial path.                                             |
+| Meshtastic: H-tier → C-tier      | Current-tranche adapter live re-run with `mtjk` in venv.                                          | ⏳ `mtjk` installation needed.                                               |
+| Matrix: H-tier → C-tier          | Current-tranche live re-run with valid credentials.                                               | ⏳ Credential refresh needed.                                                |
 
 ## 6. Not in Scope
 

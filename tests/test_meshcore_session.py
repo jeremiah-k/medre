@@ -7,21 +7,19 @@ module that matches the PyPI meshcore 2.3.7 API surface.
 
 from __future__ import annotations
 
-import asyncio
 import sys
-from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.adapters.meshcore.errors import (
     MeshCoreConnectionError,
     MeshCoreSendError,
 )
 from medre.adapters.meshcore.session import MeshCoreSession
+from medre.config.adapters.meshcore import MeshCoreConfig
 
 
 def _make_config(**overrides) -> MeshCoreConfig:
@@ -436,9 +434,7 @@ class TestMockedSDKSerialStartup:
             await session.start(lambda pkt: None)
 
         # create_serial should have been called with (port, baudrate).
-        mock_mc.MeshCore.create_serial.assert_awaited_once_with(
-            "/dev/ttyACM0", 57600
-        )
+        mock_mc.MeshCore.create_serial.assert_awaited_once_with("/dev/ttyACM0", 57600)
         assert session.connected is True
 
         # Cleanup.
@@ -460,9 +456,7 @@ class TestMockedSDKSerialStartup:
         ):
             await session.start(lambda pkt: None)
 
-        mock_mc.MeshCore.create_serial.assert_awaited_once_with(
-            "/dev/ttyUSB0", 115200
-        )
+        mock_mc.MeshCore.create_serial.assert_awaited_once_with("/dev/ttyUSB0", 115200)
 
         await session.stop()
 

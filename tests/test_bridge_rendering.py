@@ -16,7 +16,6 @@ Tests are organised by scenario:
 
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime, timezone
 
 import pytest
@@ -27,7 +26,6 @@ from medre.adapters.meshcore.renderer import MeshCoreRenderer
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
 from medre.core.events import CanonicalEvent, EventMetadata, EventRelation, NativeRef
 from medre.core.rendering.renderer import RenderingPipeline
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -148,9 +146,7 @@ class TestMatrixRendersForMeshtastic:
             payload={"body": "test"},
         )
         pipeline = _make_pipeline()
-        result = await _render(
-            pipeline, event, "mesh-target", "meshtastic"
-        )
+        result = await _render(pipeline, event, "mesh-target", "meshtastic")
 
         assert result.payload["channel_index"] == 0
 
@@ -162,9 +158,7 @@ class TestMatrixRendersForMeshtastic:
             payload={"body": "test"},
         )
         pipeline = _make_pipeline()
-        result = await _render(
-            pipeline, event, "mesh-target", "meshtastic"
-        )
+        result = await _render(pipeline, event, "mesh-target", "meshtastic")
 
         assert result.payload["meshnet_name"] == ""
 
@@ -297,9 +291,7 @@ class TestSourceDisplayNameHandling:
                 payload={"body": f"from {label}"},
             )
             pipeline = _make_pipeline()
-            result = await _render(
-                pipeline, event, "mesh-target", "meshtastic"
-            )
+            result = await _render(pipeline, event, "mesh-target", "meshtastic")
             # Meshtastic renderer doesn't embed source_adapter in payload,
             # but the rendering result should still reference the original event
             assert result.event_id == event.event_id
@@ -574,7 +566,7 @@ class TestEscapingSafety:
             target_event_id="evt-orig",
             target_native_ref=None,
             key=None,
-            fallback_text='<img src=x onerror=alert(1)>',
+            fallback_text="<img src=x onerror=alert(1)>",
             metadata={},
         )
         event = _make_event(

@@ -24,10 +24,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from medre.core.contracts.adapter import AdapterContext
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
-from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.adapters.meshtastic.compat import HAS_MESHTASTIC
+from medre.config.adapters.meshtastic import MeshtasticConfig
+from medre.core.contracts.adapter import AdapterContext
 
 from .conftest import MeshtasticdEnvironment
 
@@ -120,9 +120,11 @@ class TestMeshtasticdConnectivity:
         await adapter.start(ctx)
         try:
             info = await adapter.health_check()
-            assert info.health in ("healthy", "degraded", "unknown"), (
-                f"Expected healthy/degraded/unknown, got: {info.health!r}"
-            )
+            assert info.health in (
+                "healthy",
+                "degraded",
+                "unknown",
+            ), f"Expected healthy/degraded/unknown, got: {info.health!r}"
         finally:
             await adapter.stop()
 

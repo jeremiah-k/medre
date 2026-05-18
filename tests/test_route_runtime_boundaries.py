@@ -22,10 +22,8 @@ from __future__ import annotations
 import importlib
 import re
 from pathlib import Path
-from typing import Any
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Helpers (mirroring test_cross_transport_boundaries style)
@@ -36,9 +34,7 @@ _SDK_PACKAGES = ("nio", "meshtastic", "meshcore", "RNS", "lxmf")
 
 _ADAPTER_TRANSPORTS = ("matrix", "meshtastic", "meshcore", "lxmf")
 
-_CONCRETE_ADAPTER_PREFIXES = tuple(
-    f"medre.adapters.{t}" for t in _ADAPTER_TRANSPORTS
-)
+_CONCRETE_ADAPTER_PREFIXES = tuple(f"medre.adapters.{t}" for t in _ADAPTER_TRANSPORTS)
 
 
 def _load_module(name: str):
@@ -115,16 +111,10 @@ class TestRuntimeBoundary:
         for line in _import_lines(source):
             for sdk in _SDK_PACKAGES:
                 assert not (
-                    line.startswith(f"import {sdk}")
-                    or line.startswith(f"from {sdk}")
-                ), (
-                    f"{runtime_module.__name__} imports SDK {sdk!r} "
-                    f"in: {line!r}"
-                )
+                    line.startswith(f"import {sdk}") or line.startswith(f"from {sdk}")
+                ), (f"{runtime_module.__name__} imports SDK {sdk!r} " f"in: {line!r}")
 
-    def test_runtime_does_not_import_concrete_adapters(
-        self, runtime_module
-    ) -> None:
+    def test_runtime_does_not_import_concrete_adapters(self, runtime_module) -> None:
         """Runtime modules must not import concrete adapter packages."""
         source = _read_module_source(runtime_module)
         for line in _import_lines(source):
@@ -156,27 +146,21 @@ class TestCoreRoutingBoundary:
             pytest.skip(f"{request.param} not importable")
         return mod
 
-    def test_core_routing_does_not_import_runtime(
-        self, core_routing_module
-    ) -> None:
+    def test_core_routing_does_not_import_runtime(self, core_routing_module) -> None:
         """Core routing modules must not import medre.runtime.*."""
         source = _read_module_source(core_routing_module)
         for line in _import_lines(source):
             assert "medre.runtime" not in line, (
-                f"{core_routing_module.__name__} imports runtime "
-                f"in: {line!r}"
+                f"{core_routing_module.__name__} imports runtime " f"in: {line!r}"
             )
 
-    def test_core_routing_does_not_import_sdks(
-        self, core_routing_module
-    ) -> None:
+    def test_core_routing_does_not_import_sdks(self, core_routing_module) -> None:
         """Core routing modules must not import transport SDKs."""
         source = _read_module_source(core_routing_module)
         for line in _import_lines(source):
             for sdk in _SDK_PACKAGES:
                 assert not (
-                    line.startswith(f"import {sdk}")
-                    or line.startswith(f"from {sdk}")
+                    line.startswith(f"import {sdk}") or line.startswith(f"from {sdk}")
                 ), (
                     f"{core_routing_module.__name__} imports SDK {sdk!r} "
                     f"in: {line!r}"
@@ -215,9 +199,7 @@ class TestSessionRoutingBoundary:
     def session_info(self, request):
         return request.param
 
-    def test_session_does_not_import_runtime_routes(
-        self, session_info
-    ) -> None:
+    def test_session_does_not_import_runtime_routes(self, session_info) -> None:
         """Session must not import medre.runtime.routes or route_engine."""
         _transport, mod_name, _cls_name = session_info
         mod = _load_module(mod_name)
@@ -225,13 +207,11 @@ class TestSessionRoutingBoundary:
             pytest.skip(f"{mod_name} not importable")
         source = _read_module_source(mod)
         for line in _import_lines(source):
-            assert "medre.runtime" not in line, (
-                f"Session must not import runtime; found: {line!r}"
-            )
+            assert (
+                "medre.runtime" not in line
+            ), f"Session must not import runtime; found: {line!r}"
 
-    def test_session_does_not_import_core_routing(
-        self, session_info
-    ) -> None:
+    def test_session_does_not_import_core_routing(self, session_info) -> None:
         """Session must not import medre.core.routing.*."""
         _transport, mod_name, _cls_name = session_info
         mod = _load_module(mod_name)
@@ -239,13 +219,11 @@ class TestSessionRoutingBoundary:
             pytest.skip(f"{mod_name} not importable")
         source = _read_module_source(mod)
         for line in _import_lines(source):
-            assert "medre.core.routing" not in line, (
-                f"Session must not import core routing; found: {line!r}"
-            )
+            assert (
+                "medre.core.routing" not in line
+            ), f"Session must not import core routing; found: {line!r}"
 
-    def test_session_does_not_reference_router_class(
-        self, session_info
-    ) -> None:
+    def test_session_does_not_reference_router_class(self, session_info) -> None:
         """Session source must not reference Router class."""
         _transport, mod_name, _cls_name = session_info
         mod = _load_module(mod_name)
@@ -254,13 +232,11 @@ class TestSessionRoutingBoundary:
         source = _read_module_source(mod)
         # Check for Router references (but allow "router" in comments/docstrings)
         for line in _import_lines(source):
-            assert "Router" not in line, (
-                f"Session must not reference Router; found: {line!r}"
-            )
+            assert (
+                "Router" not in line
+            ), f"Session must not reference Router; found: {line!r}"
 
-    def test_session_does_not_reference_routeconfig(
-        self, session_info
-    ) -> None:
+    def test_session_does_not_reference_routeconfig(self, session_info) -> None:
         """Session source must not reference RouteConfig or route_engine."""
         _transport, mod_name, _cls_name = session_info
         mod = _load_module(mod_name)
@@ -268,12 +244,12 @@ class TestSessionRoutingBoundary:
             pytest.skip(f"{mod_name} not importable")
         source = _read_module_source(mod)
         for line in _import_lines(source):
-            assert "RouteConfig" not in line, (
-                f"Session must not reference RouteConfig; found: {line!r}"
-            )
-            assert "route_engine" not in line, (
-                f"Session must not reference route_engine; found: {line!r}"
-            )
+            assert (
+                "RouteConfig" not in line
+            ), f"Session must not reference RouteConfig; found: {line!r}"
+            assert (
+                "route_engine" not in line
+            ), f"Session must not reference route_engine; found: {line!r}"
 
 
 # ===================================================================
@@ -299,12 +275,9 @@ class TestAdapterRoutingBoundary:
             source = _read_module_source(mod)
             for line in _import_lines(source):
                 if "medre.runtime.route_engine" in line:
-                    violations.append(
-                        f"{mod_name} imports route_engine in: {line!r}"
-                    )
-        assert not violations, (
-            "Adapter route_engine import violations:\n"
-            + "\n".join(violations)
+                    violations.append(f"{mod_name} imports route_engine in: {line!r}")
+        assert not violations, "Adapter route_engine import violations:\n" + "\n".join(
+            violations
         )
 
     def test_adapters_do_not_import_runtime_routes(self, transport) -> None:
@@ -318,13 +291,10 @@ class TestAdapterRoutingBoundary:
             source = _read_module_source(mod)
             for line in _import_lines(source):
                 if "medre.runtime.routes" in line:
-                    violations.append(
-                        f"{mod_name} imports runtime.routes in: {line!r}"
-                    )
-        assert not violations, (
-            "Adapter runtime.routes import violations:\n"
-            + "\n".join(violations)
-        )
+                    violations.append(f"{mod_name} imports runtime.routes in: {line!r}")
+        assert (
+            not violations
+        ), "Adapter runtime.routes import violations:\n" + "\n".join(violations)
 
 
 # ===================================================================
@@ -355,9 +325,9 @@ class TestCodecRoutingBoundary:
             pytest.skip(f"{mod_name} not importable")
         source = _read_module_source(mod)
         for line in _import_lines(source):
-            assert "medre.core.routing" not in line, (
-                f"Codec must not import core routing; found: {line!r}"
-            )
+            assert (
+                "medre.core.routing" not in line
+            ), f"Codec must not import core routing; found: {line!r}"
 
     def test_codec_does_not_import_runtime(self, codec_info) -> None:
         """Codec source must not import medre.runtime.*."""
@@ -367,9 +337,9 @@ class TestCodecRoutingBoundary:
             pytest.skip(f"{mod_name} not importable")
         source = _read_module_source(mod)
         for line in _import_lines(source):
-            assert "medre.runtime" not in line, (
-                f"Codec must not import runtime; found: {line!r}"
-            )
+            assert (
+                "medre.runtime" not in line
+            ), f"Codec must not import runtime; found: {line!r}"
 
     def test_codec_does_not_reference_router(self, codec_info) -> None:
         """Codec source must not reference Router class."""
@@ -379,9 +349,9 @@ class TestCodecRoutingBoundary:
             pytest.skip(f"{mod_name} not importable")
         source = _read_module_source(mod)
         for line in _import_lines(source):
-            assert "Router" not in line, (
-                f"Codec must not reference Router; found: {line!r}"
-            )
+            assert (
+                "Router" not in line
+            ), f"Codec must not reference Router; found: {line!r}"
 
 
 # ===================================================================
@@ -412,9 +382,9 @@ class TestRendererRoutingBoundary:
             pytest.skip(f"{mod_name} not importable")
         source = _read_module_source(mod)
         for line in _import_lines(source):
-            assert "medre.core.routing" not in line, (
-                f"Renderer must not import core routing; found: {line!r}"
-            )
+            assert (
+                "medre.core.routing" not in line
+            ), f"Renderer must not import core routing; found: {line!r}"
 
     def test_renderer_does_not_import_runtime(self, renderer_info) -> None:
         """Renderer source must not import medre.runtime.*."""
@@ -424,13 +394,11 @@ class TestRendererRoutingBoundary:
             pytest.skip(f"{mod_name} not importable")
         source = _read_module_source(mod)
         for line in _import_lines(source):
-            assert "medre.runtime" not in line, (
-                f"Renderer must not import runtime; found: {line!r}"
-            )
+            assert (
+                "medre.runtime" not in line
+            ), f"Renderer must not import runtime; found: {line!r}"
 
-    def test_renderer_does_not_reference_route_objects(
-        self, renderer_info
-    ) -> None:
+    def test_renderer_does_not_reference_route_objects(self, renderer_info) -> None:
         """Renderer source must not reference Route/Router classes."""
         _transport, mod_name, _cls_name = renderer_info
         mod = _load_module(mod_name)
@@ -438,12 +406,12 @@ class TestRendererRoutingBoundary:
             pytest.skip(f"{mod_name} not importable")
         source = _read_module_source(mod)
         for line in _import_lines(source):
-            assert "Router" not in line, (
-                f"Renderer must not reference Router; found: {line!r}"
-            )
-            assert "RouteConfig" not in line, (
-                f"Renderer must not reference RouteConfig; found: {line!r}"
-            )
+            assert (
+                "Router" not in line
+            ), f"Renderer must not reference Router; found: {line!r}"
+            assert (
+                "RouteConfig" not in line
+            ), f"Renderer must not reference RouteConfig; found: {line!r}"
 
 
 # ===================================================================
@@ -472,8 +440,7 @@ class TestRouteModelTransportAgnosticism:
         for line in _import_lines(source):
             for sdk in _SDK_PACKAGES:
                 assert not (
-                    line.startswith(f"import {sdk}")
-                    or line.startswith(f"from {sdk}")
+                    line.startswith(f"import {sdk}") or line.startswith(f"from {sdk}")
                 ), (
                     f"{route_model_module.__name__} imports SDK {sdk!r} "
                     f"in: {line!r}"
@@ -499,8 +466,7 @@ class TestRouteModelTransportAgnosticism:
         for line in _import_lines(source):
             # Allow the word "matrix" in comments/docstrings only in import lines
             assert "nio" not in line.lower() or "medre" in line, (
-                f"{route_model_module.__name__} references nio "
-                f"in: {line!r}"
+                f"{route_model_module.__name__} references nio " f"in: {line!r}"
             )
 
 
@@ -527,46 +493,34 @@ class TestRouteStatsBoundary:
         for line in _import_lines(source):
             for sdk in _SDK_PACKAGES:
                 assert not (
-                    line.startswith(f"import {sdk}")
-                    or line.startswith(f"from {sdk}")
-                ), (
-                    f"{stats_module.__name__} imports SDK {sdk!r} "
-                    f"in: {line!r}"
-                )
+                    line.startswith(f"import {sdk}") or line.startswith(f"from {sdk}")
+                ), (f"{stats_module.__name__} imports SDK {sdk!r} " f"in: {line!r}")
 
-    def test_stats_does_not_import_concrete_adapters(
-        self, stats_module
-    ) -> None:
+    def test_stats_does_not_import_concrete_adapters(self, stats_module) -> None:
         """stats.py must not import concrete adapter packages."""
         source = _read_module_source(stats_module)
         for line in _import_lines(source):
             for prefix in _CONCRETE_ADAPTER_PREFIXES:
                 assert prefix not in line, (
-                    f"{stats_module.__name__} imports concrete adapter "
-                    f"in: {line!r}"
+                    f"{stats_module.__name__} imports concrete adapter " f"in: {line!r}"
                 )
 
-    def test_stats_does_not_import_adapter_base(
-        self, stats_module
-    ) -> None:
+    def test_stats_does_not_import_adapter_base(self, stats_module) -> None:
         """stats.py must not import medre.adapters.* at all."""
         source = _read_module_source(stats_module)
         for line in _import_lines(source):
             assert "medre.adapters" not in line, (
-                f"{stats_module.__name__} imports adapter module "
-                f"in: {line!r}"
+                f"{stats_module.__name__} imports adapter module " f"in: {line!r}"
             )
 
-    def test_stats_classes_exist_and_accept_strings(
-        self, stats_module
-    ) -> None:
+    def test_stats_classes_exist_and_accept_strings(self, stats_module) -> None:
         """RouteStats and RouteCounters must be importable and use plain strings."""
-        assert hasattr(stats_module, "RouteStats"), (
-            f"{stats_module.__name__} has no RouteStats class"
-        )
-        assert hasattr(stats_module, "RouteCounters"), (
-            f"{stats_module.__name__} has no RouteCounters class"
-        )
+        assert hasattr(
+            stats_module, "RouteStats"
+        ), f"{stats_module.__name__} has no RouteStats class"
+        assert hasattr(
+            stats_module, "RouteCounters"
+        ), f"{stats_module.__name__} has no RouteCounters class"
 
         # RouteStats.record_* methods accept plain str route_id.
         rs = stats_module.RouteStats()
@@ -611,9 +565,7 @@ class TestAttributionLeakageBoundary:
     def transport(self, request):
         return request.param
 
-    def test_adapter_modules_do_not_import_routing_metadata(
-        self, transport
-    ) -> None:
+    def test_adapter_modules_do_not_import_routing_metadata(self, transport) -> None:
         """Adapter modules must not import RoutingMetadata directly."""
         modules = _adapter_modules(transport)
         violations: list[str] = []
@@ -627,14 +579,11 @@ class TestAttributionLeakageBoundary:
                     violations.append(
                         f"{mod_name} imports RoutingMetadata in: {line!r}"
                     )
-        assert not violations, (
-            "Adapter RoutingMetadata import violations:\n"
-            + "\n".join(violations)
-        )
+        assert (
+            not violations
+        ), "Adapter RoutingMetadata import violations:\n" + "\n".join(violations)
 
-    def test_adapter_modules_do_not_import_route_stats(
-        self, transport
-    ) -> None:
+    def test_adapter_modules_do_not_import_route_stats(self, transport) -> None:
         """Adapter modules must not import RouteStats or RouteCounters."""
         modules = _adapter_modules(transport)
         violations: list[str] = []
@@ -645,12 +594,9 @@ class TestAttributionLeakageBoundary:
             source = _read_module_source(mod)
             for line in _import_lines(source):
                 if "RouteStats" in line or "RouteCounters" in line:
-                    violations.append(
-                        f"{mod_name} references route stats in: {line!r}"
-                    )
-        assert not violations, (
-            "Adapter route stats import violations:\n"
-            + "\n".join(violations)
+                    violations.append(f"{mod_name} references route stats in: {line!r}")
+        assert not violations, "Adapter route stats import violations:\n" + "\n".join(
+            violations
         )
 
     def test_adapter_base_does_not_reference_route_trace(
@@ -663,12 +609,12 @@ class TestAttributionLeakageBoundary:
         source = _read_module_source(mod)
         # Only check import lines — the word may appear in docstrings.
         for line in _import_lines(source):
-            assert "route_trace" not in line, (
-                f"core.contracts.adapter references route_trace in: {line!r}"
-            )
-            assert "route_attribution" not in line, (
-                f"core.contracts.adapter references route_attribution in: {line!r}"
-            )
+            assert (
+                "route_trace" not in line
+            ), f"core.contracts.adapter references route_trace in: {line!r}"
+            assert (
+                "route_attribution" not in line
+            ), f"core.contracts.adapter references route_attribution in: {line!r}"
 
     def test_adapter_delivery_result_does_not_carry_route_id(
         self,
@@ -681,9 +627,9 @@ class TestAttributionLeakageBoundary:
         mod = _load_module("medre.core.contracts.adapter")
         if mod is None:
             pytest.skip("medre.core.contracts.adapter not importable")
-        assert hasattr(mod, "AdapterDeliveryResult"), (
-            "medre.core.contracts.adapter has no AdapterDeliveryResult"
-        )
+        assert hasattr(
+            mod, "AdapterDeliveryResult"
+        ), "medre.core.contracts.adapter has no AdapterDeliveryResult"
         result = mod.AdapterDeliveryResult()
         assert not hasattr(result, "route_id"), (
             "AdapterDeliveryResult must not carry route_id — "

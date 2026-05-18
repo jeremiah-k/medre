@@ -13,25 +13,18 @@ Covers:
 
 from __future__ import annotations
 
-import asyncio
-import json
 import os
 import sqlite3
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
-from unittest.mock import MagicMock, patch
 
 import pytest
 
 from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.runtime.supervision import (
-    RuntimeHealth,
     StartupOutcome,
     classify_startup_outcome,
 )
-from medre.runtime.boot_summary import BootSummary, build_boot_summary
-
+from medre.runtime.boot_summary import build_boot_summary
 
 # ---------------------------------------------------------------------------
 # Storage schema version tests
@@ -44,7 +37,7 @@ class TestStorageSchemaVersion:
     @pytest.mark.asyncio
     async def test_fresh_db_stamps_schema_version(self, tmp_path: Path) -> None:
         """Fresh database gets schema version stamped."""
-        from medre.core.storage.sqlite import SQLiteStorage, _EXPECTED_SCHEMA_VERSION
+        from medre.core.storage.sqlite import _EXPECTED_SCHEMA_VERSION, SQLiteStorage
 
         db_path = str(tmp_path / "test.db")
         storage = SQLiteStorage(db_path)
@@ -80,8 +73,8 @@ class TestStorageSchemaVersion:
     @pytest.mark.asyncio
     async def test_version_mismatch_raises(self, tmp_path: Path) -> None:
         """Mismatched schema version raises StorageInitializationError."""
-        from medre.core.storage.sqlite import SQLiteStorage, _EXPECTED_SCHEMA_VERSION
         from medre.core.storage.backend import StorageInitializationError
+        from medre.core.storage.sqlite import _EXPECTED_SCHEMA_VERSION, SQLiteStorage
 
         db_path = str(tmp_path / "test.db")
         storage = SQLiteStorage(db_path)
@@ -220,6 +213,7 @@ class TestAccountingWiring:
 
         # Use temp dir to avoid pollution.
         import tempfile
+
         with tempfile.TemporaryDirectory() as tmp:
             os.environ["MEDRE_HOME"] = tmp
             try:
@@ -261,10 +255,11 @@ class TestCLIDiagnostics:
 
     def test_diagnostics_no_config_exits(self) -> None:
         """Without a config file, diagnostics exits with error."""
-        from medre.cli import main
-
         # Running in a temp dir with no config should fail gracefully.
         import tempfile
+
+        from medre.cli import main
+
         with tempfile.TemporaryDirectory() as tmp:
             # Ensure no config file exists.
             with pytest.raises(SystemExit):
@@ -290,6 +285,8 @@ class TestAppStartupFields:
 
     def test_app_has_boot_summary_property(self) -> None:
         """MedreApp.boot_summary is None before start."""
+        import tempfile
+
         from medre.config.model import (
             AdapterConfigSet,
             LoggingConfig,
@@ -299,7 +296,6 @@ class TestAppStartupFields:
         )
         from medre.config.paths import resolve
         from medre.runtime.builder import RuntimeBuilder
-        import tempfile
 
         config = RuntimeConfig(
             runtime=RuntimeOptions(name="test-fields"),

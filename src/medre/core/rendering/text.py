@@ -161,7 +161,9 @@ class TextRenderer:
         if event.relations:
             rel = event.relations[0]
             if rel.relation_type == "reply" and rel.fallback_text:
-                payload_text = str(event.payload.get("text", event.payload.get("body", "")))
+                payload_text = str(
+                    event.payload.get("text", event.payload.get("body", ""))
+                )
                 return f"[replying to: {rel.fallback_text}] {payload_text}"
 
             if rel.relation_type == "reaction" and rel.key:
@@ -169,7 +171,9 @@ class TextRenderer:
                 return f"{actor} reacted with {rel.key}"
 
             if rel.relation_type == "edit":
-                payload_text = str(event.payload.get("text", event.payload.get("body", "")))
+                payload_text = str(
+                    event.payload.get("text", event.payload.get("body", ""))
+                )
                 return f"[edited] {payload_text}"
 
         # -- Kind-based rendering -------------------------------------------
@@ -177,7 +181,9 @@ class TextRenderer:
             return str(event.payload.get("text", event.payload.get("body", "")))
 
         if kind == EventKind.MESSAGE_EDITED:
-            return "[edited] " + str(event.payload.get("text", event.payload.get("body", "")))
+            return "[edited] " + str(
+                event.payload.get("text", event.payload.get("body", ""))
+            )
 
         if kind == EventKind.MESSAGE_DELETED:
             return "[deleted]"

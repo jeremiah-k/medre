@@ -30,7 +30,7 @@ Public symbols
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, fields
+from dataclasses import dataclass, fields
 
 __all__ = ["RuntimeAccounting", "RuntimeCounters"]
 

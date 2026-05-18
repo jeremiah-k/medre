@@ -26,14 +26,12 @@ and direct SDK imports are banned.
 
 from __future__ import annotations
 
-import configparser
 import importlib
 import re
 from pathlib import Path
 from typing import Any
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Shared helpers (same pattern as test_architectural_boundaries.py)
@@ -161,9 +159,7 @@ def _has_live_marker(path: Path) -> bool:
     - ``@pytest.mark.live`` decorator
     """
     source = _file_source(path)
-    return bool(
-        re.search(r"pytest\.mark\.live", source)
-    )
+    return bool(re.search(r"pytest\.mark\.live", source))
 
 
 # ===================================================================
@@ -201,19 +197,21 @@ class TestCleanEnvTestsNoLiveSdk:
         return path
 
     def test_clean_env_files_no_sdk_imports(
-        self, clean_env_file: Path,
+        self,
+        clean_env_file: Path,
     ) -> None:
         """Clean-env test files must not import transport SDKs."""
         violations = _scan_file_for_banned_imports(
-            clean_env_file, _BANNED_SDK_IMPORT_PREFIXES,
+            clean_env_file,
+            _BANNED_SDK_IMPORT_PREFIXES,
         )
-        assert violations == [], (
-            f"Clean-env test file has transport SDK imports:\n"
-            + "\n".join(violations)
-        )
+        assert (
+            violations == []
+        ), "Clean-env test file has transport SDK imports:\n" + "\n".join(violations)
 
     def test_clean_env_files_no_adapter_runtime_imports(
-        self, clean_env_file: Path,
+        self,
+        clean_env_file: Path,
     ) -> None:
         """Clean-env test files must not import concrete adapter runtime modules.
 
@@ -221,12 +219,12 @@ class TestCleanEnvTestsNoLiveSdk:
         permitted — they are pure data with no SDK dependency.
         """
         violations = _scan_file_for_banned_imports(
-            clean_env_file, _BANNED_ADAPTER_RUNTIME_IMPORTS,
+            clean_env_file,
+            _BANNED_ADAPTER_RUNTIME_IMPORTS,
         )
-        assert violations == [], (
-            f"Clean-env test file has adapter runtime imports:\n"
-            + "\n".join(violations)
-        )
+        assert (
+            violations == []
+        ), "Clean-env test file has adapter runtime imports:\n" + "\n".join(violations)
 
 
 # ===================================================================
@@ -261,7 +259,8 @@ class TestConfigSubsystemNoSdk:
         _CONFIG_MODULES,
     )
     def test_config_modules_no_sdk_imports(
-        self, module_name: str,
+        self,
+        module_name: str,
     ) -> None:
         """Config modules must not have top-level SDK imports.
 
@@ -276,24 +275,21 @@ class TestConfigSubsystemNoSdk:
         # Lines like ``from medre.config.adapters.meshtastic import ...``
         # contain the word "meshtastic" but are safe pure-data imports.
         non_config_lines = [
-            line for line in lines
-            if not (
-                line.startswith("from medre.adapters.")
-                and ".config " in line
-            )
+            line
+            for line in lines
+            if not (line.startswith("from medre.adapters.") and ".config " in line)
             and not line.startswith("from medre.config.adapters.")
         ]
         banned = _banned_imports(non_config_lines, _SDK_PACKAGES)
-        assert banned == [], (
-            f"{module_name} imports transport SDKs: {banned}"
-        )
+        assert banned == [], f"{module_name} imports transport SDKs: {banned}"
 
     @pytest.mark.parametrize(
         "module_name",
         _CONFIG_MODULES,
     )
     def test_config_modules_no_sdk_instantiation(
-        self, module_name: str,
+        self,
+        module_name: str,
     ) -> None:
         """Config modules must not directly instantiate SDK objects."""
         source = _source_of(module_name)
@@ -315,9 +311,10 @@ class TestConfigSubsystemNoSdk:
                 if pattern in stripped:
                     violations.append(f"line {i}: {stripped}")
 
-        assert violations == [], (
-            f"{module_name} directly instantiates transport SDKs:\n"
-            + "\n".join(violations)
+        assert (
+            violations == []
+        ), f"{module_name} directly instantiates transport SDKs:\n" + "\n".join(
+            violations
         )
 
 
@@ -354,23 +351,23 @@ class TestDeploymentHelpersNoSdkInstantiation:
         _DEPLOYMENT_SOURCE_MODULES,
     )
     def test_deployment_modules_no_sdk_imports(
-        self, module_name: str,
+        self,
+        module_name: str,
     ) -> None:
         """Deployment modules must not have top-level SDK imports."""
         source = _source_of(module_name)
         lines = _import_lines(source)
 
         banned = _banned_imports(lines, _SDK_PACKAGES)
-        assert banned == [], (
-            f"{module_name} imports transport SDKs: {banned}"
-        )
+        assert banned == [], f"{module_name} imports transport SDKs: {banned}"
 
     @pytest.mark.parametrize(
         "module_name",
         _DEPLOYMENT_SOURCE_MODULES,
     )
     def test_deployment_modules_no_concrete_adapter_imports(
-        self, module_name: str,
+        self,
+        module_name: str,
     ) -> None:
         """Deployment modules must not import concrete adapter packages.
 
@@ -382,21 +379,22 @@ class TestDeploymentHelpersNoSdkInstantiation:
 
         # Filter out config imports before checking.
         non_config_lines = [
-            line for line in lines
-            if ".config" not in line
-               or not line.startswith("from medre.adapters.")
+            line
+            for line in lines
+            if ".config" not in line or not line.startswith("from medre.adapters.")
         ]
         banned = _banned_imports(non_config_lines, _ADAPTER_PREFIXES)
-        assert banned == [], (
-            f"{module_name} imports concrete adapter packages: {banned}"
-        )
+        assert (
+            banned == []
+        ), f"{module_name} imports concrete adapter packages: {banned}"
 
     @pytest.mark.parametrize(
         "module_name",
         _DEPLOYMENT_SOURCE_MODULES,
     )
     def test_deployment_modules_no_sdk_instantiation(
-        self, module_name: str,
+        self,
+        module_name: str,
     ) -> None:
         """Deployment modules must not directly instantiate SDK objects."""
         source = _source_of(module_name)
@@ -410,18 +408,19 @@ class TestDeploymentHelpersNoSdkInstantiation:
                 if pattern in stripped:
                     violations.append(f"line {i}: {stripped}")
 
-        assert violations == [], (
-            f"{module_name} directly instantiates transport SDKs:\n"
-            + "\n".join(violations)
+        assert (
+            violations == []
+        ), f"{module_name} directly instantiates transport SDKs:\n" + "\n".join(
+            violations
         )
 
     def test_run_commands_uses_builder_pattern(self) -> None:
         """``medre.cli.run_commands`` must build the runtime through
         ``RuntimeBuilder`` — never through direct adapter construction."""
         source = _source_of("medre.cli.run_commands")
-        assert "RuntimeBuilder" in source, (
-            "medre.cli.run_commands must use RuntimeBuilder to construct the runtime"
-        )
+        assert (
+            "RuntimeBuilder" in source
+        ), "medre.cli.run_commands must use RuntimeBuilder to construct the runtime"
 
     def test_config_sample_no_sdk_references(self) -> None:
         """``medre.config.sample`` must not reference SDK modules in code."""
@@ -429,9 +428,7 @@ class TestDeploymentHelpersNoSdkInstantiation:
         lines = _import_lines(source)
 
         banned = _banned_imports(lines, _SDK_PACKAGES)
-        assert banned == [], (
-            f"medre.config.sample imports transport SDKs: {banned}"
-        )
+        assert banned == [], f"medre.config.sample imports transport SDKs: {banned}"
 
 
 # ===================================================================
@@ -453,9 +450,7 @@ class TestCliTransportAgnostic:
         lines = _import_lines(source)
 
         banned = _banned_imports(lines, _SDK_PACKAGES)
-        assert banned == [], (
-            f"cli.py has top-level transport SDK imports: {banned}"
-        )
+        assert banned == [], f"cli.py has top-level transport SDK imports: {banned}"
 
     def test_cli_no_concrete_adapter_imports(self) -> None:
         """cli.py must not import concrete adapter packages."""
@@ -463,17 +458,15 @@ class TestCliTransportAgnostic:
         lines = _import_lines(source)
 
         banned = _banned_imports(lines, _ADAPTER_PREFIXES)
-        assert banned == [], (
-            f"cli.py imports concrete adapter packages: {banned}"
-        )
+        assert banned == [], f"cli.py imports concrete adapter packages: {banned}"
 
     def test_cli_sdk_probe_is_dynamic_only(self) -> None:
         """SDK availability checks in CLI must use importlib.import_module."""
         source = _source_of("medre.cli.config_commands")
 
-        assert "importlib.import_module" in source, (
-            "CLI should use importlib.import_module for SDK probing"
-        )
+        assert (
+            "importlib.import_module" in source
+        ), "CLI should use importlib.import_module for SDK probing"
 
         direct_instantiation_patterns = (
             "nio.AsyncClient(",
@@ -490,10 +483,9 @@ class TestCliTransportAgnostic:
                 if pattern in stripped:
                     violations.append(f"line {i}: {stripped}")
 
-        assert violations == [], (
-            f"cli.py directly instantiates transport SDKs:\n"
-            + "\n".join(violations)
-        )
+        assert (
+            violations == []
+        ), "cli.py directly instantiates transport SDKs:\n" + "\n".join(violations)
 
     def test_cli_test_files_no_sdk_imports(self) -> None:
         """CLI test files must not import transport SDKs."""
@@ -508,15 +500,15 @@ class TestCliTransportAgnostic:
             if not path.exists():
                 continue
             file_violations = _scan_file_for_banned_imports(
-                path, _BANNED_SDK_IMPORT_PREFIXES,
+                path,
+                _BANNED_SDK_IMPORT_PREFIXES,
             )
             for v in file_violations:
                 violations.append(f"{filename}: {v}")
 
-        assert violations == [], (
-            f"CLI test files have transport SDK imports:\n"
-            + "\n".join(violations)
-        )
+        assert (
+            violations == []
+        ), "CLI test files have transport SDK imports:\n" + "\n".join(violations)
 
     def test_cli_test_files_no_adapter_runtime_imports(self) -> None:
         """CLI test files must not import concrete adapter runtime modules."""
@@ -531,15 +523,15 @@ class TestCliTransportAgnostic:
             if not path.exists():
                 continue
             file_violations = _scan_file_for_banned_imports(
-                path, _BANNED_ADAPTER_RUNTIME_IMPORTS,
+                path,
+                _BANNED_ADAPTER_RUNTIME_IMPORTS,
             )
             for v in file_violations:
                 violations.append(f"{filename}: {v}")
 
-        assert violations == [], (
-            f"CLI test files have adapter runtime imports:\n"
-            + "\n".join(violations)
-        )
+        assert (
+            violations == []
+        ), "CLI test files have adapter runtime imports:\n" + "\n".join(violations)
 
 
 # ===================================================================
@@ -580,33 +572,35 @@ class TestSoakFrameworkFakeOnly:
         return path
 
     def test_fake_soak_files_no_transport_imports(
-        self, fake_soak_file: Path,
+        self,
+        fake_soak_file: Path,
     ) -> None:
         """Fake-only soak files must not import transport SDKs."""
         violations = _scan_file_for_banned_imports(
-            fake_soak_file, _BANNED_SDK_IMPORT_PREFIXES,
+            fake_soak_file,
+            _BANNED_SDK_IMPORT_PREFIXES,
         )
-        assert violations == [], (
-            f"Fake-only soak file has transport SDK imports:\n"
-            + "\n".join(violations)
-        )
+        assert (
+            violations == []
+        ), "Fake-only soak file has transport SDK imports:\n" + "\n".join(violations)
 
     def test_fake_soak_files_no_concrete_adapter_imports(
-        self, fake_soak_file: Path,
+        self,
+        fake_soak_file: Path,
     ) -> None:
         """Fake-only soak files must not import concrete adapter packages."""
         violations = _scan_file_for_banned_imports(
-            fake_soak_file, (
+            fake_soak_file,
+            (
                 "from medre.adapters.matrix",
                 "from medre.adapters.meshtastic",
                 "from medre.adapters.meshcore",
                 "from medre.adapters.lxmf",
             ),
         )
-        assert violations == [], (
-            f"Fake-only soak file has concrete adapter imports:\n"
-            + "\n".join(violations)
-        )
+        assert (
+            violations == []
+        ), "Fake-only soak file has concrete adapter imports:\n" + "\n".join(violations)
 
     @pytest.mark.parametrize(
         "filename",
@@ -614,15 +608,16 @@ class TestSoakFrameworkFakeOnly:
         ids=_LIVE_SOAK_FILES,
     )
     def test_live_soak_files_have_live_marker(
-        self, filename: str,
+        self,
+        filename: str,
     ) -> None:
         """Live soak files must carry ``pytest.mark.live``."""
         path = _TESTS_DIR / filename
         if not path.exists():
             pytest.skip(f"{filename} not found")
-        assert _has_live_marker(path), (
-            f"{filename} imports live SDKs but is missing pytest.mark.live"
-        )
+        assert _has_live_marker(
+            path
+        ), f"{filename} imports live SDKs but is missing pytest.mark.live"
 
 
 # ===================================================================
@@ -649,9 +644,9 @@ class TestNoLiveTestsRunByDefault:
         """``pyproject.toml`` must register the ``live`` marker."""
         pyproject = _REPO_ROOT / "pyproject.toml"
         content = _file_source(pyproject)
-        assert "live:" in content, (
-            "pyproject.toml must register 'live' marker in markers list"
-        )
+        assert (
+            "live:" in content
+        ), "pyproject.toml must register 'live' marker in markers list"
 
     @pytest.mark.parametrize(
         "filename",
@@ -673,15 +668,16 @@ class TestNoLiveTestsRunByDefault:
         ],
     )
     def test_live_test_file_has_live_marker(
-        self, filename: str,
+        self,
+        filename: str,
     ) -> None:
         """Known live test files must carry ``pytest.mark.live``."""
         path = _TESTS_DIR / filename
         if not path.exists():
             pytest.skip(f"{filename} not found")
-        assert _has_live_marker(path), (
-            f"{filename} is a live test file but is missing pytest.mark.live"
-        )
+        assert _has_live_marker(
+            path
+        ), f"{filename} is a live test file but is missing pytest.mark.live"
 
     def test_non_live_test_files_no_sdk_imports(self) -> None:
         """Test files that import SDKs without a live marker are violations.
@@ -716,7 +712,7 @@ class TestNoLiveTestsRunByDefault:
 
             source = _file_source(path)
             has_sdk_import = False
-            for i, line in enumerate(source.splitlines(), 1):
+            for _i, line in enumerate(source.splitlines(), 1):
                 stripped = line.strip()
                 if stripped.startswith("#"):
                     continue
@@ -732,9 +728,10 @@ class TestNoLiveTestsRunByDefault:
             if has_sdk_import and not _has_live_marker(path):
                 violations.append(path.name)
 
-        assert violations == [], (
-            "Test files import transport SDKs without pytest.mark.live:\n"
-            + "\n".join(f"  - {v}" for v in violations)
+        assert (
+            violations == []
+        ), "Test files import transport SDKs without pytest.mark.live:\n" + "\n".join(
+            f"  - {v}" for v in violations
         )
 
 
@@ -758,9 +755,7 @@ class TestSnapshotNoTransportCoupling:
         lines = _import_lines(source)
 
         banned = _banned_imports(lines, _SDK_PACKAGES)
-        assert banned == [], (
-            f"runtime/snapshot.py imports transport SDKs: {banned}"
-        )
+        assert banned == [], f"runtime/snapshot.py imports transport SDKs: {banned}"
 
     def test_snapshot_no_concrete_adapters(self) -> None:
         """runtime/snapshot.py must not import concrete adapter packages."""
@@ -768,9 +763,9 @@ class TestSnapshotNoTransportCoupling:
         lines = _import_lines(source)
 
         banned = _banned_imports(lines, _ADAPTER_PREFIXES)
-        assert banned == [], (
-            f"runtime/snapshot.py imports concrete adapter packages: {banned}"
-        )
+        assert (
+            banned == []
+        ), f"runtime/snapshot.py imports concrete adapter packages: {banned}"
 
     def test_snapshot_produces_plain_dicts(self) -> None:
         """snapshot source must reference plain-dict guarantees.
@@ -781,12 +776,12 @@ class TestSnapshotNoTransportCoupling:
         """
         source = _source_of("medre.runtime.snapshot")
         # Check for deterministic/plain-dict guarantees in docstrings.
-        assert "JSON" in source or "json" in source, (
-            "runtime/snapshot.py should reference JSON-safe output"
-        )
-        assert "SDK" in source or "sdk" in source or "transport" in source.lower(), (
-            "runtime/snapshot.py should document no-SDK guarantees"
-        )
+        assert (
+            "JSON" in source or "json" in source
+        ), "runtime/snapshot.py should reference JSON-safe output"
+        assert (
+            "SDK" in source or "sdk" in source or "transport" in source.lower()
+        ), "runtime/snapshot.py should document no-SDK guarantees"
 
     def test_snapshot_test_files_no_sdk_imports(self) -> None:
         """Snapshot test files must not import transport SDKs."""
@@ -800,12 +795,12 @@ class TestSnapshotNoTransportCoupling:
             if not path.exists():
                 continue
             file_violations = _scan_file_for_banned_imports(
-                path, _BANNED_SDK_IMPORT_PREFIXES,
+                path,
+                _BANNED_SDK_IMPORT_PREFIXES,
             )
             for v in file_violations:
                 violations.append(f"{filename}: {v}")
 
-        assert violations == [], (
-            f"Snapshot test files have transport SDK imports:\n"
-            + "\n".join(violations)
-        )
+        assert (
+            violations == []
+        ), "Snapshot test files have transport SDK imports:\n" + "\n".join(violations)

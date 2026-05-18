@@ -14,10 +14,15 @@ from __future__ import annotations
 
 import pytest
 
+from medre.core.contracts.adapter import (
+    AdapterCapabilities,
+    AdapterInfo,
+    AdapterRole,
+)
 from medre.core.lifecycle.states import (
+    VALID_TRANSITIONS,
     AdapterState,
     InvalidStateTransition,
-    VALID_TRANSITIONS,
     is_valid_transition,
     require_valid_transition,
 )
@@ -26,16 +31,11 @@ from medre.core.runtime.supervision import (
     RuntimeHealth,
     classify_runtime_health,
 )
-from medre.core.contracts.adapter import (
-    AdapterCapabilities,
-    AdapterInfo,
-    AdapterRole,
-)
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_info(**overrides: object) -> AdapterInfo:
     defaults = {
@@ -65,9 +65,9 @@ class TestStoppedIsTerminal:
         for target in AdapterState:
             if target is AdapterState.STOPPED:
                 continue
-            assert not is_valid_transition(AdapterState.STOPPED, target), (
-                f"STOPPED→{target.value} should be invalid"
-            )
+            assert not is_valid_transition(
+                AdapterState.STOPPED, target
+            ), f"STOPPED→{target.value} should be invalid"
 
     def test_stopped_to_initializing_raises(self) -> None:
         with pytest.raises(InvalidStateTransition):
@@ -93,9 +93,9 @@ class TestFailedIsTerminal:
         for target in AdapterState:
             if target is AdapterState.FAILED:
                 continue
-            assert not is_valid_transition(AdapterState.FAILED, target), (
-                f"FAILED→{target.value} should be invalid"
-            )
+            assert not is_valid_transition(
+                AdapterState.FAILED, target
+            ), f"FAILED→{target.value} should be invalid"
 
     def test_failed_to_initializing_raises(self) -> None:
         """FAILED→INITIALIZING was previously valid; now invalid (no restart)."""
@@ -167,13 +167,17 @@ class TestInitializingTransitions:
         require_valid_transition(AdapterState.INITIALIZING, AdapterState.STOPPED)
 
     def test_initializing_to_running_is_invalid(self) -> None:
-        assert not is_valid_transition(AdapterState.INITIALIZING, AdapterState.BACKPRESSURED)
+        assert not is_valid_transition(
+            AdapterState.INITIALIZING, AdapterState.BACKPRESSURED
+        )
 
     def test_initializing_to_degraded_is_invalid(self) -> None:
         assert not is_valid_transition(AdapterState.INITIALIZING, AdapterState.DEGRADED)
 
     def test_initializing_to_disconnected_is_invalid(self) -> None:
-        assert not is_valid_transition(AdapterState.INITIALIZING, AdapterState.DISCONNECTED)
+        assert not is_valid_transition(
+            AdapterState.INITIALIZING, AdapterState.DISCONNECTED
+        )
 
 
 # ===================================================================
@@ -186,17 +190,13 @@ class TestStoppedHealthMapping:
 
     def test_stopped_health_is_unknown(self) -> None:
         info = _make_info()
-        result = normalize_adapter_health(
-            info, lifecycle_state=AdapterState.STOPPED
-        )
+        result = normalize_adapter_health(info, lifecycle_state=AdapterState.STOPPED)
         assert result["health"] == "unknown"
 
     def test_stopped_overrides_adapter_self_report(self) -> None:
         """Even if adapter reports healthy, STOPPED state overrides."""
         info = _make_info(health="healthy")
-        result = normalize_adapter_health(
-            info, lifecycle_state=AdapterState.STOPPED
-        )
+        result = normalize_adapter_health(info, lifecycle_state=AdapterState.STOPPED)
         assert result["health"] == "unknown"
 
 
@@ -212,24 +212,30 @@ class TestStoppedInRuntimeHealth:
         assert classify_runtime_health([AdapterState.STOPPED]) == RuntimeHealth.FAILED
 
     def test_all_stopped_is_failed(self) -> None:
-        assert classify_runtime_health(
-            [AdapterState.STOPPED, AdapterState.STOPPED]
-        ) == RuntimeHealth.FAILED
+        assert (
+            classify_runtime_health([AdapterState.STOPPED, AdapterState.STOPPED])
+            == RuntimeHealth.FAILED
+        )
 
     def test_ready_plus_stopped_is_degraded(self) -> None:
-        assert classify_runtime_health(
-            [AdapterState.READY, AdapterState.STOPPED]
-        ) == RuntimeHealth.DEGRADED
+        assert (
+            classify_runtime_health([AdapterState.READY, AdapterState.STOPPED])
+            == RuntimeHealth.DEGRADED
+        )
 
     def test_mixed_failed_and_stopped_is_failed(self) -> None:
-        assert classify_runtime_health(
-            [AdapterState.FAILED, AdapterState.STOPPED]
-        ) == RuntimeHealth.FAILED
+        assert (
+            classify_runtime_health([AdapterState.FAILED, AdapterState.STOPPED])
+            == RuntimeHealth.FAILED
+        )
 
     def test_ready_failed_stopped_is_degraded(self) -> None:
-        assert classify_runtime_health(
-            [AdapterState.READY, AdapterState.FAILED, AdapterState.STOPPED]
-        ) == RuntimeHealth.DEGRADED
+        assert (
+            classify_runtime_health(
+                [AdapterState.READY, AdapterState.FAILED, AdapterState.STOPPED]
+            )
+            == RuntimeHealth.DEGRADED
+        )
 
 
 # ===================================================================
@@ -249,6 +255,6 @@ class TestAdapterStateEnum:
     def test_all_states_have_transitions(self) -> None:
         """Every AdapterState member has an entry in VALID_TRANSITIONS."""
         for state in AdapterState:
-            assert state in VALID_TRANSITIONS, (
-                f"{state.value} missing from VALID_TRANSITIONS"
-            )
+            assert (
+                state in VALID_TRANSITIONS
+            ), f"{state.value} missing from VALID_TRANSITIONS"

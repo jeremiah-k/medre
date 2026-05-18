@@ -9,10 +9,6 @@ No Docker, no live transports, no SDK dependencies required.
 
 from __future__ import annotations
 
-import asyncio
-import logging
-from datetime import datetime, timezone
-
 from medre.adapters.fake_matrix import FakeMatrixAdapter
 from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
 from medre.config.adapters.meshtastic import MeshtasticConfig
@@ -20,12 +16,10 @@ from medre.core.engine.pipeline import PipelineRunner
 from medre.core.events.kinds import EventKind
 from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.routing.stats import RouteStats
 from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage.sqlite import SQLiteStorage
-
-from tests.helpers.assertions import snap_value
 from tests.helpers.bridge import (
     make_adapter_context,
     make_pipeline_config,
@@ -42,9 +36,7 @@ class TestLongRunBidirectionalCallbackBridge:
     ) -> None:
         """Inject 5 messages from each side. Assert exact counts, no loops."""
         fake_matrix = FakeMatrixAdapter("lr-matrix", channel="!lr-room:fake")
-        fake_mesh = FakeMeshtasticAdapter(
-            MeshtasticConfig(adapter_id="lr-mesh")
-        )
+        fake_mesh = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="lr-mesh"))
 
         route_mx_to_mesh = Route(
             id="lr-mx-to-mesh",
@@ -95,9 +87,7 @@ class TestLongRunBidirectionalCallbackBridge:
 
         # Inject 5 from Meshtastic side
         for i in range(5):
-            packet = make_text_packet(
-                text=f"lr mesh msg {i}", packet_id=2000 + i
-            )
+            packet = make_text_packet(text=f"lr mesh msg {i}", packet_id=2000 + i)
             await fake_mesh.simulate_inbound(packet)
 
         # Clean stop
@@ -150,14 +140,10 @@ class TestLongRunBidirectionalCallbackBridge:
         assert len(fake_mesh.delivered_payloads) == 5
         assert len(fake_matrix.delivered_payloads) == 5
 
-    async def test_snapshot_reflects_totals(
-        self, temp_storage: SQLiteStorage
-    ) -> None:
+    async def test_snapshot_reflects_totals(self, temp_storage: SQLiteStorage) -> None:
         """Final accounting snapshot reflects exact totals after bridge run."""
         fake_matrix = FakeMatrixAdapter("snap-mx", channel="!snap:fake")
-        fake_mesh = FakeMeshtasticAdapter(
-            MeshtasticConfig(adapter_id="snap-mesh")
-        )
+        fake_mesh = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="snap-mesh"))
 
         route_a = Route(
             id="snap-mx-mesh",

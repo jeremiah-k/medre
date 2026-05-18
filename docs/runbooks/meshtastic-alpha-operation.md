@@ -10,7 +10,6 @@ Everything in this document is conservative. If something has not been tested ag
 
 **Fake mode** is the default and recommended path for all development and testing. Real connectivity modes (TCP, serial) are opt-in for live validation only.
 
-
 ## 1. Purpose
 
 Alpha operation validates that the MEDRE Meshtastic adapter works end to end against a real Meshtastic radio node with real radio traffic. This is the first time the adapter leaves fake and mock territory.
@@ -25,20 +24,18 @@ Scope boundaries:
 
 This runbook complements `docs/runbooks/meshtastic-live-smoke.md`. The smoke test validates raw `mtjk` API and adapter lifecycle methods in isolation. Alpha operation validates the full wiring: config, adapter, codec, inbound pubsub, outbound queue, and health, running together.
 
-
 ## 2. Prerequisites
 
-| Requirement | Details |
-|------------|---------|
-| Meshtastic node | A real Meshtastic radio node (e.g. LilyGO T-Beam, Heltec v3, RAK WisBlock) accessible via TCP or serial |
-| Python | 3.11 or later |
-| Package install | Core MEDRE: `pip install -e .` (no extra required for fake mode). Real connectivity: `pip install -e ".[meshtastic]"` |
-| Network access (TCP) | Your machine can reach the node's IP address on port 4403 |
-| Serial access | USB cable connecting the node; user must be in `dialout` group on Linux |
-| Radio channel | A channel index (default 0) not used for critical or emergency communications |
+| Requirement          | Details                                                                                                               |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Meshtastic node      | A real Meshtastic radio node (e.g. LilyGO T-Beam, Heltec v3, RAK WisBlock) accessible via TCP or serial               |
+| Python               | 3.11 or later                                                                                                         |
+| Package install      | Core MEDRE: `pip install -e .` (no extra required for fake mode). Real connectivity: `pip install -e ".[meshtastic]"` |
+| Network access (TCP) | Your machine can reach the node's IP address on port 4403                                                             |
+| Serial access        | USB cable connecting the node; user must be in `dialout` group on Linux                                               |
+| Radio channel        | A channel index (default 0) not used for critical or emergency communications                                         |
 
 You do not need Docker for basic alpha operation. Docker guidance is in section 11.
-
 
 ## 3. Node Setup
 
@@ -99,7 +96,6 @@ bluetoothctl scan on
 
 `mtjk` v2.7.8.post2+ is the verified dependency. Firmware compatibility depends on the node's firmware version. If you encounter protocol errors, update both the node firmware and the `mtjk` package.
 
-
 ## 4. Connection Modes
 
 The adapter supports four connection types via `MeshtasticConfig.connection_type`:
@@ -118,6 +114,7 @@ config = MeshtasticConfig(
 ```
 
 In fake mode:
+
 - `start()` sets `_client = None`. No network or serial activity.
 - `deliver()` enqueues to the internal queue but `send_one()` returns `None` (no real send).
 - `simulate_inbound()` is available for injecting test packets.
@@ -177,15 +174,14 @@ config = MeshtasticConfig(
 
 `MeshtasticConfig.validate()` enforces:
 
-| Connection type | Required fields |
-|----------------|-----------------|
-| `fake` | `adapter_id` only |
-| `tcp` | `adapter_id`, `host` |
-| `serial` | `adapter_id`, `serial_port` |
-| `ble` | `adapter_id`, `ble_address` |
+| Connection type | Required fields             |
+| --------------- | --------------------------- |
+| `fake`          | `adapter_id` only           |
+| `tcp`           | `adapter_id`, `host`        |
+| `serial`        | `adapter_id`, `serial_port` |
+| `ble`           | `adapter_id`, `ble_address` |
 
 Invalid configurations raise `MeshtasticConfigError` before any connection attempt.
-
 
 ## 5. Running MEDRE in Alpha Mode
 
@@ -193,14 +189,14 @@ Invalid configurations raise `MeshtasticConfigError` before any connection attem
 
 The live smoke tests use environment variables to configure the connection. The adapter itself is configured via `MeshtasticConfig` (see section 4).
 
-| Variable | Required for | Default | Example | Description |
-|----------|-------------|---------|---------|-------------|
-| `MESHTASTIC_CONNECTION_TYPE` | All | | `tcp` | Connection mode: `tcp`, `serial`, `ble` |
-| `MESHTASTIC_HOST` | TCP | | `meshtastic.local` | Node hostname or IP |
-| `MESHTASTIC_PORT` | TCP | `4403` | `4403` | TCP port |
-| `MESHTASTIC_SERIAL_PORT` | Serial | | `/dev/ttyUSB0` | Serial device path |
-| `MESHTASTIC_BLE_ADDRESS` | BLE | | `AA:BB:CC:DD:EE:FF` | BLE MAC address |
-| `MESHTASTIC_CHANNEL_INDEX` | All | `0` | `0` | Channel for test messages |
+| Variable                     | Required for | Default | Example             | Description                             |
+| ---------------------------- | ------------ | ------- | ------------------- | --------------------------------------- |
+| `MESHTASTIC_CONNECTION_TYPE` | All          |         | `tcp`               | Connection mode: `tcp`, `serial`, `ble` |
+| `MESHTASTIC_HOST`            | TCP          |         | `meshtastic.local`  | Node hostname or IP                     |
+| `MESHTASTIC_PORT`            | TCP          | `4403`  | `4403`              | TCP port                                |
+| `MESHTASTIC_SERIAL_PORT`     | Serial       |         | `/dev/ttyUSB0`      | Serial device path                      |
+| `MESHTASTIC_BLE_ADDRESS`     | BLE          |         | `AA:BB:CC:DD:EE:FF` | BLE MAC address                         |
+| `MESHTASTIC_CHANNEL_INDEX`   | All          | `0`     | `0`                 | Channel for test messages               |
 
 ### 5.2 Manual adapter wiring
 
@@ -264,7 +260,6 @@ pytest tests/test_meshtastic_live.py -m live -v
 
 See `docs/runbooks/meshtastic-live-smoke.md` for full smoke test documentation.
 
-
 ## 6. Startup and Shutdown Behavior
 
 ### 6.1 Startup sequence
@@ -284,6 +279,7 @@ INFO  MeshtasticAdapter mesh-alpha started (mode=tcp)
 ```
 
 If startup fails, you will see one of:
+
 - `MeshtasticConnectionError: mtjk not installed; pip install mtjk`
 - `MeshtasticConnectionError: Failed to create tcp client: <underlying error>`
 - `MeshtasticConnectionError: Failed to subscribe to meshtastic.receive: <error>`
@@ -313,18 +309,17 @@ await adapter.stop()       # disconnects again
 
 State resets on stop: `_client = None`, `_started = False`, `_subscribed = False`, background tasks cleared. Each `start()` creates a new client from scratch.
 
-
 ## 7. Expected Logs and Diagnostics
 
 ### 7.1 Health check states
 
 The adapter's `health_check()` returns an `AdapterInfo` with a `health` field:
 
-| State | Meaning |
-|-------|---------|
-| `unknown` | Adapter has not started, or has been stopped cleanly |
-| `healthy` | Adapter has started successfully; client is connected |
-| `failed` | Client exists but start did not complete (subscription failure) |
+| State     | Meaning                                                         |
+| --------- | --------------------------------------------------------------- |
+| `unknown` | Adapter has not started, or has been stopped cleanly            |
+| `healthy` | Adapter has started successfully; client is connected           |
+| `failed`  | Client exists but start did not complete (subscription failure) |
 
 There are no intermediate states. There is no `degraded` or `reconnecting` state. The Meshtastic adapter does not implement automatic reconnection (unlike the Matrix adapter which has `healthy` / `degraded` / `failed` transitions).
 
@@ -343,13 +338,13 @@ health = adapter.queue_health
 # }
 ```
 
-| Field | Type | Meaning |
-|-------|------|---------|
-| `pending_count` | int | Number of items currently in the outbound queue |
-| `total_sent` | int | Cumulative count of successful sends since adapter creation |
-| `total_failed` | int | Cumulative count of send failures since adapter creation |
-| `delay_between_messages` | float | Configured minimum pacing delay in seconds |
-| `last_send_time` | float | `time.monotonic()` of the last successful send |
+| Field                    | Type  | Meaning                                                     |
+| ------------------------ | ----- | ----------------------------------------------------------- |
+| `pending_count`          | int   | Number of items currently in the outbound queue             |
+| `total_sent`             | int   | Cumulative count of successful sends since adapter creation |
+| `total_failed`           | int   | Cumulative count of send failures since adapter creation    |
+| `delay_between_messages` | float | Configured minimum pacing delay in seconds                  |
+| `last_send_time`         | float | `time.monotonic()` of the last successful send              |
 
 These counters are cumulative for the lifetime of the adapter instance (not reset on stop/start).
 
@@ -370,7 +365,6 @@ There is no periodic "still alive" log. Silence is normal when no packets arrive
 
 Successful sends increment `total_sent`. Failed sends increment `total_failed` and **re-raise the exception** to the caller. Failed items are permanently dropped — they are NOT requeued or retried (see section 9).
 
-
 ## 8. Canonical Metadata Structure
 
 The Meshtastic codec preserves the following metadata from native packets into the canonical event:
@@ -390,14 +384,14 @@ NativeMetadata(data={
 })
 ```
 
-| Field | Source | Notes |
-|-------|--------|-------|
-| `packet_id` | `packet["id"]` | Integer assigned by the sending radio |
-| `from_id` | `packet["fromId"]` or `packet["from"]` | String sender ID; falls back to numeric `from` field converted to string |
-| `channel` | `packet["channel"]` or `packet["decoded"]["channel"]` | Radio channel index |
-| `portnum` | `packet["decoded"]["portnum"]` | Normalized via classifier (e.g. `"TEXT_MESSAGE_APP"` → `"text_message"`) |
-| `to_id` | `packet["toId"]` | Destination address; empty string for broadcast |
-| `is_direct_message` | Derived from `to_id` | True if `to_id` is not a broadcast address (`""`, `"^all"`, `0xFFFFFFFF`) |
+| Field               | Source                                                | Notes                                                                     |
+| ------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------- |
+| `packet_id`         | `packet["id"]`                                        | Integer assigned by the sending radio                                     |
+| `from_id`           | `packet["fromId"]` or `packet["from"]`                | String sender ID; falls back to numeric `from` field converted to string  |
+| `channel`           | `packet["channel"]` or `packet["decoded"]["channel"]` | Radio channel index                                                       |
+| `portnum`           | `packet["decoded"]["portnum"]`                        | Normalized via classifier (e.g. `"TEXT_MESSAGE_APP"` → `"text_message"`)  |
+| `to_id`             | `packet["toId"]`                                      | Destination address; empty string for broadcast                           |
+| `is_direct_message` | Derived from `to_id`                                  | True if `to_id` is not a broadcast address (`""`, `"^all"`, `0xFFFFFFFF`) |
 
 ### 8.2 Source native ref
 
@@ -429,14 +423,13 @@ EventRelation(
 
 ### 8.4 Canonical event fields
 
-| Field | Value |
-|-------|-------|
-| `event_id` | UUID4 (generated by codec) |
-| `event_kind` | `MESSAGE_CREATED` |
-| `source_transport_id` | Sender node ID (`from_id`) |
-| `source_channel_id` | Channel index as string |
-| `payload` | `{"body": "<text>", "portnum": "text_message"}` |
-
+| Field                 | Value                                           |
+| --------------------- | ----------------------------------------------- |
+| `event_id`            | UUID4 (generated by codec)                      |
+| `event_kind`          | `MESSAGE_CREATED`                               |
+| `source_transport_id` | Sender node ID (`from_id`)                      |
+| `source_channel_id`   | Channel index as string                         |
+| `payload`             | `{"body": "<text>", "portnum": "text_message"}` |
 
 ## 9. Outbound Delivery and Retry Semantics
 
@@ -476,7 +469,6 @@ Meshtastic is a radio mesh network. Packet loss is **expected and normal**:
 
 Operators should expect loss and plan accordingly. The adapter does not provide reliability guarantees.
 
-
 ## 10. Validation Procedures
 
 ### 10.1 Adapter lifecycle validation
@@ -508,7 +500,6 @@ Operators should expect loss and plan accordingly. The adapter does not provide 
 3. Process all messages via `send_one()` in a loop.
 4. Confirm `total_sent` matches the expected count and `total_failed == 0`.
 
-
 ## 11. Docker Operational Guidance
 
 ### 11.1 TCP mode (recommended for Docker)
@@ -535,6 +526,7 @@ docker run -d --name medre-meshtastic \
 ```
 
 Requirements:
+
 - The `--device` flag maps the host's serial port into the container.
 - The container user must have read/write access to the device.
 - The device path must match the `serial_port` configuration.
@@ -543,6 +535,7 @@ Requirements:
 ### 11.3 BLE in Docker
 
 BLE in Docker is theoretically possible but is **not validated** and requires:
+
 - `--net host` for BlueZ access, or
 - Bluetooth device passthrough via `--device /dev/bus/usb/...`
 
@@ -556,7 +549,6 @@ Use `--restart unless-stopped` or `--restart on-failure`. Since the adapter has 
 
 The Meshtastic adapter does not currently persist state. There is no database, no message store, and no session state to preserve across restarts. Mounting a volume is not required for Meshtastic-specific data. If using the MEDRE SQLite storage for other purposes, mount the database path as described in the Matrix alpha operation runbook.
 
-
 ## 12. Reconnect Behavior
 
 ### 12.1 Current state: no automatic reconnect
@@ -564,6 +556,7 @@ The Meshtastic adapter does not currently persist state. There is no database, n
 **The Meshtastic adapter does not implement automatic reconnection.** Unlike the Matrix adapter (which has bounded exponential backoff and health state transitions), the Meshtastic adapter has no reconnect logic at all.
 
 If the connection to the node is lost:
+
 - The `mtjk` client may raise exceptions or silently stop delivering callbacks.
 - The adapter does not detect the disconnection automatically.
 - No reconnect attempts are made.
@@ -591,7 +584,6 @@ print(f"Sent: {health['total_sent']}, Failed: {health['total_failed']}")
 ### 12.4 Planned improvements
 
 Automatic reconnection with exponential backoff and health state transitions (`healthy` / `degraded` / `failed`) is planned but not implemented. This is documented in `docs/contracts/18-operational-readiness-gaps.md`.
-
 
 ## 13. Known Limitations
 
@@ -623,7 +615,6 @@ This is an honest list. Everything here is real.
 
 13. **Packet classifier numeric map is scaffold only.** The `_NUMERIC_PORTNUM_MAP` in `packet_classifier.py` is a test fixture approximation, not derived from the real Meshtastic protobuf `PortNum` enum. When the real `mtjk` package is installed, the `compat.get_portnum_table()` function returns authoritative values. See `docs/contracts/10-meshtastic-source-audit.md` for the authoritative table.
 
-
 ## 14. Operational Risks
 
 ### 14.1 Radio traffic
@@ -645,7 +636,6 @@ Meshtastic nodes enforce duty cycle limits on transmission. The adapter's pacing
 ### 14.5 Thread safety
 
 The `mtjk` pubsub callback fires on a background thread managed by the `mtjk` library. The adapter's `_on_packet` method is called from this thread and schedules async work via `asyncio.create_task()`. This is safe because `create_task()` is thread-safe in Python 3.10+.
-
 
 ## 15. Troubleshooting
 
@@ -762,7 +752,6 @@ sudo usermod -aG dialout $USER
 groups  # verify 'dialout' is listed
 ```
 
-
 ## Live Validation Evidence
 
 ### Test Results
@@ -781,25 +770,24 @@ groups  # verify 'dialout' is listed
 - **Hardware/Network:** Not available (no Meshtastic radio node connected)
 - **Failures/Notes:** Live validation has not been performed in this environment. Alpha operation requires a real Meshtastic radio node with the environment variables configured. Without these, all live tests skip automatically. See the smoke test runbook (`docs/runbooks/meshtastic-live-smoke.md`) for detailed setup and environment variable instructions.
 
-
 ## 16. Explicit Unsupported Features
 
 The following features are not supported in alpha mode. Do not attempt to use them. They are listed here so you do not have to wonder.
 
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Automatic reconnection | Not implemented | See section 12 |
-| Outbound retry | Not implemented | Failed sends are permanently dropped |
-| ACK / delivery confirmation | Not implemented | `wantAck` is not set |
-| Telemetry decoding | Not supported | Telemetry packets are classified but silently dropped |
-| Position / GPS decoding | Not supported | Position packets are classified but silently dropped |
-| Node database caching | Not supported | Node info packets are classified but silently dropped |
-| Admin API | Not supported | Admin packets are classified but silently dropped |
-| End-to-end encryption | Not supported | Meshtastic encrypted channels are not handled |
-| Multi-node mesh testing | Not tested | Alpha has only been validated with a single node |
-| BLE connectivity | Documented only | BLE is a config option but not validated in alpha |
-| Backlog suppression | Config field exists, not wired | `startup_backlog_suppress_seconds` is accepted but not used for filtering |
-| Store-and-forward | Not supported | No message persistence across restarts |
-| Rate limiting / flow control | Not implemented | Only basic pacing via `message_delay_seconds` |
-| Non-Meshtastic transports | Not in scope | This runbook covers Meshtastic only |
-| Multi-transport bridging | Not in scope | No bridge between Meshtastic and other transports |
+| Feature                      | Status                         | Notes                                                                     |
+| ---------------------------- | ------------------------------ | ------------------------------------------------------------------------- |
+| Automatic reconnection       | Not implemented                | See section 12                                                            |
+| Outbound retry               | Not implemented                | Failed sends are permanently dropped                                      |
+| ACK / delivery confirmation  | Not implemented                | `wantAck` is not set                                                      |
+| Telemetry decoding           | Not supported                  | Telemetry packets are classified but silently dropped                     |
+| Position / GPS decoding      | Not supported                  | Position packets are classified but silently dropped                      |
+| Node database caching        | Not supported                  | Node info packets are classified but silently dropped                     |
+| Admin API                    | Not supported                  | Admin packets are classified but silently dropped                         |
+| End-to-end encryption        | Not supported                  | Meshtastic encrypted channels are not handled                             |
+| Multi-node mesh testing      | Not tested                     | Alpha has only been validated with a single node                          |
+| BLE connectivity             | Documented only                | BLE is a config option but not validated in alpha                         |
+| Backlog suppression          | Config field exists, not wired | `startup_backlog_suppress_seconds` is accepted but not used for filtering |
+| Store-and-forward            | Not supported                  | No message persistence across restarts                                    |
+| Rate limiting / flow control | Not implemented                | Only basic pacing via `message_delay_seconds`                             |
+| Non-Meshtastic transports    | Not in scope                   | This runbook covers Meshtastic only                                       |
+| Multi-transport bridging     | Not in scope                   | No bridge between Meshtastic and other transports                         |

@@ -8,18 +8,18 @@ helpers from here.  Covers:
 3. ``medre config sample`` expanded validation (all sections, TOML parseable)
 4. Cross-cutting no-traceback guarantee for config-related error paths
 """
+
 from __future__ import annotations
 
 import io
 import os
 import tomllib
-from contextlib import redirect_stdout, redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 import pytest
 
 from medre.cli import main
-
 
 # ---------------------------------------------------------------------------
 # Shared config snippets
@@ -392,12 +392,12 @@ class TestConfigSampleExpanded:
         parsed = tomllib.loads(output)
         routes = parsed.get("routes", {})
         for route_id, route_data in routes.items():
-            assert "source_adapters" in route_data, (
-                f"sample route {route_id} missing source_adapters"
-            )
-            assert "dest_adapters" in route_data, (
-                f"sample route {route_id} missing dest_adapters"
-            )
+            assert (
+                "source_adapters" in route_data
+            ), f"sample route {route_id} missing source_adapters"
+            assert (
+                "dest_adapters" in route_data
+            ), f"sample route {route_id} missing dest_adapters"
 
     def test_sample_limits_have_defaults(self) -> None:
         """Sample [runtime.limits] has all four limit fields."""
@@ -419,9 +419,9 @@ class TestConfigSampleExpanded:
         output = _run_cli("config", "sample")
         deprecated = ["legacy", "deprecated", "old_config", "v1_config", "compat_mode"]
         for term in deprecated:
-            assert term not in output.lower(), (
-                f"sample contains deprecated term: {term}"
-            )
+            assert (
+                term not in output.lower()
+            ), f"sample contains deprecated term: {term}"
 
     def test_sample_logging_section(self) -> None:
         """Sample includes [logging] with level and format."""

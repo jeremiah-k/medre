@@ -6,11 +6,8 @@ RouteStats, and fake adapters.  No live transports or SDKs.
 
 from __future__ import annotations
 
-import asyncio
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -21,19 +18,17 @@ from medre.config.model import (
     StorageConfig,
 )
 from medre.config.paths import MedrePaths
-from medre.core.events.canonical import CanonicalEvent, DeliveryReceipt, EventMetadata
+from medre.core.events.canonical import CanonicalEvent, EventMetadata
 from medre.core.events.metadata import RoutingMetadata
 from medre.core.storage.replay import (
     ReplayEngine,
     ReplayMode,
     ReplayRequest,
-    ReplayRouteAttribution,
     ReplaySummary,
     collect_replay_summary,
 )
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.routes import RouteConfig, RouteConfigSet
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -197,7 +192,9 @@ async def test_best_effort_delivers_to_fake_adapter(replay_env):
     async for r in env.replay.replay(request):
         results.append(r)
 
-    deliver_results = [r for r in results if r.stage == "deliver" and r.status == "passed"]
+    deliver_results = [
+        r for r in results if r.stage == "deliver" and r.status == "passed"
+    ]
     assert len(deliver_results) >= 1, "Expected at least one successful delivery"
 
     # The replay delivery envelope should contain outcomes with receipts.
@@ -228,7 +225,7 @@ async def test_dry_run_routes_but_does_not_deliver(replay_env):
     async for r in env.replay.replay(request):
         results.append(r)
 
-    summary = await collect_replay_summary(
+    await collect_replay_summary(
         env.replay.replay(ReplayRequest(mode=ReplayMode.DRY_RUN))
     )
 
@@ -243,7 +240,9 @@ async def test_dry_run_routes_but_does_not_deliver(replay_env):
     assert all(r.status == "skipped" for r in deliver_results)
 
     # No actual delivery outcomes.
-    deliver_passed = [r for r in results if r.stage == "deliver" and r.status == "passed"]
+    deliver_passed = [
+        r for r in results if r.stage == "deliver" and r.status == "passed"
+    ]
     assert len(deliver_passed) == 0
 
 
@@ -275,10 +274,12 @@ async def test_route_ids_filters_to_requested_route_only(replay_env):
 
     # Summary by_route should contain route_a but not route_b.
     summary = await collect_replay_summary(
-        env.replay.replay(ReplayRequest(
-            mode=ReplayMode.BEST_EFFORT,
-            route_ids=("route_a",),
-        ))
+        env.replay.replay(
+            ReplayRequest(
+                mode=ReplayMode.BEST_EFFORT,
+                route_ids=("route_a",),
+            )
+        )
     )
     if summary.by_route:
         assert "route_a" in summary.by_route or len(summary.by_route) == 0
@@ -301,7 +302,9 @@ async def test_delivery_receipt_route_id_persists(replay_env):
     async for r in env.replay.replay(request):
         results.append(r)
 
-    deliver_passed = [r for r in results if r.stage == "deliver" and r.status == "passed"]
+    deliver_passed = [
+        r for r in results if r.stage == "deliver" and r.status == "passed"
+    ]
     assert len(deliver_passed) >= 1
 
     valid_route_ids = {"route_a", "route_b"}
@@ -309,9 +312,9 @@ async def test_delivery_receipt_route_id_persists(replay_env):
         envelope = dr.output
         adapter_results = envelope.get("adapter_results", [])
         for outcome in adapter_results:
-            assert outcome.route_id in valid_route_ids, (
-                f"route_id {outcome.route_id!r} not in valid set"
-            )
+            assert (
+                outcome.route_id in valid_route_ids
+            ), f"route_id {outcome.route_id!r} not in valid set"
 
 
 # ===================================================================
@@ -480,9 +483,9 @@ async def test_loop_prevention_works_during_replay(replay_env):
 
     # Either route was filtered (failed status) or loop_warnings present.
     route_failed = [r for r in route_results if r.status == "failed"]
-    assert any_loop_warning or len(route_failed) >= 1, (
-        "Expected loop prevention to filter route_a"
-    )
+    assert (
+        any_loop_warning or len(route_failed) >= 1
+    ), "Expected loop prevention to filter route_a"
 
 
 # ===================================================================
@@ -505,7 +508,7 @@ async def test_replay_summary_includes_route_counts(replay_env):
     # With one event from "main", route_a (main→secondary) should be planned.
     # Summary should have at least route_a.
     assert len(summary.by_route) >= 1
-    for route_id, counts in summary.by_route.items():
+    for _route_id, counts in summary.by_route.items():
         assert "events" in counts
         assert "succeeded" in counts
         assert "failed" in counts
@@ -541,9 +544,9 @@ async def test_best_effort_replay_receipts_are_traceable(
         "SELECT * FROM delivery_receipts WHERE event_id = ?",
         (event_id,),
     )
-    assert len(rows) >= 1, (
-        "BEST_EFFORT replay should persist at least one delivery receipt"
-    )
+    assert (
+        len(rows) >= 1
+    ), "BEST_EFFORT replay should persist at least one delivery receipt"
 
     # Replay receipts are distinguishable from live receipts via source='replay'.
     # The replay_run_id field is populated when the operator provides a run_id
@@ -553,13 +556,11 @@ async def test_best_effort_replay_receipts_are_traceable(
     assert "event_id" in first.keys()
     assert "target_adapter" in first.keys()
     assert "status" in first.keys()
-    assert first["source"] == "replay", (
-        "Replay receipt should have source='replay'"
-    )
+    assert first["source"] == "replay", "Replay receipt should have source='replay'"
     # replay_run_id is None when no explicit run_id was provided.
-    assert "replay_run_id" in first.keys(), (
-        "Receipt row must have 'replay_run_id' column for traceability"
-    )
+    assert (
+        "replay_run_id" in first.keys()
+    ), "Receipt row must have 'replay_run_id' column for traceability"
 
     # Verify that providing an explicit run_id populates the field.
     request_with_id = ReplayRequest(mode=ReplayMode.BEST_EFFORT, run_id="run-42")
@@ -568,16 +569,16 @@ async def test_best_effort_replay_receipts_are_traceable(
         "SELECT * FROM delivery_receipts WHERE event_id = ? AND replay_run_id = ?",
         (event_id, "run-42"),
     )
-    assert len(rows_with_id) >= 1, (
-        "Replay with explicit run_id should produce receipts with that run_id"
-    )
+    assert (
+        len(rows_with_id) >= 1
+    ), "Replay with explicit run_id should produce receipts with that run_id"
     assert rows_with_id[0]["source"] == "replay"
     assert rows_with_id[0]["replay_run_id"] == "run-42"
 
     # Run BEST_EFFORT replay again without run_id — creates additional receipts,
     # demonstrating that traceability is not dedupe.  Duplicate-send risk
     # remains: each replay run produces new receipt rows for the same event.
-    summary2 = await collect_replay_summary(env.replay.replay(request))
+    await collect_replay_summary(env.replay.replay(request))
     rows2 = await env.storage._read_all(
         "SELECT * FROM delivery_receipts WHERE event_id = ?",
         (event_id,),

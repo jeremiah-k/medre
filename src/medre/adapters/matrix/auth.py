@@ -3,10 +3,10 @@
 Provides login, whoami verification, and config-file token update.
 No dependency on nio or any Matrix SDK — uses ``urllib.request`` directly.
 """
+
 from __future__ import annotations
 
 import json
-import os
 import re
 import stat
 import urllib.error
@@ -65,7 +65,7 @@ def _redact_token(token: str, text: str) -> str:
 
 
 def _toml_escape_string(value: str) -> str:
-    """Escape *value* for embedding in a TOML basic (double-quoted) string.
+    r"""Escape *value* for embedding in a TOML basic (double-quoted) string.
 
     Handles backslash, double quote, common whitespace escapes, and remaining
     control characters (U+0000–U+001F, U+007F) as ``\\uXXXX``.
@@ -119,11 +119,13 @@ def matrix_login(homeserver: str, user_id: str, password: str) -> MatrixLoginRes
     """
     homeserver = _normalize_homeserver(homeserver).rstrip("/")
     url = f"{homeserver}/_matrix/client/v3/login"
-    payload = json.dumps({
-        "type": "m.login.password",
-        "user": user_id,
-        "password": password,
-    }).encode("utf-8")
+    payload = json.dumps(
+        {
+            "type": "m.login.password",
+            "user": user_id,
+            "password": password,
+        }
+    ).encode("utf-8")
 
     req = urllib.request.Request(
         url,
@@ -155,13 +157,9 @@ def matrix_login(homeserver: str, user_id: str, password: str) -> MatrixLoginRes
     resolved_user_id = body.get("user_id")
 
     if not access_token:
-        raise MatrixConnectionError(
-            "Login response missing access_token"
-        )
+        raise MatrixConnectionError("Login response missing access_token")
     if not resolved_user_id:
-        raise MatrixConnectionError(
-            "Login response missing user_id"
-        )
+        raise MatrixConnectionError("Login response missing user_id")
 
     return MatrixLoginResult(
         homeserver=homeserver,
@@ -267,18 +265,12 @@ def _update_toml_field(
         ``(new_lines, found)`` — *found* is ``True`` when the key was
         located and replaced in the target section.
     """
-    section_header = f"[adapters.{transport}.{adapter_name}]"
     in_target_section = False
     found_key = False
-    section_depth = 0
 
     escaped_field = re.escape(field_name)
-    field_pattern_dq = re.compile(
-        rf"^(\s*{escaped_field}\s*=\s*)\"[^\"]*\"(.*)$"
-    )
-    field_pattern_sq = re.compile(
-        rf"^(\s*{escaped_field}\s*=\s*)'[^']*'(.*)$"
-    )
+    field_pattern_dq = re.compile(rf"^(\s*{escaped_field}\s*=\s*)\"[^\"]*\"(.*)$")
+    field_pattern_sq = re.compile(rf"^(\s*{escaped_field}\s*=\s*)'[^']*'(.*)$")
 
     new_lines: list[str] = []
 
@@ -299,16 +291,13 @@ def _update_toml_field(
 
             if current_section == f"adapters.{transport}.{adapter_name}":
                 in_target_section = True
-                section_depth = bracket_count
             else:
                 # If we were in the target section and hit another section
                 # at same or lower depth, we've left it
                 if in_target_section:
                     in_target_section = False
                 # Check if this is a deeper subsection of our target
-                if current_section.startswith(
-                    f"adapters.{transport}.{adapter_name}."
-                ):
+                if current_section.startswith(f"adapters.{transport}.{adapter_name}."):
                     in_target_section = False
         else:
             # Blank line or non-section-header — stay in section context
@@ -319,10 +308,7 @@ def _update_toml_field(
             if not m:
                 m = field_pattern_sq.match(line)
             if m:
-                line = (
-                    f'{m.group(1)}"{_toml_escape_string(value)}"'
-                    f"{m.group(2)}\n"
-                )
+                line = f'{m.group(1)}"{_toml_escape_string(value)}"' f"{m.group(2)}\n"
                 found_key = True
 
         new_lines.append(line)
@@ -376,9 +362,7 @@ def update_toml_credentials(
     config_path = Path(config_path)
 
     if not config_path.exists():
-        raise FileNotFoundError(
-            f"Config file not found: {config_path}"
-        )
+        raise FileNotFoundError(f"Config file not found: {config_path}")
 
     lines = config_path.read_text(encoding="utf-8").splitlines(True)
 
@@ -403,10 +387,8 @@ def update_toml_credentials(
         if not found:
             if not _check_section_exists(lines, section_header):
                 raise ValueError(
-                    f"Section [{section_header[1:-1]}] not found"
-                    f" in {config_path}"
+                    f"Section [{section_header[1:-1]}] not found" f" in {config_path}"
                 )
-            display_val = "***" if redact else value
             raise ValueError(
                 f"{field_name} key not found in "
                 f"[adapters.{transport}.{adapter_name}] in {config_path}"

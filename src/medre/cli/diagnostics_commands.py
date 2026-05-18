@@ -1,4 +1,5 @@
 """Diagnostics CLI commands: static snapshot and live health refresh."""
+
 from __future__ import annotations
 
 import json
@@ -6,10 +7,10 @@ import logging
 import sys
 from datetime import datetime, timezone
 
-from medre.config.loader import load_config
 from medre.config.env import apply_env_overrides
+from medre.config.loader import load_config
 
-from .exit_codes import EXIT_CONFIG, EXIT_BUILD, EXIT_STARTUP
+from .exit_codes import EXIT_BUILD, EXIT_CONFIG, EXIT_STARTUP
 
 logger = logging.getLogger("medre")
 
@@ -42,6 +43,7 @@ def _diagnostics(config_path: str | None) -> None:
         sys.exit(EXIT_CONFIG)
 
     from medre.runtime.builder import RuntimeBuilder
+
     builder = RuntimeBuilder(config, paths)
     try:
         app = builder.build()
@@ -148,6 +150,7 @@ async def _diagnostics_refresh(config_path: str | None) -> None:
 
         # Build snapshot with REAL timestamps (not fixed).
         from medre.runtime.snapshot import build_runtime_snapshot
+
         snapshot = build_runtime_snapshot(app)
         print(json.dumps(snapshot, sort_keys=True, indent=2))
     finally:

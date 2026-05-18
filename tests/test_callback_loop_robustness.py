@@ -21,19 +21,16 @@ from typing import Any
 
 import pytest
 
-from medre.core.contracts.adapter import AdapterContext
-from medre.adapters.matrix.adapter import MatrixAdapter
-from medre.config.adapters.matrix import MatrixConfig
-from medre.adapters.meshtastic.adapter import MeshtasticAdapter
-from medre.config.adapters.meshtastic import MeshtasticConfig
-from medre.adapters.meshcore.adapter import MeshCoreAdapter
-from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.adapters.lxmf.adapter import LxmfAdapter
+from medre.adapters.matrix.adapter import MatrixAdapter
+from medre.adapters.meshcore.adapter import MeshCoreAdapter
+from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.config.adapters.lxmf import LxmfConfig
-
+from medre.config.adapters.meshcore import MeshCoreConfig
+from medre.config.adapters.meshtastic import MeshtasticConfig
+from medre.core.contracts.adapter import AdapterContext
 from tests.helpers.bridge import make_meshcore_packet, make_text_packet
 from tests.helpers.matrix import make_matrix_config, make_nio_event, make_nio_room
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -146,9 +143,7 @@ class TestMatrixCallbackIsolation:
         bad_event = SimpleNamespace(sender="@x:example.com", event_id="$b1", body="x")
         await adapter._on_room_message(room, bad_event)
 
-        good_event = make_nio_event(
-            sender="@y:example.com", event_id="$g1", body="ok"
-        )
+        good_event = make_nio_event(sender="@y:example.com", event_id="$g1", body="ok")
         await adapter._on_room_message(room, good_event)
 
         # Published counter reflects only the successful callback
@@ -439,9 +434,7 @@ class TestLxmfCallbackIsolation:
     ) -> None:
         """The sync _on_packet callback catches exceptions; next valid packet
         publishes via background task."""
-        adapter = LxmfAdapter(
-            LxmfConfig(adapter_id="lx-sync", connection_type="fake")
-        )
+        adapter = LxmfAdapter(LxmfConfig(adapter_id="lx-sync", connection_type="fake"))
         collector = _InboundCollector()
         ctx = _make_ctx("lx-sync", collector)
         await adapter.start(ctx)
@@ -468,9 +461,7 @@ class TestLxmfCallbackIsolation:
     ) -> None:
         """Packet without content → category unknown → early return;
         next valid text packet succeeds."""
-        adapter = LxmfAdapter(
-            LxmfConfig(adapter_id="lx-cat", connection_type="fake")
-        )
+        adapter = LxmfAdapter(LxmfConfig(adapter_id="lx-cat", connection_type="fake"))
         collector = _InboundCollector()
         ctx = _make_ctx("lx-cat", collector)
         await adapter.start(ctx)
@@ -556,9 +547,7 @@ class TestDuplicateEventId:
 
     async def test_duplicate_lxmf_message_id_not_crash(self) -> None:
         """Two LXMF packets with same message_id both process."""
-        adapter = LxmfAdapter(
-            LxmfConfig(adapter_id="lx-dup", connection_type="fake")
-        )
+        adapter = LxmfAdapter(LxmfConfig(adapter_id="lx-dup", connection_type="fake"))
         collector = _InboundCollector()
         await adapter.start(_make_ctx("lx-dup", collector))
 
@@ -645,9 +634,7 @@ class TestEmptyPayload:
 
     async def test_empty_lxmf_content_not_crash(self) -> None:
         """An LXMF packet with empty content returns early (no text category)."""
-        adapter = LxmfAdapter(
-            LxmfConfig(adapter_id="lx-empty", connection_type="fake")
-        )
+        adapter = LxmfAdapter(LxmfConfig(adapter_id="lx-empty", connection_type="fake"))
         collector = _InboundCollector()
         await adapter.start(_make_ctx("lx-empty", collector))
 
@@ -667,9 +654,7 @@ class TestEmptyPayload:
         adapter.ctx = _make_ctx("mx-empty", collector)
         room = make_nio_room("!empty_room:example.com")
 
-        evt = make_nio_event(
-            sender="@a:example.com", event_id="$empty-001", body=""
-        )
+        evt = make_nio_event(sender="@a:example.com", event_id="$empty-001", body="")
         await adapter._on_room_message(room, evt)
         assert len(collector.events) == 1
         assert collector.events[0].payload.get("body") == ""
@@ -694,7 +679,9 @@ class TestMissingRequiredFields:
         room = make_nio_room("!missing_room:example.com")
 
         # Missing .source
-        bad = SimpleNamespace(sender="@x:example.com", event_id="$bad-no-source", body="x")
+        bad = SimpleNamespace(
+            sender="@x:example.com", event_id="$bad-no-source", body="x"
+        )
         await adapter._on_room_message(room, bad)
         assert len(collector.events) == 0
 
@@ -931,9 +918,7 @@ class TestRapidFireBadGood:
             )
 
             # bad (non-text)
-            await adapter.simulate_inbound(
-                {"decoded": {"portnum": "telemetry"}}
-            )
+            await adapter.simulate_inbound({"decoded": {"portnum": "telemetry"}})
 
             # good
             await adapter.simulate_inbound(
@@ -982,9 +967,7 @@ class TestRapidFireBadGood:
 
     async def test_interleaved_bad_good_lxmf(self) -> None:
         """Bad → good → bad → good all resolve correctly."""
-        adapter = LxmfAdapter(
-            LxmfConfig(adapter_id="lx-rapid", connection_type="fake")
-        )
+        adapter = LxmfAdapter(LxmfConfig(adapter_id="lx-rapid", connection_type="fake"))
         collector = _InboundCollector()
         await adapter.start(_make_ctx("lx-rapid", collector))
 
@@ -994,17 +977,13 @@ class TestRapidFireBadGood:
                 await adapter.simulate_inbound(b"bytes-not-dict")  # type: ignore[arg-type]
 
             # good
-            await adapter.simulate_inbound(
-                _make_lxmf_packet(content="lx-good-1")
-            )
+            await adapter.simulate_inbound(_make_lxmf_packet(content="lx-good-1"))
 
             # bad (no content → unknown)
             await adapter.simulate_inbound({"source_hash": "ab" * 16, "fields": {}})
 
             # good
-            await adapter.simulate_inbound(
-                _make_lxmf_packet(content="lx-good-2")
-            )
+            await adapter.simulate_inbound(_make_lxmf_packet(content="lx-good-2"))
 
             assert len(collector.events) == 2
             bodies = [e.payload.get("body") for e in collector.events]
@@ -1029,9 +1008,7 @@ class TestRapidFireBadGood:
         # good
         await adapter._on_room_message(
             room,
-            make_nio_event(
-                sender="@a:example.com", event_id="$rg1", body="mx-good-1"
-            ),
+            make_nio_event(sender="@a:example.com", event_id="$rg1", body="mx-good-1"),
         )
 
         # bad (no .source again)
@@ -1042,9 +1019,7 @@ class TestRapidFireBadGood:
         # good
         await adapter._on_room_message(
             room,
-            make_nio_event(
-                sender="@b:example.com", event_id="$rg2", body="mx-good-2"
-            ),
+            make_nio_event(sender="@b:example.com", event_id="$rg2", body="mx-good-2"),
         )
 
         assert len(collector.events) == 2
@@ -1102,9 +1077,7 @@ class TestNativeIdIsolation:
             with pytest.raises(Exception):
                 await adapter.simulate_inbound(None)  # type: ignore[arg-type]
 
-            valid = make_meshcore_packet(
-                text="mc clean", sender="cln", packet_id=7777
-            )
+            valid = make_meshcore_packet(text="mc clean", sender="cln", packet_id=7777)
             await adapter.simulate_inbound(valid)
 
             assert len(collector.events) == 1

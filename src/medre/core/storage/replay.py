@@ -229,7 +229,8 @@ class _PipelineProtocol(Protocol):
         ...
 
     async def route_event(
-        self, event: CanonicalEvent,
+        self,
+        event: CanonicalEvent,
     ) -> tuple[CanonicalEvent, list[tuple[Any, Any]]]:
         """Match *event* against current routes and resolve targets.
 
@@ -268,7 +269,9 @@ class _PipelineProtocol(Protocol):
         ...
 
     async def deliver(
-        self, event: CanonicalEvent, plans: list[Any],
+        self,
+        event: CanonicalEvent,
+        plans: list[Any],
     ) -> list[Any]:
         """Execute delivery plans and return receipts."""
         ...
@@ -283,7 +286,10 @@ class _EventBusProtocol(Protocol):
     """
 
     async def publish(
-        self, event: CanonicalEvent, *, source: str = "",
+        self,
+        event: CanonicalEvent,
+        *,
+        source: str = "",
     ) -> None:
         """Publish *event* to the bus."""
         ...
@@ -830,10 +836,7 @@ def _event_matches_filters(
     Used when events are fetched individually by correlation ID and the
     time / kind / adapter filters must be applied as post-filters.
     """
-    if (
-        request.event_kinds is not None
-        and event.event_kind not in request.event_kinds
-    ):
+    if request.event_kinds is not None and event.event_kind not in request.event_kinds:
         return False
     if (
         request.source_adapters is not None
@@ -935,7 +938,8 @@ class ReplayEngine:
     # -- Public API ---------------------------------------------------------
 
     async def replay(
-        self, request: ReplayRequest,
+        self,
+        request: ReplayRequest,
     ) -> AsyncIterator[ReplayResult]:
         """Iterate over matching events and replay through requested stages.
 
@@ -978,14 +982,18 @@ class ReplayEngine:
                         yield result
                 else:
                     async for result in self._replay_event_safe(
-                        event, stages, request,
+                        event,
+                        stages,
+                        request,
                     ):
                         yield result
         else:
             event_filter = _request_to_filter(request)
             async for event in self._storage.query(event_filter):  # type: ignore[union-attr]
                 async for result in self._replay_event_safe(
-                    event, stages, request,
+                    event,
+                    stages,
+                    request,
                 ):
                     yield result
 
@@ -1024,7 +1032,8 @@ class ReplayEngine:
     # -- Internal event iteration -------------------------------------------
 
     async def _iter_by_ids(
-        self, request: ReplayRequest,
+        self,
+        request: ReplayRequest,
     ) -> AsyncIterator[tuple[str, CanonicalEvent | None]]:
         """Yield ``(event_id, event | None)`` tuples for correlation IDs.
 
@@ -1110,7 +1119,8 @@ class ReplayEngine:
         """
         if self._diagnostician is not None:
             self._diagnostician.record_replay_skip(
-                event_id, "Event not found in storage",
+                event_id,
+                "Event not found in storage",
             )
         if self._accounting is not None:
             self._accounting.record_replay_rejected()
@@ -1156,17 +1166,21 @@ class ReplayEngine:
                 result = await self._stage_store(event)
             elif stage == "route":
                 result, route_result, enriched_event = await self._stage_route(
-                    event, request=request,
+                    event,
+                    request=request,
                 )
             elif stage == "plan":
                 result, plan_result = await self._stage_plan(
-                    enriched_event or event, route_result,
+                    enriched_event or event,
+                    route_result,
                 )
             elif stage == "render":
                 result = await self._stage_render(event, mode)
             elif stage == "deliver":
                 result = await self._stage_deliver(
-                    enriched_event or event, plan_result, request,
+                    enriched_event or event,
+                    plan_result,
+                    request,
                 )
             else:
                 result = ReplayResult(
@@ -1195,7 +1209,8 @@ class ReplayEngine:
             if stored is None:
                 if self._diagnostician is not None:
                     self._diagnostician.record_replay_skip(
-                        event.event_id, "Event not found in storage",
+                        event.event_id,
+                        "Event not found in storage",
                     )
                 return ReplayResult(
                     event_id=event.event_id,
@@ -1243,7 +1258,10 @@ class ReplayEngine:
             )
 
     async def _stage_route(
-        self, event: CanonicalEvent, *, request: ReplayRequest,
+        self,
+        event: CanonicalEvent,
+        *,
+        request: ReplayRequest,
     ) -> tuple[ReplayResult, list[tuple[Any, Any]] | None, CanonicalEvent | None]:
         """Route *event* against current routes.
 
@@ -1317,8 +1335,7 @@ class ReplayEngine:
             if requested_route_ids:
                 allowed = set(requested_route_ids)
                 routes = [
-                    (r, p) for r, p in routes
-                    if getattr(r, "id", None) in allowed
+                    (r, p) for r, p in routes if getattr(r, "id", None) in allowed
                 ]
                 # Clean enriched event metadata so filtered-out routes
                 # don't leak into matched_routes / route_trace.
@@ -1327,9 +1344,7 @@ class ReplayEngine:
                 # routes.  This covers disabled routes (the router won't
                 # return them) and routes that don't match the event's
                 # source filter.
-                found_ids = {
-                    getattr(r, "id", None) for r, _ in routes
-                }
+                found_ids = {getattr(r, "id", None) for r, _ in routes}
                 missing = allowed - found_ids
                 if missing and self._diagnostician is not None:
                     for mid in sorted(missing):
@@ -1343,7 +1358,8 @@ class ReplayEngine:
             if not routes:
                 if self._diagnostician is not None:
                     self._diagnostician.record_replay_skip(
-                        event.event_id, "No routes matched",
+                        event.event_id,
+                        "No routes matched",
                     )
                 attribution = ReplayRouteAttribution(
                     source_adapter=event.source_adapter,
@@ -1369,22 +1385,19 @@ class ReplayEngine:
             # (pre-enrichment) routing metadata so that the current
             # routing pass is not mistaken for a previous one.
             loop_warnings, filtered_routes = _filter_replay_loops(
-                event, routes, previous_routing=original_routing,
+                event,
+                routes,
+                previous_routing=original_routing,
             )
 
             # Clean enriched event metadata to reflect only the routes
             # that survived loop prevention filtering.
             if filtered_routes and len(filtered_routes) < len(routes):
-                surviving_ids = {
-                    getattr(r, "id", None) for r, _ in filtered_routes
-                }
+                surviving_ids = {getattr(r, "id", None) for r, _ in filtered_routes}
                 event = _clean_routing_metadata(event, surviving_ids)
 
             # Build route attribution for this replay.
-            route_ids = tuple(
-                r.id for r, _ in filtered_routes
-                if hasattr(r, "id")
-            )
+            route_ids = tuple(r.id for r, _ in filtered_routes if hasattr(r, "id"))
             target_adapters: list[str] = []
             for _, plan_or_target in filtered_routes:
                 plan = plan_or_target
@@ -1443,7 +1456,8 @@ class ReplayEngine:
         except Exception as exc:
             if self._diagnostician is not None:
                 self._diagnostician.record_planner_failure(
-                    event.event_id, str(exc),
+                    event.event_id,
+                    str(exc),
                 )
             return (
                 ReplayResult(
@@ -1546,8 +1560,7 @@ class ReplayEngine:
         if not hasattr(self._pipeline, "plan_delivery"):
             raise RuntimeError(
                 "Pipeline has no deliver_to_targets and no plan_delivery; "
-                "cannot build delivery plans for event_id="
-                + event.event_id
+                "cannot build delivery plans for event_id=" + event.event_id
             )
         try:
             plans = await self._pipeline.plan_delivery(event, route_result)
@@ -1564,7 +1577,8 @@ class ReplayEngine:
         except Exception as exc:
             if self._diagnostician is not None:
                 self._diagnostician.record_planner_failure(
-                    event.event_id, str(exc),
+                    event.event_id,
+                    str(exc),
                 )
             return (
                 ReplayResult(
@@ -1603,15 +1617,16 @@ class ReplayEngine:
             else:
                 _logger.debug(
                     "Pipeline has no transform_event; skipping transform "
-                    "for event_id=%s", event.event_id,
+                    "for event_id=%s",
+                    event.event_id,
                 )
                 transformed = event
             if hasattr(self._pipeline, "render_event"):
                 rendered = await self._pipeline.render_event(transformed)
             else:
                 _logger.debug(
-                    "Pipeline has no render_event; skipping render "
-                    "for event_id=%s", event.event_id,
+                    "Pipeline has no render_event; skipping render " "for event_id=%s",
+                    event.event_id,
                 )
                 rendered = transformed
             return ReplayResult(
@@ -1689,7 +1704,8 @@ class ReplayEngine:
         # Filter plans by target_adapters if specified.
         if request.target_adapters is not None:
             filtered = _filter_plans_by_adapter(
-                plan_result, request.target_adapters,
+                plan_result,
+                request.target_adapters,
             )
             if not filtered:
                 if self._diagnostician is not None:
@@ -1742,7 +1758,8 @@ class ReplayEngine:
             if _has_route_plan_pairs:
                 # Real pipeline: plan_result is list[tuple[Route, DeliveryPlan]].
                 outcomes = await self._pipeline.deliver_to_targets(
-                    event, plan_result,
+                    event,
+                    plan_result,
                     source="replay",
                     replay_run_id=request.run_id or None,
                 )
@@ -1763,7 +1780,9 @@ class ReplayEngine:
         except Exception as exc:
             if self._diagnostician is not None:
                 self._diagnostician.record_adapter_failure(
-                    event.event_id, "replay", str(exc),
+                    event.event_id,
+                    "replay",
+                    str(exc),
                 )
             return ReplayResult(
                 event_id=event.event_id,
@@ -1800,15 +1819,16 @@ def _clean_routing_metadata(
         return event
 
     cleaned_matched = tuple(
-        rid for rid in routing_meta.matched_routes
-        if rid in allowed_route_ids
+        rid for rid in routing_meta.matched_routes if rid in allowed_route_ids
     )
     cleaned_trace = tuple(
-        rid for rid in routing_meta.route_trace
-        if rid in allowed_route_ids
+        rid for rid in routing_meta.route_trace if rid in allowed_route_ids
     )
 
-    if cleaned_matched == routing_meta.matched_routes and cleaned_trace == routing_meta.route_trace:
+    if (
+        cleaned_matched == routing_meta.matched_routes
+        and cleaned_trace == routing_meta.route_trace
+    ):
         return event
 
     new_routing = msgspec.structs.replace(
@@ -1870,7 +1890,7 @@ def _filter_replay_loops(
     # explicitly provided (called from _stage_route), use it — even if
     # it is None (fresh event, no prior routing).  When left as the
     # default sentinel, fall back to the event's current routing
-        # metadata as a fallback when no explicit routing context is provided.
+    # metadata as a fallback when no explicit routing context is provided.
     prev_matched: set[str] = set()
     if previous_routing is _UNSET:
         routing_meta = event.metadata.routing

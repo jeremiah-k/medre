@@ -15,7 +15,6 @@ from tests.helpers.cli import (
     _run_cli_both,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -39,6 +38,7 @@ def _seed_inspect_db(
     """Synchronously seed an inspect test database with an event + receipt + native ref."""
     import asyncio
     from datetime import datetime, timezone
+
     from medre.core.events import (
         CanonicalEvent,
         DeliveryReceipt,
@@ -112,9 +112,9 @@ def _seed_inspect_failed_db(
     """Synchronously seed a DB with an event and a failed receipt."""
     import asyncio
     from datetime import datetime, timezone
+
     from medre.core.events import (
         CanonicalEvent,
-        DeliveryReceipt,
         EventMetadata,
         NativeMessageRef,
     )
@@ -122,6 +122,7 @@ def _seed_inspect_failed_db(
 
     async def _seed() -> None:
         import msgspec
+
         from medre.core.events.canonical import DeliveryReceipt as DR
 
         storage = SQLiteStorage(db_path)
@@ -152,22 +153,26 @@ def _seed_inspect_failed_db(
             "route_id": "route-fail",
             "status": receipt_status,
             "error": receipt_error,
-            "created_at": datetime(2026, 1, 15, 12, 0, 1, tzinfo=timezone.utc).isoformat(),
+            "created_at": datetime(
+                2026, 1, 15, 12, 0, 1, tzinfo=timezone.utc
+            ).isoformat(),
         }
         receipt = msgspec.json.decode(msgspec.json.encode(receipt_json), type=DR)
         await storage.append_receipt(receipt)
 
-        await storage.store_native_ref(NativeMessageRef(
-            id="nref-fail-1",
-            event_id=event_id,
-            adapter="matrix",
-            native_channel_id="!room:test",
-            native_message_id="$fail-msg-1",
-            native_thread_id=None,
-            native_relation_id=None,
-            direction="outbound",
-            created_at=datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc),
-        ))
+        await storage.store_native_ref(
+            NativeMessageRef(
+                id="nref-fail-1",
+                event_id=event_id,
+                adapter="matrix",
+                native_channel_id="!room:test",
+                native_message_id="$fail-msg-1",
+                native_thread_id=None,
+                native_relation_id=None,
+                direction="outbound",
+                created_at=datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc),
+            )
+        )
 
         await storage.close()
 
@@ -200,7 +205,8 @@ def config_inspect_failed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Pa
 
 @pytest.fixture()
 def config_inspect_replay_for_inspect(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> Path:
     """Config with sqlite storage and seeded replay receipts for inspect replay."""
     monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
@@ -225,12 +231,16 @@ class TestInspectEventNoFlagsUnchanged:
     """Verify that 'inspect event' without flags still works identically."""
 
     def test_no_flags_returns_event_json(
-        self, config_inspect_sqlite: Path,
+        self,
+        config_inspect_sqlite: Path,
     ) -> None:
         """Without flags, output is the same as before: just the event JSON."""
         output = _run_cli(
-            "inspect", "event", "evt-inspect-1",
-            "--config", str(config_inspect_sqlite),
+            "inspect",
+            "event",
+            "evt-inspect-1",
+            "--config",
+            str(config_inspect_sqlite),
         )
         parsed = json.loads(output)
         assert parsed["event_id"] == "evt-inspect-1"
@@ -240,12 +250,16 @@ class TestInspectEventNoFlagsUnchanged:
         assert "recovery" not in parsed
 
     def test_no_flags_deterministic(
-        self, config_inspect_sqlite: Path,
+        self,
+        config_inspect_sqlite: Path,
     ) -> None:
         """Without flags, output has sorted keys (deterministic)."""
         output = _run_cli(
-            "inspect", "event", "evt-inspect-1",
-            "--config", str(config_inspect_sqlite),
+            "inspect",
+            "event",
+            "evt-inspect-1",
+            "--config",
+            str(config_inspect_sqlite),
         )
         parsed = json.loads(output)
         keys = list(parsed.keys())
@@ -261,12 +275,16 @@ class TestInspectEventTimeline:
     """Tests for 'medre inspect event --timeline'."""
 
     def test_timeline_includes_event_and_entries(
-        self, config_inspect_sqlite: Path,
+        self,
+        config_inspect_sqlite: Path,
     ) -> None:
         """--timeline output has 'event' dict and 'timeline' list."""
         output = _run_cli(
-            "inspect", "event", "evt-inspect-1",
-            "--config", str(config_inspect_sqlite),
+            "inspect",
+            "event",
+            "evt-inspect-1",
+            "--config",
+            str(config_inspect_sqlite),
             "--timeline",
         )
         parsed = json.loads(output)
@@ -277,20 +295,27 @@ class TestInspectEventTimeline:
         assert len(parsed["timeline"]) > 0
 
     def test_timeline_entries_match_trace_event(
-        self, config_inspect_sqlite: Path,
+        self,
+        config_inspect_sqlite: Path,
     ) -> None:
         """Timeline entries from 'inspect event --timeline' are semantically
         identical to 'trace event --json'."""
         inspect_output = _run_cli(
-            "inspect", "event", "evt-inspect-1",
-            "--config", str(config_inspect_sqlite),
+            "inspect",
+            "event",
+            "evt-inspect-1",
+            "--config",
+            str(config_inspect_sqlite),
             "--timeline",
         )
         inspect_parsed = json.loads(inspect_output)
 
         trace_output = _run_cli(
-            "trace", "event", "evt-inspect-1",
-            "--config", str(config_inspect_sqlite),
+            "trace",
+            "event",
+            "evt-inspect-1",
+            "--config",
+            str(config_inspect_sqlite),
             "--json",
         )
         trace_parsed = json.loads(trace_output)
@@ -303,12 +328,16 @@ class TestInspectEventTimeline:
         assert inspect_types == trace_types
 
     def test_timeline_json_deterministic(
-        self, config_inspect_sqlite: Path,
+        self,
+        config_inspect_sqlite: Path,
     ) -> None:
         """Timeline JSON has sorted keys."""
         output = _run_cli(
-            "inspect", "event", "evt-inspect-1",
-            "--config", str(config_inspect_sqlite),
+            "inspect",
+            "event",
+            "evt-inspect-1",
+            "--config",
+            str(config_inspect_sqlite),
             "--timeline",
         )
         parsed = json.loads(output)
@@ -319,15 +348,19 @@ class TestInspectEventTimeline:
             assert entry_keys == sorted(entry_keys)
 
     def test_timeline_event_not_found(
-        self, config_inspect_sqlite: Path,
+        self,
+        config_inspect_sqlite: Path,
     ) -> None:
         """--timeline with missing event exits EXIT_NOT_FOUND."""
         from medre.cli import EXIT_NOT_FOUND
 
         with pytest.raises(SystemExit) as exc_info:
             _run_cli(
-                "inspect", "event", "nonexistent-event",
-                "--config", str(config_inspect_sqlite),
+                "inspect",
+                "event",
+                "nonexistent-event",
+                "--config",
+                str(config_inspect_sqlite),
                 "--timeline",
             )
         assert exc_info.value.code == EXIT_NOT_FOUND
@@ -342,12 +375,16 @@ class TestInspectEventEvidence:
     """Tests for 'medre inspect event --evidence'."""
 
     def test_evidence_includes_event_and_bundle(
-        self, config_inspect_sqlite: Path,
+        self,
+        config_inspect_sqlite: Path,
     ) -> None:
         """--evidence output has 'event' dict and 'evidence' bundle."""
         output = _run_cli(
-            "inspect", "event", "evt-inspect-1",
-            "--config", str(config_inspect_sqlite),
+            "inspect",
+            "event",
+            "evt-inspect-1",
+            "--config",
+            str(config_inspect_sqlite),
             "--evidence",
         )
         parsed = json.loads(output)
@@ -359,24 +396,32 @@ class TestInspectEventEvidence:
         assert "sections" in bundle
 
     def test_evidence_no_runtime_started(
-        self, config_inspect_sqlite: Path,
+        self,
+        config_inspect_sqlite: Path,
     ) -> None:
         """--evidence does not start the runtime."""
         output = _run_cli(
-            "inspect", "event", "evt-inspect-1",
-            "--config", str(config_inspect_sqlite),
+            "inspect",
+            "event",
+            "evt-inspect-1",
+            "--config",
+            str(config_inspect_sqlite),
             "--evidence",
         )
         parsed = json.loads(output)
         assert parsed["evidence"]["runtime_started"] is False
 
     def test_evidence_json_deterministic(
-        self, config_inspect_sqlite: Path,
+        self,
+        config_inspect_sqlite: Path,
     ) -> None:
         """Evidence output has sorted keys."""
         output = _run_cli(
-            "inspect", "event", "evt-inspect-1",
-            "--config", str(config_inspect_sqlite),
+            "inspect",
+            "event",
+            "evt-inspect-1",
+            "--config",
+            str(config_inspect_sqlite),
             "--evidence",
         )
         parsed = json.loads(output)
@@ -393,12 +438,16 @@ class TestInspectEventRecovery:
     """Tests for 'medre inspect event --recovery'."""
 
     def test_recovery_includes_event_and_runbook(
-        self, config_inspect_failed: Path,
+        self,
+        config_inspect_failed: Path,
     ) -> None:
         """--recovery output has 'event' dict and 'recovery' runbook."""
         output = _run_cli(
-            "inspect", "event", "evt-inspect-fail-1",
-            "--config", str(config_inspect_failed),
+            "inspect",
+            "event",
+            "evt-inspect-fail-1",
+            "--config",
+            str(config_inspect_failed),
             "--recovery",
         )
         parsed = json.loads(output)
@@ -414,12 +463,16 @@ class TestInspectEventRecovery:
         assert "timeline" in runbook
 
     def test_recovery_failed_targets_populated(
-        self, config_inspect_failed: Path,
+        self,
+        config_inspect_failed: Path,
     ) -> None:
         """Failed receipt produces failed_targets entry."""
         output = _run_cli(
-            "inspect", "event", "evt-inspect-fail-1",
-            "--config", str(config_inspect_failed),
+            "inspect",
+            "event",
+            "evt-inspect-fail-1",
+            "--config",
+            str(config_inspect_failed),
             "--recovery",
         )
         parsed = json.loads(output)
@@ -430,40 +483,54 @@ class TestInspectEventRecovery:
         assert ft["target_adapter"] == "dest_adapter"
 
     def test_recovery_runbook_matches_recover_output(
-        self, config_inspect_failed: Path,
+        self,
+        config_inspect_failed: Path,
     ) -> None:
         """Recovery runbook from 'inspect event --recovery' is semantically
         identical to 'recover --event --json'."""
         inspect_output = _run_cli(
-            "inspect", "event", "evt-inspect-fail-1",
-            "--config", str(config_inspect_failed),
+            "inspect",
+            "event",
+            "evt-inspect-fail-1",
+            "--config",
+            str(config_inspect_failed),
             "--recovery",
         )
         inspect_parsed = json.loads(inspect_output)
         inspect_runbook = inspect_parsed["recovery"]
 
         recover_output = _run_cli(
-            "recover", "--config", str(config_inspect_failed),
-            "--event", "evt-inspect-fail-1", "--json",
+            "recover",
+            "--config",
+            str(config_inspect_failed),
+            "--event",
+            "evt-inspect-fail-1",
+            "--json",
         )
         recover_parsed = json.loads(recover_output)
 
         assert inspect_runbook["scope"] == recover_parsed["scope"]
         assert inspect_runbook["event_id"] == recover_parsed["event_id"]
         assert inspect_runbook["total_receipts"] == recover_parsed["total_receipts"]
-        assert len(inspect_runbook["failed_targets"]) == len(recover_parsed["failed_targets"])
+        assert len(inspect_runbook["failed_targets"]) == len(
+            recover_parsed["failed_targets"]
+        )
         assert (
             inspect_runbook["failure_classification"]
             == recover_parsed["failure_classification"]
         )
 
     def test_recovery_no_failures(
-        self, config_inspect_sqlite: Path,
+        self,
+        config_inspect_sqlite: Path,
     ) -> None:
         """--recovery on an event with only successful receipts produces empty failed_targets."""
         output = _run_cli(
-            "inspect", "event", "evt-inspect-1",
-            "--config", str(config_inspect_sqlite),
+            "inspect",
+            "event",
+            "evt-inspect-1",
+            "--config",
+            str(config_inspect_sqlite),
             "--recovery",
         )
         parsed = json.loads(output)
@@ -471,12 +538,16 @@ class TestInspectEventRecovery:
         assert runbook["failed_targets"] == []
 
     def test_recovery_json_deterministic(
-        self, config_inspect_failed: Path,
+        self,
+        config_inspect_failed: Path,
     ) -> None:
         """Recovery output has sorted keys."""
         output = _run_cli(
-            "inspect", "event", "evt-inspect-fail-1",
-            "--config", str(config_inspect_failed),
+            "inspect",
+            "event",
+            "evt-inspect-fail-1",
+            "--config",
+            str(config_inspect_failed),
             "--recovery",
         )
         parsed = json.loads(output)
@@ -493,13 +564,18 @@ class TestInspectEventCombinedFlags:
     """Tests for combining multiple inspect event flags."""
 
     def test_timeline_and_evidence(
-        self, config_inspect_sqlite: Path,
+        self,
+        config_inspect_sqlite: Path,
     ) -> None:
         """--timeline --evidence produces both sections."""
         output = _run_cli(
-            "inspect", "event", "evt-inspect-1",
-            "--config", str(config_inspect_sqlite),
-            "--timeline", "--evidence",
+            "inspect",
+            "event",
+            "evt-inspect-1",
+            "--config",
+            str(config_inspect_sqlite),
+            "--timeline",
+            "--evidence",
         )
         parsed = json.loads(output)
         assert "event" in parsed
@@ -508,13 +584,19 @@ class TestInspectEventCombinedFlags:
         assert "recovery" not in parsed
 
     def test_all_three_flags(
-        self, config_inspect_failed: Path,
+        self,
+        config_inspect_failed: Path,
     ) -> None:
         """--timeline --evidence --recovery produces all sections."""
         output = _run_cli(
-            "inspect", "event", "evt-inspect-fail-1",
-            "--config", str(config_inspect_failed),
-            "--timeline", "--evidence", "--recovery",
+            "inspect",
+            "event",
+            "evt-inspect-fail-1",
+            "--config",
+            str(config_inspect_failed),
+            "--timeline",
+            "--evidence",
+            "--recovery",
         )
         parsed = json.loads(output)
         assert "event" in parsed
@@ -523,13 +605,19 @@ class TestInspectEventCombinedFlags:
         assert "recovery" in parsed
 
     def test_combined_json_deterministic(
-        self, config_inspect_failed: Path,
+        self,
+        config_inspect_failed: Path,
     ) -> None:
         """Combined flags output has sorted keys."""
         output = _run_cli(
-            "inspect", "event", "evt-inspect-fail-1",
-            "--config", str(config_inspect_failed),
-            "--timeline", "--evidence", "--recovery",
+            "inspect",
+            "event",
+            "evt-inspect-fail-1",
+            "--config",
+            str(config_inspect_failed),
+            "--timeline",
+            "--evidence",
+            "--recovery",
         )
         parsed = json.loads(output)
         keys = list(parsed.keys())
@@ -545,12 +633,16 @@ class TestInspectReplay:
     """Tests for 'medre inspect replay' subcommand."""
 
     def test_replay_found_returns_json(
-        self, config_inspect_replay_for_inspect: Path,
+        self,
+        config_inspect_replay_for_inspect: Path,
     ) -> None:
         """inspect replay returns JSON replay timeline."""
         output = _run_cli(
-            "inspect", "replay", "run-inspect-99",
-            "--config", str(config_inspect_replay_for_inspect),
+            "inspect",
+            "replay",
+            "run-inspect-99",
+            "--config",
+            str(config_inspect_replay_for_inspect),
         )
         parsed = json.loads(output)
         assert isinstance(parsed, dict)
@@ -559,18 +651,25 @@ class TestInspectReplay:
         assert parsed["receipt_count"] == 1
 
     def test_replay_matches_trace_replay(
-        self, config_inspect_replay_for_inspect: Path,
+        self,
+        config_inspect_replay_for_inspect: Path,
     ) -> None:
         """inspect replay output is semantically identical to trace replay --json."""
         inspect_output = _run_cli(
-            "inspect", "replay", "run-inspect-99",
-            "--config", str(config_inspect_replay_for_inspect),
+            "inspect",
+            "replay",
+            "run-inspect-99",
+            "--config",
+            str(config_inspect_replay_for_inspect),
         )
         inspect_parsed = json.loads(inspect_output)
 
         trace_output = _run_cli(
-            "trace", "replay", "run-inspect-99",
-            "--config", str(config_inspect_replay_for_inspect),
+            "trace",
+            "replay",
+            "run-inspect-99",
+            "--config",
+            str(config_inspect_replay_for_inspect),
             "--json",
         )
         trace_parsed = json.loads(trace_output)
@@ -583,36 +682,48 @@ class TestInspectReplay:
         assert inspect_types == trace_types
 
     def test_replay_not_found(
-        self, config_inspect_sqlite: Path,
+        self,
+        config_inspect_sqlite: Path,
     ) -> None:
         """inspect replay with unknown run_id exits EXIT_NOT_FOUND."""
         from medre.cli import EXIT_NOT_FOUND
 
         with pytest.raises(SystemExit) as exc_info:
             _run_cli(
-                "inspect", "replay", "nonexistent-run",
-                "--config", str(config_inspect_sqlite),
+                "inspect",
+                "replay",
+                "nonexistent-run",
+                "--config",
+                str(config_inspect_sqlite),
             )
         assert exc_info.value.code == EXIT_NOT_FOUND
 
     def test_replay_not_found_stderr(
-        self, config_inspect_sqlite: Path,
+        self,
+        config_inspect_sqlite: Path,
     ) -> None:
         """Error message mentions the missing run."""
         stdout, stderr = _run_cli_both(
-            "inspect", "replay", "nonexistent-run",
-            "--config", str(config_inspect_sqlite),
+            "inspect",
+            "replay",
+            "nonexistent-run",
+            "--config",
+            str(config_inspect_sqlite),
         )
         assert "no receipts found" in stderr
         assert "nonexistent-run" in stderr
 
     def test_replay_json_deterministic(
-        self, config_inspect_replay_for_inspect: Path,
+        self,
+        config_inspect_replay_for_inspect: Path,
     ) -> None:
         """JSON output has sorted keys."""
         output = _run_cli(
-            "inspect", "replay", "run-inspect-99",
-            "--config", str(config_inspect_replay_for_inspect),
+            "inspect",
+            "replay",
+            "run-inspect-99",
+            "--config",
+            str(config_inspect_replay_for_inspect),
         )
         parsed = json.loads(output)
         keys = list(parsed.keys())
@@ -633,13 +744,17 @@ class TestInspectAugmentedStoragePath:
     """Verify --storage-path works with augmented inspect commands."""
 
     def test_timeline_with_storage_path(
-        self, config_inspect_sqlite: Path,
+        self,
+        config_inspect_sqlite: Path,
     ) -> None:
         """--timeline works with --storage-path instead of --config."""
         db_path = str(config_inspect_sqlite.parent / "state" / "inspect.db")
         output = _run_cli(
-            "inspect", "event", "evt-inspect-1",
-            "--storage-path", db_path,
+            "inspect",
+            "event",
+            "evt-inspect-1",
+            "--storage-path",
+            db_path,
             "--timeline",
         )
         parsed = json.loads(output)
@@ -647,25 +762,33 @@ class TestInspectAugmentedStoragePath:
         assert "timeline" in parsed
 
     def test_replay_with_storage_path(
-        self, config_inspect_replay_for_inspect: Path,
+        self,
+        config_inspect_replay_for_inspect: Path,
     ) -> None:
         """inspect replay works with --storage-path."""
         db_path = str(config_inspect_replay_for_inspect.parent / "state" / "inspect.db")
         output = _run_cli(
-            "inspect", "replay", "run-inspect-99",
-            "--storage-path", db_path,
+            "inspect",
+            "replay",
+            "run-inspect-99",
+            "--storage-path",
+            db_path,
         )
         parsed = json.loads(output)
         assert parsed["run_id"] == "run-inspect-99"
 
     def test_recovery_with_storage_path(
-        self, config_inspect_failed: Path,
+        self,
+        config_inspect_failed: Path,
     ) -> None:
         """--recovery works with --storage-path."""
         db_path = str(config_inspect_failed.parent / "state" / "inspect.db")
         output = _run_cli(
-            "inspect", "event", "evt-inspect-fail-1",
-            "--storage-path", db_path,
+            "inspect",
+            "event",
+            "evt-inspect-fail-1",
+            "--storage-path",
+            db_path,
             "--recovery",
         )
         parsed = json.loads(output)

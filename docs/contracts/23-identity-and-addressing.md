@@ -10,7 +10,6 @@ This document compares identity and addressing across MEDRE's four adapter famil
 
 This is an audit and contract, not a redesign. It records what exists and where the seams are.
 
-
 ## 1. Scope
 
 - Native identity models per transport (Matrix, Meshtastic, MeshCore, LXMF).
@@ -27,18 +26,17 @@ This is an audit and contract, not a redesign. It records what exists and where 
 - Implementing key management, identity rotation, or trust-on-first-use workflows.
 - Claiming that any identity system works against real hardware or services in default CI.
 
-
 ## 3. Native Identity Models
 
 ### 3.1 Matrix
 
-| Concept | Representation | Example | Scope |
-|---------|---------------|---------|-------|
-| User identity | MXID | `@alice:matrix.org` | Global (federated) |
-| Room identity | Room ID | `!abc123:matrix.org` | Global (federated) |
-| Room alias | Canonical alias | `#general:matrix.org` | Global (federated, resolvable) |
-| Event identity | Event ID | `$event_id_string` | Global (federated) |
-| Device identity | Device ID | `DEVICEID` | Per-user |
+| Concept         | Representation  | Example               | Scope                          |
+| --------------- | --------------- | --------------------- | ------------------------------ |
+| User identity   | MXID            | `@alice:matrix.org`   | Global (federated)             |
+| Room identity   | Room ID         | `!abc123:matrix.org`  | Global (federated)             |
+| Room alias      | Canonical alias | `#general:matrix.org` | Global (federated, resolvable) |
+| Event identity  | Event ID        | `$event_id_string`    | Global (federated)             |
+| Device identity | Device ID       | `DEVICEID`            | Per-user                       |
 
 **Characteristics:**
 
@@ -49,12 +47,12 @@ This is an audit and contract, not a redesign. It records what exists and where 
 
 ### 3.2 Meshtastic
 
-| Concept | Representation | Example | Scope |
-|---------|---------------|---------|-------|
-| Node identity | Node number (int) | `1234` | Local mesh, session-scoped |
-| Node identity (string) | fromId (str) | `"!abcdef12"` | Local mesh, derived from hardware |
-| Channel identity | Channel index (int) | `0` through `7` | Local mesh |
-| Packet identity | Packet ID (int) | `42` | Session-scoped, per-node |
+| Concept                | Representation      | Example         | Scope                             |
+| ---------------------- | ------------------- | --------------- | --------------------------------- |
+| Node identity          | Node number (int)   | `1234`          | Local mesh, session-scoped        |
+| Node identity (string) | fromId (str)        | `"!abcdef12"`   | Local mesh, derived from hardware |
+| Channel identity       | Channel index (int) | `0` through `7` | Local mesh                        |
+| Packet identity        | Packet ID (int)     | `42`            | Session-scoped, per-node          |
 
 **Characteristics:**
 
@@ -65,12 +63,12 @@ This is an audit and contract, not a redesign. It records what exists and where 
 
 ### 3.3 MeshCore
 
-| Concept | Representation | Example | Scope |
-|---------|---------------|---------|-------|
-| Node identity | Ed25519 public key (32 bytes, hex-encoded) | `"a1b2c3...` (64 hex chars) | Global (cryptographic) |
-| Channel identity | Channel name + index | `"default"` / `0` | Local mesh |
-| Contact identity | Public key (via contact list) | Same as node identity | Global (cryptographic) |
-| Message identity | Sender timestamp (int) | `1715234567` | Per-sender |
+| Concept          | Representation                             | Example                     | Scope                  |
+| ---------------- | ------------------------------------------ | --------------------------- | ---------------------- |
+| Node identity    | Ed25519 public key (32 bytes, hex-encoded) | `"a1b2c3...` (64 hex chars) | Global (cryptographic) |
+| Channel identity | Channel name + index                       | `"default"` / `0`           | Local mesh             |
+| Contact identity | Public key (via contact list)              | Same as node identity       | Global (cryptographic) |
+| Message identity | Sender timestamp (int)                     | `1715234567`                | Per-sender             |
 
 **Characteristics:**
 
@@ -81,13 +79,13 @@ This is an audit and contract, not a redesign. It records what exists and where 
 
 ### 3.4 LXMF
 
-| Concept | Representation | Example | Scope |
-|---------|---------------|---------|-------|
-| Identity | Reticulum Identity (X25519 + Ed25519) | Internal keypair | Global (cryptographic) |
-| Identity hash | 16-byte hex string | `"a1b2c3d4e5f6a7b8"` | Global (derived from public key) |
-| Destination | Destination hash (16 bytes) | Same format as identity hash | Global (derived from app name + identity) |
-| LXMF address | Source/destination hash | `"a1b2c3d4e5f6a7b8"` | Global |
-| Message identity | LXMF hash (content-derived) | Internal bytes | Global (content-addressed) |
+| Concept          | Representation                        | Example                      | Scope                                     |
+| ---------------- | ------------------------------------- | ---------------------------- | ----------------------------------------- |
+| Identity         | Reticulum Identity (X25519 + Ed25519) | Internal keypair             | Global (cryptographic)                    |
+| Identity hash    | 16-byte hex string                    | `"a1b2c3d4e5f6a7b8"`         | Global (derived from public key)          |
+| Destination      | Destination hash (16 bytes)           | Same format as identity hash | Global (derived from app name + identity) |
+| LXMF address     | Source/destination hash               | `"a1b2c3d4e5f6a7b8"`         | Global                                    |
+| Message identity | LXMF hash (content-derived)           | Internal bytes               | Global (content-addressed)                |
 
 **Characteristics:**
 
@@ -96,19 +94,18 @@ This is an audit and contract, not a redesign. It records what exists and where 
 - There is no human-readable addressing at the protocol level. Side channels (announce messages, address books) map hashes to names.
 - The identity hash is derived, not assigned. Two independent keypairs will produce different hashes with overwhelming probability.
 
-
 ## 4. Canonical Sender and Destination Semantics
 
 ### 4.1 source_transport_id
 
 The `source_transport_id` field on `CanonicalEvent` carries the native sender identity from the source transport. It is always a string.
 
-| Transport | source_transport_id value | Example |
-|-----------|-------------------------|---------|
-| Matrix | Sender MXID | `@alice:matrix.org` |
-| Meshtastic | Node number (as string) | `"1234"` |
-| MeshCore | Ed25519 public key (hex) | `"a1b2c3...` (64 hex chars) |
-| LXMF | Source hash (16-byte hex) | `"a1b2c3d4e5f6a7b8"` |
+| Transport  | source_transport_id value | Example                     |
+| ---------- | ------------------------- | --------------------------- |
+| Matrix     | Sender MXID               | `@alice:matrix.org`         |
+| Meshtastic | Node number (as string)   | `"1234"`                    |
+| MeshCore   | Ed25519 public key (hex)  | `"a1b2c3...` (64 hex chars) |
+| LXMF       | Source hash (16-byte hex) | `"a1b2c3d4e5f6a7b8"`        |
 
 **Rules:**
 
@@ -120,12 +117,12 @@ The `source_transport_id` field on `CanonicalEvent` carries the native sender id
 
 The `source_channel_id` field carries the native channel, room, or topic where the event originated.
 
-| Transport | source_channel_id value | Example |
-|-----------|------------------------|---------|
-| Matrix | Room ID | `!abc123:matrix.org` |
-| Meshtastic | Channel index (as string) | `"0"` |
-| MeshCore | Channel name or index (as string) | `"0"` |
-| LXMF | `None` (no channel concept) or app name | `None` |
+| Transport  | source_channel_id value                 | Example              |
+| ---------- | --------------------------------------- | -------------------- |
+| Matrix     | Room ID                                 | `!abc123:matrix.org` |
+| Meshtastic | Channel index (as string)               | `"0"`                |
+| MeshCore   | Channel name or index (as string)       | `"0"`                |
+| LXMF       | `None` (no channel concept) or app name | `None`               |
 
 **Rules:**
 
@@ -137,15 +134,14 @@ The `source_channel_id` field carries the native channel, room, or topic where t
 
 Destination addressing is handled at the routing and delivery planning level, not on the canonical event itself. The delivery plan specifies which adapter and which native destination (room, channel, node) to target.
 
-| Transport | Destination type | Specified by |
-|-----------|-----------------|-------------|
-| Matrix | Room ID | Delivery plan target |
+| Transport  | Destination type         | Specified by         |
+| ---------- | ------------------------ | -------------------- |
+| Matrix     | Room ID                  | Delivery plan target |
 | Meshtastic | Node number or broadcast | Delivery plan target |
-| MeshCore | Public key or flood | Delivery plan target |
-| LXMF | Destination hash | Delivery plan target |
+| MeshCore   | Public key or flood      | Delivery plan target |
+| LXMF       | Destination hash         | Delivery plan target |
 
 The canonical event model does not carry a canonical destination. Routing determines destinations. This is intentional: a single canonical event may be delivered to multiple adapters at multiple destinations.
-
 
 ## 5. Native References vs. Transport Identities
 
@@ -182,7 +178,6 @@ When a canonical event carries a reply relation, the `target_native_ref` on the 
 - **Destination identity** is not carried on the canonical event at all. It lives in the delivery plan.
 - **Adapter identity** (`adapter_id`) is an instance name from configuration, not a transport identity.
 
-
 ## 6. Privacy Boundaries
 
 ### 6.1 What Never Goes Into Canonical Metadata
@@ -206,24 +201,24 @@ The following must never appear in `CanonicalEvent.metadata` or any field of `Ca
 
 Envelopes (MEDRE metadata embedded in outbound native payloads) may contain:
 
-| Field | Allowed? | Rationale |
-|-------|----------|-----------|
-| `schema_version` | Yes | Public versioning info |
-| `event_id` | Yes | Needed for correlation |
-| `source_adapter` | Yes | Identifies the MEDRE adapter, not credentials |
-| `parent_event_id` | Yes | Lineage tracking |
-| `relation_type` | Yes | Reply/thread metadata |
-| `target_native_ref` | Yes | Cross-adapter correlation |
-| `trace_id` | Yes | Distributed tracing |
+| Field               | Allowed? | Rationale                                     |
+| ------------------- | -------- | --------------------------------------------- |
+| `schema_version`    | Yes      | Public versioning info                        |
+| `event_id`          | Yes      | Needed for correlation                        |
+| `source_adapter`    | Yes      | Identifies the MEDRE adapter, not credentials |
+| `parent_event_id`   | Yes      | Lineage tracking                              |
+| `relation_type`     | Yes      | Reply/thread metadata                         |
+| `target_native_ref` | Yes      | Cross-adapter correlation                     |
+| `trace_id`          | Yes      | Distributed tracing                           |
 
 Envelopes must NOT contain:
 
-| Field | Reason |
-|-------|--------|
-| Private keys or credentials | Same privacy boundary as canonical metadata |
-| Internal routing state | Adapter-internal |
-| Configuration details | Adapter-internal |
-| User PII beyond what the transport already exposes | Privacy |
+| Field                                              | Reason                                      |
+| -------------------------------------------------- | ------------------------------------------- |
+| Private keys or credentials                        | Same privacy boundary as canonical metadata |
+| Internal routing state                             | Adapter-internal                            |
+| Configuration details                              | Adapter-internal                            |
+| User PII beyond what the transport already exposes | Privacy                                     |
 
 **Transport-specific limits:** Meshtastic and MeshCore payloads are too small (228 and 184 bytes respectively) for meaningful envelope data. On these transports, envelopes are typically omitted entirely or reduced to a bare minimum (event_id only, if space permits). Matrix and LXMF have room for richer envelopes.
 
@@ -237,7 +232,6 @@ Each transport exposes sender identity natively. This is not under MEDRE's contr
 - LXMF exposes source hashes to recipients and propagation nodes.
 
 MEDRE does not add to this exposure. It records what the transport already makes visible. If a transport broadcasts sender identity, MEDRE's canonical event will carry that identity. This is inherent to the transport, not a MEDRE privacy decision.
-
 
 ## 7. Cross-Transport Identity Resolution
 
@@ -266,7 +260,6 @@ Storage provides:
 - Relations that link events across adapters (e.g., a reply on Matrix that references a Meshtastic-originated event).
 
 This is sufficient for event-level correlation (same message, different transports). It is not sufficient for user-level correlation (same person, different transports).
-
 
 ## 8. Implications
 

@@ -39,7 +39,7 @@ class StorageBackend(Protocol):
 
     async def query(self, filter: EventFilter) -> AsyncIterator[CanonicalEvent]:
         """Yield events matching filter, ordered by timestamp ascending.
-        
+
         Ordering is ``ORDER BY timestamp ASC`` only. There is no secondary
         sort on event_id. Events with identical timestamps may be yielded
         in any order.
@@ -182,8 +182,8 @@ CREATE TABLE canonical_events (
 
 **Indexes:**
 
-| Index | Columns | Type | Purpose |
-|---|---|---|---|
+| Index                           | Columns                 | Type                  | Purpose                                                                      |
+| ------------------------------- | ----------------------- | --------------------- | ---------------------------------------------------------------------------- |
 | `idx_events_timestamp_event_id` | `(timestamp, event_id)` | Manual `CREATE INDEX` | Supports `query()` ORDER BY timestamp ascending with tiebreaker on event_id. |
 
 > **Additional query patterns:** Lookups by `event_kind`, `(source_adapter, source_transport_id)`, and `parent_event_id` are documented as candidates for future indexes but are not yet created. The PRIMARY KEY on `event_id` provides direct lookups by event ID.
@@ -217,8 +217,8 @@ CREATE TABLE event_relations (
 
 **Indexes:**
 
-| Index | Columns | Type | Purpose |
-|---|---|---|---|
+| Index                    | Columns          | Type                  | Purpose                                                                               |
+| ------------------------ | ---------------- | --------------------- | ------------------------------------------------------------------------------------- |
 | `idx_relations_event_id` | `(event_id, id)` | Manual `CREATE INDEX` | Supports `list_relations(event_id)` lookups with deterministic row ordering via `id`. |
 
 > **Additional query patterns:** Lookups by `target_event_id` and `relation_type` are candidates for future indexes but are not yet created.
@@ -253,19 +253,19 @@ The `UNIQUE(adapter, native_channel_id, native_message_id)` constraint is the fo
 
 Transport-specific examples:
 
-| Transport | native_channel_id | native_message_id |
-|---|---|---|
-| Matrix | Room ID (e.g., `!abc:server.org`) | Matrix event ID (e.g., `$abc123`) |
-| Meshtastic | Channel index | Packet ID |
-| MeshCore | Channel slot index | MeshCore message reference |
-| LXMF | Source hash (16-byte hex) | LXMF message ID |
+| Transport  | native_channel_id                 | native_message_id                 |
+| ---------- | --------------------------------- | --------------------------------- |
+| Matrix     | Room ID (e.g., `!abc:server.org`) | Matrix event ID (e.g., `$abc123`) |
+| Meshtastic | Channel index                     | Packet ID                         |
+| MeshCore   | Channel slot index                | MeshCore message reference        |
+| LXMF       | Source hash (16-byte hex)         | LXMF message ID                   |
 
 **Indexes:**
 
-| Index | Columns | Type | Purpose |
-|---|---|---|---|
-| `idx_native_refs_event_id` | `(event_id)` | Manual `CREATE INDEX` | Reverse lookup from a canonical event to all its native message references. |
-| *(autoindex)* | `(adapter, native_channel_id, native_message_id)` | SQLite autoindex from `UNIQUE` constraint | No manual `CREATE INDEX` is needed — the `UNIQUE` constraint already produces an SQLite autoindex that covers `resolve_native_ref` lookups. |
+| Index                      | Columns                                           | Type                                      | Purpose                                                                                                                                     |
+| -------------------------- | ------------------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `idx_native_refs_event_id` | `(event_id)`                                      | Manual `CREATE INDEX`                     | Reverse lookup from a canonical event to all its native message references.                                                                 |
+| _(autoindex)_              | `(adapter, native_channel_id, native_message_id)` | SQLite autoindex from `UNIQUE` constraint | No manual `CREATE INDEX` is needed — the `UNIQUE` constraint already produces an SQLite autoindex that covers `resolve_native_ref` lookups. |
 
 ### 3.4 delivery_receipts
 
@@ -321,11 +321,11 @@ Receipts are **append-only records**. The "current status" of a delivery is a **
 
 **Indexes:**
 
-| Index | Columns | Type | Purpose |
-|---|---|---|---|
-| `idx_receipts_plan` | `(delivery_plan_id, target_adapter, attempt_number, sequence)` | Manual `CREATE INDEX` | Supports both `delivery_status` view's `GROUP BY (delivery_plan_id, target_adapter)` + `MAX(sequence)` projection and `list_receipts_for_plan()` `ORDER BY attempt_number, sequence` lineage walk. The four-column composite covers the `delivery_status` subquery prefix `(delivery_plan_id, target_adapter)` and the full ordering of `list_receipts_for_plan`. |
-| `idx_receipts_event` | `(event_id, sequence)` | Manual `CREATE INDEX` | Supports receipt lookups by event (e.g., finding all delivery attempts for a given event). |
-| `idx_receipts_source` | `(source, replay_run_id)` | Manual `CREATE INDEX` | Supports filtering receipts by replay run — traceability queries for `source='replay'` with a specific `replay_run_id`. |
+| Index                 | Columns                                                        | Type                  | Purpose                                                                                                                                                                                                                                                                                                                                                           |
+| --------------------- | -------------------------------------------------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `idx_receipts_plan`   | `(delivery_plan_id, target_adapter, attempt_number, sequence)` | Manual `CREATE INDEX` | Supports both `delivery_status` view's `GROUP BY (delivery_plan_id, target_adapter)` + `MAX(sequence)` projection and `list_receipts_for_plan()` `ORDER BY attempt_number, sequence` lineage walk. The four-column composite covers the `delivery_status` subquery prefix `(delivery_plan_id, target_adapter)` and the full ordering of `list_receipts_for_plan`. |
+| `idx_receipts_event`  | `(event_id, sequence)`                                         | Manual `CREATE INDEX` | Supports receipt lookups by event (e.g., finding all delivery attempts for a given event).                                                                                                                                                                                                                                                                        |
+| `idx_receipts_source` | `(source, replay_run_id)`                                      | Manual `CREATE INDEX` | Supports filtering receipts by replay run — traceability queries for `source='replay'` with a specific `replay_run_id`.                                                                                                                                                                                                                                           |
 
 ### 3.5 delivery_status View
 
@@ -362,7 +362,7 @@ CREATE TABLE plugin_state (
 
 Scoped key-value storage for plugins. Keys are scoped to `plugin_id`. Plugins cannot read or write state belonging to other plugins.
 
-### 3.7 _medre_schema_meta
+### 3.7 \_medre_schema_meta
 
 ```sql
 CREATE TABLE _medre_schema_meta (
@@ -476,17 +476,17 @@ Key points:
 
 ## 4. Required Guarantees
 
-| Guarantee | Required | Details |
-|---|---|---|
-| Atomic writes | **Required** | Event append, native ref storage, and receipt append must be atomic. A partial write must not leave the database in an inconsistent state. |
-| Idempotent correlation | **Required** | Storing the same `(adapter, native_channel_id, native_message_id)` tuple twice must not create duplicate rows. The `UNIQUE` constraint enforces this. |
-| Ordered append | **Required** | `canonical_events` rows are ordered by `timestamp` (ascending, no secondary sort). `delivery_receipts` rows are ordered by `sequence` (monotonic auto-increment). |
-| Replay | **Required** | The event log must support querying by time range, event kind, source adapter, and other filter criteria for replay and reprocessing. |
-| Relation lookup | **Required** | Given a `target_native_ref` (adapter, native_channel_id, native_message_id), the resolver must find the canonical `event_id` via `native_message_refs`. Unresolved relations store the native reference as split `target_native_*` columns in `event_relations`. |
-| Receipt immutability | **Required** | Receipt rows are append-only. No `UPDATE` or `DELETE` on `delivery_receipts`. Current status is always a projection. |
-| Concurrent reads | **Required** | WAL mode must be enabled to allow concurrent reads while writes are in progress. |
-| Raw archival | Optional | Per-adapter opt-in. Not required for core pipeline operation. |
-| Future backend swap | Optional | The `StorageBackend` protocol abstracts over implementation. PostgreSQL, NATS JetStream, Redis Streams, and Kafka are future possibilities. |
+| Guarantee              | Required     | Details                                                                                                                                                                                                                                                         |
+| ---------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Atomic writes          | **Required** | Event append, native ref storage, and receipt append must be atomic. A partial write must not leave the database in an inconsistent state.                                                                                                                      |
+| Idempotent correlation | **Required** | Storing the same `(adapter, native_channel_id, native_message_id)` tuple twice must not create duplicate rows. The `UNIQUE` constraint enforces this.                                                                                                           |
+| Ordered append         | **Required** | `canonical_events` rows are ordered by `timestamp` (ascending, no secondary sort). `delivery_receipts` rows are ordered by `sequence` (monotonic auto-increment).                                                                                               |
+| Replay                 | **Required** | The event log must support querying by time range, event kind, source adapter, and other filter criteria for replay and reprocessing.                                                                                                                           |
+| Relation lookup        | **Required** | Given a `target_native_ref` (adapter, native*channel_id, native_message_id), the resolver must find the canonical `event_id` via `native_message_refs`. Unresolved relations store the native reference as split `target_native*\*`columns in`event_relations`. |
+| Receipt immutability   | **Required** | Receipt rows are append-only. No `UPDATE` or `DELETE` on `delivery_receipts`. Current status is always a projection.                                                                                                                                            |
+| Concurrent reads       | **Required** | WAL mode must be enabled to allow concurrent reads while writes are in progress.                                                                                                                                                                                |
+| Raw archival           | Optional     | Per-adapter opt-in. Not required for core pipeline operation.                                                                                                                                                                                                   |
+| Future backend swap    | Optional     | The `StorageBackend` protocol abstracts over implementation. PostgreSQL, NATS JetStream, Redis Streams, and Kafka are future possibilities.                                                                                                                     |
 
 ## 5. Storage Method Semantics
 
@@ -538,14 +538,14 @@ Key points:
 
 ### 5.7a list_receipts_by_replay_run(run_id)
 
-- Returns all `DeliveryReceipt` rows whose `replay_run_id` matches *run_id*, ordered by `sequence` ascending.
+- Returns all `DeliveryReceipt` rows whose `replay_run_id` matches _run_id_, ordered by `sequence` ascending.
 - Used for operator traceability: identifying all receipts produced by a specific replay run.
 - Returns an empty list when no receipts match.
 - This is a focused query helper for replay investigation. It does not provide deduplication or prevent duplicate sends.
 
 ### 5.7b list_receipts_for_event(event_id)
 
-- Returns all `DeliveryReceipt` rows whose `event_id` matches *event_id*, ordered by `sequence` ascending.
+- Returns all `DeliveryReceipt` rows whose `event_id` matches _event_id_, ordered by `sequence` ascending.
 - Used to inspect all delivery attempts (across all plans and adapters) for a given event.
 - Returns an empty list when no receipts match.
 
@@ -605,12 +605,12 @@ The canonical event log supports replaying events through the pipeline. The repl
 
 ### 6.2 Use Cases
 
-| Scenario | Mode | target_stages |
-|---|---|---|
-| New plugin wants historical events | `RE_RENDER` or `BEST_EFFORT` | render, deliver |
-| New adapter added, needs past events | `BEST_EFFORT` | deliver |
-| Routing rules changed, re-evaluate | `RE_ROUTE` | route, plan |
-| Debug current config against past events | `DRY_RUN` | all |
+| Scenario                                 | Mode                         | target_stages   |
+| ---------------------------------------- | ---------------------------- | --------------- |
+| New plugin wants historical events       | `RE_RENDER` or `BEST_EFFORT` | render, deliver |
+| New adapter added, needs past events     | `BEST_EFFORT`                | deliver         |
+| Routing rules changed, re-evaluate       | `RE_ROUTE`                   | route, plan     |
+| Debug current config against past events | `DRY_RUN`                    | all             |
 
 ### 6.3 Future Backend Compatibility
 

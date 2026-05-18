@@ -3,18 +3,15 @@
 Operators run ``medre diagnostics`` for pre-flight snapshots and verify the
 output structure, determinism, and absence of secrets.
 """
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-import pytest
-
 from tests.test_cli_config_workflows import (
     _run_cli,
     _run_cli_raw,
-    config_fake_multi,
-    config_single,
 )
 
 

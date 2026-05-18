@@ -6,54 +6,43 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = "GPL-3.0-or-later"
 classifiers = [
-    "Development Status :: 4 - Beta",
-    "Intended Audience :: Developers",
-    # License classifier omitted per PEP 639 — the `license` field above
-    # is the SPDX expression and supersedes the Trove classifier.
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Topic :: Communications",
-    "Typing :: Typed",
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  # License classifier omitted per PEP 639 — the `license` field above
+  # is the SPDX expression and supersedes the Trove classifier.
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Communications",
+  "Typing :: Typed",
 ]
 dependencies = ["msgspec==0.21.1"]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.0",
-    "pytest-asyncio>=0.24",
-    "pytest-timeout>=2.0",
-    "pytest-cov>=5.0",
-    "coverage>=7.0",
-    "build>=1.0",
-    "setuptools>=75.0",
+  "pytest>=8.0",
+  "pytest-asyncio>=0.24",
+  "pytest-timeout>=2.0",
+  "pytest-cov>=5.0",
+  "coverage>=7.0",
+  "build>=1.0",
+  "setuptools>=75.0",
 ]
 # mindroom-nio v0.25.3 — fork of matrix-nio with MindRoom patches.
 # Floor pin matches the version audited in docs/contracts/25-matrix-e2ee-readiness.md.
-matrix = [
-    "mindroom-nio>=0.25.3",
-]
-matrix-e2e = [
-    "mindroom-nio[e2e]>=0.25.3",
-]
+matrix = ["mindroom-nio>=0.25.3"]
+matrix-e2e = ["mindroom-nio[e2e]>=0.25.3"]
 # mtjk (Meshtastic fork) — ships as distribution "mtjk", imported as "meshtastic".
 # Version 2.7.8 verified from local reference repo / pip show.
 # PyPubSub is required by mtjk for callback-based packet reception but is not
 # declared as a dependency by the mtjk distribution. Included here explicitly.
-meshtastic = [
-    "mtjk>=2.7.8",
-    "PyPubSub>=4.0",
-]
+meshtastic = ["mtjk>=2.7.8", "PyPubSub>=4.0"]
 # meshcore v2.3.7 — verified from /home/jeremiah/dev/meshcore/meshcore_py/pyproject.toml.
 # Transitive deps: bleak, pyserial-asyncio-fast, pycayennelpp, pycryptodome.
-meshcore = [
-    "meshcore>=2.3.7",
-]
+meshcore = ["meshcore>=2.3.7"]
 # lxmf v0.9.6 — verified from /home/jeremiah/dev/LXMF/LXMF/_version.py.
 # Requires Reticulum (rns) as a transitive dep (v1.2.5 at time of pin).
-lxmf = [
-    "lxmf>=0.9.6",
-]
+lxmf = ["lxmf>=0.9.6"]
 
 [project.scripts]
 medre = "medre.cli:main"
@@ -73,7 +62,7 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["src"]
 markers = [
-    "live: tests that connect to a real service or hardware (skipped by default)",
-    "docker: tests requiring Docker services like Synapse or meshtasticd (skipped by default)",
+  "live: tests that connect to a real service or hardware (skipped by default)",
+  "docker: tests requiring Docker services like Synapse or meshtasticd (skipped by default)",
 ]
 addopts = "-m 'not live and not docker'"

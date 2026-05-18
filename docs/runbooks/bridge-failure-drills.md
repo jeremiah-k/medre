@@ -28,45 +28,43 @@ For failure categories not covered here (route topology),
 see [Routing Correctness](routing-correctness.md) and
 [Bridge Operation](bridge-operation.md).
 
-
 ## 1. Failure Category Quick Reference
 
-| Category | Exit code | Receipt status | Retry? | Where to inspect |
-|----------|-----------|---------------|--------|------------------|
-| Config error | 2 | None (no runtime) | No | stderr, `medre config check` |
-| Build failure | 3 | None (no delivery) | No | `startup.build_failures`, logs |
-| Total startup failure | 4 | None (no delivery) | No | `startup.boot_summary`, logs |
-| Degraded startup | 0 | Partial | Yes (for started adapters) | `failed_adapter_ids`, `routes.startup_readiness` |
-| Renderer failure | 0 | `failed` (RENDERER_FAILURE) | No | `medre inspect receipts`, RouteStats |
-| Adapter permanent | 0 | `failed` (ADAPTER_PERMANENT) | No | receipt lineage, adapter `diagnostics()` |
-| Adapter transient | 0 | `sent` (after retry) or `failed` | Yes (up to max_attempts) | receipt `attempt_number`, `parent_receipt_id` |
-| Capacity exceeded | 0 | `failed` (delivery_capacity_exceeded) | No | `capacity_rejections` counter (internal CapacityController gauge, not an operator-facing accounting field), logs |
-| Deadline exceeded | 0 | `failed` (DEADLINE_EXCEEDED) | No | delivery plan timestamps |
-| Shutdown rejection | 0 | `failed` (delivery_rejected_shutdown) | No | `outbound_failed` counter |
-| Replay capacity | 0 | `error` (replay_capacity_exceeded) | No | `capacity_rejections` counter |
-| Replay duplicate | 0 | `sent` (multiple receipts, source=replay) | N/A (by design) | receipt `replay_run_id` |
-| Loop prevented | 0 | `skipped` (no receipt) | No | `loop_prevented` counter, RouteStats |
-| Degraded live health | 0 (command succeeds) | N/A | No | `health.live_health.adapters[]` |
-| Failed live health | 0 (command succeeds) | N/A | No | `health.live_health.adapters[]`, `.error` |
-
+| Category              | Exit code            | Receipt status                            | Retry?                     | Where to inspect                                                                                                 |
+| --------------------- | -------------------- | ----------------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Config error          | 2                    | None (no runtime)                         | No                         | stderr, `medre config check`                                                                                     |
+| Build failure         | 3                    | None (no delivery)                        | No                         | `startup.build_failures`, logs                                                                                   |
+| Total startup failure | 4                    | None (no delivery)                        | No                         | `startup.boot_summary`, logs                                                                                     |
+| Degraded startup      | 0                    | Partial                                   | Yes (for started adapters) | `failed_adapter_ids`, `routes.startup_readiness`                                                                 |
+| Renderer failure      | 0                    | `failed` (RENDERER_FAILURE)               | No                         | `medre inspect receipts`, RouteStats                                                                             |
+| Adapter permanent     | 0                    | `failed` (ADAPTER_PERMANENT)              | No                         | receipt lineage, adapter `diagnostics()`                                                                         |
+| Adapter transient     | 0                    | `sent` (after retry) or `failed`          | Yes (up to max_attempts)   | receipt `attempt_number`, `parent_receipt_id`                                                                    |
+| Capacity exceeded     | 0                    | `failed` (delivery_capacity_exceeded)     | No                         | `capacity_rejections` counter (internal CapacityController gauge, not an operator-facing accounting field), logs |
+| Deadline exceeded     | 0                    | `failed` (DEADLINE_EXCEEDED)              | No                         | delivery plan timestamps                                                                                         |
+| Shutdown rejection    | 0                    | `failed` (delivery_rejected_shutdown)     | No                         | `outbound_failed` counter                                                                                        |
+| Replay capacity       | 0                    | `error` (replay_capacity_exceeded)        | No                         | `capacity_rejections` counter                                                                                    |
+| Replay duplicate      | 0                    | `sent` (multiple receipts, source=replay) | N/A (by design)            | receipt `replay_run_id`                                                                                          |
+| Loop prevented        | 0                    | `skipped` (no receipt)                    | No                         | `loop_prevented` counter, RouteStats                                                                             |
+| Degraded live health  | 0 (command succeeds) | N/A                                       | No                         | `health.live_health.adapters[]`                                                                                  |
+| Failed live health    | 0 (command succeeds) | N/A                                       | No                         | `health.live_health.adapters[]`, `.error`                                                                        |
 
 ## 2. Smoke and Inspect: Persistence Boundary
 
-``medre smoke`` uses in-memory storage by default. When the process exits,
+`medre smoke` uses in-memory storage by default. When the process exits,
 all stored evidence is released. The JSON report printed to stdout is the only
 surviving record.
 
-Pass ``--storage-path <path>`` to persist evidence to a SQLite database that
-``medre inspect`` can query afterward.
+Pass `--storage-path <path>` to persist evidence to a SQLite database that
+`medre inspect` can query afterward.
 
-``medre inspect`` subcommands are read-only and require a persistent SQLite
-database. They exit with code 2 if the config uses ``backend = "memory"``:
+`medre inspect` subcommands are read-only and require a persistent SQLite
+database. They exit with code 2 if the config uses `backend = "memory"`:
 
 ```
 Error: storage backend is 'memory' — no persistent data to inspect.
 ```
 
-To inspect stored evidence after a run, use ``medre run`` with SQLite storage:
+To inspect stored evidence after a run, use `medre run` with SQLite storage:
 
 ```toml
 [storage]
@@ -84,7 +82,6 @@ medre inspect native-ref --adapter <name> --message <native_id> --config my-brid
 
 See [Fake Bridge Smoke Runbook](fake-bridge-smoke-runbook.md#smoke-persistence-caveat)
 and [Runtime Persistence](runtime-operation.md#persistence-and-crash-semantics).
-
 
 ## 3. Config Failure Drills
 
@@ -200,7 +197,6 @@ PYTHONPATH=src medre routes validate --config /tmp/dup-route.toml
 
 **Inspect next:** Rename one of the routes to a unique ID.
 
-
 ## 4. Build Failure Drills
 
 Build failures occur during adapter construction — after config parsing but
@@ -296,7 +292,6 @@ PYTHONPATH=src medre run --config /tmp/bad-storage.toml
 1. Verify the storage path is on a writable filesystem.
 2. Check disk space and directory permissions.
 3. Use `medre paths` to see resolved paths for the config.
-
 
 ## 5. Startup Failure Drills
 
@@ -427,7 +422,6 @@ PYTHONPATH=src medre run --config /tmp/mixed-degraded.toml
 whatever adapters succeeded. Routes referencing only failed adapters are
 skipped entirely. Routes with some failed targets operate in degraded mode —
 events are delivered to available targets only.
-
 
 ## 6. Runtime Delivery Failure Drills
 
@@ -592,7 +586,6 @@ A delivery plan's absolute deadline passes before the adapter completes.
 2. Check adapter latency — is it slower than expected?
 3. Check for transport-level issues (radio congestion, network latency).
 
-
 ## 7. Shutdown Failure Drills
 
 Shutdown failures occur when the runtime is stopping and deliveries or replays
@@ -609,15 +602,16 @@ In-flight deliveries when shutdown begins are rejected, not drained.
 
 **Inspect next:**
 
-1. `outbound_failed` counter in capacity snapshot.
-2. Logs showing which deliveries were in-flight at shutdown time.
-3. If these deliveries are important, replay the corresponding events after
-   restart.
+1.  `outbound_failed` counter in capacity snapshot.
+2.  Logs showing which deliveries were in-flight at shutdown time.
+3.  If these deliveries are important, replay the corresponding events after
+    restart.
 
-    **Caveat:** In-flight deliveries cancelled on shutdown are lost. There is no
-persistent in-flight recovery. See
-[Runtime Operation > Shutdown](runtime-operation.md#shutdown-behavior)
-and [Bridge Recovery](bridge-recovery.md) for crash recovery procedures.
+        **Caveat:** In-flight deliveries cancelled on shutdown are lost. There is no
+
+    persistent in-flight recovery. See
+    [Runtime Operation > Shutdown](runtime-operation.md#shutdown-behavior)
+    and [Bridge Recovery](bridge-recovery.md) for crash recovery procedures.
 
 ### 7.2 Replay Rejected During Shutdown
 
@@ -630,7 +624,6 @@ Replay events in progress when shutdown begins are rejected.
 - `outbound_failed` counter incremented. (Replay rejection tracks the same counter category as delivery rejection.)
 
 **Inspect next:** Re-initiate replay after restart with the same parameters.
-
 
 ## 8. Replay Failure Drills
 
@@ -684,14 +677,12 @@ More concurrent replay deliveries than `max_inflight_replay_events`.
 2. Increase `max_inflight_replay_events` in `[runtime.limits]`.
 3. Reduce replay batch size.
 
-
 ## 9. Live Health Failure Drills
 
 ### 9.1 Degraded Health Refresh
 
 The runtime starts, adapters connect, but some adapters report degraded or
-failed health. The `medre diagnostics --refresh-health` command succeeds (exit
-0) even when health is not `healthy`.
+failed health. The `medre diagnostics --refresh-health` command succeeds (exit 0) even when health is not `healthy`.
 
 **Command:**
 
@@ -769,7 +760,6 @@ All adapters report failed health. The command still succeeds (exit 0).
 2. Check logs for common cause (e.g., network outage, disk full).
 3. Verify all transport credentials and connectivity.
 
-
 ## 10. Loop Prevention Drills
 
 ### 10.1 Self-Loop Guard
@@ -826,7 +816,6 @@ topologies, entries may be evicted, allowing re-traversal. MEDRE does not
 provide cross-instance loop prevention. See
 [Routing Correctness > Loop Prevention](routing-correctness.md#2-loop-prevention).
 
-
 ## 11. Incident Workflow Cross-Check
 
 Each drill in this runbook can feed into the incident workflow described in
@@ -859,15 +848,15 @@ medre evidence --event <event_id> --config my-bridge.toml --json \
 
 This cross-check workflow applies to all drills in this runbook:
 
-| Drill | What to trace after | Key receipt fields to check |
-|-------|---------------------|-----------------------------|
-| `renderer_failure` | Event ingestion, no delivery | `failure_kind == "RENDERER_FAILURE"`, `status == "failed"` |
-| `adapter_permanent_failure` | Delivery attempt | `failure_kind == "ADAPTER_PERMANENT"`, no retry chain |
-| `adapter_transient_failure` | Retry chain | `attempt_number`, `parent_receipt_id` progression |
-| `capacity_rejection` | No receipt (permanent failure) | `capacity_rejections` counter (process-local, lost on restart) |
-| `shutdown_rejection` | No receipt (rejected) | `outbound_failed` counter (process-local) |
-| `replay_duplicate_risk` | Live vs. replay receipts | `source` field, `replay_run_id` grouping |
-| `degraded_live_health` | Health snapshot | `health.live_health.adapters[].health`, `.error` |
+| Drill                       | What to trace after            | Key receipt fields to check                                    |
+| --------------------------- | ------------------------------ | -------------------------------------------------------------- |
+| `renderer_failure`          | Event ingestion, no delivery   | `failure_kind == "RENDERER_FAILURE"`, `status == "failed"`     |
+| `adapter_permanent_failure` | Delivery attempt               | `failure_kind == "ADAPTER_PERMANENT"`, no retry chain          |
+| `adapter_transient_failure` | Retry chain                    | `attempt_number`, `parent_receipt_id` progression              |
+| `capacity_rejection`        | No receipt (permanent failure) | `capacity_rejections` counter (process-local, lost on restart) |
+| `shutdown_rejection`        | No receipt (rejected)          | `outbound_failed` counter (process-local)                      |
+| `replay_duplicate_risk`     | Live vs. replay receipts       | `source` field, `replay_run_id` grouping                       |
+| `degraded_live_health`      | Health snapshot                | `health.live_health.adapters[].health`, `.error`               |
 
 **Caveat:** Drill trace data uses fake adapters — it proves pipeline
 correctness, not real transport behavior. Traceability is not deduplication.
@@ -880,31 +869,30 @@ See [Bridge Recovery](bridge-recovery.md) for the complete incident workflow,
 [Bridge Evidence Bundle](bridge-evidence-bundle.md) for the full evidence
 report shape.
 
-
 ## 12. Inspect Follow-Up Quick Reference
 
-| After this failure... | Run this to inspect |
-|----------------------|-------------------|
-| Config error (exit 2) | `medre config check --config <path>` |
-| Config error (drill) | `medre smoke --drill bad_route_config --json` |
-| Build failure (exit 3) | `medre diagnostics --config <path>` → `startup.build_failures` |
-| Build failure (drill) | `medre smoke --drill all_adapters_build_fail --json` |
-| Total startup failure (exit 4) | `medre diagnostics --config <path>` → `startup.boot_summary` |
-| Total startup failure (drill) | `medre smoke --drill all_adapters_start_fail --json` |
-| Degraded startup | `medre diagnostics --refresh-health` → `health.live_health` |
-| Degraded startup (drill) | `medre smoke --drill partial_degraded_startup --json` |
-| Renderer failure | `medre inspect receipts --event <id> --config <path>` |
-| Adapter permanent | `medre inspect receipts --event <id>` + adapter `diagnostics()` |
-| Adapter transient | Full receipt chain via `parent_receipt_id` |
-| Capacity exceeded | `capacity_rejections` counter in logs; tune `max_inflight_deliveries` |
-| Deadline exceeded | Delivery plan timestamps vs. actual adapter latency |
-| Shutdown rejection | `outbound_failed` counter; replay orphaned events after restart |
-| Replay duplicate | `medre inspect receipts --replay-run <id> --config <path>` |
-| Replay capacity | `capacity_rejections` counter; tune `max_inflight_replay_events` |
-| Live health degraded | `medre diagnostics --refresh-health` → per-adapter `.error` |
-| Loop prevented | `RouteStats` → `loop_prevented`; `accounting.snapshot()` |
+| After this failure...          | Run this to inspect                                                   |
+| ------------------------------ | --------------------------------------------------------------------- |
+| Config error (exit 2)          | `medre config check --config <path>`                                  |
+| Config error (drill)           | `medre smoke --drill bad_route_config --json`                         |
+| Build failure (exit 3)         | `medre diagnostics --config <path>` → `startup.build_failures`        |
+| Build failure (drill)          | `medre smoke --drill all_adapters_build_fail --json`                  |
+| Total startup failure (exit 4) | `medre diagnostics --config <path>` → `startup.boot_summary`          |
+| Total startup failure (drill)  | `medre smoke --drill all_adapters_start_fail --json`                  |
+| Degraded startup               | `medre diagnostics --refresh-health` → `health.live_health`           |
+| Degraded startup (drill)       | `medre smoke --drill partial_degraded_startup --json`                 |
+| Renderer failure               | `medre inspect receipts --event <id> --config <path>`                 |
+| Adapter permanent              | `medre inspect receipts --event <id>` + adapter `diagnostics()`       |
+| Adapter transient              | Full receipt chain via `parent_receipt_id`                            |
+| Capacity exceeded              | `capacity_rejections` counter in logs; tune `max_inflight_deliveries` |
+| Deadline exceeded              | Delivery plan timestamps vs. actual adapter latency                   |
+| Shutdown rejection             | `outbound_failed` counter; replay orphaned events after restart       |
+| Replay duplicate               | `medre inspect receipts --replay-run <id> --config <path>`            |
+| Replay capacity                | `capacity_rejections` counter; tune `max_inflight_replay_events`      |
+| Live health degraded           | `medre diagnostics --refresh-health` → per-adapter `.error`           |
+| Loop prevented                 | `RouteStats` → `loop_prevented`; `accounting.snapshot()`              |
 
-For persistent inspection, use ``[storage] backend = "sqlite"`` and query:
+For persistent inspection, use `[storage] backend = "sqlite"` and query:
 
 ```bash
 # All failed deliveries for a route
@@ -916,23 +904,22 @@ medre inspect receipts --event <event_id> --config my-bridge.toml
 # WHERE r.event_id IS NULL;
 ```
 
-
 ## 13. Caveats
 
 1. **No live-network claims.** These drills use fake adapters and in-memory
    storage unless explicitly noted. They prove pipeline correctness, not real
    transport behavior.
 
-2. **In-memory storage is ephemeral.** ``medre smoke`` and most test fixtures
+2. **In-memory storage is ephemeral.** `medre smoke` and most test fixtures
    use in-memory storage. Evidence vanishes on process exit. For durable
-   inspection, use ``backend = "sqlite"`` and ``medre inspect``.
+   inspection, use `backend = "sqlite"` and `medre inspect`.
 
-3. **``medre inspect`` requires SQLite.** The inspect subcommands open an
+3. **`medre inspect` requires SQLite.** The inspect subcommands open an
    existing SQLite database in read-only mode. They exit with code 2 if the
-   config uses ``backend = "memory"`` or the database file does not exist.
+   config uses `backend = "memory"` or the database file does not exist.
 
- 4. **Counters reset on restart.** ``capacity_rejections``, ``outbound_failed``,
-    ``RouteStats``, and ``CapacityController`` gauges are process-local. They
+4. **Counters reset on restart.** `capacity_rejections`, `outbound_failed`,
+   `RouteStats`, and `CapacityController` gauges are process-local. They
    reset to zero on every startup.
 
 5. **No automated remediation.** MEDRE does not restart adapters, routes, or
@@ -946,23 +933,17 @@ medre inspect receipts --event <event_id> --config my-bridge.toml
 8. **Replay does not deduplicate.** Multiple BEST_EFFORT replays of the same
    event produce additional outbound messages each time.
 
-9. **Radio transports are probabilistic.** With real adapters, ``sent`` does not
+9. **Radio transports are probabilistic.** With real adapters, `sent` does not
    mean delivered. This runbook's fake-adapter drills do not exercise radio
    unreliability. See [Bridge Operation > Per-Transport Delivery
    Semantics](bridge-operation.md#2-per-transport-delivery-semantics).
 
-10. **Smoke and diagnostics are one-shot.** ``medre smoke`` and
-    ``medre diagnostics --refresh-health`` start and stop the runtime. They do
-    not provide ongoing monitoring.
-
-     11. **Pre-beta.** Exit codes, receipt schemas, and diagnostic shapes may change
-      before beta. Always verify against the current code.
-
-    12. **Evidence bundle workflow.** For a structured approach to collecting
-     smoke output, drill reports, and inspect results as a pre-runtime
-     evidence package, see [Bridge Evidence Bundle](bridge-evidence-bundle.md).
-
-    13. **Recovery and tracing.** For crash recovery procedures and orphan
+10. **Smoke and diagnostics are one-shot.** `medre smoke` and
+    `medre diagnostics --refresh-health` start and stop the runtime. They do
+    not provide ongoing monitoring. 11. **Pre-beta.** Exit codes, receipt schemas, and diagnostic shapes may change
+    before beta. Always verify against the current code. 12. **Evidence bundle workflow.** For a structured approach to collecting
+    smoke output, drill reports, and inspect results as a pre-runtime
+    evidence package, see [Bridge Evidence Bundle](bridge-evidence-bundle.md). 13. **Recovery and tracing.** For crash recovery procedures and orphan
     detection, see [Bridge Recovery](bridge-recovery.md). For event tracing
     through the pipeline lifecycle, see [Event Tracing](event-tracing.md).
     For the full replay workflow, see [Replay Operation](replay-operation.md).

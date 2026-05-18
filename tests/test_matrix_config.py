@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from medre.config.adapters.matrix import MatrixConfig
 from medre.config.adapters.errors import MatrixConfigError
+from medre.config.adapters.matrix import MatrixConfig
 
 
 class TestMatrixConfig:

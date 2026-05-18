@@ -22,6 +22,7 @@ The adapter is responsible for:
 - Calling `waitConnected()` or equivalent to confirm the interface is ready
 
 The adapter MUST NOT:
+
 - Expose connection internals to the pipeline
 - Allow the pipeline to access the mtjk interface directly
 - Block pipeline startup on connection completion (connection should be
@@ -39,6 +40,7 @@ The adapter is responsible for:
 - Draining stale callbacks during startup (backlog suppression)
 
 The adapter MUST NOT:
+
 - Register multiple callbacks for the same topic
 - Leak callbacks across adapter `stop()` / `start()` cycles
 
@@ -53,6 +55,7 @@ The adapter is responsible for:
   processing the next item
 
 The pipeline MUST NOT:
+
 - Perform Meshtastic-specific sleeping (`asyncio.sleep` for pacing)
 - Bypass the queue to call mtjk directly
 
@@ -194,6 +197,6 @@ connection tranche:
 
 ---
 
-*This document describes expected ownership and design for a future
+_This document describes expected ownership and design for a future
 Meshtastic real connection implementation. No code implementing these
-patterns exists in the current codebase.*
+patterns exists in the current codebase._

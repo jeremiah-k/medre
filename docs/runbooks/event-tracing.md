@@ -41,7 +41,6 @@ for the full command classification.
 - Adapter health at the time of the event (not stored).
 - Transport-level delivery confirmation beyond what the adapter reported.
 
-
 ## 1. Commands
 
 ### 1.1 Trace a Single Event
@@ -145,29 +144,29 @@ cross-referencing with evidence bundles ([Bridge Evidence Bundle](bridge-evidenc
 
 **DeliveryReceipt fields:**
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `receipt_id` | `str` | Unique receipt identifier |
-| `event_id` | `str` | Canonical event this receipt belongs to |
-| `target_adapter` | `str` | Adapter that received the delivery |
-| `route_id` | `str` | Route that matched the event |
-| `status` | `str` | `"sent"`, `"failed"`, or `"skipped"` |
-| `failure_kind` | `str or null` | `"RENDERER_FAILURE"`, `"ADAPTER_PERMANENT"`, `"ADAPTER_TRANSIENT"`, `"DEADLINE_EXCEEDED"`, `"delivery_capacity_exceeded"`, `"delivery_rejected_shutdown"`, or `null` |
-| `attempt_number` | `int` | 1 for first attempt, increments on retry |
-| `parent_receipt_id` | `str or null` | Links to the previous receipt in a retry chain |
-| `source` | `str` | `"live"` for original delivery, `"retry"` for RetryWorker-attempted delivery, `"replay"` for replay-attributed delivery |
-| `replay_run_id` | `str or null` | Unique run ID when `source == "replay"`; groups all receipts from one replay run |
-| `created_at` | `str` | ISO-8601 timestamp of receipt creation |
+| Field               | Type          | Description                                                                                                                                                          |
+| ------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `receipt_id`        | `str`         | Unique receipt identifier                                                                                                                                            |
+| `event_id`          | `str`         | Canonical event this receipt belongs to                                                                                                                              |
+| `target_adapter`    | `str`         | Adapter that received the delivery                                                                                                                                   |
+| `route_id`          | `str`         | Route that matched the event                                                                                                                                         |
+| `status`            | `str`         | `"sent"`, `"failed"`, or `"skipped"`                                                                                                                                 |
+| `failure_kind`      | `str or null` | `"RENDERER_FAILURE"`, `"ADAPTER_PERMANENT"`, `"ADAPTER_TRANSIENT"`, `"DEADLINE_EXCEEDED"`, `"delivery_capacity_exceeded"`, `"delivery_rejected_shutdown"`, or `null` |
+| `attempt_number`    | `int`         | 1 for first attempt, increments on retry                                                                                                                             |
+| `parent_receipt_id` | `str or null` | Links to the previous receipt in a retry chain                                                                                                                       |
+| `source`            | `str`         | `"live"` for original delivery, `"retry"` for RetryWorker-attempted delivery, `"replay"` for replay-attributed delivery                                              |
+| `replay_run_id`     | `str or null` | Unique run ID when `source == "replay"`; groups all receipts from one replay run                                                                                     |
+| `created_at`        | `str`         | ISO-8601 timestamp of receipt creation                                                                                                                               |
 
 **NativeMessageRef fields:**
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `native_message_id` | `str` | Transport-native message ID (e.g., Matrix event ID, Meshtastic packet ID) |
-| `native_channel_id` | `str or null` | Transport-native channel or room ID |
-| `canonical_event_id` | `str` | Links back to the canonical event |
-| `adapter` | `str` | Adapter that produced this mapping |
-| `direction` | `str` | `"inbound"` (ingested from transport) or `"outbound"` (delivered to transport) |
+| Field                | Type          | Description                                                                    |
+| -------------------- | ------------- | ------------------------------------------------------------------------------ |
+| `native_message_id`  | `str`         | Transport-native message ID (e.g., Matrix event ID, Meshtastic packet ID)      |
+| `native_channel_id`  | `str or null` | Transport-native channel or room ID                                            |
+| `canonical_event_id` | `str`         | Links back to the canonical event                                              |
+| `adapter`            | `str`         | Adapter that produced this mapping                                             |
+| `direction`          | `str`         | `"inbound"` (ingested from transport) or `"outbound"` (delivered to transport) |
 
 **Key distinction:** `source='live'` receipts are from normal pipeline
 delivery. `source='retry'` receipts are from the RetryWorker re-attempting a transient failure (same delivery lineage, linked via `parent_receipt_id`). `source='replay'` receipts are from operator-initiated replay
@@ -250,15 +249,15 @@ Entry types: `[receipt]` (status, target, event ID) and `[event_summary]`
 
 **Replay trace output fields:**
 
-| Field | Description |
-|-------|-------------|
-| `replay_run_id` | Unique identifier for this replay run — matches `replay_run_id` on individual receipts |
-| `receipts` | All delivery receipts produced by this replay run. Each has `source='replay'` and the same `replay_run_id`. |
-| `summary.total_receipts` | Total number of delivery receipts in this run |
-| `summary.sent` / `summary.failed` | Count of successful/failed deliveries |
-| `summary.events_covered` | Number of distinct events re-delivered |
-| `summary.duplicate_risk` | Always present. Describes the risk that events already had live deliveries. |
-| `timeline` | Ordered replay lifecycle events, same shape as event trace timeline. Phase is always `"replay"`. |
+| Field                             | Description                                                                                                 |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `replay_run_id`                   | Unique identifier for this replay run — matches `replay_run_id` on individual receipts                      |
+| `receipts`                        | All delivery receipts produced by this replay run. Each has `source='replay'` and the same `replay_run_id`. |
+| `summary.total_receipts`          | Total number of delivery receipts in this run                                                               |
+| `summary.sent` / `summary.failed` | Count of successful/failed deliveries                                                                       |
+| `summary.events_covered`          | Number of distinct events re-delivered                                                                      |
+| `summary.duplicate_risk`          | Always present. Describes the risk that events already had live deliveries.                                 |
+| `timeline`                        | Ordered replay lifecycle events, same shape as event trace timeline. Phase is always `"replay"`.            |
 
 **Caveat:** The `duplicate_risk` field is informational only — it does not
 prevent duplicates. BEST_EFFORT replay sends real messages regardless. There
@@ -267,7 +266,8 @@ The RetryWorker handles transient delivery failures automatically when enabled (
 Runtime events are process-local — if the process crashed during replay,
 completed deliveries are preserved (receipts in SQLite) but remaining events
 must be re-replayed manually.
-```
+
+````
 
 ### 1.4 Exit Codes
 
@@ -375,8 +375,7 @@ PYTHONPATH=src medre smoke --drill replay_duplicate_risk \
 medre inspect event <event_id> --timeline --storage-path /tmp/medre-trace.db
 # Or inspect receipts directly:
 medre inspect receipts --event <event_id> --storage-path /tmp/medre-trace.db
-```
-
+````
 
 ## 3. SQL Queries for Deep Tracing
 
@@ -500,7 +499,6 @@ GROUP BY r.route_id, r.status
 ORDER BY r.route_id, r.status;
 ```
 
-
 ## 4. Tracing Workflows
 
 ### 4.1 "Did My Message Get Delivered?"
@@ -575,7 +573,6 @@ sqlite3 {state}/medre.sqlite "
 "
 ```
 
-
 ## 5. Trace Integrity Notes
 
 This section documents the ordering and timestamping guarantees that underpin
@@ -635,11 +632,11 @@ not sorted by `created_at` (the storage insertion time) but by `timestamp`
 
 The `source` column on `delivery_receipts` has three values:
 
-| Value | Meaning |
-|-------|---------|
-| `"live"` | Delivery produced by the normal runtime pipeline during operation |
-| `"retry"` | Delivery produced by the RetryWorker re-attempting a transient failure (opt-in — requires `RetryPolicy` configured). Retry receipts carry `parent_receipt_id` linking to the original failure receipt and incremented `attempt_number`. |
-| `"replay"` | Delivery produced by an operator-initiated replay run |
+| Value      | Meaning                                                                                                                                                                                                                                 |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"live"`   | Delivery produced by the normal runtime pipeline during operation                                                                                                                                                                       |
+| `"retry"`  | Delivery produced by the RetryWorker re-attempting a transient failure (opt-in — requires `RetryPolicy` configured). Retry receipts carry `parent_receipt_id` linking to the original failure receipt and incremented `attempt_number`. |
+| `"replay"` | Delivery produced by an operator-initiated replay run                                                                                                                                                                                   |
 
 Do not use `replay_run_id IS NOT NULL` to detect replay receipts. Future
 features may populate `replay_run_id` for non-replay purposes. The `source`
@@ -663,7 +660,6 @@ Native message refs for an event are ordered by `ORDER BY created_at ASC, id ASC
 The `id` tiebreaker ensures deterministic ordering when multiple refs share the
 same timestamp.
 
-
 ## 6. Long-Run Lineage Notes
 
 This section documents lineage properties verified by the long-run evidence
@@ -672,9 +668,9 @@ integrity test suite (`tests/test_longrun_evidence_integrity.py`).
 ### 6.1 Repeated Replays Produce Distinct run_ids
 
 Each `medre replay --mode BEST_EFFORT` invocation produces a unique
-`replay_run_id`, even when replaying the same event multiple times.  Replaying
+`replay_run_id`, even when replaying the same event multiple times. Replaying
 event `p1-0` three times produces three distinct sets of receipts, each grouped
-by a different `replay_run_id`.  The trace for the event shows one live receipt
+by a different `replay_run_id`. The trace for the event shows one live receipt
 per target plus one replay receipt per target per run:
 
 ```
@@ -689,8 +685,8 @@ Event: p1-0 (message.created) from mx
 ### 6.2 Interleaved Live and Replay Identifiable by Sequence
 
 When live events are injected between replay runs, the sequence ordering
-reflects the true insertion order.  Receipts are not grouped by source; they are
-interleaved in sequence order.  Use the `source` and `replay_run_id` fields to
+reflects the true insertion order. Receipts are not grouped by source; they are
+interleaved in sequence order. Use the `source` and `replay_run_id` fields to
 distinguish origin:
 
 ```
@@ -700,26 +696,25 @@ seq 171-176:  replay receipts (3 events * 2 targets, run_id=interleave-001)
 seq 177-186:  phase-C live receipts (5 new events * 2 targets)
 ```
 
-The `source` column (`"live"`, `"retry"`, or `"replay"`) is the authoritative filter.  Do
+The `source` column (`"live"`, `"retry"`, or `"replay"`) is the authoritative filter. Do
 not use `replay_run_id IS NOT NULL` to detect replay receipts.
 
 ### 6.3 Evidence Bundle Matches Trace Ordering
 
-The evidence bundle collects receipts in `sequence ASC` order.  This ordering
-matches the timeline produced by `medre trace event`.  When an event has both
+The evidence bundle collects receipts in `sequence ASC` order. This ordering
+matches the timeline produced by `medre trace event`. When an event has both
 live and replay receipts, the evidence bundle lists them in insertion order, not
-grouped by source.  Use `source` and `replay_run_id` to filter within the
+grouped by source. Use `source` and `replay_run_id` to filter within the
 bundle.
 
 ### 6.4 Counter Resets Are Process-Local, Not Lineage Events
 
 Process-local counters (`RuntimeAccounting`, `RouteStats`, `CapacityController`)
-reset to zero on every restart.  These resets do not produce receipts, events,
-or native refs.  They are not visible in trace output or evidence bundles.
+reset to zero on every restart. These resets do not produce receipts, events,
+or native refs. They are not visible in trace output or evidence bundles.
 After a restart, new receipts continue the auto-increment sequence from where
-the previous session left off.  Counter values in `medre diagnostics` reflect
+the previous session left off. Counter values in `medre diagnostics` reflect
 only the current process, not cumulative history.
-
 
 ## 7. Limitations
 
@@ -728,7 +723,7 @@ only the current process, not cumulative history.
    The event exists in `canonical_events` but has no corresponding entry in
    `delivery_receipts`.
 
- 2. **Counters reset on restart.** Process-local counters (capacity_rejections,
+2. **Counters reset on restart.** Process-local counters (capacity_rejections,
    outbound_failed, RouteStats) are not stored in SQLite. Timeline reports
    cannot reference counter values from before the last restart.
 
@@ -754,7 +749,6 @@ only the current process, not cumulative history.
 
 8. **Pre-beta.** CLI command shapes, output formats, and timeline phases may
    change before beta. Always verify against the current code.
-
 
 ## 8. Cross-References
 

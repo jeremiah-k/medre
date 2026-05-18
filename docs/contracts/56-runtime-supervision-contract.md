@@ -13,16 +13,16 @@
 
 MEDRE uses four distinct state layers. Each has a different source of truth, granularity, and update mechanism. Confusing them is the most common source of misunderstanding.
 
-| Layer | Enum | Scope | Source of Truth | Updated By |
-|-------|------|-------|-----------------|------------|
-| **RuntimeState** | `medre.runtime.app.RuntimeState` | Process lifecycle: `INITIALIZED → STARTING → RUNNING → STOPPING → STOPPED`, or `→ FAILED` | `MedreApp.state` | `MedreApp.start()`, `.stop()`, unrecoverable errors |
-| **RuntimeHealth** | `medre.core.runtime.supervision.RuntimeHealth` | Aggregate adapter health: `HEALTHY`, `DEGRADED`, `FAILED` | Derived (pure function) | `classify_runtime_health()` — called by operator or snapshot, **not** auto-updated |
-| **StartupOutcome** | `medre.core.runtime.supervision.StartupOutcome` | One-time boot result: `SUCCESS`, `PARTIAL`, `TOTAL_FAILURE` | Derived (pure function) | `classify_startup_outcome()` — computed once during `start()` |
-| **AdapterState** | `medre.core.lifecycle.states.AdapterState` | Per-adapter lifecycle: `INITIALIZING → READY → DEGRADED / BACKPRESSURED / DISCONNECTED → STOPPING → STOPPED / FAILED` | `MedreApp._adapter_states[adapter_id]` | Build, start, stop, cleanup code paths |
+| Layer              | Enum                                            | Scope                                                                                                                 | Source of Truth                        | Updated By                                                                         |
+| ------------------ | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------- |
+| **RuntimeState**   | `medre.runtime.app.RuntimeState`                | Process lifecycle: `INITIALIZED → STARTING → RUNNING → STOPPING → STOPPED`, or `→ FAILED`                             | `MedreApp.state`                       | `MedreApp.start()`, `.stop()`, unrecoverable errors                                |
+| **RuntimeHealth**  | `medre.core.runtime.supervision.RuntimeHealth`  | Aggregate adapter health: `HEALTHY`, `DEGRADED`, `FAILED`                                                             | Derived (pure function)                | `classify_runtime_health()` — called by operator or snapshot, **not** auto-updated |
+| **StartupOutcome** | `medre.core.runtime.supervision.StartupOutcome` | One-time boot result: `SUCCESS`, `PARTIAL`, `TOTAL_FAILURE`                                                           | Derived (pure function)                | `classify_startup_outcome()` — computed once during `start()`                      |
+| **AdapterState**   | `medre.core.lifecycle.states.AdapterState`      | Per-adapter lifecycle: `INITIALIZING → READY → DEGRADED / BACKPRESSURED / DISCONNECTED → STOPPING → STOPPED / FAILED` | `MedreApp._adapter_states[adapter_id]` | Build, start, stop, cleanup code paths                                             |
 
 Key distinctions:
 
-1. **RuntimeState has no `DEGRADED` value.** The runtime process is either running or it is not. Degradation is a *health* concept, not a *lifecycle* concept. A runtime in `RUNNING` state can have `DEGRADED` or `FAILED` health.
+1. **RuntimeState has no `DEGRADED` value.** The runtime process is either running or it is not. Degradation is a _health_ concept, not a _lifecycle_ concept. A runtime in `RUNNING` state can have `DEGRADED` or `FAILED` health.
 
 2. **RuntimeHealth is derived, not stored.** It is a pure projection of adapter states at the time of classification. It is not continuously monitored or auto-refreshed.
 
@@ -31,6 +31,7 @@ Key distinctions:
 4. **AdapterState is per-adapter.** Each adapter has its own lifecycle tracked independently. The runtime aggregates them to derive RuntimeHealth.
 
 Concrete examples:
+
 - **Partial startup:** `RuntimeState=RUNNING`, `RuntimeHealth=DEGRADED`, `StartupOutcome=PARTIAL`, some adapters `READY` and some `FAILED`.
 - **Total startup failure:** `RuntimeState=FAILED`, `RuntimeHealth=FAILED`, `StartupOutcome=TOTAL_FAILURE`, all adapters `FAILED`.
 - **Clean stop:** `RuntimeState=STOPPED`, all adapters `STOPPED`. RuntimeHealth is not meaningful after stop.
@@ -41,11 +42,11 @@ The runtime health is a single enumerated value derived deterministically from t
 
 ### 1.1 RuntimeHealth Enum
 
-| Value | Meaning |
-|-------|---------|
-| `HEALTHY` | All adapters are in `READY` state. The runtime is fully operational. |
+| Value      | Meaning                                                                                                                      |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `HEALTHY`  | All adapters are in `READY` state. The runtime is fully operational.                                                         |
 | `DEGRADED` | At least one adapter is operational (`READY`), but at least one adapter is not. The runtime continues with reduced capacity. |
-| `FAILED` | All adapters are in `FAILED` state, or zero adapters are registered. The runtime cannot route events. |
+| `FAILED`   | All adapters are in `FAILED` state, or zero adapters are registered. The runtime cannot route events.                        |
 
 ### 1.2 Classification Rules
 
@@ -67,9 +68,9 @@ These rules are pure, deterministic, and transport-agnostic. They depend only on
 
 ### 2.1 AdapterFailureSeverity Enum
 
-| Value | Meaning |
-|-------|---------|
-| `FATAL` | The adapter failure makes the runtime inoperable. All adapters are down. |
+| Value       | Meaning                                                                                 |
+| ----------- | --------------------------------------------------------------------------------------- |
+| `FATAL`     | The adapter failure makes the runtime inoperable. All adapters are down.                |
 | `NON_FATAL` | The adapter failure degrades the runtime, but at least one adapter remains operational. |
 
 ### 2.2 Classification Rule
@@ -86,11 +87,11 @@ These rules are pure, deterministic, and transport-agnostic. They depend only on
 
 ### 3.1 StartupOutcome Enum
 
-| Value | Meaning |
-|-------|---------|
-| `SUCCESS` | All configured adapters started successfully. Runtime is `HEALTHY`. |
-| `PARTIAL` | Some adapters started, some failed. Runtime is `DEGRADED`. This is allowed. |
-| `TOTAL_FAILURE` | Zero adapters started. Runtime is `FAILED`. This is a startup failure. |
+| Value           | Meaning                                                                     |
+| --------------- | --------------------------------------------------------------------------- |
+| `SUCCESS`       | All configured adapters started successfully. Runtime is `HEALTHY`.         |
+| `PARTIAL`       | Some adapters started, some failed. Runtime is `DEGRADED`. This is allowed. |
+| `TOTAL_FAILURE` | Zero adapters started. Runtime is `FAILED`. This is a startup failure.      |
 
 ### 3.2 Classification Rule
 
@@ -113,18 +114,18 @@ The registry is the single source of truth for adapter lifecycle states. Runtime
 
 ### 4.2 State Mutation Points
 
-| When | State set | Transition |
-|------|-----------|------------|
-| Before adapter start loop | `INITIALIZING` | (initial) |
-| Build failure | `FAILED` | (initial) |
-| Successful adapter start | `READY` | `INITIALIZING` → `READY` |
-| Adapter start failure | `FAILED` | `INITIALIZING` → `FAILED` |
-| Before adapter stop | `STOPPING` | `READY` → `STOPPING` |
-| Successful adapter stop | `STOPPED` | `STOPPING` → `STOPPED` |
-| Adapter stop failure | `FAILED` | `STOPPING` → `FAILED` |
-| Cleanup: successful stop | `STOPPED` | `STOPPING` → `STOPPED` |
-| Cleanup: failed stop | `FAILED` | `STOPPING` → `FAILED` |
-| Never-started adapter during stop | `FAILED` | `INITIALIZING` → `FAILED` |
+| When                              | State set      | Transition                |
+| --------------------------------- | -------------- | ------------------------- |
+| Before adapter start loop         | `INITIALIZING` | (initial)                 |
+| Build failure                     | `FAILED`       | (initial)                 |
+| Successful adapter start          | `READY`        | `INITIALIZING` → `READY`  |
+| Adapter start failure             | `FAILED`       | `INITIALIZING` → `FAILED` |
+| Before adapter stop               | `STOPPING`     | `READY` → `STOPPING`      |
+| Successful adapter stop           | `STOPPED`      | `STOPPING` → `STOPPED`    |
+| Adapter stop failure              | `FAILED`       | `STOPPING` → `FAILED`     |
+| Cleanup: successful stop          | `STOPPED`      | `STOPPING` → `STOPPED`    |
+| Cleanup: failed stop              | `FAILED`       | `STOPPING` → `FAILED`     |
+| Never-started adapter during stop | `FAILED`       | `INITIALIZING` → `FAILED` |
 
 All transitions are validated via `require_valid_transition()`. Initial assignments (adapter not yet in registry) bypass validation.
 
@@ -143,6 +144,7 @@ The supervision module provides a diagnostics snapshot hook:
 `runtime_supervision_snapshot(adapter_states: Sequence[AdapterState]) -> dict[str, Any]`
 
 Returns a JSON-safe dictionary containing:
+
 - `runtime_health`: The classified `RuntimeHealth` value as a string.
 - `adapter_summary`: Counts by state category (`healthy`, `degraded`, `failed`, `other`).
 - `startup_fingerprint`: Deterministic description of the adapter state distribution.
@@ -153,10 +155,10 @@ This is observational only. It does not trigger restarts, alerts, or state chang
 
 The runtime snapshot exposes health through two explicit top-level fields:
 
-| Field | Value | Meaning |
-|-------|-------|---------|
-| `startup_health` | `dict \| null` | Startup-derived supervision snapshot from `runtime_supervision_snapshot()`. Set once during `app.start()`. Frozen — not affected by `refresh_live_health()`. |
-| `live_health` | `dict \| null` | `null` before the first call to `MedreApp.refresh_live_health()`. After the first successful refresh, contains a `LiveHealthSnapshot` dict with per-adapter live health, aggregate classification, and poll metadata. Populated only by explicit manual refresh; no background polling exists. |
+| Field            | Value          | Meaning                                                                                                                                                                                                                                                                                        |
+| ---------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `startup_health` | `dict \| null` | Startup-derived supervision snapshot from `runtime_supervision_snapshot()`. Set once during `app.start()`. Frozen — not affected by `refresh_live_health()`.                                                                                                                                   |
+| `live_health`    | `dict \| null` | `null` before the first call to `MedreApp.refresh_live_health()`. After the first successful refresh, contains a `LiveHealthSnapshot` dict with per-adapter live health, aggregate classification, and poll metadata. Populated only by explicit manual refresh; no background polling exists. |
 
 The split ensures operators cannot confuse the one-time startup health assessment with live runtime health. `startup_health` remains frozen at its startup value regardless of live refresh activity. `live_health` transitions from `null` to `dict` on the first successful `refresh_live_health()` call; `scope` transitions from `"startup"` to `"live"` and `live_refresh` transitions from `false` to `true`.
 
@@ -166,49 +168,49 @@ The runtime snapshot carries explicit provenance metadata (`scope` and `live_ref
 
 Section-level provenance:
 
-| Section | `scope` | `live_refresh` | Rationale |
-|---------|---------|----------------|-----------|
-| `startup` | `"startup"` | `false` | Boot classification computed once during `MedreApp.start()`. |
-| `startup.startup_health` | `"startup"` | `false` | Health classification from `runtime_supervision_snapshot()` at startup. |
-| `health` | `"startup"` | `false` | Before first refresh: startup-derived health assessment. `live_health` is `null`. After first `refresh_live_health()`: `scope` transitions to `"live"`, `live_refresh` to `true`, `live_health` carries live data. |
-| `lifecycle` | `"process_local"` | `false` | In-process state at snapshot time. Not persisted across restarts. |
-| `diagnostics` | `"process_local"` | `true` | Event buffer grows during process lifetime. |
+| Section                  | `scope`           | `live_refresh` | Rationale                                                                                                                                                                                                          |
+| ------------------------ | ----------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `startup`                | `"startup"`       | `false`        | Boot classification computed once during `MedreApp.start()`.                                                                                                                                                       |
+| `startup.startup_health` | `"startup"`       | `false`        | Health classification from `runtime_supervision_snapshot()` at startup.                                                                                                                                            |
+| `health`                 | `"startup"`       | `false`        | Before first refresh: startup-derived health assessment. `live_health` is `null`. After first `refresh_live_health()`: `scope` transitions to `"live"`, `live_refresh` to `true`, `live_health` carries live data. |
+| `lifecycle`              | `"process_local"` | `false`        | In-process state at snapshot time. Not persisted across restarts.                                                                                                                                                  |
+| `diagnostics`            | `"process_local"` | `true`         | Event buffer grows during process lifetime.                                                                                                                                                                        |
 
 Per-adapter provenance:
 
-| Field | Provenance | Meaning |
-|-------|-----------|---------|
-| `adapters.{id}.health` | `"startup"` (via `provenance` field) | Static `_last_health` from build/startup. Not refreshed. |
-| `adapters.{id}.provenance` | Always `"startup"` | Explicit marker that adapter metadata is startup-derived. |
-| `lifecycle.adapters.{id}` | `"process_local"` (section-level) | Current `AdapterState` from in-memory registry. |
+| Field                      | Provenance                           | Meaning                                                   |
+| -------------------------- | ------------------------------------ | --------------------------------------------------------- |
+| `adapters.{id}.health`     | `"startup"` (via `provenance` field) | Static `_last_health` from build/startup. Not refreshed.  |
+| `adapters.{id}.provenance` | Always `"startup"`                   | Explicit marker that adapter metadata is startup-derived. |
+| `lifecycle.adapters.{id}`  | `"process_local"` (section-level)    | Current `AdapterState` from in-memory registry.           |
 
 **Key distinction for operators:** `adapters.{id}.health` (startup-derived) and `lifecycle.adapters.{id}` (process-local) can diverge after startup. The `provenance` field and section-level `scope` make this distinction machine-readable.
 
 ### 5.3 Where to Look: Operator Diagnostics Guide
 
-| Operator Question | Look Here | Snapshot Path | Provenance |
-|---|---|---|---|
-| Did config load? | CLI stderr (exit code 2) | N/A | build |
-| Which adapters failed to build? | `startup.build_failures` | `snapshot.startup.build_failures` | startup |
-| Did startup succeed? | CLI stdout + `startup.boot_summary` | `snapshot.startup.boot_summary.startup_outcome` | startup |
-| Is runtime healthy? | `startup.startup_health.runtime_health` | `snapshot.startup.startup_health.runtime_health` | startup (not live!) |
-| Which routes are active? | `routes.eligibility` + `routes.startup_readiness` | `snapshot.routes.eligibility.registered` / `snapshot.routes.startup_readiness.readiness` | build / startup |
-| Which adapters are running now? | `lifecycle.adapters` | `snapshot.lifecycle.adapters.{id}` | process-local |
-| Is adapter health current? | Check `adapters.{id}.provenance` | `snapshot.adapters.{id}.provenance` → `"startup"` | startup (stale!) |
-| How long up? | `lifecycle.uptime_seconds` | `snapshot.lifecycle.uptime_seconds` | process-local |
+| Operator Question               | Look Here                                         | Snapshot Path                                                                            | Provenance          |
+| ------------------------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------- | ------------------- |
+| Did config load?                | CLI stderr (exit code 2)                          | N/A                                                                                      | build               |
+| Which adapters failed to build? | `startup.build_failures`                          | `snapshot.startup.build_failures`                                                        | startup             |
+| Did startup succeed?            | CLI stdout + `startup.boot_summary`               | `snapshot.startup.boot_summary.startup_outcome`                                          | startup             |
+| Is runtime healthy?             | `startup.startup_health.runtime_health`           | `snapshot.startup.startup_health.runtime_health`                                         | startup (not live!) |
+| Which routes are active?        | `routes.eligibility` + `routes.startup_readiness` | `snapshot.routes.eligibility.registered` / `snapshot.routes.startup_readiness.readiness` | build / startup     |
+| Which adapters are running now? | `lifecycle.adapters`                              | `snapshot.lifecycle.adapters.{id}`                                                       | process-local       |
+| Is adapter health current?      | Check `adapters.{id}.provenance`                  | `snapshot.adapters.{id}.provenance` → `"startup"`                                        | startup (stale!)    |
+| How long up?                    | `lifecycle.uptime_seconds`                        | `snapshot.lifecycle.uptime_seconds`                                                      | process-local       |
 
 ## 6. Architectural Boundaries
 
 The following boundaries are enforced by tests:
 
-| Module | Must NOT import | May import |
-|--------|----------------|------------|
+| Module                           | Must NOT import                                                                            | May import                                                                          |
+| -------------------------------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
 | `medre.core.runtime.supervision` | Transport SDKs (`nio`, `meshtastic`, `meshcore`, `RNS`, `lxmf`), concrete adapter packages | `medre.core.lifecycle.states`, `medre.core.contracts.adapter` (protocol types only) |
-| `medre.core.runtime.diagnostics` | Transport SDKs, concrete adapter packages | `medre.core.runtime.health`, `medre.core.runtime.supervision` |
-| `medre.core.runtime.health` | Transport SDKs, concrete adapter packages | `medre.core.contracts.adapter` (protocol types), `medre.core.lifecycle.states` |
-| Snapshot code | Transport SDKs, concrete adapter packages | Runtime core modules only |
-| Accounting code | Transport SDKs, concrete adapter packages | Runtime core modules only |
-| Persistence contract | Transport SDKs, concrete adapter packages | Runtime core modules only |
+| `medre.core.runtime.diagnostics` | Transport SDKs, concrete adapter packages                                                  | `medre.core.runtime.health`, `medre.core.runtime.supervision`                       |
+| `medre.core.runtime.health`      | Transport SDKs, concrete adapter packages                                                  | `medre.core.contracts.adapter` (protocol types), `medre.core.lifecycle.states`      |
+| Snapshot code                    | Transport SDKs, concrete adapter packages                                                  | Runtime core modules only                                                           |
+| Accounting code                  | Transport SDKs, concrete adapter packages                                                  | Runtime core modules only                                                           |
+| Persistence contract             | Transport SDKs, concrete adapter packages                                                  | Runtime core modules only                                                           |
 
 ## 7. Test Coverage Requirements
 
@@ -258,21 +260,21 @@ The `null` → `dict` transition is non-breaking per Contract 63 §4.2. No `sche
 
 Before the first call to `refresh_live_health()`:
 
-| Field | Value |
-|-------|-------|
-| `health.live_health` | `null` |
-| `health.scope` | `"startup"` |
-| `health.live_refresh` | `false` |
+| Field                    | Value                    |
+| ------------------------ | ------------------------ |
+| `health.live_health`     | `null`                   |
+| `health.scope`           | `"startup"`              |
+| `health.live_refresh`    | `false`                  |
 | `startup.startup_health` | Frozen dict from startup |
 
 After the first successful call to `refresh_live_health()`:
 
-| Field | Value |
-|-------|-------|
-| `health.live_health` | `LiveHealthSnapshot` dict (per-adapter health, aggregate classification, poll metadata) |
-| `health.scope` | `"live"` |
-| `health.live_refresh` | `true` |
-| `startup.startup_health` | Unchanged — still frozen from startup |
+| Field                    | Value                                                                                   |
+| ------------------------ | --------------------------------------------------------------------------------------- |
+| `health.live_health`     | `LiveHealthSnapshot` dict (per-adapter health, aggregate classification, poll metadata) |
+| `health.scope`           | `"live"`                                                                                |
+| `health.live_refresh`    | `true`                                                                                  |
+| `startup.startup_health` | Unchanged — still frozen from startup                                                   |
 
 `startup_health` is **frozen** and is not affected by `refresh_live_health()`. Live health is **process-local** and not durable — it is lost on process restart.
 
@@ -292,18 +294,18 @@ A `HEALTH_REFRESHED` runtime event is emitted into the bounded `EventBuffer` onc
 
 **Event detail shape (always present):**
 
-| Key | Type | Description |
-|-----|------|-------------|
-| `runtime_health` | `str` | Aggregate `RuntimeHealth` value: `"healthy"`, `"degraded"`, or `"failed"`. |
-| `poll_count` | `int` | Monotonically increasing counter, matches `LiveHealthSnapshot.poll_count`. |
-| `adapter_summary` | `dict` | Counts: `healthy`, `degraded`, `failed`, `transitional`, `total`. |
+| Key               | Type   | Description                                                                |
+| ----------------- | ------ | -------------------------------------------------------------------------- |
+| `runtime_health`  | `str`  | Aggregate `RuntimeHealth` value: `"healthy"`, `"degraded"`, or `"failed"`. |
+| `poll_count`      | `int`  | Monotonically increasing counter, matches `LiveHealthSnapshot.poll_count`. |
+| `adapter_summary` | `dict` | Counts: `healthy`, `degraded`, `failed`, `transitional`, `total`.          |
 
 **Event detail shape (conditional):**
 
-| Key | Type | Condition |
-|-----|------|-----------|
-| `failed_adapters` | `list[str]` | Present when ≥1 adapter's `health_check()` raised an exception. Sorted by `adapter_id`. Contains only adapter IDs, not error strings. |
-| `changed_adapters` | `list[str]` | Present when a previous snapshot exists and ≥1 adapter's health changed. Sorted by `adapter_id`. Contains only adapter IDs. |
+| Key                | Type        | Condition                                                                                                                             |
+| ------------------ | ----------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `failed_adapters`  | `list[str]` | Present when ≥1 adapter's `health_check()` raised an exception. Sorted by `adapter_id`. Contains only adapter IDs, not error strings. |
+| `changed_adapters` | `list[str]` | Present when a previous snapshot exists and ≥1 adapter's health changed. Sorted by `adapter_id`. Contains only adapter IDs.           |
 
 **Determinism and boundedness:**
 

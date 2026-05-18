@@ -8,9 +8,6 @@ during bulk operations.
 from __future__ import annotations
 
 from datetime import timedelta
-from unittest.mock import AsyncMock
-
-import pytest
 
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.rendering import RenderingPipeline
@@ -21,12 +18,10 @@ from medre.core.storage.replay import (
     ReplayRequest,
     collect_replay_state,
 )
-
 from tests.helpers.replay import (
     StubPipeline,
     make_engine,
     make_events,
-    rendering_pipeline,
 )
 
 

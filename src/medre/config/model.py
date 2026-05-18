@@ -8,17 +8,18 @@ Adapter-specific settings are *wrapped*, not duplicated — each runtime config
 type holds a reference to the existing adapter config dataclass from
 :mod:`medre.adapters.*.config`.
 """
+
 from __future__ import annotations
 
 import dataclasses
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Self, get_type_hints, get_args
+from typing import TYPE_CHECKING, Any, Self, get_args, get_type_hints
 
-from medre.config.adapters.matrix import MatrixConfig
-from medre.config.adapters.meshtastic import MeshtasticConfig
-from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.config.adapters.lxmf import LxmfConfig
+from medre.config.adapters.matrix import MatrixConfig
+from medre.config.adapters.meshcore import MeshCoreConfig
+from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.config.errors import ConfigValidationError
 
 _logger = logging.getLogger(__name__)
@@ -30,6 +31,7 @@ if TYPE_CHECKING:
 def _default_route_config_set() -> RouteConfigSet:
     """Deferred import to avoid circular dependency with runtime.routes."""
     from medre.runtime.routes import RouteConfigSet as _RCS
+
     return _RCS()
 
 
@@ -38,7 +40,9 @@ def _default_route_config_set() -> RouteConfigSet:
 # ---------------------------------------------------------------------------
 
 # Fields consumed by the runtime wrapper (not forwarded to adapter configs).
-_WRAPPER_FIELD_NAMES: frozenset[str] = frozenset({"enabled", "adapter_id", "adapter_kind"})
+_WRAPPER_FIELD_NAMES: frozenset[str] = frozenset(
+    {"enabled", "adapter_id", "adapter_kind"}
+)
 
 
 def _coerce_adapter_kwargs(
@@ -282,7 +286,12 @@ class MatrixRuntimeConfig:
         adapter_kwargs = _coerce_adapter_kwargs(MatrixConfig, data)
         adapter_kwargs.setdefault("adapter_id", adapter_id)
         config = MatrixConfig(**adapter_kwargs).validate()
-        return cls(adapter_id=adapter_id, enabled=enabled, adapter_kind=adapter_kind, config=config)
+        return cls(
+            adapter_id=adapter_id,
+            enabled=enabled,
+            adapter_kind=adapter_kind,
+            config=config,
+        )
 
 
 @dataclass(frozen=True)
@@ -312,7 +321,12 @@ class MeshtasticRuntimeConfig:
         adapter_kwargs = _coerce_adapter_kwargs(MeshtasticConfig, data)
         adapter_kwargs.setdefault("adapter_id", adapter_id)
         config = MeshtasticConfig(**adapter_kwargs).validate()
-        return cls(adapter_id=adapter_id, enabled=enabled, adapter_kind=adapter_kind, config=config)
+        return cls(
+            adapter_id=adapter_id,
+            enabled=enabled,
+            adapter_kind=adapter_kind,
+            config=config,
+        )
 
 
 @dataclass(frozen=True)
@@ -342,7 +356,12 @@ class MeshCoreRuntimeConfig:
         adapter_kwargs = _coerce_adapter_kwargs(MeshCoreConfig, data)
         adapter_kwargs.setdefault("adapter_id", adapter_id)
         config = MeshCoreConfig(**adapter_kwargs).validate()
-        return cls(adapter_id=adapter_id, enabled=enabled, adapter_kind=adapter_kind, config=config)
+        return cls(
+            adapter_id=adapter_id,
+            enabled=enabled,
+            adapter_kind=adapter_kind,
+            config=config,
+        )
 
 
 @dataclass(frozen=True)
@@ -372,7 +391,12 @@ class LxmfRuntimeConfig:
         adapter_kwargs = _coerce_adapter_kwargs(LxmfConfig, data)
         adapter_kwargs.setdefault("adapter_id", adapter_id)
         config = LxmfConfig(**adapter_kwargs).validate()
-        return cls(adapter_id=adapter_id, enabled=enabled, adapter_kind=adapter_kind, config=config)
+        return cls(
+            adapter_id=adapter_id,
+            enabled=enabled,
+            adapter_kind=adapter_kind,
+            config=config,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -453,7 +477,6 @@ class AdapterConfigSet:
                 if aid in seen:
                     prev_transport, prev_name = seen[aid]
                     section = f"adapters.{transport}.{instance_name}"
-                    prev_section = f"adapters.{prev_transport}.{prev_name}"
                     raise ConfigValidationError(
                         f"Duplicate adapter: {transport}.{aid} "
                         f"(also defined as {prev_transport}.{aid}). "

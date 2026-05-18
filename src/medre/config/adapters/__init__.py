@@ -11,11 +11,13 @@ Canonical imports::
     from medre.config.adapters.matrix_credentials import load_credentials_json
 """
 
-from medre.config.adapters.errors import AdapterConfigError
-from medre.config.adapters.errors import LxmfConfigError
-from medre.config.adapters.errors import MatrixConfigError
-from medre.config.adapters.errors import MeshCoreConfigError
-from medre.config.adapters.errors import MeshtasticConfigError
+from medre.config.adapters.errors import (
+    AdapterConfigError,
+    LxmfConfigError,
+    MatrixConfigError,
+    MeshCoreConfigError,
+    MeshtasticConfigError,
+)
 from medre.config.adapters.lxmf import LxmfConfig
 from medre.config.adapters.matrix import MatrixConfig
 from medre.config.adapters.meshcore import MeshCoreConfig

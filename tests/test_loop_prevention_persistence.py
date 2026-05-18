@@ -24,11 +24,10 @@ from medre.core.events.kinds import EventKind
 from medre.core.events.metadata import RoutingMetadata
 from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.routing.stats import RouteStats
 from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage.sqlite import SQLiteStorage
-
 from tests.helpers.assertions import snap_value
 from tests.helpers.bridge import (
     make_adapter_context,
@@ -109,15 +108,11 @@ class TestLoopPreventionHardening:
         )
         assert len(receipts) == 0
 
-    async def test_route_trace_guard_fires(
-        self, temp_storage: SQLiteStorage
-    ) -> None:
+    async def test_route_trace_guard_fires(self, temp_storage: SQLiteStorage) -> None:
         """Inject event with route-trace showing it already traversed a route.
         Assert route-trace guard fires."""
         fake_matrix = FakeMatrixAdapter("trace-mx", channel="!trace:fake")
-        fake_mesh = FakeMeshtasticAdapter(
-            MeshtasticConfig(adapter_id="trace-mesh")
-        )
+        fake_mesh = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="trace-mesh"))
 
         route = Route(
             id="trace-route",
@@ -175,7 +170,9 @@ class TestLoopPreventionHardening:
 
         # Route-trace guard fired
         snap = accounting.snapshot()
-        assert snap["loop_prevented"] == 1, "Route-trace guard should increment loop_prevented"
+        assert (
+            snap["loop_prevented"] == 1
+        ), "Route-trace guard should increment loop_prevented"
 
         stats = route_stats.snapshot()
         assert stats["trace-route"]["loop_prevented"] == 1
@@ -192,9 +189,7 @@ class TestLoopPreventionHardening:
         self, temp_storage: SQLiteStorage
     ) -> None:
         """route_trace with count=1 (first occurrence) does NOT trigger guard."""
-        fake_mesh = FakeMeshtasticAdapter(
-            MeshtasticConfig(adapter_id="pass-mesh")
-        )
+        fake_mesh = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="pass-mesh"))
 
         route = Route(
             id="pass-route",
@@ -268,9 +263,7 @@ class TestLoopPreventionHardening:
         adapter A's previously stored outbound ref -> cycle detected via
         dedup."""
         fake_matrix = FakeMatrixAdapter("cycle-mx", channel="!cycle:fake")
-        fake_mesh = FakeMeshtasticAdapter(
-            MeshtasticConfig(adapter_id="cycle-mesh")
-        )
+        fake_mesh = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="cycle-mesh"))
 
         route_a = Route(
             id="cycle-mx-mesh",
@@ -373,9 +366,7 @@ class TestLoopPreventionHardening:
         """Fire all three guards independently, verify each increments
         loop_prevented correctly."""
         fake_a = FakeMatrixAdapter("guard-a", channel="!ga:fake")
-        fake_b = FakeMeshtasticAdapter(
-            MeshtasticConfig(adapter_id="guard-b")
-        )
+        fake_b = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="guard-b"))
 
         route = Route(
             id="guard-route",

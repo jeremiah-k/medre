@@ -26,9 +26,8 @@ from medre.core.events import (
     RoutingMetadata,
     TransportMetadata,
 )
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite import SQLiteStorage
-
 
 # ---------------------------------------------------------------------------
 # Event fixtures
@@ -134,6 +133,7 @@ async def temp_storage() -> AsyncGenerator[SQLiteStorage, None]:
         ad = Path(artifact_dir)
         ad.mkdir(parents=True, exist_ok=True)
         import uuid
+
         db_path = str(ad / f"storage-{uuid.uuid4().hex[:12]}.db")
     else:
         f = tempfile.NamedTemporaryFile(suffix=".db", delete=False)

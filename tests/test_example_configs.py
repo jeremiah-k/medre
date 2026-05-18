@@ -7,9 +7,7 @@ credentials / hardware.  No live SDKs are needed to run this suite.
 
 from __future__ import annotations
 
-import os
 import re
-import tempfile
 import tomllib
 from pathlib import Path
 
@@ -165,7 +163,10 @@ class TestFakeMultiAdapter:
         )
 
         expected_ids = {
-            "fake_matrix", "fake_meshtastic", "fake_meshcore", "fake_lxmf",
+            "fake_matrix",
+            "fake_meshtastic",
+            "fake_meshcore",
+            "fake_lxmf",
         }
         assert expected_ids == set(adapters.keys())
 
@@ -173,9 +174,9 @@ class TestFakeMultiAdapter:
         config, _, paths = load_config(str(self.CONFIG_PATH))
         builder = RuntimeBuilder(config, paths)
         app = builder.build()
-        assert app.build_failures == [], (
-            f"Unexpected build failures: {app.build_failures}"
-        )
+        assert (
+            app.build_failures == []
+        ), f"Unexpected build failures: {app.build_failures}"
 
     def test_storage_is_memory(self) -> None:
         config, _, paths = load_config(str(self.CONFIG_PATH))
@@ -284,7 +285,9 @@ class TestMatrixConfig:
         assert main.get("homeserver", "").startswith("https://")
         assert main.get("user_id", "").startswith("@")
         assert main.get("encryption_mode") in (
-            "plaintext", "e2ee_required", "e2ee_optional",
+            "plaintext",
+            "e2ee_required",
+            "e2ee_optional",
         )
 
     @pytest.mark.skip(reason="Requires real Matrix homeserver credentials")
@@ -341,8 +344,10 @@ class TestMixedMatrixMeshtastic:
             assert "allowed_event_types" in policy
             # Unsupported policy fields must not be present.
             for unsupported in (
-                "sender_allowlist", "room_allowlist",
-                "channel_allowlist", "allowed_source_adapters",
+                "sender_allowlist",
+                "room_allowlist",
+                "channel_allowlist",
+                "allowed_source_adapters",
                 "allowed_dest_adapters",
             ):
                 assert unsupported not in policy, (
@@ -473,13 +478,13 @@ class TestDockerBridgeSmoke:
                 adapter_ids.add(inst_name)
         for _route_id, route in data["routes"].items():
             for ref in route.get("source_adapters", []):
-                assert ref in adapter_ids, (
-                    f"Route '{_route_id}' references unknown source adapter '{ref}'"
-                )
+                assert (
+                    ref in adapter_ids
+                ), f"Route '{_route_id}' references unknown source adapter '{ref}'"
             for ref in route.get("dest_adapters", []):
-                assert ref in adapter_ids, (
-                    f"Route '{_route_id}' references unknown dest adapter '{ref}'"
-                )
+                assert (
+                    ref in adapter_ids
+                ), f"Route '{_route_id}' references unknown dest adapter '{ref}'"
 
     def test_disabled_route_is_disabled(self) -> None:
         raw = _read(self.CONFIG_PATH)
@@ -581,9 +586,10 @@ class TestExampleHygiene:
         raw = _read(CONFIGS_DIR / name)
         data = tomllib.loads(raw)
         backend = data.get("storage", {}).get("backend", "sqlite")
-        assert backend in ("sqlite", "memory"), (
-            f"{name}: unsupported storage backend {backend!r}"
-        )
+        assert backend in (
+            "sqlite",
+            "memory",
+        ), f"{name}: unsupported storage backend {backend!r}"
 
     @pytest.mark.parametrize("name", ALL_SHIPPED_CONFIGS)
     def test_adapter_kinds_valid(self, name: str) -> None:
@@ -639,9 +645,7 @@ class TestFakeBridgeSmokeDeep:
     def test_matrix_section_has_at_least_one_adapter(self) -> None:
         """The matrix transport section contains at least one adapter."""
         config, _, _ = load_config(str(self.CONFIG_PATH))
-        assert len(config.adapters.matrix) >= 1, (
-            "Expected at least one matrix adapter"
-        )
+        assert len(config.adapters.matrix) >= 1, "Expected at least one matrix adapter"
         assert "fake_matrix" in config.adapters.matrix
 
     def test_meshtastic_section_has_at_least_one_adapter(self) -> None:
@@ -709,9 +713,9 @@ class TestFakeRetrySmoke:
         config, _, paths = load_config(str(self.CONFIG_PATH))
         builder = RuntimeBuilder(config, paths)
         app = builder.build()
-        assert app.build_failures == [], (
-            f"Unexpected build failures: {app.build_failures}"
-        )
+        assert (
+            app.build_failures == []
+        ), f"Unexpected build failures: {app.build_failures}"
 
     def test_routes_parse_correctly(self) -> None:
         config, _, _ = load_config(str(self.CONFIG_PATH))
@@ -781,9 +785,7 @@ class TestFakeBridgeSmokeTwoWayRoutes:
 
     def test_bidirectional_route_directionality(self) -> None:
         config, _, _ = load_config(str(self.CONFIG_PATH))
-        bidir = next(
-            r for r in config.routes.routes if r.route_id == "mx_mesh_bidir"
-        )
+        bidir = next(r for r in config.routes.routes if r.route_id == "mx_mesh_bidir")
         assert bidir.directionality.value == "bidirectional"
         assert bidir.enabled is True
 
@@ -868,13 +870,13 @@ class TestDockerMatrixBridgeConfig:
                 adapter_ids.add(inst_name)
         for _route_id, route in data["routes"].items():
             for ref in route.get("source_adapters", []):
-                assert ref in adapter_ids, (
-                    f"Route '{_route_id}' references unknown source adapter '{ref}'"
-                )
+                assert (
+                    ref in adapter_ids
+                ), f"Route '{_route_id}' references unknown source adapter '{ref}'"
             for ref in route.get("dest_adapters", []):
-                assert ref in adapter_ids, (
-                    f"Route '{_route_id}' references unknown dest adapter '{ref}'"
-                )
+                assert (
+                    ref in adapter_ids
+                ), f"Route '{_route_id}' references unknown dest adapter '{ref}'"
 
     def test_no_real_secrets(self) -> None:
         text = _read(self.CONFIG_PATH)
@@ -944,13 +946,13 @@ class TestDockerMeshtasticBridgeConfig:
                 adapter_ids.add(inst_name)
         for _route_id, route in data["routes"].items():
             for ref in route.get("source_adapters", []):
-                assert ref in adapter_ids, (
-                    f"Route '{_route_id}' references unknown source adapter '{ref}'"
-                )
+                assert (
+                    ref in adapter_ids
+                ), f"Route '{_route_id}' references unknown source adapter '{ref}'"
             for ref in route.get("dest_adapters", []):
-                assert ref in adapter_ids, (
-                    f"Route '{_route_id}' references unknown dest adapter '{ref}'"
-                )
+                assert (
+                    ref in adapter_ids
+                ), f"Route '{_route_id}' references unknown dest adapter '{ref}'"
 
     def test_no_real_secrets(self) -> None:
         text = _read(self.CONFIG_PATH)
@@ -1074,7 +1076,9 @@ class TestFakeConfigBuildsRuntime:
     def test_adapter_count_matches_config(self) -> None:
         app = self._build_app()
         config, _, _ = load_config(str(self.CONFIG_PATH))
-        enabled_count = len([1 for _t, _a, rtc in config.adapters.all_configs() if rtc.enabled])
+        enabled_count = len(
+            [1 for _t, _a, rtc in config.adapters.all_configs() if rtc.enabled]
+        )
         assert len(app.adapters) == enabled_count, (
             f"Expected {enabled_count} adapters, got {len(app.adapters)}: "
             f"{list(app.adapters.keys())}"
@@ -1082,9 +1086,9 @@ class TestFakeConfigBuildsRuntime:
 
     def test_no_build_failures(self) -> None:
         app = self._build_app()
-        assert app.build_failures == [], (
-            f"Unexpected build failures: {app.build_failures}"
-        )
+        assert (
+            app.build_failures == []
+        ), f"Unexpected build failures: {app.build_failures}"
 
     def test_storage_is_memory(self) -> None:
         app = self._build_app()
@@ -1134,9 +1138,9 @@ class TestFakeConfigRouteValidate:
         app2 = self._build_app()
         ids1 = [r.id for r in app1._registered_routes]
         ids2 = [r.id for r in app2._registered_routes]
-        assert ids1 == ids2, (
-            f"Route registration is not deterministic: {ids1} != {ids2}"
-        )
+        assert (
+            ids1 == ids2
+        ), f"Route registration is not deterministic: {ids1} != {ids2}"
 
     def test_bidirectional_expands_to_two(self) -> None:
         """mx_mesh_bidir (bidirectional) registers forward + reverse."""
@@ -1145,8 +1149,7 @@ class TestFakeConfigRouteValidate:
         assert "mx_mesh_bidir" in registered_ids
         # Reverse variant uses __rev_N naming convention.
         bidir_variants = [
-            rid for rid in registered_ids
-            if rid.startswith("mx_mesh_bidir__rev")
+            rid for rid in registered_ids if rid.startswith("mx_mesh_bidir__rev")
         ]
         assert len(bidir_variants) >= 1, (
             f"Bidirectional route should produce reverse variant, "
@@ -1160,9 +1163,9 @@ class TestFakeConfigRouteValidate:
         for rid in registered_ids:
             if rid == "mx_mesh_bidir" or rid == "mx_mesh_bidir__reverse":
                 continue
-            assert not rid.endswith("__reverse"), (
-                f"Unidirectional route should not have reverse: {rid}"
-            )
+            assert not rid.endswith(
+                "__reverse"
+            ), f"Unidirectional route should not have reverse: {rid}"
 
     def test_all_enabled_route_ids_present(self) -> None:
         """Every enabled route ID appears in registered routes."""
@@ -1217,9 +1220,9 @@ class TestDockerConfigsEnvVarValidation:
         error_msg = str(exc_info.value)
 
         # Step 3: Error mentions the placeholder problem
-        assert "placeholder" in error_msg.lower(), (
-            f"Expected error to mention 'placeholder', got: {error_msg}"
-        )
+        assert (
+            "placeholder" in error_msg.lower()
+        ), f"Expected error to mention 'placeholder', got: {error_msg}"
 
         # Step 4: Error mentions the specific config field that caused it
         assert any(
@@ -1231,10 +1234,9 @@ class TestDockerConfigsEnvVarValidation:
 
         # Step 5: Error mentions the env var name so operator knows what to set
         assert any(
-            var in error_msg for var in ("MEDRE_HOMESERVER", "MEDRE_USER_ID", "MEDRE_ACCESS_TOKEN")
-        ), (
-            f"Expected error to mention an env var name, got: {error_msg}"
-        )
+            var in error_msg
+            for var in ("MEDRE_HOMESERVER", "MEDRE_USER_ID", "MEDRE_ACCESS_TOKEN")
+        ), f"Expected error to mention an env var name, got: {error_msg}"
 
         # Step 6: No raw traceback — error is clean
         assert "Traceback" not in error_msg
@@ -1257,14 +1259,12 @@ class TestDockerConfigsEnvVarValidation:
         error_msg = str(exc_info.value)
 
         # Error is clean and actionable
-        assert "placeholder" in error_msg.lower(), (
-            f"Expected error to mention 'placeholder', got: {error_msg}"
-        )
+        assert (
+            "placeholder" in error_msg.lower()
+        ), f"Expected error to mention 'placeholder', got: {error_msg}"
         assert any(
             field in error_msg for field in ("host", "MESHTASTIC_HOST")
-        ), (
-            f"Expected error to mention 'host' or 'MESHTASTIC_HOST', got: {error_msg}"
-        )
+        ), f"Expected error to mention 'host' or 'MESHTASTIC_HOST', got: {error_msg}"
         assert "Traceback" not in error_msg
 
 
@@ -1310,12 +1310,12 @@ class TestLiveMatrixMeshtasticTargeting:
         data = tomllib.loads(raw)
         bridge = data["routes"]["matrix_radio_bridge"]
 
-        assert isinstance(bridge["source_room"], str) and bridge["source_room"], (
-            "matrix_radio_bridge source_room must be a non-empty string"
-        )
-        assert isinstance(bridge["dest_channel"], str) and bridge["dest_channel"], (
-            "matrix_radio_bridge dest_channel must be a non-empty string"
-        )
+        assert (
+            isinstance(bridge["source_room"], str) and bridge["source_room"]
+        ), "matrix_radio_bridge source_room must be a non-empty string"
+        assert (
+            isinstance(bridge["dest_channel"], str) and bridge["dest_channel"]
+        ), "matrix_radio_bridge dest_channel must be a non-empty string"
 
     def test_live_config_does_not_rely_on_implicit_target(self) -> None:
         """The bidirectional route has explicit targeting fields — no implicit
@@ -1338,10 +1338,10 @@ class TestLiveMatrixMeshtasticTargeting:
         """The TOML file includes comments explaining the targeting fields."""
         raw = _read(self.CONFIG_PATH)
         # Check for comment explaining source_room/dest_room format
-        assert "!opaque:server" in raw or "Matrix room IDs" in raw, (
-            "Missing comment explaining Matrix room ID format"
-        )
+        assert (
+            "!opaque:server" in raw or "Matrix room IDs" in raw
+        ), "Missing comment explaining Matrix room ID format"
         # Check for comment explaining channel index format
-        assert "channel index" in raw.lower() or "Meshtastic channel" in raw, (
-            "Missing comment explaining Meshtastic channel index format"
-        )
+        assert (
+            "channel index" in raw.lower() or "Meshtastic channel" in raw
+        ), "Missing comment explaining Meshtastic channel index format"

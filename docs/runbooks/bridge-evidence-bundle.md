@@ -2,7 +2,7 @@
 
 > Last updated: 2026-05-16
 > Scope: Operator workflow for collecting, inspecting, and interpreting
->         pre-runtime evidence before committing to a live bridge.
+> pre-runtime evidence before committing to a live bridge.
 > Status: Pre-beta. All commands use fake adapters unless noted.
 > Prerequisites: medre installed with `[dev]` extras, no Docker or live endpoints
 > needed for the basic bundle.
@@ -40,7 +40,6 @@ bundle for bug reports or pre-runtime validation. See the
 
 See [Fake Bridge Evidence Criteria](fake-bridge-evidence-criteria.md) for the
 full assertion-level criteria per flow type.
-
 
 ## 1. Quick Bundle Collection
 
@@ -137,26 +136,24 @@ medre trace event <event_id> --storage-path /tmp/medre-smoke.db
 > investigation step; reach for the specialized commands when you need
 > standalone output or features beyond inspect flags.
 
-
 ## 2. Command Reference
 
-| Command | Storage | Starts adapters | Output | Exit codes |
-|---------|---------|----------------|--------|------------|
-| `medre smoke --json` | In-memory | Fake only | passed/failed JSON | 0=passed (0), 1=failed (1) |
-| `medre smoke --storage-path <db> --json` | SQLite | Fake only | passed/failed JSON + DB | 0=passed (0), 1=failed (1) |
-| `medre smoke --drill <name> --json` | In-memory | Fake only | Drill report JSON | 0=passed (0), 1=failed (1) |
-| `medre smoke --drill <name> --storage-path <db> --json` | SQLite | Fake only | Drill report JSON + DB | 0=passed (0), 1=failed (1) |
-| `medre evidence --config <path> --json` | Per config (memory or SQLite) | Fake only (or real with `--include-refresh-health`) | Full bundle JSON | 0=passed/partial, 2=config error |
-| `medre evidence --config <path> --event <id> --json` | Per config (memory or SQLite) | No | Bundle with event/receipt lookup | 0=passed/partial, 2=config error |
-| `medre evidence --config <path> --include-refresh-health --json` | Per config (memory or SQLite) | Yes (real or fake) | Full bundle + live health JSON | 0=passed/partial, 2=config error |
-| `medre inspect event <id> --config <path>` | Opens SQLite (RO) | No | Event JSON | 0=found, 2=no SQLite |
-| `medre inspect receipts --event <id> --config <path>` | Opens SQLite (RO) | No | Receipt array JSON | 0=found, 2=no SQLite |
-| `medre inspect receipts --replay-run <id> --storage-path <db>` | Opens SQLite (RO) | No | Receipt array JSON | 0=found, 2=no SQLite |
-| `medre inspect native-ref --adapter <name> --message <id> --storage-path <db>` | Opens SQLite (RO) | No | Ref JSON | 0=found, 2=no SQLite |
-| `medre diagnostics --config <path>` | None | No | Build-time snapshot JSON | 0 (success), 2=config, 3=build |
-| `medre diagnostics --refresh-health --config <path>` | None | Yes (real or fake) | Live health snapshot JSON | 0 (success), 2=config, 3=build, 4=startup |
-| `medre run --config <path> --snapshot-on-shutdown` | Per config (SQLite or memory) | Yes (real or fake) | Logs + writes final JSON snapshot after graceful shutdown to `{state_dir}/shutdown-snapshot.json` | 0=clean shutdown, 2=config, 3=build, 4=startup |
-
+| Command                                                                        | Storage                       | Starts adapters                                     | Output                                                                                            | Exit codes                                     |
+| ------------------------------------------------------------------------------ | ----------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| `medre smoke --json`                                                           | In-memory                     | Fake only                                           | passed/failed JSON                                                                                | 0=passed (0), 1=failed (1)                     |
+| `medre smoke --storage-path <db> --json`                                       | SQLite                        | Fake only                                           | passed/failed JSON + DB                                                                           | 0=passed (0), 1=failed (1)                     |
+| `medre smoke --drill <name> --json`                                            | In-memory                     | Fake only                                           | Drill report JSON                                                                                 | 0=passed (0), 1=failed (1)                     |
+| `medre smoke --drill <name> --storage-path <db> --json`                        | SQLite                        | Fake only                                           | Drill report JSON + DB                                                                            | 0=passed (0), 1=failed (1)                     |
+| `medre evidence --config <path> --json`                                        | Per config (memory or SQLite) | Fake only (or real with `--include-refresh-health`) | Full bundle JSON                                                                                  | 0=passed/partial, 2=config error               |
+| `medre evidence --config <path> --event <id> --json`                           | Per config (memory or SQLite) | No                                                  | Bundle with event/receipt lookup                                                                  | 0=passed/partial, 2=config error               |
+| `medre evidence --config <path> --include-refresh-health --json`               | Per config (memory or SQLite) | Yes (real or fake)                                  | Full bundle + live health JSON                                                                    | 0=passed/partial, 2=config error               |
+| `medre inspect event <id> --config <path>`                                     | Opens SQLite (RO)             | No                                                  | Event JSON                                                                                        | 0=found, 2=no SQLite                           |
+| `medre inspect receipts --event <id> --config <path>`                          | Opens SQLite (RO)             | No                                                  | Receipt array JSON                                                                                | 0=found, 2=no SQLite                           |
+| `medre inspect receipts --replay-run <id> --storage-path <db>`                 | Opens SQLite (RO)             | No                                                  | Receipt array JSON                                                                                | 0=found, 2=no SQLite                           |
+| `medre inspect native-ref --adapter <name> --message <id> --storage-path <db>` | Opens SQLite (RO)             | No                                                  | Ref JSON                                                                                          | 0=found, 2=no SQLite                           |
+| `medre diagnostics --config <path>`                                            | None                          | No                                                  | Build-time snapshot JSON                                                                          | 0 (success), 2=config, 3=build                 |
+| `medre diagnostics --refresh-health --config <path>`                           | None                          | Yes (real or fake)                                  | Live health snapshot JSON                                                                         | 0 (success), 2=config, 3=build, 4=startup      |
+| `medre run --config <path> --snapshot-on-shutdown`                             | Per config (SQLite or memory) | Yes (real or fake)                                  | Logs + writes final JSON snapshot after graceful shutdown to `{state_dir}/shutdown-snapshot.json` | 0=clean shutdown, 2=config, 3=build, 4=startup |
 
 ## 3. Report Shapes
 
@@ -288,27 +285,27 @@ status. Each section has its own `status` (`"passed"`, `"partial"`, `"error"`,
 
 **Top-level fields:**
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `schema_version` | `int` | Bundle schema version (frozen at `1` during pre-release) |
-| `status` | `str` | Overall: `"passed"`, `"partial"`, or `"error"` |
-| `collected_at` | `str` | ISO-8601 UTC timestamp |
-| `medre_version` | `str` | Installed package version |
-| `config_source` | `str` | How the config file was found (`"cli_arg"`, `"xdg"`, etc.) |
-| `runtime_started` | `bool` | `true` only when `--include-refresh-health` was used and runtime started |
-| `sections` | `dict` | Grouped evidence, each with its own status |
-| `errors` | `list[str]` | Flat list of bounded error strings across all sections |
-| `limitations` | `list[str]` | Honest list of what the evidence does not prove |
+| Field             | Type        | Description                                                              |
+| ----------------- | ----------- | ------------------------------------------------------------------------ |
+| `schema_version`  | `int`       | Bundle schema version (frozen at `1` during pre-release)                 |
+| `status`          | `str`       | Overall: `"passed"`, `"partial"`, or `"error"`                           |
+| `collected_at`    | `str`       | ISO-8601 UTC timestamp                                                   |
+| `medre_version`   | `str`       | Installed package version                                                |
+| `config_source`   | `str`       | How the config file was found (`"cli_arg"`, `"xdg"`, etc.)               |
+| `runtime_started` | `bool`      | `true` only when `--include-refresh-health` was used and runtime started |
+| `sections`        | `dict`      | Grouped evidence, each with its own status                               |
+| `errors`          | `list[str]` | Flat list of bounded error strings across all sections                   |
+| `limitations`     | `list[str]` | Honest list of what the evidence does not prove                          |
 
 **Sections:**
 
-| Section | Populated when | Key data fields |
-|---------|---------------|-----------------|
-| `config_summary` | Always (if config loads) | `adapters`, `routes`, `limits`, `storage_backend`, `storage_path`, `paths`, `env_overrides_applied` |
-| `route_validation` | Always (if config loads) | `route_count`, `route_enabled`, `valid`, `route_errors` |
-| `diagnostics_snapshot` | Always (if config loads) | Full `build_runtime_snapshot` output (no adapter start, no I/O) |
-| `live_health` | Only with `--include-refresh-health` | Full runtime snapshot with `health.live_health` populated; otherwise `status: "skipped"` |
-| `storage` | When config uses `sqlite` backend and DB exists | `db_exists`, `db_path`, `event_count`, `receipt_count`, `event` (if `--event`), `replay_run_receipts` (if `--replay-run`), `incident_summary` (if `--event` and event has failed receipts) |
+| Section                | Populated when                                  | Key data fields                                                                                                                                                                            |
+| ---------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `config_summary`       | Always (if config loads)                        | `adapters`, `routes`, `limits`, `storage_backend`, `storage_path`, `paths`, `env_overrides_applied`                                                                                        |
+| `route_validation`     | Always (if config loads)                        | `route_count`, `route_enabled`, `valid`, `route_errors`                                                                                                                                    |
+| `diagnostics_snapshot` | Always (if config loads)                        | Full `build_runtime_snapshot` output (no adapter start, no I/O)                                                                                                                            |
+| `live_health`          | Only with `--include-refresh-health`            | Full runtime snapshot with `health.live_health` populated; otherwise `status: "skipped"`                                                                                                   |
+| `storage`              | When config uses `sqlite` backend and DB exists | `db_exists`, `db_path`, `event_count`, `receipt_count`, `event` (if `--event`), `replay_run_receipts` (if `--replay-run`), `incident_summary` (if `--event` and event has failed receipts) |
 
 **incident_summary (within storage section):**
 
@@ -317,11 +314,11 @@ receipts, the `storage` section includes an `incident_summary` object. This is
 a compact incident classification derived from the event's receipt history,
 using the same failure-kind vocabulary as `medre recover` and `medre trace`.
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `classification` | `dict[str, list]` | Failed targets grouped by recovery category: `"retryable"`, `"permanent"`, `"operational"`, `"unknown"` |
-| `recommended_commands` | `list[str]` | Suggested `medre` commands for next steps, keyed to the present failure categories |
-| `first_failure_kind` | `str or null` | The failure-kind of the earliest failed receipt (e.g. `"adapter_transient"`, `"renderer_failure"`); `null` if no failures |
+| Field                  | Type              | Description                                                                                                               |
+| ---------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `classification`       | `dict[str, list]` | Failed targets grouped by recovery category: `"retryable"`, `"permanent"`, `"operational"`, `"unknown"`                   |
+| `recommended_commands` | `list[str]`       | Suggested `medre` commands for next steps, keyed to the present failure categories                                        |
+| `first_failure_kind`   | `str or null`     | The failure-kind of the earliest failed receipt (e.g. `"adapter_transient"`, `"renderer_failure"`); `null` if no failures |
 
 Failure-kind values are the same set used by `medre trace event` and
 `medre recover`: `"adapter_transient"`, `"adapter_permanent"`,
@@ -671,16 +668,15 @@ report — the same data produced by `medre trace replay <run_id>`. The
 See [Event Tracing](event-tracing.md) for the full trace report shapes and
 [Replay Operation](replay-operation.md) for replay receipt interpretation.
 
-
 ## 4. Interpreting the Bundle
 
 ### 4.1 Status Values
 
-| Status | Meaning | Operator action |
-|--------|---------|-----------------|
-| `passed` | All criteria met at the reported evidence level | Proceed to live runtime with caution. The bundle proves pipeline correctness, not live connectivity. |
-| `partial` | Some adapters/routes/drills failed but the runtime stayed up | Inspect `fail_reasons` and per-adapter `.error` fields. Individual drill failures may be acceptable depending on the scenario (e.g., a degraded health drill expects failure). |
-| `error` / `failed` | A required criterion was not met | Do not proceed to live runtime. Inspect `fail_reasons`, fix the config or environment, re-collect the bundle. |
+| Status             | Meaning                                                      | Operator action                                                                                                                                                                |
+| ------------------ | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `passed`           | All criteria met at the reported evidence level              | Proceed to live runtime with caution. The bundle proves pipeline correctness, not live connectivity.                                                                           |
+| `partial`          | Some adapters/routes/drills failed but the runtime stayed up | Inspect `fail_reasons` and per-adapter `.error` fields. Individual drill failures may be acceptable depending on the scenario (e.g., a degraded health drill expects failure). |
+| `error` / `failed` | A required criterion was not met                             | Do not proceed to live runtime. Inspect `fail_reasons`, fix the config or environment, re-collect the bundle.                                                                  |
 
 ### 4.2 Why `--include-refresh-health` Starts Adapters
 
@@ -701,23 +697,22 @@ time. `live_health` reflects the moment of the refresh. They can differ.
 
 ### 4.3 What `sent` Means Per Transport
 
-| Transport | `sent` means | Remote receipt |
-|-----------|-------------|----------------|
-| Matrix | Homeserver accepted the event (event_id returned) | Not confirmed per-recipient |
-| Meshtastic | Local node queued the packet for LoRa transmission | Unknown. Fire-and-forget. |
-| MeshCore | Local node queued the packet | Unknown. Fire-and-forget. |
-| LXMF | Local LXMRouter accepted for propagation | Eventual, seconds to hours. |
+| Transport  | `sent` means                                       | Remote receipt              |
+| ---------- | -------------------------------------------------- | --------------------------- |
+| Matrix     | Homeserver accepted the event (event_id returned)  | Not confirmed per-recipient |
+| Meshtastic | Local node queued the packet for LoRa transmission | Unknown. Fire-and-forget.   |
+| MeshCore   | Local node queued the packet                       | Unknown. Fire-and-forget.   |
+| LXMF       | Local LXMRouter accepted for propagation           | Eventual, seconds to hours. |
 
 ### 4.4 Inspect Output Interpretation
 
-| `medre inspect` output | What to look for |
-|------------------------|-------------------|
-| `event` — source_adapter, event_kind, payload | Confirms the event was stored correctly before delivery |
-| `receipts` — status, failure_kind, attempt_number, parent_receipt_id | Traces the full delivery lifecycle. `attempt_number > 1` with `parent_receipt_id` chain indicates retry. |
-| `receipts` — route_id | Identifies which route triggered the delivery |
-| `native-ref` — native_message_id, canonical_event_id | Maps transport-native IDs to canonical events for cross-referencing |
-| `receipts --replay-run` — source="replay", replay_run_id | Distinguishes replay deliveries from live. Multiple entries for the same event across different `replay_run_id` values = multiple BEST_EFFORT runs. The evidence bundle reflects all actual delivery attempts. |
-
+| `medre inspect` output                                               | What to look for                                                                                                                                                                                               |
+| -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `event` — source_adapter, event_kind, payload                        | Confirms the event was stored correctly before delivery                                                                                                                                                        |
+| `receipts` — status, failure_kind, attempt_number, parent_receipt_id | Traces the full delivery lifecycle. `attempt_number > 1` with `parent_receipt_id` chain indicates retry.                                                                                                       |
+| `receipts` — route_id                                                | Identifies which route triggered the delivery                                                                                                                                                                  |
+| `native-ref` — native_message_id, canonical_event_id                 | Maps transport-native IDs to canonical events for cross-referencing                                                                                                                                            |
+| `receipts --replay-run` — source="replay", replay_run_id             | Distinguishes replay deliveries from live. Multiple entries for the same event across different `replay_run_id` values = multiple BEST_EFFORT runs. The evidence bundle reflects all actual delivery attempts. |
 
 ## 5. Bug Report Artifact
 
@@ -738,22 +733,21 @@ attach the following:
 Name the files descriptively: `bundle-<date>.json`,
 `bundle-health-<date>.json`, `inspect-receipts-<event_id>.json`.
 
-
 ## 6. Available Drills
 
 ### 6.1 Runtime Failure Drills
 
 These drills exercise the delivery pipeline with injected failures:
 
-| Drill name | What it proves |
-|-----------|---------------|
-| `renderer_failure` | Unhandled event kind produces `RENDERER_FAILURE` receipt, no retry |
+| Drill name                  | What it proves                                                               |
+| --------------------------- | ---------------------------------------------------------------------------- |
+| `renderer_failure`          | Unhandled event kind produces `RENDERER_FAILURE` receipt, no retry           |
 | `adapter_permanent_failure` | Non-recoverable adapter error produces `ADAPTER_PERMANENT` receipt, no retry |
-| `adapter_transient_failure` | Transient error triggers retry with `ADAPTER_TRANSIENT` receipt chain |
-| `capacity_rejection` | Delivery capacity exhaustion produces `delivery_capacity_exceeded` |
-| `shutdown_rejection` | In-flight deliveries during shutdown produce `delivery_rejected_shutdown` |
-| `replay_duplicate_risk` | BEST_EFFORT replay produces duplicate receipts per run |
-| `degraded_live_health` | Adapters can report degraded/failed health without runtime exit |
+| `adapter_transient_failure` | Transient error triggers retry with `ADAPTER_TRANSIENT` receipt chain        |
+| `capacity_rejection`        | Delivery capacity exhaustion produces `delivery_capacity_exceeded`           |
+| `shutdown_rejection`        | In-flight deliveries during shutdown produce `delivery_rejected_shutdown`    |
+| `replay_duplicate_risk`     | BEST_EFFORT replay produces duplicate receipts per run                       |
+| `degraded_live_health`      | Adapters can report degraded/failed health without runtime exit              |
 
 ### 6.2 Pre-Runtime Drills
 
@@ -762,19 +756,18 @@ Each drill **exits 0** when the expected failure is correctly observed. The
 drill report documents what exit code and error the runtime would produce
 if run independently — the drill itself does not exit 2, 3, or 4.
 
-| Drill name | What it proves |
-|-----------|---------------|
-| `bad_route_config` | Unknown adapter ref in route causes `RouteValidationError`; the runtime would exit with `EXIT_CONFIG` (code 2) |
-| `all_adapters_build_fail` | Total build failure causes all adapters to fail construction; the runtime would exit with `EXIT_BUILD` (code 3) |
-| `partial_degraded_startup` | Partial adapter start allows the runtime to enter `RUNNING` with degraded health (exit 0) |
-| `all_adapters_start_fail` | Total startup failure prevents `RUNNING` state; the runtime would exit with `EXIT_STARTUP` (code 4) |
+| Drill name                 | What it proves                                                                                                  |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `bad_route_config`         | Unknown adapter ref in route causes `RouteValidationError`; the runtime would exit with `EXIT_CONFIG` (code 2)  |
+| `all_adapters_build_fail`  | Total build failure causes all adapters to fail construction; the runtime would exit with `EXIT_BUILD` (code 3) |
+| `partial_degraded_startup` | Partial adapter start allows the runtime to enter `RUNNING` with degraded health (exit 0)                       |
+| `all_adapters_start_fail`  | Total startup failure prevents `RUNNING` state; the runtime would exit with `EXIT_STARTUP` (code 4)             |
 
 Run pre-runtime drills with:
 
 ```bash
 PYTHONPATH=src medre smoke --drill <drill_name> --storage-path /tmp/medre-smoke.db --json
 ```
-
 
 ## 7. Caveats
 
@@ -797,23 +790,22 @@ PYTHONPATH=src medre smoke --drill <drill_name> --storage-path /tmp/medre-smoke.
    prove live network behavior, sustained throughput, reconnection resilience,
    or multi-hop delivery.
 
- 5. **Counters reset on restart.** `capacity_rejections`, `outbound_failed`,
-    `RouteStats`, `CapacityController` gauges are process-local. They reset to
-    zero on every startup. Use `medre run --snapshot-on-shutdown` to capture
-    these values to disk before the process exits.
+5. **Counters reset on restart.** `capacity_rejections`, `outbound_failed`,
+   `RouteStats`, `CapacityController` gauges are process-local. They reset to
+   zero on every startup. Use `medre run --snapshot-on-shutdown` to capture
+   these values to disk before the process exits.
 
 6. **`medre inspect` requires SQLite.** `medre inspect` subcommands exit with
-    code 2 if the config uses `backend = "memory"` or the database file does not
-    exist.
+   code 2 if the config uses `backend = "memory"` or the database file does not
+   exist.
 
 7. **Shutdown snapshot is process-local.** The `--snapshot-on-shutdown` output
-    captures runtime events and counters at shutdown time, but these are
-    observations of process-local state. Runtime events do not survive the
-    process and are not in SQLite. Replay is manual and duplicate-risky.
+   captures runtime events and counters at shutdown time, but these are
+   observations of process-local state. Runtime events do not survive the
+   process and are not in SQLite. Replay is manual and duplicate-risky.
 
 8. **Pre-beta.** Exit codes, receipt schemas, drill names, and report shapes
-    may change before beta. Always verify against the current code.
-
+   may change before beta. Always verify against the current code.
 
 ## 8. Cross-References
 

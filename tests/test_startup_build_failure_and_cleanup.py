@@ -30,35 +30,31 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
-
-import time as _time
+from unittest.mock import patch
 
 import pytest
 
-from medre.core.contracts.adapter import (
-    AdapterCapabilities,
-    AdapterContext,
-    AdapterDeliveryResult,
-    AdapterInfo,
-    AdapterRole,
-    AdapterContract,
-)
 from medre.config.model import (
     AdapterConfigSet,
     LoggingConfig,
     MatrixRuntimeConfig,
-    MeshtasticRuntimeConfig,
     RuntimeConfig,
     RuntimeOptions,
     StorageConfig,
 )
 from medre.config.paths import MedrePaths, resolve
+from medre.core.contracts.adapter import (
+    AdapterCapabilities,
+    AdapterContext,
+    AdapterContract,
+    AdapterDeliveryResult,
+    AdapterInfo,
+    AdapterRole,
+)
 from medre.core.lifecycle.states import AdapterState
+from medre.runtime.app import MedreApp, RuntimeState
 from medre.runtime.builder import AdapterBuildFailure, RuntimeBuilder
 from medre.runtime.errors import RuntimeStartupError
-from medre.runtime.app import MedreApp, RuntimeState
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -379,7 +375,9 @@ class TestStartupFailureResourceCleanup:
         with pytest.raises(RuntimeStartupError, match="Total startup failure"):
             await app.start()
 
-        assert stop_called, "pipeline_runner.stop() was not called on total startup failure"
+        assert (
+            stop_called
+        ), "pipeline_runner.stop() was not called on total startup failure"
         assert app.state == RuntimeState.FAILED
 
     @pytest.mark.asyncio
@@ -580,7 +578,9 @@ class TestStartupFailureResourceCleanup:
 
         app.storage.close = _track_close  # type: ignore[assignment]
 
-        with pytest.raises(RuntimeStartupError, match="Failed to start pipeline runner"):
+        with pytest.raises(
+            RuntimeStartupError, match="Failed to start pipeline runner"
+        ):
             await app.start()
 
         assert close_called, "storage.close() was not called when pipeline init failed"
@@ -692,7 +692,9 @@ class TestCatastrophicLoopFailureCleanup:
                 raise RuntimeError("catastrophic loop failure")
             return original_monotonic_ms()
 
-        with patch.object(_app_mod, "_monotonic_ms", side_effect=_exploding_monotonic_ms):
+        with patch.object(
+            _app_mod, "_monotonic_ms", side_effect=_exploding_monotonic_ms
+        ):
             with pytest.raises(RuntimeError, match="catastrophic loop failure"):
                 await app.start()
 
@@ -779,9 +781,7 @@ class TestAdapterStartFailureCleanup:
     """Failed adapter.start() triggers best-effort adapter.stop() for cleanup."""
 
     @pytest.mark.asyncio
-    async def test_failed_start_calls_adapter_stop(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    async def test_failed_start_calls_adapter_stop(self, tmp_paths: MedrePaths) -> None:
         """When adapter.start() fails, adapter.stop() is called for cleanup."""
         config = _config_with_two_fake_adapters()
         app = _build_app(config, tmp_paths)
@@ -797,7 +797,9 @@ class TestAdapterStartFailureCleanup:
         await app.start()
         try:
             # Alpha failed start but stop() should have been called.
-            assert tracker.stop_called, "adapter.stop() was not called after start failure"
+            assert (
+                tracker.stop_called
+            ), "adapter.stop() was not called after start failure"
 
             # Beta should be started fine.
             assert beta.adapter_id in app.started_adapter_ids
@@ -806,9 +808,7 @@ class TestAdapterStartFailureCleanup:
             await app.stop()
 
     @pytest.mark.asyncio
-    async def test_failed_start_state_is_failed(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    async def test_failed_start_state_is_failed(self, tmp_paths: MedrePaths) -> None:
         """After adapter.start() fails, adapter state is FAILED."""
         config = _config_with_one_fake_adapter()
         app = _build_app(config, tmp_paths)
@@ -932,7 +932,8 @@ class TestTotalFailureCleansNeverStartedAdapters:
         self, tmp_paths: MedrePaths
     ) -> None:
         """When one adapter starts but total failure is triggered by build failures,
-        the started adapter is cleaned up and the never-started adapter is also cleaned up."""
+        the started adapter is cleaned up and the never-started adapter is also cleaned up.
+        """
         config = _config_with_two_fake_adapters()
         app = _build_app(config, tmp_paths)
 
@@ -1084,9 +1085,7 @@ class TestBootSummaryRouteCountAndBuildFailureIds:
             await app.stop()
 
     @pytest.mark.asyncio
-    async def test_build_failure_ids_populated(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    async def test_build_failure_ids_populated(self, tmp_paths: MedrePaths) -> None:
         """BootSummary.build_failure_ids contains the adapter IDs that failed to build."""
         config = _config_with_one_fake_adapter()
         app = _build_app(config, tmp_paths)
@@ -1194,7 +1193,7 @@ class TestIntegratedBuildStartRouteDegradation:
             assert boot.runtime_health == "degraded"
             assert boot.adapters_started == 1
             assert boot.adapters_failed == 2  # 1 start + 1 build
-            assert boot.adapters_total == 3   # 2 built + 1 build failure
+            assert boot.adapters_total == 3  # 2 built + 1 build failure
             assert boot.build_failure_count == 1
             assert boot.build_failure_ids == ("phantom_build_fail",)
             assert boot.failed_adapter_ids == ("adapter_b",)

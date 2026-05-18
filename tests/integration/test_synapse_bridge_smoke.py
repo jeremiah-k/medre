@@ -64,18 +64,18 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from medre.core.contracts.adapter import AdapterContext
 from medre.adapters.fake_matrix import FakeMatrixAdapter
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.compat import HAS_NIO
-from medre.config.adapters.matrix import MatrixConfig
 from medre.adapters.matrix.renderer import MatrixRenderer
+from medre.config.adapters.matrix import MatrixConfig
+from medre.core.contracts.adapter import AdapterContext
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.events.bus import EventBus
 from medre.core.planning import FallbackResolver, RelationResolver
 from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage import SQLiteStorage
 from medre.core.storage.backend import StorageBackend
@@ -90,7 +90,9 @@ pytestmark = pytest.mark.docker
 if not HAS_NIO:
     pytestmark = [
         pytest.mark.docker,
-        pytest.mark.skip(reason="mindroom-nio not installed; run: pip install '.[matrix]'"),
+        pytest.mark.skip(
+            reason="mindroom-nio not installed; run: pip install '.[matrix]'"
+        ),
     ]
 
 
@@ -105,6 +107,7 @@ _INBOUND_FALLBACK = "direct_on_room_message_fallback"
 # ---------------------------------------------------------------------------
 # Inbound path result
 # ---------------------------------------------------------------------------
+
 
 class IngressResult:
     """Records which ingress path delivered the event and related metadata.
@@ -129,8 +132,11 @@ class IngressResult:
     """
 
     __slots__ = (
-        "ingress_path", "native_event_id", "body_text",
-        "fallback_reason", "sync_health",
+        "ingress_path",
+        "native_event_id",
+        "body_text",
+        "fallback_reason",
+        "sync_health",
     )
 
     def __init__(
@@ -206,11 +212,12 @@ async def _wait_for_sync_or_fallback(
     """
     # 1. Send via Synapse HTTP API.
     native_event_id = _send_message_as_test_user(
-        synapse_env, body_text, txn_id,
+        synapse_env,
+        body_text,
+        txn_id,
     )
     assert native_event_id.startswith("$"), (
-        f"Synapse should return event_id starting with '$', "
-        f"got {native_event_id!r}"
+        f"Synapse should return event_id starting with '$', " f"got {native_event_id!r}"
     )
 
     # 2. Poll for the sync loop to deliver through the pipeline.
@@ -344,9 +351,11 @@ def _make_pipeline_config(
 
 
 def _make_adapter_context_for_pipeline(
-    adapter_id: str, runner: PipelineRunner,
+    adapter_id: str,
+    runner: PipelineRunner,
 ) -> AdapterContext:
     """Create an AdapterContext wired to a PipelineRunner's ingress handler."""
+
     async def _publish(event: Any) -> None:
         await runner.ingress_handler(event)
 
@@ -369,10 +378,12 @@ def _send_message_as_test_user(
 
     Returns the Matrix event_id assigned by Synapse.
     """
-    payload = json.dumps({
-        "msgtype": "m.text",
-        "body": body,
-    }).encode()
+    payload = json.dumps(
+        {
+            "msgtype": "m.text",
+            "body": body,
+        }
+    ).encode()
     url = (
         f"{env.base_url}/_matrix/client/v3/rooms/{env.test_room_id}"
         f"/send/m.room.message/{txn_id}"
@@ -405,7 +416,8 @@ class TestSynapseBridgeSmoke:
     """
 
     async def test_outbound_send_produces_real_synapse_event_id(
-        self, synapse_env: SynapseEnvironment,
+        self,
+        synapse_env: SynapseEnvironment,
     ) -> None:
         """Bot sends a message through the real SDK to Docker Synapse.
 
@@ -445,7 +457,9 @@ class TestSynapseBridgeSmoke:
             await adapter.stop()
 
     async def test_inbound_routes_to_fake_adapter(
-        self, synapse_env: SynapseEnvironment, temp_storage: SQLiteStorage,
+        self,
+        synapse_env: SynapseEnvironment,
+        temp_storage: SQLiteStorage,
     ) -> None:
         """Test user sends via HTTP API; bot receives and pipeline routes
         to FakeMatrixAdapter; storage and accounting assertions pass.
@@ -512,7 +526,8 @@ class TestSynapseBridgeSmoke:
 
         # Wire matrix adapter's publish_inbound to the pipeline ingress.
         matrix_ctx = _make_adapter_context_for_pipeline(
-            "synapse-bridge-bot", runner,
+            "synapse-bridge-bot",
+            runner,
         )
         await matrix_adapter.start(matrix_ctx)
 
@@ -579,19 +594,18 @@ class TestSynapseBridgeSmoke:
                 canonical_id,
             )
             assert len(receipts) >= 1, (
-                "Expected at least one delivery receipt for "
-                f"event {canonical_id!r}"
+                "Expected at least one delivery receipt for " f"event {canonical_id!r}"
             )
             receipt_status = receipts[0].status
-            assert receipt_status == "sent", (
-                f"Expected receipt status 'sent', got {receipt_status!r}"
-            )
+            assert (
+                receipt_status == "sent"
+            ), f"Expected receipt status 'sent', got {receipt_status!r}"
 
             # 7. RuntimeAccounting counters incremented.
             counters = accounting.snapshot()
-            assert counters["inbound_accepted"] >= 1, (
-                f"Expected inbound_accepted >= 1, got {counters['inbound_accepted']}"
-            )
+            assert (
+                counters["inbound_accepted"] >= 1
+            ), f"Expected inbound_accepted >= 1, got {counters['inbound_accepted']}"
             assert counters["outbound_delivered"] >= 1, (
                 f"Expected outbound_delivered >= 1, "
                 f"got {counters['outbound_delivered']}"
@@ -631,7 +645,8 @@ class TestSynapseBridgeSmoke:
             }
             # Assert report shape is well-formed.
             assert report["ingress_path"] in (
-                _INBOUND_SYNC_LOOP, _INBOUND_FALLBACK,
+                _INBOUND_SYNC_LOOP,
+                _INBOUND_FALLBACK,
             )
             assert report["evidence_level"] == "docker_sdk_boundary"
             assert report["receipt_status"] == "sent"
@@ -655,11 +670,13 @@ class TestSynapseBridgeSmoke:
 
     @pytest.mark.xfail(
         reason="Strict sync_loop ingress is not yet reliable; "
-               "xfail proves the test exists and tracks progress",
+        "xfail proves the test exists and tracks progress",
         strict=False,
     )
     async def test_strict_sync_loop(
-        self, synapse_env: SynapseEnvironment, temp_storage: SQLiteStorage,
+        self,
+        synapse_env: SynapseEnvironment,
+        temp_storage: SQLiteStorage,
     ) -> None:
         """FAILS (xfail) if fallback is used — proves strict sync goal.
 
@@ -708,7 +725,8 @@ class TestSynapseBridgeSmoke:
         await runner.start()
 
         matrix_ctx = _make_adapter_context_for_pipeline(
-            "synapse-bridge-bot", runner,
+            "synapse-bridge-bot",
+            runner,
         )
         await matrix_adapter.start(matrix_ctx)
 
@@ -736,7 +754,9 @@ class TestSynapseBridgeSmoke:
             await runner.stop()
 
     async def test_sync_with_fallback(
-        self, synapse_env: SynapseEnvironment, temp_storage: SQLiteStorage,
+        self,
+        synapse_env: SynapseEnvironment,
+        temp_storage: SQLiteStorage,
     ) -> None:
         """Passes regardless of ingress path; reports which path was used.
 
@@ -784,7 +804,8 @@ class TestSynapseBridgeSmoke:
         await runner.start()
 
         matrix_ctx = _make_adapter_context_for_pipeline(
-            "synapse-bridge-bot", runner,
+            "synapse-bridge-bot",
+            runner,
         )
         await matrix_adapter.start(matrix_ctx)
 
@@ -836,23 +857,25 @@ class TestSynapseBridgeSmoke:
 
             # Validate ingress_path value.
             assert ingress.ingress_path in (
-                _INBOUND_SYNC_LOOP, _INBOUND_FALLBACK,
+                _INBOUND_SYNC_LOOP,
+                _INBOUND_FALLBACK,
             )
 
             # If fallback, validate reason is one of the known causes.
             if ingress.ingress_path == _INBOUND_FALLBACK:
                 assert ingress.fallback_reason in (
-                    "sync_not_running", "sync_error", "sync_timeout",
-                ), (
-                    f"Unexpected fallback_reason: {ingress.fallback_reason!r}"
-                )
+                    "sync_not_running",
+                    "sync_error",
+                    "sync_timeout",
+                ), f"Unexpected fallback_reason: {ingress.fallback_reason!r}"
         finally:
             await matrix_adapter.stop()
             await fake_out.stop()
             await runner.stop()
 
     async def test_clean_shutdown_no_resource_warning(
-        self, synapse_env: SynapseEnvironment,
+        self,
+        synapse_env: SynapseEnvironment,
     ) -> None:
         """Adapter starts against real Synapse, sends a message, stops, and
         no ``ResourceWarning`` is raised during garbage collection.
@@ -887,10 +910,15 @@ class TestSynapseBridgeSmoke:
 
         # Force garbage collection and check for ResourceWarnings.
         gc.collect()
-        resource_warnings = [
-            w for w in warnings.get_warnings(record=True)
-            if issubclass(w.category, ResourceWarning)
-        ] if False else []  # warnings.get_warnings needs a context manager
+        (
+            [
+                w
+                for w in warnings.get_warnings(record=True)
+                if issubclass(w.category, ResourceWarning)
+            ]
+            if False
+            else []
+        )  # warnings.get_warnings needs a context manager
 
         # Use warnings.catch_warnings with a filter instead.
         with warnings.catch_warnings(record=True) as caught:
@@ -898,7 +926,8 @@ class TestSynapseBridgeSmoke:
             gc.collect()
 
         aiohttp_warnings = [
-            w for w in caught
+            w
+            for w in caught
             if issubclass(w.category, ResourceWarning)
             and ("aiohttp" in str(w.message) or "Unclosed" in str(w.message))
         ]

@@ -36,20 +36,19 @@ from __future__ import annotations
 
 import importlib
 import re
-from pathlib import Path
-from typing import Any
-
-import pytest
-
 
 # Capture SDK presence in sys.modules at module-load time, BEFORE any
 # runtime/core imports in test methods.  This establishes a baseline so
 # the sys.modules guard test can detect new SDK entries introduced by
 # runtime/core imports specifically (vs. loaded by prior tests or compat).
 import sys as _sys
+from pathlib import Path
+
+import pytest
 
 _SESSION_BASELINE_SDK_MODULES: frozenset[str] = frozenset(
-    sdk for sdk in ("nio", "meshtastic", "meshcore", "RNS", "lxmf", "LXMF")
+    sdk
+    for sdk in ("nio", "meshtastic", "meshcore", "RNS", "lxmf", "LXMF")
     if sdk in _sys.modules
 )
 
@@ -184,7 +183,8 @@ class TestRuntimeCoreNoSdk:
         _RUNTIME_MODULES,
     )
     def test_runtime_modules_no_sdk_imports(
-        self, module_name: str,
+        self,
+        module_name: str,
     ) -> None:
         """Runtime modules must not have top-level SDK imports."""
         try:
@@ -198,21 +198,21 @@ class TestRuntimeCoreNoSdk:
         # not third-party SDK packages — explicitly permitted per the test
         # docstring and _ADAPTER_CONFIG_ALLOWED.
         banned = [
-            line for line in banned
+            line
+            for line in banned
             if not any(
                 line.startswith(f"from {prefix}") for prefix in _ADAPTER_CONFIG_ALLOWED
             )
         ]
-        assert banned == [], (
-            f"{module_name} imports transport SDKs: {banned}"
-        )
+        assert banned == [], f"{module_name} imports transport SDKs: {banned}"
 
     @pytest.mark.parametrize(
         "module_name",
         _RUNTIME_MODULES,
     )
     def test_runtime_modules_no_sdk_instantiation(
-        self, module_name: str,
+        self,
+        module_name: str,
     ) -> None:
         """Runtime modules must not directly instantiate SDK objects."""
         try:
@@ -237,9 +237,10 @@ class TestRuntimeCoreNoSdk:
                 if pattern in stripped:
                     violations.append(f"line {i}: {stripped}")
 
-        assert violations == [], (
-            f"{module_name} directly instantiates transport SDKs:\n"
-            + "\n".join(violations)
+        assert (
+            violations == []
+        ), f"{module_name} directly instantiates transport SDKs:\n" + "\n".join(
+            violations
         )
 
 
@@ -296,7 +297,8 @@ class TestRuntimeCoreModuleGuard:
         _GUARDED_MODULES,
     )
     def test_import_does_not_leak_sdk_into_sys_modules(
-        self, module_name: str,
+        self,
+        module_name: str,
     ) -> None:
         """Importing runtime/core module must not load SDK into sys.modules.
 
@@ -363,7 +365,8 @@ class TestRuntimeCoreNoAdapterRuntime:
         _RUNTIME_MODULES,
     )
     def test_runtime_modules_no_adapter_runtime_imports(
-        self, module_name: str,
+        self,
+        module_name: str,
     ) -> None:
         """Runtime modules must not import adapter runtime modules.
 
@@ -390,9 +393,9 @@ class TestRuntimeCoreNoAdapterRuntime:
             allowed_lines.append(line)
 
         banned = _banned_imports(allowed_lines, _ADAPTER_PREFIXES)
-        assert banned == [], (
-            f"{module_name} imports concrete adapter runtime modules: {banned}"
-        )
+        assert (
+            banned == []
+        ), f"{module_name} imports concrete adapter runtime modules: {banned}"
 
 
 # ===================================================================
@@ -424,7 +427,8 @@ class TestSnapshotModulesSdkFree:
         _SNAPSHOT_MODULES,
     )
     def test_snapshot_no_transport_sdks(
-        self, module_name: str,
+        self,
+        module_name: str,
     ) -> None:
         """Snapshot modules must not import transport SDKs."""
         try:
@@ -434,16 +438,15 @@ class TestSnapshotModulesSdkFree:
         lines = _import_lines(source)
 
         banned = _banned_imports(lines, _SDK_PACKAGES)
-        assert banned == [], (
-            f"{module_name} imports transport SDKs: {banned}"
-        )
+        assert banned == [], f"{module_name} imports transport SDKs: {banned}"
 
     @pytest.mark.parametrize(
         "module_name",
         _SNAPSHOT_MODULES,
     )
     def test_snapshot_no_concrete_adapters(
-        self, module_name: str,
+        self,
+        module_name: str,
     ) -> None:
         """Snapshot modules must not import concrete adapter packages."""
         try:
@@ -453,9 +456,9 @@ class TestSnapshotModulesSdkFree:
         lines = _import_lines(source)
 
         banned = _banned_imports(lines, _ADAPTER_PREFIXES)
-        assert banned == [], (
-            f"{module_name} imports concrete adapter packages: {banned}"
-        )
+        assert (
+            banned == []
+        ), f"{module_name} imports concrete adapter packages: {banned}"
 
     def test_runtime_snapshot_produces_plain_dicts(self) -> None:
         """runtime/snapshot.py must reference plain-dict guarantees."""
@@ -464,12 +467,12 @@ class TestSnapshotModulesSdkFree:
         except ImportError:
             pytest.skip("medre.runtime.snapshot not importable")
 
-        assert "JSON" in source or "json" in source, (
-            "runtime/snapshot.py should reference JSON-safe output"
-        )
-        assert "SDK" in source or "sdk" in source or "No SDK" in source, (
-            "runtime/snapshot.py should document no-SDK guarantees"
-        )
+        assert (
+            "JSON" in source or "json" in source
+        ), "runtime/snapshot.py should reference JSON-safe output"
+        assert (
+            "SDK" in source or "sdk" in source or "No SDK" in source
+        ), "runtime/snapshot.py should document no-SDK guarantees"
 
     def test_core_snapshot_produces_plain_dicts(self) -> None:
         """core/diagnostics/snapshot.py must reference plain-dict guarantees."""
@@ -478,12 +481,12 @@ class TestSnapshotModulesSdkFree:
         except ImportError:
             pytest.skip("medre.core.diagnostics.snapshot not importable")
 
-        assert "JSON" in source or "json" in source, (
-            "core/diagnostics/snapshot.py should reference JSON-safe output"
-        )
-        assert "SDK" in source or "sdk" in source or "No raw SDK" in source, (
-            "core/diagnostics/snapshot.py should document no-SDK guarantees"
-        )
+        assert (
+            "JSON" in source or "json" in source
+        ), "core/diagnostics/snapshot.py should reference JSON-safe output"
+        assert (
+            "SDK" in source or "sdk" in source or "No raw SDK" in source
+        ), "core/diagnostics/snapshot.py should document no-SDK guarantees"
 
 
 # ===================================================================
@@ -515,7 +518,8 @@ class TestObservabilityModulesSdkFree:
         _OBSERVABILITY_MODULES,
     )
     def test_observability_no_transport_sdks(
-        self, module_name: str,
+        self,
+        module_name: str,
     ) -> None:
         """Observability modules must not import transport SDKs."""
         try:
@@ -525,9 +529,7 @@ class TestObservabilityModulesSdkFree:
         lines = _import_lines(source)
 
         banned = _banned_imports(lines, _SDK_PACKAGES)
-        assert banned == [], (
-            f"{module_name} imports transport SDKs: {banned}"
-        )
+        assert banned == [], f"{module_name} imports transport SDKs: {banned}"
 
 
 # ===================================================================
@@ -555,9 +557,9 @@ class TestBuilderAbstraction:
         except ImportError:
             pytest.skip("medre.runtime.builder not importable")
 
-        assert "AdapterContract" in source, (
-            "medre.runtime.builder must reference AdapterContract"
-        )
+        assert (
+            "AdapterContract" in source
+        ), "medre.runtime.builder must reference AdapterContract"
 
     def test_builder_no_direct_adapter_construction(self) -> None:
         """builder.py must not directly construct concrete adapter classes.
@@ -610,9 +612,9 @@ class TestBuilderAbstraction:
             pytest.skip("medre.runtime.builder not importable")
 
         # Builder should import config dataclasses — this is the permitted pattern
-        assert "MatrixRuntimeConfig" in source or "matrix.config" in source, (
-            "medre.runtime.builder should import adapter config dataclasses"
-        )
+        assert (
+            "MatrixRuntimeConfig" in source or "matrix.config" in source
+        ), "medre.runtime.builder should import adapter config dataclasses"
 
 
 # ===================================================================
@@ -666,7 +668,8 @@ class TestCoreModulesTransportAgnostic:
         _CORE_MODULES,
     )
     def test_core_modules_no_sdk_imports(
-        self, module_name: str,
+        self,
+        module_name: str,
     ) -> None:
         """Core modules must not have top-level SDK imports."""
         try:
@@ -676,9 +679,7 @@ class TestCoreModulesTransportAgnostic:
         lines = _import_lines(source)
 
         banned = _banned_imports(lines, _SDK_PACKAGES)
-        assert banned == [], (
-            f"{module_name} imports transport SDKs: {banned}"
-        )
+        assert banned == [], f"{module_name} imports transport SDKs: {banned}"
 
 
 # ===================================================================
@@ -721,7 +722,8 @@ class TestExportReportingTestsSdkFree:
         ids=_EXPORT_TEST_FILES,
     )
     def test_export_test_files_no_sdk_imports(
-        self, filename: str,
+        self,
+        filename: str,
     ) -> None:
         """Export/reporting test files must not import transport SDKs.
 
@@ -745,9 +747,10 @@ class TestExportReportingTestsSdkFree:
                     violations.append(f"{filename}:{i}: {stripped}")
                     break
 
-        assert violations == [], (
-            f"Export/reporting test file has transport SDK imports:\n"
-            + "\n".join(violations)
+        assert (
+            violations == []
+        ), "Export/reporting test file has transport SDK imports:\n" + "\n".join(
+            violations
         )
 
 
@@ -778,7 +781,9 @@ class TestDocumentationTrackHeaders:
         ids=[p[0] for p in _TRACKED_DOCS],
     )
     def test_doc_has_track_header(
-        self, doc_path: str, required_keywords: list[str],
+        self,
+        doc_path: str,
+        required_keywords: list[str],
     ) -> None:
         """Runbook documentation file must contain Track classification in header."""
         full_path = self._REPO_ROOT / doc_path
@@ -800,7 +805,9 @@ class TestDocumentationTrackHeaders:
         ids=[p[0] for p in _TRACKED_DOCS],
     )
     def test_doc_has_last_updated(
-        self, doc_path: str, required_keywords: list[str],
+        self,
+        doc_path: str,
+        required_keywords: list[str],
     ) -> None:
         """Runbook documentation file must contain 'Last updated' date in header."""
         full_path = self._REPO_ROOT / doc_path
@@ -841,7 +848,9 @@ class TestContractTrackHeaders:
         ids=[p[0] for p in _CONTRACT_DOCS],
     )
     def test_contract_has_track_header(
-        self, doc_path: str, required_keywords: list[str],
+        self,
+        doc_path: str,
+        required_keywords: list[str],
     ) -> None:
         """Contract must contain Track classification in header metadata."""
         full_path = self._REPO_ROOT / doc_path

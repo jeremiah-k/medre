@@ -7,6 +7,7 @@
 ### 0.1 Core Adapter Contracts — `medre.core.contracts.adapter`
 
 Exports:
+
 - `AdapterContract` (protocol for all adapter implementations)
 - `AdapterRole`
 - `AdapterCodec`
@@ -18,6 +19,7 @@ Exports:
 - `AdapterPermanentError`
 
 The following old modules **do not exist** and must not be imported:
+
 - `medre.core.ports` (merged into `medre.core.contracts.adapter`)
 - `medre.core.adapter_base` (merged into `medre.core.contracts.adapter`)
 - `medre.adapters.base` (merged into `medre.core.contracts.adapter`)
@@ -25,12 +27,14 @@ The following old modules **do not exist** and must not be imported:
 ### 0.2 Adapter Configuration — `medre.config.adapters.*`
 
 Config dataclasses live in:
+
 - `medre.config.adapters.matrix.MatrixConfig`
 - `medre.config.adapters.meshtastic.MeshtasticConfig`
 - `medre.config.adapters.meshcore.MeshCoreConfig`
 - `medre.config.adapters.lxmf.LxmfConfig`
 
 Config validation errors live in `medre.config.adapters.errors`:
+
 - `AdapterConfigError(ValueError)`
 - `MatrixConfigError`
 - `MeshtasticConfigError`
@@ -42,6 +46,7 @@ Config errors are `ValueError` subclasses — they are NOT runtime adapter error
 ### 0.3 Matrix Credential Sidecar — `medre.config.adapters.matrix_credentials`
 
 Canonical home for credential sidecar file operations:
+
 - `get_credentials_path()` -> Path
 - `load_credentials_json(path=None)` -> dict | None
 - `write_credentials_json(data, path=None)` -> Path
@@ -51,12 +56,14 @@ Canonical home for credential sidecar file operations:
 ### 0.4 Adapter Implementations — `medre.adapters.*`
 
 Concrete adapter implementations live in `medre.adapters.*`:
+
 - `medre.adapters.matrix.*`
 - `medre.adapters.meshtastic.*`
 - `medre.adapters.meshcore.*`
 - `medre.adapters.lxmf.*`
 
 Runtime/session/network/protocol errors live in `medre.adapters.*.errors`:
+
 - `medre.adapters.matrix.errors.MatrixError` (etc.)
 - `medre.adapters.meshtastic.errors.MeshtasticError` (etc.)
 
@@ -64,11 +71,11 @@ These are adapter runtime errors — NOT config validation errors.
 
 ## 1. Layer Ownership Rules
 
-| Layer | May Import From | Must Not Import From |
-|---|---|---|
-| `medre.core` | `medre.core` only (documented exceptions: `observability/sanitization`) | `medre.adapters`, `medre.config` |
-| `medre.config` | `medre.config` (including `config.adapters`) | `medre.adapters` |
-| `medre.adapters` | `medre.core.contracts.adapter`, `medre.config.adapters.*`, `medre.core.*` | — |
+| Layer            | May Import From                                                           | Must Not Import From             |
+| ---------------- | ------------------------------------------------------------------------- | -------------------------------- |
+| `medre.core`     | `medre.core` only (documented exceptions: `observability/sanitization`)   | `medre.adapters`, `medre.config` |
+| `medre.config`   | `medre.config` (including `config.adapters`)                              | `medre.adapters`                 |
+| `medre.adapters` | `medre.core.contracts.adapter`, `medre.config.adapters.*`, `medre.core.*` | —                                |
 
 - Concrete adapters depend inward on core contracts and config models.
 - `medre.config.adapters.matrix_credentials` is the canonical owner of credential file operations.
@@ -79,19 +86,19 @@ These are adapter runtime errors — NOT config validation errors.
 
 **Documented runtime exceptions** (core -> outside core):
 
-| Source | Import | Reason |
-|---|---|---|
+| Source                          | Import                                                  | Reason                                |
+| ------------------------------- | ------------------------------------------------------- | ------------------------------------- |
 | `core/observability/logging.py` | `sanitize_for_log` from `observability/sanitization.py` | Pure function, no I/O or SDK coupling |
-| `core/routing/stats.py` | `sanitize_error` from `observability/sanitization.py` | Pure function, no I/O or SDK coupling |
+| `core/routing/stats.py`         | `sanitize_error` from `observability/sanitization.py`   | Pure function, no I/O or SDK coupling |
 
 Both exceptions import the same pure-function module (`observability/sanitization.py`). They are the only runtime core->external dependencies.
 
 **Type-only coupling** (acceptable, no runtime dependency):
 
-| Source | Import | Guard |
-|---|---|---|
+| Source                    | Import                                       | Guard                     |
+| ------------------------- | -------------------------------------------- | ------------------------- |
 | `core/engine/pipeline.py` | `CapacityController` from `runtime.capacity` | `if TYPE_CHECKING:` block |
-| `core/storage/replay.py` | `CapacityController` from `runtime.capacity` | `if TYPE_CHECKING:` block |
+| `core/storage/replay.py`  | `CapacityController` from `runtime.capacity` | `if TYPE_CHECKING:` block |
 
 ## 2. Package Tree
 

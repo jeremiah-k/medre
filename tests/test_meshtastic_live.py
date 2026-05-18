@@ -253,8 +253,8 @@ def _connect_interface(config):
     Returns the interface object, or raises if mtjk is not installed.
     """
     import meshtastic
-    import meshtastic.tcp_interface
     import meshtastic.serial_interface
+    import meshtastic.tcp_interface
 
     ct = MESHTASTIC_CONNECTION_TYPE
     if ct == "tcp":
@@ -343,14 +343,17 @@ class TestMeshtasticLiveSmoke:
             info = await adapter.health_check()
             # After start, health should be "healthy" (client connected)
             # or "unknown" if start didn't complete fully.
-            assert info.health in ("healthy", "unknown"), (
-                f"Expected healthy or unknown, got {info.health!r}"
-            )
+            assert info.health in (
+                "healthy",
+                "unknown",
+            ), f"Expected healthy or unknown, got {info.health!r}"
 
             # Verify diagnostics returns session state
             diag = adapter.diagnostics()
             assert "session" in diag
-            assert diag["session"]["connected"] is True or config.connection_type == "fake"
+            assert (
+                diag["session"]["connected"] is True or config.connection_type == "fake"
+            )
         finally:
             await adapter.stop()
 
@@ -433,9 +436,9 @@ class TestMeshtasticLiveSmoke:
             # sendText returns a MeshPacket protobuf with id populated
             assert result is not None, "sendText returned None"
             packet_id = getattr(result, "id", None)
-            assert packet_id is not None and packet_id != 0, (
-                f"Expected populated packet id, got {packet_id!r}"
-            )
+            assert (
+                packet_id is not None and packet_id != 0
+            ), f"Expected populated packet id, got {packet_id!r}"
         finally:
             await asyncio.get_event_loop().run_in_executor(None, iface.close)
 
@@ -477,9 +480,9 @@ class TestMeshtasticLiveSmoke:
 
             assert result is not None, "sendData returned None"
             packet_id = getattr(result, "id", None)
-            assert packet_id is not None and packet_id != 0, (
-                f"Expected populated packet id, got {packet_id!r}"
-            )
+            assert (
+                packet_id is not None and packet_id != 0
+            ), f"Expected populated packet id, got {packet_id!r}"
         finally:
             await asyncio.get_event_loop().run_in_executor(None, iface.close)
 
@@ -541,9 +544,10 @@ class TestMeshtasticLiveSmoke:
                 assert "id" in pkt, f"Packet missing 'id': {pkt}"
                 # Self-received text packets should have portnum
                 portnum = pkt.get("decoded", {}).get("portnum")
-                assert portnum in ("TEXT_MESSAGE_APP", "text_message"), (
-                    f"Unexpected portnum {portnum!r}"
-                )
+                assert portnum in (
+                    "TEXT_MESSAGE_APP",
+                    "text_message",
+                ), f"Unexpected portnum {portnum!r}"
             # If no packet received, test passes silently — mesh may be silent
         finally:
             pub.unsubscribe(_on_receive, "meshtastic.receive")
@@ -565,7 +569,7 @@ class TestMeshtasticLiveSmoke:
 
         config = _make_config()
 
-        for i in range(3):
+        for _i in range(3):
             adapter = MeshtasticAdapter(config)
             ctx = _make_context()
             try:

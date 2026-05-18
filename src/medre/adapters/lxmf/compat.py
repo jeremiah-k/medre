@@ -11,6 +11,7 @@ All other LXMF adapter modules must not import ``lxmf`` or ``RNS``
 directly — they access the modules through :data:`rns_module` and
 :data:`lxmf_module` here.
 """
+
 from __future__ import annotations
 
 from types import ModuleType

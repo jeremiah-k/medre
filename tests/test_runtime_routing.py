@@ -17,13 +17,11 @@ Covers:
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
-from pathlib import Path
 
 import pytest
 
 from medre.core.events import CanonicalEvent, EventMetadata
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.runtime.route_engine import (
     RouteValidationError,
     build_runtime_routes,
@@ -37,7 +35,6 @@ from medre.runtime.routes import (
     RouteConfigSet,
     RouteDirectionality,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -100,9 +97,7 @@ class TestBuildRuntimeRoutes:
 
     def test_one_to_one(self) -> None:
         """Single source → single dest produces exactly one Route."""
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("adapter_a",), ("adapter_b",)),
-        ))
+        rcs = RouteConfigSet(routes=(_rc("r1", ("adapter_a",), ("adapter_b",)),))
         routes = build_runtime_routes(rcs)
         assert len(routes) == 1
         assert routes[0].source.adapter == "adapter_a"
@@ -112,22 +107,22 @@ class TestBuildRuntimeRoutes:
 
     def test_one_to_many(self) -> None:
         """Single source → multiple dests produces one Route with multiple targets."""
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("adapter_a",), ("adapter_b", "adapter_c", "adapter_d")),
-        ))
+        rcs = RouteConfigSet(
+            routes=(_rc("r1", ("adapter_a",), ("adapter_b", "adapter_c", "adapter_d")),)
+        )
         routes = build_runtime_routes(rcs)
         assert len(routes) == 1
         assert routes[0].source.adapter == "adapter_a"
         assert len(routes[0].targets) == 3
         assert [t.adapter for t in routes[0].targets] == [
-            "adapter_b", "adapter_c", "adapter_d",
+            "adapter_b",
+            "adapter_c",
+            "adapter_d",
         ]
 
     def test_many_to_many(self) -> None:
         """Multiple sources × multiple dests: one Route per source, each with all dests."""
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("a1", "a2"), ("b1", "b2")),
-        ))
+        rcs = RouteConfigSet(routes=(_rc("r1", ("a1", "a2"), ("b1", "b2")),))
         routes = build_runtime_routes(rcs)
         # 2 sources → 2 routes, each with 2 targets
         assert len(routes) == 2
@@ -139,11 +134,13 @@ class TestBuildRuntimeRoutes:
 
     def test_disabled_routes_skipped(self) -> None:
         """Disabled routes are silently excluded."""
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("a",), ("b",), enabled=True),
-            _rc("r2", ("c",), ("d",), enabled=False),
-            _rc("r3", ("e",), ("f",), enabled=True),
-        ))
+        rcs = RouteConfigSet(
+            routes=(
+                _rc("r1", ("a",), ("b",), enabled=True),
+                _rc("r2", ("c",), ("d",), enabled=False),
+                _rc("r3", ("e",), ("f",), enabled=True),
+            )
+        )
         routes = build_runtime_routes(rcs)
         route_ids = [r.id for r in routes]
         assert "r1" in route_ids
@@ -153,11 +150,13 @@ class TestBuildRuntimeRoutes:
 
     def test_deterministic_ordering(self) -> None:
         """Routes are returned in RouteConfigSet order."""
-        rcs = RouteConfigSet(routes=(
-            _rc("alpha", ("a",), ("b",)),
-            _rc("beta", ("c",), ("d",)),
-            _rc("gamma", ("e",), ("f",)),
-        ))
+        rcs = RouteConfigSet(
+            routes=(
+                _rc("alpha", ("a",), ("b",)),
+                _rc("beta", ("c",), ("d",)),
+                _rc("gamma", ("e",), ("f",)),
+            )
+        )
         routes = build_runtime_routes(rcs)
         assert [r.id for r in routes] == ["alpha", "beta", "gamma"]
 
@@ -177,9 +176,7 @@ class TestDirectionalityExpansion:
 
     def test_source_to_dest(self) -> None:
         """SOURCE_TO_DEST keeps source as source."""
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("a",), ("b",)),
-        ))
+        rcs = RouteConfigSet(routes=(_rc("r1", ("a",), ("b",)),))
         routes = build_runtime_routes(rcs)
         assert len(routes) == 1
         assert routes[0].source.adapter == "a"
@@ -187,10 +184,16 @@ class TestDirectionalityExpansion:
 
     def test_dest_to_source(self) -> None:
         """DEST_TO_SOURCE swaps source and dest adapters."""
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("a",), ("b",),
-                directionality=RouteDirectionality.DEST_TO_SOURCE),
-        ))
+        rcs = RouteConfigSet(
+            routes=(
+                _rc(
+                    "r1",
+                    ("a",),
+                    ("b",),
+                    directionality=RouteDirectionality.DEST_TO_SOURCE,
+                ),
+            )
+        )
         routes = build_runtime_routes(rcs)
         assert len(routes) == 1
         # source_adapters was ("a",), dest was ("b,")
@@ -200,10 +203,16 @@ class TestDirectionalityExpansion:
 
     def test_bidirectional_expands_both_directions(self) -> None:
         """BIDIRECTIONAL produces forward + reverse routes."""
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("a",), ("b",),
-                directionality=RouteDirectionality.BIDIRECTIONAL),
-        ))
+        rcs = RouteConfigSet(
+            routes=(
+                _rc(
+                    "r1",
+                    ("a",),
+                    ("b",),
+                    directionality=RouteDirectionality.BIDIRECTIONAL,
+                ),
+            )
+        )
         routes = build_runtime_routes(rcs)
         assert len(routes) == 2
         # Forward: a→b
@@ -215,10 +224,16 @@ class TestDirectionalityExpansion:
 
     def test_bidirectional_multi_source(self) -> None:
         """BIDIRECTIONAL with multiple sources expands correctly."""
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("a1", "a2"), ("b1",),
-                directionality=RouteDirectionality.BIDIRECTIONAL),
-        ))
+        rcs = RouteConfigSet(
+            routes=(
+                _rc(
+                    "r1",
+                    ("a1", "a2"),
+                    ("b1",),
+                    directionality=RouteDirectionality.BIDIRECTIONAL,
+                ),
+            )
+        )
         routes = build_runtime_routes(rcs)
         # Forward: a1→b1, a2→b1 (2 routes, one per source adapter)
         # Reverse: b1→[a1,a2] (1 route, single reversed source with 2 targets)
@@ -234,10 +249,16 @@ class TestDirectionalityExpansion:
 
     def test_bidirectional_route_ids_unique(self) -> None:
         """Route IDs are unique after bidirectional expansion."""
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("a1", "a2"), ("b1",),
-                directionality=RouteDirectionality.BIDIRECTIONAL),
-        ))
+        rcs = RouteConfigSet(
+            routes=(
+                _rc(
+                    "r1",
+                    ("a1", "a2"),
+                    ("b1",),
+                    directionality=RouteDirectionality.BIDIRECTIONAL,
+                ),
+            )
+        )
         routes = build_runtime_routes(rcs)
         ids = [r.id for r in routes]
         assert len(ids) == len(set(ids)), f"Duplicate route IDs: {ids}"
@@ -254,26 +275,20 @@ class TestBridgePolicyMapping:
     def test_policy_event_types_mapped(self) -> None:
         """allowed_event_types are forwarded to RouteSource.event_kinds."""
         policy = BridgePolicy(allowed_event_types=("message.created", "message.text"))
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("a",), ("b",), policy=policy),
-        ))
+        rcs = RouteConfigSet(routes=(_rc("r1", ("a",), ("b",), policy=policy),))
         routes = build_runtime_routes(rcs)
         assert routes[0].source.event_kinds == ("message.created", "message.text")
 
     def test_no_policy_means_no_event_kind_filter(self) -> None:
         """No policy → empty event_kinds (match all)."""
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("a",), ("b",)),
-        ))
+        rcs = RouteConfigSet(routes=(_rc("r1", ("a",), ("b",)),))
         routes = build_runtime_routes(rcs)
         assert routes[0].source.event_kinds == ()
 
     def test_policy_with_empty_event_types(self) -> None:
         """Policy with empty allowed_event_types → no filter."""
         policy = BridgePolicy()
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("a",), ("b",), policy=policy),
-        ))
+        rcs = RouteConfigSet(routes=(_rc("r1", ("a",), ("b",), policy=policy),))
         routes = build_runtime_routes(rcs)
         assert routes[0].source.event_kinds == ()
 
@@ -287,20 +302,30 @@ class TestChannelMapping:
     """source_channel and dest_channel are forwarded correctly."""
 
     def test_channels_forwarded(self) -> None:
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("a",), ("b",),
-                source_channel="src-ch", dest_channel="dst-ch"),
-        ))
+        rcs = RouteConfigSet(
+            routes=(
+                _rc(
+                    "r1", ("a",), ("b",), source_channel="src-ch", dest_channel="dst-ch"
+                ),
+            )
+        )
         routes = build_runtime_routes(rcs)
         assert routes[0].source.channel == "src-ch"
         assert routes[0].targets[0].channel == "dst-ch"
 
     def test_channels_swapped_on_reverse(self) -> None:
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("a",), ("b",),
-                source_channel="src-ch", dest_channel="dst-ch",
-                directionality=RouteDirectionality.DEST_TO_SOURCE),
-        ))
+        rcs = RouteConfigSet(
+            routes=(
+                _rc(
+                    "r1",
+                    ("a",),
+                    ("b",),
+                    source_channel="src-ch",
+                    dest_channel="dst-ch",
+                    directionality=RouteDirectionality.DEST_TO_SOURCE,
+                ),
+            )
+        )
         routes = build_runtime_routes(rcs)
         # With swap: source=dest_channel, dest=source_channel
         assert routes[0].source.channel == "dst-ch"
@@ -317,40 +342,32 @@ class TestValidateRouteAdapterRefs:
 
     def test_valid_refs_pass(self) -> None:
         """Known adapter IDs pass validation."""
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("a",), ("b",)),
-        ))
+        rcs = RouteConfigSet(routes=(_rc("r1", ("a",), ("b",)),))
         validate_route_adapter_refs(rcs, frozenset({"a", "b"}))
 
     def test_unknown_source_adapter_raises(self) -> None:
         """Unknown source adapter triggers RouteValidationError."""
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("unknown_src",), ("b",)),
-        ))
+        rcs = RouteConfigSet(routes=(_rc("r1", ("unknown_src",), ("b",)),))
         with pytest.raises(RouteValidationError, match="unknown source"):
             validate_route_adapter_refs(rcs, frozenset({"a", "b"}))
 
     def test_unknown_dest_adapter_raises(self) -> None:
         """Unknown dest adapter triggers RouteValidationError."""
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("a",), ("unknown_dst",)),
-        ))
+        rcs = RouteConfigSet(routes=(_rc("r1", ("a",), ("unknown_dst",)),))
         with pytest.raises(RouteValidationError, match="unknown dest"):
             validate_route_adapter_refs(rcs, frozenset({"a", "b"}))
 
     def test_disabled_routes_not_validated(self) -> None:
         """Disabled routes are skipped during validation."""
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("ghost",), ("phantom",), enabled=False),
-        ))
+        rcs = RouteConfigSet(
+            routes=(_rc("r1", ("ghost",), ("phantom",), enabled=False),)
+        )
         # Should not raise — disabled routes are ignored
         validate_route_adapter_refs(rcs, frozenset({"a", "b"}))
 
     def test_error_lists_known_adapters(self) -> None:
         """Error message includes the list of known adapters."""
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("x",), ("y",)),
-        ))
+        rcs = RouteConfigSet(routes=(_rc("r1", ("x",), ("y",)),))
         with pytest.raises(RouteValidationError, match="Known adapters"):
             validate_route_adapter_refs(rcs, frozenset({"a", "b"}))
 
@@ -365,9 +382,7 @@ class TestRegisterRoutes:
 
     def test_routes_registered_on_router(self) -> None:
         """Routes appear in Router.match() results."""
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("a",), ("b",)),
-        ))
+        rcs = RouteConfigSet(routes=(_rc("r1", ("a",), ("b",)),))
         router = Router()
         register_routes(router, rcs, frozenset({"a", "b"}))
 
@@ -378,9 +393,7 @@ class TestRegisterRoutes:
 
     def test_disabled_route_not_registered(self) -> None:
         """Disabled routes do not appear in Router."""
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("a",), ("b",), enabled=False),
-        ))
+        rcs = RouteConfigSet(routes=(_rc("r1", ("a",), ("b",), enabled=False),))
         router = Router()
         register_routes(router, rcs, frozenset({"a", "b"}))
 
@@ -389,19 +402,19 @@ class TestRegisterRoutes:
 
     def test_invalid_refs_raise_before_registration(self) -> None:
         """Invalid refs raise before any route is registered."""
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("a",), ("nonexistent",)),
-        ))
+        rcs = RouteConfigSet(routes=(_rc("r1", ("a",), ("nonexistent",)),))
         router = Router()
         with pytest.raises(RouteValidationError):
             register_routes(router, rcs, frozenset({"a", "b"}))
 
     def test_returns_registered_routes(self) -> None:
         """register_routes returns the list of registered routes."""
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("a",), ("b",)),
-            _rc("r2", ("b",), ("a",)),
-        ))
+        rcs = RouteConfigSet(
+            routes=(
+                _rc("r1", ("a",), ("b",)),
+                _rc("r2", ("b",), ("a",)),
+            )
+        )
         router = Router()
         result = register_routes(router, rcs, frozenset({"a", "b"}))
         assert len(result.registered_routes) == 2
@@ -415,10 +428,12 @@ class TestRegisterRoutes:
 
     def test_multiple_routes_match_simultaneously(self) -> None:
         """Multiple routes can match the same event."""
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("a",), ("b",)),
-            _rc("r2", ("a",), ("c",)),
-        ))
+        rcs = RouteConfigSet(
+            routes=(
+                _rc("r1", ("a",), ("b",)),
+                _rc("r2", ("a",), ("c",)),
+            )
+        )
         router = Router()
         register_routes(router, rcs, frozenset({"a", "b", "c"}))
 
@@ -439,9 +454,7 @@ class TestRouterMatchWithExpandedRoutes:
 
     def test_one_to_one_matching(self) -> None:
         """Event from source adapter matches the one-to-one route."""
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("src",), ("dst",)),
-        ))
+        rcs = RouteConfigSet(routes=(_rc("r1", ("src",), ("dst",)),))
         router = Router()
         register_routes(router, rcs, frozenset({"src", "dst"}))
 
@@ -454,9 +467,7 @@ class TestRouterMatchWithExpandedRoutes:
 
     def test_one_to_many_matching(self) -> None:
         """Event from source matches route with multiple dest targets."""
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("src",), ("dst1", "dst2", "dst3")),
-        ))
+        rcs = RouteConfigSet(routes=(_rc("r1", ("src",), ("dst1", "dst2", "dst3")),))
         router = Router()
         register_routes(router, rcs, frozenset({"src", "dst1", "dst2", "dst3"}))
 
@@ -469,9 +480,7 @@ class TestRouterMatchWithExpandedRoutes:
     def test_event_kind_filtering_via_policy(self) -> None:
         """BridgePolicy event types restrict which events match."""
         policy = BridgePolicy(allowed_event_types=("message.created",))
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("src",), ("dst",), policy=policy),
-        ))
+        rcs = RouteConfigSet(routes=(_rc("r1", ("src",), ("dst",), policy=policy),))
         router = Router()
         register_routes(router, rcs, frozenset({"src", "dst"}))
 
@@ -485,9 +494,7 @@ class TestRouterMatchWithExpandedRoutes:
 
     def test_unrelated_events_not_matched(self) -> None:
         """Events from unregistered adapters are not matched."""
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("src",), ("dst",)),
-        ))
+        rcs = RouteConfigSet(routes=(_rc("r1", ("src",), ("dst",)),))
         router = Router()
         register_routes(router, rcs, frozenset({"src", "dst"}))
 
@@ -505,10 +512,12 @@ class TestRouteFailureIsolation:
 
     def test_multiple_routes_independent_matching(self) -> None:
         """Each route matches independently."""
-        rcs = RouteConfigSet(routes=(
-            _rc("route_alpha", ("adapter_a",), ("adapter_b",)),
-            _rc("route_beta", ("adapter_a",), ("adapter_c",)),
-        ))
+        rcs = RouteConfigSet(
+            routes=(
+                _rc("route_alpha", ("adapter_a",), ("adapter_b",)),
+                _rc("route_beta", ("adapter_a",), ("adapter_c",)),
+            )
+        )
         router = Router()
         register_routes(router, rcs, frozenset({"adapter_a", "adapter_b", "adapter_c"}))
 
@@ -523,10 +532,12 @@ class TestRouteFailureIsolation:
 
     def test_disabled_route_does_not_block_others(self) -> None:
         """A disabled route does not interfere with enabled routes."""
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("a",), ("b",), enabled=False),
-            _rc("r2", ("a",), ("c",), enabled=True),
-        ))
+        rcs = RouteConfigSet(
+            routes=(
+                _rc("r1", ("a",), ("b",), enabled=False),
+                _rc("r2", ("a",), ("c",), enabled=True),
+            )
+        )
         router = Router()
         register_routes(router, rcs, frozenset({"a", "b", "c"}))
 
@@ -547,18 +558,27 @@ class TestLoopDetection:
     def test_no_loops(self) -> None:
         """No loops when routes are one-directional."""
         routes = [
-            Route(id="r1", source=RouteSource(adapter="a", event_kinds=(), channel=None),
-                  targets=[RouteTarget(adapter="b")]),
+            Route(
+                id="r1",
+                source=RouteSource(adapter="a", event_kinds=(), channel=None),
+                targets=[RouteTarget(adapter="b")],
+            ),
         ]
         assert check_route_loops(routes) == []
 
     def test_direct_loop_detected(self) -> None:
         """Direct A→B and B→A loop is detected."""
         routes = [
-            Route(id="r1", source=RouteSource(adapter="a", event_kinds=(), channel=None),
-                  targets=[RouteTarget(adapter="b")]),
-            Route(id="r2", source=RouteSource(adapter="b", event_kinds=(), channel=None),
-                  targets=[RouteTarget(adapter="a")]),
+            Route(
+                id="r1",
+                source=RouteSource(adapter="a", event_kinds=(), channel=None),
+                targets=[RouteTarget(adapter="b")],
+            ),
+            Route(
+                id="r2",
+                source=RouteSource(adapter="b", event_kinds=(), channel=None),
+                targets=[RouteTarget(adapter="a")],
+            ),
         ]
         loops = check_route_loops(routes)
         # Both fast-path direct loop and slow-path DFS cycle are reported
@@ -567,20 +587,32 @@ class TestLoopDetection:
 
     def test_bidirectional_loop_detected(self) -> None:
         """Bidirectional route creates a loop warning."""
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("a",), ("b",),
-                directionality=RouteDirectionality.BIDIRECTIONAL),
-        ))
+        rcs = RouteConfigSet(
+            routes=(
+                _rc(
+                    "r1",
+                    ("a",),
+                    ("b",),
+                    directionality=RouteDirectionality.BIDIRECTIONAL,
+                ),
+            )
+        )
         routes = build_runtime_routes(rcs)
         loops = check_route_loops(routes)
         assert len(loops) >= 1
 
     def test_loop_does_not_block_registration(self) -> None:
         """Loops produce warnings but do not prevent registration."""
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("a",), ("b",),
-                directionality=RouteDirectionality.BIDIRECTIONAL),
-        ))
+        rcs = RouteConfigSet(
+            routes=(
+                _rc(
+                    "r1",
+                    ("a",),
+                    ("b",),
+                    directionality=RouteDirectionality.BIDIRECTIONAL,
+                ),
+            )
+        )
         router = Router()
         # Should NOT raise, just log warnings
         result = register_routes(router, rcs, frozenset({"a", "b"}))
@@ -589,10 +621,16 @@ class TestLoopDetection:
     def test_three_way_no_false_positive(self) -> None:
         """A→B and A→C is not a loop."""
         routes = [
-            Route(id="r1", source=RouteSource(adapter="a", event_kinds=(), channel=None),
-                  targets=[RouteTarget(adapter="b")]),
-            Route(id="r2", source=RouteSource(adapter="a", event_kinds=(), channel=None),
-                  targets=[RouteTarget(adapter="c")]),
+            Route(
+                id="r1",
+                source=RouteSource(adapter="a", event_kinds=(), channel=None),
+                targets=[RouteTarget(adapter="b")],
+            ),
+            Route(
+                id="r2",
+                source=RouteSource(adapter="a", event_kinds=(), channel=None),
+                targets=[RouteTarget(adapter="c")],
+            ),
         ]
         assert check_route_loops(routes) == []
 
@@ -603,12 +641,21 @@ class TestDFSCycleDetection:
     def test_three_hop_cycle_detected(self) -> None:
         """A→B→C→A multi-hop cycle is detected."""
         routes = [
-            Route(id="r1", source=RouteSource(adapter="main", event_kinds=(), channel=None),
-                  targets=[RouteTarget(adapter="radio")]),
-            Route(id="r2", source=RouteSource(adapter="radio", event_kinds=(), channel=None),
-                  targets=[RouteTarget(adapter="lxmf_local")]),
-            Route(id="r3", source=RouteSource(adapter="lxmf_local", event_kinds=(), channel=None),
-                  targets=[RouteTarget(adapter="main")]),
+            Route(
+                id="r1",
+                source=RouteSource(adapter="main", event_kinds=(), channel=None),
+                targets=[RouteTarget(adapter="radio")],
+            ),
+            Route(
+                id="r2",
+                source=RouteSource(adapter="radio", event_kinds=(), channel=None),
+                targets=[RouteTarget(adapter="lxmf_local")],
+            ),
+            Route(
+                id="r3",
+                source=RouteSource(adapter="lxmf_local", event_kinds=(), channel=None),
+                targets=[RouteTarget(adapter="main")],
+            ),
         ]
         loops = check_route_loops(routes)
         # Should detect at least one cycle containing main -> radio -> lxmf_local -> main
@@ -622,10 +669,16 @@ class TestDFSCycleDetection:
     def test_chain_no_cycle(self) -> None:
         """A→B→C chain with no back-edge has no cycle."""
         routes = [
-            Route(id="r1", source=RouteSource(adapter="a", event_kinds=(), channel=None),
-                  targets=[RouteTarget(adapter="b")]),
-            Route(id="r2", source=RouteSource(adapter="b", event_kinds=(), channel=None),
-                  targets=[RouteTarget(adapter="c")]),
+            Route(
+                id="r1",
+                source=RouteSource(adapter="a", event_kinds=(), channel=None),
+                targets=[RouteTarget(adapter="b")],
+            ),
+            Route(
+                id="r2",
+                source=RouteSource(adapter="b", event_kinds=(), channel=None),
+                targets=[RouteTarget(adapter="c")],
+            ),
         ]
         loops = check_route_loops(routes)
         assert loops == []
@@ -633,8 +686,11 @@ class TestDFSCycleDetection:
     def test_self_loop_detected(self) -> None:
         """A→A self-edge is detected as a cycle."""
         routes = [
-            Route(id="r1", source=RouteSource(adapter="a", event_kinds=(), channel=None),
-                  targets=[RouteTarget(adapter="a")]),
+            Route(
+                id="r1",
+                source=RouteSource(adapter="a", event_kinds=(), channel=None),
+                targets=[RouteTarget(adapter="a")],
+            ),
         ]
         loops = check_route_loops(routes)
         assert len(loops) >= 1
@@ -642,14 +698,26 @@ class TestDFSCycleDetection:
     def test_direct_loop_and_cycle_both_reported(self) -> None:
         """Both direct loop and multi-hop cycle are reported."""
         routes = [
-            Route(id="r1", source=RouteSource(adapter="a", event_kinds=(), channel=None),
-                  targets=[RouteTarget(adapter="b")]),
-            Route(id="r2", source=RouteSource(adapter="b", event_kinds=(), channel=None),
-                  targets=[RouteTarget(adapter="a")]),
-            Route(id="r3", source=RouteSource(adapter="b", event_kinds=(), channel=None),
-                  targets=[RouteTarget(adapter="c")]),
-            Route(id="r4", source=RouteSource(adapter="c", event_kinds=(), channel=None),
-                  targets=[RouteTarget(adapter="a")]),
+            Route(
+                id="r1",
+                source=RouteSource(adapter="a", event_kinds=(), channel=None),
+                targets=[RouteTarget(adapter="b")],
+            ),
+            Route(
+                id="r2",
+                source=RouteSource(adapter="b", event_kinds=(), channel=None),
+                targets=[RouteTarget(adapter="a")],
+            ),
+            Route(
+                id="r3",
+                source=RouteSource(adapter="b", event_kinds=(), channel=None),
+                targets=[RouteTarget(adapter="c")],
+            ),
+            Route(
+                id="r4",
+                source=RouteSource(adapter="c", event_kinds=(), channel=None),
+                targets=[RouteTarget(adapter="a")],
+            ),
         ]
         loops = check_route_loops(routes)
         assert len(loops) >= 1
@@ -657,12 +725,24 @@ class TestDFSCycleDetection:
     def test_disabled_routes_excluded_from_dfs(self) -> None:
         """Disabled routes are not part of the DFS graph."""
         routes = [
-            Route(id="r1", source=RouteSource(adapter="a", event_kinds=(), channel=None),
-                  targets=[RouteTarget(adapter="b")], enabled=True),
-            Route(id="r2", source=RouteSource(adapter="b", event_kinds=(), channel=None),
-                  targets=[RouteTarget(adapter="c")], enabled=False),
-            Route(id="r3", source=RouteSource(adapter="c", event_kinds=(), channel=None),
-                  targets=[RouteTarget(adapter="a")], enabled=False),
+            Route(
+                id="r1",
+                source=RouteSource(adapter="a", event_kinds=(), channel=None),
+                targets=[RouteTarget(adapter="b")],
+                enabled=True,
+            ),
+            Route(
+                id="r2",
+                source=RouteSource(adapter="b", event_kinds=(), channel=None),
+                targets=[RouteTarget(adapter="c")],
+                enabled=False,
+            ),
+            Route(
+                id="r3",
+                source=RouteSource(adapter="c", event_kinds=(), channel=None),
+                targets=[RouteTarget(adapter="a")],
+                enabled=False,
+            ),
         ]
         loops = check_route_loops(routes)
         # r2 and r3 are disabled so only A→B exists — no cycle
@@ -679,19 +759,23 @@ class TestRouteIdUniqueness:
 
     def test_multi_source_ids_unique(self) -> None:
         """Multiple sources produce unique route IDs."""
-        rcs = RouteConfigSet(routes=(
-            _rc("bridge", ("s1", "s2", "s3"), ("d1",)),
-        ))
+        rcs = RouteConfigSet(routes=(_rc("bridge", ("s1", "s2", "s3"), ("d1",)),))
         routes = build_runtime_routes(rcs)
         ids = [r.id for r in routes]
         assert len(ids) == len(set(ids))
 
     def test_bidirectional_ids_unique(self) -> None:
         """Bidirectional expansion produces unique IDs."""
-        rcs = RouteConfigSet(routes=(
-            _rc("link", ("s1", "s2"), ("d1",),
-                directionality=RouteDirectionality.BIDIRECTIONAL),
-        ))
+        rcs = RouteConfigSet(
+            routes=(
+                _rc(
+                    "link",
+                    ("s1", "s2"),
+                    ("d1",),
+                    directionality=RouteDirectionality.BIDIRECTIONAL,
+                ),
+            )
+        )
         routes = build_runtime_routes(rcs)
         ids = [r.id for r in routes]
         assert len(ids) == len(set(ids))
@@ -701,16 +785,24 @@ class TestRouteIdUniqueness:
         # Route "r1" with 2 sources expands to "r1__0" and "r1__1".
         # Route "r1__0" with 1 source expands to "r1__0" (single source, no suffix).
         # Collision: "r1__0" appears from both routes.
-        r1 = RouteConfig.from_toml_dict("r1", {
-            "source_adapters": ["a1", "a2"],
-            "dest_adapters": ["b"],
-        })
-        r1_dunder_0 = RouteConfig.from_toml_dict("r1__0", {
-            "source_adapters": ["c"],
-            "dest_adapters": ["d"],
-        })
+        r1 = RouteConfig.from_toml_dict(
+            "r1",
+            {
+                "source_adapters": ["a1", "a2"],
+                "dest_adapters": ["b"],
+            },
+        )
+        r1_dunder_0 = RouteConfig.from_toml_dict(
+            "r1__0",
+            {
+                "source_adapters": ["c"],
+                "dest_adapters": ["d"],
+            },
+        )
         rcs = RouteConfigSet(routes=(r1, r1_dunder_0))
-        with pytest.raises(RouteValidationError, match="Expanded route ID collision.*r1__0"):
+        with pytest.raises(
+            RouteValidationError, match="Expanded route ID collision.*r1__0"
+        ):
             build_runtime_routes(rcs)
 
     def test_bidirectional_collision_with_user_id_raises(self) -> None:
@@ -719,25 +811,33 @@ class TestRouteIdUniqueness:
         #   forward: "bridge"  (single source)
         #   reverse: "bridge__rev_0"
         # Route "bridge__rev_0" would collide.
-        r1 = RouteConfig.from_toml_dict("bridge", {
-            "source_adapters": ["a"],
-            "dest_adapters": ["b"],
-            "directionality": "bidirectional",
-        })
-        r2 = RouteConfig.from_toml_dict("bridge__rev_0", {
-            "source_adapters": ["c"],
-            "dest_adapters": ["d"],
-        })
+        r1 = RouteConfig.from_toml_dict(
+            "bridge",
+            {
+                "source_adapters": ["a"],
+                "dest_adapters": ["b"],
+                "directionality": "bidirectional",
+            },
+        )
+        r2 = RouteConfig.from_toml_dict(
+            "bridge__rev_0",
+            {
+                "source_adapters": ["c"],
+                "dest_adapters": ["d"],
+            },
+        )
         rcs = RouteConfigSet(routes=(r1, r2))
         with pytest.raises(RouteValidationError, match="Expanded route ID collision"):
             build_runtime_routes(rcs)
 
     def test_no_collision_across_independent_routes(self) -> None:
         """Two independent routes with single sources have unique IDs."""
-        rcs = RouteConfigSet(routes=(
-            _rc("alpha", ("a",), ("b",)),
-            _rc("beta", ("c",), ("d",)),
-        ))
+        rcs = RouteConfigSet(
+            routes=(
+                _rc("alpha", ("a",), ("b",)),
+                _rc("beta", ("c",), ("d",)),
+            )
+        )
         routes = build_runtime_routes(rcs)
         ids = [r.id for r in routes]
         assert len(ids) == len(set(ids))
@@ -753,14 +853,17 @@ class TestMultipleRouteChains:
 
     def test_independent_chains(self) -> None:
         """Events from different sources match their respective routes."""
-        rcs = RouteConfigSet(routes=(
-            _rc("chain1", ("matrix_main",), ("mesh_radio",)),
-            _rc("chain2", ("mesh_radio",), ("matrix_main",)),
-            _rc("chain3", ("lxmf_node",), ("mesh_radio",)),
-        ))
+        rcs = RouteConfigSet(
+            routes=(
+                _rc("chain1", ("matrix_main",), ("mesh_radio",)),
+                _rc("chain2", ("mesh_radio",), ("matrix_main",)),
+                _rc("chain3", ("lxmf_node",), ("mesh_radio",)),
+            )
+        )
         router = Router()
         register_routes(
-            router, rcs,
+            router,
+            rcs,
             frozenset({"matrix_main", "mesh_radio", "lxmf_node"}),
         )
 
@@ -785,10 +888,12 @@ class TestMultipleRouteChains:
 
     def test_cascading_routes(self) -> None:
         """Events can flow through a chain: A→B and B→C."""
-        rcs = RouteConfigSet(routes=(
-            _rc("step1", ("a",), ("b",)),
-            _rc("step2", ("b",), ("c",)),
-        ))
+        rcs = RouteConfigSet(
+            routes=(
+                _rc("step1", ("a",), ("b",)),
+                _rc("step2", ("b",), ("c",)),
+            )
+        )
         router = Router()
         register_routes(router, rcs, frozenset({"a", "b", "c"}))
 
@@ -815,25 +920,19 @@ class TestStartupValidation:
 
     def test_all_adapters_valid(self) -> None:
         """All adapter IDs present — validation succeeds."""
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("a", "b"), ("c",)),
-        ))
+        rcs = RouteConfigSet(routes=(_rc("r1", ("a", "b"), ("c",)),))
         # Should not raise
         validate_route_adapter_refs(rcs, frozenset({"a", "b", "c"}))
 
     def test_missing_single_adapter(self) -> None:
         """Single missing adapter ID is caught."""
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("a",), ("b",)),
-        ))
+        rcs = RouteConfigSet(routes=(_rc("r1", ("a",), ("b",)),))
         with pytest.raises(RouteValidationError, match="b"):
             validate_route_adapter_refs(rcs, frozenset({"a"}))
 
     def test_multiple_missing_adapters(self) -> None:
         """Multiple unknown adapters are all reported."""
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("x",), ("y",)),
-        ))
+        rcs = RouteConfigSet(routes=(_rc("r1", ("x",), ("y",)),))
         with pytest.raises(RouteValidationError) as exc_info:
             validate_route_adapter_refs(rcs, frozenset({"a"}))
         msg = str(exc_info.value)
@@ -842,17 +941,15 @@ class TestStartupValidation:
 
     def test_empty_adapter_ids_with_enabled_route(self) -> None:
         """Enabled routes with no built adapters raises error."""
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("a",), ("b",)),
-        ))
+        rcs = RouteConfigSet(routes=(_rc("r1", ("a",), ("b",)),))
         with pytest.raises(RouteValidationError):
             validate_route_adapter_refs(rcs, frozenset())
 
     def test_disabled_route_with_missing_adapters_ok(self) -> None:
         """Disabled routes are skipped even if their adapters are missing."""
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("missing",), ("also_missing",), enabled=False),
-        ))
+        rcs = RouteConfigSet(
+            routes=(_rc("r1", ("missing",), ("also_missing",), enabled=False),)
+        )
         validate_route_adapter_refs(rcs, frozenset())
 
 
@@ -877,14 +974,17 @@ class TestBidirectionalTargetingExpansion:
     def test_bidirectional_with_source_room_and_dest_channel(self) -> None:
         """Bidirectional route expands with correct targeting for both legs."""
         # Build config using from_toml_dict to exercise source_room→source_channel alias
-        rc = RouteConfig.from_toml_dict("bridge", {
-            "source_adapters": ["matrix"],
-            "dest_adapters": ["radio"],
-            "directionality": "bidirectional",
-            "enabled": True,
-            "source_room": "!room:example.com",
-            "dest_channel": "0",
-        })
+        rc = RouteConfig.from_toml_dict(
+            "bridge",
+            {
+                "source_adapters": ["matrix"],
+                "dest_adapters": ["radio"],
+                "directionality": "bidirectional",
+                "enabled": True,
+                "source_room": "!room:example.com",
+                "dest_channel": "0",
+            },
+        )
         rcs = RouteConfigSet(routes=(rc,))
         routes = build_runtime_routes(rcs)
 
@@ -909,18 +1009,22 @@ class TestBidirectionalTargetingExpansion:
 
     def test_bidirectional_targeting_registered_on_router(self) -> None:
         """Bidirectional route with targeting registers and matches correctly."""
-        rc = RouteConfig.from_toml_dict("bridge", {
-            "source_adapters": ["matrix"],
-            "dest_adapters": ["radio"],
-            "directionality": "bidirectional",
-            "enabled": True,
-            "source_room": "!room:example.com",
-            "dest_channel": "0",
-        })
+        rc = RouteConfig.from_toml_dict(
+            "bridge",
+            {
+                "source_adapters": ["matrix"],
+                "dest_adapters": ["radio"],
+                "directionality": "bidirectional",
+                "enabled": True,
+                "source_room": "!room:example.com",
+                "dest_channel": "0",
+            },
+        )
         rcs = RouteConfigSet(routes=(rc,))
         router = Router()
         result = register_routes(
-            router, rcs,
+            router,
+            rcs,
             frozenset({"matrix", "radio"}),
         )
         assert len(result.registered_routes) == 2

@@ -39,23 +39,28 @@ def _register_matrix_contributions(subparsers) -> None:
 
     # -- adapter matrix -------------------------------------------------------
     adapter_matrix_p = adapter_sub.add_parser(
-        "matrix", help="Matrix transport adapter commands",
+        "matrix",
+        help="Matrix transport adapter commands",
     )
     adapter_matrix_sub = adapter_matrix_p.add_subparsers(
-        dest="adapter_matrix_command", required=True,
+        dest="adapter_matrix_command",
+        required=True,
     )
 
     # -- adapter matrix auth --------------------------------------------------
     adapter_matrix_auth_p = adapter_matrix_sub.add_parser(
-        "auth", help="Matrix credential setup (no runtime). Mutates config file. Writes homeserver, user_id, access_token. Never prints token. Prompts for password securely.",
+        "auth",
+        help="Matrix credential setup (no runtime). Mutates config file. Writes homeserver, user_id, access_token. Never prints token. Prompts for password securely.",
     )
     adapter_matrix_auth_sub = adapter_matrix_auth_p.add_subparsers(
-        dest="adapter_matrix_auth_command", required=True,
+        dest="adapter_matrix_auth_command",
+        required=True,
     )
 
     # -- adapter matrix auth status -------------------------------------------
     adapter_matrix_auth_sub.add_parser(
-        "status", help="Show Matrix credential file status without printing secrets",
+        "status",
+        help="Show Matrix credential file status without printing secrets",
     )
 
     # -- adapter matrix auth login --------------------------------------------
@@ -84,19 +89,27 @@ def _register_matrix_contributions(subparsers) -> None:
         ),
     )
     auth_login_p.add_argument(
-        "--homeserver", required=False, default=None,
+        "--homeserver",
+        required=False,
+        default=None,
         help="Homeserver URL or bare domain (e.g. 'matrix.example.com')",
     )
     auth_login_p.add_argument(
-        "--user", required=False, default=None,
+        "--user",
+        required=False,
+        default=None,
         help="User ID (e.g. @bot:example.com) or localpart for MXID derivation",
     )
     auth_login_p.add_argument(
-        "--password", required=False, default=None,
+        "--password",
+        required=False,
+        default=None,
         help="Password for non-interactive mode",
     )
     auth_login_p.add_argument(
-        "--password-stdin", action="store_true", default=False,
+        "--password-stdin",
+        action="store_true",
+        default=False,
         help="Read password from stdin instead of interactive prompt",
     )
 
@@ -109,9 +122,9 @@ def dispatch_contribution(args) -> None:
         and getattr(args, "adapter_matrix_command", None) == "auth"
         and getattr(args, "adapter_matrix_auth_command", None) == "status"
     ):
-        from medre.adapters.matrix.cli import _adapter_matrix_auth_status
-
         import asyncio
+
+        from medre.adapters.matrix.cli import _adapter_matrix_auth_status
 
         asyncio.run(_adapter_matrix_auth_status())
     elif (
@@ -120,8 +133,8 @@ def dispatch_contribution(args) -> None:
         and getattr(args, "adapter_matrix_command", None) == "auth"
         and getattr(args, "adapter_matrix_auth_command", None) == "login"
     ):
-        from medre.adapters.matrix.cli import _adapter_matrix_auth_login
-
         import asyncio
+
+        from medre.adapters.matrix.cli import _adapter_matrix_auth_login
 
         asyncio.run(_adapter_matrix_auth_login(args))

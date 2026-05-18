@@ -32,46 +32,37 @@ Test categories
 5. **send_one bridge**: Exercises queue.process_one with a monkeypatched
    session client to prove the full outbound send path.
 """
+
 from __future__ import annotations
 
 import asyncio
 import logging
-import tempfile
-import os
 from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
 
-from medre.core.contracts.adapter import (
-    AdapterContext,
-    AdapterDeliveryResult,
-    AdapterPermanentError,
-    AdapterSendError,
-)
 from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
-from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.adapters.meshtastic.errors import (
-    MeshtasticConnectionError,
     MeshtasticSendError,
 )
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
 from medre.adapters.meshtastic.session import MeshtasticSession
-from medre.core.events import CanonicalEvent, EventMetadata, NativeMessageRef
+from medre.config.adapters.meshtastic import MeshtasticConfig
+from medre.core.contracts.adapter import (
+    AdapterContext,
+)
+from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.events.bus import EventBus
-from medre.core.planning.delivery_plan import DeliveryFailureKind, DeliveryOutcome
 from medre.core.planning.fallback_resolution import FallbackResolver
 from medre.core.planning.relation_resolution import RelationResolver
 from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
 from medre.core.rendering.text import TextRenderer
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.runtime.accounting import RuntimeAccounting
-from medre.core.routing.stats import RouteStats
 from medre.core.storage.sqlite import SQLiteStorage
-from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -97,9 +88,7 @@ def _make_text_packet(
     }
 
 
-def _make_adapter_context(
-    adapter_id: str, runner: PipelineRunner
-) -> AdapterContext:
+def _make_adapter_context(adapter_id: str, runner: PipelineRunner) -> AdapterContext:
     """Create an AdapterContext wired to a PipelineRunner's ingress handler."""
     return AdapterContext(
         adapter_id=adapter_id,
@@ -548,15 +537,11 @@ class TestMeshtasticInboundToFakeOutbound:
         await mesh_adapter.start(ctx)
 
         # Send original message first to establish native ref.
-        original_packet = _make_text_packet(
-            text="original", packet_id=100, channel=0
-        )
+        original_packet = _make_text_packet(text="original", packet_id=100, channel=0)
         await mesh_adapter.simulate_inbound(original_packet)
 
         # Send reply referencing the original.
-        reply_packet = _make_text_packet(
-            text="reply", packet_id=200, channel=0
-        )
+        reply_packet = _make_text_packet(text="reply", packet_id=200, channel=0)
         reply_packet["decoded"]["replyId"] = 100
         await mesh_adapter.simulate_inbound(reply_packet)
 
@@ -914,7 +899,6 @@ class TestFakeInboundToMeshtasticOutbound:
         assert mesh_out_adapter.queue.pending_count == 1
 
         # Verify the enqueued payload has Meshtastic shape.
-        from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
 
         # Access the internal queue to inspect the enqueued item.
         item = await mesh_out_adapter.queue.dequeue()
@@ -1187,15 +1171,11 @@ class TestMeshtasticBridgeErrorMapping:
     async def test_cancelled_error_propagates_through_deliver(self) -> None:
         """CancelledError propagates through MeshtasticAdapter.deliver()
         without being swallowed."""
-        mesh_config = MeshtasticConfig(
-            adapter_id="cancel-mesh", connection_type="fake"
-        )
+        mesh_config = MeshtasticConfig(adapter_id="cancel-mesh", connection_type="fake")
         mesh_adapter = MeshtasticAdapter(mesh_config)
 
         # Patch queue.enqueue to raise CancelledError.
-        mesh_adapter._queue.enqueue = AsyncMock(
-            side_effect=asyncio.CancelledError()
-        )
+        mesh_adapter._queue.enqueue = AsyncMock(side_effect=asyncio.CancelledError())
 
         result = RenderingResult(
             event_id="evt-cancel",
@@ -1328,9 +1308,7 @@ class TestMeshtasticSessionCallbackBridge:
     ) -> None:
         """_on_packet creates a tracked asyncio task that publishes inbound
         through the pipeline."""
-        mesh_config = MeshtasticConfig(
-            adapter_id="cb-mesh-in", connection_type="fake"
-        )
+        mesh_config = MeshtasticConfig(adapter_id="cb-mesh-in", connection_type="fake")
         mesh_adapter = MeshtasticAdapter(mesh_config)
 
         fake_config = MeshtasticConfig(adapter_id="cb-fake-out")
@@ -1380,7 +1358,9 @@ class TestMeshtasticSessionCallbackBridge:
 
         # Fake adapter received the rendered payload.
         assert len(fake_adapter.delivered_payloads) == 1
-        assert fake_adapter.delivered_payloads[0].payload["text"] == "callback path test"
+        assert (
+            fake_adapter.delivered_payloads[0].payload["text"] == "callback path test"
+        )
 
         await mesh_adapter.stop()
         await runner.stop()
@@ -1480,8 +1460,8 @@ class TestMeshtasticSendOneBridge:
         monkeypatch.setattr(MeshtasticSession, "_create_client", fake_create_client)
 
         # Patch pubsub to no-op.
-        import types
         import sys
+        import types
 
         fake_pubsub = types.ModuleType("pubsub")
         fake_pub = types.ModuleType("pubsub.pub")
@@ -1522,9 +1502,7 @@ class TestMeshtasticSendOneBridge:
         self, make_adapter_context
     ) -> None:
         """send_one() returns None in fake mode (no real client)."""
-        config = MeshtasticConfig(
-            adapter_id="sendone-noclient", connection_type="fake"
-        )
+        config = MeshtasticConfig(adapter_id="sendone-noclient", connection_type="fake")
         adapter = MeshtasticAdapter(config)
 
         result = RenderingResult(

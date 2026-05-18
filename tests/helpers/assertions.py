@@ -17,9 +17,9 @@ def assert_receipt_status(
 ) -> None:
     """Assert every receipt in *receipts* has the expected *status*."""
     for receipt in receipts:
-        assert receipt.status == expected_status, (
-            f"Expected status {expected_status!r}, got {receipt.status!r}"
-        )
+        assert (
+            receipt.status == expected_status
+        ), f"Expected status {expected_status!r}, got {receipt.status!r}"
 
 
 def assert_receipt_targets(
@@ -28,9 +28,9 @@ def assert_receipt_targets(
 ) -> None:
     """Assert the set of ``target_adapter`` values matches *expected_targets*."""
     actual = {receipt.target_adapter for receipt in receipts}
-    assert actual == expected_targets, (
-        f"Expected target adapters {expected_targets!r}, got {actual!r}"
-    )
+    assert (
+        actual == expected_targets
+    ), f"Expected target adapters {expected_targets!r}, got {actual!r}"
 
 
 def snap_value(accounting: RuntimeAccounting, key: str) -> int:

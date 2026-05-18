@@ -10,7 +10,6 @@ Every agent or document that references MEDRE **durability guarantees**, **crash
 
 **Evidence separation (Track 9):** Durability claims in this contract are backed by S-tier (simulated/fake) evidence from deterministic unit tests. R-tier (real-live-runtime) evidence for crash recovery, sustained operation boundedness, and restart durability has NOT been collected. See Contract 61 §5.1 for current evidence scores per transport. Do not claim production durability without R-tier evidence per Contract 61 §6.
 
-
 ## 1. Scope
 
 This contract specifies the **durability boundary** of the MEDRE runtime — what behavioral guarantees the runtime provides around state survival, crash recovery, and resource boundedness. It distinguishes between:
@@ -22,7 +21,6 @@ This contract specifies the **durability boundary** of the MEDRE runtime — wha
 For the **storage locations** and **write timing** of persisted state (SQLite tables, file paths, WAL mode details), see Contract 55 (Runtime Persistence). This contract references those storage details but does not duplicate them.
 
 This contract describes the current runtime's actual behavior. No new storage mechanisms or durability features are introduced.
-
 
 ## 2. Runtime Guarantees
 
@@ -52,34 +50,33 @@ Storage `close()` flushes SQLite WAL buffers. Deliveries that complete within th
 
 The runtime enforces two independent concurrency bounds via `CapacityController`:
 
-| Resource | Bound | Mechanism |
-|----------|-------|-----------|
-| In-flight deliveries | `max_inflight_deliveries` (default 100) | Semaphore |
-| In-flight replay events | `max_inflight_replay_events` (default 100) | Semaphore |
-| Meshtastic outbound queue | `max_queue_size` (default 1024) | `deque(maxlen=...)` — drop-oldest |
+| Resource                  | Bound                                      | Mechanism                         |
+| ------------------------- | ------------------------------------------ | --------------------------------- |
+| In-flight deliveries      | `max_inflight_deliveries` (default 100)    | Semaphore                         |
+| In-flight replay events   | `max_inflight_replay_events` (default 100) | Semaphore                         |
+| Meshtastic outbound queue | `max_queue_size` (default 1024)            | `deque(maxlen=...)` — drop-oldest |
 
 These bounds prevent unbounded memory growth from concurrent operations or queue accumulation. See Contract 53 for full capacity semantics.
 
 **No other adapter-level queue bounds exist.** Matrix, LXMF, and MeshCore adapters rely on the global `CapacityController` semaphore and their transport's own flow control.
 
-
 ## 3. Durable State
 
 The following state survives process termination (crash, shutdown, or restart). Storage locations and write timing are in **Contract 55 §2** and **§4**.
 
-| State | Survives Crash | Written When |
-|-------|---------------|--------------|
-| Canonical events | Yes | During pipeline store step, before delivery |
-| Delivery receipts | Yes | After each delivery attempt completes |
-| Retry pending state (`next_retry_at`, `failure_kind` on failed receipts) | Yes | With the failed delivery receipt; RetryWorker reads these on next cycle |
-| Receipt traceability (`source` (`"live"`, `"retry"`, `"replay"`), `replay_run_id` on receipts) | Yes | With the delivery receipt |
-| Route attribution (`route_id` on receipts) | Yes | With the delivery receipt |
-| Native references (platform message IDs) | Yes | With the delivery receipt (only on successful delivery, including successful retry) |
-| Cross-adapter relationships | Yes | During pipeline store step |
-| Global runtime metadata (schema version) | Yes | On first creation and migration |
-| Matrix E2EE crypto keys | Yes | SDK-managed (see Contract 55 §2.2) |
-| LXMF identities | Yes | Transport-managed (see Contract 55 §2.2) |
-| Log history | Yes (up to last flush) | Append-only |
+| State                                                                                          | Survives Crash         | Written When                                                                        |
+| ---------------------------------------------------------------------------------------------- | ---------------------- | ----------------------------------------------------------------------------------- |
+| Canonical events                                                                               | Yes                    | During pipeline store step, before delivery                                         |
+| Delivery receipts                                                                              | Yes                    | After each delivery attempt completes                                               |
+| Retry pending state (`next_retry_at`, `failure_kind` on failed receipts)                       | Yes                    | With the failed delivery receipt; RetryWorker reads these on next cycle             |
+| Receipt traceability (`source` (`"live"`, `"retry"`, `"replay"`), `replay_run_id` on receipts) | Yes                    | With the delivery receipt                                                           |
+| Route attribution (`route_id` on receipts)                                                     | Yes                    | With the delivery receipt                                                           |
+| Native references (platform message IDs)                                                       | Yes                    | With the delivery receipt (only on successful delivery, including successful retry) |
+| Cross-adapter relationships                                                                    | Yes                    | During pipeline store step                                                          |
+| Global runtime metadata (schema version)                                                       | Yes                    | On first creation and migration                                                     |
+| Matrix E2EE crypto keys                                                                        | Yes                    | SDK-managed (see Contract 55 §2.2)                                                  |
+| LXMF identities                                                                                | Yes                    | Transport-managed (see Contract 55 §2.2)                                            |
+| Log history                                                                                    | Yes (up to last flush) | Append-only                                                                         |
 
 ### 3.1 Persistence Timing
 
@@ -96,23 +93,22 @@ MEDRE persists state to a local SQLite database and local filesystem (see Contra
 
 Operators are responsible for database backup, log rotation, and monitoring disk space (a full disk stops event persistence).
 
-
 ## 4. Process-Local State
 
 The following state is **lost** on process termination (crash, shutdown, or restart):
 
-| State | Nature | Impact of Loss |
-|-------|--------|----------------|
-| In-flight deliveries | Semaphore-tracked coroutines | No receipt, no retry, no recovery |
-| Active replay runs | Async generator iterations | Must re-initiate manually |
-| ReplaySummary (completed replay results) | In-memory dataclass | Must re-run replay to regenerate |
-| `CapacityController` internal gauges (`delivery_timeouts`, `delivery_rejections`, etc.) | In-memory counters | Reset to zero on every startup |
-| `RouteStats` per-route counters | In-memory counters | No historical route statistics |
-| `RuntimeAccounting` counters | In-memory counters | Reset to zero on every startup |
-| Retry snapshot counters (`retry_processed`, `retry_succeeded`, `retry_failed`, `retry_dead_lettered`) | In-memory counters | Reset to zero on every startup; reflect current run only |
-| Adapter health / connection state | In-memory | Adapters reconnect from scratch on restart |
-| `Diagnostician` counters | In-memory | Reset to zero on every startup |
-| `BootSummary` | In-memory | Recomputed on next startup |
+| State                                                                                                 | Nature                       | Impact of Loss                                           |
+| ----------------------------------------------------------------------------------------------------- | ---------------------------- | -------------------------------------------------------- |
+| In-flight deliveries                                                                                  | Semaphore-tracked coroutines | No receipt, no retry, no recovery                        |
+| Active replay runs                                                                                    | Async generator iterations   | Must re-initiate manually                                |
+| ReplaySummary (completed replay results)                                                              | In-memory dataclass          | Must re-run replay to regenerate                         |
+| `CapacityController` internal gauges (`delivery_timeouts`, `delivery_rejections`, etc.)               | In-memory counters           | Reset to zero on every startup                           |
+| `RouteStats` per-route counters                                                                       | In-memory counters           | No historical route statistics                           |
+| `RuntimeAccounting` counters                                                                          | In-memory counters           | Reset to zero on every startup                           |
+| Retry snapshot counters (`retry_processed`, `retry_succeeded`, `retry_failed`, `retry_dead_lettered`) | In-memory counters           | Reset to zero on every startup; reflect current run only |
+| Adapter health / connection state                                                                     | In-memory                    | Adapters reconnect from scratch on restart               |
+| `Diagnostician` counters                                                                              | In-memory                    | Reset to zero on every startup                           |
+| `BootSummary`                                                                                         | In-memory                    | Recomputed on next startup                               |
 
 ### 4.1 No Recovery of In-Flight Work
 
@@ -121,7 +117,6 @@ In-flight deliveries and replay events that are abandoned at shutdown or lost on
 ### 4.2 Counters Reset on Every Startup
 
 All `CapacityController`, `RouteStats`, `RuntimeAccounting`, and `Diagnostician` counters start at zero on every runtime startup. There is no mechanism to persist or restore these counters across restarts. Operators who need historical counter data must extract it before shutdown via `medre diagnostics` or the diagnostic snapshot.
-
 
 ## 4.3 BEST_EFFORT Replay Storage Semantics
 
@@ -137,28 +132,27 @@ All `CapacityController`, `RouteStats`, `RuntimeAccounting`, and `Diagnostician`
 - **Native-ref dedup is independent of replay.** The replay engine does not interact with the native-ref dedup layer. Replay creates new delivery attempts for existing events — the events already have `event_id`s and may already have native refs from live delivery. The replay run does not create new events with new `event_id`s; it re-delivers existing events, and new native refs are created only if the adapter returns new transport-native IDs.
 - `RuntimeAccounting` remains process-local and is reset on restart. Receipt traceability fields (`source`, `replay_run_id`) are stored in the durable `DeliveryReceipt` record and survive crashes. Process-local accounting resets after restart — only SQLite data survives.
 
-
 ## 4.4 Retry Persistence
 
 Transient-failure receipts with `next_retry_at` set survive process restart. The `RetryWorker` loads due receipts on its next cycle after restart.
 
 **Durable retry state (survives crash):**
 
-| State | Storage | Notes |
-|-------|---------|-------|
-| Failed receipts with `failure_kind='adapter_transient'` and `next_retry_at` set | `delivery_receipts` table | RetryWorker queries these on each cycle |
+| State                                                                                                 | Storage                   | Notes                                                                                              |
+| ----------------------------------------------------------------------------------------------------- | ------------------------- | -------------------------------------------------------------------------------------------------- |
+| Failed receipts with `failure_kind='adapter_transient'` and `next_retry_at` set                       | `delivery_receipts` table | RetryWorker queries these on each cycle                                                            |
 | Retry policy metadata (`retry_max_attempts`, `retry_backoff_base`, `retry_max_delay`, `retry_jitter`) | `delivery_receipts` table | Persisted on first failure receipt; RetryWorker reads policy from stored receipt, not route config |
-| Retry lineage (`parent_receipt_id`, `attempt_number`) | `delivery_receipts` table | Each retry attempt produces a new receipt linked to the previous |
-| Dead-lettered receipts (exhausted retries) | `delivery_receipts` table | Final receipt in the chain with `status='dead_lettered'` |
-| Frozen target metadata (`target_adapter`, `target_channel`) | `delivery_receipts` table | Retry targets the adapter/channel from the original failure, not current route config |
+| Retry lineage (`parent_receipt_id`, `attempt_number`)                                                 | `delivery_receipts` table | Each retry attempt produces a new receipt linked to the previous                                   |
+| Dead-lettered receipts (exhausted retries)                                                            | `delivery_receipts` table | Final receipt in the chain with `status='dead_lettered'`                                           |
+| Frozen target metadata (`target_adapter`, `target_channel`)                                           | `delivery_receipts` table | Retry targets the adapter/channel from the original failure, not current route config              |
 
 **Retry policy persistence:** The first failure receipt captures the `RetryPolicy` parameters from the active route as `retry_max_attempts`, `retry_backoff_base`, `retry_max_delay`, and `retry_jitter` columns. The `RetryWorker` reads these values from the stored receipt on each cycle, not from the current route configuration. This ensures that route or `RetryPolicy` changes after the original failure do not affect in-flight retry behavior. The retry policy is frozen at first failure.
 
 **Process-local retry state (lost on restart):**
 
-| State | Nature | Impact of Loss |
-|-------|--------|----------------|
-| RetryWorker cycle timer | In-memory task | Next cycle resumes from persistent receipts |
+| State                                                                                                 | Nature             | Impact of Loss                                     |
+| ----------------------------------------------------------------------------------------------------- | ------------------ | -------------------------------------------------- |
+| RetryWorker cycle timer                                                                               | In-memory task     | Next cycle resumes from persistent receipts        |
 | Snapshot retry counters (`retry_processed`, `retry_succeeded`, `retry_failed`, `retry_dead_lettered`) | In-memory counters | Reset to zero on restart; reflect current run only |
 
 **Native refs on retry:** Native references (`NativeMessageRef`) are only persisted on successful retry delivery, not on the original transient failure. The original failure receipt has no native ref because the adapter did not produce a transport-level message ID.
@@ -166,7 +160,6 @@ Transient-failure receipts with `next_retry_at` set survive process restart. The
 **Retry snapshot counters reflect the current process run, not cumulative history.** After restart, all retry counters reset to zero even though durable retry state (pending receipts) persists in SQLite. Operators must query `delivery_receipts` directly for cumulative retry history.
 
 **Capacity rejection does not persist a receipt.** If the RetryWorker cannot acquire the delivery semaphore when processing a due retry, it emits a `retry_failed` runtime event and reschedules the existing receipt's `next_retry_at` to the next worker interval. No new `DeliveryReceipt` row is created for capacity rejection. The original failed receipt remains the only record. Capacity rejection is backpressure, not a delivery failure — it does not advance `attempt_number` and does not count toward `RetryPolicy` exhaustion.
-
 
 ## 5. Degraded-Runtime Semantics
 
@@ -201,41 +194,41 @@ When `CapacityController` reaches its semaphore limit:
 
 The runtime does **not** degrade into a different operational mode under capacity pressure. It rejects new work and continues processing in-flight work.
 
-
 ## 6. Boundedness Guarantees
 
 ### 6.1 Memory Boundedness
 
-| Resource | Bound | Default | Policy on Overflow |
-|----------|-------|---------|-------------------|
-| Concurrent deliveries | `max_inflight_deliveries` | 100 | Reject (permanent failure with diagnostics) |
-| Concurrent replay deliveries | `max_inflight_replay_events` | 100 | Reject (error with diagnostics) |
-| Meshtastic outbound queue | `max_queue_size` | 1024 | Drop-oldest |
+| Resource                     | Bound                        | Default | Policy on Overflow                          |
+| ---------------------------- | ---------------------------- | ------- | ------------------------------------------- |
+| Concurrent deliveries        | `max_inflight_deliveries`    | 100     | Reject (permanent failure with diagnostics) |
+| Concurrent replay deliveries | `max_inflight_replay_events` | 100     | Reject (error with diagnostics)             |
+| Meshtastic outbound queue    | `max_queue_size`             | 1024    | Drop-oldest                                 |
 
 **Unbounded by design:**
+
 - Matrix, LXMF, MeshCore adapter internal buffers are not explicitly bounded by MEDRE. They rely on transport SDK behavior and the global capacity semaphore.
 - Events stored in SQLite grow without bound. There is no event retention policy or automatic pruning.
 
 ### 6.2 Time Boundedness
 
-| Timeout | Default | Controls |
-|---------|---------|----------|
-| `delivery_acquire_timeout_seconds` | 1.0 | Max wait for a delivery semaphore slot |
-| `shutdown_drain_timeout_seconds` | 10.0 | Max wait for in-flight work to complete during shutdown |
-| `shutdown_timeout_seconds` | 10 | Overall shutdown budget |
+| Timeout                            | Default | Controls                                                |
+| ---------------------------------- | ------- | ------------------------------------------------------- |
+| `delivery_acquire_timeout_seconds` | 1.0     | Max wait for a delivery semaphore slot                  |
+| `shutdown_drain_timeout_seconds`   | 10.0    | Max wait for in-flight work to complete during shutdown |
+| `shutdown_timeout_seconds`         | 10      | Overall shutdown budget                                 |
 
 All timeouts are configurable via `[runtime.limits]` and `[runtime]`. See Contract 53 §14.1 for the full configuration schema.
 
 ### 6.3 No Boundedness for External Resources
 
 MEDRE does not bound:
+
 - Transport SDK memory usage (nio, meshtastic, reticulum SDKs manage their own memory).
 - SQLite database file size (grows with event volume; no automatic vacuum).
 - Log file size (append-only; no built-in rotation).
 - OS-level resource consumption (file descriptors, socket buffers, serial port buffers).
 
 Operators must monitor disk space and log file growth externally.
-
 
 ## 7. Crash Recovery
 
@@ -258,7 +251,6 @@ WHERE r.event_id IS NULL
 ORDER BY e.created_at DESC;
 ```
 
-
 ## 8. Explicit Non-Guarantees
 
 The following are explicitly **not** provided:
@@ -275,14 +267,13 @@ The following are explicitly **not** provided:
 - **Hot restart.** The runtime is a single-process application. No zero-downtime restart mechanism.
 - **Per-adapter restart.** Individual adapters cannot be restarted without shutting down the entire runtime.
 
-
 ## 9. Cross-References
 
-| Topic | Contract |
-|-------|----------|
-| Storage locations, file paths, SQLite schema, write timing, WAL mode details | Contract 55 (Runtime Persistence) |
-| CapacityController, delivery/replay capacity bounds, exhaustion behavior | Contract 53 (Resource Control) |
-| Shutdown ordering, drain phases, in-flight work handling | Contract 54 (Runtime Shutdown) |
-| Cancellation semantics, CapacityController stop behavior, stop-during-startup | Contract 60 (Runtime Cancellation) |
-| Runtime assembly, `RuntimeState` lifecycle, startup classification | Contract 47 (Runtime Assembly) |
-| Runtime observability, diagnostic snapshots | Contract 48 (Runtime Observability) |
+| Topic                                                                         | Contract                            |
+| ----------------------------------------------------------------------------- | ----------------------------------- |
+| Storage locations, file paths, SQLite schema, write timing, WAL mode details  | Contract 55 (Runtime Persistence)   |
+| CapacityController, delivery/replay capacity bounds, exhaustion behavior      | Contract 53 (Resource Control)      |
+| Shutdown ordering, drain phases, in-flight work handling                      | Contract 54 (Runtime Shutdown)      |
+| Cancellation semantics, CapacityController stop behavior, stop-during-startup | Contract 60 (Runtime Cancellation)  |
+| Runtime assembly, `RuntimeState` lifecycle, startup classification            | Contract 47 (Runtime Assembly)      |
+| Runtime observability, diagnostic snapshots                                   | Contract 48 (Runtime Observability) |

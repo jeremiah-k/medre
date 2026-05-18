@@ -6,8 +6,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-import pytest
-
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.rendering.renderer import RenderingResult
@@ -44,17 +42,26 @@ class TestMeshtasticRenderer:
         """Renderer matches when target_platform is meshtastic."""
         renderer = MeshtasticRenderer()
         event = _make_event()
-        assert renderer.can_render(event, "local-radio", target_platform="meshtastic") is True
+        assert (
+            renderer.can_render(event, "local-radio", target_platform="meshtastic")
+            is True
+        )
 
     def test_can_render_non_meshtastic(self) -> None:
         renderer = MeshtasticRenderer()
         event = _make_event()
-        assert renderer.can_render(event, "fake_presentation", target_platform="fake") is False
+        assert (
+            renderer.can_render(event, "fake_presentation", target_platform="fake")
+            is False
+        )
 
     def test_can_render_rejects_matrix(self) -> None:
         renderer = MeshtasticRenderer()
         event = _make_event()
-        assert renderer.can_render(event, "matrix_instance", target_platform="matrix") is False
+        assert (
+            renderer.can_render(event, "matrix_instance", target_platform="matrix")
+            is False
+        )
 
     def test_can_render_without_platform_returns_false(self) -> None:
         """Without platform info, renderer cannot match (no prefix fallback)."""

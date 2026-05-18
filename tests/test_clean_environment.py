@@ -30,15 +30,13 @@ import io
 import os
 import py_compile
 import subprocess
-import tomllib
 import sys
-from contextlib import redirect_stdout, redirect_stderr
+import tomllib
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from typing import Any
 
 import pytest
-
-from medre.config.paths import MedrePaths
 
 # ---------------------------------------------------------------------------
 # Repo paths
@@ -69,39 +67,39 @@ class TestEditableInstallDocumentation:
     def _load(self) -> None:
         self._data = _load_pyproject()
         self._project = self._data["project"]
-        self._opt: dict[str, list[str]] = self._project.get(
-            "optional-dependencies", {}
-        )
+        self._opt: dict[str, list[str]] = self._project.get("optional-dependencies", {})
         assert _DEV_ENV_DOC.is_file(), f"dev-env doc missing: {_DEV_ENV_DOC}"
         self._doc_text = _DEV_ENV_DOC.read_text()
 
     def test_doc_mentions_editable_base_install(self) -> None:
         """Doc must include ``pip install -e .`` (base install)."""
-        assert 'pip install -e "."' in self._doc_text or "pip install -e ." in self._doc_text, (
-            "developer-environment.md missing base editable install command"
-        )
+        assert (
+            'pip install -e "."' in self._doc_text
+            or "pip install -e ." in self._doc_text
+        ), "developer-environment.md missing base editable install command"
 
     def test_doc_mentions_editable_dev_install(self) -> None:
         """Doc must include ``pip install -e ".[dev]"``."""
-        assert 'pip install -e ".[dev]"' in self._doc_text or 'pip install -e ".[dev]"' in self._doc_text, (
-            "developer-environment.md missing dev editable install command"
-        )
+        assert (
+            'pip install -e ".[dev]"' in self._doc_text
+            or 'pip install -e ".[dev]"' in self._doc_text
+        ), "developer-environment.md missing dev editable install command"
 
     def test_doc_documents_each_transport_extra(self) -> None:
         """Each transport extra in pyproject.toml must appear in the doc."""
         transport_extras = {"matrix", "matrix-e2e", "meshtastic", "meshcore", "lxmf"}
         for extra in transport_extras:
-            assert f"[{extra}]" in self._doc_text, (
-                f"developer-environment.md does not document [{extra}] extra"
-            )
+            assert (
+                f"[{extra}]" in self._doc_text
+            ), f"developer-environment.md does not document [{extra}] extra"
 
     def test_doc_install_commands_use_project_name(self) -> None:
         """Install commands must reference the correct project name."""
         name = self._project["name"]
         # The doc should use the project name in install examples
-        assert name in self._doc_text, (
-            f"developer-environment.md does not mention project name {name!r}"
-        )
+        assert (
+            name in self._doc_text
+        ), f"developer-environment.md does not mention project name {name!r}"
 
     def test_doc_mentions_python_version_requirement(self) -> None:
         """Doc must state the minimum Python version matching pyproject.toml."""
@@ -130,39 +128,42 @@ class TestBuildSystemMetadata:
         self._project = self._data["project"]
 
     def test_build_backend_is_setuptools(self) -> None:
-        assert self._bs.get("build-backend") == "setuptools.build_meta", (
-            f"unexpected build-backend: {self._bs.get('build-backend')!r}"
-        )
+        assert (
+            self._bs.get("build-backend") == "setuptools.build_meta"
+        ), f"unexpected build-backend: {self._bs.get('build-backend')!r}"
 
     def test_build_requires_setuptools(self) -> None:
         requires = self._bs.get("requires", [])
-        assert any("setuptools" in r for r in requires), (
-            f"setuptools not in build-system.requires: {requires}"
-        )
+        assert any(
+            "setuptools" in r for r in requires
+        ), f"setuptools not in build-system.requires: {requires}"
         # Pin should be >=68 per pyproject.toml
         for r in requires:
             if "setuptools" in r:
-                assert ">=" in r or ">68" in r, (
-                    f"setuptools version constraint looks wrong: {r!r}"
-                )
+                assert (
+                    ">=" in r or ">68" in r
+                ), f"setuptools version constraint looks wrong: {r!r}"
 
     def test_setuptools_packages_find_points_to_src(self) -> None:
         """``[tool.setuptools.packages.find] where = ["src"]`` must exist."""
-        find_cfg = self._data.get("tool", {}).get("setuptools", {}).get(
-            "packages", {}
-        ).get("find", {})
-        where = find_cfg.get("where", [])
-        assert "src" in where, (
-            f"setuptools packages.find.where should include 'src': {where}"
+        find_cfg = (
+            self._data.get("tool", {})
+            .get("setuptools", {})
+            .get("packages", {})
+            .get("find", {})
         )
+        where = find_cfg.get("where", [])
+        assert (
+            "src" in where
+        ), f"setuptools packages.find.where should include 'src': {where}"
 
     def test_readme_file_matches_declaration(self) -> None:
         """project.readme should reference an existing file."""
         readme = self._project.get("readme", "")
         if readme:
-            assert (_REPO_ROOT / readme).is_file(), (
-                f"readme file {readme!r} not found in repo root"
-            )
+            assert (
+                _REPO_ROOT / readme
+            ).is_file(), f"readme file {readme!r} not found in repo root"
 
     def test_project_has_name_and_version(self) -> None:
         """Both name and version must be present for sdist/wheel metadata."""
@@ -173,9 +174,9 @@ class TestBuildSystemMetadata:
 
     def test_requires_python_is_declared(self) -> None:
         """Wheel metadata requires ``Requires-Python`` header source."""
-        assert "requires-python" in self._project, (
-            "pyproject.toml missing requires-python (needed for wheel metadata)"
-        )
+        assert (
+            "requires-python" in self._project
+        ), "pyproject.toml missing requires-python (needed for wheel metadata)"
 
 
 # ===================================================================
@@ -225,16 +226,16 @@ class TestExtrasDependencyGraph:
                 # Should contain >=, ==, ~=, or be a bare name with extras
                 has_spec = any(op in dep for op in (">=", "==", "~=", "<=", "!=", ">"))
                 has_extras = "[" in dep
-                assert has_spec or has_extras, (
-                    f"extra {name!r} dep {dep!r} lacks a version specifier"
-                )
+                assert (
+                    has_spec or has_extras
+                ), f"extra {name!r} dep {dep!r} lacks a version specifier"
 
     def test_dev_extra_contains_pytest(self) -> None:
         """Dev extra must contain pytest for test runner."""
         dev_deps = self._opt.get("dev", [])
-        assert any("pytest" in d for d in dev_deps), (
-            f"dev extra missing pytest: {dev_deps}"
-        )
+        assert any(
+            "pytest" in d for d in dev_deps
+        ), f"dev extra missing pytest: {dev_deps}"
 
 
 # ===================================================================
@@ -256,9 +257,9 @@ class TestConsoleScriptResolution:
         assert ":" in ep, f"entry point {ep!r} missing ':' separator"
         module_path, _, callable_name = ep.partition(":")
         assert "." in module_path, f"module path {module_path!r} should be dotted"
-        assert callable_name.isidentifier(), (
-            f"callable name {callable_name!r} is not a valid identifier"
-        )
+        assert (
+            callable_name.isidentifier()
+        ), f"callable name {callable_name!r} is not a valid identifier"
 
     def test_entry_point_module_importable(self) -> None:
         """The module referenced in the entry point must be importable."""
@@ -384,38 +385,44 @@ class TestConfigSampleCleanEnv:
 
     def test_sample_config_is_valid_toml(self) -> None:
         from medre.config.sample import generate_sample_config
+
         sample = generate_sample_config()
         parsed = tomllib.loads(sample)
         assert isinstance(parsed, dict), "sample config did not parse to dict"
 
     def test_sample_config_has_runtime_section(self) -> None:
         from medre.config.sample import generate_sample_config
+
         parsed = tomllib.loads(generate_sample_config())
         assert "runtime" in parsed, "sample config missing [runtime]"
 
     def test_sample_config_has_adapters_section(self) -> None:
         from medre.config.sample import generate_sample_config
+
         parsed = tomllib.loads(generate_sample_config())
         assert "adapters" in parsed, "sample config missing [adapters]"
 
     def test_sample_config_has_storage_section(self) -> None:
         from medre.config.sample import generate_sample_config
+
         parsed = tomllib.loads(generate_sample_config())
         assert "storage" in parsed, "sample config missing [storage]"
 
     def test_sample_config_has_logging_section(self) -> None:
         from medre.config.sample import generate_sample_config
+
         parsed = tomllib.loads(generate_sample_config())
         assert "logging" in parsed, "sample config missing [logging]"
 
     def test_sample_config_mentions_all_transport_types(self) -> None:
         """Sample should document all four transport adapter types."""
         from medre.config.sample import generate_sample_config
+
         sample = generate_sample_config()
         for transport in ("matrix", "meshtastic", "meshcore", "lxmf"):
-            assert transport in sample.lower(), (
-                f"sample config does not mention transport {transport!r}"
-            )
+            assert (
+                transport in sample.lower()
+            ), f"sample config does not mention transport {transport!r}"
 
     def test_sample_config_toml_sections_parseable(self) -> None:
         """Sample config sections must parse into expected types.
@@ -457,13 +464,18 @@ class TestCLISmokeCleanEnv:
     @pytest.fixture(autouse=True)
     def _clean_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         for var in (
-            "MEDRE_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME",
-            "XDG_DATA_HOME", "XDG_CACHE_HOME", "MEDRE_CONFIG",
+            "MEDRE_HOME",
+            "XDG_CONFIG_HOME",
+            "XDG_STATE_HOME",
+            "XDG_DATA_HOME",
+            "XDG_CACHE_HOME",
+            "MEDRE_CONFIG",
         ):
             monkeypatch.delenv(var, raising=False)
 
     def test_version_command_succeeds(self) -> None:
         from medre.cli import main
+
         buf = io.StringIO()
         with redirect_stdout(buf):
             main(["version"])
@@ -473,6 +485,7 @@ class TestCLISmokeCleanEnv:
 
     def test_paths_command_succeeds(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import tempfile
+
         from medre.cli import main
 
         with tempfile.TemporaryDirectory() as td:
@@ -485,6 +498,7 @@ class TestCLISmokeCleanEnv:
 
     def test_config_sample_command_succeeds(self) -> None:
         from medre.cli import main
+
         buf = io.StringIO()
         with redirect_stdout(buf):
             main(["config", "sample"])
@@ -494,6 +508,7 @@ class TestCLISmokeCleanEnv:
 
     def test_adapters_command_succeeds(self) -> None:
         from medre.cli import main
+
         buf = io.StringIO()
         err_buf = io.StringIO()
         with redirect_stdout(buf), redirect_stderr(err_buf):
@@ -505,12 +520,15 @@ class TestCLISmokeCleanEnv:
     def test_version_output_format(self) -> None:
         """Version output must include version string, Python version, platform."""
         from medre.cli import main
+
         buf = io.StringIO()
         with redirect_stdout(buf):
             main(["version"])
         lines = buf.getvalue().strip().splitlines()
         assert len(lines) >= 2, f"version output too short: {lines}"
-        assert lines[0].startswith("medre"), f"first line should start with 'medre': {lines[0]}"
+        assert lines[0].startswith(
+            "medre"
+        ), f"first line should start with 'medre': {lines[0]}"
 
 
 # ===================================================================
@@ -524,20 +542,25 @@ class TestEnvOverrideCleanEnv:
 
     def test_env_module_importable(self) -> None:
         from medre.config import env
+
         assert env is not None
 
     def test_apply_env_overrides_is_callable(self) -> None:
         from medre.config.env import apply_env_overrides
+
         assert callable(apply_env_overrides)
 
     def test_medre_env_config_is_dataclass(self) -> None:
         import dataclasses
+
         from medre.config.env import MedreEnvConfig
+
         assert dataclasses.is_dataclass(MedreEnvConfig)
 
     def test_secret_env_names_is_frozenset(self) -> None:
         """Internal secret env-name registry must be a frozenset."""
         from medre.config import env
+
         # Access private constant — intentional for clean-env boundary check
         assert hasattr(env, "_SECRET_ENV_NAMES") or hasattr(env, "MedreEnvConfig")
 
@@ -561,19 +584,18 @@ class TestCompileAll:
                 py_compile.compile(str(py_file), doraise=True)
             except py_compile.PyCompileError as exc:
                 errors.append(f"{py_file}: {exc}")
-        assert not errors, (
-            f"{len(errors)} file(s) failed to compile:\n" + "\n".join(errors)
+        assert not errors, f"{len(errors)} file(s) failed to compile:\n" + "\n".join(
+            errors
         )
 
     def test_no_stray_pyc_outside_pycache(self) -> None:
         """Source tree should not contain loose .pyc files outside __pycache__."""
         pyc_files = [
-            f for f in _SRC_DIR.rglob("*.pyc")
-            if f.parent.name != "__pycache__"
+            f for f in _SRC_DIR.rglob("*.pyc") if f.parent.name != "__pycache__"
         ]
-        assert not pyc_files, (
-            f"Found loose .pyc files outside __pycache__: {pyc_files[:5]}"
-        )
+        assert (
+            not pyc_files
+        ), f"Found loose .pyc files outside __pycache__: {pyc_files[:5]}"
 
 
 # ===================================================================
@@ -593,9 +615,9 @@ class TestPackageLayout:
 
     def test_no_top_level_medre_dir(self) -> None:
         """No ``medre/`` at repo root — must be under ``src/``."""
-        assert not (_REPO_ROOT / "medre").is_dir(), (
-            "Found top-level medre/ directory — should be src/medre/ only"
-        )
+        assert not (
+            _REPO_ROOT / "medre"
+        ).is_dir(), "Found top-level medre/ directory — should be src/medre/ only"
 
     def test_pyproject_at_repo_root(self) -> None:
         assert _PYPROJECT_PATH.is_file()
@@ -607,9 +629,9 @@ class TestPackageLayout:
         if setup_py.is_file():
             # If it exists, it should be minimal / deprecated
             content = setup_py.read_text()
-            assert len(content) < 200, (
-                "setup.py exists and is non-trivial — prefer pyproject.toml only"
-            )
+            assert (
+                len(content) < 200
+            ), "setup.py exists and is non-trivial — prefer pyproject.toml only"
 
     def test_no_setup_cfg_required(self) -> None:
         """setup.cfg should not be needed if pyproject.toml is complete."""
@@ -617,9 +639,9 @@ class TestPackageLayout:
         if setup_cfg.is_file():
             content = setup_cfg.read_text()
             # If it exists, it should be minimal
-            assert "metadata" not in content or "options" not in content, (
-                "setup.cfg contains metadata/options that should be in pyproject.toml"
-            )
+            assert (
+                "metadata" not in content or "options" not in content
+            ), "setup.cfg contains metadata/options that should be in pyproject.toml"
 
     def test_cli_package_at_expected_path(self) -> None:
         """CLI package should be at ``src/medre/cli/``."""
@@ -643,60 +665,51 @@ class TestReproducibilityEvidence:
     def test_single_base_dependency(self) -> None:
         """Base install should have exactly one required dependency (msgspec)."""
         deps = self._project.get("dependencies", [])
-        assert len(deps) == 1, (
-            f"Expected exactly 1 base dependency, got {len(deps)}: {deps}"
-        )
+        assert (
+            len(deps) == 1
+        ), f"Expected exactly 1 base dependency, got {len(deps)}: {deps}"
         assert "msgspec" in deps[0], f"Expected msgspec, got: {deps}"
 
     def test_build_system_has_exactly_two_keys(self) -> None:
         """build-system should have requires and build-backend only."""
         bs = self._data.get("build-system", {})
-        assert set(bs.keys()) == {"requires", "build-backend"}, (
-            f"build-system has unexpected keys: {sorted(bs.keys())}"
-        )
+        assert set(bs.keys()) == {
+            "requires",
+            "build-backend",
+        }, f"build-system has unexpected keys: {sorted(bs.keys())}"
 
     def test_pytest_config_declares_testpaths(self) -> None:
         """pytest config must declare testpaths for reproducibility."""
-        pytest_cfg = self._data.get("tool", {}).get("pytest", {}).get(
-            "ini_options", {}
-        )
-        assert "testpaths" in pytest_cfg, (
-            "[tool.pytest.ini_options] missing testpaths"
-        )
-        assert "tests" in pytest_cfg["testpaths"], (
-            f"testpaths should include 'tests': {pytest_cfg['testpaths']}"
-        )
+        pytest_cfg = self._data.get("tool", {}).get("pytest", {}).get("ini_options", {})
+        assert "testpaths" in pytest_cfg, "[tool.pytest.ini_options] missing testpaths"
+        assert (
+            "tests" in pytest_cfg["testpaths"]
+        ), f"testpaths should include 'tests': {pytest_cfg['testpaths']}"
 
     def test_pytest_config_declares_pythonpath(self) -> None:
         """pytest config must declare pythonpath for src layout."""
-        pytest_cfg = self._data.get("tool", {}).get("pytest", {}).get(
-            "ini_options", {}
-        )
-        assert "pythonpath" in pytest_cfg, (
-            "[tool.pytest.ini_options] missing pythonpath"
-        )
-        assert "src" in pytest_cfg["pythonpath"], (
-            f"pythonpath should include 'src': {pytest_cfg['pythonpath']}"
-        )
+        pytest_cfg = self._data.get("tool", {}).get("pytest", {}).get("ini_options", {})
+        assert (
+            "pythonpath" in pytest_cfg
+        ), "[tool.pytest.ini_options] missing pythonpath"
+        assert (
+            "src" in pytest_cfg["pythonpath"]
+        ), f"pythonpath should include 'src': {pytest_cfg['pythonpath']}"
 
     def test_live_test_marker_declared(self) -> None:
         """The 'live' test marker must be declared for clean-env filtering."""
-        pytest_cfg = self._data.get("tool", {}).get("pytest", {}).get(
-            "ini_options", {}
-        )
+        pytest_cfg = self._data.get("tool", {}).get("pytest", {}).get("ini_options", {})
         markers = pytest_cfg.get("markers", [])
-        assert any("live" in m for m in markers), (
-            f"'live' marker not declared in pytest config: {markers}"
-        )
+        assert any(
+            "live" in m for m in markers
+        ), f"'live' marker not declared in pytest config: {markers}"
 
     def test_asyncio_mode_is_auto(self) -> None:
         """asyncio_mode must be 'auto' for async test discovery."""
-        pytest_cfg = self._data.get("tool", {}).get("pytest", {}).get(
-            "ini_options", {}
-        )
-        assert pytest_cfg.get("asyncio_mode") == "auto", (
-            f"asyncio_mode should be 'auto': {pytest_cfg.get('asyncio_mode')}"
-        )
+        pytest_cfg = self._data.get("tool", {}).get("pytest", {}).get("ini_options", {})
+        assert (
+            pytest_cfg.get("asyncio_mode") == "auto"
+        ), f"asyncio_mode should be 'auto': {pytest_cfg.get('asyncio_mode')}"
 
 
 # ===================================================================
@@ -717,8 +730,12 @@ class TestPythonMSubprocessCleanEnv:
     def _run(self, module: str, *args: str) -> subprocess.CompletedProcess[str]:
         env = {**os.environ, "PYTHONPATH": str(_SRC_DIR)}
         for var in (
-            "MEDRE_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME",
-            "XDG_DATA_HOME", "XDG_CACHE_HOME", "MEDRE_CONFIG",
+            "MEDRE_HOME",
+            "XDG_CONFIG_HOME",
+            "XDG_STATE_HOME",
+            "XDG_DATA_HOME",
+            "XDG_CACHE_HOME",
+            "MEDRE_CONFIG",
         ):
             env.pop(var, None)
         return subprocess.run(
@@ -731,16 +748,16 @@ class TestPythonMSubprocessCleanEnv:
 
     def test_python_m_medre_help(self) -> None:
         result = self._run("medre", "--help")
-        assert result.returncode == 0, (
-            f"exit={result.returncode}, stderr={result.stderr[:200]!r}"
-        )
+        assert (
+            result.returncode == 0
+        ), f"exit={result.returncode}, stderr={result.stderr[:200]!r}"
         assert "medre" in result.stdout.lower()
 
     def test_python_m_medre_cli_help(self) -> None:
         result = self._run("medre.cli", "--help")
-        assert result.returncode == 0, (
-            f"exit={result.returncode}, stderr={result.stderr[:200]!r}"
-        )
+        assert (
+            result.returncode == 0
+        ), f"exit={result.returncode}, stderr={result.stderr[:200]!r}"
         assert "medre" in result.stdout.lower()
 
     def test_python_m_medre_version(self) -> None:
@@ -839,8 +856,12 @@ class TestOptionalSDKImportBoundary:
         )
         env = {**os.environ, "PYTHONPATH": str(_SRC_DIR)}
         for var in (
-            "MEDRE_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME",
-            "XDG_DATA_HOME", "XDG_CACHE_HOME", "MEDRE_CONFIG",
+            "MEDRE_HOME",
+            "XDG_CONFIG_HOME",
+            "XDG_STATE_HOME",
+            "XDG_DATA_HOME",
+            "XDG_CACHE_HOME",
+            "MEDRE_CONFIG",
         ):
             env.pop(var, None)
         result = subprocess.run(
@@ -855,30 +876,22 @@ class TestOptionalSDKImportBoundary:
             f"stderr={result.stderr[:500]!r}"
         )
         leaked = json.loads(result.stdout.strip())
-        assert leaked == [], (
-            f"Optional SDK modules leaked during lightweight CLI path: {leaked}"
-        )
+        assert (
+            leaked == []
+        ), f"Optional SDK modules leaked during lightweight CLI path: {leaked}"
 
     def test_help_does_not_import_optional_sdks(self) -> None:
         """``from medre.cli import main`` + ``--help`` must not pull in SDKs."""
-        self._check_sdk_leak(
-            "from medre.cli import main; main(['--help'])"
-        )
+        self._check_sdk_leak("from medre.cli import main; main(['--help'])")
 
     def test_version_does_not_import_optional_sdks(self) -> None:
         """``medre version`` must not pull in SDKs."""
-        self._check_sdk_leak(
-            "from medre.cli import main; main(['version'])"
-        )
+        self._check_sdk_leak("from medre.cli import main; main(['version'])")
 
     def test_config_sample_does_not_import_optional_sdks(self) -> None:
         """``medre config sample`` must not pull in SDKs."""
-        self._check_sdk_leak(
-            "from medre.cli import main; main(['config', 'sample'])"
-        )
+        self._check_sdk_leak("from medre.cli import main; main(['config', 'sample'])")
 
     def test_paths_does_not_import_optional_sdks(self) -> None:
         """``medre paths`` must not pull in SDKs — core path data needs none."""
-        self._check_sdk_leak(
-            "from medre.cli import main; main(['paths'])"
-        )
+        self._check_sdk_leak("from medre.cli import main; main(['paths'])")

@@ -116,6 +116,7 @@ fields:
 No raw ``LXMessage``, ``RNS.Destination``, or ``RNS.Identity``
 objects are ever included in the normalised dict.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -128,12 +129,11 @@ from enum import Enum
 from typing import Any, Callable
 
 from medre.adapters.lxmf.compat import HAS_LXMF, _require_lxmf
-from medre.config.adapters.lxmf import LxmfConfig
 from medre.adapters.lxmf.errors import (
     LxmfConnectionError,
     LxmfSendError,
-    LxmfSessionError,
 )
+from medre.config.adapters.lxmf import LxmfConfig
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -344,9 +344,7 @@ class _OutboundDelivery:
     native_message_id: str | None
     state: LxmfDeliveryState
     destination_hash: str
-    created_at: datetime = field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     last_state_change: datetime = field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
@@ -453,7 +451,9 @@ class LxmfSession:
         """
         if len(self._outbound_deliveries) >= _MAX_OUTBOUND_DELIVERIES:
             # Evict oldest entries to stay under the cap.
-            evict_count = max(1, len(self._outbound_deliveries) - _MAX_OUTBOUND_DELIVERIES + 1)
+            evict_count = max(
+                1, len(self._outbound_deliveries) - _MAX_OUTBOUND_DELIVERIES + 1
+            )
             for _ in range(evict_count):
                 if not self._delivery_insert_order:
                     break
@@ -610,9 +610,7 @@ class LxmfSession:
         # Track 3 — reset reconnect counter so diagnostics are truthful after stop
         self._diag.reconnect_attempts = 0
         self._started = False
-        self._logger.info(
-            "LxmfSession %s stopped", self._adapter_id
-        )
+        self._logger.info("LxmfSession %s stopped", self._adapter_id)
 
     # ------------------------------------------------------------------
     # Outbound send
@@ -1120,9 +1118,7 @@ class LxmfSession:
                 )
 
                 # Attach delivery state callback if supported.
-                lxm.register_delivery_callback(
-                    self._on_delivery_state_update
-                )
+                lxm.register_delivery_callback(self._on_delivery_state_update)
 
                 # Extract message hash BEFORE sending (if available).
                 native_id = self._extract_message_hash(lxm)
@@ -1134,9 +1130,7 @@ class LxmfSession:
                 if native_id is None:
                     native_id = self._extract_message_hash(lxm)
 
-                initial_state = _map_delivery_state(
-                    getattr(lxm, "state", None)
-                )
+                initial_state = _map_delivery_state(getattr(lxm, "state", None))
 
                 # Track the delivery.
                 if native_id is not None:
@@ -1167,9 +1161,11 @@ class LxmfSession:
                     f"Transient send failure (attempt {attempt}): {exc}"
                 )
                 self._logger.warning(
-                    "LxmfSession %s transient send failure "
-                    "(attempt %d/%d): %s",
-                    self._adapter_id, attempt, _SEND_MAX_RETRIES, exc,
+                    "LxmfSession %s transient send failure " "(attempt %d/%d): %s",
+                    self._adapter_id,
+                    attempt,
+                    _SEND_MAX_RETRIES,
+                    exc,
                 )
                 if attempt < _SEND_MAX_RETRIES:
                     await asyncio.sleep(0.1 * attempt)
@@ -1290,8 +1286,7 @@ class LxmfSession:
                 and self._diag.reconnect_attempts < _RECONNECT_MAX_ATTEMPTS
             ):
                 delay = min(
-                    _RECONNECT_BASE_DELAY
-                    * (2 ** self._diag.reconnect_attempts),
+                    _RECONNECT_BASE_DELAY * (2**self._diag.reconnect_attempts),
                     _RECONNECT_MAX_DELAY,
                 )
                 # Apply jitter.

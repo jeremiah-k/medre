@@ -11,6 +11,7 @@ Both flags are safe to monkeypatch in tests::
     from medre.adapters.matrix import compat
     compat.HAS_E2EE = True   # pretend e2ee is available
 """
+
 from __future__ import annotations
 
 HAS_NIO: bool

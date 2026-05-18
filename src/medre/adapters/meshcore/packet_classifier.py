@@ -11,6 +11,7 @@ like ``text``, ``pubkey_prefix``, ``channel_idx``, ``type``, ``code``, and
 The classifier is a pure function: it inspects a packet and returns a
 classification dict.  It has no side effects.
 """
+
 from __future__ import annotations
 
 from typing import Any

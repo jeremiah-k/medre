@@ -12,6 +12,7 @@ Hierarchy::
     ├── MeshCoreCodecError      — encode / decode failures
     └── MeshCorePacketError     — malformed or unparseable packets
 """
+
 from __future__ import annotations
 
 

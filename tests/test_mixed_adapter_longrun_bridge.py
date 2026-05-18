@@ -26,18 +26,16 @@ from medre.core.engine.pipeline import PipelineRunner
 from medre.core.events.kinds import EventKind
 from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.routing.stats import RouteStats
 from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage.sqlite import SQLiteStorage
-
 from tests.helpers.bridge import (
     make_adapter_context,
     make_meshcore_packet,
     make_pipeline_config,
     make_text_packet,
 )
-
 
 # ---------------------------------------------------------------------------
 # Packet helpers
@@ -168,12 +166,14 @@ async def _build_mixed_bridge(
         targets=[RouteTarget(adapter=mx_id, channel=f"!{prefix}:fake")],
     )
 
-    router = Router(routes=[
-        route_mx_to_all,
-        route_mesh_to_mx,
-        route_mc_to_mx,
-        route_lxmf_to_mx,
-    ])
+    router = Router(
+        routes=[
+            route_mx_to_all,
+            route_mesh_to_mx,
+            route_mc_to_mx,
+            route_lxmf_to_mx,
+        ]
+    )
 
     rp = RenderingPipeline()
     rp.register(TextRenderer(), priority=100)
@@ -270,7 +270,8 @@ class TestMixedAdapterLongrunBridge:
     with fanout and bidirectional routes simultaneously."""
 
     async def test_ten_messages_each_direction_no_loops(
-        self, temp_storage: SQLiteStorage,
+        self,
+        temp_storage: SQLiteStorage,
     ) -> None:
         """Inject 10 messages across 4 adapters. Assert exact counts."""
         s = await _build_mixed_bridge(temp_storage, prefix="t1")
@@ -282,19 +283,25 @@ class TestMixedAdapterLongrunBridge:
                 "SELECT event_id, source_adapter FROM canonical_events "
                 "ORDER BY event_id"
             )
-            assert len(all_events) == 10, (
-                f"Expected 10 events, got {len(all_events)}"
-            )
+            assert len(all_events) == 10, f"Expected 10 events, got {len(all_events)}"
 
             # -- Source adapter counts correct --
             mx_events = [e for e in all_events if e["source_adapter"] == "t1-mx"]
             mesh_events = [e for e in all_events if e["source_adapter"] == "t1-mesh"]
             mc_events = [e for e in all_events if e["source_adapter"] == "t1-mc"]
             lxmf_events = [e for e in all_events if e["source_adapter"] == "t1-lxmf"]
-            assert len(mx_events) == 3, f"Expected 3 matrix events, got {len(mx_events)}"
-            assert len(mesh_events) == 3, f"Expected 3 meshtastic events, got {len(mesh_events)}"
-            assert len(mc_events) == 2, f"Expected 2 meshcore events, got {len(mc_events)}"
-            assert len(lxmf_events) == 2, f"Expected 2 lxmf events, got {len(lxmf_events)}"
+            assert (
+                len(mx_events) == 3
+            ), f"Expected 3 matrix events, got {len(mx_events)}"
+            assert (
+                len(mesh_events) == 3
+            ), f"Expected 3 meshtastic events, got {len(mesh_events)}"
+            assert (
+                len(mc_events) == 2
+            ), f"Expected 2 meshcore events, got {len(mc_events)}"
+            assert (
+                len(lxmf_events) == 2
+            ), f"Expected 2 lxmf events, got {len(lxmf_events)}"
 
             # -- Delivery receipts: 16 total --
             # 3 matrix msgs × 3 targets = 9
@@ -305,13 +312,9 @@ class TestMixedAdapterLongrunBridge:
                 "SELECT target_adapter, status FROM delivery_receipts "
                 "ORDER BY sequence"
             )
-            assert len(receipts) == 16, (
-                f"Expected 16 receipts, got {len(receipts)}"
-            )
+            assert len(receipts) == 16, f"Expected 16 receipts, got {len(receipts)}"
             for r in receipts:
-                assert r["status"] == "sent", (
-                    f"Expected 'sent', got {r['status']!r}"
-                )
+                assert r["status"] == "sent", f"Expected 'sent', got {r['status']!r}"
 
             # -- Per-target receipt counts --
             mesh_receipts = [r for r in receipts if r["target_adapter"] == "t1-mesh"]
@@ -319,39 +322,39 @@ class TestMixedAdapterLongrunBridge:
             lxmf_receipts = [r for r in receipts if r["target_adapter"] == "t1-lxmf"]
             mx_receipts = [r for r in receipts if r["target_adapter"] == "t1-mx"]
             assert len(mesh_receipts) == 3  # from matrix fanout
-            assert len(mc_receipts) == 3    # from matrix fanout
+            assert len(mc_receipts) == 3  # from matrix fanout
             assert len(lxmf_receipts) == 3  # from matrix fanout
-            assert len(mx_receipts) == 7    # 3 from mesh + 2 from mc + 2 from lxmf
+            assert len(mx_receipts) == 7  # 3 from mesh + 2 from mc + 2 from lxmf
 
             # -- RuntimeAccounting --
             snap = s.accounting.snapshot()
-            assert snap["inbound_accepted"] == 10, (
-                f"Expected inbound_accepted=10, got {snap['inbound_accepted']}"
-            )
-            assert snap["outbound_delivered"] == 16, (
-                f"Expected outbound_delivered=16, got {snap['outbound_delivered']}"
-            )
-            assert snap["loop_prevented"] == 0, (
-                f"Expected loop_prevented=0, got {snap['loop_prevented']}"
-            )
+            assert (
+                snap["inbound_accepted"] == 10
+            ), f"Expected inbound_accepted=10, got {snap['inbound_accepted']}"
+            assert (
+                snap["outbound_delivered"] == 16
+            ), f"Expected outbound_delivered=16, got {snap['outbound_delivered']}"
+            assert (
+                snap["loop_prevented"] == 0
+            ), f"Expected loop_prevented=0, got {snap['loop_prevented']}"
 
             # -- Adapter delivered_payloads --
             # matrix: receives 3 (mesh→mx) + 2 (mc→mx) + 2 (lxmf→mx) = 7
-            assert len(s.matrix.delivered_payloads) == 7, (
-                f"Expected 7 matrix deliveries, got {len(s.matrix.delivered_payloads)}"
-            )
+            assert (
+                len(s.matrix.delivered_payloads) == 7
+            ), f"Expected 7 matrix deliveries, got {len(s.matrix.delivered_payloads)}"
             # meshtastic: receives 3 (matrix fanout)
-            assert len(s.meshtastic.delivered_payloads) == 3, (
-                f"Expected 3 meshtastic deliveries, got {len(s.meshtastic.delivered_payloads)}"
-            )
+            assert (
+                len(s.meshtastic.delivered_payloads) == 3
+            ), f"Expected 3 meshtastic deliveries, got {len(s.meshtastic.delivered_payloads)}"
             # meshcore: receives 3 (matrix fanout)
-            assert len(s.meshcore.delivered_payloads) == 3, (
-                f"Expected 3 meshcore deliveries, got {len(s.meshcore.delivered_payloads)}"
-            )
+            assert (
+                len(s.meshcore.delivered_payloads) == 3
+            ), f"Expected 3 meshcore deliveries, got {len(s.meshcore.delivered_payloads)}"
             # lxmf: receives 3 (matrix fanout)
-            assert len(s.lxmf.delivered_payloads) == 3, (
-                f"Expected 3 lxmf deliveries, got {len(s.lxmf.delivered_payloads)}"
-            )
+            assert (
+                len(s.lxmf.delivered_payloads) == 3
+            ), f"Expected 3 lxmf deliveries, got {len(s.lxmf.delivered_payloads)}"
 
             # -- Route stats --
             stats = s.route_stats.snapshot()
@@ -371,7 +374,8 @@ class TestMixedAdapterLongrunBridge:
     # ===================================================================
 
     async def test_snapshot_reflects_mixed_totals(
-        self, temp_storage: SQLiteStorage,
+        self,
+        temp_storage: SQLiteStorage,
     ) -> None:
         """Final accounting snapshot has deterministic ints and correct
         per-route delivery counts.  Snapshot is JSON-safe."""
@@ -383,9 +387,9 @@ class TestMixedAdapterLongrunBridge:
 
             # -- All values are deterministic ints (no floats, no None) --
             for key, value in snap.items():
-                assert isinstance(value, int), (
-                    f"snapshot[{key!r}] = {value!r} is {type(value).__name__}, expected int"
-                )
+                assert isinstance(
+                    value, int
+                ), f"snapshot[{key!r}] = {value!r} is {type(value).__name__}, expected int"
 
             # -- Exact accounting totals --
             assert snap["inbound_accepted"] == 10
@@ -420,14 +424,12 @@ class TestMixedAdapterLongrunBridge:
                     return
                 if isinstance(obj, dict):
                     for k, v in obj.items():
-                        assert isinstance(k, str), (
-                            f"{path}.{k!r} key is {type(k).__name__}"
-                        )
+                        assert isinstance(
+                            k, str
+                        ), f"{path}.{k!r} key is {type(k).__name__}"
                         _assert_json_safe(v, f"{path}.{k}")
                     return
-                raise AssertionError(
-                    f"{path} is {type(obj).__name__}, not JSON-safe"
-                )
+                raise AssertionError(f"{path} is {type(obj).__name__}, not JSON-safe")
 
             _assert_json_safe(snap)
 
@@ -448,7 +450,8 @@ class TestMixedAdapterLongrunBridge:
     # ===================================================================
 
     async def test_clean_stop_no_resource_warnings(
-        self, temp_storage: SQLiteStorage,
+        self,
+        temp_storage: SQLiteStorage,
     ) -> None:
         """Start the mixed bridge, inject a few messages, clean stop.
         All adapters and the pipeline runner stop without error."""
@@ -494,15 +497,15 @@ class TestMixedAdapterLongrunBridge:
 
         # -- Verify adapter delivery lists are populated --
         assert len(s.meshtastic.delivered_payloads) == 1  # from matrix fanout
-        assert len(s.meshcore.delivered_payloads) == 1    # from matrix fanout
-        assert len(s.lxmf.delivered_payloads) == 1        # from matrix fanout
-        assert len(s.matrix.delivered_payloads) == 1      # from meshtastic
+        assert len(s.meshcore.delivered_payloads) == 1  # from matrix fanout
+        assert len(s.lxmf.delivered_payloads) == 1  # from matrix fanout
+        assert len(s.matrix.delivered_payloads) == 1  # from meshtastic
 
         # -- No pending background tasks from the runner --
         # PipelineRunner.stop() should clean up any internal tasks.
         # We verify the runner is not running by checking it cannot
         # process new events after stop.
-        event2 = s.matrix.make_event(
+        s.matrix.make_event(
             text="t3 after stop",
             event_kind=EventKind.MESSAGE_CREATED,
         )

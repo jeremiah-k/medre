@@ -12,8 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-
+from medre.config.model import RuntimeLimits
 from medre.core.events.canonical import (
     CanonicalEvent,
     DeliveryReceipt,
@@ -22,10 +21,8 @@ from medre.core.events.metadata import EventMetadata
 from medre.core.planning.delivery_plan import RetryExecutor, RetryPolicy
 from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.core.runtime.accounting import RuntimeAccounting
-from medre.config.model import RuntimeLimits
-from medre.runtime.capacity import CapacityController
 from medre.observability.classification import infer_failure_kind
-
+from medre.runtime.capacity import CapacityController
 
 # ---------------------------------------------------------------------------
 # RetryWorker (shutdown variant)
@@ -132,10 +129,12 @@ class RetryWorker:
         return Route(
             id=receipt.route_id or "retry-route",
             source=RouteSource(adapter=None, event_kinds=(), channel=None),
-            targets=[RouteTarget(
-                adapter=receipt.target_adapter,
-                channel=getattr(receipt, "target_channel", None),
-            )],
+            targets=[
+                RouteTarget(
+                    adapter=receipt.target_adapter,
+                    channel=getattr(receipt, "target_channel", None),
+                )
+            ],
         )
 
     @staticmethod
@@ -253,7 +252,9 @@ class TestRetryShutdown:
         policy = RetryPolicy(max_attempts=3)
 
         worker = RetryWorker(
-            storage, pipeline, policy,
+            storage,
+            pipeline,
+            policy,
             interval=300,  # 5-minute interval — won't cycle during test
         )
         await worker.start()
@@ -295,7 +296,9 @@ class TestRetryShutdown:
 
         shutdown_evt = asyncio.Event()
         worker = RetryWorker(
-            storage, pipeline, policy,
+            storage,
+            pipeline,
+            policy,
             shutdown_event=shutdown_evt,
             capacity_controller=capacity,
             interval=300,
@@ -335,7 +338,9 @@ class TestRetryShutdown:
         policy = RetryPolicy(max_attempts=3)
 
         worker = RetryWorker(
-            storage, pipeline, policy,
+            storage,
+            pipeline,
+            policy,
             capacity_controller=capacity,
             accounting=accounting,
         )
@@ -353,8 +358,11 @@ class TestRetryShutdownRealPipeline:
 
     async def test_shutdown_with_real_pipeline_and_due_receipt(self, temp_storage):
         """Real pipeline creates due receipt, worker starts then stops cleanly."""
+        import uuid
+
         from medre.adapters.fake_presentation import FakePresentationAdapter
-        from medre.core.contracts.adapter import AdapterContext, AdapterDeliveryResult
+        from medre.core.contracts.adapter import AdapterContext
+        from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
         from medre.core.events.bus import EventBus
         from medre.core.events.metadata import EventMetadata
         from medre.core.observability.metrics import Diagnostician
@@ -364,8 +372,6 @@ class TestRetryShutdownRealPipeline:
         from medre.core.rendering.text import TextRenderer
         from medre.core.routing.router import Router
         from medre.core.routing.stats import RouteStats
-        from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
-        import uuid
 
         # Adapter that always fails transiently
         class _AlwaysTransientAdapter(FakePresentationAdapter):
@@ -446,7 +452,9 @@ class TestRetryShutdownRealPipeline:
             policy = RetryPolicy(max_attempts=3)
 
             worker = RetryWorker(
-                temp_storage, runner, policy,
+                temp_storage,
+                runner,
+                policy,
                 capacity_controller=capacity,
                 interval=300,
             )
@@ -467,6 +475,9 @@ class TestRetryShutdownRealPipeline:
 
     async def test_capacity_rejection_during_real_retry(self, temp_storage):
         """With capacity=0, retry worker fails without calling the pipeline."""
+        import uuid
+
+        from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
         from medre.core.events.bus import EventBus
         from medre.core.events.metadata import EventMetadata
         from medre.core.observability.metrics import Diagnostician
@@ -476,8 +487,6 @@ class TestRetryShutdownRealPipeline:
         from medre.core.rendering.text import TextRenderer
         from medre.core.routing.router import Router
         from medre.core.routing.stats import RouteStats
-        from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
-        import uuid
 
         event_id = f"evt-{uuid.uuid4()}"
         event = CanonicalEvent(
@@ -539,7 +548,9 @@ class TestRetryShutdownRealPipeline:
             policy = RetryPolicy(max_attempts=3)
 
             worker = RetryWorker(
-                temp_storage, runner, policy,
+                temp_storage,
+                runner,
+                policy,
                 capacity_controller=capacity,
                 accounting=accounting,
             )
@@ -564,6 +575,7 @@ class TestRetryCapacityRejectionBackoff:
         4. Monotonic backoff across two rejection cycles
         5. Snapshot counters correct
         """
+        from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
         from medre.core.events.bus import EventBus
         from medre.core.observability.metrics import Diagnostician
         from medre.core.planning.fallback_resolution import FallbackResolver
@@ -572,8 +584,6 @@ class TestRetryCapacityRejectionBackoff:
         from medre.core.rendering.text import TextRenderer
         from medre.core.routing.router import Router
         from medre.core.routing.stats import RouteStats
-        from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
-        from medre.core.runtime.accounting import RuntimeAccounting
         from medre.runtime.events import EventBuffer, RuntimeEventType
         from medre.runtime.retry import RetryWorker
 
@@ -639,12 +649,11 @@ class TestRetryCapacityRejectionBackoff:
             # Assert: retry_failed event emitted with capacity_rejection
             events = list(event_buffer)
             event_types = [e.event_type for e in events]
-            assert RuntimeEventType.RETRY_FAILED in event_types, (
-                f"Expected retry_failed event, got: {[e.value for e in event_types]}"
-            )
+            assert (
+                RuntimeEventType.RETRY_FAILED in event_types
+            ), f"Expected retry_failed event, got: {[e.value for e in event_types]}"
             failed_events = [
-                e for e in events
-                if e.event_type == RuntimeEventType.RETRY_FAILED
+                e for e in events if e.event_type == RuntimeEventType.RETRY_FAILED
             ]
             assert len(failed_events) >= 1
             assert failed_events[0].detail["status"] == "capacity_rejection"
@@ -665,8 +674,7 @@ class TestRetryCapacityRejectionBackoff:
 
             # Assert: attempt_number unchanged (capacity rejection doesn't increment)
             assert updated_rcpt.attempt_number == 1, (
-                f"attempt_number should remain 1, "
-                f"got {updated_rcpt.attempt_number}"
+                f"attempt_number should remain 1, " f"got {updated_rcpt.attempt_number}"
             )
 
             # Assert: worker snapshot shows correct counters
@@ -682,10 +690,7 @@ class TestRetryCapacityRejectionBackoff:
             receipts_after_2 = await temp_storage.list_receipts_for_event(
                 event.event_id,
             )
-            updated_2 = [
-                r for r in receipts_after_2
-                if r.receipt_id == receipt_id
-            ]
+            updated_2 = [r for r in receipts_after_2 if r.receipt_id == receipt_id]
             assert len(updated_2) == 1
             updated_2_rcpt = updated_2[0]
 
@@ -707,8 +712,7 @@ class TestRetryCapacityRejectionBackoff:
             # Assert: second retry_failed event
             events_2 = list(event_buffer)
             failed_events_2 = [
-                e for e in events_2
-                if e.event_type == RuntimeEventType.RETRY_FAILED
+                e for e in events_2 if e.event_type == RuntimeEventType.RETRY_FAILED
             ]
             assert len(failed_events_2) >= 2
         finally:

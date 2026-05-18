@@ -18,11 +18,10 @@ from medre.core.engine.pipeline import PipelineRunner
 from medre.core.events.kinds import EventKind
 from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.routing.stats import RouteStats
 from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage.sqlite import SQLiteStorage
-
 from tests.helpers.bridge import (
     make_adapter_context,
     make_pipeline_config,
@@ -40,9 +39,7 @@ class TestBidirectionalBridgeSafety:
     ) -> None:
         """Matrix→Meshtastic delivery is not re-routed back to Matrix."""
         fake_matrix = FakeMatrixAdapter("bidir-matrix", channel="!room:fake")
-        fake_mesh = FakeMeshtasticAdapter(
-            MeshtasticConfig(adapter_id="bidir-mesh")
-        )
+        fake_mesh = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="bidir-mesh"))
 
         # Route 1: matrix -> meshtastic
         route_mx_to_mesh = Route(
@@ -125,9 +122,7 @@ class TestBidirectionalBridgeSafety:
     ) -> None:
         """Meshtastic→Matrix delivery is not re-routed back to Meshtastic."""
         fake_matrix = FakeMatrixAdapter("bidir2-matrix", channel="!room2:fake")
-        fake_mesh = FakeMeshtasticAdapter(
-            MeshtasticConfig(adapter_id="bidir2-mesh")
-        )
+        fake_mesh = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="bidir2-mesh"))
 
         route_mx_to_mesh = Route(
             id="bidir2-mx-to-mesh",
@@ -200,9 +195,7 @@ class TestBidirectionalBridgeSafety:
     ) -> None:
         """Multiple messages in both directions each create exactly one event."""
         fake_matrix = FakeMatrixAdapter("multi-matrix", channel="!multi:fake")
-        fake_mesh = FakeMeshtasticAdapter(
-            MeshtasticConfig(adapter_id="multi-mesh")
-        )
+        fake_mesh = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="multi-mesh"))
 
         route_a = Route(
             id="multi-mx-to-mesh",
@@ -286,9 +279,7 @@ class TestBidirectionalBridgeSafety:
     ) -> None:
         """loop_prevented counter is 0 for expected bidirectional deliveries."""
         fake_matrix = FakeMatrixAdapter("lp-matrix", channel="!lp:fake")
-        fake_mesh = FakeMeshtasticAdapter(
-            MeshtasticConfig(adapter_id="lp-mesh")
-        )
+        fake_mesh = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="lp-mesh"))
 
         route_a = Route(
             id="lp-mx-to-mesh",
@@ -347,7 +338,7 @@ class TestBidirectionalBridgeSafety:
         assert snap["loop_prevented"] == 0
 
         stats = route_stats.snapshot()
-        for route_id, counters in stats.items():
+        for _route_id, counters in stats.items():
             assert counters["loop_prevented"] == 0
 
     async def test_self_loop_guard_increments_loop_prevented(
@@ -355,9 +346,7 @@ class TestBidirectionalBridgeSafety:
     ) -> None:
         """When source adapter is also a target, loop_prevented increments."""
         fake_matrix = FakeMatrixAdapter("loop-matrix", channel="!loop:fake")
-        fake_mesh = FakeMeshtasticAdapter(
-            MeshtasticConfig(adapter_id="loop-mesh")
-        )
+        fake_mesh = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="loop-mesh"))
 
         # Route that includes the source adapter in its targets (self-loop)
         route = Route(
@@ -424,9 +413,7 @@ class TestBidirectionalBridgeSafety:
     ) -> None:
         """source_adapter on canonical events correctly identifies origin."""
         fake_matrix = FakeMatrixAdapter("meta-matrix", channel="!meta:fake")
-        fake_mesh = FakeMeshtasticAdapter(
-            MeshtasticConfig(adapter_id="meta-mesh")
-        )
+        fake_mesh = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="meta-mesh"))
 
         route_a = Route(
             id="meta-mx-to-mesh",

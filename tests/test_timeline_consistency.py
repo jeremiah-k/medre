@@ -49,7 +49,9 @@ def _make_receipt(
     event_id: str,
     target_adapter: str,
     *,
-    status: Literal["accepted", "queued", "sent", "confirmed", "failed", "dead_lettered"] = "sent",
+    status: Literal[
+        "accepted", "queued", "sent", "confirmed", "failed", "dead_lettered"
+    ] = "sent",
     source: str = "live",
     replay_run_id: str | None = None,
     attempt_number: int = 1,
@@ -114,14 +116,19 @@ async def _inject_replay_receipts(
     """Create replay receipts for an existing event."""
     receipts: list[DeliveryReceipt] = []
     for adapter in target_adapters:
-        r = _make_receipt(event_id, adapter, source="replay", replay_run_id=replay_run_id)
+        r = _make_receipt(
+            event_id, adapter, source="replay", replay_run_id=replay_run_id
+        )
         await storage.append_receipt(r)
         receipts.append(r)
     return receipts
 
 
 async def _surface_data(
-    storage: SQLiteStorage, event_id: str, *, with_timeline: bool = False,
+    storage: SQLiteStorage,
+    event_id: str,
+    *,
+    with_timeline: bool = False,
 ) -> dict[str, Any]:
     """Gather data as trace/inspect/evidence surfaces would."""
     if with_timeline:
@@ -175,7 +182,9 @@ async def test_trace_evidence_inspect_receipt_counts_agree(
     # Add native refs for the first event
     target_event = event_ids[0]
     for i, adapter in enumerate(fanout_targets):
-        await temp_storage.store_native_ref(_make_native_ref(target_event, adapter, f"msg-{i}"))
+        await temp_storage.store_native_ref(
+            _make_native_ref(target_event, adapter, f"msg-{i}")
+        )
 
     # Query all surfaces for the first event
     trace = await _surface_data(temp_storage, target_event, with_timeline=True)
@@ -252,7 +261,9 @@ async def test_ordering_identical_across_surfaces(
     await _inject_live_session(temp_storage, event_id, targets)
 
     for i, adapter in enumerate(targets):
-        await temp_storage.store_native_ref(_make_native_ref(event_id, adapter, f"native-msg-{i}"))
+        await temp_storage.store_native_ref(
+            _make_native_ref(event_id, adapter, f"native-msg-{i}")
+        )
 
     trace = await _surface_data(temp_storage, event_id, with_timeline=True)
     inspect = await _surface_data(temp_storage, event_id)
@@ -282,18 +293,24 @@ async def test_native_ref_association_consistent(
     await _inject_live_session(temp_storage, event_id, targets)
 
     for i, adapter in enumerate(targets):
-        await temp_storage.store_native_ref(_make_native_ref(event_id, adapter, f"msg-nref-{i}"))
+        await temp_storage.store_native_ref(
+            _make_native_ref(event_id, adapter, f"msg-nref-{i}")
+        )
 
     # Native ref for a DIFFERENT event (should not leak)
     await temp_storage.append(_make_event("evt-nref-other"))
-    await temp_storage.store_native_ref(_make_native_ref("evt-nref-other", "adapter-x", "other-msg"))
+    await temp_storage.store_native_ref(
+        _make_native_ref("evt-nref-other", "adapter-x", "other-msg")
+    )
 
     trace = await _surface_data(temp_storage, event_id, with_timeline=True)
     inspect = await _surface_data(temp_storage, event_id)
 
     assert trace["native_ref_count"] == 2
     assert inspect["native_ref_count"] == 2
-    assert {n.id for n in trace["native_refs"]} == {n.id for n in inspect["native_refs"]}
+    assert {n.id for n in trace["native_refs"]} == {
+        n.id for n in inspect["native_refs"]
+    }
 
     for nref in trace["native_refs"]:
         assert nref.event_id == event_id
@@ -338,11 +355,15 @@ async def test_timeline_ordering_after_concurrent_append(
     assert seqs == sorted(seqs)
 
     receipts_second = await temp_storage.list_receipts_for_event(event_id)
-    assert [r.receipt_id for r in receipts_first] == [r.receipt_id for r in receipts_second]
+    assert [r.receipt_id for r in receipts_first] == [
+        r.receipt_id for r in receipts_second
+    ]
 
     trace = await _surface_data(temp_storage, event_id, with_timeline=True)
     assert trace["receipt_count"] == 10
-    assert [r.receipt_id for r in trace["receipts"]] == [r.receipt_id for r in receipts_first]
+    assert [r.receipt_id for r in trace["receipts"]] == [
+        r.receipt_id for r in receipts_first
+    ]
 
 
 # -- Test 7: recover surface agrees with trace on failure classification
@@ -356,7 +377,9 @@ async def test_recover_surface_receipt_count_matches_trace(
     event_id = "evt-recover-001"
     targets = ["adapter-a", "adapter-b"]
     await _inject_live_session(temp_storage, event_id, targets)
-    await temp_storage.append_receipt(_make_receipt(event_id, "adapter-c", status="failed"))
+    await temp_storage.append_receipt(
+        _make_receipt(event_id, "adapter-c", status="failed")
+    )
 
     trace = await _surface_data(temp_storage, event_id, with_timeline=True)
     recover = await _surface_data(temp_storage, event_id, with_timeline=True)

@@ -1,4 +1,5 @@
 """Transport adapter registry and SDK availability probing."""
+
 from __future__ import annotations
 
 import importlib

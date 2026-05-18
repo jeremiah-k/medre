@@ -56,12 +56,10 @@ class TestBringupRunbookAuthFirst:
         text = _read(_BRINGUP)
         auth_pos = text.find("medre adapter matrix auth")
         run_pos = text.find("medre run")
-        assert auth_pos >= 0, (
-            "bringup runbook must mention 'medre adapter matrix auth login'."
-        )
-        assert run_pos >= 0, (
-            "bringup runbook must mention 'medre run'."
-        )
+        assert (
+            auth_pos >= 0
+        ), "bringup runbook must mention 'medre adapter matrix auth login'."
+        assert run_pos >= 0, "bringup runbook must mention 'medre run'."
         assert auth_pos < run_pos, (
             "bringup runbook must present 'medre adapter matrix auth' before "
             "'medre run' "
@@ -125,7 +123,7 @@ class TestBringupRunbookSnapshotRequiresPath:
                 continue
             # Find the token after --snapshot-on-shutdown
             idx = line.find("--snapshot-on-shutdown")
-            rest = line[idx + len("--snapshot-on-shutdown"):].strip()
+            rest = line[idx + len("--snapshot-on-shutdown") :].strip()
             # The next token should exist and not start with '-'
             next_token = rest.split()[0] if rest.split() else ""
             if not next_token or next_token.startswith("-"):
@@ -134,8 +132,7 @@ class TestBringupRunbookSnapshotRequiresPath:
             "live-matrix-meshtastic-bringup.md has --snapshot-on-shutdown "
             "without a following path argument. Every usage must specify the "
             "snapshot output path (e.g. /tmp/medre-live-snapshot.json). "
-            "Violations:\n"
-            + "\n".join(f"  {v}" for v in violations)
+            "Violations:\n" + "\n".join(f"  {v}" for v in violations)
         )
 
 
@@ -170,9 +167,7 @@ class TestBringupRunbookDiagnosticsDescription:
         # Must explicitly say it does NOT require an already-running runtime.
         # Strip markdown bold markers for matching.
         cleaned = lower.replace("**", "")
-        assert (
-            "does not require" in cleaned or "not require" in cleaned
-        ), (
+        assert "does not require" in cleaned or "not require" in cleaned, (
             "live-matrix-meshtastic-bringup.md must explicitly state that "
             "diagnostics --refresh-health does not require an already-running "
             "runtime."
@@ -231,9 +226,7 @@ class TestSecureCredentialsBearerToken:
             pytest.skip("secure-credentials.md not found")
         text = _read(_SECURE_CREDS)
         lower = text.lower()
-        assert "never" in lower and (
-            "paste" in lower or "commit" in lower
-        ), (
+        assert "never" in lower and ("paste" in lower or "commit" in lower), (
             "secure-credentials.md must warn against pasting or committing "
             "tokens (e.g. 'never paste', 'never commit')."
         )
@@ -342,7 +335,7 @@ class TestOperatorAnswerability:
         )
         # Must reference channel index "0" specifically
         assert '"0"' in text, (
-            "bringup runbook must show channel index \"0\" as an example "
+            'bringup runbook must show channel index "0" as an example '
             "Meshtastic channel configuration value."
         )
 
@@ -353,12 +346,12 @@ class TestOperatorAnswerability:
             pytest.skip("bringup runbook not found")
         text = _read(_BRINGUP)
         # Must have a section about Matrix -> Meshtastic
-        assert "Matrix" in text and "Meshtastic" in text, (
-            "bringup runbook must mention both Matrix and Meshtastic."
-        )
+        assert (
+            "Matrix" in text and "Meshtastic" in text
+        ), "bringup runbook must mention both Matrix and Meshtastic."
         # Matrix -> Meshtastic section must appear before Meshtastic -> Matrix
-        m2m_pos = text.find("Matrix")
-        m2r_pos = text.find("Meshtastic")
+        text.find("Matrix")
+        text.find("Meshtastic")
         # The first section should be Matrix -> Meshtastic
         assert "primary" in text.lower() or "first" in text.lower(), (
             "bringup runbook must describe the Matrix -> Meshtastic direction "
@@ -388,9 +381,7 @@ class TestOperatorAnswerability:
         text = _read(_BRINGUP)
         lower = text.lower()
         # Must explain that success means local acceptance
-        assert (
-            "local" in lower and ("radio" in lower or "adapter" in lower)
-        ), (
+        assert "local" in lower and ("radio" in lower or "adapter" in lower), (
             "bringup runbook must explain that success/sent means the "
             "local radio or adapter accepted the packet, not remote receipt."
         )

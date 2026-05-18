@@ -12,16 +12,14 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from contextlib import redirect_stdout, redirect_stderr
-from datetime import datetime, timezone
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from medre.runtime.drill import run_drill, AVAILABLE_DRILLS
+from medre.runtime.drill import AVAILABLE_DRILLS, run_drill
 from medre.runtime.smoke import run_fake_bridge_smoke
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -43,6 +41,7 @@ def _clean_path_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def _smoke_config_path() -> str:
     """Return path to the shipped fake-bridge-smoke.toml."""
     from medre.runtime.smoke import _default_smoke_config_path
+
     path = _default_smoke_config_path()
     assert path is not None, "examples/configs/fake-bridge-smoke.toml not found"
     return path
@@ -62,7 +61,8 @@ class TestSmokeStoragePath:
         db_path = str(tmp_path / "smoke-test.db")
         config_path = _smoke_config_path()
         report = await run_fake_bridge_smoke(
-            config_path, storage_path=db_path,
+            config_path,
+            storage_path=db_path,
         )
         assert report["status"] == "passed", report.get("fail_reasons", [])
         assert Path(db_path).is_file()
@@ -72,7 +72,8 @@ class TestSmokeStoragePath:
         """Report includes storage_path and storage_backend when set."""
         db_path = str(tmp_path / "smoke-test.db")
         report = await run_fake_bridge_smoke(
-            _smoke_config_path(), storage_path=db_path,
+            _smoke_config_path(),
+            storage_path=db_path,
         )
         assert report["storage_path"] == db_path
         assert report["storage_backend"] == "sqlite"
@@ -89,7 +90,8 @@ class TestSmokeStoragePath:
         """Stored event is retrievable from the SQLite file after smoke."""
         db_path = str(tmp_path / "smoke-test.db")
         report = await run_fake_bridge_smoke(
-            _smoke_config_path(), storage_path=db_path,
+            _smoke_config_path(),
+            storage_path=db_path,
         )
         event_id = report["event_id"]
         # Direct SQLite query to prove persistence.
@@ -108,7 +110,8 @@ class TestSmokeStoragePath:
         """Delivery receipts are persisted to SQLite."""
         db_path = str(tmp_path / "smoke-test.db")
         report = await run_fake_bridge_smoke(
-            _smoke_config_path(), storage_path=db_path,
+            _smoke_config_path(),
+            storage_path=db_path,
         )
         event_id = report["event_id"]
         conn = sqlite3.connect(db_path)
@@ -123,8 +126,9 @@ class TestSmokeStoragePath:
 
     def test_cli_storage_path_flag(self, tmp_path: Path) -> None:
         """CLI medre smoke --storage-path produces valid JSON."""
-        from medre.cli import main
         import io
+
+        from medre.cli import main
 
         db_path = str(tmp_path / "cli-test.db")
         config_path = _smoke_config_path()
@@ -133,10 +137,16 @@ class TestSmokeStoragePath:
         stderr_capture = io.StringIO()
         with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
             with pytest.raises(SystemExit) as exc_info:
-                main([
-                    "smoke", "--config", config_path,
-                    "--storage-path", db_path, "--json",
-                ])
+                main(
+                    [
+                        "smoke",
+                        "--config",
+                        config_path,
+                        "--storage-path",
+                        db_path,
+                        "--json",
+                    ]
+                )
 
         assert exc_info.value.code == 0
         report = json.loads(stdout_capture.getvalue())
@@ -146,8 +156,9 @@ class TestSmokeStoragePath:
 
     def test_cli_storage_path_human_readable(self, tmp_path: Path) -> None:
         """CLI medre smoke --storage-path (no --json) shows storage info."""
-        from medre.cli import main
         import io
+
+        from medre.cli import main
 
         db_path = str(tmp_path / "cli-human.db")
         config_path = _smoke_config_path()
@@ -156,10 +167,15 @@ class TestSmokeStoragePath:
         stderr_capture = io.StringIO()
         with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
             with pytest.raises(SystemExit) as exc_info:
-                main([
-                    "smoke", "--config", config_path,
-                    "--storage-path", db_path,
-                ])
+                main(
+                    [
+                        "smoke",
+                        "--config",
+                        config_path,
+                        "--storage-path",
+                        db_path,
+                    ]
+                )
 
         assert exc_info.value.code == 0
         output = stdout_capture.getvalue()
@@ -202,18 +218,25 @@ class TestDrillInfrastructure:
 
     def test_cli_drill_dispatch(self) -> None:
         """CLI medre smoke --drill renderer_failure --json works."""
-        from medre.cli import main
         import io
+
+        from medre.cli import main
 
         config_path = _smoke_config_path()
         stdout_capture = io.StringIO()
         stderr_capture = io.StringIO()
         with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
             with pytest.raises(SystemExit) as exc_info:
-                main([
-                    "smoke", "--config", config_path,
-                    "--drill", "renderer_failure", "--json",
-                ])
+                main(
+                    [
+                        "smoke",
+                        "--config",
+                        config_path,
+                        "--drill",
+                        "renderer_failure",
+                        "--json",
+                    ]
+                )
 
         assert exc_info.value.code == 0
         report = json.loads(stdout_capture.getvalue())
@@ -222,18 +245,24 @@ class TestDrillInfrastructure:
 
     def test_cli_drill_human_readable(self) -> None:
         """CLI medre smoke --drill shows human-readable output."""
-        from medre.cli import main
         import io
+
+        from medre.cli import main
 
         config_path = _smoke_config_path()
         stdout_capture = io.StringIO()
         stderr_capture = io.StringIO()
         with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
             with pytest.raises(SystemExit) as exc_info:
-                main([
-                    "smoke", "--config", config_path,
-                    "--drill", "renderer_failure",
-                ])
+                main(
+                    [
+                        "smoke",
+                        "--config",
+                        config_path,
+                        "--drill",
+                        "renderer_failure",
+                    ]
+                )
 
         assert exc_info.value.code == 0
         output = stdout_capture.getvalue()
@@ -241,18 +270,25 @@ class TestDrillInfrastructure:
 
     def test_cli_drill_unknown_name_fails(self) -> None:
         """CLI medre smoke --drill nonexistent exits 1."""
-        from medre.cli import main
         import io
+
+        from medre.cli import main
 
         config_path = _smoke_config_path()
         stdout_capture = io.StringIO()
         stderr_capture = io.StringIO()
         with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
             with pytest.raises(SystemExit) as exc_info:
-                main([
-                    "smoke", "--config", config_path,
-                    "--drill", "nonexistent_drill", "--json",
-                ])
+                main(
+                    [
+                        "smoke",
+                        "--config",
+                        config_path,
+                        "--drill",
+                        "nonexistent_drill",
+                        "--json",
+                    ]
+                )
 
         assert exc_info.value.code == 1
         report = json.loads(stdout_capture.getvalue())
@@ -289,7 +325,8 @@ class TestRendererFailureDrill:
         report = await run_drill("renderer_failure", config_path=_smoke_config_path())
         steps = report["drill_steps"]
         verify_step = next(
-            (s for s in steps if s["step"] == "verify_failed_receipt"), None,
+            (s for s in steps if s["step"] == "verify_failed_receipt"),
+            None,
         )
         assert verify_step is not None
         assert verify_step["result"] == "ok"
@@ -302,18 +339,21 @@ class TestAdapterPermanentFailureDrill:
     @pytest.mark.asyncio
     async def test_pass(self) -> None:
         report = await run_drill(
-            "adapter_permanent_failure", config_path=_smoke_config_path(),
+            "adapter_permanent_failure",
+            config_path=_smoke_config_path(),
         )
         assert report["status"] == "passed", report.get("fail_reasons", [])
 
     @pytest.mark.asyncio
     async def test_outcome_is_permanent(self) -> None:
         report = await run_drill(
-            "adapter_permanent_failure", config_path=_smoke_config_path(),
+            "adapter_permanent_failure",
+            config_path=_smoke_config_path(),
         )
         steps = report["drill_steps"]
         verify_step = next(
-            (s for s in steps if s["step"] == "verify_permanent_failure"), None,
+            (s for s in steps if s["step"] == "verify_permanent_failure"),
+            None,
         )
         assert verify_step is not None
         assert verify_step["observed"] == "permanent_failure"
@@ -321,7 +361,8 @@ class TestAdapterPermanentFailureDrill:
     @pytest.mark.asyncio
     async def test_json_safe(self) -> None:
         report = await run_drill(
-            "adapter_permanent_failure", config_path=_smoke_config_path(),
+            "adapter_permanent_failure",
+            config_path=_smoke_config_path(),
         )
         json.dumps(report, sort_keys=True)
 
@@ -332,18 +373,21 @@ class TestAdapterTransientFailureDrill:
     @pytest.mark.asyncio
     async def test_pass(self) -> None:
         report = await run_drill(
-            "adapter_transient_failure", config_path=_smoke_config_path(),
+            "adapter_transient_failure",
+            config_path=_smoke_config_path(),
         )
         assert report["status"] == "passed", report.get("fail_reasons", [])
 
     @pytest.mark.asyncio
     async def test_outcome_is_transient(self) -> None:
         report = await run_drill(
-            "adapter_transient_failure", config_path=_smoke_config_path(),
+            "adapter_transient_failure",
+            config_path=_smoke_config_path(),
         )
         steps = report["drill_steps"]
         verify_step = next(
-            (s for s in steps if s["step"] == "verify_transient_failure"), None,
+            (s for s in steps if s["step"] == "verify_transient_failure"),
+            None,
         )
         assert verify_step is not None
         assert verify_step["observed"] == "transient_failure"
@@ -351,11 +395,13 @@ class TestAdapterTransientFailureDrill:
     @pytest.mark.asyncio
     async def test_failure_is_retryable(self) -> None:
         report = await run_drill(
-            "adapter_transient_failure", config_path=_smoke_config_path(),
+            "adapter_transient_failure",
+            config_path=_smoke_config_path(),
         )
         steps = report["drill_steps"]
         retry_step = next(
-            (s for s in steps if s["step"] == "verify_retryable"), None,
+            (s for s in steps if s["step"] == "verify_retryable"),
+            None,
         )
         assert retry_step is not None
         assert retry_step["is_retryable"] is True
@@ -364,7 +410,8 @@ class TestAdapterTransientFailureDrill:
     async def test_recovery_path_in_report(self) -> None:
         """Recovery simulation produces recovery_path evidence."""
         report = await run_drill(
-            "adapter_transient_failure", config_path=_smoke_config_path(),
+            "adapter_transient_failure",
+            config_path=_smoke_config_path(),
         )
         assert "recovery_path" in report
         rp = report["recovery_path"]
@@ -378,11 +425,13 @@ class TestAdapterTransientFailureDrill:
     async def test_recovery_step_in_drill_steps(self) -> None:
         """Recovery step appears in drill_steps."""
         report = await run_drill(
-            "adapter_transient_failure", config_path=_smoke_config_path(),
+            "adapter_transient_failure",
+            config_path=_smoke_config_path(),
         )
         steps = report["drill_steps"]
         recovery_step = next(
-            (s for s in steps if s["step"] == "simulate_manual_recovery"), None,
+            (s for s in steps if s["step"] == "simulate_manual_recovery"),
+            None,
         )
         assert recovery_step is not None
         assert recovery_step["result"] == "ok"
@@ -390,7 +439,8 @@ class TestAdapterTransientFailureDrill:
     @pytest.mark.asyncio
     async def test_json_safe(self) -> None:
         report = await run_drill(
-            "adapter_transient_failure", config_path=_smoke_config_path(),
+            "adapter_transient_failure",
+            config_path=_smoke_config_path(),
         )
         json.dumps(report, sort_keys=True)
 
@@ -401,7 +451,8 @@ class TestCapacityRejectionDrill:
     @pytest.mark.asyncio
     async def test_pass(self) -> None:
         report = await run_drill(
-            "capacity_rejection", config_path=_smoke_config_path(),
+            "capacity_rejection",
+            config_path=_smoke_config_path(),
         )
         assert report["status"] == "passed", report.get("fail_reasons", [])
 
@@ -409,11 +460,13 @@ class TestCapacityRejectionDrill:
     async def test_no_receipt_for_rejected(self) -> None:
         """Capacity rejection produces no receipt."""
         report = await run_drill(
-            "capacity_rejection", config_path=_smoke_config_path(),
+            "capacity_rejection",
+            config_path=_smoke_config_path(),
         )
         steps = report["drill_steps"]
         no_rcpt = next(
-            (s for s in steps if s["step"] == "verify_no_receipt"), None,
+            (s for s in steps if s["step"] == "verify_no_receipt"),
+            None,
         )
         assert no_rcpt is not None
         assert no_rcpt["result"] == "ok"
@@ -421,7 +474,8 @@ class TestCapacityRejectionDrill:
     @pytest.mark.asyncio
     async def test_json_safe(self) -> None:
         report = await run_drill(
-            "capacity_rejection", config_path=_smoke_config_path(),
+            "capacity_rejection",
+            config_path=_smoke_config_path(),
         )
         json.dumps(report, sort_keys=True)
 
@@ -432,7 +486,8 @@ class TestShutdownRejectionDrill:
     @pytest.mark.asyncio
     async def test_pass(self) -> None:
         report = await run_drill(
-            "shutdown_rejection", config_path=_smoke_config_path(),
+            "shutdown_rejection",
+            config_path=_smoke_config_path(),
         )
         assert report["status"] == "passed", report.get("fail_reasons", [])
 
@@ -440,11 +495,13 @@ class TestShutdownRejectionDrill:
     async def test_no_receipt_for_rejected(self) -> None:
         """Shutdown rejection produces no receipt."""
         report = await run_drill(
-            "shutdown_rejection", config_path=_smoke_config_path(),
+            "shutdown_rejection",
+            config_path=_smoke_config_path(),
         )
         steps = report["drill_steps"]
         no_rcpt = next(
-            (s for s in steps if s["step"] == "verify_no_receipt"), None,
+            (s for s in steps if s["step"] == "verify_no_receipt"),
+            None,
         )
         assert no_rcpt is not None
         assert no_rcpt["result"] == "ok"
@@ -453,7 +510,8 @@ class TestShutdownRejectionDrill:
     async def test_rejection_timeline_in_report(self) -> None:
         """Rejection timeline shows stop/inject timestamps."""
         report = await run_drill(
-            "shutdown_rejection", config_path=_smoke_config_path(),
+            "shutdown_rejection",
+            config_path=_smoke_config_path(),
         )
         assert "rejection_timeline" in report
         tl = report["rejection_timeline"]
@@ -466,7 +524,8 @@ class TestShutdownRejectionDrill:
     @pytest.mark.asyncio
     async def test_json_safe(self) -> None:
         report = await run_drill(
-            "shutdown_rejection", config_path=_smoke_config_path(),
+            "shutdown_rejection",
+            config_path=_smoke_config_path(),
         )
         json.dumps(report, sort_keys=True)
 
@@ -477,7 +536,8 @@ class TestReplayDuplicateRiskDrill:
     @pytest.mark.asyncio
     async def test_pass(self) -> None:
         report = await run_drill(
-            "replay_duplicate_risk", config_path=_smoke_config_path(),
+            "replay_duplicate_risk",
+            config_path=_smoke_config_path(),
         )
         assert report["status"] == "passed", report.get("fail_reasons", [])
 
@@ -485,11 +545,13 @@ class TestReplayDuplicateRiskDrill:
     async def test_duplicate_receipts_created(self) -> None:
         """Replay creates new receipts beyond the initial delivery."""
         report = await run_drill(
-            "replay_duplicate_risk", config_path=_smoke_config_path(),
+            "replay_duplicate_risk",
+            config_path=_smoke_config_path(),
         )
         steps = report["drill_steps"]
         dup_step = next(
-            (s for s in steps if s["step"] == "verify_duplicate_receipts"), None,
+            (s for s in steps if s["step"] == "verify_duplicate_receipts"),
+            None,
         )
         assert dup_step is not None
         assert dup_step["new_receipts"] > 0
@@ -498,7 +560,8 @@ class TestReplayDuplicateRiskDrill:
     async def test_receipt_timeline_in_report(self) -> None:
         """Receipt timeline shows live vs replay counts."""
         report = await run_drill(
-            "replay_duplicate_risk", config_path=_smoke_config_path(),
+            "replay_duplicate_risk",
+            config_path=_smoke_config_path(),
         )
         assert "receipt_timeline" in report
         tl = report["receipt_timeline"]
@@ -511,7 +574,8 @@ class TestReplayDuplicateRiskDrill:
     @pytest.mark.asyncio
     async def test_json_safe(self) -> None:
         report = await run_drill(
-            "replay_duplicate_risk", config_path=_smoke_config_path(),
+            "replay_duplicate_risk",
+            config_path=_smoke_config_path(),
         )
         json.dumps(report, sort_keys=True)
 
@@ -522,7 +586,8 @@ class TestDegradedLiveHealthDrill:
     @pytest.mark.asyncio
     async def test_pass(self) -> None:
         report = await run_drill(
-            "degraded_live_health", config_path=_smoke_config_path(),
+            "degraded_live_health",
+            config_path=_smoke_config_path(),
         )
         assert report["status"] == "passed", report.get("fail_reasons", [])
 
@@ -530,11 +595,13 @@ class TestDegradedLiveHealthDrill:
     async def test_degraded_observed(self) -> None:
         """Drill observes 'degraded' health status."""
         report = await run_drill(
-            "degraded_live_health", config_path=_smoke_config_path(),
+            "degraded_live_health",
+            config_path=_smoke_config_path(),
         )
         steps = report["drill_steps"]
         verify_step = next(
-            (s for s in steps if s["step"] == "verify_degraded"), None,
+            (s for s in steps if s["step"] == "verify_degraded"),
+            None,
         )
         assert verify_step is not None
         assert verify_step["observed_health"] == "degraded"
@@ -543,7 +610,8 @@ class TestDegradedLiveHealthDrill:
     async def test_health_timeline_in_report(self) -> None:
         """Health timeline shows before/after and correlation."""
         report = await run_drill(
-            "degraded_live_health", config_path=_smoke_config_path(),
+            "degraded_live_health",
+            config_path=_smoke_config_path(),
         )
         assert "health_timeline" in report
         tl = report["health_timeline"]
@@ -558,7 +626,8 @@ class TestDegradedLiveHealthDrill:
     @pytest.mark.asyncio
     async def test_json_safe(self) -> None:
         report = await run_drill(
-            "degraded_live_health", config_path=_smoke_config_path(),
+            "degraded_live_health",
+            config_path=_smoke_config_path(),
         )
         json.dumps(report, sort_keys=True)
 
@@ -613,18 +682,25 @@ class TestBadRouteConfigDrill:
 
     def test_cli_dispatch(self) -> None:
         """CLI medre smoke --drill bad_route_config --json works."""
-        from medre.cli import main
         import io
+
+        from medre.cli import main
 
         config_path = _smoke_config_path()
         stdout_capture = io.StringIO()
         stderr_capture = io.StringIO()
         with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
             with pytest.raises(SystemExit) as exc_info:
-                main([
-                    "smoke", "--config", config_path,
-                    "--drill", "bad_route_config", "--json",
-                ])
+                main(
+                    [
+                        "smoke",
+                        "--config",
+                        config_path,
+                        "--drill",
+                        "bad_route_config",
+                        "--json",
+                    ]
+                )
 
         assert exc_info.value.code == 0
         report = json.loads(stdout_capture.getvalue())
@@ -676,18 +752,25 @@ class TestAllAdaptersBuildFailDrill:
 
     def test_cli_dispatch(self) -> None:
         """CLI medre smoke --drill all_adapters_build_fail --json works."""
-        from medre.cli import main
         import io
+
+        from medre.cli import main
 
         config_path = _smoke_config_path()
         stdout_capture = io.StringIO()
         stderr_capture = io.StringIO()
         with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
             with pytest.raises(SystemExit) as exc_info:
-                main([
-                    "smoke", "--config", config_path,
-                    "--drill", "all_adapters_build_fail", "--json",
-                ])
+                main(
+                    [
+                        "smoke",
+                        "--config",
+                        config_path,
+                        "--drill",
+                        "all_adapters_build_fail",
+                        "--json",
+                    ]
+                )
 
         assert exc_info.value.code == 0
         report = json.loads(stdout_capture.getvalue())
@@ -739,18 +822,25 @@ class TestPartialDegradedStartupDrill:
 
     def test_cli_dispatch(self) -> None:
         """CLI medre smoke --drill partial_degraded_startup --json works."""
-        from medre.cli import main
         import io
+
+        from medre.cli import main
 
         config_path = _smoke_config_path()
         stdout_capture = io.StringIO()
         stderr_capture = io.StringIO()
         with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
             with pytest.raises(SystemExit) as exc_info:
-                main([
-                    "smoke", "--config", config_path,
-                    "--drill", "partial_degraded_startup", "--json",
-                ])
+                main(
+                    [
+                        "smoke",
+                        "--config",
+                        config_path,
+                        "--drill",
+                        "partial_degraded_startup",
+                        "--json",
+                    ]
+                )
 
         assert exc_info.value.code == 0
         report = json.loads(stdout_capture.getvalue())
@@ -808,18 +898,25 @@ class TestAllAdaptersStartFailDrill:
 
     def test_cli_dispatch(self) -> None:
         """CLI medre smoke --drill all_adapters_start_fail --json works."""
-        from medre.cli import main
         import io
+
+        from medre.cli import main
 
         config_path = _smoke_config_path()
         stdout_capture = io.StringIO()
         stderr_capture = io.StringIO()
         with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
             with pytest.raises(SystemExit) as exc_info:
-                main([
-                    "smoke", "--config", config_path,
-                    "--drill", "all_adapters_start_fail", "--json",
-                ])
+                main(
+                    [
+                        "smoke",
+                        "--config",
+                        config_path,
+                        "--drill",
+                        "all_adapters_start_fail",
+                        "--json",
+                    ]
+                )
 
         assert exc_info.value.code == 0
         report = json.loads(stdout_capture.getvalue())
@@ -834,9 +931,16 @@ class TestDrillCrossCutting:
     async def test_report_has_required_fields(self, drill_name: str) -> None:
         """Every drill report has the required top-level fields."""
         report = await run_drill(drill_name, config_path=_smoke_config_path())
-        for field in ("status", "evidence_level", "drill_name", "timestamp",
-                       "config_source", "storage_backend", "drill_steps",
-                       "limitations"):
+        for field in (
+            "status",
+            "evidence_level",
+            "drill_name",
+            "timestamp",
+            "config_source",
+            "storage_backend",
+            "drill_steps",
+            "limitations",
+        ):
             assert field in report, f"Missing field {field!r} in {drill_name}"
 
     @pytest.mark.parametrize("drill_name", AVAILABLE_DRILLS)
@@ -844,9 +948,9 @@ class TestDrillCrossCutting:
     async def test_report_passes(self, drill_name: str) -> None:
         """Every drill produces a PASS report."""
         report = await run_drill(drill_name, config_path=_smoke_config_path())
-        assert report["status"] == "passed", (
-            f"Drill {drill_name} failed: {report.get('fail_reasons', [])}"
-        )
+        assert (
+            report["status"] == "passed"
+        ), f"Drill {drill_name} failed: {report.get('fail_reasons', [])}"
 
     @pytest.mark.parametrize("drill_name", AVAILABLE_DRILLS)
     @pytest.mark.asyncio
@@ -874,7 +978,9 @@ class TestDrillCrossCutting:
 
     @pytest.mark.parametrize("drill_name", AVAILABLE_DRILLS)
     @pytest.mark.asyncio
-    async def test_drill_with_storage_path(self, drill_name: str, tmp_path: Path) -> None:
+    async def test_drill_with_storage_path(
+        self, drill_name: str, tmp_path: Path
+    ) -> None:
         """Every drill works with --storage-path."""
         db_path = str(tmp_path / f"drill-{drill_name}.db")
         report = await run_drill(
@@ -902,9 +1008,9 @@ class TestDrillCrossCutting:
         """Timeline-expanded drills have timestamps on every step."""
         report = await run_drill(drill_name, config_path=_smoke_config_path())
         for step in report["drill_steps"]:
-            assert "timestamp" in step, (
-                f"Step {step['step']} in {drill_name} missing timestamp"
-            )
+            assert (
+                "timestamp" in step
+            ), f"Step {step['step']} in {drill_name} missing timestamp"
 
 
 # ---------------------------------------------------------------------------
@@ -940,10 +1046,10 @@ def _crosscheck_config_text(db_path: str) -> str:
     """Return a minimal TOML config pointing at *db_path*."""
     return (
         "[runtime]\n"
-        "name = \"drill-crosscheck\"\n"
+        'name = "drill-crosscheck"\n'
         "\n"
         "[storage]\n"
-        f"path = \"{db_path}\"\n"
+        f'path = "{db_path}"\n'
     )
 
 
@@ -960,7 +1066,8 @@ def _capture_cli(*args: str) -> str:
     Exits with code 0 are swallowed; non-zero exits are re-raised.
     """
     import io
-    from contextlib import redirect_stdout, redirect_stderr
+    from contextlib import redirect_stderr, redirect_stdout
+
     from medre.cli import main
 
     stdout = io.StringIO()
@@ -988,21 +1095,28 @@ class TestDrillStorageCrossCheck:
 
     @staticmethod
     def _run_drill_sync(
-        drill_name: str, *, storage_path: str,
+        drill_name: str,
+        *,
+        storage_path: str,
     ) -> dict[str, Any]:
         """Run a drill synchronously via ``asyncio.run()``."""
         import asyncio as _asyncio
-        return _asyncio.run(run_drill(
-            drill_name,
-            config_path=_smoke_config_path(),
-            storage_path=storage_path,
-        ))
+
+        return _asyncio.run(
+            run_drill(
+                drill_name,
+                config_path=_smoke_config_path(),
+                storage_path=storage_path,
+            )
+        )
 
     # -- trace event ---------------------------------------------------------
 
     @pytest.mark.parametrize("drill_name", _CROSSCHECK_DRILLS)
     def test_trace_event_after_drill(
-        self, drill_name: str, tmp_path: Path,
+        self,
+        drill_name: str,
+        tmp_path: Path,
     ) -> None:
         """``medre trace event`` finds the drill-generated event in storage."""
         db_path = str(tmp_path / f"{drill_name}-trace.db")
@@ -1012,8 +1126,12 @@ class TestDrillStorageCrossCheck:
 
         config_path = _write_crosscheck_config(tmp_path, db_path)
         output = _capture_cli(
-            "trace", "event", event_id,
-            "--config", config_path, "--json",
+            "trace",
+            "event",
+            event_id,
+            "--config",
+            config_path,
+            "--json",
         )
         timeline = json.loads(output)
         assert isinstance(timeline, list)
@@ -1027,7 +1145,9 @@ class TestDrillStorageCrossCheck:
 
     @pytest.mark.parametrize("drill_name", _RECEIPT_DRILLS)
     def test_inspect_receipts_after_drill(
-        self, drill_name: str, tmp_path: Path,
+        self,
+        drill_name: str,
+        tmp_path: Path,
     ) -> None:
         """``medre inspect receipts`` finds at least one receipt."""
         db_path = str(tmp_path / f"{drill_name}-rcpt.db")
@@ -1037,20 +1157,26 @@ class TestDrillStorageCrossCheck:
 
         config_path = _write_crosscheck_config(tmp_path, db_path)
         output = _capture_cli(
-            "inspect", "receipts", "--event", event_id,
-            "--config", config_path,
+            "inspect",
+            "receipts",
+            "--event",
+            event_id,
+            "--config",
+            config_path,
         )
         receipts = json.loads(output)
         assert isinstance(receipts, list)
-        assert len(receipts) >= 1, (
-            f"Expected at least 1 receipt for {drill_name}, got {len(receipts)}"
-        )
+        assert (
+            len(receipts) >= 1
+        ), f"Expected at least 1 receipt for {drill_name}, got {len(receipts)}"
 
     # -- inspect receipts (rejection drills: zero receipts expected) ---------
 
     @pytest.mark.parametrize("drill_name", _REJECTION_DRILLS)
     def test_inspect_no_receipts_for_rejection_drills(
-        self, drill_name: str, tmp_path: Path,
+        self,
+        drill_name: str,
+        tmp_path: Path,
     ) -> None:
         """Rejection drills produce zero receipts (event still stored)."""
         db_path = str(tmp_path / f"{drill_name}-reject.db")
@@ -1062,8 +1188,12 @@ class TestDrillStorageCrossCheck:
 
         # Event is still traceable.
         trace_output = _capture_cli(
-            "trace", "event", event_id,
-            "--config", config_path, "--json",
+            "trace",
+            "event",
+            event_id,
+            "--config",
+            config_path,
+            "--json",
         )
         timeline = json.loads(trace_output)
         types = [e["entry_type"] for e in timeline]
@@ -1071,20 +1201,26 @@ class TestDrillStorageCrossCheck:
 
         # Receipts list is empty for rejected deliveries.
         rcpt_output = _capture_cli(
-            "inspect", "receipts", "--event", event_id,
-            "--config", config_path,
+            "inspect",
+            "receipts",
+            "--event",
+            event_id,
+            "--config",
+            config_path,
         )
         receipts = json.loads(rcpt_output)
         assert isinstance(receipts, list)
-        assert len(receipts) == 0, (
-            f"Expected 0 receipts for {drill_name}, got {len(receipts)}"
-        )
+        assert (
+            len(receipts) == 0
+        ), f"Expected 0 receipts for {drill_name}, got {len(receipts)}"
 
     # -- evidence --event ----------------------------------------------------
 
     @pytest.mark.parametrize("drill_name", _CROSSCHECK_DRILLS)
     def test_evidence_after_drill(
-        self, drill_name: str, tmp_path: Path,
+        self,
+        drill_name: str,
+        tmp_path: Path,
     ) -> None:
         """``medre evidence --event`` retrieves the drill event from storage."""
         db_path = str(tmp_path / f"{drill_name}-ev.db")
@@ -1094,8 +1230,12 @@ class TestDrillStorageCrossCheck:
 
         config_path = _write_crosscheck_config(tmp_path, db_path)
         output = _capture_cli(
-            "evidence", "--config", config_path, "--json",
-            "--event", event_id,
+            "evidence",
+            "--config",
+            config_path,
+            "--json",
+            "--event",
+            event_id,
         )
         evidence = json.loads(output)
         assert evidence["schema_version"] == 1
@@ -1112,9 +1252,9 @@ class TestDrillStorageCrossCheck:
         for drill_name in _CROSSCHECK_DRILLS:
             db_path = str(tmp_path / f"all-{drill_name}.db")
             report = self._run_drill_sync(drill_name, storage_path=db_path)
-            assert report["status"] == "passed", (
-                f"Drill {drill_name} failed: {report.get('fail_reasons', [])}"
-            )
+            assert (
+                report["status"] == "passed"
+            ), f"Drill {drill_name} failed: {report.get('fail_reasons', [])}"
             event_id = report["event_id"]
             assert event_id is not None
 
@@ -1124,33 +1264,41 @@ class TestDrillStorageCrossCheck:
 
             # 1. trace event — event must be found.
             trace_output = _capture_cli(
-                "trace", "event", event_id,
-                "--config", config_path, "--json",
+                "trace",
+                "event",
+                event_id,
+                "--config",
+                config_path,
+                "--json",
             )
             timeline = json.loads(trace_output)
             types = [e["entry_type"] for e in timeline]
-            assert "event" in types, (
-                f"Event missing from timeline for {drill_name}"
-            )
+            assert "event" in types, f"Event missing from timeline for {drill_name}"
 
             # 2. inspect receipts — must return a valid list.
             rcpt_output = _capture_cli(
-                "inspect", "receipts", "--event", event_id,
-                "--config", config_path,
+                "inspect",
+                "receipts",
+                "--event",
+                event_id,
+                "--config",
+                config_path,
             )
             receipts = json.loads(rcpt_output)
-            assert isinstance(receipts, list), (
-                f"Receipts not a list for {drill_name}"
-            )
+            assert isinstance(receipts, list), f"Receipts not a list for {drill_name}"
             if drill_name in _RECEIPT_DRILLS:
-                assert len(receipts) >= 1, (
-                    f"No receipts for receipt-producing drill {drill_name}"
-                )
+                assert (
+                    len(receipts) >= 1
+                ), f"No receipts for receipt-producing drill {drill_name}"
 
             # 3. evidence — must find the event.
             ev_output = _capture_cli(
-                "evidence", "--config", config_path, "--json",
-                "--event", event_id,
+                "evidence",
+                "--config",
+                config_path,
+                "--json",
+                "--event",
+                event_id,
             )
             evidence = json.loads(ev_output)
             assert evidence["sections"]["storage"]["status"] == "passed"

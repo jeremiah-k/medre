@@ -8,8 +8,8 @@ All checks are read-only — no files are created or modified.
 
 from __future__ import annotations
 
-import re
 import ast
+import re
 from pathlib import Path
 
 import pytest
@@ -166,10 +166,9 @@ def test_no_file_exceeds_1500_lines() -> None:
         if lines > MAX_LINES:
             failures.append(f"  {name}: {lines} lines (limit {MAX_LINES})")
 
-    assert not failures, (
-        "Non-allowlisted test files exceed the 1 500-line limit:\n"
-        + "\n".join(failures)
-    )
+    assert (
+        not failures
+    ), "Non-allowlisted test files exceed the 1 500-line limit:\n" + "\n".join(failures)
 
 
 # ===================================================================
@@ -187,9 +186,10 @@ def test_all_allowlisted_files_exist() -> None:
         path = TESTS_DIR / name
         if not path.exists():
             missing.append(name)
-    assert not missing, (
-        "Allowlisted file(s) do not exist — remove stale entry:\n  "
-        + "\n  ".join(missing)
+    assert (
+        not missing
+    ), "Allowlisted file(s) do not exist — remove stale entry:\n  " + "\n  ".join(
+        missing
     )
 
 
@@ -232,9 +232,7 @@ def test_no_imports_from_deleted_monoliths(monolith_stem: str) -> None:
         ]
         for pat in patterns:
             if re.search(pat, source):
-                pytest.fail(
-                    f"{rel} imports from deleted monolith '{monolith_stem}'"
-                )
+                pytest.fail(f"{rel} imports from deleted monolith '{monolith_stem}'")
 
 
 # ===================================================================
@@ -294,9 +292,9 @@ def test_docker_marker_registered() -> None:
     pyproject = TESTS_DIR.parent / "pyproject.toml"
     assert pyproject.exists(), "pyproject.toml not found at repo root"
     content = pyproject.read_text(encoding="utf-8")
-    assert '"docker:' in content or "docker:" in content, (
-        "The 'docker' marker is not registered in pyproject.toml markers config"
-    )
+    assert (
+        '"docker:' in content or "docker:" in content
+    ), "The 'docker' marker is not registered in pyproject.toml markers config"
 
 
 def test_integration_conftest_applies_docker_marker() -> None:
@@ -306,9 +304,9 @@ def test_integration_conftest_applies_docker_marker() -> None:
     conftest = TESTS_DIR / "integration" / "conftest.py"
     assert conftest.exists(), "tests/integration/conftest.py is missing"
     source = conftest.read_text(encoding="utf-8")
-    assert "pytest.mark.docker" in source, (
-        "integration conftest does not apply pytest.mark.docker"
-    )
+    assert (
+        "pytest.mark.docker" in source
+    ), "integration conftest does not apply pytest.mark.docker"
 
 
 def test_integration_test_files_exist_and_use_docker_gate() -> None:
@@ -319,6 +317,4 @@ def test_integration_test_files_exist_and_use_docker_gate() -> None:
     integration_dir = TESTS_DIR / "integration"
     assert integration_dir.is_dir(), "tests/integration/ directory is missing"
     test_files = list(integration_dir.glob("test_*.py"))
-    assert len(test_files) > 0, (
-        "No integration test files found in tests/integration/"
-    )
+    assert len(test_files) > 0, "No integration test files found in tests/integration/"

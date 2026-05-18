@@ -27,7 +27,7 @@ from medre.core.events.canonical import CanonicalEvent, EventMetadata, NativeRef
 from medre.core.events.kinds import EventKind
 from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.routing.stats import RouteStats
 from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage.replay import (
@@ -37,7 +37,6 @@ from medre.core.storage.replay import (
     collect_replay_summary,
 )
 from medre.core.storage.sqlite import SQLiteStorage
-
 from tests.helpers.async_utils import wait_until
 from tests.helpers.bridge import (
     make_adapter_context,
@@ -86,9 +85,9 @@ async def _assert_no_orphan_native_refs(storage: SQLiteStorage) -> None:
             "WHERE event_id=? AND target_adapter=? AND status='sent'",
             (nref["event_id"], nref["adapter"]),
         )
-        assert len(rows) >= 1, (
-            f"Orphan outbound ref: eid={nref['event_id']!r} adapter={nref['adapter']!r}"
-        )
+        assert (
+            len(rows) >= 1
+        ), f"Orphan outbound ref: eid={nref['event_id']!r} adapter={nref['adapter']!r}"
 
 
 async def _assert_no_orphan_receipts(storage: SQLiteStorage) -> None:
@@ -106,16 +105,26 @@ async def _assert_no_orphan_receipts(storage: SQLiteStorage) -> None:
 
 
 def _nref(msg_id: str) -> NativeRef:
-    return NativeRef(adapter=MX_ID, native_channel_id=MX_CHANNEL, native_message_id=msg_id)
+    return NativeRef(
+        adapter=MX_ID, native_channel_id=MX_CHANNEL, native_message_id=msg_id
+    )
 
 
 def _evt(event_id: str, native_ref: NativeRef, text: str = "hello") -> CanonicalEvent:
     return CanonicalEvent(
-        event_id=event_id, event_kind=EventKind.MESSAGE_CREATED, schema_version=1,
-        timestamp=datetime.now(timezone.utc), source_adapter=MX_ID,
-        source_transport_id="mx-transport", source_channel_id=MX_CHANNEL,
-        parent_event_id=None, lineage=(), relations=(),
-        payload={"body": text}, metadata=EventMetadata(), source_native_ref=native_ref,
+        event_id=event_id,
+        event_kind=EventKind.MESSAGE_CREATED,
+        schema_version=1,
+        timestamp=datetime.now(timezone.utc),
+        source_adapter=MX_ID,
+        source_transport_id="mx-transport",
+        source_channel_id=MX_CHANNEL,
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload={"body": text},
+        metadata=EventMetadata(),
+        source_native_ref=native_ref,
     )
 
 
@@ -128,15 +137,27 @@ class _S:
 
 
 def _make_router() -> Router:
-    return Router(routes=[
-        Route(id=ROUTE_FANOUT,
-              source=RouteSource(adapter=MX_ID, event_kinds=("message.created",), channel=None),
-              targets=[RouteTarget(adapter=MESH_ID, channel="0"),
-                       RouteTarget(adapter=MC_ID, channel="0")]),
-        Route(id=ROUTE_MESH_RETURN,
-              source=RouteSource(adapter=MESH_ID, event_kinds=("message.created",), channel=None),
-              targets=[RouteTarget(adapter=MX_ID, channel=MX_CHANNEL)]),
-    ])
+    return Router(
+        routes=[
+            Route(
+                id=ROUTE_FANOUT,
+                source=RouteSource(
+                    adapter=MX_ID, event_kinds=("message.created",), channel=None
+                ),
+                targets=[
+                    RouteTarget(adapter=MESH_ID, channel="0"),
+                    RouteTarget(adapter=MC_ID, channel="0"),
+                ],
+            ),
+            Route(
+                id=ROUTE_MESH_RETURN,
+                source=RouteSource(
+                    adapter=MESH_ID, event_kinds=("message.created",), channel=None
+                ),
+                targets=[RouteTarget(adapter=MX_ID, channel=MX_CHANNEL)],
+            ),
+        ]
+    )
 
 
 async def _build(storage: SQLiteStorage) -> _S:
@@ -147,9 +168,12 @@ async def _build(storage: SQLiteStorage) -> _S:
     rp.register(TextRenderer(), priority=100)
     acct, rstats = RuntimeAccounting(), RouteStats()
     config = make_pipeline_config(
-        storage=storage, router=_make_router(),
+        storage=storage,
+        router=_make_router(),
         adapters={MX_ID: mx, MESH_ID: mesh, MC_ID: mc},
-        rendering_pipeline=rp, accounting=acct, route_stats=rstats,
+        rendering_pipeline=rp,
+        accounting=acct,
+        route_stats=rstats,
     )
     runner = PipelineRunner(config)
     await runner.start()
@@ -171,18 +195,24 @@ async def _stop(s: _S) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def _phase_fanout(s: _S, n: int, prefix: str,
-                        snap_target: int, use_refs: bool = True) -> list[NativeRef]:
+async def _phase_fanout(
+    s: _S, n: int, prefix: str, snap_target: int, use_refs: bool = True
+) -> list[NativeRef]:
     """Inject *n* matrix→fanout messages; return native refs."""
     refs: list[NativeRef] = []
     for i in range(n):
         if use_refs:
             nref = _nref(f"{prefix}-{i}")
             refs.append(nref)
-            await s.matrix.simulate_inbound(_evt(f"{prefix}-{i}", nref, text=f"{prefix} {i}"))
+            await s.matrix.simulate_inbound(
+                _evt(f"{prefix}-{i}", nref, text=f"{prefix} {i}")
+            )
         else:
             await s.matrix.simulate_inbound(
-                s.matrix.make_event(text=f"{prefix} {i}", event_kind=EventKind.MESSAGE_CREATED))
+                s.matrix.make_event(
+                    text=f"{prefix} {i}", event_kind=EventKind.MESSAGE_CREATED
+                )
+            )
     await wait_until(lambda: s.acct.snapshot()["inbound_accepted"] >= snap_target)
     return refs
 
@@ -191,7 +221,8 @@ async def _phase_mesh_return(s: _S, n: int, base_id: int, snap_target: int) -> N
     """Inject *n* meshtastic→matrix messages."""
     for i in range(n):
         await s.meshtastic.simulate_inbound(
-            make_text_packet(text=f"mesh {base_id + i}", packet_id=base_id + i))
+            make_text_packet(text=f"mesh {base_id + i}", packet_id=base_id + i)
+        )
     await wait_until(lambda: s.acct.snapshot()["inbound_accepted"] >= snap_target)
 
 
@@ -208,7 +239,10 @@ async def _phase_meshcore_fail(s: _S, n: int, prefix: str, snap_target: int) -> 
     s.meshcore.set_deliver_failure(True)
     for i in range(n):
         await s.matrix.simulate_inbound(
-            s.matrix.make_event(text=f"{prefix} {i}", event_kind=EventKind.MESSAGE_CREATED))
+            s.matrix.make_event(
+                text=f"{prefix} {i}", event_kind=EventKind.MESSAGE_CREATED
+            )
+        )
     await wait_until(lambda: s.acct.snapshot()["inbound_accepted"] >= snap_target)
     s.meshcore.set_deliver_failure(False)
 
@@ -228,7 +262,8 @@ class Test100MessagePersistentSession:
     """
 
     async def test_100_message_persistent_session(
-        self, temp_storage: SQLiteStorage,
+        self,
+        temp_storage: SQLiteStorage,
     ) -> None:
         s = await _build(temp_storage)
         try:
@@ -259,7 +294,9 @@ class Test100MessagePersistentSession:
             a = s.acct.snapshot()
 
             # 90 events, 10 suppressed
-            events = await temp_storage._read_all("SELECT source_adapter FROM canonical_events")
+            events = await temp_storage._read_all(
+                "SELECT source_adapter FROM canonical_events"
+            )
             assert len(events) == 90
             assert a["inbound_accepted"] == 90
             assert a["loop_prevented"] == 10
@@ -268,7 +305,8 @@ class Test100MessagePersistentSession:
 
             # 160 receipts (150 sent, 10 failed)
             rcpts = await temp_storage._read_all(
-                "SELECT target_adapter, status, source FROM delivery_receipts ORDER BY sequence")
+                "SELECT target_adapter, status, source FROM delivery_receipts ORDER BY sequence"
+            )
             assert len(rcpts) == 160
             assert sum(1 for r in rcpts if r["status"] == "sent") == 150
             assert sum(1 for r in rcpts if r["status"] == "failed") == 10
@@ -288,7 +326,9 @@ class Test100MessagePersistentSession:
             assert a["outbound_delivered"] == 150
             assert a["outbound_failed"] == 10
             assert a["outbound_attempts"] == 160
-            assert a["outbound_delivered"] + a["outbound_failed"] == a["outbound_attempts"]
+            assert (
+                a["outbound_delivered"] + a["outbound_failed"] == a["outbound_attempts"]
+            )
             assert a["capacity_rejections"] == 0
             for k, v in a.items():
                 assert isinstance(v, int), f"accounting[{k!r}]={v!r}, expected int"
@@ -313,7 +353,8 @@ class Test100MessagePersistentSession:
             # No duplicate (event_id, target_adapter) receipt pairs
             dupes = await temp_storage._read_all(
                 "SELECT event_id, target_adapter, COUNT(*) c "
-                "FROM delivery_receipts GROUP BY event_id, target_adapter, source HAVING c > 1")
+                "FROM delivery_receipts GROUP BY event_id, target_adapter, source HAVING c > 1"
+            )
             assert len(dupes) == 0
 
             # JSON-safe snapshot
@@ -336,7 +377,8 @@ class TestRepeatedReplayRunsLineageStable:
     receipts untouched, and total receipt count = 166."""
 
     async def test_repeated_replay_runs_lineage_stable(
-        self, temp_storage: SQLiteStorage,
+        self,
+        temp_storage: SQLiteStorage,
     ) -> None:
         # -- Full 100-message session --
         s = await _build(temp_storage)
@@ -387,7 +429,8 @@ class TestRepeatedReplayRunsLineageStable:
         # ===========================================================
         all_rc = await temp_storage._read_all(
             "SELECT event_id, target_adapter, status, source, replay_run_id, sequence "
-            "FROM delivery_receipts ORDER BY sequence")
+            "FROM delivery_receipts ORDER BY sequence"
+        )
 
         # Total: 160 live + 3*2 replay (3 runs * 2 targets each) = 166
         assert len(all_rc) == 166, f"Expected 166, got {len(all_rc)}"
@@ -408,9 +451,9 @@ class TestRepeatedReplayRunsLineageStable:
         # Each run produced exactly 2 receipts (one per target)
         for rid in run_ids:
             run_receipts = [r for r in rp_rc if r["replay_run_id"] == rid]
-            assert len(run_receipts) == 2, (
-                f"Run {rid}: expected 2 receipts, got {len(run_receipts)}"
-            )
+            assert (
+                len(run_receipts) == 2
+            ), f"Run {rid}: expected 2 receipts, got {len(run_receipts)}"
             assert all(r["status"] == "sent" for r in run_receipts)
 
         # Trace for p1-0: 2 live + 6 replay = 8
@@ -423,7 +466,8 @@ class TestRepeatedReplayRunsLineageStable:
 
         # Timeline: all live before all replay
         assert max(r["sequence"] for r in traced_live) < min(
-            r["sequence"] for r in traced_rp)
+            r["sequence"] for r in traced_rp
+        )
 
         # No duplicate canonical events
         all_ev = await temp_storage._read_all("SELECT event_id FROM canonical_events")
@@ -444,7 +488,8 @@ class TestInterleavedLiveAndReplayTraffic:
     cross-contamination between runs."""
 
     async def test_interleaved_live_and_replay_traffic(
-        self, temp_storage: SQLiteStorage,
+        self,
+        temp_storage: SQLiteStorage,
     ) -> None:
         # -- Full 100-message session --
         s = await _build(temp_storage)
@@ -504,7 +549,8 @@ class TestInterleavedLiveAndReplayTraffic:
         # ===========================================================
         all_rc = await temp_storage._read_all(
             "SELECT event_id, target_adapter, status, source, replay_run_id, sequence "
-            "FROM delivery_receipts ORDER BY sequence")
+            "FROM delivery_receipts ORDER BY sequence"
+        )
 
         # Total: 160 + 5*2 + 3*2 + 5*2 = 186
         assert len(all_rc) == 186, f"Expected 186, got {len(all_rc)}"
@@ -521,7 +567,9 @@ class TestInterleavedLiveAndReplayTraffic:
 
         # Identify the three groups by sequence ranges
         original_live = [r for r in live_rc if r["sequence"] <= 160]
-        phase_a_live = [r for r in live_rc if r["sequence"] > 160 and r["sequence"] <= 170]
+        phase_a_live = [
+            r for r in live_rc if r["sequence"] > 160 and r["sequence"] <= 170
+        ]
         phase_c_live = [r for r in live_rc if r["sequence"] > 176]
 
         assert len(original_live) == 160
@@ -532,11 +580,13 @@ class TestInterleavedLiveAndReplayTraffic:
         if phase_a_live and rp_rc:
             # Phase-A live receipts come before replay receipts
             assert max(r["sequence"] for r in phase_a_live) < min(
-                r["sequence"] for r in rp_rc)
+                r["sequence"] for r in rp_rc
+            )
 
         # Replay receipts come before phase-C live receipts
         assert max(r["sequence"] for r in rp_rc) < min(
-            r["sequence"] for r in phase_c_live)
+            r["sequence"] for r in phase_c_live
+        )
 
         # replay_run_ids are distinct per replay run (only one run here)
         run_ids = sorted(set(r["replay_run_id"] for r in rp_rc))
@@ -547,7 +597,7 @@ class TestInterleavedLiveAndReplayTraffic:
             run_receipts = [r for r in rp_rc if r["replay_run_id"] == rid]
             other_receipts = [r for r in rp_rc if r["replay_run_id"] != rid]
             assert len(run_receipts) + len(other_receipts) == len(rp_rc)
-            run_eids = set(r["event_id"] for r in run_receipts)
+            set(r["event_id"] for r in run_receipts)
             for r in run_receipts:
                 assert r["replay_run_id"] == rid
 
@@ -574,7 +624,8 @@ class TestRestartPreservesEvidenceIntegrity:
     assert combined coherence."""
 
     async def test_restart_preserves_evidence_integrity(
-        self, temp_storage: SQLiteStorage,
+        self,
+        temp_storage: SQLiteStorage,
     ) -> None:
         # -- Run A: phases 1-4 --
         s_a = await _build(temp_storage)
@@ -589,9 +640,13 @@ class TestRestartPreservesEvidenceIntegrity:
             await _stop(s_a)
 
         # Verify run A state in storage
-        ev_a = await temp_storage._read_all("SELECT event_id FROM canonical_events ORDER BY event_id")
+        ev_a = await temp_storage._read_all(
+            "SELECT event_id FROM canonical_events ORDER BY event_id"
+        )
         assert len(ev_a) == 60
-        rc_a = await temp_storage._read_all("SELECT sequence FROM delivery_receipts ORDER BY sequence")
+        rc_a = await temp_storage._read_all(
+            "SELECT sequence FROM delivery_receipts ORDER BY sequence"
+        )
         assert len(rc_a) == 110  # 30×2 + 10 + 0 + 20×2
 
         # -- Run B: phases 5-7 --
@@ -610,12 +665,14 @@ class TestRestartPreservesEvidenceIntegrity:
         # Combined assertions
         # ===========================================================
         all_ev = await temp_storage._read_all(
-            "SELECT event_id, source_adapter FROM canonical_events ORDER BY event_id")
+            "SELECT event_id, source_adapter FROM canonical_events ORDER BY event_id"
+        )
         assert len(all_ev) == 90
 
         all_rc = await temp_storage._read_all(
             "SELECT target_adapter, status, source, sequence "
-            "FROM delivery_receipts ORDER BY sequence")
+            "FROM delivery_receipts ORDER BY sequence"
+        )
         assert len(all_rc) == 160
 
         # No duplicate events
@@ -625,7 +682,8 @@ class TestRestartPreservesEvidenceIntegrity:
         # No duplicate receipt combos
         dupes = await temp_storage._read_all(
             "SELECT event_id, target_adapter, source, COUNT(*) c "
-            "FROM delivery_receipts GROUP BY event_id, target_adapter, source HAVING c > 1")
+            "FROM delivery_receipts GROUP BY event_id, target_adapter, source HAVING c > 1"
+        )
         assert len(dupes) == 0
 
         # Receipt breakdown
@@ -653,7 +711,8 @@ class TestReplayPreservesLineage:
     live receipts remain untouched, and timeline ordering is stable."""
 
     async def test_replay_preserves_lineage(
-        self, temp_storage: SQLiteStorage,
+        self,
+        temp_storage: SQLiteStorage,
     ) -> None:
         # -- Full 100-message session --
         s = await _build(temp_storage)
@@ -678,7 +737,8 @@ class TestReplayPreservesLineage:
         s_rp = await _build(temp_storage)
         try:
             replay = ReplayEngine(
-                storage=temp_storage, pipeline=s_rp.runner, accounting=s_rp.acct)
+                storage=temp_storage, pipeline=s_rp.runner, accounting=s_rp.acct
+            )
             request = ReplayRequest(
                 mode=ReplayMode.BEST_EFFORT,
                 run_id="replay-lineage-001",
@@ -694,7 +754,8 @@ class TestReplayPreservesLineage:
         # ===========================================================
         all_rc = await temp_storage._read_all(
             "SELECT event_id, target_adapter, status, source, replay_run_id, sequence "
-            "FROM delivery_receipts ORDER BY sequence")
+            "FROM delivery_receipts ORDER BY sequence"
+        )
 
         # Total: 160 live + 10 replay (5 events × 2 targets)
         assert len(all_rc) == 170, f"Expected 170, got {len(all_rc)}"
@@ -720,7 +781,8 @@ class TestReplayPreservesLineage:
 
         # Timeline: replay receipts after live
         assert max(r["sequence"] for r in traced_live) < min(
-            r["sequence"] for r in traced_rp)
+            r["sequence"] for r in traced_rp
+        )
 
         # No duplicate events in storage
         all_ev = await temp_storage._read_all("SELECT event_id FROM canonical_events")

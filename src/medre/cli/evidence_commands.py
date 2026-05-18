@@ -1,4 +1,5 @@
 """Evidence CLI command: collect evidence bundles for support."""
+
 from __future__ import annotations
 
 import json as _json

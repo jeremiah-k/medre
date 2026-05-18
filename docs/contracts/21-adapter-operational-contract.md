@@ -9,7 +9,6 @@ This document defines the operational ownership boundaries for MEDRE adapters. I
 
 This is a contract, not an implementation plan. It codifies what already holds and what future adapter work must respect. It does not introduce a production scheduler, a retry engine, or background queue workers.
 
-
 ## 1. Scope
 
 - Adapter lifecycle ownership: start, stop, health, and failure reporting.
@@ -28,7 +27,6 @@ This is a contract, not an implementation plan. It codifies what already holds a
 - E2EE, reactions, media, or attachment handling.
 - Real network connectivity claims.
 - Admin APIs, webhooks, or plugin extensions.
-
 
 ## 3. Adapter Owns the Transport Lifecycle
 
@@ -59,12 +57,12 @@ Phase 1 fake adapters have no background queues or connections to drain. Real ad
 
 `health_check()` is called periodically by the runtime's lifecycle manager. It must be cheap, non-blocking, and return one of:
 
-| State | Meaning |
-|-------|---------|
-| `"unknown"` | Adapter not started, stopped, or health indeterminate |
-| `"healthy"` | Transport connected and operational |
-| `"degraded"` | Transport partially functional (intermittent connection, high latency) |
-| `"unhealthy"` | Transport disconnected or non-functional |
+| State         | Meaning                                                                |
+| ------------- | ---------------------------------------------------------------------- |
+| `"unknown"`   | Adapter not started, stopped, or health indeterminate                  |
+| `"healthy"`   | Transport connected and operational                                    |
+| `"degraded"`  | Transport partially functional (intermittent connection, high latency) |
+| `"unhealthy"` | Transport disconnected or non-functional                               |
 
 The adapter sets its own health state. The runtime reads it. The runtime never sets adapter health.
 
@@ -74,20 +72,19 @@ When a transport-level failure occurs during `deliver()`, the adapter raises an 
 
 Adapters may log transport-specific diagnostics at whatever verbosity their configuration permits. They do not write receipts, update delivery state, or trigger retries. The pipeline owns all of that.
 
-
 ## 4. Adapter Owns Pacing and Queueing for Constrained Transports
 
 Constrained transports (Meshtastic, MeshCore, and to a lesser extent LXMF) have limited bandwidth, small payload sizes, and duty cycle restrictions. The adapter is responsible for managing the pace at which it sends messages over its transport.
 
 ### 4.1 Queueing Modes
 
-| Mode | Behavior | Adapter Responsibility |
-|------|----------|----------------------|
-| **Immediate-send** | No queuing. `deliver()` sends immediately and returns. | Adapter calls transport send directly. No internal queue. Suitable for Matrix and unconstrained transports. |
-| **Enqueue-only** | `deliver()` places the rendered payload into an internal outbound queue and returns immediately. | Adapter maintains its own queue. A background task or timer drains the queue at a transport-appropriate rate. The pipeline sees a fast `deliver()` return. |
-| **Paced** | `deliver()` sends with an inter-message delay to respect transport duty cycles. | Adapter enforces a minimum interval between sends. Meshtastic's `MeshtasticOutboundQueue` is the canonical example: configurable delay, FIFO ordering within the adapter. |
-| **ACK-driven** | `deliver()` sends and waits for a transport-level acknowledgment before returning. | Adapter blocks until ACK received or timeout. MeshCore's `send_msg()` with `expected_ack` follows this pattern. |
-| **Best-effort** | `deliver()` attempts to send, ignores failures, returns immediately. | No retry, no ACK wait, no queue. Fire and forget. Appropriate for telemetry or low-priority status messages on unreliable links. |
+| Mode               | Behavior                                                                                         | Adapter Responsibility                                                                                                                                                    |
+| ------------------ | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Immediate-send** | No queuing. `deliver()` sends immediately and returns.                                           | Adapter calls transport send directly. No internal queue. Suitable for Matrix and unconstrained transports.                                                               |
+| **Enqueue-only**   | `deliver()` places the rendered payload into an internal outbound queue and returns immediately. | Adapter maintains its own queue. A background task or timer drains the queue at a transport-appropriate rate. The pipeline sees a fast `deliver()` return.                |
+| **Paced**          | `deliver()` sends with an inter-message delay to respect transport duty cycles.                  | Adapter enforces a minimum interval between sends. Meshtastic's `MeshtasticOutboundQueue` is the canonical example: configurable delay, FIFO ordering within the adapter. |
+| **ACK-driven**     | `deliver()` sends and waits for a transport-level acknowledgment before returning.               | Adapter blocks until ACK received or timeout. MeshCore's `send_msg()` with `expected_ack` follows this pattern.                                                           |
+| **Best-effort**    | `deliver()` attempts to send, ignores failures, returns immediately.                             | No retry, no ACK wait, no queue. Fire and forget. Appropriate for telemetry or low-priority status messages on unreliable links.                                          |
 
 An adapter may support multiple modes and select based on message kind or configuration. The pipeline does not dictate the mode. The adapter declares its behavior through its configuration and implementation.
 
@@ -106,23 +103,22 @@ When a retry scheduler is eventually implemented, its boundary with the adapter 
 
 This boundary is fixed now so future scheduler work does not require adapter changes.
 
-
 ## 5. Ownership Boundaries
 
 The following table defines who owns what. Every row is a hard boundary. Violations indicate a design error.
 
-| Concern | Owner | Others May |
-|---------|-------|------------|
-| Transport lifecycle (connect, disconnect, reconnect) | Adapter | Read health state |
-| Pacing, queueing, duty cycle management | Adapter | Set rate limit config |
-| Payload formatting (text, rich content, transport-specific layout) | Renderer | Provide RenderingResult |
-| Payload encoding/decoding (native format to CanonicalEvent) | Codec | Read codec output |
-| Packet classification (portnum detection, ACK detection, type inference) | Classifier | Read classification result |
-| Pipeline orchestration (routing, delivery planning, receipt tracking) | Runtime | None; adapters never bypass the pipeline |
-| Event authority, correlation, and lineage storage | Storage | Read via storage API |
-| Retry/backoff computation (stateless) | Runtime (RetryExecutor) | Record on receipts |
-| Retry scheduling (timed re-attempt) | Not implemented | Reserved for future work |
-| Native message reference persistence | Storage | Read via storage API |
+| Concern                                                                  | Owner                   | Others May                               |
+| ------------------------------------------------------------------------ | ----------------------- | ---------------------------------------- |
+| Transport lifecycle (connect, disconnect, reconnect)                     | Adapter                 | Read health state                        |
+| Pacing, queueing, duty cycle management                                  | Adapter                 | Set rate limit config                    |
+| Payload formatting (text, rich content, transport-specific layout)       | Renderer                | Provide RenderingResult                  |
+| Payload encoding/decoding (native format to CanonicalEvent)              | Codec                   | Read codec output                        |
+| Packet classification (portnum detection, ACK detection, type inference) | Classifier              | Read classification result               |
+| Pipeline orchestration (routing, delivery planning, receipt tracking)    | Runtime                 | None; adapters never bypass the pipeline |
+| Event authority, correlation, and lineage storage                        | Storage                 | Read via storage API                     |
+| Retry/backoff computation (stateless)                                    | Runtime (RetryExecutor) | Record on receipts                       |
+| Retry scheduling (timed re-attempt)                                      | Not implemented         | Reserved for future work                 |
+| Native message reference persistence                                     | Storage                 | Read via storage API                     |
 
 ### 5.1 Renderer Owns Payload Formatting Only
 
@@ -140,7 +136,6 @@ The runtime coordinates the pipeline: ingestion, routing, delivery planning, ren
 
 Storage is the single source of truth for events, lineage, relations, native refs, and receipts (Contracts 03, 07, 17). Any feature that needs reliable event history reads from storage. Metadata carried in external platform envelopes is secondary and diagnostic.
 
-
 ## 6. Envelopes Are Secondary Hints
 
 A "MEDRE envelope" is metadata embedded in the native payload of an outbound message. Matrix puts it in `medre.envelope` within `m.room.message` content. LXMF puts it in `FIELD_CUSTOM_META` (0xFD) in the `fields` dict. Meshtastic and MeshCore payloads are too small for rich envelopes.
@@ -154,7 +149,6 @@ Envelopes are hints. They assist diagnostic correlation when present. They are n
 
 Storage is always authoritative. Any code that relies on envelope metadata for correctness rather than diagnostics is incorrect by contract.
 
-
 ## 7. Ingress Immutability
 
 After an adapter codec produces a `CanonicalEvent` and the adapter publishes it via `context.publish_inbound()`, the event is frozen. No component may mutate the canonical event after ingress.
@@ -165,7 +159,6 @@ Specifically:
 2. **CanonicalEvent is `frozen=True` in its struct definition.** Msgspec enforces this at attribute assignment time. This is a runtime guard, not just a convention.
 3. **Derived events are new events.** Pipeline stages that transform, enrich, or derive from a source event must create a new `CanonicalEvent` with a new `event_id`. They never modify the source event in place.
 4. **Metadata enrichment is additive.** If a pipeline stage needs to add metadata, it creates a derived event with the additional metadata. The source event's metadata remains unchanged.
-
 
 ## 8. Health, Start, Stop, and Failure Callbacks
 
@@ -207,7 +200,6 @@ Adapters may spawn background asyncio tasks for listener loops, ACK waiters, or 
 
 The adapter must ensure all spawned tasks are cancelled and awaited during `stop()`. Leaked tasks after `stop()` returns are a bug. The optional Matrix live smoke harness verifies this explicitly.
 
-
 ## 9. Optional Dependencies
 
 ### 9.1 Principle
@@ -222,24 +214,23 @@ No adapter's SDK is a required MEDRE dependency. The core runtime and its tests 
 
 Each adapter follows the same pattern:
 
-| Component | Requires real SDK | Fallback |
-|-----------|------------------|----------|
-| Fake adapter | No | Uses deterministic fixtures |
-| Codec unit tests | No | Uses fixture dicts matching native format |
-| Renderer unit tests | No | Uses fixture RenderingResults |
-| Live smoke harness | Yes | Skipped by default, enabled by env vars |
+| Component           | Requires real SDK | Fallback                                  |
+| ------------------- | ----------------- | ----------------------------------------- |
+| Fake adapter        | No                | Uses deterministic fixtures               |
+| Codec unit tests    | No                | Uses fixture dicts matching native format |
+| Renderer unit tests | No                | Uses fixture RenderingResults             |
+| Live smoke harness  | Yes               | Skipped by default, enabled by env vars   |
 
 When the real SDK is not installed, importing the live adapter class must fail gracefully. The fake adapter must never import the real SDK.
 
 ### 9.3 Current Status
 
-| Adapter | SDK package | Installed by default | Live harness |
-|---------|-------------|---------------------|-------------|
-| Matrix | `matrix-nio` (via `mindroom-nio`) | No | Optional, at `tests/test_matrix_live.py` |
-| Meshtastic | `meshtastic` | No | Not yet |
-| MeshCore | `meshcore` | No | Not yet |
-| LXMF | `lxmf`, `rns` | No | Not yet |
-
+| Adapter    | SDK package                       | Installed by default | Live harness                             |
+| ---------- | --------------------------------- | -------------------- | ---------------------------------------- |
+| Matrix     | `matrix-nio` (via `mindroom-nio`) | No                   | Optional, at `tests/test_matrix_live.py` |
+| Meshtastic | `meshtastic`                      | No                   | Not yet                                  |
+| MeshCore   | `meshcore`                        | No                   | Not yet                                  |
+| LXMF       | `lxmf`, `rns`                     | No                   | Not yet                                  |
 
 ## 10. Fake Adapter Expectations
 
@@ -265,7 +256,6 @@ Every fake adapter must:
 4. Produce non-deterministic output (random IDs, timestamps that vary between runs).
 5. Depend on external state (files, environment variables beyond test configuration).
 
-
 ## 11. Retry and Dedup: Runtime Non-Ownership
 
 Phase 1 implements automatic retry scheduling via RetryWorker (opt-in). Deduplication is not implemented. This section records the boundary so it is not accidentally crossed.
@@ -287,7 +277,6 @@ Adapters must not implement their own retry loops. If `deliver()` fails, it rais
 The pipeline does not deduplicate delivery attempts. If the same delivery plan is submitted twice, it is delivered twice. Deduplication is a storage-layer concern (idempotent `append` on events) and a routing-layer concern (duplicate plan detection), not an adapter concern.
 
 Adapters must not deduplicate. If the transport provides native dedup (e.g., Matrix's idempotent `txn_id`), the adapter may use it as an optimization, but the pipeline must not depend on it.
-
 
 ## 12. Implications
 

@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import pytest
 
-from medre.config.adapters.lxmf import LxmfConfig
 from medre.config.adapters.errors import LxmfConfigError
+from medre.config.adapters.lxmf import LxmfConfig
 
 
 class TestLxmfConfigValid:
@@ -92,9 +92,15 @@ class TestLxmfConfigDeliveryMethod:
         )
         assert config.validate().default_delivery_method == "direct"
 
-    @pytest.mark.parametrize("method", [
-        "direct", "opportunistic", "propagated", "paper",
-    ])
+    @pytest.mark.parametrize(
+        "method",
+        [
+            "direct",
+            "opportunistic",
+            "propagated",
+            "paper",
+        ],
+    )
     def test_default_delivery_method_accepts_all(self, method: str) -> None:
         config = LxmfConfig(
             adapter_id="lxmf-1",
@@ -190,6 +196,6 @@ class TestLxmfConfigMetadataSafety:
         config = LxmfConfig(adapter_id="lxmf-1")
         # Verify no key-like field names
         for field_name in ("private_key", "secret", "password", "token"):
-            assert not hasattr(config, field_name), (
-                f"LxmfConfig must not have secret-like field: {field_name}"
-            )
+            assert not hasattr(
+                config, field_name
+            ), f"LxmfConfig must not have secret-like field: {field_name}"

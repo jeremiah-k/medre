@@ -195,9 +195,7 @@ def diagnostic_event(
         event_id,
         category,
         message,
-        " ".join(f"{k}={v!r}" for k, v in safe_context.items())
-        if safe_context
-        else "",
+        " ".join(f"{k}={v!r}" for k, v in safe_context.items()) if safe_context else "",
     )
 
 

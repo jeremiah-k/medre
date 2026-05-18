@@ -16,29 +16,23 @@ Covers:
 
 from __future__ import annotations
 
-import dataclasses
-import gc
 import json
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
-from unittest.mock import MagicMock
 
-import pytest
-
+from medre.core.routing.stats import RouteStats
+from medre.observability.sanitization import sanitize_error as _sanitize_error
 from medre.runtime.snapshot import (
-    SCHEMA_VERSION,
     _MAX_ADAPTERS,
     _MAX_BUILD_FAILURES,
     _MAX_ERROR_DETAIL_LEN,
     _MAX_ROUTES,
+    SCHEMA_VERSION,
     build_runtime_snapshot,
 )
-from medre.core.routing.stats import RouteStats
-from medre.observability.sanitization import sanitize_error as _sanitize_error
-
 
 # ---------------------------------------------------------------------------
 # Reusable fakes (mirrors test_runtime_snapshot.py conventions)
@@ -222,7 +216,9 @@ class TestLargeRouteTables:
         """Exactly _MAX_ROUTES routes — all included."""
         routes = {f"route-{i:06d}": {"delivered": i} for i in range(_MAX_ROUTES)}
         app = _make_fake_app(route_stats=_FakeRouteStats(routes))
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         assert len(snap["routes"]["stats"]["per_route"]) == _MAX_ROUTES
 
     def test_routes_beyond_max_are_truncated(self) -> None:
@@ -231,7 +227,9 @@ class TestLargeRouteTables:
         total = _MAX_ROUTES + extra
         routes = {f"route-{i:06d}": {"delivered": i} for i in range(total)}
         app = _make_fake_app(route_stats=_FakeRouteStats(routes))
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         assert len(snap["routes"]["stats"]["per_route"]) == _MAX_ROUTES
         # The kept routes must be the first _MAX_ROUTES in sorted order.
         sorted_ids = sorted(routes.keys())
@@ -244,7 +242,9 @@ class TestLargeRouteTables:
         routes["a-first"] = {"delivered": 1}
         routes["m-middle"] = {"delivered": 2}
         app = _make_fake_app(route_stats=_FakeRouteStats(routes))
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         route_keys = list(snap["routes"]["stats"]["per_route"].keys())
         assert route_keys == sorted(route_keys)
 
@@ -257,7 +257,9 @@ class TestLargeRouteTables:
         assert len(raw) == _MAX_ROUTES + 500  # unbounded internally
 
         app = _make_fake_app(route_stats=rs)
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         assert len(snap["routes"]["stats"]["per_route"]) <= _MAX_ROUTES
 
 
@@ -276,7 +278,9 @@ class TestLargeAdapterCounts:
             for i in range(_MAX_ADAPTERS)
         }
         app = _make_fake_app(adapters=adapters)
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         assert len(snap["adapters"]) == _MAX_ADAPTERS
 
     def test_adapters_beyond_max_are_truncated(self) -> None:
@@ -287,7 +291,9 @@ class TestLargeAdapterCounts:
             for i in range(total)
         }
         app = _make_fake_app(adapters=adapters)
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         assert len(snap["adapters"]) == _MAX_ADAPTERS
         sorted_ids = sorted(adapters.keys())
         expected_ids = sorted_ids[:_MAX_ADAPTERS]
@@ -300,22 +306,25 @@ class TestLargeAdapterCounts:
             for i in range(500)
         }
         app = _make_fake_app(adapters=adapters)
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         adapter_keys = list(snap["adapters"].keys())
         assert adapter_keys == sorted(adapter_keys)
 
     def test_each_adapter_entry_has_sorted_keys_at_scale(self) -> None:
         """Every adapter entry has alphabetically sorted keys."""
         adapters = {
-            f"ad-{i:04d}": _FakeAdapter(adapter_id=f"ad-{i:04d}")
-            for i in range(50)
+            f"ad-{i:04d}": _FakeAdapter(adapter_id=f"ad-{i:04d}") for i in range(50)
         }
         app = _make_fake_app(adapters=adapters)
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         for aid, entry in snap["adapters"].items():
-            assert list(entry.keys()) == sorted(entry.keys()), (
-                f"Adapter {aid} has unsorted keys: {list(entry.keys())}"
-            )
+            assert list(entry.keys()) == sorted(
+                entry.keys()
+            ), f"Adapter {aid} has unsorted keys: {list(entry.keys())}"
 
 
 # =====================================================================
@@ -343,7 +352,9 @@ class TestRepeatedSnapshotGeneration:
         first = None
         for _ in range(100):
             snap = build_runtime_snapshot(
-                app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO,
+                app,
+                now_fn=_fixed_now,
+                monotonic_fn=lambda: _FIXED_MONO,
             )
             serialized = json.dumps(snap, sort_keys=True)
             if first is None:
@@ -358,7 +369,9 @@ class TestRepeatedSnapshotGeneration:
         for i in range(50):
             rs.record_delivered(f"route-{i % 10}")
             snap = build_runtime_snapshot(
-                app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO,
+                app,
+                now_fn=_fixed_now,
+                monotonic_fn=lambda: _FIXED_MONO,
             )
             # Should never crash, always JSON-safe.
             json.dumps(snap, sort_keys=True)
@@ -374,7 +387,9 @@ class TestRepeatedSnapshotGeneration:
         original_adapter_count = len(app.adapters)
 
         for _ in range(50):
-            build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+            build_runtime_snapshot(
+                app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+            )
 
         assert app.state is original_state
         assert len(app.adapters) == original_adapter_count
@@ -390,6 +405,7 @@ class TestFailingAdapters:
 
     def test_adapter_repr_raises(self) -> None:
         """Adapter with __repr__ that raises doesn't crash snapshot."""
+
         class _BrokenReprAdapter:
             adapter_id = "broken-repr"
             platform = "test"
@@ -402,12 +418,15 @@ class TestFailingAdapters:
                 raise RuntimeError("repr explosion")
 
         app = _make_fake_app(adapters={"br": _BrokenReprAdapter()})
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         assert "br" in snap["adapters"]
         assert snap["adapters"]["br"]["adapter_id"] == "broken-repr"
 
     def test_adapter_properties_raise(self) -> None:
         """Adapter with properties that raise doesn't crash snapshot."""
+
         class _BrokenPropAdapter:
             @property
             def adapter_id(self) -> str:
@@ -419,7 +438,9 @@ class TestFailingAdapters:
 
         app = _make_fake_app(adapters={"bp": _BrokenPropAdapter()})
         # Should not raise — _snapshot_adapter uses getattr with defaults.
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         assert "bp" in snap["adapters"]
         # Falls back to "unknown" for adapter_id/platform when getattr fails.
         entry = snap["adapters"]["bp"]
@@ -437,11 +458,14 @@ class TestPartiallyInitializedAdapters:
 
     def test_adapter_missing_all_optional_attrs(self) -> None:
         """Bare object with only adapter_id still produces a snapshot."""
+
         class _Minimal:
             adapter_id = "minimal"
 
         app = _make_fake_app(adapters={"min": _Minimal()})
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         entry = snap["adapters"]["min"]
         assert entry["adapter_id"] == "minimal"
         assert entry["platform"] == "unknown"
@@ -452,6 +476,7 @@ class TestPartiallyInitializedAdapters:
 
     def test_adapter_with_none_attrs(self) -> None:
         """Adapter with None for optional attrs falls back to unknown."""
+
         class _NoneAttrs:
             adapter_id = "none-attrs"
             platform = None  # type: ignore[assignment]
@@ -461,7 +486,9 @@ class TestPartiallyInitializedAdapters:
             _last_health = None
 
         app = _make_fake_app(adapters={"na": _NoneAttrs()})
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         entry = snap["adapters"]["na"]
         assert entry["adapter_id"] == "none-attrs"
         # None platform falls back to "unknown" via the snapshot adapter.
@@ -469,6 +496,7 @@ class TestPartiallyInitializedAdapters:
 
     def test_adapter_with_int_platform(self) -> None:
         """Non-string platform is preserved as JSON-safe value."""
+
         class _WeirdPlatform:
             adapter_id = "weird"
             platform = 12345  # not a string
@@ -478,23 +506,31 @@ class TestPartiallyInitializedAdapters:
             _last_health = "ok"
 
         app = _make_fake_app(adapters={"wp": _WeirdPlatform()})
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         entry = snap["adapters"]["wp"]
         # Integer platform is JSON-safe, preserved as-is.
         assert entry["platform"] == 12345
 
     def test_adapter_with_callable_role(self) -> None:
         """Non-enum callable role is converted via str()."""
+
         class _CallableRole:
             adapter_id = "cr"
             platform = "test"
-            role = lambda: "custom"  # type: ignore[assignment]
+
+            def role():
+                return "custom"  # type: ignore[assignment]
+
             _version = "1.0"
             _capabilities = None
             _last_health = "unknown"
 
         app = _make_fake_app(adapters={"cr": _CallableRole()})
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         entry = snap["adapters"]["cr"]
         # str() on a lambda gives something like "<lambda>"
         assert isinstance(entry["role"], str)
@@ -510,39 +546,49 @@ class TestMalformedAdapterDiagnostics:
 
     def test_adapter_health_is_integer(self) -> None:
         """Integer health value is accepted as-is (JSON-safe)."""
+
         class _IntHealth:
             adapter_id = "ih"
             platform = "test"
             _last_health = 200  # numeric health
 
         app = _make_fake_app(adapters={"ih": _IntHealth()})
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         assert snap["adapters"]["ih"]["health"] == 200
 
     def test_adapter_health_is_none(self) -> None:
         """None health maps to 'unknown' default."""
+
         class _NoneHealth:
             adapter_id = "nh"
             platform = "test"
             _last_health = None
 
         app = _make_fake_app(adapters={"nh": _NoneHealth()})
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         assert snap["adapters"]["nh"]["health"] is None
 
     def test_adapter_capabilities_non_dataclass(self) -> None:
         """Non-dataclass capabilities produce empty dict."""
+
         class _DictCaps:
             adapter_id = "dc"
             platform = "test"
             _capabilities = {"not": "a dataclass"}
 
         app = _make_fake_app(adapters={"dc": _DictCaps()})
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         assert snap["adapters"]["dc"]["capabilities"] == {}
 
     def test_adapter_with_enum_in_capabilities(self) -> None:
         """Enum values in capabilities are converted to their .value."""
+
         class _Status(Enum):
             ACTIVE = "active"
             INACTIVE = "inactive"
@@ -561,7 +607,9 @@ class TestMalformedAdapterDiagnostics:
             _last_health = "unknown"
 
         app = _make_fake_app(adapters={"ec": _EnumCapsAdapter()})
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         assert snap["adapters"]["ec"]["capabilities"]["status"] == "active"
 
 
@@ -577,22 +625,22 @@ class TestReplayPressure:
         """Large replay counters dict is included in snapshot."""
         big_replay = {
             "global": {"total": 10000, "succeeded": 9999, "failed": 1},
-            "by_route": {
-                f"route-{i:04d}": {"deliveries": i * 10}
-                for i in range(500)
-            },
+            "by_route": {f"route-{i:04d}": {"deliveries": i * 10} for i in range(500)},
         }
         app = _make_fake_app(
             replay_engine=_FakeReplayEngine(),
             diagnostics_collector=_FakeDiagnosticsCollector(big_replay),
         )
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         assert snap["replay"]["available"] is True
         assert snap["replay"]["counters"]["global"]["total"] == 10000
         assert len(snap["replay"]["counters"]["by_route"]) == 500
 
     def test_diagnostics_snapshot_raises(self) -> None:
         """Diagnostics collector snapshot() raising doesn't crash."""
+
         class _BrokenDiag:
             def snapshot(self) -> dict[str, Any]:
                 raise RuntimeError("diag boom")
@@ -601,12 +649,15 @@ class TestReplayPressure:
             replay_engine=_FakeReplayEngine(),
             diagnostics_collector=_BrokenDiag(),
         )
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         assert snap["replay"]["available"] is True
         assert snap["replay"]["counters"] is None  # graceful fallback
 
     def test_diagnostics_snapshot_returns_non_dict(self) -> None:
         """Diagnostics returning non-dict is handled gracefully."""
+
         class _NonDictDiag:
             def snapshot(self) -> str:
                 return "not a dict"
@@ -615,7 +666,9 @@ class TestReplayPressure:
             replay_engine=_FakeReplayEngine(),
             diagnostics_collector=_NonDictDiag(),
         )
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         assert snap["replay"]["available"] is True
         # snapshot returns string, .get("replay") on str returns None
         assert snap["replay"]["counters"] is None
@@ -643,19 +696,30 @@ class TestCapacityExhaustion:
             "replay_timeouts": 100,
         }
         app = _make_fake_app(capacity_controller=_FakeCapacityController(cap_data))
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         assert snap["capacity"]["state"]["accepting_work"] is False
-        assert snap["capacity"]["state"]["delivery_current"] == snap["capacity"]["state"]["delivery_limit"]
-        assert snap["capacity"]["state"]["replay_current"] == snap["capacity"]["state"]["replay_limit"]
+        assert (
+            snap["capacity"]["state"]["delivery_current"]
+            == snap["capacity"]["state"]["delivery_limit"]
+        )
+        assert (
+            snap["capacity"]["state"]["replay_current"]
+            == snap["capacity"]["state"]["replay_limit"]
+        )
 
     def test_capacity_snapshot_raises(self) -> None:
         """Capacity controller snapshot() raising doesn't crash."""
+
         class _BrokenCapacity:
             def snapshot(self) -> dict[str, Any]:
                 raise RuntimeError("capacity boom")
 
         app = _make_fake_app(capacity_controller=_BrokenCapacity())
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         # Should not raise, but capacity may be None or partially captured.
         # The snapshot function catches None from hasattr check.
         assert "capacity" in snap
@@ -674,7 +738,9 @@ class TestCapacityExhaustion:
             "replay_timeouts": 0,
         }
         app = _make_fake_app(capacity_controller=_FakeCapacityController(cap_data))
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         assert snap["capacity"]["state"]["delivery_limit"] == 2**31 - 1
         assert snap["capacity"]["state"]["delivery_rejections"] == 2**63 - 1
         # JSON-safe
@@ -692,8 +758,7 @@ class TestDeterministicOrderingAtScale:
     def test_top_level_keys_sorted_at_scale(self) -> None:
         """Top-level keys always sorted regardless of data size."""
         adapters = {
-            f"a-{i:04d}": _FakeAdapter(adapter_id=f"a-{i:04d}")
-            for i in range(200)
+            f"a-{i:04d}": _FakeAdapter(adapter_id=f"a-{i:04d}") for i in range(200)
         }
         routes = {f"r-{i:04d}": {"delivered": i} for i in range(500)}
         app = _make_fake_app(
@@ -701,9 +766,13 @@ class TestDeterministicOrderingAtScale:
             route_stats=_FakeRouteStats(routes),
             capacity_controller=_FakeCapacityController(),
             replay_engine=_FakeReplayEngine(),
-            build_failures=[_FakeBuildFailure(f"bf-{i}", f"err-{i}") for i in range(30)],
+            build_failures=[
+                _FakeBuildFailure(f"bf-{i}", f"err-{i}") for i in range(30)
+            ],
         )
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         top_keys = list(snap.keys())
         assert top_keys == sorted(top_keys)
 
@@ -719,7 +788,9 @@ class TestDeterministicOrderingAtScale:
             route_stats=_FakeRouteStats(routes),
             capacity_controller=_FakeCapacityController(),
         )
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         serialized = json.dumps(snap, sort_keys=True)
         assert isinstance(serialized, str)
         # Re-parse to verify round-trip.
@@ -729,8 +800,7 @@ class TestDeterministicOrderingAtScale:
     def test_two_large_snapshots_identical(self) -> None:
         """Two snapshots of the same large app produce identical JSON."""
         adapters = {
-            f"ad-{i:04d}": _FakeAdapter(adapter_id=f"ad-{i:04d}")
-            for i in range(100)
+            f"ad-{i:04d}": _FakeAdapter(adapter_id=f"ad-{i:04d}") for i in range(100)
         }
         routes = {f"rt-{i:04d}": {"delivered": i} for i in range(300)}
         app = _make_fake_app(
@@ -738,8 +808,12 @@ class TestDeterministicOrderingAtScale:
             route_stats=_FakeRouteStats(routes),
             startup_monotonic=500.0,
         )
-        s1 = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
-        s2 = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        s1 = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
+        s2 = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         assert json.dumps(s1, sort_keys=True) == json.dumps(s2, sort_keys=True)
 
 
@@ -753,9 +827,14 @@ class TestBoundednessAndTruncation:
 
     def test_build_failures_at_exact_max(self) -> None:
         """Exactly _MAX_BUILD_FAILURES — all included."""
-        failures = [_FakeBuildFailure(f"bf-{i}", f"error-{i}") for i in range(_MAX_BUILD_FAILURES)]
+        failures = [
+            _FakeBuildFailure(f"bf-{i}", f"error-{i}")
+            for i in range(_MAX_BUILD_FAILURES)
+        ]
         app = _make_fake_app(build_failures=failures)
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         assert len(snap["startup"]["build_failures"]) == _MAX_BUILD_FAILURES
 
     def test_build_failures_beyond_max_truncated(self) -> None:
@@ -763,7 +842,9 @@ class TestBoundednessAndTruncation:
         total = _MAX_BUILD_FAILURES + 100
         failures = [_FakeBuildFailure(f"bf-{i}", f"error-{i}") for i in range(total)]
         app = _make_fake_app(build_failures=failures)
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         assert len(snap["startup"]["build_failures"]) == _MAX_BUILD_FAILURES
 
     def test_build_failure_error_truncated(self) -> None:
@@ -771,7 +852,9 @@ class TestBoundednessAndTruncation:
         # Use spaces/punctuation to avoid matching base64-like token patterns
         long_error = "Build error: " + "retry failed. " * 60
         app = _make_fake_app(build_failures=[_FakeBuildFailure("bf", long_error)])
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         bf_err = snap["startup"]["build_failures"][0]["error"]
         assert len(bf_err) <= _MAX_ERROR_DETAIL_LEN
         assert bf_err.endswith("...")
@@ -782,14 +865,20 @@ class TestBoundednessAndTruncation:
         exact_error = "Build error: " + " " * (_MAX_ERROR_DETAIL_LEN - 13)
         assert len(exact_error) == _MAX_ERROR_DETAIL_LEN
         app = _make_fake_app(build_failures=[_FakeBuildFailure("bf", exact_error)])
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
-        assert len(snap["startup"]["build_failures"][0]["error"]) == _MAX_ERROR_DETAIL_LEN
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
+        assert (
+            len(snap["startup"]["build_failures"][0]["error"]) == _MAX_ERROR_DETAIL_LEN
+        )
 
     def test_build_failure_error_one_over_limit(self) -> None:
         """Error string one char over limit is truncated."""
         error = "Build error: " + " " * (_MAX_ERROR_DETAIL_LEN - 12)
         app = _make_fake_app(build_failures=[_FakeBuildFailure("bf", error)])
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         bf_err = snap["startup"]["build_failures"][0]["error"]
         assert len(bf_err) <= _MAX_ERROR_DETAIL_LEN
 
@@ -809,7 +898,9 @@ class TestBoundednessAndTruncation:
             route_stats=_FakeRouteStats(routes),
             build_failures=failures,
         )
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         assert len(snap["adapters"]) <= _MAX_ADAPTERS
         assert len(snap["routes"]["stats"]["per_route"]) <= _MAX_ROUTES
         assert len(snap["startup"]["build_failures"]) <= _MAX_BUILD_FAILURES
@@ -848,9 +939,11 @@ class TestSecretSafety:
     def test_secrets_dont_leak_through_route_stats_snapshot(self) -> None:
         """Full snapshot doesn't contain forbidden tokens via route stats."""
         rs = RouteStats()
-        rs.record_failed("r1", f"boom api_key=sk-SECRETKEY1234567890abcdefghijklmnop")
+        rs.record_failed("r1", "boom api_key=sk-SECRETKEY1234567890abcdefghijklmnop")
         app = _make_fake_app(route_stats=rs)
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         serialized = json.dumps(snap).lower()
 
         forbidden = ["api_key", "sk-secretkey", "password", "secret"]
@@ -866,7 +959,9 @@ class TestSecretSafety:
         """
         secret_error = "x" * 400 + "api_key=sk-LEAK" + "y" * 200
         app = _make_fake_app(build_failures=[_FakeBuildFailure("bf", secret_error)])
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         bf_error = snap["startup"]["build_failures"][0]["error"]
         # Build failures are truncated but not sanitized — this is expected.
         # The truncation may or may not include the secret portion depending
@@ -907,12 +1002,15 @@ class TestSecretSafety:
             adapters={"a1": _FakeAdapter(adapter_id="a1")},
             route_stats=_FakeRouteStats({"r1": {"delivered": 1}}),
         )
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         serialized = json.dumps(snap)
         assert " object at 0x" not in serialized
 
     def test_config_not_introspected(self) -> None:
         """Adapter config objects are never serialized into the snapshot."""
+
         class _ConfigWithSecret:
             access_token = "syt_TOP_SECRET_TOKEN"
             password = "super_secret_password"
@@ -922,7 +1020,9 @@ class TestSecretSafety:
             adapters={"a1": _FakeAdapter(adapter_id="a1")},
             config=_ConfigWithSecret(),
         )
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         serialized = json.dumps(snap).lower()
         assert "syt_top_secret_token" not in serialized
         assert "super_secret_password" not in serialized
@@ -940,39 +1040,51 @@ class TestBuildFailureEdgeCases:
 
     def test_build_failure_missing_error_attr(self) -> None:
         """Build failure with no error attribute uses 'unknown error'."""
+
         class _NoError:
             adapter_id = "noerr"
 
         app = _make_fake_app(build_failures=[_NoError()])
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         assert snap["startup"]["build_failures"][0]["error"] == "unknown error"
 
     def test_build_failure_missing_adapter_id(self) -> None:
         """Build failure with no adapter_id uses 'unknown'."""
+
         class _NoId:
             error = "something failed"
 
         app = _make_fake_app(build_failures=[_NoId()])
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         assert snap["startup"]["build_failures"][0]["adapter_id"] == "unknown"
 
     def test_build_failure_error_is_exception(self) -> None:
         """Error being an Exception object is str()'d."""
         exc = ValueError("test error message")
         app = _make_fake_app(build_failures=[_FakeBuildFailure("bf", exc)])  # type: ignore[arg-type]
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         assert "test error message" in snap["startup"]["build_failures"][0]["error"]
 
     def test_empty_build_failures_list(self) -> None:
         """Empty build failures list produces empty list in snapshot."""
         app = _make_fake_app(build_failures=[])
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         assert snap["startup"]["build_failures"] == []
 
     def test_build_failure_error_is_empty_string(self) -> None:
         """Empty string error is preserved."""
         app = _make_fake_app(build_failures=[_FakeBuildFailure("bf", "")])
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         assert snap["startup"]["build_failures"][0]["error"] == ""
 
 
@@ -995,7 +1107,12 @@ class TestFullyLoadedSnapshotAtScale:
             for i in range(200)
         }
         routes = {
-            f"route-{i:04d}": {"delivered": i * 10, "failed": i % 5, "skipped": 0, "loop_prevented": 0}
+            f"route-{i:04d}": {
+                "delivered": i * 10,
+                "failed": i % 5,
+                "skipped": 0,
+                "loop_prevented": 0,
+            }
             for i in range(500)
         }
         replay_data = {
@@ -1028,10 +1145,16 @@ class TestFullyLoadedSnapshotAtScale:
             build_failures=failures,
             startup_wall="2026-05-11T08:00:00+00:00",
             startup_monotonic=200.0,
-            health_state={"overall": "degraded", "healthy_adapters": 100, "total_adapters": 200},
+            health_state={
+                "overall": "degraded",
+                "healthy_adapters": 100,
+                "total_adapters": 200,
+            },
             accounting=_FakeAccounting(),
         )
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
 
         # Verify structure.
         assert snap["schema_version"] == SCHEMA_VERSION
@@ -1054,7 +1177,9 @@ class TestFullyLoadedSnapshotAtScale:
 
     def test_minimal_app_does_not_crash(self) -> None:
         """Bare object() produces a valid snapshot."""
-        snap = build_runtime_snapshot(object(), now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            object(), now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         assert snap["schema_version"] == SCHEMA_VERSION
         assert snap["adapters"] == {}
         assert snap["routes"]["stats"]["per_route"] == {}
@@ -1083,14 +1208,18 @@ class TestPerformanceSanity:
             route_stats=_FakeRouteStats(routes),
         )
         start = time.monotonic()
-        snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+        snap = build_runtime_snapshot(
+            app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+        )
         elapsed = time.monotonic() - start
 
         assert len(snap["adapters"]) == _MAX_ADAPTERS
         assert len(snap["routes"]["stats"]["per_route"]) == _MAX_ROUTES
         # No strict timing assertion — just ensure it completes.
         # If it takes > 10s something is very wrong.
-        assert elapsed < 10.0, f"Snapshot took {elapsed:.2f}s — possible performance regression"
+        assert (
+            elapsed < 10.0
+        ), f"Snapshot took {elapsed:.2f}s — possible performance regression"
 
     def test_10_snapshots_at_scale_no_drift(self) -> None:
         """10 snapshots of max-scale data remain deterministic."""
@@ -1103,7 +1232,9 @@ class TestPerformanceSanity:
 
         serialized_set: set[str] = set()
         for _ in range(10):
-            snap = build_runtime_snapshot(app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO)
+            snap = build_runtime_snapshot(
+                app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
+            )
             serialized_set.add(json.dumps(snap, sort_keys=True))
 
         assert len(serialized_set) == 1, "Snapshots at max scale are not deterministic"

@@ -37,7 +37,7 @@ import pytest
 from medre.adapters.fake_presentation import FakePresentationAdapter
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.events import CanonicalEvent, EventMetadata, NativeRef
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage.backend import StorageBackend
 from medre.core.storage.replay import (
@@ -47,10 +47,8 @@ from medre.core.storage.replay import (
     collect_replay_summary,
 )
 from medre.core.storage.sqlite import SQLiteStorage
-
 from tests.helpers.bridge import make_pipeline_config
 from tests.helpers.pipeline import make_event
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -142,7 +140,8 @@ async def test_replay_after_restart(tmp_path: Path) -> None:
     accounting_a = RuntimeAccounting()
     pres_a = FakePresentationAdapter(adapter_id="fake_presentation")
     runner_a = _build_runner(
-        storage_a, router,
+        storage_a,
+        router,
         adapters={"fake_presentation": pres_a},
         accounting=accounting_a,
     )
@@ -176,7 +175,8 @@ async def test_replay_after_restart(tmp_path: Path) -> None:
     accounting_b = RuntimeAccounting()
     pres_b = FakePresentationAdapter(adapter_id="fake_presentation")
     runner_b = _build_runner(
-        storage_b, router,
+        storage_b,
+        router,
         adapters={"fake_presentation": pres_b},
         accounting=accounting_b,
     )
@@ -207,9 +207,9 @@ async def test_replay_after_restart(tmp_path: Path) -> None:
 
     # Replay receipt appended cleanly.
     total_receipts = await storage_b.count_receipts()
-    assert total_receipts == 4, (
-        f"Expected 4 receipts (3 live + 1 replay), got {total_receipts}"
-    )
+    assert (
+        total_receipts == 4
+    ), f"Expected 4 receipts (3 live + 1 replay), got {total_receipts}"
 
     # Replay receipt has source='replay' and run_id.
     replay_rows = await storage_b._read_all(
@@ -233,9 +233,9 @@ async def test_replay_after_restart(tmp_path: Path) -> None:
     # (replay does not go through handle_ingress).
     snap_b_final = accounting_b.snapshot()
     assert snap_b_final["replay_processed"] >= 1
-    assert snap_b_final["inbound_accepted"] == 0, (
-        "Replay should not increment inbound_accepted"
-    )
+    assert (
+        snap_b_final["inbound_accepted"] == 0
+    ), "Replay should not increment inbound_accepted"
 
     await runner_b.stop()
     await storage_b.close()
@@ -337,9 +337,9 @@ async def test_duplicate_native_ref_suppression_across_replay(
 
     # The second event's suppression is unchanged.
     snap_b_final = accounting_b.snapshot()
-    assert snap_b_final["loop_prevented"] == 1, (
-        "Second event suppression should still be 1"
-    )
+    assert (
+        snap_b_final["loop_prevented"] == 1
+    ), "Second event suppression should still be 1"
 
     # Original event still the only one in storage.
     assert await storage_b.count_events() == 1

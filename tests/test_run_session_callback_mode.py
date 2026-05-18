@@ -10,6 +10,7 @@ storage receipts when outcomes are unavailable.
 Includes a backward-compatibility check that ``direct_pipeline`` mode
 still works identically.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -32,8 +33,7 @@ class TestRunSessionCallbackMode:
             storage_path=db_path,
         )
         assert report["status"] == "passed", (
-            f"adapter_callback happy_path failed: "
-            f"{report.get('fail_reasons', [])}"
+            f"adapter_callback happy_path failed: " f"{report.get('fail_reasons', [])}"
         )
         assert report["ingress_mode"] == "adapter_callback"
 
@@ -67,9 +67,9 @@ class TestRunSessionCallbackMode:
         assert report["status"] == "passed"
         target_adapters = report["target_adapters"]
         assert isinstance(target_adapters, list)
-        assert len(target_adapters) >= 1, (
-            "target_adapters empty — adapter_callback report missing adapter info"
-        )
+        assert (
+            len(target_adapters) >= 1
+        ), "target_adapters empty — adapter_callback report missing adapter info"
 
     @pytest.mark.asyncio
     async def test_report_includes_route_id(self, tmp_path: Path) -> None:
@@ -83,9 +83,9 @@ class TestRunSessionCallbackMode:
             storage_path=db_path,
         )
         assert report["status"] == "passed"
-        assert report.get("route_id") is not None, (
-            "route_id is None — adapter_callback report missing route info"
-        )
+        assert (
+            report.get("route_id") is not None
+        ), "route_id is None — adapter_callback report missing route info"
 
     @pytest.mark.asyncio
     async def test_report_includes_native_refs(self, tmp_path: Path) -> None:
@@ -101,9 +101,9 @@ class TestRunSessionCallbackMode:
         assert report["status"] == "passed"
         native_refs = report["native_refs"]
         assert isinstance(native_refs, list)
-        assert len(native_refs) >= 1, (
-            "native_refs empty — adapter_callback did not resolve native refs"
-        )
+        assert (
+            len(native_refs) >= 1
+        ), "native_refs empty — adapter_callback did not resolve native refs"
 
     @pytest.mark.asyncio
     async def test_native_refs_match_sent_receipts(self, tmp_path: Path) -> None:
@@ -226,8 +226,7 @@ class TestDirectPipelineUnchanged:
             storage_path=db_path,
         )
         assert report["status"] == "passed", (
-            f"direct_pipeline happy_path failed: "
-            f"{report.get('fail_reasons', [])}"
+            f"direct_pipeline happy_path failed: " f"{report.get('fail_reasons', [])}"
         )
         assert report["ingress_mode"] == "direct_pipeline"
 

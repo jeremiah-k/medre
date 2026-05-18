@@ -7,7 +7,6 @@
 
 Every agent or document that references MEDRE routing, bridging between adapters, route directionality, replay route attribution, or loop prevention must defer to this contract.
 
-
 ## 1. Route Definition Model
 
 ### 1.1 Route Identity
@@ -36,28 +35,26 @@ Default: `SOURCE_TO_DEST`.
 
 For bidirectional routes, the runtime engine registers **two** internal `Route` objects (one per direction), both sharing the same `route_id` prefix.
 
-
 ## 2. Bridge Policy
 
 ### 2.1 Static Allowlists
 
 A `BridgePolicy` is an optional frozen dataclass attached to a route. All fields default to empty tuples (meaning "no restriction"). Fields:
 
-| Field | Meaning |
-|-------|---------|
-| `allowed_event_types` | Event kinds that may traverse this bridge |
-| `allowed_source_adapters` | Source adapters that may originate bridged events |
-| `allowed_dest_adapters` | Destination adapters that may receive bridged events |
-| `room_allowlist` | Matrix room IDs allowed to bridge |
-| `channel_allowlist` | Channel/conversation IDs allowed to bridge |
-| `sender_allowlist` | Sender identifiers allowed to bridge |
+| Field                     | Meaning                                              |
+| ------------------------- | ---------------------------------------------------- |
+| `allowed_event_types`     | Event kinds that may traverse this bridge            |
+| `allowed_source_adapters` | Source adapters that may originate bridged events    |
+| `allowed_dest_adapters`   | Destination adapters that may receive bridged events |
+| `room_allowlist`          | Matrix room IDs allowed to bridge                    |
+| `channel_allowlist`       | Channel/conversation IDs allowed to bridge           |
+| `sender_allowlist`        | Sender identifiers allowed to bridge                 |
 
 An empty tuple = "allow all" for that dimension.
 
 ### 2.2 Immutability
 
 `BridgePolicy` is frozen after construction. It may only be set at configuration load time and never mutated at runtime.
-
 
 ## 3. Bridge Directionality — Concrete Examples
 
@@ -132,19 +129,18 @@ directionality = "bidirectional"
 
 `team_a` and `team_b` are fully isolated: no event crosses between groups. The router has no implicit "route everything" default.
 
-
 ## 4. Route Engine Ownership
 
 ### 4.1 Who Owns What
 
-| Component | Owns |
-|-----------|------|
-| `medre.config.loader` | Parsing `[routes.*]` TOML sections into `RouteConfig` / `RouteConfigSet` |
-| `medre.runtime.routes` | Immutable route model dataclasses (transport-agnostic) |
+| Component                    | Owns                                                                                                 |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `medre.config.loader`        | Parsing `[routes.*]` TOML sections into `RouteConfig` / `RouteConfigSet`                             |
+| `medre.runtime.routes`       | Immutable route model dataclasses (transport-agnostic)                                               |
 | `medre.runtime.route_engine` | Converting `RouteConfigSet` → core `Route` objects, validating adapter refs, registering on `Router` |
-| `medre.core.routing.models` | Core `Route` / `RouteSource` / `RouteTarget` data structures |
-| `medre.core.routing.router` | In-memory matching engine (pure, no I/O) |
-| `medre.core.storage.replay` | Replay route attribution, loop detection for replay |
+| `medre.core.routing.models`  | Core `Route` / `RouteSource` / `RouteTarget` data structures                                         |
+| `medre.core.routing.router`  | In-memory matching engine (pure, no I/O)                                                             |
+| `medre.core.storage.replay`  | Replay route attribution, loop detection for replay                                                  |
 
 ### 4.2 What the Route Engine Must NOT Do
 
@@ -158,7 +154,6 @@ directionality = "bidirectional"
 - Adapters must not orchestrate routes. They receive delivery requests; they do not decide routing.
 - Adapters must not query the `Router` directly for routing decisions.
 
-
 ## 5. Replay Route Attribution and Semantics
 
 ### 5.1 Attribution Placement
@@ -167,14 +162,14 @@ Route attribution during replay is stored on `ReplayResult.route_attribution` (a
 
 ### 5.2 ReplayRouteAttribution Fields
 
-| Field | Description |
-|-------|-------------|
-| `route_ids` | Routes that matched the replayed event |
-| `source_adapter` | The original source adapter |
-| `target_adapters` | All resolved target adapters |
-| `replay_mode` | The `ReplayMode` used |
-| `is_replay` | Always `True` — distinguishes replay from live routing |
-| `loop_warnings` | Loop-prevention warnings (empty if no loops detected) |
+| Field             | Description                                            |
+| ----------------- | ------------------------------------------------------ |
+| `route_ids`       | Routes that matched the replayed event                 |
+| `source_adapter`  | The original source adapter                            |
+| `target_adapters` | All resolved target adapters                           |
+| `replay_mode`     | The `ReplayMode` used                                  |
+| `is_replay`       | Always `True` — distinguishes replay from live routing |
+| `loop_warnings`   | Loop-prevention warnings (empty if no loops detected)  |
 
 ### 5.3 Determinism
 
@@ -182,14 +177,13 @@ For the same stored event and route configuration, replay attribution is identic
 
 ### 5.4 Replay Modes and Routing
 
-| Mode | Routes? | Renders? | Delivers? |
-|------|---------|----------|-----------|
-| STRICT | No | No | No |
-| RE_RENDER | No | Yes (capture) | No |
-| RE_ROUTE | Yes | No | No |
-| BEST_EFFORT | Yes | Yes | Yes |
-| DRY_RUN | Yes | Yes (capture) | Skip (no-op) |
-
+| Mode        | Routes? | Renders?      | Delivers?    |
+| ----------- | ------- | ------------- | ------------ |
+| STRICT      | No      | No            | No           |
+| RE_RENDER   | No      | Yes (capture) | No           |
+| RE_ROUTE    | Yes     | No            | No           |
+| BEST_EFFORT | Yes     | Yes           | Yes          |
+| DRY_RUN     | Yes     | Yes (capture) | Skip (no-op) |
 
 ## 6. Loop-Prevention Ownership
 
@@ -218,39 +212,38 @@ Looping routes are **skipped** (not erroring). A `loop_warnings` tuple is attach
 
 ### 6.4 Ownership Summary
 
-| Context | Loop prevention owner |
-|---------|-----------------------|
-| Live routing | Config validation (load time) |
-| Replay | `_filter_replay_loops` in `medre.core.storage.replay` |
-| Runtime startup | `RouteConfigSet` validation (config load) |
+| Context         | Loop prevention owner                                 |
+| --------------- | ----------------------------------------------------- |
+| Live routing    | Config validation (load time)                         |
+| Replay          | `_filter_replay_loops` in `medre.core.storage.replay` |
+| Runtime startup | `RouteConfigSet` validation (config load)             |
 
 ### 6.5 Loop-Prevention Taxonomy
 
-| Mechanism | Owner | Layer | When | Effect |
-|---|---|---|---|---|
-| `check_route_loops` | `route_engine` | Config | Startup | Log warning |
-| Native-ref dedup | `PipelineRunner.handle_ingress` | Pipeline | Per-ingress | Drop event |
-| Self-loop guard | `PipelineRunner._execute_single_delivery` | Pipeline | Per-delivery | Skip target |
-| Route-trace guard | `PipelineRunner._execute_single_delivery` | Pipeline | Per-delivery | Skip target |
-| `_filter_replay_loops` | `medre.core.storage.replay` | Replay | Per-replay event | Skip + warn |
+| Mechanism              | Owner                                     | Layer    | When             | Effect      |
+| ---------------------- | ----------------------------------------- | -------- | ---------------- | ----------- |
+| `check_route_loops`    | `route_engine`                            | Config   | Startup          | Log warning |
+| Native-ref dedup       | `PipelineRunner.handle_ingress`           | Pipeline | Per-ingress      | Drop event  |
+| Self-loop guard        | `PipelineRunner._execute_single_delivery` | Pipeline | Per-delivery     | Skip target |
+| Route-trace guard      | `PipelineRunner._execute_single_delivery` | Pipeline | Per-delivery     | Skip target |
+| `_filter_replay_loops` | `medre.core.storage.replay`               | Replay   | Per-replay event | Skip + warn |
 
 ### 6.6 Supplier of Native IDs
 
 Native-ref duplicate suppression (Stage 1.5) depends on adapters providing a stable, unique `native_message_id` via `source_native_ref`. Adapters that return `None` or an empty string for `native_message_id` bypass dedup entirely — every inbound event from that adapter is treated as novel.
 
-| Adapter | Native ID field | Stability | Notes |
-|---------|----------------|-----------|-------|
-| Matrix | `event_id` | Stable | Synapse-assigned, globally unique per event. |
-| Meshtastic | `packet_id` | Stable per node | Small integer; may collide across sessions or nodes. Not globally unique. |
-| MeshCore | `sender_timestamp` | Stable per sender | Distinguishes messages from the same sender but not globally unique across senders. |
-| LXMF | `message_id` (hex of `message_id` bytes from packet) | Stable | Derived from source_hash + nonce at the protocol level. Unique per LXMF message. Codec normalises bytes to hex string. |
+| Adapter    | Native ID field                                      | Stability         | Notes                                                                                                                  |
+| ---------- | ---------------------------------------------------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Matrix     | `event_id`                                           | Stable            | Synapse-assigned, globally unique per event.                                                                           |
+| Meshtastic | `packet_id`                                          | Stable per node   | Small integer; may collide across sessions or nodes. Not globally unique.                                              |
+| MeshCore   | `sender_timestamp`                                   | Stable per sender | Distinguishes messages from the same sender but not globally unique across senders.                                    |
+| LXMF       | `message_id` (hex of `message_id` bytes from packet) | Stable            | Derived from source_hash + nonce at the protocol level. Unique per LXMF message. Codec normalises bytes to hex string. |
 
 **Consequences for adapters without stable native IDs:** If a transport or adapter configuration produces `native_message_id = None` or `""`, the native-ref dedup stage cannot suppress duplicates from that source. Events from such adapters always pass through to routing and delivery. Operators relying on dedup for a specific transport must verify that the adapter's codec populates `native_message_id` for the relevant packet types.
 
 ### 6.7 Duplicate Suppression vs. Replay
 
 Duplicate suppression is **NOT** replay dedupe. Replay generates fresh canonical events with independent receipts and new `event_id` values. The native-ref dedup stage prevents echo from transport-layer re-delivery of the same physical packet — it does not suppress replay-originated events. Multiple `BEST_EFFORT` replays of the same original event produce additional deliveries, each with its own receipt lineage. See Contract 49 §5 (Replay Route Attribution) and the Bridge Operation Runbook §7.
-
 
 ## 7. Route Diagnostics Expectations
 
@@ -265,7 +258,6 @@ The runtime builder registers routes after adapter assembly. Route registration 
 ### 7.3 Replay Route Diagnostics
 
 Replay summaries include `route_attribution` per event when replay modes include routing (`RE_ROUTE`, `BEST_EFFORT`, `DRY_RUN`). This provides an audit trail of which routes matched which historical events.
-
 
 ## 8. Startup Expectations
 

@@ -8,6 +8,7 @@ When available, the protobuf ``PortNum`` enum can be used for authoritative
 numeric portnum values.  Tests that depend on the real enum should skip
 when the dependency is absent.
 """
+
 from __future__ import annotations
 
 import typing as _t

@@ -8,25 +8,20 @@ from __future__ import annotations
 import asyncio
 import logging
 import tempfile
-import os
 from datetime import datetime, timezone
 
-import pytest
-
 from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
-from medre.config.adapters.meshtastic import MeshtasticConfig
-from medre.adapters.meshtastic.errors import MeshtasticSendError
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
-from medre.core.events import CanonicalEvent, EventMetadata, NativeMessageRef
+from medre.config.adapters.meshtastic import MeshtasticConfig
+from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
+from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.events.bus import EventBus
-from medre.core.planning.delivery_plan import DeliveryPlan
 from medre.core.planning.fallback_resolution import FallbackResolver
 from medre.core.planning.relation_resolution import RelationResolver
 from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite import SQLiteStorage
-from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 
 
 def _make_text_packet(
@@ -96,11 +91,10 @@ async def _make_pipeline(
     return runner
 
 
-def _make_adapter_context_for_pipeline(
-    adapter_id: str, runner: PipelineRunner
-) -> Any:
+def _make_adapter_context_for_pipeline(adapter_id: str, runner: PipelineRunner) -> Any:
     """Create an AdapterContext wired to a PipelineRunner's ingress handler."""
     from medre.core.contracts.adapter import AdapterContext
+
     return AdapterContext(
         adapter_id=adapter_id,
         event_bus=None,
@@ -221,15 +215,17 @@ class TestMeshtasticPipelineIntegration:
         rp.register_adapter_platform("local-radio", "meshtastic")
         rp.register(TextRenderer(), priority=100)
 
-        runner = PipelineRunner(PipelineConfig(
-            storage=temp_storage,
-            router=router,
-            fallback_resolver=FallbackResolver(),
-            relation_resolver=RelationResolver(storage=temp_storage),
-            adapters={"radio-in": in_adapter, "local-radio": out_adapter},
-            event_bus=EventBus(),
-            rendering_pipeline=rp,
-        ))
+        runner = PipelineRunner(
+            PipelineConfig(
+                storage=temp_storage,
+                router=router,
+                fallback_resolver=FallbackResolver(),
+                relation_resolver=RelationResolver(storage=temp_storage),
+                adapters={"radio-in": in_adapter, "local-radio": out_adapter},
+                event_bus=EventBus(),
+                rendering_pipeline=rp,
+            )
+        )
 
         ctx = _make_adapter_context_for_pipeline("radio-in", runner)
         await in_adapter.start(ctx)
@@ -270,6 +266,7 @@ class TestMeshtasticPipelineIntegration:
 
         # process_one in tranche 1 is a no-op (no sleep)
         import time
+
         t0 = time.monotonic()
         result = await queue.process_one()
         elapsed = time.monotonic() - t0
@@ -287,9 +284,7 @@ class TestMeshtasticPipelineIntegration:
 class TestMeshtasticNativeRefPersistence:
     """Pipeline integration tests for native ref persistence."""
 
-    async def test_inbound_native_ref_persisted(
-        self, temp_storage
-    ) -> None:
+    async def test_inbound_native_ref_persisted(self, temp_storage) -> None:
         """Inbound Meshtastic event → pipeline store → NativeMessageRef(direction="inbound")."""
         config = MeshtasticConfig(adapter_id="mesh-inbound")
         adapter = FakeMeshtasticAdapter(config)
@@ -306,15 +301,17 @@ class TestMeshtasticNativeRefPersistence:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        runner = PipelineRunner(PipelineConfig(
-            storage=temp_storage,
-            router=router,
-            fallback_resolver=FallbackResolver(),
-            relation_resolver=RelationResolver(storage=temp_storage),
-            adapters={"mesh-inbound": adapter},
-            event_bus=EventBus(),
-            rendering_pipeline=rp,
-        ))
+        runner = PipelineRunner(
+            PipelineConfig(
+                storage=temp_storage,
+                router=router,
+                fallback_resolver=FallbackResolver(),
+                relation_resolver=RelationResolver(storage=temp_storage),
+                adapters={"mesh-inbound": adapter},
+                event_bus=EventBus(),
+                rendering_pipeline=rp,
+            )
+        )
 
         ctx = _make_adapter_context_for_pipeline("mesh-inbound", runner)
         await adapter.start(ctx)
@@ -331,9 +328,7 @@ class TestMeshtasticNativeRefPersistence:
         assert resolved is not None
         assert resolved == adapter.inbound_events[0].event_id
 
-    async def test_outbound_native_ref_persisted(
-        self, temp_storage
-    ) -> None:
+    async def test_outbound_native_ref_persisted(self, temp_storage) -> None:
         """Outbound FakeMeshtasticAdapter deliver → pipeline store → NativeMessageRef(direction="outbound")."""
         in_config = MeshtasticConfig(adapter_id="mesh-in")
         out_config = MeshtasticConfig(adapter_id="mesh-out")
@@ -356,15 +351,17 @@ class TestMeshtasticNativeRefPersistence:
         rp.register_adapter_platform("mesh-out", "meshtastic")
         rp.register(TextRenderer(), priority=100)
 
-        runner = PipelineRunner(PipelineConfig(
-            storage=temp_storage,
-            router=router,
-            fallback_resolver=FallbackResolver(),
-            relation_resolver=RelationResolver(storage=temp_storage),
-            adapters={"mesh-in": in_adapter, "mesh-out": out_adapter},
-            event_bus=EventBus(),
-            rendering_pipeline=rp,
-        ))
+        runner = PipelineRunner(
+            PipelineConfig(
+                storage=temp_storage,
+                router=router,
+                fallback_resolver=FallbackResolver(),
+                relation_resolver=RelationResolver(storage=temp_storage),
+                adapters={"mesh-in": in_adapter, "mesh-out": out_adapter},
+                event_bus=EventBus(),
+                rendering_pipeline=rp,
+            )
+        )
 
         ctx = _make_adapter_context_for_pipeline("mesh-in", runner)
         await in_adapter.start(ctx)
@@ -382,9 +379,7 @@ class TestMeshtasticNativeRefPersistence:
         assert resolved is not None
         assert resolved == in_adapter.inbound_events[0].event_id
 
-    async def test_failed_delivery_no_outbound_native_ref(
-        self, temp_storage
-    ) -> None:
+    async def test_failed_delivery_no_outbound_native_ref(self, temp_storage) -> None:
         """Failed deliver → no outbound native ref in storage."""
         in_config = MeshtasticConfig(adapter_id="mesh-fail-in")
         out_config = MeshtasticConfig(adapter_id="mesh-fail-out")
@@ -408,15 +403,17 @@ class TestMeshtasticNativeRefPersistence:
         rp.register_adapter_platform("mesh-fail-out", "meshtastic")
         rp.register(TextRenderer(), priority=100)
 
-        runner = PipelineRunner(PipelineConfig(
-            storage=temp_storage,
-            router=router,
-            fallback_resolver=FallbackResolver(),
-            relation_resolver=RelationResolver(storage=temp_storage),
-            adapters={"mesh-fail-in": in_adapter, "mesh-fail-out": out_adapter},
-            event_bus=EventBus(),
-            rendering_pipeline=rp,
-        ))
+        runner = PipelineRunner(
+            PipelineConfig(
+                storage=temp_storage,
+                router=router,
+                fallback_resolver=FallbackResolver(),
+                relation_resolver=RelationResolver(storage=temp_storage),
+                adapters={"mesh-fail-in": in_adapter, "mesh-fail-out": out_adapter},
+                event_bus=EventBus(),
+                rendering_pipeline=rp,
+            )
+        )
 
         ctx = _make_adapter_context_for_pipeline("mesh-fail-in", runner)
         await in_adapter.start(ctx)
@@ -440,9 +437,7 @@ class TestMeshtasticNativeRefPersistence:
         )
         assert inbound_resolved is not None
 
-    async def test_duplicate_inbound_native_ref_idempotent(
-        self, temp_storage
-    ) -> None:
+    async def test_duplicate_inbound_native_ref_idempotent(self, temp_storage) -> None:
         """Duplicate inbound native refs are idempotent (INSERT OR IGNORE)."""
         config = MeshtasticConfig(adapter_id="mesh-dup")
         adapter = FakeMeshtasticAdapter(config)
@@ -459,15 +454,17 @@ class TestMeshtasticNativeRefPersistence:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        runner = PipelineRunner(PipelineConfig(
-            storage=temp_storage,
-            router=router,
-            fallback_resolver=FallbackResolver(),
-            relation_resolver=RelationResolver(storage=temp_storage),
-            adapters={"mesh-dup": adapter},
-            event_bus=EventBus(),
-            rendering_pipeline=rp,
-        ))
+        runner = PipelineRunner(
+            PipelineConfig(
+                storage=temp_storage,
+                router=router,
+                fallback_resolver=FallbackResolver(),
+                relation_resolver=RelationResolver(storage=temp_storage),
+                adapters={"mesh-dup": adapter},
+                event_bus=EventBus(),
+                rendering_pipeline=rp,
+            )
+        )
 
         ctx = _make_adapter_context_for_pipeline("mesh-dup", runner)
         await adapter.start(ctx)
@@ -476,9 +473,10 @@ class TestMeshtasticNativeRefPersistence:
         await adapter.simulate_inbound(packet)
 
         # Manually store a duplicate native ref — should be idempotent
-        from medre.core.events.canonical import NativeMessageRef
         import uuid as _uuid
         from datetime import timezone as _tz
+
+        from medre.core.events.canonical import NativeMessageRef
 
         event = adapter.inbound_events[0]
         dup_ref = NativeMessageRef(
@@ -548,9 +546,7 @@ class TestMeshtasticReplyRelation:
         assert rel.target_native_ref.native_message_id == "100"
         assert rel.target_native_ref.adapter == "mesh-reply"
 
-    async def test_inbound_reply_resolved_through_pipeline(
-        self, temp_storage
-    ) -> None:
+    async def test_inbound_reply_resolved_through_pipeline(self, temp_storage) -> None:
         """When the target native ref already exists in storage, the pipeline resolves
         the relation before the event is published (pipeline Stage 2: resolve_relations).
 
@@ -570,15 +566,17 @@ class TestMeshtasticReplyRelation:
         )
         router = Router(routes=[route])
 
-        runner = PipelineRunner(PipelineConfig(
-            storage=temp_storage,
-            router=router,
-            fallback_resolver=FallbackResolver(),
-            relation_resolver=RelationResolver(storage=temp_storage),
-            adapters={"mesh-source": in_adapter},
-            event_bus=EventBus(),
-            rendering_pipeline=RenderingPipeline(),
-        ))
+        runner = PipelineRunner(
+            PipelineConfig(
+                storage=temp_storage,
+                router=router,
+                fallback_resolver=FallbackResolver(),
+                relation_resolver=RelationResolver(storage=temp_storage),
+                adapters={"mesh-source": in_adapter},
+                event_bus=EventBus(),
+                rendering_pipeline=RenderingPipeline(),
+            )
+        )
 
         ctx = _make_adapter_context_for_pipeline("mesh-source", runner)
         await in_adapter.start(ctx)
@@ -607,7 +605,11 @@ class TestMeshtasticReplyRelation:
             "toId": "",
             "channel": 0,
             "id": 1001,
-            "decoded": {"portnum": "text_message", "text": "reply to 999", "replyId": 999},
+            "decoded": {
+                "portnum": "text_message",
+                "text": "reply to 999",
+                "replyId": 999,
+            },
         }
         await in_adapter.simulate_inbound(reply_packet)
 
@@ -646,15 +648,17 @@ class TestMeshtasticReplyRelation:
         )
         router = Router(routes=[route])
 
-        runner = PipelineRunner(PipelineConfig(
-            storage=temp_storage,
-            router=router,
-            fallback_resolver=FallbackResolver(),
-            relation_resolver=RelationResolver(storage=temp_storage),
-            adapters={"mesh-orphan": in_adapter},
-            event_bus=EventBus(),
-            rendering_pipeline=RenderingPipeline(),
-        ))
+        runner = PipelineRunner(
+            PipelineConfig(
+                storage=temp_storage,
+                router=router,
+                fallback_resolver=FallbackResolver(),
+                relation_resolver=RelationResolver(storage=temp_storage),
+                adapters={"mesh-orphan": in_adapter},
+                event_bus=EventBus(),
+                rendering_pipeline=RenderingPipeline(),
+            )
+        )
 
         ctx = _make_adapter_context_for_pipeline("mesh-orphan", runner)
         await in_adapter.start(ctx)
@@ -665,7 +669,11 @@ class TestMeshtasticReplyRelation:
             "toId": "",
             "channel": 0,
             "id": 500,
-            "decoded": {"portnum": "text_message", "text": "orphan reply", "replyId": 99999},
+            "decoded": {
+                "portnum": "text_message",
+                "text": "orphan reply",
+                "replyId": 99999,
+            },
         }
         # Should NOT raise — pipeline handles unresolved relations gracefully
         await in_adapter.simulate_inbound(packet)
@@ -690,9 +698,7 @@ class TestMeshtasticPlatformRendererSelection:
     """Prove platform-aware renderer selection works for Meshtastic
     via the pipeline's platform registry."""
 
-    async def test_platform_aware_renderer_selection(
-        self, temp_storage
-    ) -> None:
+    async def test_platform_aware_renderer_selection(self, temp_storage) -> None:
         """A realistic Meshtastic adapter ID that does NOT start with 'meshtastic'
         still selects MeshtasticRenderer through the pipeline's platform registry.
 
@@ -725,15 +731,17 @@ class TestMeshtasticPlatformRendererSelection:
         rp.register(TextRenderer(), priority=100)
 
         # 4. PipelineRunner — start() calls _populate_renderer_platforms()
-        runner = PipelineRunner(PipelineConfig(
-            storage=temp_storage,
-            router=router,
-            fallback_resolver=FallbackResolver(),
-            relation_resolver=RelationResolver(storage=temp_storage),
-            adapters={"local-node": in_adapter, "radio-out": out_adapter},
-            event_bus=EventBus(),
-            rendering_pipeline=rp,
-        ))
+        runner = PipelineRunner(
+            PipelineConfig(
+                storage=temp_storage,
+                router=router,
+                fallback_resolver=FallbackResolver(),
+                relation_resolver=RelationResolver(storage=temp_storage),
+                adapters={"local-node": in_adapter, "radio-out": out_adapter},
+                event_bus=EventBus(),
+                rendering_pipeline=rp,
+            )
+        )
         await runner.start()
 
         # 5. Wire inbound adapter

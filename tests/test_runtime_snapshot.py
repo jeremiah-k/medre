@@ -17,26 +17,22 @@ Covers:
 
 from __future__ import annotations
 
-import dataclasses
 import json
-import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 
 from medre.runtime.snapshot import (
-    SCHEMA_VERSION,
     _MAX_ADAPTERS,
     _MAX_BUILD_FAILURES,
     _MAX_ERROR_DETAIL_LEN,
     _MAX_ROUTES,
+    SCHEMA_VERSION,
     build_runtime_snapshot,
 )
-
 
 # Sentinel to distinguish "config not passed" from "config=None".
 _UNSET = object()
@@ -126,6 +122,7 @@ class _FakeCapacityController:
 
 class _FakeReplayEngine:
     """Marker object — presence means replay is available."""
+
     pass
 
 
@@ -276,12 +273,18 @@ class TestDeterministicOrdering:
     def test_section_keys_are_sorted(self) -> None:
         """Section sub-dict keys (lifecycle, routes, etc.) must be sorted."""
         snap = build_runtime_snapshot(_make_fake_app())
-        for section_name in ("lifecycle", "routes", "startup", "health",
-                             "diagnostics", "replay"):
+        for section_name in (
+            "lifecycle",
+            "routes",
+            "startup",
+            "health",
+            "diagnostics",
+            "replay",
+        ):
             section = snap[section_name]
-            assert list(section.keys()) == sorted(section.keys()), (
-                f"Section {section_name!r} keys not sorted"
-            )
+            assert list(section.keys()) == sorted(
+                section.keys()
+            ), f"Section {section_name!r} keys not sorted"
 
 
 # ---------------------------------------------------------------------------
@@ -357,7 +360,9 @@ class TestSanitisation:
 
         forbidden = ["syt_", "api_key", "password", "secret", "access_token"]
         for token in forbidden:
-            assert token not in serialized, f"Forbidden token '{token}' found in snapshot"
+            assert (
+                token not in serialized
+            ), f"Forbidden token '{token}' found in snapshot"
 
     def test_no_sdk_repr_strings(self) -> None:
         """No '<module.Class object at 0x...>' strings in snapshot."""
@@ -399,10 +404,7 @@ class TestBoundedSize:
 
     def test_routes_capped(self) -> None:
         """Route count is capped at _MAX_ROUTES."""
-        routes = {
-            f"route-{i:04d}": {"delivered": i}
-            for i in range(_MAX_ROUTES + 50)
-        }
+        routes = {f"route-{i:04d}": {"delivered": i} for i in range(_MAX_ROUTES + 50)}
         app = _make_fake_app(route_stats=_FakeRouteStats(routes))
         snap = build_runtime_snapshot(app)
         assert len(snap["routes"]["stats"]["per_route"]) <= _MAX_ROUTES
@@ -493,8 +495,18 @@ class TestSnapshotContents:
     def test_routes_from_route_stats(self) -> None:
         """Routes stats section mirrors route_stats.snapshot() output."""
         route_data = {
-            "bridge-a": {"delivered": 10, "failed": 1, "skipped": 0, "loop_prevented": 0},
-            "bridge-b": {"delivered": 5, "failed": 0, "skipped": 2, "loop_prevented": 1},
+            "bridge-a": {
+                "delivered": 10,
+                "failed": 1,
+                "skipped": 0,
+                "loop_prevented": 0,
+            },
+            "bridge-b": {
+                "delivered": 5,
+                "failed": 0,
+                "skipped": 2,
+                "loop_prevented": 1,
+            },
         }
         app = _make_fake_app(route_stats=_FakeRouteStats(route_data))
         snap = build_runtime_snapshot(app)
@@ -523,14 +535,16 @@ class TestSnapshotContents:
 
     def test_limits_reflected(self) -> None:
         """Limits section matches the config's RuntimeLimits."""
-        app = _make_fake_app(config=_FakeRuntimeConfig(
-            limits=_FakeRuntimeLimits(
-                max_inflight_deliveries=100,
-                max_inflight_replay_events=50,
-                shutdown_drain_timeout_seconds=15,
-                delivery_acquire_timeout_seconds=3.0,
-            ),
-        ))
+        app = _make_fake_app(
+            config=_FakeRuntimeConfig(
+                limits=_FakeRuntimeLimits(
+                    max_inflight_deliveries=100,
+                    max_inflight_replay_events=50,
+                    shutdown_drain_timeout_seconds=15,
+                    delivery_acquire_timeout_seconds=3.0,
+                ),
+            )
+        )
         snap = build_runtime_snapshot(app)
         assert snap["limits"]["max_inflight_deliveries"] == 100
         assert snap["limits"]["max_inflight_replay_events"] == 50
@@ -694,7 +708,10 @@ class TestHealthStateTolerance:
     def test_startup_health_state_dict(self) -> None:
         app = _make_fake_app(health_state={"overall": "healthy", "adapters": 3})
         snap = build_runtime_snapshot(app)
-        assert snap["startup"]["startup_health"] == {"overall": "healthy", "adapters": 3}
+        assert snap["startup"]["startup_health"] == {
+            "overall": "healthy",
+            "adapters": 3,
+        }
 
     def test_startup_health_state_to_dict(self) -> None:
         class _HS:
@@ -750,8 +767,8 @@ class TestLiveHealthPopulated:
 
     def test_live_health_dict_when_state_present(self) -> None:
         """When _live_health_state has to_dict(), live_health is populated."""
-        from medre.core.runtime.health import AdapterLiveHealth, LiveHealthSnapshot
         from medre.core.lifecycle.states import AdapterState
+        from medre.core.runtime.health import AdapterLiveHealth, LiveHealthSnapshot
 
         adapter_health = AdapterLiveHealth(
             adapter_id="a1",
@@ -763,7 +780,13 @@ class TestLiveHealthPopulated:
         )
         live_snap = LiveHealthSnapshot(
             runtime_health="healthy",
-            adapter_summary={"healthy": 1, "degraded": 0, "failed": 0, "transitional": 0, "total": 1},
+            adapter_summary={
+                "healthy": 1,
+                "degraded": 0,
+                "failed": 0,
+                "transitional": 0,
+                "total": 1,
+            },
             adapters={"a1": adapter_health},
             poll_timestamp_monotonic=50.0,
             poll_timestamp_wall="2026-05-14T10:00:00+00:00",
@@ -782,8 +805,8 @@ class TestLiveHealthPopulated:
 
     def test_startup_health_unchanged_after_live_refresh(self) -> None:
         """startup.startup_health remains unchanged when live health is populated."""
-        from medre.core.runtime.health import AdapterLiveHealth, LiveHealthSnapshot
         from medre.core.lifecycle.states import AdapterState
+        from medre.core.runtime.health import AdapterLiveHealth, LiveHealthSnapshot
 
         adapter_health = AdapterLiveHealth(
             adapter_id="a1",
@@ -795,13 +818,22 @@ class TestLiveHealthPopulated:
         )
         live_snap = LiveHealthSnapshot(
             runtime_health="healthy",
-            adapter_summary={"healthy": 1, "degraded": 0, "failed": 0, "transitional": 0, "total": 1},
+            adapter_summary={
+                "healthy": 1,
+                "degraded": 0,
+                "failed": 0,
+                "transitional": 0,
+                "total": 1,
+            },
             adapters={"a1": adapter_health},
             poll_timestamp_monotonic=50.0,
             poll_timestamp_wall="2026-05-14T10:00:00+00:00",
             poll_count=1,
         )
-        startup_health_val = {"runtime_health": "healthy", "adapter_summary": {"total": 1}}
+        startup_health_val = {
+            "runtime_health": "healthy",
+            "adapter_summary": {"total": 1},
+        }
         app = _make_fake_app(health_state=startup_health_val)
         app._live_health_state = live_snap  # type: ignore[attr-defined]
 
@@ -859,7 +891,10 @@ class TestRouteStatsIntegration:
         }
         app = _make_fake_app(route_stats=_FakeRouteStats(route_data))
         snap = build_runtime_snapshot(app)
-        assert snap["routes"]["stats"]["per_route"]["r1"]["last_error"] == "connection refused"
+        assert (
+            snap["routes"]["stats"]["per_route"]["r1"]["last_error"]
+            == "connection refused"
+        )
 
     def test_route_stats_sorted_by_route_id(self) -> None:
         route_data = {
@@ -881,17 +916,19 @@ class TestCapacityIntegration:
     """Capacity controller snapshot data flows correctly."""
 
     def test_capacity_snapshot_included(self) -> None:
-        cap = _FakeCapacityController({
-            "accepting_work": False,
-            "delivery_current": 10,
-            "delivery_limit": 100,
-            "delivery_rejections": 5,
-            "delivery_timeouts": 2,
-            "replay_current": 3,
-            "replay_limit": 50,
-            "replay_rejections": 1,
-            "replay_timeouts": 0,
-        })
+        cap = _FakeCapacityController(
+            {
+                "accepting_work": False,
+                "delivery_current": 10,
+                "delivery_limit": 100,
+                "delivery_rejections": 5,
+                "delivery_timeouts": 2,
+                "replay_current": 3,
+                "replay_limit": 50,
+                "replay_rejections": 1,
+                "replay_timeouts": 0,
+            }
+        )
         app = _make_fake_app(capacity_controller=cap)
         snap = build_runtime_snapshot(app)
         assert snap["capacity"]["state"]["accepting_work"] is False
@@ -1189,9 +1226,9 @@ class TestProvenanceMetadata:
         )
         snap = build_runtime_snapshot(app)
         for adapter_id, entry in snap["adapters"].items():
-            assert entry["provenance"] == "startup", (
-                f"Adapter {adapter_id!r} missing provenance='startup'"
-            )
+            assert (
+                entry["provenance"] == "startup"
+            ), f"Adapter {adapter_id!r} missing provenance='startup'"
 
     def test_adapter_provenance_json_safe(self) -> None:
         """Snapshot with adapter provenance is JSON-serialisable."""
@@ -1307,8 +1344,8 @@ class TestLiveHealthTypes:
 
     def test_adapter_live_health_is_frozen(self) -> None:
         """AdapterLiveHealth is frozen (immutable)."""
-        from medre.core.runtime.health import AdapterLiveHealth
         from medre.core.lifecycle.states import AdapterState
+        from medre.core.runtime.health import AdapterLiveHealth
 
         entry = AdapterLiveHealth(
             adapter_id="test-adapter",
@@ -1323,8 +1360,8 @@ class TestLiveHealthTypes:
 
     def test_adapter_live_health_to_dict_json_safe(self) -> None:
         """AdapterLiveHealth.to_dict() produces JSON-safe output."""
-        from medre.core.runtime.health import AdapterLiveHealth
         from medre.core.lifecycle.states import AdapterState
+        from medre.core.runtime.health import AdapterLiveHealth
 
         entry = AdapterLiveHealth(
             adapter_id="a1",
@@ -1347,8 +1384,8 @@ class TestLiveHealthTypes:
 
     def test_adapter_live_health_error_defaults_none(self) -> None:
         """AdapterLiveHealth.error defaults to None when omitted."""
-        from medre.core.runtime.health import AdapterLiveHealth
         from medre.core.lifecycle.states import AdapterState
+        from medre.core.runtime.health import AdapterLiveHealth
 
         entry = AdapterLiveHealth(
             adapter_id="a1",
@@ -1367,7 +1404,13 @@ class TestLiveHealthTypes:
 
         snap = LiveHealthSnapshot(
             runtime_health="healthy",
-            adapter_summary={"healthy": 1, "degraded": 0, "failed": 0, "transitional": 0, "total": 1},
+            adapter_summary={
+                "healthy": 1,
+                "degraded": 0,
+                "failed": 0,
+                "transitional": 0,
+                "total": 1,
+            },
             adapters={},
             poll_timestamp_monotonic=100.0,
             poll_timestamp_wall="2026-05-14T10:00:00+00:00",
@@ -1378,8 +1421,8 @@ class TestLiveHealthTypes:
 
     def test_live_health_snapshot_to_dict_json_safe(self) -> None:
         """LiveHealthSnapshot.to_dict() produces JSON-safe output with sorted keys."""
-        from medre.core.runtime.health import AdapterLiveHealth, LiveHealthSnapshot
         from medre.core.lifecycle.states import AdapterState
+        from medre.core.runtime.health import AdapterLiveHealth, LiveHealthSnapshot
 
         adapter_health = AdapterLiveHealth(
             adapter_id="a1",
@@ -1391,7 +1434,13 @@ class TestLiveHealthTypes:
         )
         snap = LiveHealthSnapshot(
             runtime_health="healthy",
-            adapter_summary={"healthy": 1, "degraded": 0, "failed": 0, "transitional": 0, "total": 1},
+            adapter_summary={
+                "healthy": 1,
+                "degraded": 0,
+                "failed": 0,
+                "transitional": 0,
+                "total": 1,
+            },
             adapters={"a1": adapter_health},
             poll_timestamp_monotonic=50.0,
             poll_timestamp_wall="2026-05-14T10:00:00+00:00",

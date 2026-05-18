@@ -7,6 +7,7 @@ The codec expects the native packet to be a plain dict and does not import
 any LXMF or Reticulum library directly.  This keeps the codec testable
 without a real LXMF dependency.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -62,9 +63,7 @@ class LxmfCodec:
             If the packet is fundamentally unparseable or unsupported.
         """
         if not isinstance(packet, dict):
-            raise LxmfCodecError(
-                f"packet must be a dict, got {type(packet).__name__}"
-            )
+            raise LxmfCodecError(f"packet must be a dict, got {type(packet).__name__}")
 
         classification = self._classifier.classify(packet)
         category = classification["category"]

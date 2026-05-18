@@ -8,17 +8,13 @@ dead-lettering, deadline filtering, and shutdown safety.
 from __future__ import annotations
 
 import asyncio
-import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-
 from medre.core.events.canonical import (
     CanonicalEvent,
     DeliveryReceipt,
-    NativeMessageRef,
 )
 from medre.core.events.metadata import EventMetadata
 from medre.core.planning.delivery_plan import (
@@ -30,7 +26,6 @@ from medre.core.planning.delivery_plan import (
 from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.core.runtime.accounting import RuntimeAccounting
 from medre.observability.classification import infer_failure_kind
-
 
 # ---------------------------------------------------------------------------
 # RetryWorker under test
@@ -49,15 +44,18 @@ def _route_from_receipt(receipt: DeliveryReceipt) -> Route:
     return Route(
         id=receipt.route_id or "retry-route",
         source=RouteSource(adapter=None, event_kinds=(), channel=None),
-        targets=[RouteTarget(
-            adapter=receipt.target_adapter,
-            channel=getattr(receipt, "target_channel", None),
-        )],
+        targets=[
+            RouteTarget(
+                adapter=receipt.target_adapter,
+                channel=getattr(receipt, "target_channel", None),
+            )
+        ],
     )
 
 
 def _plan_from_receipt(
-    receipt: DeliveryReceipt, retry_policy: RetryPolicy,
+    receipt: DeliveryReceipt,
+    retry_policy: RetryPolicy,
 ) -> DeliveryPlan:
     return DeliveryPlan(
         plan_id=receipt.delivery_plan_id,
@@ -121,12 +119,15 @@ class RetryWorker:
                 )
                 route = _route_from_receipt(receipt)
                 plan = _plan_from_receipt(
-                    receipt, self._retry_executor.policy,
+                    receipt,
+                    self._retry_executor.policy,
                 )
 
                 try:
                     await self.pipeline.deliver_to_target(
-                        event, route, plan,
+                        event,
+                        route,
+                        plan,
                         previous_receipt=receipt,
                     )
                     self.state.succeeded += 1
@@ -284,7 +285,8 @@ class TestRetryEngine:
         """Retry passes previous_receipt so pipeline increments attempt."""
         event = _make_event()
         receipt = _make_failed_receipt(
-            attempt_number=1, error="ConnectionError: reset",
+            attempt_number=1,
+            error="ConnectionError: reset",
         )
         success = _make_success_receipt(attempt_number=2)
         storage = _mock_storage([receipt], event)
@@ -385,7 +387,8 @@ class TestRetryEngine:
         policy = RetryPolicy(max_attempts=3)
         # Attempt 3 is the max — the retry would be attempt 3 and fail.
         receipt = _make_failed_receipt(
-            attempt_number=2, error="ConnectionError: timeout",
+            attempt_number=2,
+            error="ConnectionError: timeout",
         )
         storage = _mock_storage([receipt], event)
         pipeline = _mock_pipeline()
@@ -443,11 +446,13 @@ class TestRetryEngineEdgeCases:
         """Worker processes multiple due receipts in one call."""
         event = _make_event()
         r1 = _make_failed_receipt(
-            receipt_id="rcpt-1", target_adapter="t1",
+            receipt_id="rcpt-1",
+            target_adapter="t1",
             error="ConnectionError: timeout",
         )
         r2 = _make_failed_receipt(
-            receipt_id="rcpt-2", target_adapter="t2",
+            receipt_id="rcpt-2",
+            target_adapter="t2",
             error="ConnectionError: reset",
         )
         storage = _mock_storage([r1, r2], event)
@@ -483,7 +488,8 @@ class TestRetryEngineEdgeCases:
         event = _make_event()
         policy = RetryPolicy(max_attempts=5)
         receipt = _make_failed_receipt(
-            attempt_number=1, error="ConnectionError: timeout",
+            attempt_number=1,
+            error="ConnectionError: timeout",
         )
         storage = _mock_storage([receipt], event)
         pipeline = _mock_pipeline()
@@ -502,11 +508,13 @@ class TestRetryEngineEdgeCases:
         """Among multiple receipts, only transient ones are retried."""
         event = _make_event()
         transient = _make_failed_receipt(
-            receipt_id="rcpt-trans", target_adapter="t_trans",
+            receipt_id="rcpt-trans",
+            target_adapter="t_trans",
             error="ConnectionError: timeout",
         )
         permanent = _make_failed_receipt(
-            receipt_id="rcpt-perm", target_adapter="t_perm",
+            receipt_id="rcpt-perm",
+            target_adapter="t_perm",
             error="RuntimeError: permanent",
         )
         storage = _mock_storage([transient, permanent], event)
@@ -515,7 +523,7 @@ class TestRetryEngineEdgeCases:
         policy = RetryPolicy(max_attempts=3)
 
         worker = RetryWorker(storage, pipeline, policy)
-        processed = await worker._process_due(datetime.now(timezone.utc))
+        await worker._process_due(datetime.now(timezone.utc))
 
         assert worker.state.succeeded == 1
         assert worker.state.processed == 1
@@ -565,7 +573,9 @@ class TestRetryWorkerFalsyFallbackSafety:
         policy = RetryPolicy(
             max_attempts=stored_max_attempts if stored_max_attempts is not None else 3,
             backoff_base=stored_backoff if stored_backoff is not None else 2.0,
-            max_delay_seconds=stored_max_delay if stored_max_delay is not None else 60.0,
+            max_delay_seconds=(
+                stored_max_delay if stored_max_delay is not None else 60.0
+            ),
             jitter=False,
         )
         assert policy.max_attempts == 0

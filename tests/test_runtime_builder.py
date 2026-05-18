@@ -3,18 +3,16 @@ disabled adapters, error handling."""
 
 from __future__ import annotations
 
-import dataclasses
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from medre.core.contracts.adapter import AdapterContract
-from medre.config.adapters.matrix import MatrixConfig
-from medre.config.adapters.meshtastic import MeshtasticConfig
-from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.config.adapters.lxmf import LxmfConfig
+from medre.config.adapters.matrix import MatrixConfig
+from medre.config.adapters.meshcore import MeshCoreConfig
+from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.config.model import (
     AdapterConfigSet,
     LoggingConfig,
@@ -27,22 +25,28 @@ from medre.config.model import (
     StorageConfig,
 )
 from medre.config.paths import MedrePaths, resolve
+from medre.core.contracts.adapter import AdapterContract
 from medre.core.routing.router import Router
+from medre.runtime.app import MedreApp
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.errors import RuntimeConfigError
-from medre.runtime.app import MedreApp
 from medre.runtime.route_engine import RouteValidationError, register_routes
 from medre.runtime.routes import RouteConfig, RouteConfigSet
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(autouse=True)
 def _clean_path_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for var in ("MEDRE_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME",
-                "XDG_DATA_HOME", "XDG_CACHE_HOME"):
+    for var in (
+        "MEDRE_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_STATE_HOME",
+        "XDG_DATA_HOME",
+        "XDG_CACHE_HOME",
+    ):
         monkeypatch.delenv(var, raising=False)
 
 
@@ -161,14 +165,17 @@ class TestBuilderImports:
 
     def test_import_runtime_builder(self) -> None:
         from medre.runtime.builder import RuntimeBuilder
+
         assert RuntimeBuilder is not None
 
     def test_import_medre_app(self) -> None:
         from medre.runtime.app import MedreApp
+
         assert MedreApp is not None
 
     def test_import_runtime_errors(self) -> None:
         from medre.runtime.errors import RuntimeConfigError
+
         assert RuntimeConfigError is not None
 
 
@@ -296,11 +303,13 @@ class TestAdapterConfigSet:
 
     def test_all_enabled_returns_only_enabled(self) -> None:
         matrix_on = MatrixRuntimeConfig(
-            adapter_id="on", enabled=True,
+            adapter_id="on",
+            enabled=True,
             config=_make_fake_matrix_config(),
         )
         matrix_off = MatrixRuntimeConfig(
-            adapter_id="off", enabled=False,
+            adapter_id="off",
+            enabled=False,
             config=_make_fake_matrix_config(),
         )
         acs = AdapterConfigSet(
@@ -313,11 +322,13 @@ class TestAdapterConfigSet:
 
     def test_all_configs_returns_all(self) -> None:
         matrix_on = MatrixRuntimeConfig(
-            adapter_id="on", enabled=True,
+            adapter_id="on",
+            enabled=True,
             config=_make_fake_matrix_config(),
         )
         matrix_off = MatrixRuntimeConfig(
-            adapter_id="off", enabled=False,
+            adapter_id="off",
+            enabled=False,
             config=_make_fake_matrix_config(),
         )
         acs = AdapterConfigSet(
@@ -382,7 +393,9 @@ class TestBuilderErrorCases:
         with pytest.raises(RuntimeConfigError, match="Unknown transport type"):
             builder._build_single_adapter("unknown_transport", "test_id", MagicMock())
 
-    def test_real_adapter_construction_error_wrapped(self, tmp_paths: MedrePaths) -> None:
+    def test_real_adapter_construction_error_wrapped(
+        self, tmp_paths: MedrePaths
+    ) -> None:
         """Real adapter construction exception is wrapped in RuntimeConfigError."""
         cfg = _make_fake_matrix_config()
         rt = MatrixRuntimeConfig(
@@ -398,9 +411,11 @@ class TestBuilderErrorCases:
 
         # Patch _ADAPTER_BUILDERS to inject a factory that raises
         from medre.runtime.builder import _AdapterFactory
+
         failing_factory = MagicMock(spec=_AdapterFactory)
         failing_factory.build.side_effect = ImportError("no module")
         import medre.runtime.builder as builder_mod
+
         original = builder_mod._ADAPTER_BUILDERS["matrix"]
         builder_mod._ADAPTER_BUILDERS["matrix"] = failing_factory
         try:
@@ -517,22 +532,38 @@ class TestAdapterKindFake:
             runtime=RuntimeOptions(name="fake-multi-test"),
             storage=StorageConfig(backend="memory"),
             adapters=AdapterConfigSet(
-                matrix={"fm": MatrixRuntimeConfig(
-                    adapter_id="fm", enabled=True, adapter_kind="fake",
-                    config=_make_fake_matrix_config(),
-                )},
-                meshtastic={"ft": MeshtasticRuntimeConfig(
-                    adapter_id="ft", enabled=True, adapter_kind="fake",
-                    config=_make_fake_meshtastic_config(),
-                )},
-                meshcore={"fc": MeshCoreRuntimeConfig(
-                    adapter_id="fc", enabled=True, adapter_kind="fake",
-                    config=_make_fake_meshcore_config(),
-                )},
-                lxmf={"fl": LxmfRuntimeConfig(
-                    adapter_id="fl", enabled=True, adapter_kind="fake",
-                    config=_make_fake_lxmf_config(),
-                )},
+                matrix={
+                    "fm": MatrixRuntimeConfig(
+                        adapter_id="fm",
+                        enabled=True,
+                        adapter_kind="fake",
+                        config=_make_fake_matrix_config(),
+                    )
+                },
+                meshtastic={
+                    "ft": MeshtasticRuntimeConfig(
+                        adapter_id="ft",
+                        enabled=True,
+                        adapter_kind="fake",
+                        config=_make_fake_meshtastic_config(),
+                    )
+                },
+                meshcore={
+                    "fc": MeshCoreRuntimeConfig(
+                        adapter_id="fc",
+                        enabled=True,
+                        adapter_kind="fake",
+                        config=_make_fake_meshcore_config(),
+                    )
+                },
+                lxmf={
+                    "fl": LxmfRuntimeConfig(
+                        adapter_id="fl",
+                        enabled=True,
+                        adapter_kind="fake",
+                        config=_make_fake_lxmf_config(),
+                    )
+                },
             ),
         )
         builder = RuntimeBuilder(config, tmp_paths)
@@ -552,14 +583,18 @@ class TestAdapterKindValidation:
 
     def test_invalid_adapter_kind_raises(self) -> None:
         from medre.config.errors import ConfigValidationError
+
         with pytest.raises(ConfigValidationError, match="adapter_kind"):
-            MatrixRuntimeConfig.from_toml_dict("test", {
-                "enabled": True,
-                "adapter_kind": "invalid",
-                "homeserver": "https://matrix.test",
-                "user_id": "@bot:test",
-                "access_token": "tok",
-            })
+            MatrixRuntimeConfig.from_toml_dict(
+                "test",
+                {
+                    "enabled": True,
+                    "adapter_kind": "invalid",
+                    "homeserver": "https://matrix.test",
+                    "user_id": "@bot:test",
+                    "access_token": "tok",
+                },
+            )
 
     def test_default_adapter_kind_is_real(self) -> None:
         rt = MatrixRuntimeConfig(
@@ -570,13 +605,16 @@ class TestAdapterKindValidation:
         assert rt.adapter_kind == "real"
 
     def test_fake_adapter_kind_accepted(self) -> None:
-        rt = MatrixRuntimeConfig.from_toml_dict("test", {
-            "enabled": True,
-            "adapter_kind": "fake",
-            "homeserver": "https://matrix.test",
-            "user_id": "@bot:test",
-            "access_token": "tok",
-        })
+        rt = MatrixRuntimeConfig.from_toml_dict(
+            "test",
+            {
+                "enabled": True,
+                "adapter_kind": "fake",
+                "homeserver": "https://matrix.test",
+                "user_id": "@bot:test",
+                "access_token": "tok",
+            },
+        )
         assert rt.adapter_kind == "fake"
 
 
@@ -620,7 +658,9 @@ class TestMatrixStorePathDerivation:
         expected = tmp_paths.state_dir / "adapters" / "mybot" / "matrix" / "store"
         assert injected_store_path == str(expected)
 
-    def test_store_path_derived_medre_home(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_store_path_derived_medre_home(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """MEDRE_HOME produces $MEDRE_HOME/state/adapters/<adapter_id>/matrix/store."""
         medre_home = tmp_path / "medre-root"
         monkeypatch.setenv("MEDRE_HOME", str(medre_home))
@@ -632,11 +672,15 @@ class TestMatrixStorePathDerivation:
         )
         builder = RuntimeBuilder(config, paths)
 
-        expected_store = medre_home / "state" / "adapters" / "e2ee-bot" / "matrix" / "store"
+        expected_store = (
+            medre_home / "state" / "adapters" / "e2ee-bot" / "matrix" / "store"
+        )
         injected_store_path = self._capture_store_path(builder, rt, "e2ee-bot")
         assert injected_store_path == str(expected_store)
 
-    def test_store_path_derived_xdg_state(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_store_path_derived_xdg_state(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """XDG state produces $XDG_STATE_HOME/medre/adapters/<adapter_id>/matrix/store."""
         xdg_state = tmp_path / "xdg-state"
         monkeypatch.setenv("XDG_STATE_HOME", str(xdg_state))
@@ -649,7 +693,9 @@ class TestMatrixStorePathDerivation:
         )
         builder = RuntimeBuilder(config, paths)
 
-        expected_store = xdg_state / "medre" / "adapters" / "xdg-bot" / "matrix" / "store"
+        expected_store = (
+            xdg_state / "medre" / "adapters" / "xdg-bot" / "matrix" / "store"
+        )
         injected_store_path = self._capture_store_path(builder, rt, "xdg-bot")
         assert injected_store_path == str(expected_store)
 
@@ -664,7 +710,9 @@ class TestMatrixStorePathDerivation:
         injected_store_path = self._capture_store_path(builder, rt, "explicit")
         assert injected_store_path == explicit
 
-    def test_multiple_matrix_adapters_distinct_paths(self, tmp_paths: MedrePaths) -> None:
+    def test_multiple_matrix_adapters_distinct_paths(
+        self, tmp_paths: MedrePaths
+    ) -> None:
         """Multiple Matrix adapters get distinct store paths."""
         rt1 = self._make_matrix_rt(adapter_id="bot_a")
         rt2 = self._make_matrix_rt(adapter_id="bot_b")
@@ -871,27 +919,25 @@ class TestDegradedRouteValidation:
 
     def test_route_with_all_working_adapters_survives(self) -> None:
         """Route referencing only successfully built adapters is registered."""
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("a",), ("b",)),
-        ))
+        rcs = RouteConfigSet(routes=(_rc("r1", ("a",), ("b",)),))
         router = Router()
         result = register_routes(
-            router, rcs,
-            configured_adapter_ids := frozenset({"a", "b"}),
-            built_adapter_ids := frozenset({"a", "b"}),
+            router,
+            rcs,
+            _configured_adapter_ids := frozenset({"a", "b"}),
+            _built_adapter_ids := frozenset({"a", "b"}),
         )
         assert len(result.registered_routes) == 1
         assert result.registered_routes[0].id == "r1"
 
     def test_route_with_failed_source_adapter_skipped(self) -> None:
         """Route whose source adapter failed to build is entirely skipped."""
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("a",), ("b",)),
-        ))
+        rcs = RouteConfigSet(routes=(_rc("r1", ("a",), ("b",)),))
         router = Router()
         # "a" is configured but failed to build; "b" built OK
         result = register_routes(
-            router, rcs,
+            router,
+            rcs,
             frozenset({"a", "b"}),
             frozenset({"b"}),
         )
@@ -899,13 +945,12 @@ class TestDegradedRouteValidation:
 
     def test_route_with_failed_dest_adapter_degraded(self) -> None:
         """Route with a failed dest adapter gets that target removed."""
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("a",), ("b", "c")),
-        ))
+        rcs = RouteConfigSet(routes=(_rc("r1", ("a",), ("b", "c")),))
         router = Router()
         # "a" and "b" built OK; "c" failed to build
         result = register_routes(
-            router, rcs,
+            router,
+            rcs,
             frozenset({"a", "b", "c"}),
             frozenset({"a", "b"}),
         )
@@ -916,13 +961,12 @@ class TestDegradedRouteValidation:
 
     def test_route_all_dests_failed_skipped(self) -> None:
         """Route with all dest adapters failed is skipped entirely."""
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("a",), ("b",)),
-        ))
+        rcs = RouteConfigSet(routes=(_rc("r1", ("a",), ("b",)),))
         router = Router()
         # "a" built OK; "b" failed
         result = register_routes(
-            router, rcs,
+            router,
+            rcs,
             frozenset({"a", "b"}),
             frozenset({"a"}),
         )
@@ -930,14 +974,17 @@ class TestDegradedRouteValidation:
 
     def test_mixed_routes_partial_degradation(self) -> None:
         """Multiple routes: some survive, some degraded, some skipped."""
-        rcs = RouteConfigSet(routes=(
-            _rc("good_route", ("a",), ("b",)),       # both OK → survives
-            _rc("degraded_route", ("a",), ("b", "c")),  # c failed → degraded
-            _rc("dead_route", ("c",), ("b",)),        # c source failed → skipped
-        ))
+        rcs = RouteConfigSet(
+            routes=(
+                _rc("good_route", ("a",), ("b",)),  # both OK → survives
+                _rc("degraded_route", ("a",), ("b", "c")),  # c failed → degraded
+                _rc("dead_route", ("c",), ("b",)),  # c source failed → skipped
+            )
+        )
         router = Router()
         result = register_routes(
-            router, rcs,
+            router,
+            rcs,
             frozenset({"a", "b", "c"}),
             frozenset({"a", "b"}),
         )
@@ -951,31 +998,26 @@ class TestDegradedRouteValidation:
 
     def test_unknown_adapter_still_raises(self) -> None:
         """Route referencing a truly unknown adapter ID still raises."""
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("a",), ("typo_id",)),
-        ))
+        rcs = RouteConfigSet(routes=(_rc("r1", ("a",), ("typo_id",)),))
         router = Router()
         with pytest.raises(RouteValidationError, match="typo_id"):
             register_routes(
-                router, rcs,
+                router,
+                rcs,
                 frozenset({"a"}),  # "typo_id" not configured at all
                 frozenset({"a"}),
             )
 
     def test_no_built_adapter_ids_falls_back(self) -> None:
         """Calling register_routes without built_adapter_ids uses adapter_ids for both."""
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("a",), ("b",)),
-        ))
+        rcs = RouteConfigSet(routes=(_rc("r1", ("a",), ("b",)),))
         router = Router()
         result = register_routes(router, rcs, frozenset({"a", "b"}))
         assert len(result.registered_routes) == 1
 
     def test_unknown_adapter_ids_raise_without_built_ids(self) -> None:
         """Without built_adapter_ids, unknown adapter IDs still raise."""
-        rcs = RouteConfigSet(routes=(
-            _rc("r1", ("a",), ("unknown",)),
-        ))
+        rcs = RouteConfigSet(routes=(_rc("r1", ("a",), ("unknown",)),))
         router = Router()
         with pytest.raises(RouteValidationError):
             register_routes(router, rcs, frozenset({"a"}))
@@ -1028,14 +1070,18 @@ class TestDegradedRouteValidation:
         original_build = builder._build_single_adapter
         call_count = 0
 
-        def _selective_build(transport: str, adapter_id: str, rtc: Any) -> AdapterContract:
+        def _selective_build(
+            transport: str, adapter_id: str, rtc: Any
+        ) -> AdapterContract:
             nonlocal call_count
             call_count += 1
             if adapter_id == "ft":
                 raise RuntimeConfigError("simulated build failure for ft")
             return original_build(transport, adapter_id, rtc)
 
-        with patch.object(builder, "_build_single_adapter", side_effect=_selective_build):
+        with patch.object(
+            builder, "_build_single_adapter", side_effect=_selective_build
+        ):
             app = builder.build()
 
         # fm built successfully
@@ -1104,12 +1150,16 @@ class TestDegradedRouteValidation:
 
         original_build = builder._build_single_adapter
 
-        def _selective_build(transport: str, adapter_id: str, rtc: Any) -> AdapterContract:
+        def _selective_build(
+            transport: str, adapter_id: str, rtc: Any
+        ) -> AdapterContract:
             if adapter_id == "ft":
                 raise RuntimeConfigError("simulated build failure for ft")
             return original_build(transport, adapter_id, rtc)
 
-        with patch.object(builder, "_build_single_adapter", side_effect=_selective_build):
+        with patch.object(
+            builder, "_build_single_adapter", side_effect=_selective_build
+        ):
             app = builder.build()
 
         # Good adapters built
@@ -1202,22 +1252,38 @@ class TestFakeAdapterIdPropagation:
             runtime=RuntimeOptions(name="id-prop-test"),
             storage=StorageConfig(backend="memory"),
             adapters=AdapterConfigSet(
-                matrix={"fm": MatrixRuntimeConfig(
-                    adapter_id="fm_id", enabled=True, adapter_kind="fake",
-                    config=_make_fake_matrix_config(),
-                )},
-                meshtastic={"ft": MeshtasticRuntimeConfig(
-                    adapter_id="ft_id", enabled=True, adapter_kind="fake",
-                    config=_make_fake_meshtastic_config(),
-                )},
-                meshcore={"fc": MeshCoreRuntimeConfig(
-                    adapter_id="fc_id", enabled=True, adapter_kind="fake",
-                    config=_make_fake_meshcore_config(),
-                )},
-                lxmf={"fl": LxmfRuntimeConfig(
-                    adapter_id="fl_id", enabled=True, adapter_kind="fake",
-                    config=_make_fake_lxmf_config(),
-                )},
+                matrix={
+                    "fm": MatrixRuntimeConfig(
+                        adapter_id="fm_id",
+                        enabled=True,
+                        adapter_kind="fake",
+                        config=_make_fake_matrix_config(),
+                    )
+                },
+                meshtastic={
+                    "ft": MeshtasticRuntimeConfig(
+                        adapter_id="ft_id",
+                        enabled=True,
+                        adapter_kind="fake",
+                        config=_make_fake_meshtastic_config(),
+                    )
+                },
+                meshcore={
+                    "fc": MeshCoreRuntimeConfig(
+                        adapter_id="fc_id",
+                        enabled=True,
+                        adapter_kind="fake",
+                        config=_make_fake_meshcore_config(),
+                    )
+                },
+                lxmf={
+                    "fl": LxmfRuntimeConfig(
+                        adapter_id="fl_id",
+                        enabled=True,
+                        adapter_kind="fake",
+                        config=_make_fake_lxmf_config(),
+                    )
+                },
             ),
         )
         builder = RuntimeBuilder(config, tmp_paths)
@@ -1275,11 +1341,15 @@ class TestDeterministicBuildOrdering:
         build_order: list[str] = []
         original_build = builder._build_single_adapter
 
-        def _tracking_build(transport: str, adapter_id: str, rtc: Any) -> AdapterContract:
+        def _tracking_build(
+            transport: str, adapter_id: str, rtc: Any
+        ) -> AdapterContract:
             build_order.append(f"{transport}.{adapter_id}")
             return original_build(transport, adapter_id, rtc)
 
-        with patch.object(builder, "_build_single_adapter", side_effect=_tracking_build):
+        with patch.object(
+            builder, "_build_single_adapter", side_effect=_tracking_build
+        ):
             adapters: dict[str, AdapterContract] = {}
             builder._build_adapters(adapters)
 
@@ -1301,12 +1371,22 @@ class TestDeterministicBuildOrdering:
         config = RuntimeConfig(
             storage=StorageConfig(backend="memory"),
             adapters=AdapterConfigSet(
-                matrix={"m1": MatrixRuntimeConfig(
-                    adapter_id="m1", enabled=True, adapter_kind="fake", config=None,
-                )},
-                meshtastic={"t1": MeshtasticRuntimeConfig(
-                    adapter_id="t1", enabled=True, adapter_kind="fake", config=None,
-                )},
+                matrix={
+                    "m1": MatrixRuntimeConfig(
+                        adapter_id="m1",
+                        enabled=True,
+                        adapter_kind="fake",
+                        config=None,
+                    )
+                },
+                meshtastic={
+                    "t1": MeshtasticRuntimeConfig(
+                        adapter_id="t1",
+                        enabled=True,
+                        adapter_kind="fake",
+                        config=None,
+                    )
+                },
             ),
         )
         builder = RuntimeBuilder(config, tmp_paths)
@@ -1335,9 +1415,7 @@ class TestAllAdaptersBuildFailure:
     with EXIT_BUILD.  The builder itself does NOT raise — it records failures.
     """
 
-    def test_all_single_adapter_build_failure(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    def test_all_single_adapter_build_failure(self, tmp_paths: MedrePaths) -> None:
         """Single enabled adapter fails -> build() returns app with empty adapters."""
         rt = MatrixRuntimeConfig(
             adapter_id="broken",
@@ -1362,9 +1440,7 @@ class TestAllAdaptersBuildFailure:
         assert len(app.build_failures) == 1
         assert app.build_failures[0].adapter_id == "broken"
 
-    def test_all_multiple_adapters_build_failure(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    def test_all_multiple_adapters_build_failure(self, tmp_paths: MedrePaths) -> None:
         """Multiple enabled adapters all fail -> empty adapters, all recorded."""
         rt1 = MatrixRuntimeConfig(
             adapter_id="broken_a",
@@ -1399,9 +1475,7 @@ class TestAllAdaptersBuildFailure:
         failed_ids = {bf.adapter_id for bf in app.build_failures}
         assert failed_ids == {"broken_a", "broken_b"}
 
-    def test_partial_failure_not_all_empty(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    def test_partial_failure_not_all_empty(self, tmp_paths: MedrePaths) -> None:
         """One adapter builds, one fails -> adapters non-empty, one build_failure."""
         rt1 = MatrixRuntimeConfig(
             adapter_id="good_one",
@@ -1425,12 +1499,16 @@ class TestAllAdaptersBuildFailure:
         builder = RuntimeBuilder(config, tmp_paths)
         original_build = builder._build_single_adapter
 
-        def _selective_fail(transport: str, adapter_id: str, rtc: Any) -> AdapterContract:
+        def _selective_fail(
+            transport: str, adapter_id: str, rtc: Any
+        ) -> AdapterContract:
             if adapter_id == "bad_one":
                 raise RuntimeConfigError("simulated failure")
             return original_build(transport, adapter_id, rtc)
 
-        with patch.object(builder, "_build_single_adapter", side_effect=_selective_fail):
+        with patch.object(
+            builder, "_build_single_adapter", side_effect=_selective_fail
+        ):
             app = builder.build()
 
         assert len(app.adapters) == 1

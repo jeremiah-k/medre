@@ -148,7 +148,7 @@ def _sanitize_value(value: Any, _depth: int = 0) -> Any:
     """
     if isinstance(value, _SAFE_SCALAR_TYPES):
         if isinstance(value, str) and len(value) > _MAX_STRING_LENGTH:
-            return value[: _MAX_STRING_LENGTH] + f"…[{len(value)} chars]"
+            return value[:_MAX_STRING_LENGTH] + f"…[{len(value)} chars]"
         return value
     if _depth >= _SANITIZE_MAX_DEPTH:
         return "<max_depth_exceeded>"

@@ -10,7 +10,6 @@ Everything in this document is conservative. If something has not been tested ag
 
 **Fake mode** is the default and recommended path for all development and testing. Real Reticulum connectivity is opt-in for live validation, requires the `lxmf`/`RNS` packages, and needs a configured Reticulum transport layer.
 
-
 ## 1. Purpose
 
 Alpha operation validates that the MEDRE LXMF adapter works end to end against a real Reticulum network with real LXMF message traffic. The adapter delegates all SDK interaction to its owned `LxmfSession` instance, which owns the `RNS.Reticulum`, `RNS.Identity`, and `LXMF.LXMRouter` lifecycle.
@@ -27,22 +26,20 @@ Scope boundaries:
 
 This runbook complements `docs/runbooks/lxmf-live-smoke.md`. The smoke test validates adapter lifecycle and SDK connectivity. Alpha operation validates the full wiring: config, adapter, codec, inbound callback dispatch, outbound delivery, and health, running together.
 
-
 ## 2. Prerequisites
 
-| Requirement | Details |
-|------------|---------|
-| Reticulum instance | A running Reticulum transport layer. Can be a local `rnsd` daemon, a custom config with `AutoInterface` (LAN), or a TCP connection to a remote Reticulum node. |
-| LXMF router storage | A writable directory for `LXMRouter` persistent state. |
-| Reticulum identity | A 64-byte private key file created by `RNS.Identity.to_file()`. Created on first run if none exists. |
-| Python | 3.12 or later (CONFIRMED: 3.12 installed in dev environment) |
-| Package install | Core MEDRE: `pip install -e .` (no extra required for fake mode). Real connectivity: `pip install lxmf` (installs `rns` as a dependency, CONFIRMED: lxmf 0.9.7 + rns 1.2.5 installed). Alternative: `pip install rnspure` for pure-Python crypto (slower). |
-| Network access | At least one Reticulum transport interface configured (AutoInterface for LAN, TCPClientInterface for remote, etc.) |
+| Requirement         | Details                                                                                                                                                                                                                                                    |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Reticulum instance  | A running Reticulum transport layer. Can be a local `rnsd` daemon, a custom config with `AutoInterface` (LAN), or a TCP connection to a remote Reticulum node.                                                                                             |
+| LXMF router storage | A writable directory for `LXMRouter` persistent state.                                                                                                                                                                                                     |
+| Reticulum identity  | A 64-byte private key file created by `RNS.Identity.to_file()`. Created on first run if none exists.                                                                                                                                                       |
+| Python              | 3.12 or later (CONFIRMED: 3.12 installed in dev environment)                                                                                                                                                                                               |
+| Package install     | Core MEDRE: `pip install -e .` (no extra required for fake mode). Real connectivity: `pip install lxmf` (installs `rns` as a dependency, CONFIRMED: lxmf 0.9.7 + rns 1.2.5 installed). Alternative: `pip install rnspure` for pure-Python crypto (slower). |
+| Network access      | At least one Reticulum transport interface configured (AutoInterface for LAN, TCPClientInterface for remote, etc.)                                                                                                                                         |
 
 You do not need Docker for basic alpha operation. Docker guidance is in section 17.
 
 **Critical: LXMF is not connection-oriented.** There is no "connect to a server" step. Reticulum auto-discovers peers on configured interfaces. Path requests and announces handle routing automatically. See section 5 for delivery semantics.
-
 
 ## 3. Fake Mode (Default)
 
@@ -79,7 +76,6 @@ Fake mode facts:
 - `simulate_inbound()` processes packets through the real codec/classifier pipeline.
 - `health_check()` returns `"healthy"` when started.
 - Background tasks from `_on_packet` are tracked and drained on `stop()`.
-
 
 ## 4. Identity Setup [CONFIRMED]
 
@@ -128,19 +124,18 @@ MEDRE never handles `RNS.Identity` or `RNS.Destination` objects directly. The ad
 - `native_message_id`: the LXMF message hash as a 64-char hex string.
 - Core and pipeline code never import from `lxmf` or `RNS`.
 
-
 ## 5. Delivery Mode Semantics [CONFIRMED]
 
 LXMF supports four delivery methods. The semantics are fundamentally asynchronous and store-and-forward. **Do not assume "instant delivered" or "realtime" guarantees.**
 
 ### 5.1 Method Comparison
 
-| Method | Code | Wire Behavior | Reliability | Latency | Size Limit |
-|--------|------|--------------|-------------|---------|------------|
-| DIRECT | `0x02` | Establishes `RNS.Link`, sends via link packet or `RNS.Resource` | High. Retries up to `MAX_DELIVERY_ATTEMPTS` (5). Proof receipts confirm delivery. | Seconds to minutes (depends on path availability) | Link packet: 319B. Resource: arbitrary (multi-KB typical). |
-| OPPORTUNISTIC | `0x01` | Single RNS packet, no link. Embedded in route data. | Best-effort. No ACK, no retry. Max 1 attempt (`MAX_PATHLESS_TRIES=1`). | Seconds if peer is online; fails otherwise. | 295 bytes encrypted content. |
-| PROPAGATED | `0x03` | Delivered to propagation node via link. Node stores for recipient. | Moderate. Delivery to node is reliable. Recipient must sync from node. | Minutes to hours (recipient must check in). | Limited by propagation node config (`PROPAGATION_LIMIT=256KB`). |
-| PAPER | `0x05` | Encoded as QR code or `lxm://` URI. No network transport. | None. Physical delivery only. | N/A | Roughly 2KB (`PAPER_MDU`). |
+| Method        | Code   | Wire Behavior                                                      | Reliability                                                                       | Latency                                           | Size Limit                                                      |
+| ------------- | ------ | ------------------------------------------------------------------ | --------------------------------------------------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------- |
+| DIRECT        | `0x02` | Establishes `RNS.Link`, sends via link packet or `RNS.Resource`    | High. Retries up to `MAX_DELIVERY_ATTEMPTS` (5). Proof receipts confirm delivery. | Seconds to minutes (depends on path availability) | Link packet: 319B. Resource: arbitrary (multi-KB typical).      |
+| OPPORTUNISTIC | `0x01` | Single RNS packet, no link. Embedded in route data.                | Best-effort. No ACK, no retry. Max 1 attempt (`MAX_PATHLESS_TRIES=1`).            | Seconds if peer is online; fails otherwise.       | 295 bytes encrypted content.                                    |
+| PROPAGATED    | `0x03` | Delivered to propagation node via link. Node stores for recipient. | Moderate. Delivery to node is reliable. Recipient must sync from node.            | Minutes to hours (recipient must check in).       | Limited by propagation node config (`PROPAGATION_LIMIT=256KB`). |
+| PAPER         | `0x05` | Encoded as QR code or `lxm://` URI. No network transport.          | None. Physical delivery only.                                                     | N/A                                               | Roughly 2KB (`PAPER_MDU`).                                      |
 
 ### 5.2 Method Selection
 
@@ -175,7 +170,6 @@ config = LxmfConfig(
 **PROPAGATED** is store-and-forward. The message is stored at a propagation node. The recipient must explicitly sync from that node. Delivery latency is entirely dependent on when the recipient checks in. This can be seconds (if actively syncing) or hours/days (if offline).
 
 **No LXMF delivery method provides synchronous confirmation.** Even DIRECT's proof receipt is asynchronous. Do not build features that assume `deliver()` returning means the message was received.
-
 
 ## 6. Async Delivery Caveats [CONFIRMED + INFERRED]
 
@@ -217,7 +211,6 @@ Outbound retry is bounded: `_SEND_MAX_RETRIES = 3` with a short linear backoff (
 - Multiple adapters wanting separate identities would need separate processes.
 - Test isolation requires careful setup/teardown or custom config directories.
 
-
 ## 7. Propagation Node Expectations [CONFIRMED API, INFERRED operational]
 
 ### 7.1 What Propagation Nodes Do
@@ -252,7 +245,6 @@ For alpha, propagation is a secondary concern. DIRECT delivery to an online peer
 
 Even with propagation, delivery is not instantaneous. The message sits at the propagation node until the recipient syncs. There is no push notification. This is fundamentally asynchronous store-and-forward, not realtime messaging.
 
-
 ## 8. Reconnect/Restart Expectations [INFERRED]
 
 ### 8.1 Current State
@@ -271,7 +263,7 @@ The `LxmfSession` implements bounded exponential backoff reconnection. On unexpe
 
 Reconnect is triggered by `_trigger_reconnect()` which spawns an `asyncio.Task` running `_reconnect_loop`. The loop:
 
-1. Computes delay = min(base * 2^attempt, 30s) ± jitter.
+1. Computes delay = min(base \* 2^attempt, 30s) ± jitter.
 2. Sleeps for the delay.
 3. Tears down old SDK objects via `_teardown_sdk()`.
 4. Reconnects via `_connect_real()`.
@@ -299,7 +291,6 @@ The identity file persists across restarts. The outbound tracking dict is cleare
 - Reticulum shutdown is complete before re-initialization (singleton constraint).
 - Background tasks from previous runs are fully drained.
 - The identity file is not deleted between cycles.
-
 
 ## 9. Minimum Viable Reticulum Topology [CONFIRMED API, INFERRED topology]
 
@@ -342,20 +333,20 @@ instance_name = default
 
 Confirmed from `Reticulum.py` imports and source (lines 33–47):
 
-| Interface | Transport | Configuration Required | Scope |
-|-----------|-----------|----------------------|-------|
-| `AutoInterface` | IPv6 link-local UDP/multicast | Minimal (default) | Same LAN segment |
-| `TCPClientInterface` | TCP | Target host + port | Any reachable TCP endpoint |
-| `TCPServerInterface` | TCP | Listen host + port | Accepts inbound TCP connections |
-| `UDPInterface` | UDP | Target host + port | Point-to-point or broadcast UDP |
-| `RNodeInterface` | Serial/USB radio (RNode) | Serial device path + radio params | LoRa radio |
-| `SerialInterface` | Serial | Device path + baud | Serial cable |
-| `KISSInterface` | Serial KISS TNC | Device path + baud | Ham radio TNC |
-| `I2PInterface` | I2P | I2P settings | I2P overlay network |
-| `BackboneInterface` | TCP (backbone) | Target host + port | Inter-network backbone |
-| `RNodeMultiInterface` | Multi-port RNode | Serial device | Multiple LoRa channels |
-| `PipeInterface` | Pipe | Command configuration | Local process |
-| `WeaveInterface` | Weave | Weave settings | Weave network |
+| Interface             | Transport                     | Configuration Required            | Scope                           |
+| --------------------- | ----------------------------- | --------------------------------- | ------------------------------- |
+| `AutoInterface`       | IPv6 link-local UDP/multicast | Minimal (default)                 | Same LAN segment                |
+| `TCPClientInterface`  | TCP                           | Target host + port                | Any reachable TCP endpoint      |
+| `TCPServerInterface`  | TCP                           | Listen host + port                | Accepts inbound TCP connections |
+| `UDPInterface`        | UDP                           | Target host + port                | Point-to-point or broadcast UDP |
+| `RNodeInterface`      | Serial/USB radio (RNode)      | Serial device path + radio params | LoRa radio                      |
+| `SerialInterface`     | Serial                        | Device path + baud                | Serial cable                    |
+| `KISSInterface`       | Serial KISS TNC               | Device path + baud                | Ham radio TNC                   |
+| `I2PInterface`        | I2P                           | I2P settings                      | I2P overlay network             |
+| `BackboneInterface`   | TCP (backbone)                | Target host + port                | Inter-network backbone          |
+| `RNodeMultiInterface` | Multi-port RNode              | Serial device                     | Multiple LoRa channels          |
+| `PipeInterface`       | Pipe                          | Command configuration             | Local process                   |
+| `WeaveInterface`      | Weave                         | Weave settings                    | Weave network                   |
 
 CONFIRMED: Interface list from `dir(RNS.Interfaces)`. RNodeInterface confirmed
 to require `pyserial` (v3.5 installed). HW_MTU=508 for RNode.
@@ -381,12 +372,12 @@ A single node is **insufficient** for:
 
 To test actual LXMF message delivery, you need **two independent Reticulum instances**, each with a separate identity, connected via at least one shared interface. Options:
 
-| Setup | How | Complexity |
-|-------|-----|------------|
+| Setup                           | How                                                                                                                                                                              | Complexity                                                                     |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
 | **Two processes, same machine** | Process A: `RNS.Reticulum(configdir="/tmp/ret_a")`. Process B: `RNS.Reticulum(configdir="/tmp/ret_b")` with a TCPClientInterface pointing to a TCPServerInterface in A's config. | Medium. Requires custom configs and separate processes (singleton constraint). |
-| **Two machines, same LAN** | Both use default `AutoInterface` config. They discover each other automatically. | Low. Zero config if on same subnet. |
-| **Two machines, TCP** | One runs `TCPServerInterface`, the other `TCPClientInterface` pointing at it. | Low. Requires one manual interface entry. |
-| **Radio link** | Both have RNode or compatible radio hardware. | High. Requires hardware and physical proximity. |
+| **Two machines, same LAN**      | Both use default `AutoInterface` config. They discover each other automatically.                                                                                                 | Low. Zero config if on same subnet.                                            |
+| **Two machines, TCP**           | One runs `TCPServerInterface`, the other `TCPClientInterface` pointing at it.                                                                                                    | Low. Requires one manual interface entry.                                      |
+| **Radio link**                  | Both have RNode or compatible radio hardware.                                                                                                                                    | High. Requires hardware and physical proximity.                                |
 
 **The simplest viable test topology is two machines on the same LAN with default AutoInterface configs.** No manual configuration required beyond installing Reticulum.
 
@@ -400,7 +391,6 @@ Reticulum discovers paths via announce propagation. When a node announces, the a
 - **Offline peer:** No path possible. Messages to offline peers require PROPAGATED delivery via a propagation node.
 
 MEDRE does not control or accelerate path discovery. The `LxmfSession` cannot make path discovery faster than the underlying Reticulum transport allows. First message to a newly discovered peer may take seconds to minutes for path establishment before delivery begins.
-
 
 ## 10. rnsd Usage Expectations [CONFIRMED]
 
@@ -424,13 +414,13 @@ That is the entire program. It does not route LXMF messages, handle identities, 
 
 ### 10.2 When to Use rnsd
 
-| Scenario | Use rnsd? | Rationale |
-|----------|-----------|-----------|
-| **MEDRE adapter runs continuously** | Optional | The adapter's `LxmfSession` already creates its own `RNS.Reticulum()` instance. Running rnsd alongside it would conflict (singleton). The adapter IS the Reticulum instance. |
-| **Multiple local programs need RNS** | Yes | rnsd acts as the shared instance master. Other programs (Sideband, Nomad Network, MEDRE) connect as clients. |
-| **Headless routing node** | Yes | A dedicated machine running rnsd with `enable_transport = True` and radio/TCP interfaces acts as a network router for other nodes. |
-| **Development/testing** | Usually no | The MEDRE live harness creates its own Reticulum instance. Running rnsd on the same machine would cause the harness to connect to the shared instance instead of owning its own interfaces. |
-| **CI/CD** | No | Test isolation requires dedicated `configdir` per test process. |
+| Scenario                             | Use rnsd?  | Rationale                                                                                                                                                                                   |
+| ------------------------------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **MEDRE adapter runs continuously**  | Optional   | The adapter's `LxmfSession` already creates its own `RNS.Reticulum()` instance. Running rnsd alongside it would conflict (singleton). The adapter IS the Reticulum instance.                |
+| **Multiple local programs need RNS** | Yes        | rnsd acts as the shared instance master. Other programs (Sideband, Nomad Network, MEDRE) connect as clients.                                                                                |
+| **Headless routing node**            | Yes        | A dedicated machine running rnsd with `enable_transport = True` and radio/TCP interfaces acts as a network router for other nodes.                                                          |
+| **Development/testing**              | Usually no | The MEDRE live harness creates its own Reticulum instance. Running rnsd on the same machine would cause the harness to connect to the shared instance instead of owning its own interfaces. |
+| **CI/CD**                            | No         | Test isolation requires dedicated `configdir` per test process.                                                                                                                             |
 
 ### 10.3 Shared Instance Model
 
@@ -468,7 +458,6 @@ Running rnsd does NOT provide:
 
 rnsd provides Reticulum **transport** only. LXMF runs as a separate layer on top of Reticulum. To run a propagation node, use `lxmd` (the LXMF propagation daemon from the LXMF package) or an application that calls `LXMRouter.enable_propagation()`.
 
-
 ## 11. Propagation Node Realities
 
 ### 11.1 Propagation Is an LXMF Concept, Not a Reticulum Concept
@@ -485,13 +474,13 @@ A propagation node is an `LXMRouter` that has called `enable_propagation()`. Thi
 
 ### 11.2 What Propagation Nodes Provide
 
-| Capability | Reality |
-|-----------|---------|
-| Store-and-forward for offline recipients | Yes. Message is stored until the recipient syncs. |
-| Guaranteed delivery | No. Recipient must explicitly sync. No push notification. |
-| Distributed message store | Yes. Propagation nodes sync with each other. |
-| Encrypted storage | Yes. Messages are encrypted to the recipient's identity. The propagation node cannot read them. |
-| Realtime delivery | No. Delivery latency depends entirely on when the recipient's router calls `request_messages_from_propagation_node()`. |
+| Capability                               | Reality                                                                                                                |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Store-and-forward for offline recipients | Yes. Message is stored until the recipient syncs.                                                                      |
+| Guaranteed delivery                      | No. Recipient must explicitly sync. No push notification.                                                              |
+| Distributed message store                | Yes. Propagation nodes sync with each other.                                                                           |
+| Encrypted storage                        | Yes. Messages are encrypted to the recipient's identity. The propagation node cannot read them.                        |
+| Realtime delivery                        | No. Delivery latency depends entirely on when the recipient's router calls `request_messages_from_propagation_node()`. |
 
 ### 11.3 Running a Propagation Node
 
@@ -528,37 +517,36 @@ Confirmed from `LXMRouter.py`:
 
 This is a **pull model**. There is no push notification to the recipient. The recipient must actively request messages. The sync interval is configured in the recipient's router, not in MEDRE.
 
-
 ## 12. Single-Node vs Multi-Node Expectations
 
 ### 12.1 What Works with a Single Node
 
-| Capability | Works? | Notes |
-|-----------|--------|-------|
-| Adapter lifecycle (start/stop/health) | ✅ | No network required. |
-| Identity creation/loading | ✅ | Local operation. |
-| LXMRouter creation | ✅ | Local operation. Requires `storagepath`. |
-| SDK import verification | ✅ | `import RNS; import LXMF` |
-| Self-send (identity to self) | ⚠️ | Path discovery to self is immediate but this is a degenerate case. |
-| Outbound to unknown peer | ❌ | No path exists. Message stays in OUTBOUND state indefinitely. |
-| Inbound from external peer | ❌ | No external peers exist. |
-| Propagation node operation | ❌ | No other peers to store messages for or sync with. |
+| Capability                            | Works? | Notes                                                              |
+| ------------------------------------- | ------ | ------------------------------------------------------------------ |
+| Adapter lifecycle (start/stop/health) | ✅     | No network required.                                               |
+| Identity creation/loading             | ✅     | Local operation.                                                   |
+| LXMRouter creation                    | ✅     | Local operation. Requires `storagepath`.                           |
+| SDK import verification               | ✅     | `import RNS; import LXMF`                                          |
+| Self-send (identity to self)          | ⚠️     | Path discovery to self is immediate but this is a degenerate case. |
+| Outbound to unknown peer              | ❌     | No path exists. Message stays in OUTBOUND state indefinitely.      |
+| Inbound from external peer            | ❌     | No external peers exist.                                           |
+| Propagation node operation            | ❌     | No other peers to store messages for or sync with.                 |
 
 ### 12.2 What Requires Two Nodes
 
-| Capability | Minimum Topology |
-|-----------|-----------------|
-| Direct message delivery | Two nodes on shared interface. Seconds to minutes for path establishment on first send. |
-| Path discovery validation | Two nodes. Announce propagation confirms path. |
-| Inbound delivery callback | Two nodes. Sender in process A, receiver in process B. |
-| Delivery state progression (OUTBOUND→DELIVERED) | Two nodes. DIRECT delivery with proof receipt. |
+| Capability                                      | Minimum Topology                                                                        |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Direct message delivery                         | Two nodes on shared interface. Seconds to minutes for path establishment on first send. |
+| Path discovery validation                       | Two nodes. Announce propagation confirms path.                                          |
+| Inbound delivery callback                       | Two nodes. Sender in process A, receiver in process B.                                  |
+| Delivery state progression (OUTBOUND→DELIVERED) | Two nodes. DIRECT delivery with proof receipt.                                          |
 
 ### 12.3 What Requires Three+ Nodes
 
-| Capability | Minimum Topology |
-|-----------|-----------------|
-| Multi-hop routing | Three nodes in a line (A→B→C). Node B must have `enable_transport = True`. |
-| Propagation node store-and-forward | Three nodes: sender, propagation node, recipient. Propagation node is a dedicated LXMRouter. |
+| Capability                                | Minimum Topology                                                                                           |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Multi-hop routing                         | Three nodes in a line (A→B→C). Node B must have `enable_transport = True`.                                 |
+| Propagation node store-and-forward        | Three nodes: sender, propagation node, recipient. Propagation node is a dedicated LXMRouter.               |
 | Propagation node sync (distributed store) | Four nodes: sender, propagation node A, propagation node B, recipient. Nodes A and B sync with each other. |
 
 ### 12.4 What Has Not Been Tested at Any Topology
@@ -576,42 +564,41 @@ As of 2026-05-10, the following have **no live evidence** in the MEDRE project:
 
 All validation to date is mock-based (fake mode). The live harness (`tests/test_lxmf_live.py`, 829 LOC) exists but has not been run against a real Reticulum network. See `docs/runbooks/operational-evidence.md` §3 for the LXMF evidence placeholder.
 
-
 ## 13. Realistic Operational Constraints
 
 This section documents honest constraints that operators and developers should expect when running the MEDRE LXMF adapter against real Reticulum networks. It prevents false expectations about deployment maturity.
 
 ### 13.1 Deployment Maturity
 
-| Constraint | Reality |
-|-----------|---------|
-| Production readiness | **Not ready.** Alpha-operational (Tier 2). Unit-tested only. No live evidence. |
-| Live harness status | Exists (829 LOC) but **not executed** against real Reticulum. |
-| Delivery state validation | State model (`OUTBOUND → DELIVERED`) is implemented but **not confirmed** against real network. Timing/state assumptions may break in practice. |
-| Compatibility with LXMF clients | No compatibility tested or claimed with Sideband, MeshChat, Nomad Network, or any other LXMF application. |
+| Constraint                      | Reality                                                                                                                                         |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Production readiness            | **Not ready.** Alpha-operational (Tier 2). Unit-tested only. No live evidence.                                                                  |
+| Live harness status             | Exists (829 LOC) but **not executed** against real Reticulum.                                                                                   |
+| Delivery state validation       | State model (`OUTBOUND → DELIVERED`) is implemented but **not confirmed** against real network. Timing/state assumptions may break in practice. |
+| Compatibility with LXMF clients | No compatibility tested or claimed with Sideband, MeshChat, Nomad Network, or any other LXMF application.                                       |
 
 ### 13.2 Network Constraints
 
-| Constraint | Reality |
-|-----------|---------|
-| Path discovery latency | Seconds to minutes. Not instant. First send to a new peer always incurs path discovery overhead. |
-| Offline peer delivery | Only via PROPAGATED method with a configured propagation node. No fallback. |
-| Delivery confirmation | Asynchronous only. `deliver()` returns before the message is delivered. Proof receipts arrive via callbacks. |
-| Message ordering | No guaranteed ordering. Two messages sent in sequence may arrive in any order. |
-| Payload size (DIRECT) | 319 bytes per link packet. Larger payloads use `RNS.Resource` (multi-packet transfer). |
-| Payload size (OPPORTUNISTIC) | 295 bytes encrypted content. Hard limit. No fragmentation. |
-| Bandwidth | Depends entirely on interface type. LoRa: bytes/second. LAN: megabytes/second. Reticulum adapts to interface MTU. |
+| Constraint                   | Reality                                                                                                           |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Path discovery latency       | Seconds to minutes. Not instant. First send to a new peer always incurs path discovery overhead.                  |
+| Offline peer delivery        | Only via PROPAGATED method with a configured propagation node. No fallback.                                       |
+| Delivery confirmation        | Asynchronous only. `deliver()` returns before the message is delivered. Proof receipts arrive via callbacks.      |
+| Message ordering             | No guaranteed ordering. Two messages sent in sequence may arrive in any order.                                    |
+| Payload size (DIRECT)        | 319 bytes per link packet. Larger payloads use `RNS.Resource` (multi-packet transfer).                            |
+| Payload size (OPPORTUNISTIC) | 295 bytes encrypted content. Hard limit. No fragmentation.                                                        |
+| Bandwidth                    | Depends entirely on interface type. LoRa: bytes/second. LAN: megabytes/second. Reticulum adapts to interface MTU. |
 
 ### 13.3 Operational Constraints
 
-| Constraint | Reality |
-|-----------|---------|
-| Process model | One `RNS.Reticulum` per process (singleton). One delivery identity per `LXMRouter`. Multiple identities require multiple processes. |
-| Identity security | 64-byte raw private key file. No encryption. No passphrase. Anyone with the file can impersonate the identity and decrypt all messages. |
-| Threading | Reticulum and LXMF use daemon threads, not asyncio. MEDRE bridges via `loop.create_task()`. Potential GIL/contention issues under load. |
-| Storage | `LXMRouter` requires a writable `storagepath`. Message store grows over time. No automatic cleanup. |
-| License | Reticulum uses a custom license that restricts AI training data usage and certain applications. Not OSI-approved. Review for downstream distribution. |
-| Daemon dependency | Reticulum is designed for long-running processes. Short-lived scripts may not establish stable connectivity before exiting. |
+| Constraint        | Reality                                                                                                                                               |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Process model     | One `RNS.Reticulum` per process (singleton). One delivery identity per `LXMRouter`. Multiple identities require multiple processes.                   |
+| Identity security | 64-byte raw private key file. No encryption. No passphrase. Anyone with the file can impersonate the identity and decrypt all messages.               |
+| Threading         | Reticulum and LXMF use daemon threads, not asyncio. MEDRE bridges via `loop.create_task()`. Potential GIL/contention issues under load.               |
+| Storage           | `LXMRouter` requires a writable `storagepath`. Message store grows over time. No automatic cleanup.                                                   |
+| License           | Reticulum uses a custom license that restricts AI training data usage and certain applications. Not OSI-approved. Review for downstream distribution. |
+| Daemon dependency | Reticulum is designed for long-running processes. Short-lived scripts may not establish stable connectivity before exiting.                           |
 
 ### 13.4 What MEDRE Does NOT Provide
 
@@ -633,7 +620,6 @@ For LXMF to move from alpha-operational (Tier 2) to beta-candidate (Tier 3), the
 
 These are not optional. Without live evidence, the delivery state model is speculative regardless of how well it tests against mocks. The live harness exists and is comprehensive (829 LOC, 19 test cases). What is missing is the operational act of running it against a real Reticulum instance and recording results.
 
-
 ## 14. Diagnostics
 
 ### 14.1 Implementation
@@ -642,20 +628,20 @@ The `LxmfSession` exposes a `diagnostics()` method returning `LxmfSessionDiagnos
 
 ### 14.2 Diagnostics Keys
 
-| Key | Type | Description |
-|-----|------|-------------|
-| `connected` | `bool` | Whether the LXMRouter is initialized and the session is active. |
-| `router_running` | `bool` | Whether the LXMF router's `jobloop` thread is operational. |
-| `reconnecting` | `bool` | Whether the session is currently in the reconnect loop. |
-| `reconnect_attempts` | `int` | Number of consecutive reconnect attempts since last successful connection. |
-| `last_message_time` | `str \| None` | ISO 8601 timestamp of last successful inbound message. |
-| `transient_delivery_failures` | `int` | Count of temporary delivery failures (retriable). |
-| `permanent_delivery_failures` | `int` | Count of permanent delivery failures (not retriable). |
-| `last_error` | `str \| None` | Description of the most recent session-level error. |
-| `known_path_count` | `int \| None` | Number of known paths in the router's path table (`None` if router not available). |
-| `propagation_enabled` | `bool \| None` | Whether a propagation node is configured (`None` if router not available). |
-| `pending_delivery_count` | `int \| None` | Number of outbound deliveries currently being tracked (`None` if none). |
-| `mode` | `str` | Current connection mode (`"fake"` or `"reticulum"`). |
+| Key                           | Type           | Description                                                                        |
+| ----------------------------- | -------------- | ---------------------------------------------------------------------------------- |
+| `connected`                   | `bool`         | Whether the LXMRouter is initialized and the session is active.                    |
+| `router_running`              | `bool`         | Whether the LXMF router's `jobloop` thread is operational.                         |
+| `reconnecting`                | `bool`         | Whether the session is currently in the reconnect loop.                            |
+| `reconnect_attempts`          | `int`          | Number of consecutive reconnect attempts since last successful connection.         |
+| `last_message_time`           | `str \| None`  | ISO 8601 timestamp of last successful inbound message.                             |
+| `transient_delivery_failures` | `int`          | Count of temporary delivery failures (retriable).                                  |
+| `permanent_delivery_failures` | `int`          | Count of permanent delivery failures (not retriable).                              |
+| `last_error`                  | `str \| None`  | Description of the most recent session-level error.                                |
+| `known_path_count`            | `int \| None`  | Number of known paths in the router's path table (`None` if router not available). |
+| `propagation_enabled`         | `bool \| None` | Whether a propagation node is configured (`None` if router not available).         |
+| `pending_delivery_count`      | `int \| None`  | Number of outbound deliveries currently being tracked (`None` if none).            |
+| `mode`                        | `str`          | Current connection mode (`"fake"` or `"reticulum"`).                               |
 
 The session also provides `delivery_state_counts()` returning a `dict[str, int]` of outbound delivery counts per state (`"outbound"`, `"sending"`, `"sent"`, `"delivered"`, `"failed"`, etc.).
 
@@ -669,16 +655,16 @@ The session also provides `delivery_state_counts()` returning a `dict[str, int]`
 
 ### 14.4 Interpreting Diagnostics
 
-| Symptom | Likely Cause |
-|---------|-------------|
-| `connected=False` | Reticulum not initialized or router creation failed. |
-| `reconnecting=True` with high `reconnect_attempts` | Persistent network or interface failure. |
-| `known_path_count=0` or `None` | No peers discovered. Check interface config. |
-| `pending_delivery_count` growing | Outbound messages queued but not reaching terminal state. |
-| `transient_delivery_failures` climbing | Network instability, path timeouts. |
-| `permanent_delivery_failures` climbing | Misconfigured destination, invalid identity, or permanent path failure. |
-| `last_message_time` stale | No traffic for an extended period. Not necessarily an error. |
-| `router_running=False` with `connected=True` | Router teardown incomplete or crashed `jobloop` thread. |
+| Symptom                                            | Likely Cause                                                            |
+| -------------------------------------------------- | ----------------------------------------------------------------------- |
+| `connected=False`                                  | Reticulum not initialized or router creation failed.                    |
+| `reconnecting=True` with high `reconnect_attempts` | Persistent network or interface failure.                                |
+| `known_path_count=0` or `None`                     | No peers discovered. Check interface config.                            |
+| `pending_delivery_count` growing                   | Outbound messages queued but not reaching terminal state.               |
+| `transient_delivery_failures` climbing             | Network instability, path timeouts.                                     |
+| `permanent_delivery_failures` climbing             | Misconfigured destination, invalid identity, or permanent path failure. |
+| `last_message_time` stale                          | No traffic for an extended period. Not necessarily an error.            |
+| `router_running=False` with `connected=True`       | Router teardown incomplete or crashed `jobloop` thread.                 |
 
 ### 14.5 Delivery State Model
 
@@ -693,33 +679,32 @@ GENERATING → OUTBOUND → SENDING → SENT → DELIVERED
 
 `delivery_state_counts()` returns counts of tracked outbound deliveries per state. These are snapshots at call time. Terminal deliveries (`DELIVERED`, `FAILED`, `REJECTED`, `CANCELLED`) are cleaned up after processing, so the count reflects active/pending deliveries predominantly.
 
-
 ## 15. Troubleshooting
 
 ### 15.1 Common Failures
 
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| `ImportError: No module named 'RNS'` | `rns` not installed | `pip install rns` or `pip install lxmf` |
-| `ImportError: No module named 'LXMF'` | `lxmf` not installed | `pip install lxmf` |
-| `OSError: Attempt to reinitialise Reticulum` | `RNS.Reticulum()` called twice | Use `RNS.Reticulum.get_instance()` for subsequent access, or ensure only one init call per process |
-| `ValueError: LXMF cannot be initialised without a storage path` | `storagepath=None` | Pass a valid directory path to `LXMRouter(storagepath=...)` |
-| `register_delivery_identity()` returns `None` | Called more than once per router | Only one delivery identity per router instance. |
-| No peers discovered | No transport interfaces configured | Check Reticulum config. Enable `AutoInterface` for LAN. Start `rnsd` on another machine. |
-| Path request timeouts | No route to destination | Ensure both peers have active interfaces. Use `rnstatus` to check. |
-| `Reticulum creates ~/.reticulum` unexpectedly | No custom configdir | Pass `configdir` to `RNS.Reticulum(configdir=...)` for test isolation. |
-| Messages stuck in OUTBOUND state | No path to destination, or link establishment in progress | Wait for path discovery (seconds to minutes). Check `RNS.Transport.has_path()`. |
-| `LxmfConnectionError: Failed to load identity from ...` | Identity file missing or corrupted | Re-create the identity file, or check the path in `identity_path` config. |
-| `LxmfConnectionError: Failed to initialise LXMF session: ...` | Reticulum init or router creation failed | Check Reticulum config, available interfaces, and that no other process holds the singleton. |
-| Live tests skip with "Set LXMF_CONNECTION_TYPE" | Environment variables not set | Set `LXMF_CONNECTION_TYPE=reticulum` and `LXMF_IDENTITY_PATH=/path/to/identity`. |
+| Symptom                                                         | Cause                                                     | Fix                                                                                                |
+| --------------------------------------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `ImportError: No module named 'RNS'`                            | `rns` not installed                                       | `pip install rns` or `pip install lxmf`                                                            |
+| `ImportError: No module named 'LXMF'`                           | `lxmf` not installed                                      | `pip install lxmf`                                                                                 |
+| `OSError: Attempt to reinitialise Reticulum`                    | `RNS.Reticulum()` called twice                            | Use `RNS.Reticulum.get_instance()` for subsequent access, or ensure only one init call per process |
+| `ValueError: LXMF cannot be initialised without a storage path` | `storagepath=None`                                        | Pass a valid directory path to `LXMRouter(storagepath=...)`                                        |
+| `register_delivery_identity()` returns `None`                   | Called more than once per router                          | Only one delivery identity per router instance.                                                    |
+| No peers discovered                                             | No transport interfaces configured                        | Check Reticulum config. Enable `AutoInterface` for LAN. Start `rnsd` on another machine.           |
+| Path request timeouts                                           | No route to destination                                   | Ensure both peers have active interfaces. Use `rnstatus` to check.                                 |
+| `Reticulum creates ~/.reticulum` unexpectedly                   | No custom configdir                                       | Pass `configdir` to `RNS.Reticulum(configdir=...)` for test isolation.                             |
+| Messages stuck in OUTBOUND state                                | No path to destination, or link establishment in progress | Wait for path discovery (seconds to minutes). Check `RNS.Transport.has_path()`.                    |
+| `LxmfConnectionError: Failed to load identity from ...`         | Identity file missing or corrupted                        | Re-create the identity file, or check the path in `identity_path` config.                          |
+| `LxmfConnectionError: Failed to initialise LXMF session: ...`   | Reticulum init or router creation failed                  | Check Reticulum config, available interfaces, and that no other process holds the singleton.       |
+| Live tests skip with "Set LXMF_CONNECTION_TYPE"                 | Environment variables not set                             | Set `LXMF_CONNECTION_TYPE=reticulum` and `LXMF_IDENTITY_PATH=/path/to/identity`.                   |
 
 ### 15.2 Reticulum-Specific Issues
 
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| `ModuleNotFoundError: No module named 'RNS.Interfaces...'` | Missing `pyserial` dependency | `pip install pyserial` or `pip install rns` (includes it). |
-| Slow identity creation | High `stamp_cost` on first run | Stamp cost affects inbound validation, not identity creation. If identity creation is slow, check system entropy. |
-| Announce not reaching peers | Interface misconfiguration or firewall | Verify interface in Reticulum config. Check `rnstatus` output. AutoInterface requires multicast-enabled LAN. |
+| Symptom                                                    | Cause                                  | Fix                                                                                                               |
+| ---------------------------------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `ModuleNotFoundError: No module named 'RNS.Interfaces...'` | Missing `pyserial` dependency          | `pip install pyserial` or `pip install rns` (includes it).                                                        |
+| Slow identity creation                                     | High `stamp_cost` on first run         | Stamp cost affects inbound validation, not identity creation. If identity creation is slow, check system entropy. |
+| Announce not reaching peers                                | Interface misconfiguration or firewall | Verify interface in Reticulum config. Check `rnstatus` output. AutoInterface requires multicast-enabled LAN.      |
 
 ### 15.3 Diagnostic Commands
 
@@ -737,7 +722,6 @@ python -c "import RNS; import LXMF; print('OK')"
 python -c "import RNS; i = RNS.Identity(); print(i.hexhash)"
 ```
 
-
 ## 16. Live Harness Instructions
 
 ### 16.1 Test Markers
@@ -748,11 +732,11 @@ All live tests in `tests/test_lxmf_live.py` are tagged with `pytest.mark.live`. 
 
 Live tests require explicit opt-in via environment variables:
 
-| Variable | Required | Example | Description |
-|----------|----------|---------|-------------|
-| `LXMF_CONNECTION_TYPE` | Yes | `reticulum` | Must be `"reticulum"`. Any other value skips. |
-| `LXMF_IDENTITY_PATH` | Yes | `/path/to/identity` | Path to Reticulum identity file. Must be non-empty. |
-| `LXMF_DISPLAY_NAME` | No | `MEDRE Live Test` | Display name for LXMF announces. |
+| Variable               | Required | Example             | Description                                         |
+| ---------------------- | -------- | ------------------- | --------------------------------------------------- |
+| `LXMF_CONNECTION_TYPE` | Yes      | `reticulum`         | Must be `"reticulum"`. Any other value skips.       |
+| `LXMF_IDENTITY_PATH`   | Yes      | `/path/to/identity` | Path to Reticulum identity file. Must be non-empty. |
+| `LXMF_DISPLAY_NAME`    | No       | `MEDRE Live Test`   | Display name for LXMF announces.                    |
 
 If any required variable is unset, every test in the file skips with a descriptive reason.
 
@@ -861,7 +845,6 @@ await adapter.start(ctx)  # starts again
 await adapter.stop()
 ```
 
-
 ## 17. Docker Guidance
 
 ### 17.1 Key Considerations
@@ -887,7 +870,7 @@ services:
       - lxmf-storage:/var/lib/lxmf
     secrets:
       - identity
-    network_mode: host  # required for AutoInterface
+    network_mode: host # required for AutoInterface
 volumes:
   lxmf-storage:
 secrets:
@@ -896,7 +879,6 @@ secrets:
 ```
 
 This is not production guidance. It is a starting point for alpha isolation testing.
-
 
 ## 18. Reticulum Config Guidance
 
@@ -936,19 +918,18 @@ rnsd &
 
 ### 18.4 Storage Paths
 
-| System | Path | Contents |
-|--------|------|----------|
-| Reticulum config | `~/.reticulum/` (default) | `config`, `storage/`, `interfaces/` |
-| Reticulum storage | `{configdir}/storage/` | `known_destinations`, `cache/`, `resources/`, `identities/` |
-| LXMF router storage | `{storagepath}/lxmf/` | `local_deliveries`, `messagestore/`, `ratchets/` |
-| MEDRE SQLite | Configured by MEDRE | Events, receipts, native refs |
+| System              | Path                      | Contents                                                    |
+| ------------------- | ------------------------- | ----------------------------------------------------------- |
+| Reticulum config    | `~/.reticulum/` (default) | `config`, `storage/`, `interfaces/`                         |
+| Reticulum storage   | `{configdir}/storage/`    | `known_destinations`, `cache/`, `resources/`, `identities/` |
+| LXMF router storage | `{storagepath}/lxmf/`     | `local_deliveries`, `messagestore/`, `ratchets/`            |
+| MEDRE SQLite        | Configured by MEDRE       | Events, receipts, native refs                               |
 
 ### 18.5 Safety
 
 - **Do not use production identity files for testing.** Create separate test identities.
 - **Use custom configdir for testing.** `RNS.Reticulum(configdir="/tmp/test_reticulum")` avoids modifying system-wide config.
 - **Clean up test directories.** LXMF storage and Reticulum config dirs accumulate state.
-
 
 ### 18.6 Live Validation Evidence
 
@@ -966,7 +947,6 @@ rnsd &
 - **Hardware/Network:** Not available (no Reticulum network instance running)
 - **Failures/Notes:** Live validation has not been performed in this environment. Alpha operation requires a running Reticulum transport layer with the environment variables configured. Without these, all live tests skip automatically. See the smoke test runbook (`docs/runbooks/lxmf-live-smoke.md`) for detailed setup and environment variable instructions.
 
-
 ## 19. Explicit Non-Claims
 
 - **No production LXMF/Reticulum deployment readiness is claimed.** Alpha mode requires installed SDK and live environment.
@@ -978,17 +958,16 @@ rnsd &
 - **No LXST (LXMF Streaming Transport) support.**
 - **No attachment, image, audio, or media transfer support.**
 
-
 ## 20. Cross-References
 
-| Topic | Document |
-|-------|----------|
-| LXMF source audit (identity, wire format, fields, delivery methods) | `docs/contracts/13-lxmf-source-audit.md` |
-| LXMF adapter tranche 1 scope, config, capabilities | `docs/contracts/14-lxmf-tranche-1.md` |
-| LXMF/Reticulum connectivity readiness (full SDK API surface) | `docs/contracts/20-lxmf-connectivity-readiness.md` |
-| Delivery semantics comparison across all transports | `docs/contracts/22-delivery-semantics-matrix.md` |
-| Live smoke test procedures and SDK verification | `docs/runbooks/lxmf-live-smoke.md` |
-| Metadata embedding contract | `docs/contracts/06-metadata-embedding-contract.md` |
-| Constrained transport comparison | `docs/contracts/65-constrained-transport-comparison.md` |
-| Production connectivity readiness | `docs/contracts/16-production-connectivity-readiness.md` |
-| Operational readiness gaps | `docs/contracts/18-operational-readiness-gaps.md` |
+| Topic                                                               | Document                                                 |
+| ------------------------------------------------------------------- | -------------------------------------------------------- |
+| LXMF source audit (identity, wire format, fields, delivery methods) | `docs/contracts/13-lxmf-source-audit.md`                 |
+| LXMF adapter tranche 1 scope, config, capabilities                  | `docs/contracts/14-lxmf-tranche-1.md`                    |
+| LXMF/Reticulum connectivity readiness (full SDK API surface)        | `docs/contracts/20-lxmf-connectivity-readiness.md`       |
+| Delivery semantics comparison across all transports                 | `docs/contracts/22-delivery-semantics-matrix.md`         |
+| Live smoke test procedures and SDK verification                     | `docs/runbooks/lxmf-live-smoke.md`                       |
+| Metadata embedding contract                                         | `docs/contracts/06-metadata-embedding-contract.md`       |
+| Constrained transport comparison                                    | `docs/contracts/65-constrained-transport-comparison.md`  |
+| Production connectivity readiness                                   | `docs/contracts/16-production-connectivity-readiness.md` |
+| Operational readiness gaps                                          | `docs/contracts/18-operational-readiness-gaps.md`        |

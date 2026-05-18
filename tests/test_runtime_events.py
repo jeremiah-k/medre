@@ -12,13 +12,12 @@ Covers:
 
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
-
-import asyncio
 
 import pytest
 
@@ -29,7 +28,6 @@ from medre.runtime.events import (
     RuntimeEventType,
 )
 from medre.runtime.snapshot import build_runtime_snapshot
-
 
 # ---------------------------------------------------------------------------
 # Fakes (follow existing test conventions)
@@ -493,13 +491,18 @@ class TestSnapshotRouteEligibility:
         app = _make_fake_app(route_eligibility=elig)
         now = datetime(2026, 1, 1, tzinfo=timezone.utc)
         snap1 = build_runtime_snapshot(
-            app, now_fn=lambda: now, monotonic_fn=lambda: 0.0,
+            app,
+            now_fn=lambda: now,
+            monotonic_fn=lambda: 0.0,
         )
         snap2 = build_runtime_snapshot(
-            app, now_fn=lambda: now, monotonic_fn=lambda: 0.0,
+            app,
+            now_fn=lambda: now,
+            monotonic_fn=lambda: 0.0,
         )
-        assert json.dumps(snap1["routes"]["eligibility"], sort_keys=True) == \
-               json.dumps(snap2["routes"]["eligibility"], sort_keys=True)
+        assert json.dumps(snap1["routes"]["eligibility"], sort_keys=True) == json.dumps(
+            snap2["routes"]["eligibility"], sort_keys=True
+        )
 
 
 # ===================================================================
@@ -521,7 +524,9 @@ class TestSnapshotRuntimeEvents:
 
     def test_runtime_events_with_buffer(self) -> None:
         buf = EventBuffer(clock=lambda: 1.0)
-        buf.emit(RuntimeEventType.STATE_TRANSITION, {"from": "initialized", "to": "starting"})
+        buf.emit(
+            RuntimeEventType.STATE_TRANSITION, {"from": "initialized", "to": "starting"}
+        )
         buf.emit(RuntimeEventType.ADAPTER_STARTED, {"adapter_id": "a"})
         app = _make_fake_app(event_buffer=buf)
         snap = build_runtime_snapshot(
@@ -547,7 +552,11 @@ class TestSnapshotRuntimeEvents:
             monotonic_fn=lambda: 0.0,
         )
         s = json.dumps(snap["diagnostics"]["runtime_events"], sort_keys=True)
-        assert '"startup_classified"' in s or '"STARTUP_CLASSIFIED"' in s or '"events"' in s
+        assert (
+            '"startup_classified"' in s
+            or '"STARTUP_CLASSIFIED"' in s
+            or '"events"' in s
+        )
 
     def test_runtime_events_deterministic(self) -> None:
         buf = EventBuffer(clock=lambda: 42.0)
@@ -555,10 +564,15 @@ class TestSnapshotRuntimeEvents:
         buf.emit(RuntimeEventType.ADAPTER_STOPPED, {"adapter_id": "a"})
         app = _make_fake_app(event_buffer=buf)
         now = datetime(2026, 1, 1, tzinfo=timezone.utc)
-        snap1 = build_runtime_snapshot(app, now_fn=lambda: now, monotonic_fn=lambda: 0.0)
-        snap2 = build_runtime_snapshot(app, now_fn=lambda: now, monotonic_fn=lambda: 0.0)
-        assert json.dumps(snap1["diagnostics"]["runtime_events"], sort_keys=True) == \
-               json.dumps(snap2["diagnostics"]["runtime_events"], sort_keys=True)
+        snap1 = build_runtime_snapshot(
+            app, now_fn=lambda: now, monotonic_fn=lambda: 0.0
+        )
+        snap2 = build_runtime_snapshot(
+            app, now_fn=lambda: now, monotonic_fn=lambda: 0.0
+        )
+        assert json.dumps(
+            snap1["diagnostics"]["runtime_events"], sort_keys=True
+        ) == json.dumps(snap2["diagnostics"]["runtime_events"], sort_keys=True)
 
     def test_runtime_events_bounded(self) -> None:
         """Buffer respects maxlen — snapshot cannot grow unbounded."""
@@ -646,7 +660,9 @@ class _FakeAdapter:
         *,
         health_check_side_effect: BaseException | None = None,
     ) -> None:
-        from medre.core.contracts.adapter import AdapterCapabilities, AdapterInfo, AdapterRole
+        from medre.core.contracts.adapter import (
+            AdapterRole,
+        )
 
         self.adapter_id = adapter_id
         self.platform = "fake_platform"
@@ -655,7 +671,11 @@ class _FakeAdapter:
         self._side_effect = health_check_side_effect
 
     async def health_check(self):
-        from medre.core.contracts.adapter import AdapterCapabilities, AdapterInfo, AdapterRole
+        from medre.core.contracts.adapter import (
+            AdapterCapabilities,
+            AdapterInfo,
+            AdapterRole,
+        )
 
         if self._side_effect is not None:
             raise self._side_effect
@@ -704,7 +724,8 @@ class TestHealthRefreshedEventSemantics:
         app = _make_real_app()
         await app.refresh_live_health()
         events = [
-            e for e in app.event_buffer
+            e
+            for e in app.event_buffer
             if e.event_type == RuntimeEventType.HEALTH_REFRESHED
         ]
         assert len(events) == 1
@@ -742,7 +763,8 @@ class TestHealthRefreshedEventSemantics:
             await app.refresh_live_health()
 
         events = [
-            e for e in app.event_buffer
+            e
+            for e in app.event_buffer
             if e.event_type == RuntimeEventType.HEALTH_REFRESHED
         ]
         assert len(events) == 0
@@ -775,9 +797,10 @@ class TestHealthRefreshedEventSemantics:
         app.started_adapter_ids = list(adapters.keys())
         app.adapter_start_monotonic = {}
 
-        snapshot = await app.refresh_live_health()
+        await app.refresh_live_health()
         events = [
-            e for e in app.event_buffer
+            e
+            for e in app.event_buffer
             if e.event_type == RuntimeEventType.HEALTH_REFRESHED
         ]
         assert len(events) == 1
@@ -790,7 +813,8 @@ class TestHealthRefreshedEventSemantics:
         app = _make_real_app()
         snapshot = await app.refresh_live_health()
         events = [
-            e for e in app.event_buffer
+            e
+            for e in app.event_buffer
             if e.event_type == RuntimeEventType.HEALTH_REFRESHED
         ]
         assert len(events) == 1
@@ -800,7 +824,8 @@ class TestHealthRefreshedEventSemantics:
         # Second refresh
         snapshot2 = await app.refresh_live_health()
         events2 = [
-            e for e in app.event_buffer
+            e
+            for e in app.event_buffer
             if e.event_type == RuntimeEventType.HEALTH_REFRESHED
         ]
         assert len(events2) == 2
@@ -842,7 +867,8 @@ class TestHealthRefreshedEventSemantics:
 
         await app.refresh_live_health()
         events = [
-            e for e in app.event_buffer
+            e
+            for e in app.event_buffer
             if e.event_type == RuntimeEventType.HEALTH_REFRESHED
         ]
         assert len(events) == 1

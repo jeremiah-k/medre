@@ -32,17 +32,17 @@ The `pending_delivery_count` diagnostics reporting was fixed in the LXMF adapter
 
 ### RNode Serial Hardware Probe Findings
 
-| Item | Finding | Status |
-|------|---------|--------|
-| **ttyUSB0 device** | Silicon Labs CP2104 (serial 02036439) on T-LoRa V2.1-1.6 | ✅ CONFIRMED |
-| **Device mapping** | This is the hardware-inventory "Device A" T-Beam port — BUT hardware inventory shows CP2104 serial 02036439 is T-Beam (MeshCore), not T-LoRa | ⚠️ SEE INVENTORY |
-| **KISS DETECT probe @ 115200** | Sent `0xC0 0x05 0x00 0x00 0x00 0xC0` (KISS CMD_DETECT), read with 2s timeout | ❌ NO RESPONSE |
-| **KISS DETECT probe @ 57600** | Same probe at lower baud rate, read with 2s timeout | ❌ NO RESPONSE |
-| **Raw bytes read** | No bytes received at either baud rate | ❌ CONFIRMED SILENT |
-| **Serial port opens** | Yes, `pyserial` opens ttyUSB0 successfully | ✅ CONFIRMED |
-| **DTR/RTS state** | Not toggled during probe — some RNode firmware requires DTR/RTS toggling to enter command mode | UNKNOWN |
-| **RNode firmware status** | May need reflash or may not have RNode firmware active | UNKNOWN |
-| **Reticulum RNodeInterface** | Not tested — depends on KISS-responsive serial device | ❌ BLOCKED |
+| Item                           | Finding                                                                                                                                      | Status              |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
+| **ttyUSB0 device**             | Silicon Labs CP2104 (serial 02036439) on T-LoRa V2.1-1.6                                                                                     | ✅ CONFIRMED        |
+| **Device mapping**             | This is the hardware-inventory "Device A" T-Beam port — BUT hardware inventory shows CP2104 serial 02036439 is T-Beam (MeshCore), not T-LoRa | ⚠️ SEE INVENTORY    |
+| **KISS DETECT probe @ 115200** | Sent `0xC0 0x05 0x00 0x00 0x00 0xC0` (KISS CMD_DETECT), read with 2s timeout                                                                 | ❌ NO RESPONSE      |
+| **KISS DETECT probe @ 57600**  | Same probe at lower baud rate, read with 2s timeout                                                                                          | ❌ NO RESPONSE      |
+| **Raw bytes read**             | No bytes received at either baud rate                                                                                                        | ❌ CONFIRMED SILENT |
+| **Serial port opens**          | Yes, `pyserial` opens ttyUSB0 successfully                                                                                                   | ✅ CONFIRMED        |
+| **DTR/RTS state**              | Not toggled during probe — some RNode firmware requires DTR/RTS toggling to enter command mode                                               | UNKNOWN             |
+| **RNode firmware status**      | May need reflash or may not have RNode firmware active                                                                                       | UNKNOWN             |
+| **Reticulum RNodeInterface**   | Not tested — depends on KISS-responsive serial device                                                                                        | ❌ BLOCKED          |
 
 ### Analysis
 
@@ -68,7 +68,6 @@ The KISS DETECT probe (0xC0 05 00 00 00 C0) is the standard RNode handshake. A p
 - **Reticulum TCPClientInterface**: Not tested, no remote Reticulum node available
 - **Live smoke tests**: All 16 fake-mode tests pass, 3 real-mode tests skip (singleton constraint)
 - **Maturity**: Experimental / SDK-validated, Reticulum live validation pending — the hardware probe showed the RNode serial path is non-functional. SDK layer validated via unit tests but cannot be validated without a working RNode.
-
 
 ## Purpose
 
@@ -102,7 +101,6 @@ The live smoke harness in `tests/test_lxmf_live.py` validates:
 - Compatibility with all Reticulum transport interface types.
 - Production deployment readiness.
 
-
 ## Dependency Installation [CONFIRMED]
 
 The LXMF and Reticulum packages are optional dependencies. Core MEDRE
@@ -134,7 +132,6 @@ pip install lxmf rns
   license (Reticulum License).
 - **Install location:** `~/.platformio/penv/lib/python3.12/site-packages/`
   (PlatformIO virtual environment). CONFIRMED.
-
 
 ## Identity Setup [CONFIRMED]
 
@@ -180,7 +177,6 @@ if identity is None:
 - **First-run consideration:** If no identity file exists, create one
   and save it. On subsequent runs, load from the file. Do not create
   a new identity each run or you lose your address.
-
 
 ## Reticulum Configuration [CONFIRMED]
 
@@ -233,7 +229,6 @@ rnsd &
 When the shared instance is running, `RNS.Reticulum()` connects to it
 instead of initializing its own interfaces.
 
-
 ## Connection: How Reticulum Works [CONFIRMED]
 
 Reticulum is not connection-oriented in the traditional sense. There is
@@ -268,22 +263,20 @@ mechanism. No special interface configuration needed.
 Alternatively, use two separate machines or two separate config
 directories with TCP interfaces pointing at each other.
 
-
 ## Required Environment Variables [CONFIRMED]
 
 The live smoke tests use these environment variables:
 
-| Variable | Required | Example | Description |
-|----------|----------|---------|-------------|
-| `LXMF_CONNECTION_TYPE` | Yes | `reticulum` | Must be `"reticulum"`. Any other value causes tests to skip. |
-| `LXMF_IDENTITY_PATH` | Yes | `/tmp/lxmf_test_identity` | Path to Reticulum identity file. Created on first run if missing. |
-| `LXMF_DISPLAY_NAME` | No | `MEDRE Smoke Test` | Display name for LXMF announces. Defaults to empty string. |
-| `LXMF_DESTINATION_HASH` | No | (32-hex-char hash) | Destination hexhash for outbound send tests. |
+| Variable                | Required | Example                   | Description                                                       |
+| ----------------------- | -------- | ------------------------- | ----------------------------------------------------------------- |
+| `LXMF_CONNECTION_TYPE`  | Yes      | `reticulum`               | Must be `"reticulum"`. Any other value causes tests to skip.      |
+| `LXMF_IDENTITY_PATH`    | Yes      | `/tmp/lxmf_test_identity` | Path to Reticulum identity file. Created on first run if missing. |
+| `LXMF_DISPLAY_NAME`     | No       | `MEDRE Smoke Test`        | Display name for LXMF announces. Defaults to empty string.        |
+| `LXMF_DESTINATION_HASH` | No       | (32-hex-char hash)        | Destination hexhash for outbound send tests.                      |
 
 At minimum, `LXMF_CONNECTION_TYPE` and `LXMF_IDENTITY_PATH` must
 be set. If any required variable is missing, every test in the file
 skips with a descriptive reason.
-
 
 ## How to Run Live Tests [CONFIRMED]
 
@@ -393,7 +386,6 @@ initialization, router creation, delivery identity registration, and
 message construction. It does not send anything over a real network
 (unless Reticulum has active interfaces).
 
-
 ## What the MEDRE Adapter Proves / Does Not Prove [CONFIRMED test results]
 
 ### Proves (via the test harness)
@@ -429,22 +421,20 @@ message construction. It does not send anything over a real network
   don't, since Reticulum is a singleton).
 - Performance under load.
 
-
 ## Common Failures [CONFIRMED]
 
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| `ImportError: No module named 'RNS'` | `rns` not installed | `pip install rns` |
-| `ImportError: No module named 'LXMF'` | `lxmf` not installed | `pip install lxmf` |
-| `OSError: Attempt to reinitialise Reticulum` | `RNS.Reticulum()` called twice in same process | Use `RNS.Reticulum.get_instance()` for subsequent access, or ensure only one init call. |
-| `ValueError: LXMF cannot be initialised without a storage path` | `storagepath=None` | Pass a valid directory path to `LXMRouter(storagepath=...)`. |
-| `router.register_delivery_identity()` returns `None` | Called more than once per router | Only one delivery identity per router instance is supported. Create a new router if you need another identity. |
-| No peers discovered | No transport interfaces configured, or no other Reticulum nodes on the network | Check Reticulum config file. Enable `AutoInterface` for LAN discovery. Start `rnsd` on another machine. |
-| Path request timeouts | No route to destination | Ensure both peers have active interfaces. Check `rnstatus` for interface status. |
-| `ModuleNotFoundError: No module named 'RNS.Interfaces...'` | Missing `pyserial` dependency | `pip install pyserial` or `pip install rns` (includes it). |
-| Reticulum creates `~/.reticulum` unexpectedly | No custom configdir provided | Pass `configdir` to `RNS.Reticulum(configdir=...)` for test isolation. |
-| Stale identity file | Previous test left identity file | Delete the file at `LXMF_IDENTITY_PATH` to force fresh creation. |
-
+| Symptom                                                         | Cause                                                                          | Fix                                                                                                            |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| `ImportError: No module named 'RNS'`                            | `rns` not installed                                                            | `pip install rns`                                                                                              |
+| `ImportError: No module named 'LXMF'`                           | `lxmf` not installed                                                           | `pip install lxmf`                                                                                             |
+| `OSError: Attempt to reinitialise Reticulum`                    | `RNS.Reticulum()` called twice in same process                                 | Use `RNS.Reticulum.get_instance()` for subsequent access, or ensure only one init call.                        |
+| `ValueError: LXMF cannot be initialised without a storage path` | `storagepath=None`                                                             | Pass a valid directory path to `LXMRouter(storagepath=...)`.                                                   |
+| `router.register_delivery_identity()` returns `None`            | Called more than once per router                                               | Only one delivery identity per router instance is supported. Create a new router if you need another identity. |
+| No peers discovered                                             | No transport interfaces configured, or no other Reticulum nodes on the network | Check Reticulum config file. Enable `AutoInterface` for LAN discovery. Start `rnsd` on another machine.        |
+| Path request timeouts                                           | No route to destination                                                        | Ensure both peers have active interfaces. Check `rnstatus` for interface status.                               |
+| `ModuleNotFoundError: No module named 'RNS.Interfaces...'`      | Missing `pyserial` dependency                                                  | `pip install pyserial` or `pip install rns` (includes it).                                                     |
+| Reticulum creates `~/.reticulum` unexpectedly                   | No custom configdir provided                                                   | Pass `configdir` to `RNS.Reticulum(configdir=...)` for test isolation.                                         |
+| Stale identity file                                             | Previous test left identity file                                               | Delete the file at `LXMF_IDENTITY_PATH` to force fresh creation.                                               |
 
 ## Reticulum Transport Interface Types [CONFIRMED]
 
@@ -452,25 +442,24 @@ For reference, Reticulum supports these interface types (configured in
 the Reticulum config file, not in MEDRE config). CONFIRMED via
 `dir(RNS.Interfaces)` inspection on installed RNS 1.2.5:
 
-| Type | Config Name | Description |
-|------|-------------|-------------|
-| Auto | `AutoInterface` | Discovers peers on local network via multicast. Zero config for LAN testing. CONFIRMED. |
-| TCP Client | `TCPClientInterface` | Connects to a remote Reticulum node via TCP. Requires `target_host` and `target_port`. |
-| TCP Server | `TCPServerInterface` | Listens for incoming TCP connections. |
-| UDP | `UDPInterface` | Sends/receives via UDP broadcast or unicast. |
-| RNode | `RNodeInterface` | LoRa radio transceiver via USB serial. CONFIRMED: requires `pyserial` (v3.5 installed). HW_MTU=508. |
-| Serial | `SerialInterface` | Generic serial port transport. |
-| KISS | `KISSInterface` | KISS-compatible TNC/modem. |
-| Pipe | `PipeInterface` | External program via stdio. |
-| Weave | `WeaveInterface` | Weave network transport. |
-| I2P | `I2PInterface` | I2P overlay network. |
-| Backbone | `BackboneInterface` | TCP backbone for inter-network routing. |
-| RNode Multi | `RNodeMultiInterface` | Multi-port RNode for multiple LoRa channels. |
-| AX25 KISS | `AX25KISSInterface` | AX.25 via KISS TNC. |
+| Type        | Config Name           | Description                                                                                         |
+| ----------- | --------------------- | --------------------------------------------------------------------------------------------------- |
+| Auto        | `AutoInterface`       | Discovers peers on local network via multicast. Zero config for LAN testing. CONFIRMED.             |
+| TCP Client  | `TCPClientInterface`  | Connects to a remote Reticulum node via TCP. Requires `target_host` and `target_port`.              |
+| TCP Server  | `TCPServerInterface`  | Listens for incoming TCP connections.                                                               |
+| UDP         | `UDPInterface`        | Sends/receives via UDP broadcast or unicast.                                                        |
+| RNode       | `RNodeInterface`      | LoRa radio transceiver via USB serial. CONFIRMED: requires `pyserial` (v3.5 installed). HW_MTU=508. |
+| Serial      | `SerialInterface`     | Generic serial port transport.                                                                      |
+| KISS        | `KISSInterface`       | KISS-compatible TNC/modem.                                                                          |
+| Pipe        | `PipeInterface`       | External program via stdio.                                                                         |
+| Weave       | `WeaveInterface`      | Weave network transport.                                                                            |
+| I2P         | `I2PInterface`        | I2P overlay network.                                                                                |
+| Backbone    | `BackboneInterface`   | TCP backbone for inter-network routing.                                                             |
+| RNode Multi | `RNodeMultiInterface` | Multi-port RNode for multiple LoRa channels.                                                        |
+| AX25 KISS   | `AX25KISSInterface`   | AX.25 via KISS TNC.                                                                                 |
 
 For smoke testing, `AutoInterface` (LAN) or `TCPClientInterface`
 (point-to-point) are the simplest options.
-
 
 ## Safety Notes [CONFIRMED]
 
@@ -498,7 +487,6 @@ For smoke testing, `AutoInterface` (LAN) or `TCPClientInterface`
 6. **Signal handlers.** `LXMRouter.__init__` registers SIGINT and
    SIGTERM handlers. This can interfere with test frameworks that
    handle signals. Consider this when designing the live harness.
-
 
 ## Live Validation Evidence
 
@@ -533,7 +521,6 @@ For smoke testing, `AutoInterface` (LAN) or `TCPClientInterface`
   - **Hardware probe finding:** The RNode serial device (ttyUSB0, CP2104) did not respond to KISS DETECT probe. This means the RNode firmware may not be active on this device, or it may need DTR/RTS toggling to enter command mode. The Reticulum RNodeInterface path is blocked until this is resolved.
 - **Failures/Notes:** No test failures. Real-mode tests require a dedicated Reticulum instance (not shared with the test process) and proper session lifecycle management for full validation. The fake-mode test coverage is comprehensive: config validation, lifecycle, send/receive, restart, diagnostics, idempotency. **RNode hardware path is blocked — KISS probe returned no response.**
 
-
 ## Explicit Scope Exclusions [CONFIRMED]
 
 The following are explicitly **out of scope** for the live smoke
@@ -553,7 +540,6 @@ harness and the LXMF adapter alpha:
   clients (though such integration is a future goal)
 - Reticulum as a standalone MEDRE adapter (not planned)
 
-
 ## SDK Reality Pass Summary (2026-05-12)
 
 Performed via Python `inspect` module on installed packages in
@@ -561,29 +547,29 @@ Performed via Python `inspect` module on installed packages in
 
 ### Environment
 
-| Item | Value | Label |
-|------|-------|-------|
-| Python | 3.12 | CONFIRMED |
-| RNS version | 1.2.5 | CONFIRMED |
-| LXMF version | 0.9.7 | CONFIRMED |
-| pyserial | 3.5 | CONFIRMED |
+| Item         | Value                                              | Label     |
+| ------------ | -------------------------------------------------- | --------- |
+| Python       | 3.12                                               | CONFIRMED |
+| RNS version  | 1.2.5                                              | CONFIRMED |
+| LXMF version | 0.9.7                                              | CONFIRMED |
+| pyserial     | 3.5                                                | CONFIRMED |
 | Install path | `~/.platformio/penv/lib/python3.12/site-packages/` | CONFIRMED |
 
 ### Key API Confirmations
 
-| API | Signature | Label |
-|-----|-----------|-------|
-| `RNS.Reticulum()` | `(configdir=None, loglevel=None, logdest=None, verbosity=None, require_shared_instance=False, shared_instance_type=None)` | CONFIRMED |
-| `RNS.Identity()` | `(create_keys=True)` | CONFIRMED |
-| `LXMF.LXMRouter()` | `(identity=None, storagepath=None, autopeer=True, ...)` — 15 params | CONFIRMED |
-| `register_delivery_identity()` | `(identity, display_name=None, stamp_cost=None)` | CONFIRMED |
-| `register_delivery_callback()` | `(callback)` — sets private `__delivery_callback` | CONFIRMED |
-| `announce()` | `(destination_hash, attached_interface=None)` | CONFIRMED |
-| `handle_outbound()` | `(lxmessage)` | CONFIRMED |
-| `LXMessage()` | `(destination, source, content, title, fields, desired_method, destination_hash, source_hash, stamp_cost, include_ticket)` | CONFIRMED |
-| `LXMessage.register_delivery_callback()` | `(callback)` | CONFIRMED |
-| `LXMessage.register_failed_callback()` | `(callback)` | CONFIRMED |
-| `exit_handler()` | No args, guarded against double-entry | CONFIRMED |
+| API                                      | Signature                                                                                                                  | Label     |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | --------- |
+| `RNS.Reticulum()`                        | `(configdir=None, loglevel=None, logdest=None, verbosity=None, require_shared_instance=False, shared_instance_type=None)`  | CONFIRMED |
+| `RNS.Identity()`                         | `(create_keys=True)`                                                                                                       | CONFIRMED |
+| `LXMF.LXMRouter()`                       | `(identity=None, storagepath=None, autopeer=True, ...)` — 15 params                                                        | CONFIRMED |
+| `register_delivery_identity()`           | `(identity, display_name=None, stamp_cost=None)`                                                                           | CONFIRMED |
+| `register_delivery_callback()`           | `(callback)` — sets private `__delivery_callback`                                                                          | CONFIRMED |
+| `announce()`                             | `(destination_hash, attached_interface=None)`                                                                              | CONFIRMED |
+| `handle_outbound()`                      | `(lxmessage)`                                                                                                              | CONFIRMED |
+| `LXMessage()`                            | `(destination, source, content, title, fields, desired_method, destination_hash, source_hash, stamp_cost, include_ticket)` | CONFIRMED |
+| `LXMessage.register_delivery_callback()` | `(callback)`                                                                                                               | CONFIRMED |
+| `LXMessage.register_failed_callback()`   | `(callback)`                                                                                                               | CONFIRMED |
+| `exit_handler()`                         | No args, guarded against double-entry                                                                                      | CONFIRMED |
 
 ### What Changed From Previous Audit
 

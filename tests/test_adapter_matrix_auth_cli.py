@@ -4,15 +4,14 @@ Covers: parser structure (tristate optional flags), status subcommand,
 --password-stdin TTY guard, and integration flow with mocked
 login/whoami/save_credentials_json (NOT update_toml_credentials).
 """
+
 from __future__ import annotations
 
 import io
 import json
-import os
-import sys
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -30,16 +29,24 @@ def _pipe_stdin(text: str) -> io.StringIO:
 # Parser structure tests
 # ---------------------------------------------------------------------------
 
+
 class TestAdapterMatrixAuthParserStructure:
     """Parser-level tests for ``medre adapter matrix auth login``."""
 
     def test_adapter_matrix_auth_login_accepted(self) -> None:
         parser = _build_parser()
-        args = parser.parse_args([
-            "adapter", "matrix", "auth", "login",
-            "--homeserver", "https://m.org",
-            "--user", "@b:m.org",
-        ])
+        args = parser.parse_args(
+            [
+                "adapter",
+                "matrix",
+                "auth",
+                "login",
+                "--homeserver",
+                "https://m.org",
+                "--user",
+                "@b:m.org",
+            ]
+        )
         assert args.command == "adapter"
         assert args.adapter_command == "matrix"
         assert args.adapter_matrix_command == "auth"
@@ -50,12 +57,19 @@ class TestAdapterMatrixAuthParserStructure:
 
     def test_password_stdin_flag(self) -> None:
         parser = _build_parser()
-        args = parser.parse_args([
-            "adapter", "matrix", "auth", "login",
-            "--homeserver", "https://m.org",
-            "--user", "@b:m.org",
-            "--password-stdin",
-        ])
+        args = parser.parse_args(
+            [
+                "adapter",
+                "matrix",
+                "auth",
+                "login",
+                "--homeserver",
+                "https://m.org",
+                "--user",
+                "@b:m.org",
+                "--password-stdin",
+            ]
+        )
         assert args.password_stdin is True
 
     def test_adapter_requires_subcommand(self) -> None:
@@ -78,22 +92,36 @@ class TestAdapterMatrixAuthParserStructure:
     def test_login_accepts_user_only_mxid(self) -> None:
         """Providing only --user (no --homeserver) is accepted."""
         parser = _build_parser()
-        args = parser.parse_args([
-            "adapter", "matrix", "auth", "login",
-            "--user", "@bot:server",
-        ])
+        args = parser.parse_args(
+            [
+                "adapter",
+                "matrix",
+                "auth",
+                "login",
+                "--user",
+                "@bot:server",
+            ]
+        )
         assert args.homeserver is None
         assert args.user == "@bot:server"
 
     def test_password_flag_accepted(self) -> None:
         """--password flag is parsed and stored."""
         parser = _build_parser()
-        args = parser.parse_args([
-            "adapter", "matrix", "auth", "login",
-            "--homeserver", "https://m.org",
-            "--user", "@b:m.org",
-            "--password", "somepass",
-        ])
+        args = parser.parse_args(
+            [
+                "adapter",
+                "matrix",
+                "auth",
+                "login",
+                "--homeserver",
+                "https://m.org",
+                "--user",
+                "@b:m.org",
+                "--password",
+                "somepass",
+            ]
+        )
         assert args.password == "somepass"
 
     def test_status_subcommand_parses(self) -> None:
@@ -106,15 +134,22 @@ class TestAdapterMatrixAuthParserStructure:
         """Unknown flags are rejected by the parser."""
         parser = _build_parser()
         with pytest.raises(SystemExit):
-            parser.parse_args([
-                "adapter", "matrix", "auth", "login",
-                "--unknown", "value",
-            ])
+            parser.parse_args(
+                [
+                    "adapter",
+                    "matrix",
+                    "auth",
+                    "login",
+                    "--unknown",
+                    "value",
+                ]
+            )
 
 
 # ---------------------------------------------------------------------------
 # Help and SDK import safety
 # ---------------------------------------------------------------------------
+
 
 class TestHelpNoSdkImport:
     """Ensure --help does not import the Matrix SDK."""
@@ -123,8 +158,8 @@ class TestHelpNoSdkImport:
         """Building parser and rendering help must not import nio."""
         parser = _build_parser()
         parser.format_help()
-        import medre.cli.main as _main_module
         import importlib
+
         main_mod = importlib.import_module("medre.cli.main")
         source = Path(main_mod.__file__).read_text()
         assert "from .contrib import" in source
@@ -142,6 +177,7 @@ class TestHelpNoSdkImport:
 # ---------------------------------------------------------------------------
 # --password-stdin TTY guard
 # ---------------------------------------------------------------------------
+
 
 class TestPasswordStdinTtyGuard:
     """Tests for the TTY guard when ``--password-stdin`` is used."""
@@ -196,9 +232,15 @@ class TestPasswordStdinTtyGuard:
         with (
             patch("medre.adapters.matrix.cli.os.isatty", return_value=False),
             patch("medre.adapters.matrix.auth.matrix_login", return_value=login_result),
-            patch("medre.adapters.matrix.auth.matrix_whoami", return_value="@bot:matrix.org"),
+            patch(
+                "medre.adapters.matrix.auth.matrix_whoami",
+                return_value="@bot:matrix.org",
+            ),
             patch("medre.adapters.matrix.auth.update_toml_credentials"),
-            patch("medre.adapters.matrix.auth.save_credentials_json", return_value=Path("/tmp/matrix.json")),
+            patch(
+                "medre.adapters.matrix.auth.save_credentials_json",
+                return_value=Path("/tmp/matrix.json"),
+            ),
             patch("sys.stdin", pipe_stdin),
         ):
             await _adapter_matrix_auth_login(args)
@@ -207,6 +249,7 @@ class TestPasswordStdinTtyGuard:
 # ---------------------------------------------------------------------------
 # Login help epilog
 # ---------------------------------------------------------------------------
+
 
 class TestLoginHelpEpilog:
     """Tests for the login subcommand help epilog content."""
@@ -243,6 +286,7 @@ class TestLoginHelpEpilog:
 # ---------------------------------------------------------------------------
 # Integration flow (monkeypatched) — REWRITTEN for tristate + JSON credentials
 # ---------------------------------------------------------------------------
+
 
 class TestAdapterMatrixAuthLoginIntegration:
     """Integration tests for ``_adapter_matrix_auth_login`` with mocked internals.
@@ -282,12 +326,22 @@ class TestAdapterMatrixAuthLoginIntegration:
         stdout_buf = io.StringIO()
         with (
             patch("builtins.input", return_value="@bot:server") as mock_input,
-            patch("medre.adapters.matrix.cli.getpass.getpass", return_value="pw") as mock_getpass,
-            patch("medre.adapters.matrix.auth.extract_domain_from_mxid", return_value="server"),
+            patch(
+                "medre.adapters.matrix.cli.getpass.getpass", return_value="pw"
+            ) as mock_getpass,
+            patch(
+                "medre.adapters.matrix.auth.extract_domain_from_mxid",
+                return_value="server",
+            ),
             patch("medre.adapters.matrix.auth.discover_well_known", return_value=None),
-            patch("medre.adapters.matrix.auth.matrix_login", return_value=login_result) as mock_login,
-            patch("medre.adapters.matrix.auth.matrix_whoami", return_value="@bot:server"),
-            patch("medre.adapters.matrix.auth.save_credentials_json", return_value=cred_path) as mock_save,
+            patch("medre.adapters.matrix.auth.matrix_login", return_value=login_result),
+            patch(
+                "medre.adapters.matrix.auth.matrix_whoami", return_value="@bot:server"
+            ),
+            patch(
+                "medre.adapters.matrix.auth.save_credentials_json",
+                return_value=cred_path,
+            ) as mock_save,
             patch("sys.stdout", stdout_buf),
         ):
             await _adapter_matrix_auth_login(args)
@@ -322,14 +376,24 @@ class TestAdapterMatrixAuthLoginIntegration:
         )
 
         with (
-            patch("medre.adapters.matrix.auth.matrix_login", return_value=login_result) as mock_login,
-            patch("medre.adapters.matrix.auth.matrix_whoami", return_value="@bot:matrix.org"),
-            patch("medre.adapters.matrix.auth.save_credentials_json", return_value=cred_path) as mock_save,
+            patch(
+                "medre.adapters.matrix.auth.matrix_login", return_value=login_result
+            ) as mock_login,
+            patch(
+                "medre.adapters.matrix.auth.matrix_whoami",
+                return_value="@bot:matrix.org",
+            ),
+            patch(
+                "medre.adapters.matrix.auth.save_credentials_json",
+                return_value=cred_path,
+            ) as mock_save,
         ):
             await _adapter_matrix_auth_login(args)
 
             mock_login.assert_called_once_with(
-                "https://matrix.org", "@bot:matrix.org", "pw123",
+                "https://matrix.org",
+                "@bot:matrix.org",
+                "pw123",
             )
             mock_save.assert_called_once_with(login_result)
 
@@ -374,18 +438,34 @@ class TestAdapterMatrixAuthLoginIntegration:
         )
 
         with (
-            patch("medre.adapters.matrix.auth.extract_domain_from_mxid", return_value="sk.community") as mock_extract,
-            patch("medre.adapters.matrix.auth.discover_well_known", return_value="https://matrix.sk.community") as mock_wk,
-            patch("medre.adapters.matrix.auth.matrix_login", return_value=login_result) as mock_login,
-            patch("medre.adapters.matrix.auth.matrix_whoami", return_value="@bot:sk.community"),
-            patch("medre.adapters.matrix.auth.save_credentials_json", return_value=cred_path),
+            patch(
+                "medre.adapters.matrix.auth.extract_domain_from_mxid",
+                return_value="sk.community",
+            ) as mock_extract,
+            patch(
+                "medre.adapters.matrix.auth.discover_well_known",
+                return_value="https://matrix.sk.community",
+            ) as mock_wk,
+            patch(
+                "medre.adapters.matrix.auth.matrix_login", return_value=login_result
+            ) as mock_login,
+            patch(
+                "medre.adapters.matrix.auth.matrix_whoami",
+                return_value="@bot:sk.community",
+            ),
+            patch(
+                "medre.adapters.matrix.auth.save_credentials_json",
+                return_value=cred_path,
+            ),
         ):
             await _adapter_matrix_auth_login(args)
 
             mock_extract.assert_called_once_with("@bot:sk.community")
             mock_wk.assert_called_once_with("sk.community")
             mock_login.assert_called_once_with(
-                "https://matrix.sk.community", "@bot:sk.community", "pw",
+                "https://matrix.sk.community",
+                "@bot:sk.community",
+                "pw",
             )
 
     @pytest.mark.asyncio
@@ -408,16 +488,29 @@ class TestAdapterMatrixAuthLoginIntegration:
         )
 
         with (
-            patch("medre.adapters.matrix.auth.extract_domain_from_mxid", return_value="sk.community"),
+            patch(
+                "medre.adapters.matrix.auth.extract_domain_from_mxid",
+                return_value="sk.community",
+            ),
             patch("medre.adapters.matrix.auth.discover_well_known", return_value=None),
-            patch("medre.adapters.matrix.auth.matrix_login", return_value=login_result) as mock_login,
-            patch("medre.adapters.matrix.auth.matrix_whoami", return_value="@bot:sk.community"),
-            patch("medre.adapters.matrix.auth.save_credentials_json", return_value=cred_path),
+            patch(
+                "medre.adapters.matrix.auth.matrix_login", return_value=login_result
+            ) as mock_login,
+            patch(
+                "medre.adapters.matrix.auth.matrix_whoami",
+                return_value="@bot:sk.community",
+            ),
+            patch(
+                "medre.adapters.matrix.auth.save_credentials_json",
+                return_value=cred_path,
+            ),
         ):
             await _adapter_matrix_auth_login(args)
 
             mock_login.assert_called_once_with(
-                "https://sk.community", "@bot:sk.community", "pw",
+                "https://sk.community",
+                "@bot:sk.community",
+                "pw",
             )
 
     @pytest.mark.asyncio
@@ -442,8 +535,14 @@ class TestAdapterMatrixAuthLoginIntegration:
 
         with (
             patch("medre.adapters.matrix.auth.matrix_login", return_value=login_result),
-            patch("medre.adapters.matrix.auth.matrix_whoami", return_value="@bot:matrix.org"),
-            patch("medre.adapters.matrix.auth.save_credentials_json", return_value=cred_path) as mock_save,
+            patch(
+                "medre.adapters.matrix.auth.matrix_whoami",
+                return_value="@bot:matrix.org",
+            ),
+            patch(
+                "medre.adapters.matrix.auth.save_credentials_json",
+                return_value=cred_path,
+            ) as mock_save,
             patch("medre.adapters.matrix.auth.update_toml_credentials") as mock_toml,
         ):
             await _adapter_matrix_auth_login(args)
@@ -475,8 +574,13 @@ class TestAdapterMatrixAuthLoginIntegration:
         stdout_buf = io.StringIO()
         with (
             patch("medre.adapters.matrix.auth.matrix_login", return_value=login_result),
-            patch("medre.adapters.matrix.auth.matrix_whoami", return_value="@bot:m.org"),
-            patch("medre.adapters.matrix.auth.save_credentials_json", return_value=cred_path),
+            patch(
+                "medre.adapters.matrix.auth.matrix_whoami", return_value="@bot:m.org"
+            ),
+            patch(
+                "medre.adapters.matrix.auth.save_credentials_json",
+                return_value=cred_path,
+            ),
             patch("sys.stdout", stdout_buf),
         ):
             await _adapter_matrix_auth_login(args)
@@ -488,6 +592,7 @@ class TestAdapterMatrixAuthLoginIntegration:
 # ---------------------------------------------------------------------------
 # Status handler tests
 # ---------------------------------------------------------------------------
+
 
 class TestAdapterMatrixAuthStatus:
     """Tests for ``_adapter_matrix_auth_status`` handler."""
@@ -511,12 +616,17 @@ class TestAdapterMatrixAuthStatus:
         from medre.adapters.matrix.cli import _adapter_matrix_auth_status
 
         cred_file = tmp_path / "exists.json"
-        cred_file.write_text(json.dumps({
-            "homeserver": "https://matrix.org",
-            "access_token": "syt_tok",
-            "user_id": "@bot:matrix.org",
-            "device_id": "DEV",
-        }), encoding="utf-8")
+        cred_file.write_text(
+            json.dumps(
+                {
+                    "homeserver": "https://matrix.org",
+                    "access_token": "syt_tok",
+                    "user_id": "@bot:matrix.org",
+                    "device_id": "DEV",
+                }
+            ),
+            encoding="utf-8",
+        )
 
         stdout_buf = io.StringIO()
         with patch("sys.stdout", stdout_buf):
@@ -534,11 +644,16 @@ class TestAdapterMatrixAuthStatus:
         from medre.adapters.matrix.cli import _adapter_matrix_auth_status
 
         cred_file = tmp_path / "incomplete.json"
-        cred_file.write_text(json.dumps({
-            "homeserver": "https://matrix.org",
-            "user_id": "@bot:matrix.org",
-            # access_token intentionally missing
-        }), encoding="utf-8")
+        cred_file.write_text(
+            json.dumps(
+                {
+                    "homeserver": "https://matrix.org",
+                    "user_id": "@bot:matrix.org",
+                    # access_token intentionally missing
+                }
+            ),
+            encoding="utf-8",
+        )
 
         stdout_buf = io.StringIO()
         with patch("sys.stdout", stdout_buf):
@@ -561,4 +676,8 @@ class TestAdapterMatrixAuthStatus:
             await _adapter_matrix_auth_status(credentials_path=cred_file)
 
         output = stdout_buf.getvalue()
-        assert "malformed" in output.lower() or "parse" in output.lower() or "invalid" in output.lower()
+        assert (
+            "malformed" in output.lower()
+            or "parse" in output.lower()
+            or "invalid" in output.lower()
+        )

@@ -32,6 +32,7 @@ storage, and a deterministic configuration.  It provides:
 - :meth:`diagnostics` for capturing periodic snapshots.
 - :meth:`reset` for verifying clean state across cycles.
 """
+
 from __future__ import annotations
 
 import os
@@ -41,11 +42,10 @@ from typing import Any
 
 import pytest
 
-from medre.core.contracts.adapter import AdapterContract
 from medre.config.model import (
     AdapterConfigSet,
-    LxmfRuntimeConfig,
     LoggingConfig,
+    LxmfRuntimeConfig,
     MatrixRuntimeConfig,
     MeshCoreRuntimeConfig,
     MeshtasticRuntimeConfig,
@@ -57,7 +57,6 @@ from medre.config.model import (
 from medre.config.paths import MedrePaths, resolve
 from medre.runtime.app import MedreApp, RuntimeState
 from medre.runtime.builder import RuntimeBuilder
-
 
 # ---------------------------------------------------------------------------
 # Configuration constants
@@ -224,7 +223,7 @@ class SoakRuntime:
 
         for i in range(count):
             delivered = 0
-            for adapter_id, adapter in self.app.adapters.items():
+            for _adapter_id, adapter in self.app.adapters.items():
                 ctx = getattr(adapter, "ctx", None)
                 if ctx is None:
                     continue
@@ -235,18 +234,18 @@ class SoakRuntime:
                 if hasattr(adapter, "simulate_inbound"):
                     try:
                         if hasattr(adapter, "make_text_event"):
-                            event = getattr(adapter, "make_text_event")(
+                            event = adapter.make_text_event(
                                 f"soak-msg-{i}",
-                                channel=f"soak-channel",
+                                channel="soak-channel",
                             )
                         elif hasattr(adapter, "make_event"):
-                            event = getattr(adapter, "make_event")(
+                            event = adapter.make_event(
                                 f"soak-msg-{i}",
-                                channel=f"soak-channel",
+                                channel="soak-channel",
                             )
                         else:
                             continue
-                        await getattr(adapter, "simulate_inbound")(event)
+                        await adapter.simulate_inbound(event)
                         delivered += 1
                     except Exception:
                         # Soak harness should not crash on individual
@@ -294,8 +293,13 @@ class SoakRuntime:
 
 @pytest.fixture(autouse=True)
 def _clean_path_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for var in ("MEDRE_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME",
-                "XDG_DATA_HOME", "XDG_CACHE_HOME"):
+    for var in (
+        "MEDRE_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_STATE_HOME",
+        "XDG_DATA_HOME",
+        "XDG_CACHE_HOME",
+    ):
         monkeypatch.delenv(var, raising=False)
 
 
@@ -316,7 +320,7 @@ class TestRepeatedStartStopCycle:
     @pytest.mark.asyncio
     async def test_10_start_stop_cycles(self, soak: SoakRuntime) -> None:
         """10 start/stop cycles — runtime must reach RUNNING then STOPPED each time."""
-        for cycle in range(10):
+        for _cycle in range(10):
             await soak.start_fresh()
             assert soak.app is not None
             assert soak.app.state is RuntimeState.RUNNING
@@ -328,7 +332,7 @@ class TestRepeatedStartStopCycle:
     @pytest.mark.asyncio
     async def test_state_clean_after_each_cycle(self, soak: SoakRuntime) -> None:
         """Each start/stop cycle must leave no dangling state."""
-        for cycle in range(5):
+        for _cycle in range(5):
             await soak.start_fresh()
             # Verify adapters started.
             assert soak.app is not None
@@ -350,7 +354,8 @@ class TestRepeatedReplayCycles:
 
     @pytest.mark.asyncio
     async def test_5_replay_cycles_stable_diagnostics(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """5 cycles of start → deliver events → capture diagnostics → stop.
 
@@ -362,7 +367,7 @@ class TestRepeatedReplayCycles:
             assert soak.app is not None
 
             # Deliver a batch of events.
-            results = await soak.deliver_events(count=5)
+            await soak.deliver_events(count=5)
 
             # Capture diagnostics after delivery.
             snap = soak.capture_diagnostics(iteration=cycle)
@@ -418,7 +423,8 @@ class TestDiagnosticsUnderPressure:
 
     @pytest.mark.asyncio
     async def test_capacity_counters_under_load(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """Verify capacity controller reports reasonable in-flight counts."""
         await soak.start()
@@ -458,9 +464,9 @@ class TestLongRunningStability:
 
             if i % checkpoint_interval == 0:
                 snap = soak.capture_diagnostics(iteration=i)
-                assert snap.runtime_state == "running", (
-                    f"Runtime not running at iteration {i}: {snap.runtime_state}"
-                )
+                assert (
+                    snap.runtime_state == "running"
+                ), f"Runtime not running at iteration {i}: {snap.runtime_state}"
                 assert snap.adapter_count == initial_adapter_count, (
                     f"Adapter count changed at iteration {i}: "
                     f"{snap.adapter_count} != {initial_adapter_count}"
@@ -472,15 +478,16 @@ class TestLongRunningStability:
 
         # Verify all snapshots have consistent adapter count.
         adapter_counts = {s.adapter_count for s in soak.snapshots}
-        assert adapter_counts == {initial_adapter_count}, (
-            f"Adapter counts varied across snapshots: {adapter_counts}"
-        )
+        assert adapter_counts == {
+            initial_adapter_count
+        }, f"Adapter counts varied across snapshots: {adapter_counts}"
 
         await soak.stop()
 
     @pytest.mark.asyncio
     async def test_n_iterations_adapter_lists_bounded(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """Verify fake adapter tracking lists never exceed bounds over N iterations.
 
@@ -496,8 +503,12 @@ class TestLongRunningStability:
         # After all deliveries, verify bounds.
         max_allowed = 1000  # _MAX_FAKE_HISTORY
         for adapter_id, adapter in soak.app.adapters.items():
-            for attr_name in ("delivered_payloads", "inbound_events",
-                              "received_events", "delivered_events"):
+            for attr_name in (
+                "delivered_payloads",
+                "inbound_events",
+                "received_events",
+                "delivered_events",
+            ):
                 lst = getattr(adapter, attr_name, None)
                 if isinstance(lst, list):
                     assert len(lst) <= max_allowed, (

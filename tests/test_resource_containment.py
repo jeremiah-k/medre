@@ -12,28 +12,25 @@ by existing session tests:
 
 All tests use fake mode or mocks. No live dependencies required.
 """
+
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
-import pytest
-
-from medre.config.adapters.lxmf import LxmfConfig
 from medre.adapters.lxmf.session import (
     LxmfDeliveryState,
     LxmfSession,
     _OutboundDelivery,
 )
-from medre.config.adapters.matrix import MatrixConfig
 from medre.adapters.matrix.session import MatrixSession
-from medre.config.adapters.meshtastic import MeshtasticConfig
-from medre.adapters.meshtastic.session import MeshtasticSession
-from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.adapters.meshcore.session import MeshCoreSession
-
+from medre.adapters.meshtastic.session import MeshtasticSession
+from medre.config.adapters.lxmf import LxmfConfig
+from medre.config.adapters.matrix import MatrixConfig
+from medre.config.adapters.meshcore import MeshCoreConfig
+from medre.config.adapters.meshtastic import MeshtasticConfig
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -163,15 +160,15 @@ class TestMatrixSessionResourceContainment:
         # Verify the diagnostics dataclass has no token field.
         diag_dict = diag.__dict__
         for key in diag_dict:
-            assert "token" not in key.lower(), (
-                f"Diagnostics contains token-like field: {key}"
-            )
-            assert "secret" not in key.lower(), (
-                f"Diagnostics contains secret-like field: {key}"
-            )
-            assert "key" not in key.lower() or key == "encryption_mode", (
-                f"Diagnostics contains key-like field: {key}"
-            )
+            assert (
+                "token" not in key.lower()
+            ), f"Diagnostics contains token-like field: {key}"
+            assert (
+                "secret" not in key.lower()
+            ), f"Diagnostics contains secret-like field: {key}"
+            assert (
+                "key" not in key.lower() or key == "encryption_mode"
+            ), f"Diagnostics contains key-like field: {key}"
 
 
 # ===================================================================
@@ -245,7 +242,7 @@ class TestMeshtasticSessionResourceContainment:
         config = _meshtastic_config(connection_type="fake")
         session = MeshtasticSession(config, "rc-test", "meshtastic")
 
-        for i in range(10):
+        for _i in range(10):
             await session.start()
             # In fake mode, connected=False (no _client) but _started=True.
             assert session._started is True

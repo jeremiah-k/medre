@@ -19,26 +19,16 @@ import tempfile
 from datetime import datetime, timezone
 from typing import Any
 
-import pytest
-
 from medre.core.events import (
     CanonicalEvent,
     DeliveryReceipt,
     EventMetadata,
-    EventRelation,
     NativeMessageRef,
-    NativeRef,
 )
-from medre.core.storage import EventFilter, SQLiteStorage
-from medre.core.storage.replay import (
-    ReplayEngine,
-    ReplayMode,
-    ReplayRequest,
-    collect_replay_summary,
-)
-
+from medre.core.storage import SQLiteStorage
 
 # -- Helpers ----------------------------------------------------------------
+
 
 def _evt(
     eid: str = "evt-1",
@@ -46,33 +36,56 @@ def _evt(
     ch: str | None = "ch-0",
 ) -> CanonicalEvent:
     return CanonicalEvent(
-        event_id=eid, event_kind="message.created", schema_version=1,
-        timestamp=datetime.now(timezone.utc), source_adapter=adapter,
-        source_transport_id="node-1", source_channel_id=ch,
-        parent_event_id=None, lineage=(), relations=(),
-        payload={"text": "hello"}, metadata=EventMetadata(),
+        event_id=eid,
+        event_kind="message.created",
+        schema_version=1,
+        timestamp=datetime.now(timezone.utc),
+        source_adapter=adapter,
+        source_transport_id="node-1",
+        source_channel_id=ch,
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload={"text": "hello"},
+        metadata=EventMetadata(),
     )
 
 
 def _rcpt(
-    rid: str, eid: str, plan: str = "plan-1", adapter: str = "adapter_a",
-    source: str = "live", run_id: str | None = None,
+    rid: str,
+    eid: str,
+    plan: str = "plan-1",
+    adapter: str = "adapter_a",
+    source: str = "live",
+    run_id: str | None = None,
 ) -> DeliveryReceipt:
     return DeliveryReceipt(
-        receipt_id=rid, event_id=eid, delivery_plan_id=plan,
-        target_adapter=adapter, status="sent",  # type: ignore[arg-type]
-        source=source, replay_run_id=run_id,
+        receipt_id=rid,
+        event_id=eid,
+        delivery_plan_id=plan,
+        target_adapter=adapter,
+        status="sent",  # type: ignore[arg-type]
+        source=source,
+        replay_run_id=run_id,
     )
 
 
 def _nref(
-    nid: str, eid: str, adapter: str = "fake_transport",
-    ch: str | None = "ch-0", msg: str | None = None,
+    nid: str,
+    eid: str,
+    adapter: str = "fake_transport",
+    ch: str | None = "ch-0",
+    msg: str | None = None,
 ) -> NativeMessageRef:
     return NativeMessageRef(
-        id=nid, event_id=eid, adapter=adapter,
-        native_channel_id=ch, native_message_id=msg or f"msg-{nid}",
-        native_thread_id=None, native_relation_id=None, direction="inbound",
+        id=nid,
+        event_id=eid,
+        adapter=adapter,
+        native_channel_id=ch,
+        native_message_id=msg or f"msg-{nid}",
+        native_thread_id=None,
+        native_relation_id=None,
+        direction="inbound",
     )
 
 
@@ -83,9 +96,7 @@ async def _all_rcpts(s: SQLiteStorage) -> list[dict[str, Any]]:
 
 
 async def _all_nrefs(s: SQLiteStorage) -> list[dict[str, Any]]:
-    return await s._read_all(
-        "SELECT * FROM native_message_refs ORDER BY id ASC", ()
-    )
+    return await s._read_all("SELECT * FROM native_message_refs ORDER BY id ASC", ())
 
 
 async def _all_eids(s: SQLiteStorage) -> set[str]:
@@ -107,24 +118,26 @@ class TestCrossReferenceInvariants:
             await s.append_receipt(_rcpt(f"x-rcpt-{i}", f"x-evt-{i}"))
 
     async def test_every_receipt_references_existing_event(
-        self, temp_storage: SQLiteStorage,
+        self,
+        temp_storage: SQLiteStorage,
     ) -> None:
         await self._seed(temp_storage, 7)
         for row in await _all_rcpts(temp_storage):
-            assert await temp_storage.get(row["event_id"]) is not None, (
-                f"Receipt {row['receipt_id']} refs missing event {row['event_id']!r}"
-            )
+            assert (
+                await temp_storage.get(row["event_id"]) is not None
+            ), f"Receipt {row['receipt_id']} refs missing event {row['event_id']!r}"
 
     async def test_every_native_ref_references_existing_event(
-        self, temp_storage: SQLiteStorage,
+        self,
+        temp_storage: SQLiteStorage,
     ) -> None:
         for i in range(6):
             await temp_storage.append(_evt(eid=f"nr-evt-{i}"))
             await temp_storage.store_native_ref(_nref(f"nr-{i}", f"nr-evt-{i}"))
         for row in await _all_nrefs(temp_storage):
-            assert await temp_storage.get(row["event_id"]) is not None, (
-                f"NativeRef {row['id']} refs missing event {row['event_id']!r}"
-            )
+            assert (
+                await temp_storage.get(row["event_id"]) is not None
+            ), f"NativeRef {row['id']} refs missing event {row['event_id']!r}"
 
     async def test_no_orphan_receipts_after_close_reopen(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
@@ -174,12 +187,15 @@ class TestSourceInvariants:
     """Receipt source semantics: replay vs live, replay_run_id correctness."""
 
     async def test_replay_receipt_always_has_replay_run_id(
-        self, temp_storage: SQLiteStorage,
+        self,
+        temp_storage: SQLiteStorage,
     ) -> None:
         for i in range(3):
             await temp_storage.append(_evt(eid=f"src-evt-{i}"))
             await temp_storage.append_receipt(
-                _rcpt(f"rp-rcpt-{i}", f"src-evt-{i}", source="replay", run_id=f"run-{i}")
+                _rcpt(
+                    f"rp-rcpt-{i}", f"src-evt-{i}", source="replay", run_id=f"run-{i}"
+                )
             )
         rows = await temp_storage._read_all(
             "SELECT * FROM delivery_receipts WHERE source='replay'", ()
@@ -190,7 +206,8 @@ class TestSourceInvariants:
             assert r["replay_run_id"] != ""
 
     async def test_live_receipt_never_has_replay_run_id(
-        self, temp_storage: SQLiteStorage,
+        self,
+        temp_storage: SQLiteStorage,
     ) -> None:
         for i in range(4):
             await temp_storage.append(_evt(eid=f"lv-evt-{i}"))
@@ -205,32 +222,49 @@ class TestSourceInvariants:
             assert r["replay_run_id"] is None
 
     async def test_source_is_never_null_or_empty(
-        self, temp_storage: SQLiteStorage,
+        self,
+        temp_storage: SQLiteStorage,
     ) -> None:
         for i in range(5):
             await temp_storage.append(_evt(eid=f"sc-evt-{i}"))
-            await temp_storage.append_receipt(_rcpt(
-                f"sc-rcpt-{i}", f"sc-evt-{i}",
-                source="live" if i % 2 == 0 else "replay",
-                run_id=f"run-{i}" if i % 2 else None,
-            ))
+            await temp_storage.append_receipt(
+                _rcpt(
+                    f"sc-rcpt-{i}",
+                    f"sc-evt-{i}",
+                    source="live" if i % 2 == 0 else "replay",
+                    run_id=f"run-{i}" if i % 2 else None,
+                )
+            )
         for row in await _all_rcpts(temp_storage):
             assert row["source"] in ("live", "replay")
 
     async def test_replay_run_id_is_unique_per_run(
-        self, temp_storage: SQLiteStorage,
+        self,
+        temp_storage: SQLiteStorage,
     ) -> None:
         await temp_storage.append(_evt(eid="shared-evt"))
         for j in range(3):
-            await temp_storage.append_receipt(_rcpt(
-                f"ra-{j}", "shared-evt", plan=f"pa-{j}",
-                adapter=f"aa-{j}", source="replay", run_id="run-alpha",
-            ))
+            await temp_storage.append_receipt(
+                _rcpt(
+                    f"ra-{j}",
+                    "shared-evt",
+                    plan=f"pa-{j}",
+                    adapter=f"aa-{j}",
+                    source="replay",
+                    run_id="run-alpha",
+                )
+            )
         for j in range(2):
-            await temp_storage.append_receipt(_rcpt(
-                f"rb-{j}", "shared-evt", plan=f"pb-{j}",
-                adapter=f"ab-{j}", source="replay", run_id="run-beta",
-            ))
+            await temp_storage.append_receipt(
+                _rcpt(
+                    f"rb-{j}",
+                    "shared-evt",
+                    plan=f"pb-{j}",
+                    adapter=f"ab-{j}",
+                    source="replay",
+                    run_id="run-beta",
+                )
+            )
         a = await temp_storage.list_receipts_by_replay_run("run-alpha")
         b = await temp_storage.list_receipts_by_replay_run("run-beta")
         assert len(a) == 3
@@ -268,28 +302,37 @@ class TestOrderingInvariants:
             os.unlink(db)
 
     async def test_timeline_ordering_stable_after_replay_append(
-        self, temp_storage: SQLiteStorage,
+        self,
+        temp_storage: SQLiteStorage,
     ) -> None:
         for i in range(4):
             await temp_storage.append(_evt(eid=f"tl-evt-{i}"))
             await temp_storage.append_receipt(_rcpt(f"live-tl-{i}", f"tl-evt-{i}"))
         live_before = await temp_storage._read_all(
-            "SELECT receipt_id FROM delivery_receipts WHERE source='live' ORDER BY sequence ASC", ()
+            "SELECT receipt_id FROM delivery_receipts WHERE source='live' ORDER BY sequence ASC",
+            (),
         )
         live_ids_before = [r["receipt_id"] for r in live_before]
         for i in range(2):
-            await temp_storage.append_receipt(_rcpt(
-                f"replay-tl-{i}", f"tl-evt-{i}", source="replay", run_id="run-tl",
-            ))
+            await temp_storage.append_receipt(
+                _rcpt(
+                    f"replay-tl-{i}",
+                    f"tl-evt-{i}",
+                    source="replay",
+                    run_id="run-tl",
+                )
+            )
         all_seqs = [r["sequence"] for r in await _all_rcpts(temp_storage)]
         assert all_seqs == sorted(all_seqs)
         live_after = await temp_storage._read_all(
-            "SELECT receipt_id FROM delivery_receipts WHERE source='live' ORDER BY sequence ASC", ()
+            "SELECT receipt_id FROM delivery_receipts WHERE source='live' ORDER BY sequence ASC",
+            (),
         )
         assert live_ids_before == [r["receipt_id"] for r in live_after]
 
     async def test_native_ref_ordering_deterministic(
-        self, temp_storage: SQLiteStorage,
+        self,
+        temp_storage: SQLiteStorage,
     ) -> None:
         await temp_storage.append(_evt(eid="nro-evt"))
         for i in range(5):
@@ -312,7 +355,8 @@ class TestDuplicateSuppression:
     different adapters allowed."""
 
     async def test_duplicate_native_ref_rejected(
-        self, temp_storage: SQLiteStorage,
+        self,
+        temp_storage: SQLiteStorage,
     ) -> None:
         await temp_storage.append(_evt(eid="dup-evt"))
         await temp_storage.store_native_ref(
@@ -329,7 +373,8 @@ class TestDuplicateSuppression:
         assert rows[0]["id"] == "nd-1"
 
     async def test_duplicate_different_adapters_allowed(
-        self, temp_storage: SQLiteStorage,
+        self,
+        temp_storage: SQLiteStorage,
     ) -> None:
         await temp_storage.append(_evt(eid="ma-evt"))
         await temp_storage.store_native_ref(
@@ -338,10 +383,17 @@ class TestDuplicateSuppression:
         await temp_storage.store_native_ref(
             _nref("nb", "ma-evt", adapter="adapter_b", ch="ch-s", msg="shared-msg")
         )
-        assert await temp_storage.resolve_native_ref("adapter_a", "ch-s", "shared-msg") == "ma-evt"
-        assert await temp_storage.resolve_native_ref("adapter_b", "ch-s", "shared-msg") == "ma-evt"
+        assert (
+            await temp_storage.resolve_native_ref("adapter_a", "ch-s", "shared-msg")
+            == "ma-evt"
+        )
+        assert (
+            await temp_storage.resolve_native_ref("adapter_b", "ch-s", "shared-msg")
+            == "ma-evt"
+        )
         rows = await temp_storage._read_all(
-            "SELECT * FROM native_message_refs WHERE native_message_id=?", ("shared-msg",)
+            "SELECT * FROM native_message_refs WHERE native_message_id=?",
+            ("shared-msg",),
         )
         assert len(rows) == 2
 
@@ -355,15 +407,22 @@ class TestReplayLineageInvariants:
     """Replay run grouping is deterministic; no receipt in wrong group."""
 
     async def test_replay_lineage_grouping_deterministic(
-        self, temp_storage: SQLiteStorage,
+        self,
+        temp_storage: SQLiteStorage,
     ) -> None:
         await temp_storage.append(_evt(eid="lin-evt"))
         run_ids = [f"lin-run-{i}" for i in range(3)]
         for rid in run_ids:
-            await temp_storage.append_receipt(_rcpt(
-                f"rcpt-{rid}", "lin-evt", plan=f"plan-{rid}",
-                adapter="adapter_lin", source="replay", run_id=rid,
-            ))
+            await temp_storage.append_receipt(
+                _rcpt(
+                    f"rcpt-{rid}",
+                    "lin-evt",
+                    plan=f"plan-{rid}",
+                    adapter="adapter_lin",
+                    source="replay",
+                    run_id=rid,
+                )
+            )
         for rid in run_ids:
             rcpts = await temp_storage.list_receipts_by_replay_run(rid)
             assert len(rcpts) == 1
@@ -373,27 +432,42 @@ class TestReplayLineageInvariants:
         assert all_runs == set(run_ids)
 
     async def test_replay_receipts_ordered_within_run(
-        self, temp_storage: SQLiteStorage,
+        self,
+        temp_storage: SQLiteStorage,
     ) -> None:
         for i in range(4):
             await temp_storage.append(_evt(eid=f"lo-evt-{i}"))
-            await temp_storage.append_receipt(_rcpt(
-                f"rcpt-lo-{i}", f"lo-evt-{i}", plan=f"plo-{i}",
-                adapter=f"alo-{i}", source="replay", run_id="lin-order-run",
-            ))
+            await temp_storage.append_receipt(
+                _rcpt(
+                    f"rcpt-lo-{i}",
+                    f"lo-evt-{i}",
+                    plan=f"plo-{i}",
+                    adapter=f"alo-{i}",
+                    source="replay",
+                    run_id="lin-order-run",
+                )
+            )
         rcpts = await temp_storage.list_receipts_by_replay_run("lin-order-run")
         assert len(rcpts) == 4
         seqs = [r.sequence for r in rcpts]
         assert seqs == sorted(seqs)
 
     async def test_live_and_replay_receipts_coexist_without_interference(
-        self, temp_storage: SQLiteStorage,
+        self,
+        temp_storage: SQLiteStorage,
     ) -> None:
         await temp_storage.append(_evt(eid="coex-evt"))
-        await temp_storage.append_receipt(_rcpt("rcpt-coex-live", "coex-evt", source="live"))
-        await temp_storage.append_receipt(_rcpt(
-            "rcpt-coex-replay", "coex-evt", source="replay", run_id="run-coex",
-        ))
+        await temp_storage.append_receipt(
+            _rcpt("rcpt-coex-live", "coex-evt", source="live")
+        )
+        await temp_storage.append_receipt(
+            _rcpt(
+                "rcpt-coex-replay",
+                "coex-evt",
+                source="replay",
+                run_id="run-coex",
+            )
+        )
         all_r = await temp_storage.list_receipts_for_event("coex-evt")
         assert len(all_r) == 2
         live = [r for r in all_r if r.source == "live"]
@@ -409,9 +483,14 @@ class TestReplayLineageInvariants:
             await s.initialize()
             for i in range(3):
                 await s.append(_evt(eid=f"srv-evt-{i}"))
-                await s.append_receipt(_rcpt(
-                    f"srv-rcpt-{i}", f"srv-evt-{i}", source="replay", run_id="run-srv",
-                ))
+                await s.append_receipt(
+                    _rcpt(
+                        f"srv-rcpt-{i}",
+                        f"srv-evt-{i}",
+                        source="replay",
+                        run_id="run-srv",
+                    )
+                )
             await s.close()
             s2 = SQLiteStorage(db_path=db)
             await s2.initialize()

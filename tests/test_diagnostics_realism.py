@@ -12,7 +12,6 @@ network, no async I/O.
 from __future__ import annotations
 
 import json
-import textwrap
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -20,21 +19,18 @@ from typing import Any
 
 import pytest
 
-from medre.core.diagnostics.replay_metrics import ReplayMetrics, ReplayRouteCounters
+from medre.core.diagnostics.replay_metrics import ReplayMetrics
 from medre.core.diagnostics.snapshot import build_diagnostics_snapshot
 from medre.core.routing.stats import RouteStats
 from medre.observability.sanitization import sanitize_error as _sanitize_error
-from medre.runtime.boot_summary import BootSummary, build_boot_summary
+from medre.runtime.boot_summary import build_boot_summary
 from medre.runtime.capacity import CapacityController
 from medre.runtime.snapshot import (
-    SCHEMA_VERSION,
-    _MAX_ADAPTERS,
     _MAX_BUILD_FAILURES,
     _MAX_ERROR_DETAIL_LEN,
-    _MAX_ROUTES,
+    SCHEMA_VERSION,
     build_runtime_snapshot,
 )
-
 
 # ---------------------------------------------------------------------------
 # Reusable fakes (mirrors test_runtime_snapshot.py conventions)
@@ -354,7 +350,9 @@ def _build_degraded_runtime_app() -> Any:
         "failed_adapters": [],
     }
     # Give it a to_dict method so snapshot picks it up
-    health_state_obj = type("_FakeHealthState", (), {"to_dict": lambda self: health_state})()
+    health_state_obj = type(
+        "_FakeHealthState", (), {"to_dict": lambda self: health_state}
+    )()
 
     return _make_fake_app(
         adapters=adapters,
@@ -405,9 +403,9 @@ class TestSnapshotReadability:
             "unstable",
         ]
         actual_keys = list(snap.keys())
-        assert actual_keys == expected_keys, (
-            f"Top-level keys mismatch.\nExpected: {expected_keys}\nActual:   {actual_keys}"
-        )
+        assert (
+            actual_keys == expected_keys
+        ), f"Top-level keys mismatch.\nExpected: {expected_keys}\nActual:   {actual_keys}"
 
     def test_snapshot_is_human_navigable_as_json(self) -> None:
         """Snapshot serializes to indented JSON that an operator can read."""
@@ -788,9 +786,7 @@ class TestDeterministicFormatting:
         snap2 = build_runtime_snapshot(
             app, now_fn=_fixed_now, monotonic_fn=lambda: _FIXED_MONO
         )
-        assert json.dumps(snap1, sort_keys=True) == json.dumps(
-            snap2, sort_keys=True
-        )
+        assert json.dumps(snap1, sort_keys=True) == json.dumps(snap2, sort_keys=True)
 
     def test_key_ordering_stable_at_all_levels(self) -> None:
         """Keys are alphabetically sorted at every nesting level."""
@@ -825,9 +821,7 @@ class TestDeterministicFormatting:
 
         snap1 = build_diagnostics_snapshot(rs, rm, capacity_snapshot=cap)
         snap2 = build_diagnostics_snapshot(rs, rm, capacity_snapshot=cap)
-        assert json.dumps(snap1, sort_keys=True) == json.dumps(
-            snap2, sort_keys=True
-        )
+        assert json.dumps(snap1, sort_keys=True) == json.dumps(snap2, sort_keys=True)
 
 
 # =====================================================================
@@ -897,7 +891,9 @@ class TestDegradedAttribution:
         )
         # Operator can find the failing route
         failing_routes = {
-            rid: r for rid, r in snap["routes"]["stats"]["per_route"].items() if r.get("failed", 0) > 0
+            rid: r
+            for rid, r in snap["routes"]["stats"]["per_route"].items()
+            if r.get("failed", 0) > 0
         }
         assert "matrix-2-to-lxmf-alerts" in failing_routes
         assert "last_error" in failing_routes["matrix-2-to-lxmf-alerts"]
@@ -996,9 +992,9 @@ class TestJsonSafeExport:
                 for i, v in enumerate(value):
                     _check_leaf(v, path=f"{path}[{i}]")
             else:
-                assert isinstance(value, (str, int, float, bool, type(None))), (
-                    f"Non-JSON-safe type at {path}: {type(value).__name__} = {value!r}"
-                )
+                assert isinstance(
+                    value, (str, int, float, bool, type(None))
+                ), f"Non-JSON-safe type at {path}: {type(value).__name__} = {value!r}"
 
         _check_leaf(snap)
 
@@ -1139,7 +1135,7 @@ class TestErrorSanitizationRealism:
 
     def test_password_pattern_redacted(self) -> None:
         """Password patterns are redacted."""
-        err = _sanitize_error('Connection failed: password=supersecret123')
+        err = _sanitize_error("Connection failed: password=supersecret123")
         assert "supersecret123" not in err
         assert "[REDACTED]" in err
 

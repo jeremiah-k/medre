@@ -7,25 +7,20 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import tempfile
-import os
 from datetime import datetime, timezone
 
-import pytest
-
 from medre.adapters.fake_lxmf import FakeLxmfAdapter
-from medre.config.adapters.lxmf import LxmfConfig
-from medre.adapters.lxmf.renderer import LxmfRenderer
 from medre.adapters.lxmf.fields import FIELD_MEDRE_ENVELOPE, LXMF_NAMESPACE
+from medre.adapters.lxmf.renderer import LxmfRenderer
+from medre.config.adapters.lxmf import LxmfConfig
+from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.events.bus import EventBus
 from medre.core.planning.fallback_resolution import FallbackResolver
 from medre.core.planning.relation_resolution import RelationResolver
 from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
-from medre.core.storage.sqlite import SQLiteStorage
-from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 
 
 def _make_text_packet(
@@ -46,11 +41,10 @@ def _make_text_packet(
     }
 
 
-def _make_adapter_context_for_pipeline(
-    adapter_id: str, runner: PipelineRunner
-):
+def _make_adapter_context_for_pipeline(adapter_id: str, runner: PipelineRunner):
     """Create an AdapterContext wired to a PipelineRunner's ingress handler."""
     from medre.core.contracts.adapter import AdapterContext
+
     return AdapterContext(
         adapter_id=adapter_id,
         event_bus=None,
@@ -147,9 +141,7 @@ class TestLxmfPipelineIntegration:
         event = inbound_collector.events[0]
         assert event.event_kind == "message.created"
 
-    async def test_outbound_delivery_uses_lxmf_renderer(
-        self, temp_storage
-    ) -> None:
+    async def test_outbound_delivery_uses_lxmf_renderer(self, temp_storage) -> None:
         """Outbound delivery to LXMF IDs uses LxmfRenderer."""
         in_adapter = FakeLxmfAdapter(LxmfConfig(adapter_id="lxmf-in"))
         out_adapter = FakeLxmfAdapter(LxmfConfig(adapter_id="local-lxmf"))
@@ -170,15 +162,17 @@ class TestLxmfPipelineIntegration:
         rp.register_adapter_platform("local-lxmf", "lxmf")
         rp.register(TextRenderer(), priority=100)
 
-        runner = PipelineRunner(PipelineConfig(
-            storage=temp_storage,
-            router=router,
-            fallback_resolver=FallbackResolver(),
-            relation_resolver=RelationResolver(storage=temp_storage),
-            adapters={"lxmf-in": in_adapter, "local-lxmf": out_adapter},
-            event_bus=EventBus(),
-            rendering_pipeline=rp,
-        ))
+        runner = PipelineRunner(
+            PipelineConfig(
+                storage=temp_storage,
+                router=router,
+                fallback_resolver=FallbackResolver(),
+                relation_resolver=RelationResolver(storage=temp_storage),
+                adapters={"lxmf-in": in_adapter, "local-lxmf": out_adapter},
+                event_bus=EventBus(),
+                rendering_pipeline=rp,
+            )
+        )
 
         ctx = _make_adapter_context_for_pipeline("lxmf-in", runner)
         await in_adapter.start(ctx)
@@ -194,9 +188,7 @@ class TestLxmfPipelineIntegration:
         assert "title" in payload.payload
         assert "fields" in payload.payload
 
-    async def test_fields_envelope_in_pipeline(
-        self, temp_storage
-    ) -> None:
+    async def test_fields_envelope_in_pipeline(self, temp_storage) -> None:
         """Outbound rendered payload contains MEDRE envelope in fields."""
         in_adapter = FakeLxmfAdapter(LxmfConfig(adapter_id="lxmf-fields-in"))
         out_adapter = FakeLxmfAdapter(LxmfConfig(adapter_id="lxmf-fields-out"))
@@ -217,15 +209,17 @@ class TestLxmfPipelineIntegration:
         rp.register_adapter_platform("lxmf-fields-out", "lxmf")
         rp.register(TextRenderer(), priority=100)
 
-        runner = PipelineRunner(PipelineConfig(
-            storage=temp_storage,
-            router=router,
-            fallback_resolver=FallbackResolver(),
-            relation_resolver=RelationResolver(storage=temp_storage),
-            adapters={"lxmf-fields-in": in_adapter, "lxmf-fields-out": out_adapter},
-            event_bus=EventBus(),
-            rendering_pipeline=rp,
-        ))
+        runner = PipelineRunner(
+            PipelineConfig(
+                storage=temp_storage,
+                router=router,
+                fallback_resolver=FallbackResolver(),
+                relation_resolver=RelationResolver(storage=temp_storage),
+                adapters={"lxmf-fields-in": in_adapter, "lxmf-fields-out": out_adapter},
+                event_bus=EventBus(),
+                rendering_pipeline=rp,
+            )
+        )
 
         ctx = _make_adapter_context_for_pipeline("lxmf-fields-in", runner)
         await in_adapter.start(ctx)
@@ -249,9 +243,7 @@ class TestLxmfPipelineIntegration:
 class TestLxmfNativeRefPersistence:
     """Pipeline integration tests for native ref persistence."""
 
-    async def test_inbound_native_ref_persisted(
-        self, temp_storage
-    ) -> None:
+    async def test_inbound_native_ref_persisted(self, temp_storage) -> None:
         """Inbound LXMF event → pipeline store → NativeMessageRef(direction="inbound")."""
         config = LxmfConfig(adapter_id="lxmf-inbound")
         adapter = FakeLxmfAdapter(config)
@@ -268,15 +260,17 @@ class TestLxmfNativeRefPersistence:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        runner = PipelineRunner(PipelineConfig(
-            storage=temp_storage,
-            router=router,
-            fallback_resolver=FallbackResolver(),
-            relation_resolver=RelationResolver(storage=temp_storage),
-            adapters={"lxmf-inbound": adapter},
-            event_bus=EventBus(),
-            rendering_pipeline=rp,
-        ))
+        runner = PipelineRunner(
+            PipelineConfig(
+                storage=temp_storage,
+                router=router,
+                fallback_resolver=FallbackResolver(),
+                relation_resolver=RelationResolver(storage=temp_storage),
+                adapters={"lxmf-inbound": adapter},
+                event_bus=EventBus(),
+                rendering_pipeline=rp,
+            )
+        )
 
         ctx = _make_adapter_context_for_pipeline("lxmf-inbound", runner)
         await adapter.start(ctx)
@@ -293,9 +287,7 @@ class TestLxmfNativeRefPersistence:
         assert resolved is not None
         assert resolved == adapter.inbound_events[0].event_id
 
-    async def test_outbound_native_ref_persisted(
-        self, temp_storage
-    ) -> None:
+    async def test_outbound_native_ref_persisted(self, temp_storage) -> None:
         """Outbound FakeLxmfAdapter deliver → pipeline store → NativeMessageRef(direction="outbound")."""
         in_config = LxmfConfig(adapter_id="lxmf-in")
         out_config = LxmfConfig(adapter_id="lxmf-out")
@@ -318,15 +310,17 @@ class TestLxmfNativeRefPersistence:
         rp.register_adapter_platform("lxmf-out", "lxmf")
         rp.register(TextRenderer(), priority=100)
 
-        runner = PipelineRunner(PipelineConfig(
-            storage=temp_storage,
-            router=router,
-            fallback_resolver=FallbackResolver(),
-            relation_resolver=RelationResolver(storage=temp_storage),
-            adapters={"lxmf-in": in_adapter, "lxmf-out": out_adapter},
-            event_bus=EventBus(),
-            rendering_pipeline=rp,
-        ))
+        runner = PipelineRunner(
+            PipelineConfig(
+                storage=temp_storage,
+                router=router,
+                fallback_resolver=FallbackResolver(),
+                relation_resolver=RelationResolver(storage=temp_storage),
+                adapters={"lxmf-in": in_adapter, "lxmf-out": out_adapter},
+                event_bus=EventBus(),
+                rendering_pipeline=rp,
+            )
+        )
 
         ctx = _make_adapter_context_for_pipeline("lxmf-in", runner)
         await in_adapter.start(ctx)
@@ -346,9 +340,7 @@ class TestLxmfNativeRefPersistence:
         assert resolved is not None
         assert resolved == in_adapter.inbound_events[0].event_id
 
-    async def test_failed_delivery_no_outbound_native_ref(
-        self, temp_storage
-    ) -> None:
+    async def test_failed_delivery_no_outbound_native_ref(self, temp_storage) -> None:
         """Failed deliver → no outbound native ref in storage."""
         in_config = LxmfConfig(adapter_id="lxmf-fail-in")
         out_config = LxmfConfig(adapter_id="lxmf-fail-out")
@@ -372,15 +364,17 @@ class TestLxmfNativeRefPersistence:
         rp.register_adapter_platform("lxmf-fail-out", "lxmf")
         rp.register(TextRenderer(), priority=100)
 
-        runner = PipelineRunner(PipelineConfig(
-            storage=temp_storage,
-            router=router,
-            fallback_resolver=FallbackResolver(),
-            relation_resolver=RelationResolver(storage=temp_storage),
-            adapters={"lxmf-fail-in": in_adapter, "lxmf-fail-out": out_adapter},
-            event_bus=EventBus(),
-            rendering_pipeline=rp,
-        ))
+        runner = PipelineRunner(
+            PipelineConfig(
+                storage=temp_storage,
+                router=router,
+                fallback_resolver=FallbackResolver(),
+                relation_resolver=RelationResolver(storage=temp_storage),
+                adapters={"lxmf-fail-in": in_adapter, "lxmf-fail-out": out_adapter},
+                event_bus=EventBus(),
+                rendering_pipeline=rp,
+            )
+        )
 
         ctx = _make_adapter_context_for_pipeline("lxmf-fail-in", runner)
         await in_adapter.start(ctx)
@@ -400,9 +394,7 @@ class TestLxmfNativeRefPersistence:
         )
         assert inbound_resolved is not None
 
-    async def test_duplicate_inbound_native_ref_idempotent(
-        self, temp_storage
-    ) -> None:
+    async def test_duplicate_inbound_native_ref_idempotent(self, temp_storage) -> None:
         """Duplicate inbound native refs are idempotent (INSERT OR IGNORE)."""
         config = LxmfConfig(adapter_id="lxmf-dup")
         adapter = FakeLxmfAdapter(config)
@@ -419,15 +411,17 @@ class TestLxmfNativeRefPersistence:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        runner = PipelineRunner(PipelineConfig(
-            storage=temp_storage,
-            router=router,
-            fallback_resolver=FallbackResolver(),
-            relation_resolver=RelationResolver(storage=temp_storage),
-            adapters={"lxmf-dup": adapter},
-            event_bus=EventBus(),
-            rendering_pipeline=rp,
-        ))
+        runner = PipelineRunner(
+            PipelineConfig(
+                storage=temp_storage,
+                router=router,
+                fallback_resolver=FallbackResolver(),
+                relation_resolver=RelationResolver(storage=temp_storage),
+                adapters={"lxmf-dup": adapter},
+                event_bus=EventBus(),
+                rendering_pipeline=rp,
+            )
+        )
 
         ctx = _make_adapter_context_for_pipeline("lxmf-dup", runner)
         await adapter.start(ctx)
@@ -436,9 +430,10 @@ class TestLxmfNativeRefPersistence:
         await adapter.simulate_inbound(packet)
 
         # Manually store a duplicate native ref — should be idempotent
-        from medre.core.events.canonical import NativeMessageRef
         import uuid as _uuid
         from datetime import timezone as _tz
+
+        from medre.core.events.canonical import NativeMessageRef
 
         event = adapter.inbound_events[0]
         dup_ref = NativeMessageRef(
@@ -474,9 +469,7 @@ class TestLxmfPlatformRendererSelection:
     """Prove platform-aware renderer selection works for LXMF
     via the pipeline's platform registry."""
 
-    async def test_platform_aware_renderer_selection(
-        self, temp_storage
-    ) -> None:
+    async def test_platform_aware_renderer_selection(self, temp_storage) -> None:
         """A realistic LXMF adapter ID that does NOT start with 'lxmf'
         still selects LxmfRenderer through the pipeline's platform registry.
 
@@ -509,15 +502,17 @@ class TestLxmfPlatformRendererSelection:
         rp.register(TextRenderer(), priority=100)
 
         # 4. PipelineRunner — start() calls _populate_renderer_platforms()
-        runner = PipelineRunner(PipelineConfig(
-            storage=temp_storage,
-            router=router,
-            fallback_resolver=FallbackResolver(),
-            relation_resolver=RelationResolver(storage=temp_storage),
-            adapters={"field-node": in_adapter, "rnode-out": out_adapter},
-            event_bus=EventBus(),
-            rendering_pipeline=rp,
-        ))
+        runner = PipelineRunner(
+            PipelineConfig(
+                storage=temp_storage,
+                router=router,
+                fallback_resolver=FallbackResolver(),
+                relation_resolver=RelationResolver(storage=temp_storage),
+                adapters={"field-node": in_adapter, "rnode-out": out_adapter},
+                event_bus=EventBus(),
+                rendering_pipeline=rp,
+            )
+        )
         await runner.start()
 
         # 5. Wire inbound adapter

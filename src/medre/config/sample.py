@@ -13,6 +13,7 @@ mixed transports) live in ``examples/configs/`` in the source repository.
 They are reference documentation, not shipped as package data.  The generated
 sample config is the installed-package config access path.
 """
+
 from __future__ import annotations
 
 

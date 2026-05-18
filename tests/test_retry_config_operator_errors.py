@@ -15,10 +15,10 @@ Scenarios covered:
 7. Route retry enabled while global worker disabled — snapshot reflects disabled
 8. Missing adapter during retry — ADAPTER_MISSING classification
 """
+
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
 import pytest
@@ -30,7 +30,6 @@ from medre.core.planning.delivery_plan import (
     RetryExecutor,
     RetryPolicy,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -207,12 +206,14 @@ class TestValidRetryConfig:
         _validate_retry_section({})
 
     def test_valid_values_pass(self) -> None:
-        _validate_retry_section({
-            "enabled": True,
-            "interval_seconds": 5.0,
-            "batch_size": 10,
-            "max_attempts": 3,
-        })
+        _validate_retry_section(
+            {
+                "enabled": True,
+                "interval_seconds": 5.0,
+                "batch_size": 10,
+                "max_attempts": 3,
+            }
+        )
 
     def test_valid_integer_interval_passes(self) -> None:
         """TOML integers are valid for interval_seconds."""
@@ -247,8 +248,8 @@ class TestRetryDisabledSnapshotState:
 
     def test_snapshot_retry_enabled_reflects_state(self) -> None:
         """When retry_state is present and enabled, snapshot reflects it."""
-        from medre.runtime.snapshot import build_runtime_snapshot
         from medre.runtime.retry import RetryWorkerState
+        from medre.runtime.snapshot import build_runtime_snapshot
 
         state = RetryWorkerState(
             enabled=True,
@@ -285,6 +286,7 @@ class TestMissingAdapterRetryClassification:
         """classify_failure returns ADAPTER_MISSING when adapter is not
         registered."""
         from medre.core.planning.delivery_plan import RetryExecutor
+
         kind = RetryExecutor.classify_failure(
             RuntimeError("adapter gone"),
             adapter_registered=False,
@@ -308,6 +310,7 @@ class TestMissingAdapterRetryClassification:
         """AdapterSendError with transient=True is still ADAPTER_MISSING
         when adapter is not registered."""
         from medre.core.contracts.adapter import AdapterSendError
+
         kind = RetryExecutor.classify_failure(
             AdapterSendError("gone", transient=True),
             adapter_registered=False,
@@ -318,7 +321,7 @@ class TestMissingAdapterRetryClassification:
         """RetryExecutor.is_exhausted is irrelevant for ADAPTER_MISSING
         since the failure is permanent, but verify the classification."""
         policy = RetryPolicy(max_attempts=5)
-        executor = RetryExecutor(policy)
+        RetryExecutor(policy)
         kind = RetryExecutor.classify_failure(
             RuntimeError("no adapter"),
             adapter_registered=False,

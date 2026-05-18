@@ -17,11 +17,9 @@ No source modifications — these tests verify existing guarantees.
 from __future__ import annotations
 
 import os
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal, cast
-from unittest.mock import AsyncMock, MagicMock, patch
+from typing import Literal, cast
 
 import pytest
 
@@ -31,14 +29,10 @@ from medre.core.events import (
     EventMetadata,
     EventRelation,
     NativeMessageRef,
-    NativeRef,
 )
 from medre.core.storage import EventFilter, SQLiteStorage
 from medre.core.storage.backend import StorageBackend, StorageInitializationError
-from typing import Literal
-
 from medre.core.storage.replay import ReplayEngine, ReplayMode, ReplayRequest
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -388,7 +382,9 @@ class TestReplayStorageReadConsistency:
         """STRICT replay leaves event count unchanged."""
         count_before = await seeded_storage.count_events()
 
-        engine = ReplayEngine(storage=cast(StorageBackend, seeded_storage), pipeline=None)
+        engine = ReplayEngine(
+            storage=cast(StorageBackend, seeded_storage), pipeline=None
+        )
         request = ReplayRequest(mode=ReplayMode.STRICT)
         results = [r async for r in engine.replay(request)]
         assert len(results) == 3
@@ -403,7 +399,9 @@ class TestReplayStorageReadConsistency:
         """DRY_RUN replay does not change stored event count."""
         count_before = await seeded_storage.count_events()
 
-        engine = ReplayEngine(storage=cast(StorageBackend, seeded_storage), pipeline=None)
+        engine = ReplayEngine(
+            storage=cast(StorageBackend, seeded_storage), pipeline=None
+        )
         request = ReplayRequest(mode=ReplayMode.DRY_RUN)
         # DRY_RUN produces multiple results per event (one per stage).
         results = [r async for r in engine.replay(request)]
@@ -505,23 +503,14 @@ class TestStorageCloseOnStartupFailure:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """When pipeline_runner.start() fails, storage is closed."""
-        from medre.core.contracts.adapter import (
-            AdapterCapabilities,
-            AdapterContext,
-            AdapterInfo,
-            AdapterRole,
-            AdapterContract,
-        )
         from medre.config.model import (
             AdapterConfigSet,
-            LoggingConfig,
             MatrixRuntimeConfig,
             RuntimeConfig,
             RuntimeOptions,
             StorageConfig,
         )
-        from medre.config.paths import MedrePaths, resolve
-        from medre.runtime.app import MedreApp
+        from medre.config.paths import resolve
         from medre.runtime.builder import RuntimeBuilder
         from medre.runtime.errors import RuntimeStartupError
 
@@ -557,7 +546,6 @@ class TestStorageCloseOnStartupFailure:
         assert app.storage is not None
 
         # Mock pipeline_runner.start to fail.
-        original_start = app.pipeline_runner.start
 
         async def _failing_start() -> None:
             raise RuntimeError("Simulated pipeline failure")
@@ -570,9 +558,7 @@ class TestStorageCloseOnStartupFailure:
         # Storage should have been closed by cleanup.
         assert app.storage._db is None
 
-    async def test_storage_connection_is_none_after_close(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_storage_connection_is_none_after_close(self, tmp_path: Path) -> None:
         """After storage.close(), the internal connection is None."""
         db_path = str(tmp_path / "conn_none.db")
         storage = await _create_storage(db_path)

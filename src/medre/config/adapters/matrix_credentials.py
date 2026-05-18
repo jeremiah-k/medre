@@ -47,7 +47,9 @@ def load_credentials_json(path: Path | None = None) -> dict | None:
         return None
 
 
-def write_credentials_json(data: Mapping[str, object], path: Path | None = None) -> Path:
+def write_credentials_json(
+    data: Mapping[str, object], path: Path | None = None
+) -> Path:
     """Write Matrix credentials JSON file with restrictive permissions.
 
     If *path* is provided, write to that path.  Otherwise use

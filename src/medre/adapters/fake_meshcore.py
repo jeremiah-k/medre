@@ -23,12 +23,16 @@ Usage
 >>> delivery = await adapter.deliver(result)
 >>> assert adapter.delivered_payloads
 """
+
 from __future__ import annotations
 
 import logging
 from types import MappingProxyType
 from typing import Any
 
+from medre.adapters.meshcore.codec import MeshCoreCodec
+from medre.adapters.meshcore.packet_classifier import MeshCorePacketClassifier
+from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
@@ -39,9 +43,6 @@ from medre.core.contracts.adapter import (
     AdapterRole,
     AdapterSendError,
 )
-from medre.adapters.meshcore.codec import MeshCoreCodec
-from medre.config.adapters.meshcore import MeshCoreConfig
-from medre.adapters.meshcore.packet_classifier import MeshCorePacketClassifier
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.rendering.renderer import RenderingResult
 
@@ -58,7 +59,8 @@ def _trim(lst: list[Any], maxsize: int = _MAX_FAKE_HISTORY) -> None:
         del lst[:excess]
         _logger.warning(
             "Fake adapter history trimmed %d oldest entries (cap=%d)",
-            excess, maxsize,
+            excess,
+            maxsize,
         )
 
 
@@ -108,13 +110,15 @@ class FakeMeshCoreClient:
         """
         packet_id = self._next_id
         self._next_id += 1
-        self.sent_packets.append({
-            "text": text,
-            "channel_index": channel_index,
-            "meshnet_name": meshnet_name,
-            "dest_id": dest_id,
-            "packet_id": packet_id,
-        })
+        self.sent_packets.append(
+            {
+                "text": text,
+                "channel_index": channel_index,
+                "meshnet_name": meshnet_name,
+                "dest_id": dest_id,
+                "packet_id": packet_id,
+            }
+        )
         _trim(self.sent_packets)
         self.sent_count += 1
         return {"packet_id": packet_id}
@@ -220,9 +224,7 @@ class FakeMeshCoreAdapter(AdapterContract):
         """Mark the adapter as stopped."""
         self._started = False
         if self.ctx is not None:
-            self.ctx.logger.info(
-                "FakeMeshCoreAdapter %s stopped", self.adapter_id
-            )
+            self.ctx.logger.info("FakeMeshCoreAdapter %s stopped", self.adapter_id)
 
     async def health_check(self) -> AdapterInfo:
         """Return a healthy :class:`AdapterInfo` snapshot."""
@@ -287,7 +289,9 @@ class FakeMeshCoreAdapter(AdapterContract):
             )
 
         if self._deliver_failure:
-            raise AdapterSendError("FakeMeshCoreAdapter: simulated send failure", transient=True)
+            raise AdapterSendError(
+                "FakeMeshCoreAdapter: simulated send failure", transient=True
+            )
 
         self.delivered_payloads.append(result)
         _trim(self.delivered_payloads)
@@ -313,9 +317,11 @@ class FakeMeshCoreAdapter(AdapterContract):
             native_message_id=str(packet_id),
             native_channel_id=str(channel_index),
             delivery_note="fake adapter — simulated local acceptance",
-            metadata=MappingProxyType({
-                "delivery_status": "local_accepted",
-            }),
+            metadata=MappingProxyType(
+                {
+                    "delivery_status": "local_accepted",
+                }
+            ),
         )
 
     # -- Inbound simulation -------------------------------------------------

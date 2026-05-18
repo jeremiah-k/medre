@@ -16,32 +16,29 @@ Scenarios covered:
 4. Global ``[retry].enabled=false`` leaves due receipt pending (no worker)
 5. Global ``[retry].enabled=true`` processes due receipt via RetryWorker
 """
+
 from __future__ import annotations
 
-import asyncio
 import io
-import os
 from collections.abc import AsyncGenerator
-from contextlib import redirect_stdout, redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock
 
 import pytest
 
-from medre.core.contracts.adapter import AdapterSendError
 from medre.cli import main
 from medre.config.errors import ConfigValidationError
 from medre.config.loader import load_config
+from medre.core.contracts.adapter import AdapterSendError
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.events.bus import EventBus
 from medre.core.planning import FallbackResolver, RelationResolver
-from medre.core.planning.delivery_plan import DeliveryPlan, RetryPolicy
+from medre.core.planning.delivery_plan import RetryPolicy
 from medre.core.routing import Router
 from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.core.storage import SQLiteStorage
 from medre.core.storage.backend import StorageBackend
-
 
 # ---------------------------------------------------------------------------
 # TOML config snippets
@@ -101,18 +98,14 @@ jitter = false
 
 def _config_with_route_retry_override(retry_section: str) -> str:
     """Build a full TOML config with a custom [routes.mx_to_mesh.retry] section."""
-    return (
-        _BASE_CONFIG
-        + """
+    return _BASE_CONFIG + """
 [routes.mx_to_mesh]
 source_adapters = ["fake_matrix"]
 dest_adapters = ["fake_mesh"]
 directionality = "source_to_dest"
 enabled = true
 
-"""
-        + retry_section
-    )
+""" + retry_section
 
 
 # ---------------------------------------------------------------------------
@@ -213,8 +206,13 @@ class _SuccessAdapter:
 
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for var in ("MEDRE_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME",
-                "XDG_DATA_HOME", "XDG_CACHE_HOME"):
+    for var in (
+        "MEDRE_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_STATE_HOME",
+        "XDG_DATA_HOME",
+        "XDG_CACHE_HOME",
+    ):
         monkeypatch.delenv(var, raising=False)
 
 
@@ -264,9 +262,7 @@ class TestRouteRetryConfigValidation:
     def test_negative_max_attempts_rejected(self, tmp_path) -> None:
         """Negative max_attempts in [routes.<id>.retry] raises ConfigValidationError."""
         config_text = _config_with_route_retry_override(
-            "[routes.mx_to_mesh.retry]\n"
-            "enabled = true\n"
-            "max_attempts = -1\n"
+            "[routes.mx_to_mesh.retry]\n" "enabled = true\n" "max_attempts = -1\n"
         )
         path = _write_config(tmp_path, config_text)
         with pytest.raises(ConfigValidationError) as exc_info:
@@ -280,9 +276,7 @@ class TestRouteRetryConfigValidation:
     def test_zero_max_attempts_rejected(self, tmp_path) -> None:
         """Zero max_attempts in [routes.<id>.retry] raises ConfigValidationError."""
         config_text = _config_with_route_retry_override(
-            "[routes.mx_to_mesh.retry]\n"
-            "enabled = true\n"
-            "max_attempts = 0\n"
+            "[routes.mx_to_mesh.retry]\n" "enabled = true\n" "max_attempts = 0\n"
         )
         path = _write_config(tmp_path, config_text)
         with pytest.raises(ConfigValidationError) as exc_info:
@@ -296,9 +290,7 @@ class TestRouteRetryConfigValidation:
     def test_non_bool_jitter_rejected(self, tmp_path) -> None:
         """Non-boolean jitter in [routes.<id>.retry] raises ConfigValidationError."""
         config_text = _config_with_route_retry_override(
-            "[routes.mx_to_mesh.retry]\n"
-            "enabled = true\n"
-            'jitter = "yes"\n'
+            "[routes.mx_to_mesh.retry]\n" "enabled = true\n" 'jitter = "yes"\n'
         )
         path = _write_config(tmp_path, config_text)
         with pytest.raises(ConfigValidationError) as exc_info:
@@ -312,9 +304,7 @@ class TestRouteRetryConfigValidation:
     def test_non_number_backoff_base_rejected(self, tmp_path) -> None:
         """Non-numeric backoff_base in [routes.<id>.retry] raises ConfigValidationError."""
         config_text = _config_with_route_retry_override(
-            "[routes.mx_to_mesh.retry]\n"
-            "enabled = true\n"
-            'backoff_base = "fast"\n'
+            "[routes.mx_to_mesh.retry]\n" "enabled = true\n" 'backoff_base = "fast"\n'
         )
         path = _write_config(tmp_path, config_text)
         with pytest.raises(ConfigValidationError) as exc_info:
@@ -328,9 +318,7 @@ class TestRouteRetryConfigValidation:
     def test_negative_backoff_base_rejected(self, tmp_path) -> None:
         """Negative backoff_base in [routes.<id>.retry] raises ConfigValidationError."""
         config_text = _config_with_route_retry_override(
-            "[routes.mx_to_mesh.retry]\n"
-            "enabled = true\n"
-            "backoff_base = -1.0\n"
+            "[routes.mx_to_mesh.retry]\n" "enabled = true\n" "backoff_base = -1.0\n"
         )
         path = _write_config(tmp_path, config_text)
         with pytest.raises(ConfigValidationError) as exc_info:
@@ -344,8 +332,7 @@ class TestRouteRetryConfigValidation:
     def test_non_bool_enabled_rejected(self, tmp_path) -> None:
         """Non-boolean enabled in [routes.<id>.retry] raises ConfigValidationError."""
         config_text = _config_with_route_retry_override(
-            "[routes.mx_to_mesh.retry]\n"
-            'enabled = "yes"\n'
+            "[routes.mx_to_mesh.retry]\n" 'enabled = "yes"\n'
         )
         path = _write_config(tmp_path, config_text)
         with pytest.raises(ConfigValidationError) as exc_info:
@@ -379,25 +366,19 @@ class TestRouteRetryCLIConfigCheck:
     def test_negative_max_attempts_via_cli(self, tmp_path) -> None:
         """CLI config check exits non-zero for negative max_attempts."""
         config_text = _config_with_route_retry_override(
-            "[routes.mx_to_mesh.retry]\n"
-            "enabled = true\n"
-            "max_attempts = -1\n"
+            "[routes.mx_to_mesh.retry]\n" "enabled = true\n" "max_attempts = -1\n"
         )
         path = _write_config(tmp_path, config_text)
         stdout, stderr, code = _run_cli_raw("config", "check", "--config", path)
         assert code != 0, "Expected non-zero exit for negative max_attempts"
         combined = stdout + stderr
-        assert "mx_to_mesh" in combined, (
-            f"Route id missing from CLI output: {combined}"
-        )
+        assert "mx_to_mesh" in combined, f"Route id missing from CLI output: {combined}"
         assert "max_attempts" in combined
 
     def test_non_bool_jitter_via_cli(self, tmp_path) -> None:
         """CLI config check exits non-zero for non-bool jitter."""
         config_text = _config_with_route_retry_override(
-            "[routes.mx_to_mesh.retry]\n"
-            "enabled = true\n"
-            'jitter = "yes"\n'
+            "[routes.mx_to_mesh.retry]\n" "enabled = true\n" 'jitter = "yes"\n'
         )
         path = _write_config(tmp_path, config_text)
         stdout, stderr, code = _run_cli_raw("config", "check", "--config", path)
@@ -409,9 +390,7 @@ class TestRouteRetryCLIConfigCheck:
     def test_non_number_backoff_base_via_cli(self, tmp_path) -> None:
         """CLI config check exits non-zero for non-number backoff_base."""
         config_text = _config_with_route_retry_override(
-            "[routes.mx_to_mesh.retry]\n"
-            "enabled = true\n"
-            'backoff_base = "fast"\n'
+            "[routes.mx_to_mesh.retry]\n" "enabled = true\n" 'backoff_base = "fast"\n'
         )
         path = _write_config(tmp_path, config_text)
         stdout, stderr, code = _run_cli_raw("config", "check", "--config", path)
@@ -426,8 +405,7 @@ class TestRouteRetryCLIConfigCheck:
         path = _write_config(tmp_path, config_text)
         stdout, stderr, code = _run_cli_raw("config", "check", "--config", path)
         assert code == 0, (
-            f"Expected success for valid config, got code={code}\n"
-            f"stderr: {stderr}"
+            f"Expected success for valid config, got code={code}\n" f"stderr: {stderr}"
         )
         assert "Config valid" in stdout
 
@@ -442,7 +420,8 @@ class TestRouteRetryScheduling:
 
     @pytest.mark.asyncio()
     async def test_valid_retry_schedules_next_retry_at(
-        self, mem_storage: SQLiteStorage,
+        self,
+        mem_storage: SQLiteStorage,
     ) -> None:
         """With route retry enabled, transient failure produces a receipt
         with next_retry_at set in SQLite storage."""
@@ -484,7 +463,8 @@ class TestRouteRetryScheduling:
 
     @pytest.mark.asyncio()
     async def test_no_retry_no_schedule(
-        self, mem_storage: SQLiteStorage,
+        self,
+        mem_storage: SQLiteStorage,
     ) -> None:
         """Without route retry, transient failure has no next_retry_at."""
         route = Route(
@@ -510,9 +490,9 @@ class TestRouteRetryScheduling:
             assert len(receipts) >= 1
             rcpt = receipts[0]
             assert rcpt.status == "failed"
-            assert rcpt.next_retry_at is None, (
-                "Expected no next_retry_at without route retry policy"
-            )
+            assert (
+                rcpt.next_retry_at is None
+            ), "Expected no next_retry_at without route retry policy"
         finally:
             await runner.stop()
 
@@ -529,7 +509,8 @@ class TestGlobalRetryDisabledPending:
 
     @pytest.mark.asyncio()
     async def test_global_disabled_receipt_stays_pending(
-        self, mem_storage: SQLiteStorage,
+        self,
+        mem_storage: SQLiteStorage,
     ) -> None:
         """Route retry creates next_retry_at but no RetryWorker picks it up
         when global retry is disabled."""
@@ -557,14 +538,14 @@ class TestGlobalRetryDisabledPending:
             receipts = await mem_storage.list_receipts_for_event(event.event_id)
             assert len(receipts) == 1
             rcpt = receipts[0]
-            assert rcpt.next_retry_at is not None, (
-                "Route retry should have set next_retry_at"
-            )
+            assert (
+                rcpt.next_retry_at is not None
+            ), "Route retry should have set next_retry_at"
 
             # Advance time past next_retry_at.
-            future_now = rcpt.next_retry_at.replace(
-                tzinfo=timezone.utc
-            ) + __import__("datetime").timedelta(seconds=1)
+            future_now = rcpt.next_retry_at.replace(tzinfo=timezone.utc) + __import__(
+                "datetime"
+            ).timedelta(seconds=1)
 
             # Due receipt is queryable in storage.
             due = await mem_storage.list_due_retry_receipts(future_now)
@@ -592,16 +573,12 @@ class TestGlobalRetryEnabledProcesses:
 
     @pytest.mark.asyncio()
     async def test_global_enabled_worker_processes_receipt(
-        self, mem_storage: SQLiteStorage,
+        self,
+        mem_storage: SQLiteStorage,
     ) -> None:
         """RetryWorker picks up due receipt and successfully re-delivers."""
+
         from medre.runtime.retry import RetryWorker
-        from dataclasses import replace
-        from medre.core.planning.delivery_plan import (
-            DeliveryPlan,
-            DeliveryStrategy,
-            RetryExecutor,
-        )
 
         # Phase 1: Deliver through pipeline with transient failure.
         route = Route(
@@ -661,12 +638,12 @@ class TestGlobalRetryEnabledProcesses:
             await worker._process_due(future_now)
 
             # Worker should have processed the receipt.
-            assert worker.state.processed >= 1, (
-                f"Expected >= 1 processed, got {worker.state.processed}"
-            )
-            assert worker.state.succeeded >= 1, (
-                f"Expected >= 1 succeeded, got {worker.state.succeeded}"
-            )
+            assert (
+                worker.state.processed >= 1
+            ), f"Expected >= 1 processed, got {worker.state.processed}"
+            assert (
+                worker.state.succeeded >= 1
+            ), f"Expected >= 1 succeeded, got {worker.state.succeeded}"
 
             # Verify retry receipt in storage.
             all_receipts = await mem_storage.list_receipts_for_event(event.event_id)
@@ -674,10 +651,7 @@ class TestGlobalRetryEnabledProcesses:
                 f"Expected >= 2 receipts (original + retry), "
                 f"got {len(all_receipts)}"
             )
-            retry_receipts = [
-                r for r in all_receipts
-                if r.source == "retry"
-            ]
+            retry_receipts = [r for r in all_receipts if r.source == "retry"]
             assert len(retry_receipts) >= 1, "Expected at least 1 retry receipt"
             retry_rcpt = retry_receipts[0]
             assert retry_rcpt.status == "sent"

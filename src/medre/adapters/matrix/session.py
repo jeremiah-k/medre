@@ -14,6 +14,7 @@ Operators do not need to set either field.  Decrypted inbound text
 events pass through the normal message callback; undecryptable encrypted
 events are counted and logged but not forwarded.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -25,8 +26,8 @@ from pathlib import Path
 from typing import Any, Callable, Literal
 
 from medre.adapters.matrix import compat as _compat_mod
-from medre.config.adapters.matrix import MatrixConfig
 from medre.adapters.matrix.errors import MatrixConnectionError
+from medre.config.adapters.matrix import MatrixConfig
 
 _logger = logging.getLogger(__name__)
 
@@ -361,9 +362,7 @@ class MatrixSession:
         try:
             client_config: Any = nio.ClientConfig(encryption_enabled=True)
         except Exception as exc:
-            raise MatrixConnectionError(
-                f"Failed to configure E2EE: {exc}"
-            ) from exc
+            raise MatrixConnectionError(f"Failed to configure E2EE: {exc}") from exc
 
         # device_id may be None initially — we discover it via whoami().
         device_id = self._config.device_id
@@ -417,8 +416,8 @@ class MatrixSession:
                 return  # crypto start succeeded
             except Exception as exc:
                 self._logger.warning(
-                    "E2EE optional setup failed, falling back to "
-                    "plaintext: %s", exc,
+                    "E2EE optional setup failed, falling back to " "plaintext: %s",
+                    exc,
                 )
                 self._crypto_enabled = False
                 self._crypto_store_loaded = False
@@ -462,7 +461,8 @@ class MatrixSession:
                 "may not be associated with a device"
             )
         self._logger.info(
-            "Discovered device_id via whoami(): %s", device_id,
+            "Discovered device_id via whoami(): %s",
+            device_id,
         )
         return str(device_id)
 
@@ -551,27 +551,31 @@ class MatrixSession:
         event_id = getattr(event, "event_id", "<unknown>")
         room_id = getattr(room, "room_id", "<unknown>") if room else "<unknown>"
 
-        self._last_crypto_error = (
-            f"Undecryptable MegolmEvent {event_id} in {room_id}"
-        )
+        self._last_crypto_error = f"Undecryptable MegolmEvent {event_id} in {room_id}"
 
         self._encrypted_room_seen = True
         self._logger.warning(
             "Undecryptable MegolmEvent %s in room %s",
-            event_id, room_id,
+            event_id,
+            room_id,
         )
 
         # Track 4 — mark room as encrypted
         if room is not None:
             rid = getattr(room, "room_id", None)
             if rid is not None:
-                if len(self._room_states) >= _MAX_ROOM_STATES and rid not in self._room_states:
+                if (
+                    len(self._room_states) >= _MAX_ROOM_STATES
+                    and rid not in self._room_states
+                ):
                     oldest = next(iter(self._room_states))
                     del self._room_states[oldest]
                     self._logger.warning(
                         "MatrixSession: room-state tracking hit cap (%d); "
                         "evicted room %s for encrypted room %s",
-                        _MAX_ROOM_STATES, oldest, rid,
+                        _MAX_ROOM_STATES,
+                        oldest,
+                        rid,
                     )
                 self._room_states[rid] = "encrypted"
 
@@ -592,13 +596,18 @@ class MatrixSession:
         if room is not None:
             rid = getattr(room, "room_id", None)
             if rid is not None:
-                if len(self._room_states) >= _MAX_ROOM_STATES and rid not in self._room_states:
+                if (
+                    len(self._room_states) >= _MAX_ROOM_STATES
+                    and rid not in self._room_states
+                ):
                     oldest = next(iter(self._room_states))
                     del self._room_states[oldest]
                     self._logger.warning(
                         "MatrixSession: room-state tracking hit cap (%d); "
                         "evicted room %s for encrypted room %s",
-                        _MAX_ROOM_STATES, oldest, rid,
+                        _MAX_ROOM_STATES,
+                        oldest,
+                        rid,
                     )
                 self._room_states[rid] = "encrypted"
 
@@ -675,9 +684,9 @@ class MatrixSession:
 
                 if self._reconnect_attempts >= _MAX_RECONNECT_ATTEMPTS:
                     self._logger.error(
-                        "Max sync reconnect attempts (%d) reached, "
-                        "giving up: %s",
-                        _MAX_RECONNECT_ATTEMPTS, exc,
+                        "Max sync reconnect attempts (%d) reached, " "giving up: %s",
+                        _MAX_RECONNECT_ATTEMPTS,
+                        exc,
                     )
                     self._sync_failure = exc
                     self._reconnecting = False
@@ -694,8 +703,10 @@ class MatrixSession:
                 self._reconnecting = True
                 self._logger.warning(
                     "Sync failed (attempt %d/%d), reconnecting in %.1fs: %s",
-                    self._reconnect_attempts, _MAX_RECONNECT_ATTEMPTS,
-                    actual_delay, exc,
+                    self._reconnect_attempts,
+                    _MAX_RECONNECT_ATTEMPTS,
+                    actual_delay,
+                    exc,
                 )
 
                 try:
@@ -723,7 +734,8 @@ class MatrixSession:
                     pass
                 except asyncio.TimeoutError:
                     self._logger.warning(
-                        "Sync task did not stop within %.1fs", timeout,
+                        "Sync task did not stop within %.1fs",
+                        timeout,
                     )
             try:
                 self._sync_task.exception()
@@ -736,13 +748,15 @@ class MatrixSession:
                 self._client.stop_sync_forever()
             except Exception as exc:
                 self._logger.warning(
-                    "Error stopping sync_forever: %s", exc,
+                    "Error stopping sync_forever: %s",
+                    exc,
                 )
             try:
                 await self._client.close()
             except Exception as exc:
                 self._logger.warning(
-                    "Error closing client: %s", exc,
+                    "Error closing client: %s",
+                    exc,
                 )
             # Yield to the event loop so aiohttp can finish closing its
             # internal connector and any in-flight responses.  Without

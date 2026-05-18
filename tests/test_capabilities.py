@@ -27,7 +27,6 @@ from medre.core.runtime.capabilities import (
     summarize_adapter_capabilities,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -361,7 +360,8 @@ class TestFakeMatrixCapabilities:
 
     @pytest.mark.asyncio
     async def test_health_check_capabilities_match_constant(
-        self, make_adapter_context,
+        self,
+        make_adapter_context,
     ) -> None:
         """health_check() returns AdapterInfo with declared capabilities."""
         from medre.adapters import FakeMatrixAdapter
@@ -405,7 +405,8 @@ class TestFakeMeshtasticCapabilities:
 
     @pytest.mark.asyncio
     async def test_health_check_capabilities_serializable(
-        self, make_adapter_context,
+        self,
+        make_adapter_context,
     ) -> None:
         """health_check() capabilities survive serialize_adapter_capabilities."""
         from medre.adapters import FakeMeshtasticAdapter
@@ -447,7 +448,8 @@ class TestFakeMeshCoreCapabilities:
 
     @pytest.mark.asyncio
     async def test_health_check_capabilities_serializable(
-        self, make_adapter_context,
+        self,
+        make_adapter_context,
     ) -> None:
         """health_check() capabilities are JSON-safe after serialization."""
         from medre.adapters import FakeMeshCoreAdapter
@@ -493,7 +495,8 @@ class TestFakeLxmfCapabilities:
 
     @pytest.mark.asyncio
     async def test_health_check_capabilities_serializable(
-        self, make_adapter_context,
+        self,
+        make_adapter_context,
     ) -> None:
         """health_check() capabilities survive serialization."""
         from medre.adapters import FakeLxmfAdapter

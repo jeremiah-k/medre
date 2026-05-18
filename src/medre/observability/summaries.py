@@ -21,6 +21,7 @@ __all__ = [
 # Duration formatting
 # ---------------------------------------------------------------------------
 
+
 def format_duration_ms(start_time: float, end_time: float | None = None) -> str:
     """Return a human-readable duration string from *start_time*.
 
@@ -50,6 +51,7 @@ def format_duration_ms(start_time: float, end_time: float | None = None) -> str:
 # ---------------------------------------------------------------------------
 # Startup / shutdown summaries
 # ---------------------------------------------------------------------------
+
 
 def startup_summary(
     results: list[tuple[str, str, bool, float, str | None]],

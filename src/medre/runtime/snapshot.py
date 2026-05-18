@@ -208,7 +208,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
-    from medre.runtime.app import MedreApp
+    pass
 
 __all__ = ["build_runtime_snapshot", "SCHEMA_VERSION"]
 
@@ -392,10 +392,12 @@ def _snapshot_build_failures(failures: list[Any]) -> list[dict[str, Any]]:
         adapter_id = getattr(bf, "adapter_id", "unknown")
         error = getattr(bf, "error", "unknown error")
         error_str = _sanitize_error(str(error))
-        entries.append({
-            "adapter_id": adapter_id,
-            "error": error_str,
-        })
+        entries.append(
+            {
+                "adapter_id": adapter_id,
+                "error": error_str,
+            }
+        )
     return entries
 
 

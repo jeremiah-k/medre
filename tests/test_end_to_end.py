@@ -9,10 +9,7 @@ import os
 import tempfile
 from datetime import datetime, timezone
 
-import pytest
-
 from medre.adapters import FakePresentationAdapter, FakeTransportAdapter
-from medre.core.contracts.adapter import AdapterRole
 from medre.core.events import (
     CanonicalEvent,
     DeliveryReceipt,
@@ -23,13 +20,11 @@ from medre.core.events import (
 )
 from medre.core.planning import (
     DeliveryPlan,
-    DeliveryStrategy,
     FallbackResolver,
     RelationResolver,
 )
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage import EventFilter, SQLiteStorage
-
 
 # ---------------------------------------------------------------------------
 # Helper: adapter-wrapping storage for RelationResolver
@@ -94,9 +89,10 @@ class TestFullPipeline:
             # Create adapter contexts.
             import logging
 
-            transport_ctx = type(transport).start.__code__  # just for reference
-            from medre.core.contracts.adapter import AdapterContext
+            type(transport).start.__code__  # just for reference
             import asyncio
+
+            from medre.core.contracts.adapter import AdapterContext
 
             t_ctx = AdapterContext(
                 adapter_id="fake_transport",
@@ -152,9 +148,7 @@ class TestFullPipeline:
             assert len(targets) == 1
             target = targets[0]
 
-            plan = fallback_resolver.resolve_fallback(
-                event, target, capabilities={}
-            )
+            plan = fallback_resolver.resolve_fallback(event, target, capabilities={})
             assert isinstance(plan, DeliveryPlan)
             assert plan.event_id == event.event_id
             assert plan.primary_strategy.method == "direct"
@@ -360,7 +354,9 @@ class TestFullPipeline:
 
             target = matched[0].targets[0]
             # fake_transport has reactions="fallback", simulate target without support
-            plan = resolver.resolve_fallback(event, target, {"supports_reactions": False})
+            plan = resolver.resolve_fallback(
+                event, target, {"supports_reactions": False}
+            )
             assert plan.primary_strategy.method == "direct"
 
             await storage.close()

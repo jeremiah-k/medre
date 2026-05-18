@@ -58,7 +58,6 @@ Usage::
     pkt = make_contact_text_packet(text="hello", sender_prefix="abc123")
 """
 
-
 # ---------------------------------------------------------------------------
 # Contact (DM) text packets
 # ---------------------------------------------------------------------------
@@ -68,6 +67,7 @@ Usage::
 # Fixture uses ``text`` (matching MEDRE classifier) and ``pubkey_prefix``
 # (matching MEDRE convention for sender identity).
 # ---------------------------------------------------------------------------
+
 
 def make_contact_text_packet(
     text: str = "hello from meshcore",
@@ -109,6 +109,7 @@ def make_contact_text_packet(
 # channel_idx (int), body (text string), type="CHAN", sender (pubkey hex),
 # txt_type, timestamp.
 # ---------------------------------------------------------------------------
+
 
 def make_channel_text_packet(
     text: str = "hello channel",
@@ -153,6 +154,7 @@ def make_channel_text_packet(
 # ACK events carry a ``code`` key — observed in MeshCore SDK event types.
 # ---------------------------------------------------------------------------
 
+
 def make_ack_packet(code: int = 0) -> dict:
     """Return an ACK packet dict.
 
@@ -174,6 +176,7 @@ def make_ack_packet(code: int = 0) -> dict:
 # ---------------------------------------------------------------------------
 # Provenance: synthetic scaffold.
 # ---------------------------------------------------------------------------
+
 
 def make_minimal_packet() -> dict:
     """Bare-minimum packet — no ``text``, no ``channel_idx``.

@@ -14,13 +14,23 @@ matches on that platform string directly.
 **Tranche 1 scope**: text messages and native replies are supported.
 Reactions are deferred to a later tranche.
 """
+
 from __future__ import annotations
 
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
 from medre.adapters.matrix.relations import build_reply_body
 from medre.core.events import CanonicalEvent
 from medre.core.rendering.renderer import RenderingResult
-from medre.interop.mmrelay import KEY_ID, KEY_LONGNAME, KEY_SHORTNAME, KEY_MESHNET, KEY_PORTNUM, KEY_TEXT, PORTNUM_TEXT
+from medre.interop.mmrelay import (
+    KEY_ID,
+    KEY_LONGNAME,
+    KEY_MESHNET,
+    KEY_PORTNUM,
+    KEY_SHORTNAME,
+    KEY_TEXT,
+    PORTNUM_TEXT,
+)
+
 
 class MatrixRenderer:
     """Renderer for Matrix presentation targets.
@@ -134,9 +144,7 @@ class MatrixRenderer:
                 )
                 # Build reply body with fallback quote
                 original_text = rel.fallback_text or ""
-                sender = (
-                    native_ref.adapter if native_ref else ""
-                )
+                sender = native_ref.adapter if native_ref else ""
                 content["body"] = build_reply_body(body, sender, original_text)
                 content["m.relates_to"] = {
                     "m.in_reply_to": {

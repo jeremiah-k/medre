@@ -3,7 +3,6 @@ config construction, error handling."""
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -11,14 +10,10 @@ import pytest
 from medre.config.errors import ConfigFileError, ConfigNotFoundError
 from medre.config.loader import ConfigSource, find_config, load_config
 from medre.config.model import (
-    AdapterConfigSet,
-    LoggingConfig,
     MatrixRuntimeConfig,
     RuntimeConfig,
-    RuntimeOptions,
-    StorageConfig,
 )
-from medre.config.paths import MedrePaths, resolve
+from medre.config.paths import MedrePaths
 
 # ---------------------------------------------------------------------------
 # Sample TOML content
@@ -92,6 +87,7 @@ MINIMAL_TOML = """\
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(autouse=True)
 def _clean_config_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -245,12 +241,16 @@ class TestLoadMultiAdapter:
 class TestLoadErrors:
     """Error handling for missing or invalid config files."""
 
-    def test_missing_explicit_path_raises_config_file_error(self, tmp_path: Path) -> None:
+    def test_missing_explicit_path_raises_config_file_error(
+        self, tmp_path: Path
+    ) -> None:
         missing = tmp_path / "nonexistent.toml"
         with pytest.raises(ConfigFileError, match="not found"):
             load_config(str(missing))
 
-    def test_invalid_toml_raises_config_file_error(self, invalid_config_file: Path) -> None:
+    def test_invalid_toml_raises_config_file_error(
+        self, invalid_config_file: Path
+    ) -> None:
         with pytest.raises(ConfigFileError, match="Invalid TOML"):
             load_config(str(invalid_config_file))
 
@@ -288,7 +288,9 @@ class TestFindConfig:
         assert source == ConfigSource.EXPLICIT
         assert path == config_file
 
-    def test_medre_config_env_var(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_medre_config_env_var(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         cfg = tmp_path / "env_config.toml"
         cfg.write_text("[runtime]\n")
         monkeypatch.setenv("MEDRE_CONFIG", str(cfg))
@@ -297,7 +299,9 @@ class TestFindConfig:
         assert source == ConfigSource.MEDRE_CONFIG
         assert path == cfg
 
-    def test_medre_home_config(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_medre_home_config(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         home = tmp_path / "medre_home"
         home.mkdir()
         cfg = home / "config.toml"
@@ -309,9 +313,7 @@ class TestFindConfig:
         assert source == ConfigSource.MEDRE_HOME
         assert path == cfg
 
-    def test_xdg_config(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_xdg_config(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         xdg_config = tmp_path / "xdg-config" / "medre"
         xdg_config.mkdir(parents=True)
         cfg = xdg_config / "config.toml"
@@ -324,7 +326,9 @@ class TestFindConfig:
         assert source == ConfigSource.XDG
         assert path == cfg
 
-    def test_local_config(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_local_config(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         cfg = tmp_path / "medre.toml"
         cfg.write_text("[runtime]\n")
         monkeypatch.chdir(tmp_path)
@@ -402,7 +406,9 @@ class TestSampleConfig:
 
     def test_sample_config_is_valid_toml(self) -> None:
         import tomllib
+
         from medre.config.sample import generate_sample_config
+
         text = generate_sample_config()
         data = tomllib.loads(text)
         assert isinstance(data, dict)
@@ -410,7 +416,9 @@ class TestSampleConfig:
     def test_sample_config_includes_routes_section(self) -> None:
         """The sample config must demonstrate route configuration."""
         import tomllib
+
         from medre.config.sample import generate_sample_config
+
         text = generate_sample_config()
         data = tomllib.loads(text)
         assert "routes" in data, "Sample config must include [routes] section"
@@ -419,7 +427,9 @@ class TestSampleConfig:
         """Route source/dest adapters must reference adapter IDs declared
         in the sample config."""
         import tomllib
+
         from medre.config.sample import generate_sample_config
+
         text = generate_sample_config()
         data = tomllib.loads(text)
 

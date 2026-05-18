@@ -19,24 +19,17 @@ from __future__ import annotations
 
 import asyncio
 import json
-from dataclasses import dataclass, field
-from typing import Any
-from unittest.mock import AsyncMock
 
 import pytest
 
 from medre.core.contracts.adapter import AdapterCapabilities, AdapterInfo, AdapterRole
 from medre.core.lifecycle.states import AdapterState
 from medre.core.runtime.health import (
-    AdapterLiveHealth,
     LiveHealthSnapshot,
-    normalize_adapter_health,
 )
-from medre.core.runtime.supervision import RuntimeHealth
 from medre.runtime.app import MedreApp, RuntimeState
 from medre.runtime.events import EventBuffer, RuntimeEventType
 from medre.runtime.snapshot import SCHEMA_VERSION, build_runtime_snapshot
-
 
 # ---------------------------------------------------------------------------
 # Fakes
@@ -97,7 +90,10 @@ def _make_minimal_app(
     app._adapter_states = {aid: AdapterState.READY for aid in (adapters or {})}
     app._live_health_state = None
     app._live_health_poll_count = 0
-    app._health_state = {"runtime_health": "healthy", "adapter_summary": {"total": len(adapters or {})}}
+    app._health_state = {
+        "runtime_health": "healthy",
+        "adapter_summary": {"total": len(adapters or {})},
+    }
     app._startup_wall = "2026-05-14T00:00:00+00:00"
     app._startup_monotonic = 1000.0
     app._boot_summary = None
@@ -378,14 +374,13 @@ class TestCancelledErrorPropagation:
                 ),
             },
         )
-        events_before = list(app.event_buffer)
+        list(app.event_buffer)
         with pytest.raises(asyncio.CancelledError):
             await app.refresh_live_health()
         events_after = list(app.event_buffer)
         # No new HEALTH_REFRESHED events
         refreshed_events = [
-            e for e in events_after
-            if e.event_type == RuntimeEventType.HEALTH_REFRESHED
+            e for e in events_after if e.event_type == RuntimeEventType.HEALTH_REFRESHED
         ]
         assert len(refreshed_events) == 0
 
@@ -461,7 +456,9 @@ class TestEventEmission:
         )
         await app.refresh_live_health()
         events = list(app.event_buffer)
-        refreshed = [e for e in events if e.event_type == RuntimeEventType.HEALTH_REFRESHED]
+        refreshed = [
+            e for e in events if e.event_type == RuntimeEventType.HEALTH_REFRESHED
+        ]
         assert len(refreshed) == 1
         detail = refreshed[0].detail
         assert detail["runtime_health"] == "healthy"
@@ -481,7 +478,9 @@ class TestEventEmission:
         )
         await app.refresh_live_health()
         events = list(app.event_buffer)
-        refreshed = [e for e in events if e.event_type == RuntimeEventType.HEALTH_REFRESHED]
+        refreshed = [
+            e for e in events if e.event_type == RuntimeEventType.HEALTH_REFRESHED
+        ]
         assert len(refreshed) == 1
         detail = refreshed[0].detail
         assert "failed_adapters" in detail
@@ -505,7 +504,9 @@ class TestEventEmission:
         # Second refresh
         await app.refresh_live_health()
         events = list(app.event_buffer)
-        refreshed = [e for e in events if e.event_type == RuntimeEventType.HEALTH_REFRESHED]
+        refreshed = [
+            e for e in events if e.event_type == RuntimeEventType.HEALTH_REFRESHED
+        ]
         # Should have 2 refreshed events
         assert len(refreshed) == 2
         second_detail = refreshed[1].detail
@@ -519,7 +520,9 @@ class TestEventEmission:
         )
         await app.refresh_live_health()
         events = list(app.event_buffer)
-        refreshed = [e for e in events if e.event_type == RuntimeEventType.HEALTH_REFRESHED]
+        refreshed = [
+            e for e in events if e.event_type == RuntimeEventType.HEALTH_REFRESHED
+        ]
         assert len(refreshed) == 1
         # Must be JSON-serialisable
         serialized = json.dumps(refreshed[0].detail, sort_keys=True)
@@ -869,7 +872,7 @@ class TestEventDetailDeterministicOrdering:
                 "ok_adapter": _FakeAdapter("ok_adapter", health="healthy"),
             },
         )
-        snapshot = await app.refresh_live_health()
+        await app.refresh_live_health()
         events = list(app.event_buffer)
         refreshed = [
             e for e in events if e.event_type == RuntimeEventType.HEALTH_REFRESHED

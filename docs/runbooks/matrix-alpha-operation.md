@@ -12,7 +12,6 @@ Everything in this document is conservative. If something has not been tested ag
 
 **mmrelay (meshtastic-matrix-relay)** should be used as a practical behavioral reference for Matrix client workflows and E2EE handling patterns. It is a working Meshtastic-to-Matrix bridge that demonstrates real-world nio usage. However, it should NOT be copied architecturally or line-for-line — MEDRE's architecture (canonical events, adapter isolation, pipeline stages) remains authoritative. See `docs/spec/modular-event-engine-spec.md` §26 for the full set of architectural lessons from mmrelay.
 
-
 ## 1. Purpose
 
 Alpha operation validates that the MEDRE Matrix adapter works end to end against a real Matrix homeserver with real network calls. This is the first time the adapter leaves mock and fake territory.
@@ -27,21 +26,19 @@ Scope boundaries:
 
 This runbook complements `docs/runbooks/matrix-live-smoke.md`. The smoke test validates adapter methods in isolation. Alpha operation validates the full wiring: config, adapter, codec, inbound, outbound, and health, running together.
 
-
 ## 2. Prerequisites
 
-| Requirement | Details |
-|------------|---------|
-| Matrix homeserver | Synapse or Conduit, local or reachable over the network |
-| Bot account | A dedicated Matrix user, not your personal account |
-| Python | 3.11 or later |
-| Package install | `pip install -e ".[matrix]"` (plaintext alpha, recommended). E2EE text alpha: `pip install -e ".[matrix-e2e]"` (adds Olm/Megolm crypto libs for encrypted rooms). |
-| Access token | Obtained via login API or Element UI |
-| A test room | Unencrypted, bot has joined it |
-| Network access | Your machine can reach the homeserver's HTTP(S) port |
+| Requirement       | Details                                                                                                                                                           |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Matrix homeserver | Synapse or Conduit, local or reachable over the network                                                                                                           |
+| Bot account       | A dedicated Matrix user, not your personal account                                                                                                                |
+| Python            | 3.11 or later                                                                                                                                                     |
+| Package install   | `pip install -e ".[matrix]"` (plaintext alpha, recommended). E2EE text alpha: `pip install -e ".[matrix-e2e]"` (adds Olm/Megolm crypto libs for encrypted rooms). |
+| Access token      | Obtained via login API or Element UI                                                                                                                              |
+| A test room       | Unencrypted, bot has joined it                                                                                                                                    |
+| Network access    | Your machine can reach the homeserver's HTTP(S) port                                                                                                              |
 
 You do not need Docker. You do not need a domain name. You do not need federation. A local homeserver on localhost is sufficient.
-
 
 ## 3. Homeserver Setup
 
@@ -78,7 +75,6 @@ docker run -d --name synapse -p 8008:8008 \
 
 Docker is not required. It is listed here because some people prefer it. The primary path is pip (Synapse) or native binary (Conduit).
 
-
 ## 4. Token Generation
 
 The adapter authenticates with a long-lived access token. There are two ways to get one.
@@ -110,7 +106,6 @@ Do not commit the token. Do not log the token. Do not paste it into chat. Set it
 
 > **Note on E2EE.** Alpha authenticates with access tokens over plain HTTP(S). The `.[matrix]` extra installs the base `mindroom-nio` package (no crypto) — this is the recommended plaintext alpha. The `.[matrix-e2e]` extra installs `mindroom-nio[e2e]` with Olm/Megolm crypto libraries — use this for the E2EE text alpha. E2EE text alpha is now active: when installed with `.[matrix-e2e]` and `encryption_mode` is set to `e2ee_required` or `e2ee_optional`, the adapter operates in encrypted rooms (see section 13). The adapter discovers its device ID via `whoami()` and derives an internal store path automatically — no operator configuration of `device_id` or `store_path` is required. Plaintext rooms work identically in both modes.
 
-
 ## 5. Room Setup
 
 1. Open a Matrix client (Element, or any other).
@@ -119,7 +114,6 @@ Do not commit the token. Do not log the token. Do not paste it into chat. Set it
 4. Accept the invite from the bot account (log in as the bot in a second client session or via the join API).
 5. Copy the room ID. It looks like `!opaquestring:localhost`. Room aliases (the `#name:server` form) will not work in the allowlist.
 6. Confirm the room is unencrypted for plaintext alpha. If the room has a lock icon in Element, it is encrypted — see section 13 for E2EE text alpha setup. Plaintext alpha cannot read encrypted room content. E2EE text alpha supports encrypted rooms for text messages only.
-
 
 ## 6. Allowlist Configuration
 
@@ -148,22 +142,21 @@ raw = os.environ.get("MATRIX_ROOM_ALLOWLIST", "")
 allowlist = set(raw.split(",")) if raw.strip() else None
 ```
 
-
 ## 7. Running MEDRE in Alpha Mode
 
 ### 7.1 Environment variables
 
 The runner reads all configuration from environment variables. The three required variables must be set before starting.
 
-| Variable | Required | Default | Example | Notes |
-|----------|----------|---------|---------|-------|
-| `MATRIX_HOMESERVER` | Yes | | `http://localhost:8008` | Full URL, no trailing slash |
-| `MATRIX_USER_ID` | Yes | | `@bot:localhost` | Must start with `@` |
-| `MATRIX_ACCESS_TOKEN` | Yes | | `syt_xxxxxxxxxxxxx` | Keep it secret |
-| `MATRIX_ROOM_ALLOWLIST` | No | (all rooms) | `!abc:localhost,!def:localhost` | Comma-separated room IDs. Unset or empty means all rooms are accepted. |
-| `MATRIX_ADAPTER_ID` | No | `matrix-alpha` | `my-adapter` | Adapter identifier used in logging and health checks. |
-| `MATRIX_SYNC_TIMEOUT_MS` | No | `30000` | `60000` | Sync long-poll timeout in milliseconds. |
-| `MEDRE_DB_PATH` | No | `:memory:` | `/tmp/medre.db` | SQLite database path. Defaults to in-memory (lost on shutdown). |
+| Variable                 | Required | Default        | Example                         | Notes                                                                  |
+| ------------------------ | -------- | -------------- | ------------------------------- | ---------------------------------------------------------------------- |
+| `MATRIX_HOMESERVER`      | Yes      |                | `http://localhost:8008`         | Full URL, no trailing slash                                            |
+| `MATRIX_USER_ID`         | Yes      |                | `@bot:localhost`                | Must start with `@`                                                    |
+| `MATRIX_ACCESS_TOKEN`    | Yes      |                | `syt_xxxxxxxxxxxxx`             | Keep it secret                                                         |
+| `MATRIX_ROOM_ALLOWLIST`  | No       | (all rooms)    | `!abc:localhost,!def:localhost` | Comma-separated room IDs. Unset or empty means all rooms are accepted. |
+| `MATRIX_ADAPTER_ID`      | No       | `matrix-alpha` | `my-adapter`                    | Adapter identifier used in logging and health checks.                  |
+| `MATRIX_SYNC_TIMEOUT_MS` | No       | `30000`        | `60000`                         | Sync long-poll timeout in milliseconds.                                |
+| `MEDRE_DB_PATH`          | No       | `:memory:`     | `/tmp/medre.db`                 | SQLite database path. Defaults to in-memory (lost on shutdown).        |
 
 ### 7.2 Running with the runner
 
@@ -230,7 +223,6 @@ The runner catches SIGINT and SIGTERM, signals the adapter to stop, then stops t
 
 If you do not see the startup lines above, check the troubleshooting section (section 14) for common configuration and connectivity errors.
 
-
 ## 8. Device Identity and Crypto Store (Internal)
 
 The Matrix adapter manages device identity and crypto store paths internally. Operators do not configure `device_id` or `store_path`.
@@ -280,7 +272,6 @@ The E2EE text alpha includes a live harness for testing encrypted room operation
 - Validates that the adapter can decrypt inbound and encrypt outbound in an encrypted room.
 - Remains skipped by default, gated by environment variables and the `live` pytest marker.
 
-
 ## 9. Expected Logs and Diagnostics
 
 ### 9.1 Healthy startup
@@ -329,15 +320,14 @@ See section 12 (Operational Resilience) for full reconnect/backoff behavior.
 
 ### 9.5 Health states
 
-| State | Meaning |
-|-------|---------|
-| `unknown` | Adapter has not started, or has been stopped |
-| `healthy` | Client is connected, logged in, and sync is running |
-| `degraded` | Sync is running but actively reconnecting after a transient failure |
-| `failed` | Sync task has crashed permanently, or client exists but is not logged in |
+| State      | Meaning                                                                  |
+| ---------- | ------------------------------------------------------------------------ |
+| `unknown`  | Adapter has not started, or has been stopped                             |
+| `healthy`  | Client is connected, logged in, and sync is running                      |
+| `degraded` | Sync is running but actively reconnecting after a transient failure      |
+| `failed`   | Sync task has crashed permanently, or client exists but is not logged in |
 
 When the adapter is in `degraded` state, it is actively attempting to restore the sync connection. Once reconnection succeeds, the state returns to `healthy`. If the reconnect budget is exhausted, the state transitions to `failed` and requires manual restart.
-
 
 ## 10. Replay Validation Procedure
 
@@ -382,16 +372,16 @@ This section describes how to manually verify that the adapter behaves correctly
 This procedure validates the complete third-party inbound path: a message
 from a different Matrix user arrives via the nio sync loop, passes sender
 filtering and allowlist checks, gets decoded into a `CanonicalEvent`, and
-triggers `publish_inbound()`.  This is the most operationally significant
+triggers `publish_inbound()`. This is the most operationally significant
 beta unknown — it cannot be tested with a single account.
 
 **Prerequisites:**
 
-| Requirement | Details |
-|------------|---------|
-| Bot account | The MEDRE Matrix adapter account (with access token) |
-| Second account | A different Matrix user on the same homeserver |
-| Shared room | Both accounts must be in the same room |
+| Requirement    | Details                                              |
+| -------------- | ---------------------------------------------------- |
+| Bot account    | The MEDRE Matrix adapter account (with access token) |
+| Second account | A different Matrix user on the same homeserver       |
+| Shared room    | Both accounts must be in the same room               |
 
 **Procedure (manual):**
 
@@ -423,7 +413,7 @@ pytest tests/test_matrix_live.py::TestMatrixLiveSmoke::test_inbound_message_rece
    - Payload contains `body` and `msgtype`
 
 5. If no second account is available, the test will xfail with a
-   descriptive message.  This is acceptable — the deterministic unit
+   descriptive message. This is acceptable — the deterministic unit
    tests in `tests/test_matrix_adapter.py` (classes
    `TestThirdPartyInboundCanonicalEventShape` and
    `TestInboundDiagnosticsCounters`) cover the same logic paths
@@ -433,12 +423,12 @@ pytest tests/test_matrix_live.py::TestMatrixLiveSmoke::test_inbound_message_rece
 
 The adapter exposes inbound counters via `diagnostics()`:
 
-| Counter | Description |
-|---------|-------------|
-| `inbound_published` | Events successfully published via `publish_inbound()` |
-| `inbound_suppressed_self` | Events dropped because sender == bot user_id |
+| Counter                       | Description                                                  |
+| ----------------------------- | ------------------------------------------------------------ |
+| `inbound_published`           | Events successfully published via `publish_inbound()`        |
+| `inbound_suppressed_self`     | Events dropped because sender == bot user_id                 |
 | `inbound_suppressed_envelope` | Events dropped because MEDRE envelope source_adapter matched |
-| `inbound_filtered_allowlist` | Events dropped because room was not in the allowlist |
+| `inbound_filtered_allowlist`  | Events dropped because room was not in the allowlist         |
 
 To inspect counters programmatically:
 
@@ -451,20 +441,20 @@ print(f"published={diag['inbound_published']} "
 ```
 
 After a successful third-party inbound validation:
+
 - `inbound_published` should be >= 1
 - `inbound_suppressed_self` should be >= 0 (may include echo from outbound tests)
 - `inbound_filtered_allowlist` should be 0 (if using correct allowlist)
 
 **Automated test coverage (no live server required):**
 
-| Test class | File | Coverage |
-|-----------|------|----------|
+| Test class                                 | File                           | Coverage                                                                                                                                         |
+| ------------------------------------------ | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `TestThirdPartyInboundCanonicalEventShape` | `tests/test_matrix_adapter.py` | 8 tests: source_adapter, sender as transport_id, room as channel_id, payload shape, source_native_ref, event_kind, UUID event_id, notice msgtype |
-| `TestInboundDiagnosticsCounters` | `tests/test_matrix_adapter.py` | 8 tests: published/self/envelope/allowlist counter increments, accumulation, reset on start, diagnostics exposure, no-ctx early return |
-| `TestSelfMessageSuppression` | `tests/test_matrix_adapter.py` | 3 tests: self suppressed, other accepted, missing sender |
-| `TestMEDREOriginLoopSuppression` | `tests/test_matrix_adapter.py` | 4 tests: same adapter suppressed, different adapter accepted, missing envelope, corrupt envelope |
-| `TestRoomAllowlist` | `tests/test_matrix_adapter.py` | 4 tests: no allowlist, matching, non-matching, multiple rooms |
-
+| `TestInboundDiagnosticsCounters`           | `tests/test_matrix_adapter.py` | 8 tests: published/self/envelope/allowlist counter increments, accumulation, reset on start, diagnostics exposure, no-ctx early return           |
+| `TestSelfMessageSuppression`               | `tests/test_matrix_adapter.py` | 3 tests: self suppressed, other accepted, missing sender                                                                                         |
+| `TestMEDREOriginLoopSuppression`           | `tests/test_matrix_adapter.py` | 4 tests: same adapter suppressed, different adapter accepted, missing envelope, corrupt envelope                                                 |
+| `TestRoomAllowlist`                        | `tests/test_matrix_adapter.py` | 4 tests: no allowlist, matching, non-matching, multiple rooms                                                                                    |
 
 ## 11. Known Limitations
 
@@ -491,7 +481,6 @@ This is an honest list. Everything here is real.
 10. **Runner is in alpha.** The runner (`medre run`) works for testing but has limited error recovery. If a subsystem fails during startup, the runner exits with a traceback rather than attempting partial recovery. There is no watchdog to restart the runner if it crashes.
 
 11. **Plaintext is primary; E2EE is add-on.** Plaintext alpha is the recommended path. E2EE text alpha adds encrypted room support for text only (see section 13). Reactions, edits, media, cross-signing, key backup, and unverified device policy remain unsupported. Undecryptable event logging is now implemented (counted and logged safely, not forwarded).
-
 
 ## 12. Operational Risks
 
@@ -534,7 +523,6 @@ If the adapter restarts after sending a message but before recording the event, 
 
 Delivery retries (up to 3 attempts on transient send errors) can produce duplicates: the message may have been accepted by the homeserver on the first attempt, but the response was lost. The adapter retries the send, resulting in a duplicate event in the room. There is no idempotency key or deduplication mechanism. Operators monitoring rooms should be aware of this possibility, especially during network instability.
 
-
 ## 12A. Operational Resilience
 
 This section documents the adapter's automatic recovery and retry behavior. These features handle transient failures only — permanent errors (expired tokens, deactivated accounts, unknown rooms) always require manual intervention.
@@ -544,24 +532,26 @@ This section documents the adapter's automatic recovery and retry behavior. Thes
 When a sync iteration fails due to a transient error, the adapter does not require manual restart. It automatically attempts to re-establish the sync connection with bounded exponential backoff.
 
 **Transient errors** (auto-retried):
+
 - Network timeouts and connection refused
 - Server-side 5xx responses
 - Temporary DNS resolution failures
 - TCP connection resets
 
 **Permanent errors** (not retried):
+
 - Expired or revoked access tokens (`M_UNKNOWN_TOKEN`)
 - Deactivated accounts (`M_USER_DEACTIVATED`)
 - Forbidden errors (`M_FORBIDDEN`)
 
 ### 12A.2 Reconnect attempt maximum and backoff strategy
 
-| Parameter | Value | Notes |
-|-----------|-------|-------|
+| Parameter                  | Value                            | Notes                                                    |
+| -------------------------- | -------------------------------- | -------------------------------------------------------- |
 | Maximum reconnect attempts | Bounded (implementation-defined) | After exhausting attempts, adapter enters `failed` state |
-| Backoff strategy | Exponential with jitter | Prevents thundering herd on shared homeserver |
-| Initial delay | Implementation-defined | Short delay before first reconnect attempt |
-| Maximum delay | Capped | Backoff stops growing beyond a ceiling |
+| Backoff strategy           | Exponential with jitter          | Prevents thundering herd on shared homeserver            |
+| Initial delay              | Implementation-defined           | Short delay before first reconnect attempt               |
+| Maximum delay              | Capped                           | Backoff stops growing beyond a ceiling                   |
 
 The reconnect attempt counter resets on a successful sync. Diagnostics expose the current `reconnect_attempts` count. The `reconnecting` boolean indicates whether the adapter is actively in a reconnect cycle.
 
@@ -580,12 +570,12 @@ Crypto continuity is verified during startup: if the store_path directory is emp
 
 Outbound `deliver()` calls have built-in retry for transient send failures:
 
-| Parameter | Value |
-|-----------|-------|
-| Maximum retries | 3 |
-| Retry trigger | Transient send errors only |
+| Parameter        | Value                                 |
+| ---------------- | ------------------------------------- |
+| Maximum retries  | 3                                     |
+| Retry trigger    | Transient send errors only            |
 | Permanent errors | No retry — error returned immediately |
-| Duplicate risk | Yes — see section 12.6 |
+| Duplicate risk   | Yes — see section 12.6                |
 
 **Transient send errors** include network timeouts, connection refused, and 5xx homeserver responses. **Permanent send errors** include `M_FORBIDDEN`, `M_UNKNOWN_ROOM`, and other 4xx client errors.
 
@@ -631,7 +621,6 @@ docker run -d --name medre-matrix \
 
 6. **Resource limits.** The sync loop maintains a single long-polling HTTP connection. Memory usage is dominated by the nio crypto store (SQLite + in-room key cache). For alpha with a handful of rooms, 256 MB is sufficient.
 
-
 ## Live Validation Evidence
 
 ### Test Results
@@ -641,34 +630,32 @@ docker run -d --name medre-matrix \
 - **Command:** `pytest tests/test_matrix_live.py -m live -v`
 - **Reason:** No Matrix environment variables present in the execution session. All required variables unset: `MATRIX_HOMESERVER`, `MATRIX_USER_ID`, `MATRIX_ACCESS_TOKEN`, `MATRIX_ROOM_ID`. E2EE-specific variables also unset: `MATRIX_DEVICE_ID`, `MATRIX_STORE_PATH`.
 - **Policy:** Live tests are never run without pre-existing credentials. The agent does not request, generate, or print credentials.
-- **Result:** All live tests would skip with reason: *"Set MATRIX_HOMESERVER, MATRIX_USER_ID, MATRIX_ACCESS_TOKEN, and MATRIX_ROOM_ID env vars to run live Matrix tests"*
+- **Result:** All live tests would skip with reason: _"Set MATRIX_HOMESERVER, MATRIX_USER_ID, MATRIX_ACCESS_TOKEN, and MATRIX_ROOM_ID env vars to run live Matrix tests"_
 - **Operator action required:** Set the four required environment variables (plus two E2EE variables for encrypted-room testing) and run the commands above. See the smoke test runbook (`docs/runbooks/matrix-live-smoke.md`) for detailed setup and environment variable instructions.
 
 **Previous successful live validation:** 2026-05-10 — 13 passed, 0 failed (plaintext) and 7 passed, 0 failed (E2EE). See `docs/runbooks/matrix-live-smoke.md` for full evidence.
-
 
 ## 13. Explicit Unsupported Features
 
 The following features are not supported in alpha mode. Do not attempt to use them. They are listed here so you do not have to wonder.
 
-| Feature | Status | Notes |
-|---------|--------|-------|
+| Feature                      | Status                                 | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ---------------------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | End-to-end encryption (E2EE) | E2EE text alpha available (section 13) | Encrypted rooms are supported for text messages when installed with `.[matrix-e2e]` and `encryption_mode` is set to `e2ee_required` or `e2ee_optional`. Device ID is discovered via `whoami()` and store path is derived internally. Reactions, edits, media, cross-signing, key backup, and unverified device policy remain unsupported. Undecryptable event logging is now implemented (counted, logged, not forwarded). Plaintext rooms work identically in both modes. |
-| Reactions | Not supported | The adapter registers callbacks for `RoomMessageText`, `RoomMessageNotice`, and `RoomMessageEmote` only. Reaction events are not processed. |
-| Edits | Not supported | Edited messages appear as new messages. The adapter does not track `m.replace` relations. |
-| Deletes / redactions | Not supported | Redacted messages, if received, are not handled. |
-| Media / attachments / files | Not supported | The adapter handles text content only. No image, file, or audio events. |
-| Threads | Not supported | Threaded messages are received but thread context is not preserved in canonical events. |
-| Spaces | Not supported | Spaces are not relevant to the adapter's operation. |
-| Webhooks | Not supported | Matrix does not use webhooks. MEDRE does not implement any webhook receiver for Matrix. |
-| Admin APIs | Not supported | The adapter uses the client-server API only. No admin endpoints are called. |
-| Non-Matrix transports | Not in scope | This runbook covers Matrix only. |
-| Presence | Not supported | The adapter does not send or receive presence events. |
-| Typing notifications | Not supported | The adapter does not send or receive typing notifications. |
-| Read receipts | Not supported | The adapter does not send or track read receipts. |
-| Room creation / management | Not supported | The adapter does not create rooms, set topics, or manage membership. |
-| User profile operations | Not supported | The adapter does not set avatars, display names, or profile data. |
-
+| Reactions                    | Not supported                          | The adapter registers callbacks for `RoomMessageText`, `RoomMessageNotice`, and `RoomMessageEmote` only. Reaction events are not processed.                                                                                                                                                                                                                                                                                                                                |
+| Edits                        | Not supported                          | Edited messages appear as new messages. The adapter does not track `m.replace` relations.                                                                                                                                                                                                                                                                                                                                                                                  |
+| Deletes / redactions         | Not supported                          | Redacted messages, if received, are not handled.                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Media / attachments / files  | Not supported                          | The adapter handles text content only. No image, file, or audio events.                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Threads                      | Not supported                          | Threaded messages are received but thread context is not preserved in canonical events.                                                                                                                                                                                                                                                                                                                                                                                    |
+| Spaces                       | Not supported                          | Spaces are not relevant to the adapter's operation.                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Webhooks                     | Not supported                          | Matrix does not use webhooks. MEDRE does not implement any webhook receiver for Matrix.                                                                                                                                                                                                                                                                                                                                                                                    |
+| Admin APIs                   | Not supported                          | The adapter uses the client-server API only. No admin endpoints are called.                                                                                                                                                                                                                                                                                                                                                                                                |
+| Non-Matrix transports        | Not in scope                           | This runbook covers Matrix only.                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Presence                     | Not supported                          | The adapter does not send or receive presence events.                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Typing notifications         | Not supported                          | The adapter does not send or receive typing notifications.                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Read receipts                | Not supported                          | The adapter does not send or track read receipts.                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Room creation / management   | Not supported                          | The adapter does not create rooms, set topics, or manage membership.                                                                                                                                                                                                                                                                                                                                                                                                       |
+| User profile operations      | Not supported                          | The adapter does not set avatars, display names, or profile data.                                                                                                                                                                                                                                                                                                                                                                                                          |
 
 ## 14. Troubleshooting
 
@@ -850,7 +837,6 @@ The crypto store was not loaded on startup. Check:
 2. **Is the store directory empty?** On first run, the store is created but `crypto_store_loaded` reflects whether an existing store was loaded. A fresh store creation is not an error.
 3. **File permissions.** The adapter needs read/write access to the store path directory.
 
-
 ## 13. E2EE Text Alpha
 
 This section describes how to operate MEDRE in encrypted rooms. **Plaintext alpha remains the primary and recommended path.** E2EE text alpha is an add-on for operators who need encrypted rooms.
@@ -907,8 +893,8 @@ On first run with E2EE enabled:
 2. The adapter creates the nio client with `encryption_enabled=True` (nio's internal `ClientConfig` flag, automatic when `ENCRYPTION_ENABLED` is `True` at the nio library level). MEDRE triggers this by setting `encryption_mode` to a non-plaintext value.
 3. `restore_login` creates a new crypto store in the internal store path (no existing store found).
 4. The first `sync_forever` iteration uploads device keys (identity keys + one-time keys) to the homeserver. This registers the device.
-4. Subsequent sync iterations handle key query, key claim, and group session sharing automatically.
-5. The adapter's device appears as a new device on the bot's Matrix account. Other users in encrypted rooms will see an unverified device.
+5. Subsequent sync iterations handle key query, key claim, and group session sharing automatically.
+6. The adapter's device appears as a new device on the bot's Matrix account. Other users in encrypted rooms will see an unverified device.
 
 For the sender's encrypted messages to be decryptable by the adapter, the sender's client must encrypt for the adapter's device. This typically happens automatically on the next message sent after the adapter joins.
 
@@ -919,37 +905,36 @@ On subsequent runs with the same access token and state directory:
 1. The adapter discovers its device ID via `whoami()`.
 2. `restore_login` loads the existing crypto store from the internal store path.
 3. `logged_in=True` on success.
-3. The Olm machine and all previously received room keys are restored.
-4. `sync_forever` resumes from the last sync position.
-5. Device verification state is preserved.
+4. The Olm machine and all previously received room keys are restored.
+5. `sync_forever` resumes from the last sync position.
+6. Device verification state is preserved.
 
 If `store_path` is changed or the store is deleted, the adapter creates a new crypto identity. Previous room keys are lost and previously decryptable messages become undecryptable.
 
 ### 13.7 What works in E2EE text alpha
 
-| Capability | Status |
-|---|---|
-| Inbound encrypted text decryption | Working — `MegolmEvent` auto-decrypted to `RoomMessageText` during sync |
-| Outbound encrypted text | Working — `room_send` auto-encrypts for encrypted rooms |
-| Crypto store persistence | Working — store loads on `restore_login`, saves incrementally during sync |
-| Automatic key management | Working — upload/query/claim/share handled by `sync_forever` |
-| Plaintext rooms | Working — identical behavior to plaintext alpha |
+| Capability                        | Status                                                                    |
+| --------------------------------- | ------------------------------------------------------------------------- |
+| Inbound encrypted text decryption | Working — `MegolmEvent` auto-decrypted to `RoomMessageText` during sync   |
+| Outbound encrypted text           | Working — `room_send` auto-encrypts for encrypted rooms                   |
+| Crypto store persistence          | Working — store loads on `restore_login`, saves incrementally during sync |
+| Automatic key management          | Working — upload/query/claim/share handled by `sync_forever`              |
+| Plaintext rooms                   | Working — identical behavior to plaintext alpha                           |
 
 ### 13.8 What does NOT work in E2EE text alpha
 
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Reactions (`m.annotation`) | Not supported | No callback registered |
-| Edits (`m.replace`) | Not supported | Edited messages appear as new messages |
-| Media / attachments | Not supported | Text only |
-| Cross-signing | Not supported | nio does not implement cross-signing (MSC1756); device verification via cross-signing not available |
-| Key backup / export / import | Not supported | Not wired |
-| Interactive device verification (emoji/QR) | Not supported | `Sas` class exists but not wired |
-| Unverified device policy | Required by upstream nio | MEDRE internally passes `ignore_unverified_devices=True` to nio's `room_send` when `encryption_mode` is not `"plaintext"`. This is required by nio due to its lack of cross-signing support (MSC1756). No operator toggle. See contract 25 §5.2. |
-| Redactions / deletes | Not supported | Not handled |
+| Feature                                    | Status                   | Notes                                                                                                                                                                                                                                            |
+| ------------------------------------------ | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Reactions (`m.annotation`)                 | Not supported            | No callback registered                                                                                                                                                                                                                           |
+| Edits (`m.replace`)                        | Not supported            | Edited messages appear as new messages                                                                                                                                                                                                           |
+| Media / attachments                        | Not supported            | Text only                                                                                                                                                                                                                                        |
+| Cross-signing                              | Not supported            | nio does not implement cross-signing (MSC1756); device verification via cross-signing not available                                                                                                                                              |
+| Key backup / export / import               | Not supported            | Not wired                                                                                                                                                                                                                                        |
+| Interactive device verification (emoji/QR) | Not supported            | `Sas` class exists but not wired                                                                                                                                                                                                                 |
+| Unverified device policy                   | Required by upstream nio | MEDRE internally passes `ignore_unverified_devices=True` to nio's `room_send` when `encryption_mode` is not `"plaintext"`. This is required by nio due to its lack of cross-signing support (MSC1756). No operator toggle. See contract 25 §5.2. |
+| Redactions / deletes                       | Not supported            | Not handled                                                                                                                                                                                                                                      |
 
 **Note:** Undecryptable event logging was previously unsupported but is now implemented. `MegolmEvent` callbacks count events, log warnings (event_id/room_id only, no session_id), and do not forward to the canonical pipeline. `RoomEncryptionEvent` callbacks set `encrypted_room_seen` and are not forwarded.
-
 
 ## Appendix A: Manual Wiring (Advanced/Developer Reference)
 

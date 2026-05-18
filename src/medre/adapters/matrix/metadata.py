@@ -9,6 +9,7 @@ This is a frozen dataclass (not msgspec) because it is an adapter-internal
 serialization helper that does not need msgspec roundtrip encoding.  It is
 not stored in the canonical event model.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

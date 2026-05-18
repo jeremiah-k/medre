@@ -14,42 +14,40 @@ Example configs in `examples/configs/` are source-repo documentation, not
 shipped as package data. The `medre config sample` command is the installed-
 package config access path.
 
-
 ## 1. Core Requirements
 
 ### 1.1 Python Version
 
-| Requirement | Value |
-|-------------|-------|
-| **Minimum Python** | 3.11 |
-| **Tested Python** | 3.12 |
-| **Why 3.11+** | Codebase uses `str | None` union syntax (PEP 604) and `from __future__ import annotations`. Python 3.10 supports the syntax with the future import; 3.11+ supports it natively. `pyproject.toml` declares `requires-python = ">=3.11"`. |
+| Requirement        | Value              |
+| ------------------ | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Minimum Python** | 3.11               |
+| **Tested Python**  | 3.12               |
+| **Why 3.11+**      | Codebase uses `str | None`union syntax (PEP 604) and`from **future** import annotations`. Python 3.10 supports the syntax with the future import; 3.11+ supports it natively. `pyproject.toml`declares`requires-python = ">=3.11"`. |
 
 ### 1.2 Operating System
 
-| OS | Status | Notes |
-|----|--------|-------|
-| Linux (x86_64) | **Primary development platform** | Tested on Ubuntu/Debian derivatives. Serial access requires `dialout` group membership. |
-| macOS | **Expected to work** | No known issues. Binary wheels available for all core deps. Serial access via `/dev/tty.usb*` devices. |
-| Windows | **Not tested** | No known blocking issues for core functionality. Serial port names differ (`COM*`). Path separators may affect config file loading. |
+| OS             | Status                           | Notes                                                                                                                               |
+| -------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Linux (x86_64) | **Primary development platform** | Tested on Ubuntu/Debian derivatives. Serial access requires `dialout` group membership.                                             |
+| macOS          | **Expected to work**             | No known issues. Binary wheels available for all core deps. Serial access via `/dev/tty.usb*` devices.                              |
+| Windows        | **Not tested**                   | No known blocking issues for core functionality. Serial port names differ (`COM*`). Path separators may affect config file loading. |
 
 ### 1.3 Core Dependencies
 
 The only required dependency is `msgspec`. Everything else is optional.
 
-| Package | Version | Install command |
-|---------|---------|-----------------|
+| Package   | Version    | Install command                   |
+| --------- | ---------- | --------------------------------- |
 | `msgspec` | `==0.21.1` | Automatic with `pip install -e .` |
 
 ### 1.4 Development Dependencies
 
-| Package | Version constraint | Purpose |
-|---------|-------------------|---------|
-| `pytest` | `>=8.0` | Test runner |
-| `pytest-asyncio` | `>=0.24` | Async test support |
+| Package          | Version constraint | Purpose            |
+| ---------------- | ------------------ | ------------------ |
+| `pytest`         | `>=8.0`            | Test runner        |
+| `pytest-asyncio` | `>=0.24`           | Async test support |
 
 Install with: `pip install -e ".[dev]"`
-
 
 ## 2. Quick Start
 
@@ -75,7 +73,6 @@ python -m compileall -q src tests
 
 If both commands pass, your environment is correctly configured.
 
-
 ## 3. Transport-Specific Setup
 
 Each transport has optional dependencies. Install only what you need.
@@ -86,12 +83,13 @@ Each transport has optional dependencies. Install only what you need.
 pip install -e ".[matrix]"
 ```
 
-| Dependency | Version | Notes |
-|------------|---------|-------|
-| `mindroom-nio` | `>=0.25.3` | Fork of `matrix-nio`. Installs as `nio`. |
-| `aiohttp` | (transitive) | HTTP transport for Matrix protocol. |
+| Dependency     | Version      | Notes                                    |
+| -------------- | ------------ | ---------------------------------------- |
+| `mindroom-nio` | `>=0.25.3`   | Fork of `matrix-nio`. Installs as `nio`. |
+| `aiohttp`      | (transitive) | HTTP transport for Matrix protocol.      |
 
 **Platform notes:**
+
 - Binary wheels available for Linux (x86_64, aarch64), macOS, Windows.
 - No compilation required on standard platforms.
 - `aiohttp` may need compilation on unusual architectures.
@@ -102,10 +100,10 @@ pip install -e ".[matrix]"
 pip install -e ".[matrix-e2e]"
 ```
 
-| Dependency | Version | Notes |
-|------------|---------|-------|
-| `mindroom-nio[e2e]` | `>=0.25.3` | Adds E2EE dependencies |
-| `vodozemac` | (transitive, `~=0.9`) | Rust-based Olm/Megolm implementation |
+| Dependency          | Version               | Notes                                |
+| ------------------- | --------------------- | ------------------------------------ |
+| `mindroom-nio[e2e]` | `>=0.25.3`            | Adds E2EE dependencies               |
+| `vodozemac`         | (transitive, `~=0.9`) | Rust-based Olm/Megolm implementation |
 
 **E2EE-specific caveats:**
 
@@ -123,11 +121,11 @@ pip install -e ".[matrix-e2e]"
 pip install -e ".[meshtastic]"
 ```
 
-| Dependency | Version | Notes |
-|------------|---------|-------|
-| `mtjk` | `>=2.7.8` | Fork of Meshtastic Python SDK. Installs as `meshtastic`. |
-| `PyPubSub` | `>=4.0` | Callback mechanism (pulled by `[meshtastic]` extra). Installs as `pubsub`. |
-| `protobuf` | (transitive) | Message serialization |
+| Dependency | Version      | Notes                                                                      |
+| ---------- | ------------ | -------------------------------------------------------------------------- |
+| `mtjk`     | `>=2.7.8`    | Fork of Meshtastic Python SDK. Installs as `meshtastic`.                   |
+| `PyPubSub` | `>=4.0`      | Callback mechanism (pulled by `[meshtastic]` extra). Installs as `pubsub`. |
+| `protobuf` | (transitive) | Message serialization                                                      |
 
 **Meshtastic-specific caveats:**
 
@@ -146,13 +144,13 @@ pip install -e ".[meshtastic]"
 pip install -e ".[meshcore]"
 ```
 
-| Dependency | Version | Notes |
-|------------|---------|-------|
-| `meshcore` | `>=2.3.7` | Async-native MeshCore SDK |
-| `bleak` | (transitive) | BLE support |
-| `pyserial-asyncio-fast` | (transitive) | Serial support |
-| `pycayennelpp` | (transitive) | CayenneLPP payload parsing |
-| `pycryptodome` | (transitive) | Crypto primitives |
+| Dependency              | Version      | Notes                      |
+| ----------------------- | ------------ | -------------------------- |
+| `meshcore`              | `>=2.3.7`    | Async-native MeshCore SDK  |
+| `bleak`                 | (transitive) | BLE support                |
+| `pyserial-asyncio-fast` | (transitive) | Serial support             |
+| `pycayennelpp`          | (transitive) | CayenneLPP payload parsing |
+| `pycryptodome`          | (transitive) | Crypto primitives          |
 
 **MeshCore-specific caveats:**
 
@@ -167,12 +165,12 @@ pip install -e ".[meshcore]"
 pip install -e ".[lxmf]"
 ```
 
-| Dependency | Version | Notes |
-|------------|---------|-------|
-| `lxmf` | `>=0.9.6` | LXMF message layer |
-| `rns` | (transitive) | Reticulum networking layer. Alternatively: `rnspure` for pure-Python. |
-| `pyca/cryptography` | (transitive via `rns`) | May require compilation on some platforms |
-| `pyserial` | (transitive via `rns`) | Serial transport support |
+| Dependency          | Version                | Notes                                                                 |
+| ------------------- | ---------------------- | --------------------------------------------------------------------- |
+| `lxmf`              | `>=0.9.6`              | LXMF message layer                                                    |
+| `rns`               | (transitive)           | Reticulum networking layer. Alternatively: `rnspure` for pure-Python. |
+| `pyca/cryptography` | (transitive via `rns`) | May require compilation on some platforms                             |
+| `pyserial`          | (transitive via `rns`) | Serial transport support                                              |
 
 **LXMF/Reticulum-specific caveats:**
 
@@ -190,7 +188,6 @@ pip install -e ".[lxmf]"
 5. **Reticulum is designed for long-running daemons.** Short-lived processes may not establish stable mesh connectivity.
 6. **Non-standard license.** Reticulum License is not OSI-approved. Review before distribution.
 7. **No live evidence recorded.** Same as MeshCore — unit tests only.
-
 
 ## 4. Running Tests
 
@@ -224,25 +221,25 @@ PYTHONPATH=src pytest tests/test_meshtastic_live.py -m live -v
 
 **Required environment variables per transport:**
 
-| Transport | Required Env Vars |
-|-----------|-------------------|
-| Matrix | `MATRIX_HOMESERVER`, `MATRIX_USER_ID`, `MATRIX_ACCESS_TOKEN`, `MATRIX_ROOM_ID` |
-| Matrix E2EE | All Matrix vars + `MATRIX_ENCRYPTION_MODE=e2ee_required` |
-| Meshtastic | `MESHTASTIC_CONNECTION_TYPE`, `MESHTASTIC_HOST` (for TCP) |
-| MeshCore | `MESHCORE_CONNECTION_TYPE`, `MESHCORE_HOST` (for TCP) |
-| LXMF | `LXMF_CONNECTION_TYPE`, `LXMF_IDENTITY_PATH` |
+| Transport   | Required Env Vars                                                              |
+| ----------- | ------------------------------------------------------------------------------ |
+| Matrix      | `MATRIX_HOMESERVER`, `MATRIX_USER_ID`, `MATRIX_ACCESS_TOKEN`, `MATRIX_ROOM_ID` |
+| Matrix E2EE | All Matrix vars + `MATRIX_ENCRYPTION_MODE=e2ee_required`                       |
+| Meshtastic  | `MESHTASTIC_CONNECTION_TYPE`, `MESHTASTIC_HOST` (for TCP)                      |
+| MeshCore    | `MESHCORE_CONNECTION_TYPE`, `MESHCORE_HOST` (for TCP)                          |
+| LXMF        | `LXMF_CONNECTION_TYPE`, `LXMF_IDENTITY_PATH`                                   |
 
 **Live test safety:**
+
 - All live test files use `pytestmark = pytest.mark.live` (module-level marker).
 - All live test functions use `@require_live` decorator (skips if env vars missing).
 - Running `pytest` without `-m live` will never execute live tests.
-
 
 ### 4.3 Clean-Environment Validation Tests
 
 Track 3 clean-environment tests validate deterministic packaging/install
 metadata, import boundaries, and CLI workflows from a bare-install
-perspective.  They exercise metadata/docs checks only — no live SDKs, no
+perspective. They exercise metadata/docs checks only — no live SDKs, no
 actual installs.
 
 ```bash
@@ -256,30 +253,28 @@ broad subpackage import boundaries, config sample generation, CLI smoke
 commands, environment-variable override machinery, compileall verification,
 and package layout invariants.
 
-
 ## 5. Tested Environment Reference
 
 This is the exact environment used for validation as of 2026-05-10:
 
-| Component | Version |
-|-----------|---------|
-| Python | 3.12 |
-| OS | Linux (Debian/Ubuntu derivative) |
-| `msgspec` | 0.21.1 |
-| `mindroom-nio` | 0.25.3 (fork) |
-| `mtjk` | 2.7.8.post2+ (fork) |
-| `meshcore` | 2.3.7 |
-| `lxmf` | 0.9.6 |
-| `rns` (Reticulum) | 1.2.4 |
-| `pytest` | 8.x |
-| `pytest-asyncio` | 0.24+ |
-| Meshtastic radio firmware | 2.7.19 (LilyGO T-LORA V2.1) |
-| Matrix homeserver | matrix.org (public) |
+| Component                 | Version                          |
+| ------------------------- | -------------------------------- |
+| Python                    | 3.12                             |
+| OS                        | Linux (Debian/Ubuntu derivative) |
+| `msgspec`                 | 0.21.1                           |
+| `mindroom-nio`            | 0.25.3 (fork)                    |
+| `mtjk`                    | 2.7.8.post2+ (fork)              |
+| `meshcore`                | 2.3.7                            |
+| `lxmf`                    | 0.9.6                            |
+| `rns` (Reticulum)         | 1.2.4                            |
+| `pytest`                  | 8.x                              |
+| `pytest-asyncio`          | 0.24+                            |
+| Meshtastic radio firmware | 2.7.19 (LilyGO T-LORA V2.1)      |
+| Matrix homeserver         | matrix.org (public)              |
 
 **Unit test results:** 4003 passed, 4 skipped, 63 deselected (live tests), 0 failed.
 
 **Live test results:** Matrix 13/13 pass (plaintext), Matrix 7/7 pass (E2EE), Meshtastic 10/10 pass. MeshCore and LXMF live tests not run.
-
 
 ## 6. Install All Transports
 
@@ -295,20 +290,18 @@ For minimal environment (core only):
 pip install -e ".[dev]"
 ```
 
-
 ## 7. Common Issues
 
-| Issue | Cause | Resolution |
-|-------|-------|------------|
-| `ModuleNotFoundError: No module named 'nio'` | Matrix SDK not installed | `pip install -e ".[matrix]"` |
-| `ModuleNotFoundError: No module named 'meshtastic'` | Meshtastic SDK not installed | `pip install -e ".[meshtastic]"` |
-| `ListenerMismatchError` | Missing `pubsub` package | `pip install -e ".[meshtastic]"` (includes PyPubSub) |
-| `Permission denied: /dev/ttyACM0` | Serial permissions | `sudo usermod -aG dialout $USER`, then re-login |
-| `OlmUnverifiedDeviceError` | Matrix E2EE strict device check | MEDRE handles this via `ignore_unverified_devices=True`. If you see it, the adapter fix was not applied. |
-| `vodozemac` build failure | No Rust toolchain | Install Rust: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
-| `RNS.Identity.from_file()` returns `None` | Identity file not found or corrupted | Check path, verify file is 64 bytes, check file permissions |
-| `ImportError: cannot import name 'HAS_E2EE'` | Old install without E2EE extra | Reinstall: `pip install -e ".[matrix-e2e]"` |
-
+| Issue                                               | Cause                                | Resolution                                                                                               |
+| --------------------------------------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| `ModuleNotFoundError: No module named 'nio'`        | Matrix SDK not installed             | `pip install -e ".[matrix]"`                                                                             |
+| `ModuleNotFoundError: No module named 'meshtastic'` | Meshtastic SDK not installed         | `pip install -e ".[meshtastic]"`                                                                         |
+| `ListenerMismatchError`                             | Missing `pubsub` package             | `pip install -e ".[meshtastic]"` (includes PyPubSub)                                                     |
+| `Permission denied: /dev/ttyACM0`                   | Serial permissions                   | `sudo usermod -aG dialout $USER`, then re-login                                                          |
+| `OlmUnverifiedDeviceError`                          | Matrix E2EE strict device check      | MEDRE handles this via `ignore_unverified_devices=True`. If you see it, the adapter fix was not applied. |
+| `vodozemac` build failure                           | No Rust toolchain                    | Install Rust: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh`                          |
+| `RNS.Identity.from_file()` returns `None`           | Identity file not found or corrupted | Check path, verify file is 64 bytes, check file permissions                                              |
+| `ImportError: cannot import name 'HAS_E2EE'`        | Old install without E2EE extra       | Reinstall: `pip install -e ".[matrix-e2e]"`                                                              |
 
 ## 8. Clean Environment Reproducibility Procedure
 
@@ -413,15 +406,15 @@ pytest -m live --collect-only -q
 
 ### 8.3 Expected summary
 
-| Check | Expected result |
-|-------|----------------|
-| `python -m compileall -q src tests` | No output (clean) |
-| `pytest -q` | All passed, 0 failed, live deselected |
-| `medre version` | Prints version + Python + platform |
-| `medre config sample` | Prints valid TOML config |
-| `medre config check` (all 4 examples) | All report valid |
-| `medre paths` | Prints resolved path directories |
-| `medre adapters` | Lists adapter types with availability |
+| Check                                 | Expected result                       |
+| ------------------------------------- | ------------------------------------- |
+| `python -m compileall -q src tests`   | No output (clean)                     |
+| `pytest -q`                           | All passed, 0 failed, live deselected |
+| `medre version`                       | Prints version + Python + platform    |
+| `medre config sample`                 | Prints valid TOML config              |
+| `medre config check` (all 4 examples) | All report valid                      |
+| `medre paths`                         | Prints resolved path directories      |
+| `medre adapters`                      | Lists adapter types with availability |
 
 If any step fails, the environment is not correctly set up. Check the
 "Common Issues" section (§7) for resolution steps.

@@ -26,8 +26,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
-from medre.runtime.errors import AdapterStartupError, RuntimeShutdownError, RuntimeStartupError
-from medre.runtime.events import EventBuffer, RuntimeEventType
+from medre.core.lifecycle.states import AdapterState, require_valid_transition
 from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.runtime.health import (
     AdapterLiveHealth,
@@ -37,20 +36,23 @@ from medre.core.runtime.health import (
     truncate_health_error,
 )
 from medre.core.runtime.supervision import (
-    RuntimeHealth,
     StartupOutcome,
     classify_runtime_health,
     classify_startup_outcome,
     count_adapter_state_categories,
     runtime_supervision_snapshot,
 )
-from medre.core.lifecycle.states import AdapterState, require_valid_transition
 from medre.runtime.boot_summary import BootSummary, build_boot_summary
+from medre.runtime.errors import (
+    RuntimeShutdownError,
+    RuntimeStartupError,
+)
+from medre.runtime.events import EventBuffer, RuntimeEventType
 
 if TYPE_CHECKING:
-    from medre.core.contracts.adapter import AdapterContext, AdapterContract
     from medre.config.model import RuntimeConfig
     from medre.config.paths import MedrePaths
+    from medre.core.contracts.adapter import AdapterContract
     from medre.core.engine.pipeline import PipelineRunner
     from medre.core.events.bus import EventBus
     from medre.core.observability.metrics import Diagnostician
@@ -184,7 +186,9 @@ class MedreApp:
     _route_provenance: dict[str, str] = field(default_factory=dict, init=False)
     _registered_routes: tuple = field(default=(), init=False)  # tuple[Route, ...]
     _startup_readiness: RouteStartupReadiness | None = field(default=None, init=False)
-    _event_buffer: EventBuffer | None = field(default=None, init=False)  # set in __post_init__
+    _event_buffer: EventBuffer | None = field(
+        default=None, init=False
+    )  # set in __post_init__
     _adapter_states: dict[str, AdapterState] = field(default_factory=dict, init=False)
     _live_health_state: LiveHealthSnapshot | None = field(default=None, init=False)
     _live_health_poll_count: int = field(default=0, init=False)
@@ -242,9 +246,7 @@ class MedreApp:
         """Return a read-only copy of per-adapter lifecycle states."""
         return dict(self._adapter_states)
 
-    def _set_adapter_state(
-        self, adapter_id: str, target_state: AdapterState
-    ) -> None:
+    def _set_adapter_state(self, adapter_id: str, target_state: AdapterState) -> None:
         """Transition *adapter_id* to *target_state*, validating the move.
 
         * Initial assignment (adapter not yet in registry) is always allowed.
@@ -361,7 +363,7 @@ class MedreApp:
 
         adapter_ids = sorted(self.adapters.keys())
 
-        poll_mono_start = _time.monotonic()
+        _time.monotonic()
         adapter_entries: dict[str, AdapterLiveHealth] = {}
         live_states: list[AdapterState] = []
         failed_adapter_ids: list[str] = []
@@ -612,9 +614,7 @@ class MedreApp:
                     # so that the original start-failure error is preserved.
                     try:
                         await adapter.stop(
-                            timeout=float(
-                                self.config.runtime.shutdown_timeout_seconds
-                            )
+                            timeout=float(self.config.runtime.shutdown_timeout_seconds)
                         )
                     except Exception as cleanup_exc:
                         _logger.debug(
@@ -688,9 +688,7 @@ class MedreApp:
         # -- Storage backend name ---------------------------------------------
         storage_backend = "none"
         if self.storage is not None:
-            storage_backend = getattr(
-                self.config.storage, "backend", "unknown"
-            )
+            storage_backend = getattr(self.config.storage, "backend", "unknown")
 
         # -- Build boot summary -----------------------------------------------
         self._boot_summary = build_boot_summary(
@@ -740,7 +738,11 @@ class MedreApp:
                 "Runtime started with %d/%d adapter(s)%s (%d start failed, %d build failed)",
                 started_count,
                 attempted_total,
-                f" — {', '.join(self.started_adapter_ids)}" if self.started_adapter_ids else "",
+                (
+                    f" — {', '.join(self.started_adapter_ids)}"
+                    if self.started_adapter_ids
+                    else ""
+                ),
                 failed_count,
                 build_failed,
             )
@@ -830,9 +832,7 @@ class MedreApp:
         if self._capacity_controller is not None:
             self._capacity_controller.stop_accepting()
         if self._replay_engine is not None:
-            _logger.info(
-                "Runtime stopping — replay engine present, capacity stopped"
-            )
+            _logger.info("Runtime stopping — replay engine present, capacity stopped")
 
         # Stop the retry worker before draining work.
         if self._retry_worker is not None:
@@ -846,8 +846,7 @@ class MedreApp:
         # Phase 2: Drain in-flight work with timeout.
         if self._capacity_controller is not None:
             drain_deadline = (
-                _time.monotonic()
-                + self.config.limits.shutdown_drain_timeout_seconds
+                _time.monotonic() + self.config.limits.shutdown_drain_timeout_seconds
             )
             drain_snap: dict | None = None
             while _time.monotonic() < drain_deadline:
@@ -885,9 +884,7 @@ class MedreApp:
             self._set_adapter_state(adapter_id, AdapterState.STOPPING)
             try:
                 await adapter.stop(timeout=float(timeout))
-                _logger.info(
-                    "Adapter %s.%s stopped", transport, adapter_id
-                )
+                _logger.info("Adapter %s.%s stopped", transport, adapter_id)
                 self._set_adapter_state(adapter_id, AdapterState.STOPPED)
                 self._emit_event(
                     RuntimeEventType.ADAPTER_STOPPED,
@@ -951,13 +948,9 @@ class MedreApp:
                 errors.append(("storage", exc))
 
         if errors:
-            summary = "; ".join(
-                f"{name}: {exc}" for name, exc in errors
-            )
+            summary = "; ".join(f"{name}: {exc}" for name, exc in errors)
             self._set_state(RuntimeState.FAILED)
-            raise RuntimeShutdownError(
-                f"Errors during shutdown: {summary}"
-            )
+            raise RuntimeShutdownError(f"Errors during shutdown: {summary}")
 
         self._set_state(RuntimeState.STOPPED)
         _logger.info("Runtime stopped")
@@ -1078,9 +1071,7 @@ class MedreApp:
                 await self.storage.close()
                 _logger.info("Storage closed during startup cleanup")
             except Exception as exc:
-                _logger.error(
-                    "Error closing storage during startup cleanup: %s", exc
-                )
+                _logger.error("Error closing storage during startup cleanup: %s", exc)
 
     def _ensure_dirs(self) -> None:
         """Create required runtime directories.
@@ -1106,7 +1097,10 @@ class MedreApp:
             adapter_root = self.paths.adapter_state_dir(adapter_id)
             dirs_to_create.append(adapter_root)
             if transport == "matrix":
-                store = self.paths.adapter_transport_state_dir(adapter_id, "matrix") / "store"
+                store = (
+                    self.paths.adapter_transport_state_dir(adapter_id, "matrix")
+                    / "store"
+                )
                 dirs_to_create.append(store)
 
         for d in dirs_to_create:

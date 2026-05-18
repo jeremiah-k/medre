@@ -8,6 +8,7 @@ This document defines the complete interface a plugin author writes against. If 
 > **Phase 1 Limitation: Boundary Scaffolding Only**
 >
 > The plugin interfaces defined in this document (Plugin, PluginContext, PluginStateStore, PluginCapability, convenience methods) are **spec-level definitions only**. Phase 1 does not implement:
+>
 > - No `PluginContext` class or instance construction
 > - No `PluginStateStore` implementation (the `plugin_state` SQL table exists in the schema but is not wired to any runtime service)
 > - No plugin loader, plugin host, or capability enforcement
@@ -173,16 +174,16 @@ The `value` column stores serialized JSON. The `updated_at` column tracks the la
 
 The runtime enforces capability boundaries at the service access level:
 
-| Service | Required Capability | Behavior if Undeclared |
-|---|---|---|
-| `handle_event` called | `READ_EVENTS` | Plugin never receives events |
-| `reply`, `send`, `react`, `emit` | `EMIT_EVENTS` | Runtime error on call |
-| `event_bus` (write) | `EMIT_EVENTS` | Event bus write operations fail |
-| `identity_resolver` | `READ_IDENTITY` | Resolver calls raise error |
-| `storage.query` | `READ_STORAGE` | Storage queries raise error |
-| Route inspection | `READ_ROUTES` | Route queries raise error |
-| Route modification | `MODIFY_ROUTES` | Route mutations raise error |
-| Telemetry access | `ACCESS_TELEMETRY` | Telemetry queries raise error |
+| Service                          | Required Capability | Behavior if Undeclared          |
+| -------------------------------- | ------------------- | ------------------------------- |
+| `handle_event` called            | `READ_EVENTS`       | Plugin never receives events    |
+| `reply`, `send`, `react`, `emit` | `EMIT_EVENTS`       | Runtime error on call           |
+| `event_bus` (write)              | `EMIT_EVENTS`       | Event bus write operations fail |
+| `identity_resolver`              | `READ_IDENTITY`     | Resolver calls raise error      |
+| `storage.query`                  | `READ_STORAGE`      | Storage queries raise error     |
+| Route inspection                 | `READ_ROUTES`       | Route queries raise error       |
+| Route modification               | `MODIFY_ROUTES`     | Route mutations raise error     |
+| Telemetry access                 | `ACCESS_TELEMETRY`  | Telemetry queries raise error   |
 
 ### Route Permissions
 
@@ -203,6 +204,7 @@ The runtime validates emitted events against allowed routes before they enter th
 ### Rate Limits
 
 Each plugin has configurable rate limits for:
+
 - Event emission
 - Storage queries
 - API calls
@@ -212,6 +214,7 @@ Rate limits are set in the plugin's configuration under `rate_limits`. Exceeding
 ### Audit Logging
 
 All plugin actions are logged with:
+
 - Plugin identity (`plugin_id`)
 - Capability used
 - Action taken (event emitted, storage queried, identity resolved)
@@ -265,16 +268,16 @@ class EchoPlugin(Plugin):
 
 Plugins receive and emit events using the canonical event model. The event kinds most relevant to plugins:
 
-| Event Kind | Description | Typical Plugin Use |
-|---|---|---|
-| `message.text` | Plain text message | Respond to user messages |
-| `message.file` | File or attachment | Process attachments |
-| `telemetry.received` | Raw telemetry data received from a node | Alert on thresholds |
-| `telemetry.position` | Geographic-position telemetry report | Map visualization |
-| `presence.changed` | Node or user presence state changed | Notification triggers |
-| `system.audit` | Audit-log entry produced by the framework | Monitoring |
-| `system.lifecycle` | Lifecycle event (start, stop, reload) | React to system state |
-| `plugin.custom` | Plugin-defined custom event | Inter-plugin communication |
+| Event Kind           | Description                               | Typical Plugin Use         |
+| -------------------- | ----------------------------------------- | -------------------------- |
+| `message.text`       | Plain text message                        | Respond to user messages   |
+| `message.file`       | File or attachment                        | Process attachments        |
+| `telemetry.received` | Raw telemetry data received from a node   | Alert on thresholds        |
+| `telemetry.position` | Geographic-position telemetry report      | Map visualization          |
+| `presence.changed`   | Node or user presence state changed       | Notification triggers      |
+| `system.audit`       | Audit-log entry produced by the framework | Monitoring                 |
+| `system.lifecycle`   | Lifecycle event (start, stop, reload)     | React to system state      |
+| `plugin.custom`      | Plugin-defined custom event               | Inter-plugin communication |
 
 > **Note:** `metrics.update`, `channel.announcement`, `transform.output`, and `policy.action` from earlier spec drafts are not implemented in Phase 1. The canonical taxonomy defines 18 event kinds; the full list is in `docs/contracts/01-canonical-event-contract.md` Section 5.
 
@@ -293,9 +296,9 @@ plugins:
   - name: <plugin-name>
     class: <python-class-path>
     enabled: true
-    capabilities: []          # Required capabilities (must match plugin's declared set)
-    config: {}                # Plugin-specific configuration, passed as PluginContext.config
-    rate_limits: {}           # Per-plugin rate limits for event emission, storage, API
+    capabilities: [] # Required capabilities (must match plugin's declared set)
+    config: {} # Plugin-specific configuration, passed as PluginContext.config
+    rate_limits: {} # Per-plugin rate limits for event emission, storage, API
 ```
 
 The `config` dict is passed directly to your plugin as `PluginContext.config`. Define whatever keys your plugin needs. The runtime does not validate plugin config keys beyond passing them through.
@@ -304,14 +307,14 @@ The `config` dict is passed directly to your plugin as `PluginContext.config`. D
 
 ## 9. Cross-References
 
-| Topic | Spec Section |
-|---|---|
-| Canonical Event Model | Spec Section 5 |
-| Event Kinds Registry | Spec Section 5.3 |
-| Metadata Namespaces | Spec Section 14 |
+| Topic                     | Spec Section      |
+| ------------------------- | ----------------- |
+| Canonical Event Model     | Spec Section 5    |
+| Event Kinds Registry      | Spec Section 5.3  |
+| Metadata Namespaces       | Spec Section 14   |
 | Storage Backend Interface | Spec Section 12.4 |
-| Identity Resolver | Spec Section 11 |
-| Routing and RouteTarget | Spec Section 8 |
-| Policy Pipeline | Spec Section 7 |
-| Replay and Reprocessing | Spec Section 19 |
-| Configuration Reference | Spec Section 28 |
+| Identity Resolver         | Spec Section 11   |
+| Routing and RouteTarget   | Spec Section 8    |
+| Policy Pipeline           | Spec Section 7    |
+| Replay and Reprocessing   | Spec Section 19   |
+| Configuration Reference   | Spec Section 28   |

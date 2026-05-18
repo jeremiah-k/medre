@@ -14,14 +14,14 @@ matches on that platform string directly.
 **Tranche 1 scope**: text messages with optional title and fields
 envelope.  Length-limit enforcement is noted but not applied.
 """
+
 from __future__ import annotations
 
 from typing import Any
 
+from medre.adapters.lxmf.fields import LxmfFieldsHelper
 from medre.core.events import CanonicalEvent
 from medre.core.rendering.renderer import RenderingResult
-
-from medre.adapters.lxmf.fields import LxmfFieldsHelper
 
 
 class LxmfRenderer:

@@ -16,24 +16,22 @@ This runbook provides detailed live operational procedures for Matrix and Meshta
 
 **Hardware probe facts incorporated (2026-05-12):** Hardware probe identified two serial devices: CP2104 at `/dev/ttyUSB0` (stable by-id path, likely T-Beam) with no serial chatter observed, and CH9102F at `/dev/ttyACM0` (stable by-id path, confirmed T-LoRa V2.1-1.6 running Meshtastic firmware). Local source repos available at `/home/jeremiah/dev` for LXMF, Reticulum, MeshCore firmware, and MeshCore Python library. `esptool` available via pipx. Docs cleanup resolved stale GPL/license claims. Operational maturity matrix (Contract 62) created. Follow-up validation required for: MeshCore firmware flash attempt on CP2104 device, LXMF/Reticulum live path setup.
 
-
 ## 1. Matrix Live Procedures
 
 ### 1.1 Environment Variables
 
-| Variable | Required | Description | Example |
-|----------|----------|-------------|---------|
-| `MATRIX_HOMESERVER` | Yes | Full URL of Matrix homeserver | `https://matrix.org` |
-| `MATRIX_USER_ID` | Yes | Fully-qualified Matrix user ID | `@bot:matrix.org` |
-| `MATRIX_ACCESS_TOKEN` | Yes | Access token for the bot account | `syt_xxx...` |
-| `MATRIX_ROOM_ID` | Yes | Room ID to send test messages to | `!abc123:matrix.org` |
-| `MATRIX_ENCRYPTION_MODE` | No | Encryption mode (default: `plaintext`) | `e2ee_required` |
-| `MATRIX_DEVICE_ID` | E2EE only | Device ID for crypto store | `DEVICEABC` |
-| `MATRIX_STORE_PATH` | E2EE only | Crypto store directory path | `/tmp/nio-store` |
-| `MATRIX_INBOUND_SENDER` | Inbound test | Expected third-party sender MXID | `@alice:matrix.org` |
+| Variable                 | Required     | Description                            | Example              |
+| ------------------------ | ------------ | -------------------------------------- | -------------------- |
+| `MATRIX_HOMESERVER`      | Yes          | Full URL of Matrix homeserver          | `https://matrix.org` |
+| `MATRIX_USER_ID`         | Yes          | Fully-qualified Matrix user ID         | `@bot:matrix.org`    |
+| `MATRIX_ACCESS_TOKEN`    | Yes          | Access token for the bot account       | `syt_xxx...`         |
+| `MATRIX_ROOM_ID`         | Yes          | Room ID to send test messages to       | `!abc123:matrix.org` |
+| `MATRIX_ENCRYPTION_MODE` | No           | Encryption mode (default: `plaintext`) | `e2ee_required`      |
+| `MATRIX_DEVICE_ID`       | E2EE only    | Device ID for crypto store             | `DEVICEABC`          |
+| `MATRIX_STORE_PATH`      | E2EE only    | Crypto store directory path            | `/tmp/nio-store`     |
+| `MATRIX_INBOUND_SENDER`  | Inbound test | Expected third-party sender MXID       | `@alice:matrix.org`  |
 
 **If any required variable is unset, all live Matrix tests skip with a descriptive message.**
-
 
 ### 1.2 Plaintext Smoke Procedure
 
@@ -43,57 +41,56 @@ This runbook provides detailed live operational procedures for Matrix and Meshta
 
 #### Observations to Record
 
-| Field | What to observe | Where to find it |
-|-------|-----------------|------------------|
-| Start/connect | Adapter starts, `restore_login` succeeds, sync task begins | Test output: `test_adapter_starts_and_connects` |
-| Health → healthy | `health_check()` returns `health == "healthy"`, `platform == "matrix"` | Test output: `test_health_check_healthy` |
-| Room join | Room joined successfully | Test output: `test_join_room` |
-| Outbound send | `room_send` returns event_id starting with `$` | Test output: `test_send_text_message` |
-| Self-echo suppression | Own messages suppressed by sender match | Test output: `test_self_message_suppressed` |
-| Stop → clean teardown | `stop()` completes, no leaked tasks | Test output: `test_stop_clean_teardown` |
-| Restart idempotency | Stop → start cycle re-establishes sync | Test output: `test_restart_idempotent` |
+| Field                 | What to observe                                                        | Where to find it                                |
+| --------------------- | ---------------------------------------------------------------------- | ----------------------------------------------- |
+| Start/connect         | Adapter starts, `restore_login` succeeds, sync task begins             | Test output: `test_adapter_starts_and_connects` |
+| Health → healthy      | `health_check()` returns `health == "healthy"`, `platform == "matrix"` | Test output: `test_health_check_healthy`        |
+| Room join             | Room joined successfully                                               | Test output: `test_join_room`                   |
+| Outbound send         | `room_send` returns event_id starting with `$`                         | Test output: `test_send_text_message`           |
+| Self-echo suppression | Own messages suppressed by sender match                                | Test output: `test_self_message_suppressed`     |
+| Stop → clean teardown | `stop()` completes, no leaked tasks                                    | Test output: `test_stop_clean_teardown`         |
+| Restart idempotency   | Stop → start cycle re-establishes sync                                 | Test output: `test_restart_idempotent`          |
 
 #### NOT EXECUTED (current machine)
 
-| Field | Value |
-|-------|-------|
-| **Execution date** | NOT EXECUTED (2026-05-12 attempt: 13 tests skipped — no `MATRIX_*` env vars set) |
-| **Reason** | No Matrix homeserver credentials configured in the current session. `MATRIX_HOMESERVER`, `MATRIX_USER_ID`, `MATRIX_ACCESS_TOKEN`, and `MATRIX_ROOM_ID` are not set. `matrix.sk.community` homeserver IS reachable and healthy (well-known discovery confirmed, versions endpoint returns v1.12). Previous attempt (2026-05-12) used a stale token that produced `M_UNKNOWN_TOKEN`. The adapter uses `restore_login()` with an access token — password auth is not supported by the adapter directly. A password-to-token exchange via `curl -X POST https://matrix.sk.community/_matrix/client/v3/login` is required to obtain a fresh `MATRIX_ACCESS_TOKEN`. |
-| **Resolution** | 1. Obtain access token: `curl -s -X POST https://matrix.sk.community/_matrix/client/v3/login -d '{"type":"m.login.password","user":"forxrelay","password":"<PASSWORD>"}'`. 2. Set `MATRIX_HOMESERVER="https://matrix.sk.community"`, `MATRIX_USER_ID="@forxrelay:sk.community"`, `MATRIX_ACCESS_TOKEN="<token>"`, `MATRIX_ROOM_ID="<room>"`. 3. Run `pytest tests/test_matrix_live.py -m live -v`. 4. For M14: have a second user send a message to the room during the 30s test window. |
-
+| Field              | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Execution date** | NOT EXECUTED (2026-05-12 attempt: 13 tests skipped — no `MATRIX_*` env vars set)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| **Reason**         | No Matrix homeserver credentials configured in the current session. `MATRIX_HOMESERVER`, `MATRIX_USER_ID`, `MATRIX_ACCESS_TOKEN`, and `MATRIX_ROOM_ID` are not set. `matrix.sk.community` homeserver IS reachable and healthy (well-known discovery confirmed, versions endpoint returns v1.12). Previous attempt (2026-05-12) used a stale token that produced `M_UNKNOWN_TOKEN`. The adapter uses `restore_login()` with an access token — password auth is not supported by the adapter directly. A password-to-token exchange via `curl -X POST https://matrix.sk.community/_matrix/client/v3/login` is required to obtain a fresh `MATRIX_ACCESS_TOKEN`. |
+| **Resolution**     | 1. Obtain access token: `curl -s -X POST https://matrix.sk.community/_matrix/client/v3/login -d '{"type":"m.login.password","user":"forxrelay","password":"<PASSWORD>"}'`. 2. Set `MATRIX_HOMESERVER="https://matrix.sk.community"`, `MATRIX_USER_ID="@forxrelay:sk.community"`, `MATRIX_ACCESS_TOKEN="<token>"`, `MATRIX_ROOM_ID="<room>"`. 3. Run `pytest tests/test_matrix_live.py -m live -v`. 4. For M14: have a second user send a message to the room during the 30s test window.                                                                                                                                                                      |
 
 ### 1.3 Matrix Sync Timing and Diagnostics
 
 Matrix sync is a long-poll operation. The adapter's `_sync_forever` loop maintains a persistent connection to the homeserver. Key timing and diagnostic fields:
 
-| Field | Source | Expected behavior |
-|-------|--------|-------------------|
-| `sync_task_running` | `diagnostics()` | `True` after start, `False` after stop |
-| `sync_running` | `diagnostics()` | `True` while sync loop is active |
-| `last_successful_sync` | `diagnostics()` | Timestamp of last successful sync response |
-| `reconnecting` | `diagnostics()` | `True` during reconnect backoff |
-| `reconnect_attempts` | `diagnostics()` | Count of consecutive failed attempts (max 10) |
-| `last_sync_error` | `diagnostics()` | String of last sync error, or `None` |
-| `connected` | `diagnostics()` | `True` when nio client is connected |
-| `logged_in` | `diagnostics()` | `True` after successful `restore_login` |
+| Field                  | Source          | Expected behavior                             |
+| ---------------------- | --------------- | --------------------------------------------- |
+| `sync_task_running`    | `diagnostics()` | `True` after start, `False` after stop        |
+| `sync_running`         | `diagnostics()` | `True` while sync loop is active              |
+| `last_successful_sync` | `diagnostics()` | Timestamp of last successful sync response    |
+| `reconnecting`         | `diagnostics()` | `True` during reconnect backoff               |
+| `reconnect_attempts`   | `diagnostics()` | Count of consecutive failed attempts (max 10) |
+| `last_sync_error`      | `diagnostics()` | String of last sync error, or `None`          |
+| `connected`            | `diagnostics()` | `True` when nio client is connected           |
+| `logged_in`            | `diagnostics()` | `True` after successful `restore_login`       |
 
 **Sync reconnect budget:** Maximum 10 consecutive reconnect attempts (source: `_MAX_RECONNECT_ATTEMPTS` in `session.py`). Exponential backoff: base 1.0s, cap 60.0s, jitter 25% (source: `_BACKOFF_BASE`, `_BACKOFF_CAP`, `_BACKOFF_JITTER_FRACTION`).
 
 **Health transitions during reconnect:**
+
 - Healthy → Degraded: when reconnect begins
 - Degraded → Healthy: when sync recovers
 - Degraded → Failed: when reconnect budget exhausted
 
 #### NOT EXECUTED (current machine)
 
-| Field | Value |
-|-------|-------|
-| **sync_start_latency_ms** | NOT EXECUTED — no live session available |
-| **outbound_send_latency_ms** | NOT EXECUTED — no live session available |
-| **reconnect_behavior** | NOT EXECUTED — no network interruption available |
+| Field                        | Value                                            |
+| ---------------------------- | ------------------------------------------------ |
+| **sync_start_latency_ms**    | NOT EXECUTED — no live session available         |
+| **outbound_send_latency_ms** | NOT EXECUTED — no live session available         |
+| **reconnect_behavior**       | NOT EXECUTED — no network interruption available |
 
 **Historical observation (H-tier, 2026-05-10):** Health stays `degraded` during reconnect, `healthy` after recovery. Budget exhaustion → `failed`. Initial harness had a bug where `health_check()` was awaited as a coroutine instead of called as a regular method. Fixed before final run.
-
 
 ### 1.4 Matrix Restart/Replay Procedure
 
@@ -107,6 +104,7 @@ Matrix adapter restart tests validate state preservation across stop/start cycle
 6. Verify diagnostics fields reflect fresh session
 
 **Crypto store reuse (E2EE mode):** When `encryption_mode` is `e2ee_required`:
+
 - `crypto_store_loaded` should be `True` after first `restore_login`
 - On restart, `restore_login` reuses the existing crypto store at `{state}/adapters/{id}/matrix/store/`
 - `crypto_enabled` should be `True` if `ENCRYPTION_ENABLED` sentinel is `True` in nio
@@ -118,30 +116,32 @@ Matrix adapter restart tests validate state preservation across stop/start cycle
 
 #### NOT EXECUTED (current machine)
 
-| Field | Value |
-|-------|-------|
-| **Execution date** | NOT EXECUTED |
-| **Reason** | E2EE-specific environment variables (`MATRIX_DEVICE_ID`, `MATRIX_STORE_PATH`) not configured. No encrypted room available. |
-| **Resolution** | Install `pip install -e ".[matrix-e2e]"`, set E2EE env vars, run E2EE live tests. |
+| Field              | Value                                                                                                                      |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| **Execution date** | NOT EXECUTED                                                                                                               |
+| **Reason**         | E2EE-specific environment variables (`MATRIX_DEVICE_ID`, `MATRIX_STORE_PATH`) not configured. No encrypted room available. |
+| **Resolution**     | Install `pip install -e ".[matrix-e2e]"`, set E2EE env vars, run E2EE live tests.                                          |
 
 **Historical E2EE evidence (H-tier, 2026-05-10):**
+
 - E2EE tests: 7/7 passed in 3.73s
 - Crypto store loaded: confirmed
 - Encrypted send → event_id: confirmed (after fix for `OlmUnverifiedDeviceError`)
 - Fix: adapter set `ignore_unverified_devices=True` (required by upstream nio, no cross-signing support)
 - Undecryptable events: 0 observed
 
-
 ### 1.5 Matrix Third-Party Inbound Procedure
 
 This procedure validates that the adapter correctly processes inbound messages from a third-party Matrix user (not the bot itself).
 
 **Prerequisites:**
+
 1. Core Matrix env vars set
 2. A second Matrix account (not the bot) with access to `MATRIX_ROOM_ID`
 3. `MATRIX_INBOUND_SENDER` set to the second account's MXID
 
 **Procedure:**
+
 ```bash
 # 1. Set env vars
 export MATRIX_HOMESERVER="http://localhost:8008"
@@ -162,14 +162,13 @@ pytest tests/test_matrix_live.py::TestMatrixLiveSmoke::test_inbound_message_rece
 
 #### NOT EXECUTED (current machine)
 
-| Field | Value |
-|-------|-------|
-| **Third-party inbound** | NOT EXECUTED |
-| **Reason** | No second Matrix account configured. Requires manual coordination: a different user must send a message during the 30-second test window. |
-| **Blocker** | (1) Second Matrix account credentials not available in repo. (2) Manual coordination required. (3) No automated sender harness exists. |
+| Field                   | Value                                                                                                                                     |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| **Third-party inbound** | NOT EXECUTED                                                                                                                              |
+| **Reason**              | No second Matrix account configured. Requires manual coordination: a different user must send a message during the 30-second test window. |
+| **Blocker**             | (1) Second Matrix account credentials not available in repo. (2) Manual coordination required. (3) No automated sender harness exists.    |
 
 **Deterministic validation status (S-tier):** Unit tests confirm the full inbound pipeline logic (nio sync → `_on_room_message` → codec decode → `publish_inbound()` → canonical event shape → diagnostics counters). See `TestThirdPartyInboundCanonicalEventShape` (8 tests) in `tests/test_matrix_adapter.py`.
-
 
 ### 1.6 Matrix Diagnostics Snapshot Fields
 
@@ -189,16 +188,17 @@ inbound_suppressed_envelope, inbound_filtered_allowlist
 
 No secrets, access tokens, room keys, session IDs, or user secrets are exposed. Verified by Contract 27 (Diagnostics Consistency Audit) and Contract 48 (Observability Contract).
 
-
 ### 1.7 Matrix Repeated Start/Stop Cycle Procedure (v2)
 
 Validates that the Matrix adapter can cleanly start and stop multiple times without leaking resources, stale state, or orphaned sync tasks.
 
 **Existing test coverage:**
+
 - `tests/test_matrix_e2ee_live.py::TestLiveE2EEStartStopCycles::test_repeated_start_stop_cycles` — 3 start/stop cycles, verifies `connected`, `sync_running`, `reconnecting == False`, `reconnect_attempts == 0` after each start, `_session is None` after each stop.
 - `tests/test_matrix_e2ee_live.py::TestLiveE2EEStartStopCycles::test_disconnect_reconnect` — start → stop (disconnect) → start (reconnect), verifies `connected`, `sync_running`, `crypto_enabled`.
 
 **Manual procedure:**
+
 ```bash
 # 1. Set core Matrix env vars
 export MATRIX_HOMESERVER="https://matrix.example.com"
@@ -228,42 +228,44 @@ pytest tests/test_matrix_e2ee_live.py::TestLiveE2EEStartStopCycles -m live -v
 
 #### Observations to Record
 
-| Field | What to observe | Source |
-|-------|-----------------|--------|
-| Cycle count | Number of start/stop cycles completed | Test parameter (default 3) |
-| Per-cycle start success | `connected == True` after each start | `diagnostics()` |
-| Per-cycle stop success | `_session is None` after each stop | `adapter._session` |
-| State reset between cycles | `reconnect_attempts == 0`, `reconnecting == False` after each start | `diagnostics()` |
-| No task leaks | No orphaned asyncio tasks after final stop | `asyncio.all_tasks()` |
-| E2EE crypto state preservation | `crypto_enabled` and `crypto_store_loaded` stable across cycles (E2EE mode only) | `diagnostics()` |
+| Field                          | What to observe                                                                  | Source                     |
+| ------------------------------ | -------------------------------------------------------------------------------- | -------------------------- |
+| Cycle count                    | Number of start/stop cycles completed                                            | Test parameter (default 3) |
+| Per-cycle start success        | `connected == True` after each start                                             | `diagnostics()`            |
+| Per-cycle stop success         | `_session is None` after each stop                                               | `adapter._session`         |
+| State reset between cycles     | `reconnect_attempts == 0`, `reconnecting == False` after each start              | `diagnostics()`            |
+| No task leaks                  | No orphaned asyncio tasks after final stop                                       | `asyncio.all_tasks()`      |
+| E2EE crypto state preservation | `crypto_enabled` and `crypto_store_loaded` stable across cycles (E2EE mode only) | `diagnostics()`            |
 
 #### NOT EXECUTED (current machine)
 
-| Field | Value |
-|-------|-------|
-| **Execution date** | NOT EXECUTED |
-| **Reason** | No Matrix homeserver credentials configured. `MATRIX_HOMESERVER`, `MATRIX_USER_ID`, `MATRIX_ACCESS_TOKEN` not set. |
-| **Resolution** | Set required env vars, run `pytest tests/test_matrix_e2ee_live.py::TestLiveE2EEStartStopCycles -m live -v`. Record results with tier `R`. |
+| Field              | Value                                                                                                                                     |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| **Execution date** | NOT EXECUTED                                                                                                                              |
+| **Reason**         | No Matrix homeserver credentials configured. `MATRIX_HOMESERVER`, `MATRIX_USER_ID`, `MATRIX_ACCESS_TOKEN` not set.                        |
+| **Resolution**     | Set required env vars, run `pytest tests/test_matrix_e2ee_live.py::TestLiveE2EEStartStopCycles -m live -v`. Record results with tier `R`. |
 
 **Historical observation (H-tier, 2026-05-10):** E2EE start/stop cycle tests passed 7/7 in 3.73s. `connected`, `sync_running`, `crypto_enabled` all stable across 3 cycles. No task leaks observed.
-
 
 ### 1.8 Matrix Replay/Restart/Recovery Observation Procedure (v2)
 
 Validates that the Matrix adapter correctly handles the sync replay that occurs after a restart, including missed event recovery and diagnostics field accuracy.
 
 **Background:** When the Matrix adapter stops and restarts, nio's `sync_forever` uses the stored sync token to replay events that arrived while offline. The duration and volume of replay depend on:
+
 - Time offline (longer offline → more missed events)
 - Room count and activity level
 - Homeserver performance
 
 **Existing test coverage:**
+
 - `tests/test_matrix_live.py::TestMatrixLiveSmoke::test_full_lifecycle_start_send_stop` — single start→send→stop cycle.
 - `tests/test_matrix_e2ee_live.py::TestLiveE2EERestart` — restart with same store/device, verify connected/crypto state preserved.
 - `tests/test_matrix_e2ee_live.py::TestLiveE2EERestart::test_restart_preserves_crypto_state` — verifies `crypto_enabled` and `crypto_store_loaded` identical across restart.
 - `tests/test_matrix_e2ee_live.py::TestLiveE2EERestart::test_restart_send_encrypted` — restart → send encrypted message → verify delivery.
 
 **Manual procedure for extended replay observation:**
+
 ```bash
 # 1. Start adapter, let it run for 60s to accumulate sync state
 # 2. Send a message, record event_id
@@ -282,39 +284,40 @@ Validates that the Matrix adapter correctly handles the sync replay that occurs 
 
 #### Observations to Record
 
-| Field | What to observe | Source |
-|-------|-----------------|--------|
-| Offline duration | Seconds between stop and restart | Wall clock |
-| Replay duration (ms) | Time from second `start()` to first `last_successful_sync` update | `diagnostics()` timestamps |
-| Replay event count | Number of events processed during replay | `diagnostics()["inbound_published"]` delta |
-| Self-echo suppression during replay | Own pre-stop message not re-published | `publish_inbound` mock |
-| Health during replay | `healthy` throughout (no transient `degraded`) | `health_check()` |
-| Sync token advance | `last_successful_sync` advances after replay | `diagnostics()` |
-| E2EE crypto store reuse | `crypto_store_loaded == True` on restart | `diagnostics()` (E2EE mode) |
-| Undecryptable events during replay | Count of events that fail decryption | `diagnostics()["undecryptable_event_count"]` |
+| Field                               | What to observe                                                   | Source                                       |
+| ----------------------------------- | ----------------------------------------------------------------- | -------------------------------------------- |
+| Offline duration                    | Seconds between stop and restart                                  | Wall clock                                   |
+| Replay duration (ms)                | Time from second `start()` to first `last_successful_sync` update | `diagnostics()` timestamps                   |
+| Replay event count                  | Number of events processed during replay                          | `diagnostics()["inbound_published"]` delta   |
+| Self-echo suppression during replay | Own pre-stop message not re-published                             | `publish_inbound` mock                       |
+| Health during replay                | `healthy` throughout (no transient `degraded`)                    | `health_check()`                             |
+| Sync token advance                  | `last_successful_sync` advances after replay                      | `diagnostics()`                              |
+| E2EE crypto store reuse             | `crypto_store_loaded == True` on restart                          | `diagnostics()` (E2EE mode)                  |
+| Undecryptable events during replay  | Count of events that fail decryption                              | `diagnostics()["undecryptable_event_count"]` |
 
 #### NOT EXECUTED (current machine)
 
-| Field | Value |
-|-------|-------|
-| **Replay duration** | NOT EXECUTED — no live session |
-| **Replay event count** | NOT EXECUTED — no live session |
-| **Health during replay** | NOT EXECUTED — no live session |
-| **Reason** | No Matrix homeserver credentials. Extended replay observation requires sustained session with offline gap. |
-| **Resolution** | Set env vars, run adapter for 60s, stop for 30s, restart. Record all fields. |
+| Field                    | Value                                                                                                      |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| **Replay duration**      | NOT EXECUTED — no live session                                                                             |
+| **Replay event count**   | NOT EXECUTED — no live session                                                                             |
+| **Health during replay** | NOT EXECUTED — no live session                                                                             |
+| **Reason**               | No Matrix homeserver credentials. Extended replay observation requires sustained session with offline gap. |
+| **Resolution**           | Set env vars, run adapter for 60s, stop for 30s, restart. Record all fields.                               |
 
 **Historical observation (H-tier, 2026-05-10):** Restart idempotency test confirmed: stop→start re-establishes sync, `restore_login` succeeds, health returns `healthy`. Crypto store loads on restart (E2EE mode). Exact replay duration not measured — test infrastructure did not include offline-gap replay scenarios.
-
 
 ### 1.9 Matrix Long-Running Sync Observation Procedure (v2)
 
 Validates sustained Matrix adapter operation over an extended period, observing sync stability, health transitions, diagnostics field drift, and reconnect behavior under real network conditions.
 
 **Existing test infrastructure:**
+
 - `tests/test_soak.py::TestMatrixSoak` — configurable duration soak test (default 30s, max 300s)
 - `SOAK_DURATION_SECONDS` env var controls duration
 
 **Manual procedure:**
+
 ```bash
 # 1. Set core Matrix env vars (see §1.1)
 export MATRIX_HOMESERVER="https://matrix.example.com"
@@ -337,37 +340,37 @@ SOAK_DURATION_SECONDS=120 pytest tests/test_soak.py::TestMatrixSoak -m live -v -
 
 #### Observations to Record
 
-| Field | What to observe | Source |
-|-------|-----------------|--------|
-| Soak duration (seconds) | Actual wall-clock duration | Soak test output |
-| Messages sent | Number of outbound messages during soak | Soak test output |
-| Messages succeeded | Number of successful deliveries | Soak test output |
-| Messages failed | Number of failed deliveries | Soak test output |
-| Reconnect count | Number of reconnect events during soak | `diagnostics()["reconnect_attempts"]` |
-| Health throughout | Min/max health states observed | Periodic `health_check()` |
-| Diagnostics snapshot at start | All fields at t=0 | `diagnostics()` |
-| Diagnostics snapshot at end | All fields at t=duration | `diagnostics()` |
-| Max `reconnect_attempts` seen | Peak reconnect attempt count | Periodic `diagnostics()` |
-| `undecryptable_event_count` drift | Count at end minus count at start | `diagnostics()` |
-| `last_successful_sync` progression | Timestamp advances throughout | `diagnostics()` |
-| Memory usage | Process RSS at start and end | `psutil.Process().memory_info().rss` |
+| Field                              | What to observe                         | Source                                |
+| ---------------------------------- | --------------------------------------- | ------------------------------------- |
+| Soak duration (seconds)            | Actual wall-clock duration              | Soak test output                      |
+| Messages sent                      | Number of outbound messages during soak | Soak test output                      |
+| Messages succeeded                 | Number of successful deliveries         | Soak test output                      |
+| Messages failed                    | Number of failed deliveries             | Soak test output                      |
+| Reconnect count                    | Number of reconnect events during soak  | `diagnostics()["reconnect_attempts"]` |
+| Health throughout                  | Min/max health states observed          | Periodic `health_check()`             |
+| Diagnostics snapshot at start      | All fields at t=0                       | `diagnostics()`                       |
+| Diagnostics snapshot at end        | All fields at t=duration                | `diagnostics()`                       |
+| Max `reconnect_attempts` seen      | Peak reconnect attempt count            | Periodic `diagnostics()`              |
+| `undecryptable_event_count` drift  | Count at end minus count at start       | `diagnostics()`                       |
+| `last_successful_sync` progression | Timestamp advances throughout           | `diagnostics()`                       |
+| Memory usage                       | Process RSS at start and end            | `psutil.Process().memory_info().rss`  |
 
 #### NOT EXECUTED (current machine)
 
-| Field | Value |
-|-------|-------|
-| **Execution date** | NOT EXECUTED |
-| **Reason** | No Matrix homeserver credentials. Long-running observation requires sustained session. |
-| **Resolution** | Set env vars, run `SOAK_DURATION_SECONDS=120 pytest tests/test_soak.py::TestMatrixSoak -m live -v -s`. Record all fields with tier `R`. |
+| Field              | Value                                                                                                                                   |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| **Execution date** | NOT EXECUTED                                                                                                                            |
+| **Reason**         | No Matrix homeserver credentials. Long-running observation requires sustained session.                                                  |
+| **Resolution**     | Set env vars, run `SOAK_DURATION_SECONDS=120 pytest tests/test_soak.py::TestMatrixSoak -m live -v -s`. Record all fields with tier `R`. |
 
 **Deterministic validation status (S-tier):** Soak harness infrastructure tested via `tests/test_soak_harness.py` and `tests/test_soak_config_builder.py` (no live endpoints required). Unit tests confirm health transitions, diagnostics stability, and boundedness under mocked conditions.
-
 
 ### 1.10 Matrix Diagnostics Snapshot Capture Procedure (v2)
 
 Defines the procedure for capturing and recording a full `diagnostics()` snapshot from a running Matrix adapter. Snapshots are the primary evidence format for runtime observations.
 
 **Procedure:**
+
 ```bash
 # 1. Start the adapter (live or simulated)
 # 2. At desired observation point, capture:
@@ -431,14 +434,13 @@ snapshot = adapter.diagnostics()
 
 #### NOT EXECUTED (current machine)
 
-| Field | Value |
-|-------|-------|
-| **Live snapshot** | NOT EXECUTED |
-| **Reason** | No running Matrix adapter session. |
-| **Resolution** | Start adapter against live homeserver, capture `diagnostics()` at observation points. |
+| Field             | Value                                                                                 |
+| ----------------- | ------------------------------------------------------------------------------------- |
+| **Live snapshot** | NOT EXECUTED                                                                          |
+| **Reason**        | No running Matrix adapter session.                                                    |
+| **Resolution**    | Start adapter against live homeserver, capture `diagnostics()` at observation points. |
 
 **Deterministic validation (S-tier):** Unit tests verify all snapshot fields are present and correctly typed in `tests/test_matrix_session.py` and `tests/test_matrix_adapter.py`. No secrets are exposed in any snapshot (Contract 27, Contract 48).
-
 
 ### 1.11 Matrix Room-State Boundedness Observation Procedure (v2)
 
@@ -449,10 +451,12 @@ Validates that the Matrix adapter's internal room-state tracking does not grow u
 **Behavior:** When the adapter processes sync events, it tracks room state (encryption status, membership) in an internal dict. If the number of tracked rooms reaches `_MAX_ROOM_STATES`, the oldest room state is evicted to make room for the new one. This prevents unbounded memory growth on accounts that have joined many rooms.
 
 **Deterministic validation (S-tier):**
+
 - `tests/test_matrix_session.py` tests room-state eviction at `_MAX_ROOM_STATES` boundary.
 - `tests/test_resource_containment.py` verifies `_MAX_ROOM_STATES == 10_000`.
 
 **Live observation procedure:**
+
 ```bash
 # 1. Use a Matrix account that has joined 10+ rooms (ideally 100+)
 # 2. Start the adapter and observe:
@@ -467,19 +471,19 @@ Validates that the Matrix adapter's internal room-state tracking does not grow u
 
 #### NOT EXECUTED (current machine)
 
-| Field | Value |
-|-------|-------|
-| **Room-state boundedness live observation** | NOT EXECUTED |
-| **Reason** | No Matrix homeserver credentials. Test account room count unknown. |
-| **Expected behavior** | `encrypted_room_count + plaintext_room_count <= 10,000`. Eviction of oldest room state when cap reached. |
-| **Source** | `_MAX_ROOM_STATES` in `session.py`, S-tier tests in `test_matrix_session.py` and `test_resource_containment.py`. |
-
+| Field                                       | Value                                                                                                            |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| **Room-state boundedness live observation** | NOT EXECUTED                                                                                                     |
+| **Reason**                                  | No Matrix homeserver credentials. Test account room count unknown.                                               |
+| **Expected behavior**                       | `encrypted_room_count + plaintext_room_count <= 10,000`. Eviction of oldest room state when cap reached.         |
+| **Source**                                  | `_MAX_ROOM_STATES` in `session.py`, S-tier tests in `test_matrix_session.py` and `test_resource_containment.py`. |
 
 ### 1.12 Matrix E2EE Store Reuse Observation Procedure (v2)
 
 Validates that the Matrix crypto store is correctly reused across adapter restarts, preserving key material and session state.
 
 **Existing test coverage:**
+
 - `tests/test_matrix_e2ee_live.py::TestLiveE2EERestart::test_restart_same_store_device` — stop → start with same `store_path` and `device_id`, verify `connected == True`.
 - `tests/test_matrix_e2ee_live.py::TestLiveE2EERestart::test_restart_preserves_crypto_state` — verifies `crypto_enabled` and `crypto_store_loaded` are identical across restart.
 - `tests/test_matrix_e2ee_live.py::TestLiveE2EERestart::test_restart_send_encrypted` — restart → send encrypted message, verify delivery.
@@ -487,6 +491,7 @@ Validates that the Matrix crypto store is correctly reused across adapter restar
 **Crypto store location:** `{state_dir}/adapters/{adapter_id}/matrix/store/` (managed by adapter, configured via `MATRIX_STORE_PATH` env var).
 
 **Procedure:**
+
 ```bash
 # 1. Set E2EE env vars
 export MATRIX_HOMESERVER="https://matrix.example.com"
@@ -509,41 +514,39 @@ pytest tests/test_matrix_e2ee_live.py::TestLiveE2EERestart -m live -v
 
 #### Observations to Record
 
-| Field | What to observe | Source |
-|-------|-----------------|--------|
-| Store path | Configured `MATRIX_STORE_PATH` | Config |
-| First start: crypto_store_loaded | `True` after first start | `diagnostics()` |
-| Restart: crypto_store_loaded | `True` after restart (reuses existing store) | `diagnostics()` |
-| crypto_enabled stability | Same value across restarts | `diagnostics()` |
-| Encrypted send post-restart | Delivery returns `event_id` | `deliver()` result |
-| undecryptable_event_count | 0 or explain non-zero | `diagnostics()` |
+| Field                            | What to observe                              | Source             |
+| -------------------------------- | -------------------------------------------- | ------------------ |
+| Store path                       | Configured `MATRIX_STORE_PATH`               | Config             |
+| First start: crypto_store_loaded | `True` after first start                     | `diagnostics()`    |
+| Restart: crypto_store_loaded     | `True` after restart (reuses existing store) | `diagnostics()`    |
+| crypto_enabled stability         | Same value across restarts                   | `diagnostics()`    |
+| Encrypted send post-restart      | Delivery returns `event_id`                  | `deliver()` result |
+| undecryptable_event_count        | 0 or explain non-zero                        | `diagnostics()`    |
 
 #### NOT EXECUTED (current machine)
 
-| Field | Value |
-|-------|-------|
-| **E2EE store reuse live observation** | NOT EXECUTED |
-| **Reason** | E2EE env vars (`MATRIX_DEVICE_ID`, `MATRIX_STORE_PATH`) not configured. No encrypted room available. |
-| **Resolution** | Install `pip install -e ".[matrix-e2e]"`, set E2EE env vars, run `pytest tests/test_matrix_e2ee_live.py::TestLiveE2EERestart -m live -v`. |
+| Field                                 | Value                                                                                                                                     |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| **E2EE store reuse live observation** | NOT EXECUTED                                                                                                                              |
+| **Reason**                            | E2EE env vars (`MATRIX_DEVICE_ID`, `MATRIX_STORE_PATH`) not configured. No encrypted room available.                                      |
+| **Resolution**                        | Install `pip install -e ".[matrix-e2e]"`, set E2EE env vars, run `pytest tests/test_matrix_e2ee_live.py::TestLiveE2EERestart -m live -v`. |
 
 **Historical observation (H-tier, 2026-05-10):** Crypto store loaded confirmed across restarts. Encrypted send succeeds post-restart. `undecryptable_event_count == 0`.
-
 
 ## 2. Meshtastic Live Procedures
 
 ### 2.1 Environment Variables
 
-| Variable | Required | Description | Example |
-|----------|----------|-------------|---------|
-| `MESHTASTIC_CONNECTION_TYPE` | Yes | Connection mode: `tcp`, `serial`, or `ble` | `serial` |
-| `MESHTASTIC_HOST` | TCP only | Hostname or IP for TCP connections | `192.168.1.100` |
-| `MESHTASTIC_PORT` | TCP optional | Port for TCP (default `4403`) | `4403` |
-| `MESHTASTIC_SERIAL_PORT` | Serial only | Serial device path | `/dev/ttyACM0` |
-| `MESHTASTIC_BLE_ADDRESS` | BLE only | BLE MAC address | `AA:BB:CC:DD:EE:FF` |
-| `MESHTASTIC_CHANNEL_INDEX` | No | Channel index (default `0`) | `0` |
+| Variable                     | Required     | Description                                | Example             |
+| ---------------------------- | ------------ | ------------------------------------------ | ------------------- |
+| `MESHTASTIC_CONNECTION_TYPE` | Yes          | Connection mode: `tcp`, `serial`, or `ble` | `serial`            |
+| `MESHTASTIC_HOST`            | TCP only     | Hostname or IP for TCP connections         | `192.168.1.100`     |
+| `MESHTASTIC_PORT`            | TCP optional | Port for TCP (default `4403`)              | `4403`              |
+| `MESHTASTIC_SERIAL_PORT`     | Serial only  | Serial device path                         | `/dev/ttyACM0`      |
+| `MESHTASTIC_BLE_ADDRESS`     | BLE only     | BLE MAC address                            | `AA:BB:CC:DD:EE:FF` |
+| `MESHTASTIC_CHANNEL_INDEX`   | No           | Channel index (default `0`)                | `0`                 |
 
 **If required variables for the chosen connection type are unset, all live Meshtastic tests skip.**
-
 
 ### 2.2 Smoke Procedure (Raw mtjk + MEDRE Adapter)
 
@@ -553,41 +556,42 @@ pytest tests/test_matrix_e2ee_live.py::TestLiveE2EERestart -m live -v
 
 #### Observations to Record
 
-| Field | What to observe | Where to find it |
-|-------|-----------------|------------------|
-| Connection established | TCP/Serial interface connects to node | Test output: Category A tests |
-| `sendText()` → MeshPacket | Returns packet with populated `id` | Test output: `test_raw_send_text` |
-| `sendData()` → MeshPacket | Returns packet with populated `id` | Test output: `test_raw_send_data` |
-| Pubsub callback fires | Received packets have expected shape | Test output: `test_raw_receive_callback` |
-| Outbound packet IDs unique | IDs differ across multiple sends | Test output: Category A send tests |
-| MEDRE adapter start | `_create_client()` connects, subscribes | Test output: Category B tests |
-| Health → healthy | `health_check()` returns `"healthy"` | Test output: `test_adapter_health_healthy` |
-| Stop → clean teardown | Client closed, unsubscribed | Test output: `test_adapter_stop_clean` |
+| Field                      | What to observe                         | Where to find it                           |
+| -------------------------- | --------------------------------------- | ------------------------------------------ |
+| Connection established     | TCP/Serial interface connects to node   | Test output: Category A tests              |
+| `sendText()` → MeshPacket  | Returns packet with populated `id`      | Test output: `test_raw_send_text`          |
+| `sendData()` → MeshPacket  | Returns packet with populated `id`      | Test output: `test_raw_send_data`          |
+| Pubsub callback fires      | Received packets have expected shape    | Test output: `test_raw_receive_callback`   |
+| Outbound packet IDs unique | IDs differ across multiple sends        | Test output: Category A send tests         |
+| MEDRE adapter start        | `_create_client()` connects, subscribes | Test output: Category B tests              |
+| Health → healthy           | `health_check()` returns `"healthy"`    | Test output: `test_adapter_health_healthy` |
+| Stop → clean teardown      | Client closed, unsubscribed             | Test output: `test_adapter_stop_clean`     |
 
 #### Executed 2026-05-12 (CLI-level serial validation)
 
 > **Note:** This was a manual CLI-level validation using `meshtastic` CLI 2.7.8, NOT the MEDRE adapter `pytest` live test suite. The live pytest suite requires `mtjk` in the project venv. See `operational-evidence.md` §2.0 for full R-tier evidence.
 
-| Field | Value |
-|-------|-------|
-| **Execution date** | 2026-05-12 |
-| **Executor** | Manual operator (serial CLI) |
-| **Connection type** | Serial, `/dev/ttyACM0` (1a86 USB Single Serial / CDC ACM) |
-| **Node hardware** | LilyGO T-LoRa V2.1.1.6 (TLORA_V2_1_1P6) |
-| **Firmware version** | 2.7.19.bb3d6d5 (VANILLA) |
-| **Node ID** | `!25d6e474` |
-| **meshtastic CLI version** | 2.7.8 (platformio penv) |
-| **pyserial version** | 3.5 |
-| **Connection established** | ✅ All 3 CLI connections succeeded within 15s timeout |
-| **sendText on channel 0** | ✅ CLI completed without error. Output: `Sending text message ... to ^all on channelIndex:0`. No explicit ACK printed. |
-| **Explicit ACK** | **Not observed** — meshtastic 2.7.8 CLI does not print ACK for broadcast sends. |
-| **Second node observed** | `!ee4a65b1` "Meshtastic 65b1" appeared in node DB (UNSET hardware, SNR -0 dB, 1 hop, channel 0). Presence confirmed, message delivery NOT confirmed. |
-| **Reconnect cycles** | ✅ 2 CLI-level disconnect/reconnect cycles succeeded (independent serial sessions, not MEDRE adapter reconnect). |
-| **Duplicate-send caveat** | Not assessed (only one send performed). |
-| **Destructive operations** | None. No admin, config writes, or firmware changes. |
-| **Full pytest live suite** | **NOT EXECUTED** — requires `mtjk` in project venv. Only CLI-level validation performed. |
+| Field                      | Value                                                                                                                                                |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Execution date**         | 2026-05-12                                                                                                                                           |
+| **Executor**               | Manual operator (serial CLI)                                                                                                                         |
+| **Connection type**        | Serial, `/dev/ttyACM0` (1a86 USB Single Serial / CDC ACM)                                                                                            |
+| **Node hardware**          | LilyGO T-LoRa V2.1.1.6 (TLORA_V2_1_1P6)                                                                                                              |
+| **Firmware version**       | 2.7.19.bb3d6d5 (VANILLA)                                                                                                                             |
+| **Node ID**                | `!25d6e474`                                                                                                                                          |
+| **meshtastic CLI version** | 2.7.8 (platformio penv)                                                                                                                              |
+| **pyserial version**       | 3.5                                                                                                                                                  |
+| **Connection established** | ✅ All 3 CLI connections succeeded within 15s timeout                                                                                                |
+| **sendText on channel 0**  | ✅ CLI completed without error. Output: `Sending text message ... to ^all on channelIndex:0`. No explicit ACK printed.                               |
+| **Explicit ACK**           | **Not observed** — meshtastic 2.7.8 CLI does not print ACK for broadcast sends.                                                                      |
+| **Second node observed**   | `!ee4a65b1` "Meshtastic 65b1" appeared in node DB (UNSET hardware, SNR -0 dB, 1 hop, channel 0). Presence confirmed, message delivery NOT confirmed. |
+| **Reconnect cycles**       | ✅ 2 CLI-level disconnect/reconnect cycles succeeded (independent serial sessions, not MEDRE adapter reconnect).                                     |
+| **Duplicate-send caveat**  | Not assessed (only one send performed).                                                                                                              |
+| **Destructive operations** | None. No admin, config writes, or firmware changes.                                                                                                  |
+| **Full pytest live suite** | **NOT EXECUTED** — requires `mtjk` in project venv. Only CLI-level validation performed.                                                             |
 
 **Historical evidence (H-tier, 2026-05-10):**
+
 - Connection: Serial to `/dev/ttyACM0`, LilyGO T-LORA V2.1, node `!25d6e474`
 - Firmware: 2.7.19, mtjk 2.7.8.post2+
 - Results: 10/10 passed, 34.47s wall time
@@ -596,7 +600,6 @@ pytest tests/test_matrix_e2ee_live.py::TestLiveE2EERestart -m live -v
 - Pubsub callback: confirmed (inbound telemetry packet observed)
 - MEDRE adapter lifecycle: confirmed (start, health, stop)
 - Bugs found and fixed: `isConnected` TypeError, `pypubsub` ListenerMismatchError
-
 
 ### 2.3 Serial Reconnect Procedure
 
@@ -607,6 +610,7 @@ The Meshtastic session implements bounded reconnection with exponential backoff:
 - **Reconnect triggers:** Serial disconnect, TCP connection loss, client error
 
 **Procedure to test serial reconnect:**
+
 ```bash
 # 1. Set serial env vars
 export MESHTASTIC_CONNECTION_TYPE="serial"
@@ -625,18 +629,18 @@ pytest tests/test_meshtastic_live.py -m live -v -s
 
 > **Note:** CLI-level reconnect tested (3 independent serial sessions to `/dev/ttyACM0`, all succeeded). This is NOT the same as MEDRE adapter session reconnect with exponential backoff and health transitions. The MEDRE adapter session reconnect remains untested.
 
-| Field | Value |
-|-------|-------|
-| **Serial reconnect (CLI-level)** | ✅ 3 independent serial connections to `/dev/ttyACM0` succeeded with no errors |
-| **MEDRE adapter session reconnect** | NOT EXECUTED — requires `mtjk` in project venv and MEDRE adapter running |
-| **Reason for partial** | Only CLI-level validation performed. Physical USB disconnect not tested (would interrupt active CLI session). |
+| Field                                 | Value                                                                                                                                                                                          |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Serial reconnect (CLI-level)**      | ✅ 3 independent serial connections to `/dev/ttyACM0` succeeded with no errors                                                                                                                 |
+| **MEDRE adapter session reconnect**   | NOT EXECUTED — requires `mtjk` in project venv and MEDRE adapter running                                                                                                                       |
+| **Reason for partial**                | Only CLI-level validation performed. Physical USB disconnect not tested (would interrupt active CLI session).                                                                                  |
 | **Expected behavior (MEDRE adapter)** | Session enters reconnect loop (max 10 attempts, exponential backoff 1–30s). Health transitions: healthy → degraded → healthy on recovery, or healthy → degraded → failed on budget exhaustion. |
-| **Diagnostics fields** | `reconnecting`, `reconnect_attempts` in session diagnostics |
-
+| **Diagnostics fields**                | `reconnecting`, `reconnect_attempts` in session diagnostics                                                                                                                                    |
 
 ### 2.4 Outbound `send_one` Procedure
 
 The MEDRE adapter's `send_one()` method is the primary outbound delivery path. It:
+
 1. Dequeues the next pending outbound from the internal queue
 2. Calls the Meshtastic `sendText` API via the session
 3. Handles transient failures with up to 3 retries (source: `_MAX_SEND_RETRIES`)
@@ -648,18 +652,18 @@ The MEDRE adapter's `send_one()` method is the primary outbound delivery path. I
 
 > **Note:** CLI-level `sendText` on channel 0 was confirmed working (see §2.2). The MEDRE adapter `send_one` path via the queued delivery pipeline remains untested.
 
-| Field | Value |
-|-------|-------|
-| **Outbound send_one** | NOT EXECUTED |
-| **Reason** | Requires MEDRE adapter running against real hardware with `mtjk` in project venv. CLI-level `sendText` confirmed (§2.2), but `send_one` is a different code path (adapter queue → pacing → real send). |
-| **Gap** | `send_one` is tested via `monkeypatch` in `tests/test_meshtastic_adapter.py`. A live test would require: (1) real node connected, (2) adapter started, (3) `deliver()` called with a real canonical event, (4) confirmation that `sendText` completes via the MEDRE queue path. |
-
+| Field                 | Value                                                                                                                                                                                                                                                                           |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Outbound send_one** | NOT EXECUTED                                                                                                                                                                                                                                                                    |
+| **Reason**            | Requires MEDRE adapter running against real hardware with `mtjk` in project venv. CLI-level `sendText` confirmed (§2.2), but `send_one` is a different code path (adapter queue → pacing → real send).                                                                          |
+| **Gap**               | `send_one` is tested via `monkeypatch` in `tests/test_meshtastic_adapter.py`. A live test would require: (1) real node connected, (2) adapter started, (3) `deliver()` called with a real canonical event, (4) confirmation that `sendText` completes via the MEDRE queue path. |
 
 ### 2.5 Meshtastic Diagnostics Snapshot Fields
 
 When a Meshtastic adapter is running, `diagnostics()` returns:
 
 **Adapter-level:**
+
 ```
 adapter_id, platform, started, connection_type,
 queue_pending, queue_total_sent, queue_total_failed, queue_total_dropped,
@@ -667,6 +671,7 @@ background_tasks
 ```
 
 **Session-level (nested under `session`):**
+
 ```
 connected, reconnecting, reconnect_attempts, last_packet_time,
 node_id, channel_count, transient_delivery_failures,
@@ -675,31 +680,31 @@ permanent_delivery_failures, last_error
 
 No secrets, private keys, raw protobuf dumps, or sensitive radio identifiers beyond public fields are exposed.
 
-
 ### 2.6 Meshtastic Hardware Identification Fields
 
 When recording Meshtastic live evidence, capture these hardware fields:
 
-| Field | Example | Source |
-|-------|---------|--------|
-| Node hardware | LilyGO T-LORA V2.1 | Physical inspection or `meshtastic --info` |
-| Firmware version | 2.7.19 | `node.getMetadata()` or `meshtastic --info` |
-| Node ID | `!25d6e474` | `diagnostics().session.node_id` |
-| Channel index | 0 | Config `MESHTASTIC_CHANNEL_INDEX` |
-| Channel name | LONG_FAST | `meshtastic --info` or node config |
-| Connection type | serial | `MESHTASTIC_CONNECTION_TYPE` |
-| Serial port | `/dev/ttyACM0` | `MESHTASTIC_SERIAL_PORT` |
-| mtjk version | 2.7.8.post2+ | `pip show mtjk` |
-
+| Field            | Example            | Source                                      |
+| ---------------- | ------------------ | ------------------------------------------- |
+| Node hardware    | LilyGO T-LORA V2.1 | Physical inspection or `meshtastic --info`  |
+| Firmware version | 2.7.19             | `node.getMetadata()` or `meshtastic --info` |
+| Node ID          | `!25d6e474`        | `diagnostics().session.node_id`             |
+| Channel index    | 0                  | Config `MESHTASTIC_CHANNEL_INDEX`           |
+| Channel name     | LONG_FAST          | `meshtastic --info` or node config          |
+| Connection type  | serial             | `MESHTASTIC_CONNECTION_TYPE`                |
+| Serial port      | `/dev/ttyACM0`     | `MESHTASTIC_SERIAL_PORT`                    |
+| mtjk version     | 2.7.8.post2+       | `pip show mtjk`                             |
 
 ### 2.7 Meshtastic Repeated Start/Stop Cycle Procedure (v2)
 
 Validates that the Meshtastic adapter can cleanly start and stop multiple times without leaking serial/TCP connections, orphaned pubsub subscriptions, or stale session state.
 
 **Existing test coverage:**
+
 - `tests/test_meshtastic_live.py::TestMeshtasticLiveSmoke::test_repeated_start_stop_cycle` — 3 cycles of `MeshtasticAdapter(config)` → `start()` → `health_check()` → `stop()`. Each cycle creates a fresh adapter instance.
 
 **Manual procedure:**
+
 ```bash
 # 1. Set Meshtastic env vars (see §2.1)
 export MESHTASTIC_CONNECTION_TYPE="serial"
@@ -719,47 +724,50 @@ pytest tests/test_meshtastic_live.py::TestMeshtasticLiveSmoke::test_repeated_sta
 
 #### Observations to Record
 
-| Field | What to observe | Source |
-|-------|-----------------|--------|
-| Cycle count | Number of start/stop cycles completed | Test parameter (default 3) |
-| Per-cycle health | `healthy` or `unknown` after each start | `health_check()` |
-| Per-cycle connected | `session.connected == True` after each start | `diagnostics()` |
-| Resource cleanup | No leaked serial/TCP interfaces after each stop | Process inspection |
-| Connection re-establishment time | Time from `start()` to `connected == True` per cycle | Wall clock |
+| Field                            | What to observe                                      | Source                     |
+| -------------------------------- | ---------------------------------------------------- | -------------------------- |
+| Cycle count                      | Number of start/stop cycles completed                | Test parameter (default 3) |
+| Per-cycle health                 | `healthy` or `unknown` after each start              | `health_check()`           |
+| Per-cycle connected              | `session.connected == True` after each start         | `diagnostics()`            |
+| Resource cleanup                 | No leaked serial/TCP interfaces after each stop      | Process inspection         |
+| Connection re-establishment time | Time from `start()` to `connected == True` per cycle | Wall clock                 |
 
 #### NOT EXECUTED (current session)
 
-| Field | Value |
-|-------|-------|
-| **Execution date** | NOT EXECUTED |
-| **Reason** | `mtjk` not installed in project venv. MEDRE adapter live tests cannot run. |
-| **Resolution** | Install mtjk (`pip install mtjk`), set `MESHTASTIC_CONNECTION_TYPE` and connection-specific var, run `pytest tests/test_meshtastic_live.py::TestMeshtasticLiveSmoke::test_repeated_start_stop_cycle -m live -v`. |
+| Field              | Value                                                                                                                                                                                                            |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Execution date** | NOT EXECUTED                                                                                                                                                                                                     |
+| **Reason**         | `mtjk` not installed in project venv. MEDRE adapter live tests cannot run.                                                                                                                                       |
+| **Resolution**     | Install mtjk (`pip install mtjk`), set `MESHTASTIC_CONNECTION_TYPE` and connection-specific var, run `pytest tests/test_meshtastic_live.py::TestMeshtasticLiveSmoke::test_repeated_start_stop_cycle -m live -v`. |
 
 **Historical observation (H-tier, 2026-05-10):** Single start/stop cycle confirmed in smoke test (10/10 passed, 34.47s). Multi-cycle test added after initial run; not part of historical evidence.
 
 **CLI-level observation (R-tier, 2026-05-12):** 3 independent serial connections to the same device succeeded without errors (see §2.2, §2.3). This demonstrates serial port reliability but is NOT the MEDRE adapter start/stop cycle.
-
 
 ### 2.8 Meshtastic Serial Reconnect/Outbound/Degraded Behavior Procedure (v2)
 
 Observes the Meshtastic session's behavior under degraded conditions: serial disconnect, reconnect loop, outbound send failures, and health transitions.
 
 **Source constants:**
+
 - `_MAX_RECONNECT_ATTEMPTS = 10` in `session.py`
 - `_BACKOFF_BASE = 1.0s`, `_BACKOFF_CAP = 30.0s`, `_BACKOFF_JITTER_FRACTION = 0.25`
 - `_MAX_SEND_RETRIES = 3` for transient send failures
 
 **Health transitions:**
+
 - `healthy` → `degraded`: when reconnect begins or send fails transiently
 - `degraded` → `healthy`: when connection recovers and send succeeds
 - `degraded` → `failed`: when reconnect budget exhausted (10 consecutive failures)
 
 **Deterministic validation (S-tier):**
+
 - `tests/test_meshtastic_session.py` — reconnect loop with exponential backoff, budget exhaustion, health transitions.
 - `tests/test_meshtastic_adapter.py` — send retry with `_MAX_SEND_RETRIES`, transient/permanent failure classification.
 - `tests/test_resource_containment.py` — `_MAX_RECONNECT_ATTEMPTS == 10`, `_MAX_SEND_RETRIES == 3`.
 
 **Manual procedure (serial disconnect):**
+
 ```bash
 # 1. Connect via serial
 export MESHTASTIC_CONNECTION_TYPE="serial"
@@ -785,6 +793,7 @@ pytest tests/test_meshtastic_live.py -m live -v -s
 ```
 
 **Manual procedure (outbound failure):**
+
 ```bash
 # 1. Connect via TCP to a node
 # 2. Start adapter
@@ -799,39 +808,40 @@ pytest tests/test_meshtastic_live.py -m live -v -s
 
 #### Observations to Record
 
-| Field | What to observe | Source |
-|-------|-----------------|--------|
-| Disconnect trigger | Physical disconnect / network disruption | Manual |
-| Reconnect start | `reconnecting == True`, `reconnect_attempts == 1` | `diagnostics()` |
-| Reconnect attempt sequence | 1, 2, 3, ..., up to 10 | `diagnostics()` |
-| Backoff timing | Approximate: 1s, 2s, 4s, 8s, 16s, 30s, ... | Wall clock |
-| Health during reconnect | `degraded` | `health_check()` |
-| Recovery (if reconnected) | `reconnecting == False`, `connected == True`, `health == "healthy"` | `diagnostics()` |
-| Budget exhaustion (if not recovered) | `reconnect_attempts == 10`, `health == "failed"` | `diagnostics()` |
-| Outbound failure count | `transient_delivery_failures`, `permanent_delivery_failures` | `diagnostics()` |
-| Send retry count | Up to 3 transient retries observed | `diagnostics()` |
+| Field                                | What to observe                                                     | Source           |
+| ------------------------------------ | ------------------------------------------------------------------- | ---------------- |
+| Disconnect trigger                   | Physical disconnect / network disruption                            | Manual           |
+| Reconnect start                      | `reconnecting == True`, `reconnect_attempts == 1`                   | `diagnostics()`  |
+| Reconnect attempt sequence           | 1, 2, 3, ..., up to 10                                              | `diagnostics()`  |
+| Backoff timing                       | Approximate: 1s, 2s, 4s, 8s, 16s, 30s, ...                          | Wall clock       |
+| Health during reconnect              | `degraded`                                                          | `health_check()` |
+| Recovery (if reconnected)            | `reconnecting == False`, `connected == True`, `health == "healthy"` | `diagnostics()`  |
+| Budget exhaustion (if not recovered) | `reconnect_attempts == 10`, `health == "failed"`                    | `diagnostics()`  |
+| Outbound failure count               | `transient_delivery_failures`, `permanent_delivery_failures`        | `diagnostics()`  |
+| Send retry count                     | Up to 3 transient retries observed                                  | `diagnostics()`  |
 
 #### NOT EXECUTED (current session)
 
-| Field | Value |
-|-------|-------|
-| **Serial reconnect observation** | NOT EXECUTED (MEDRE adapter level). CLI-level reconnect confirmed (3/3 success). |
-| **Outbound failure observation** | NOT EXECUTED |
-| **Degraded behavior observation** | NOT EXECUTED |
-| **Reason** | Physical disconnect and MEDRE adapter session reconnect not tested. Requires MEDRE adapter running with mtjk in project venv. |
-| **Expected behavior** | Reconnect loop: max 10 attempts, exponential backoff 1–30s, health transitions `healthy → degraded → healthy/failed`. Send retries: max 3 transient, then permanent failure. |
-| **Source** | S-tier deterministic tests confirm constants and logic. CLI-level R-tier evidence confirms serial port reliability. No MEDRE adapter R-tier evidence. |
-
+| Field                             | Value                                                                                                                                                                        |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Serial reconnect observation**  | NOT EXECUTED (MEDRE adapter level). CLI-level reconnect confirmed (3/3 success).                                                                                             |
+| **Outbound failure observation**  | NOT EXECUTED                                                                                                                                                                 |
+| **Degraded behavior observation** | NOT EXECUTED                                                                                                                                                                 |
+| **Reason**                        | Physical disconnect and MEDRE adapter session reconnect not tested. Requires MEDRE adapter running with mtjk in project venv.                                                |
+| **Expected behavior**             | Reconnect loop: max 10 attempts, exponential backoff 1–30s, health transitions `healthy → degraded → healthy/failed`. Send retries: max 3 transient, then permanent failure. |
+| **Source**                        | S-tier deterministic tests confirm constants and logic. CLI-level R-tier evidence confirms serial port reliability. No MEDRE adapter R-tier evidence.                        |
 
 ### 2.9 Meshtastic Long-Running Runtime Observation Procedure (v2)
 
 Validates sustained Meshtastic adapter operation over an extended period, observing connection stability, diagnostics field drift, and pubsub callback reliability.
 
 **Existing test infrastructure:**
+
 - `tests/test_soak.py::TestMeshtasticSoak` — configurable duration soak test
 - `SOAK_DURATION_SECONDS` env var controls duration (default 30s, max 300s)
 
 **Manual procedure:**
+
 ```bash
 # 1. Set Meshtastic env vars (see §2.1)
 export MESHTASTIC_CONNECTION_TYPE="serial"
@@ -853,37 +863,37 @@ SOAK_DURATION_SECONDS=120 pytest tests/test_soak.py::TestMeshtasticSoak -m live 
 
 #### Observations to Record
 
-| Field | What to observe | Source |
-|-------|-----------------|--------|
-| Runtime duration (seconds) | Actual wall-clock duration | Soak test output |
-| Connection type | serial / tcp | Config |
-| Connection stability | Number of disconnect/reconnect events | `diagnostics()` delta |
-| Messages sent | Outbound count during runtime | Soak test output |
-| Messages succeeded | Successful delivery count | Soak test output |
-| Messages failed | Failed delivery count | Soak test output |
-| `queue_pending` at end | Pending queue depth at end | `diagnostics()` |
-| `queue_total_sent` / `queue_total_failed` / `queue_total_dropped` | Cumulative queue stats | `diagnostics()` |
-| Health throughout | Min/max health states | Periodic `health_check()` |
-| `transient_delivery_failures` | Transient failure count | `diagnostics()` |
-| `permanent_delivery_failures` | Permanent failure count | `diagnostics()` |
-| `last_packet_time` | Timestamp of last received packet | `diagnostics()` |
-| Diagnostics snapshot at start | All session fields at t=0 | `diagnostics()` |
-| Diagnostics snapshot at end | All session fields at t=duration | `diagnostics()` |
+| Field                                                             | What to observe                       | Source                    |
+| ----------------------------------------------------------------- | ------------------------------------- | ------------------------- |
+| Runtime duration (seconds)                                        | Actual wall-clock duration            | Soak test output          |
+| Connection type                                                   | serial / tcp                          | Config                    |
+| Connection stability                                              | Number of disconnect/reconnect events | `diagnostics()` delta     |
+| Messages sent                                                     | Outbound count during runtime         | Soak test output          |
+| Messages succeeded                                                | Successful delivery count             | Soak test output          |
+| Messages failed                                                   | Failed delivery count                 | Soak test output          |
+| `queue_pending` at end                                            | Pending queue depth at end            | `diagnostics()`           |
+| `queue_total_sent` / `queue_total_failed` / `queue_total_dropped` | Cumulative queue stats                | `diagnostics()`           |
+| Health throughout                                                 | Min/max health states                 | Periodic `health_check()` |
+| `transient_delivery_failures`                                     | Transient failure count               | `diagnostics()`           |
+| `permanent_delivery_failures`                                     | Permanent failure count               | `diagnostics()`           |
+| `last_packet_time`                                                | Timestamp of last received packet     | `diagnostics()`           |
+| Diagnostics snapshot at start                                     | All session fields at t=0             | `diagnostics()`           |
+| Diagnostics snapshot at end                                       | All session fields at t=duration      | `diagnostics()`           |
 
 #### NOT EXECUTED (current machine)
 
-| Field | Value |
-|-------|-------|
-| **Execution date** | NOT EXECUTED |
-| **Reason** | No Meshtastic radio hardware. Long-running observation requires sustained connection. |
-| **Resolution** | Connect radio, set env vars, run `SOAK_DURATION_SECONDS=120 pytest tests/test_soak.py::TestMeshtasticSoak -m live -v -s`. Record all fields with tier `R`. |
-
+| Field              | Value                                                                                                                                                      |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Execution date** | NOT EXECUTED                                                                                                                                               |
+| **Reason**         | No Meshtastic radio hardware. Long-running observation requires sustained connection.                                                                      |
+| **Resolution**     | Connect radio, set env vars, run `SOAK_DURATION_SECONDS=120 pytest tests/test_soak.py::TestMeshtasticSoak -m live -v -s`. Record all fields with tier `R`. |
 
 ### 2.10 Meshtastic Diagnostics Snapshot Capture Procedure (v2)
 
 Defines the procedure for capturing a full `diagnostics()` snapshot from a running Meshtastic adapter.
 
 **Adapter-level snapshot fields:**
+
 ```
 adapter_id, platform, started, connection_type,
 queue_pending, queue_total_sent, queue_total_failed, queue_total_dropped,
@@ -891,6 +901,7 @@ background_tasks
 ```
 
 **Session-level snapshot fields (nested under `session`):**
+
 ```
 connected, reconnecting, reconnect_attempts, last_packet_time,
 node_id, channel_count, transient_delivery_failures,
@@ -898,6 +909,7 @@ permanent_delivery_failures, last_error
 ```
 
 **Procedure:**
+
 ```bash
 # 1. Start the adapter against a real node
 # 2. At observation points, capture:
@@ -912,14 +924,13 @@ snapshot = adapter.diagnostics()
 
 #### NOT EXECUTED (current machine)
 
-| Field | Value |
-|-------|-------|
-| **Live snapshot** | NOT EXECUTED |
-| **Reason** | No running Meshtastic adapter session. |
-| **Resolution** | Connect radio, start adapter, capture `diagnostics()` at observation points. |
+| Field             | Value                                                                        |
+| ----------------- | ---------------------------------------------------------------------------- |
+| **Live snapshot** | NOT EXECUTED                                                                 |
+| **Reason**        | No running Meshtastic adapter session.                                       |
+| **Resolution**    | Connect radio, start adapter, capture `diagnostics()` at observation points. |
 
 **Deterministic validation (S-tier):** Unit tests verify all snapshot fields present and correctly typed in `tests/test_meshtastic_adapter.py` and `tests/test_meshtastic_session.py`. No secrets exposed.
-
 
 ### 2.11 Meshtastic Hardware/Firmware Field Capture Procedure (v2)
 
@@ -927,21 +938,22 @@ When recording live evidence, capture these hardware and firmware fields. These 
 
 **Fields to capture:**
 
-| Field | How to obtain | Example |
-|-------|--------------|---------|
-| Node hardware model | Physical inspection or `meshtastic --info` output `model` field | `LilyGO T-LORA V2.1`, `Heltec v3`, `RAK WisBlock RAK4631` |
-| Firmware version | `node.getMetadata().firmware_version` or `meshtastic --info` | `2.7.19` |
-| Node ID | `diagnostics()["session"]["node_id"]` or `meshtastic --info` | `!25d6e474` |
-| Channel index | Config `MESHTASTIC_CHANNEL_INDEX` | `0` |
-| Channel name | `meshtastic --info` channel listing | `LONG_FAST`, `PRIMARY` |
-| Connection type | Config `MESHTASTIC_CONNECTION_TYPE` | `serial`, `tcp`, `ble` |
-| Serial port (if serial) | Config `MESHTASTIC_SERIAL_PORT` | `/dev/ttyACM0` |
-| Host:port (if TCP) | Config `MESHTASTIC_HOST:PORT` | `192.168.1.100:4403` |
-| mtjk version | `pip show mtjk` | `2.7.8.post2+` |
-| Role / hw_model protobuf | `node.localNode.nodeInfo` | `CLIENT`, `ROUTER` |
-| Device metrics (if available) | `diagnostics()` or `meshtastic --info` | Battery level, SNR, RSSI |
+| Field                         | How to obtain                                                   | Example                                                   |
+| ----------------------------- | --------------------------------------------------------------- | --------------------------------------------------------- |
+| Node hardware model           | Physical inspection or `meshtastic --info` output `model` field | `LilyGO T-LORA V2.1`, `Heltec v3`, `RAK WisBlock RAK4631` |
+| Firmware version              | `node.getMetadata().firmware_version` or `meshtastic --info`    | `2.7.19`                                                  |
+| Node ID                       | `diagnostics()["session"]["node_id"]` or `meshtastic --info`    | `!25d6e474`                                               |
+| Channel index                 | Config `MESHTASTIC_CHANNEL_INDEX`                               | `0`                                                       |
+| Channel name                  | `meshtastic --info` channel listing                             | `LONG_FAST`, `PRIMARY`                                    |
+| Connection type               | Config `MESHTASTIC_CONNECTION_TYPE`                             | `serial`, `tcp`, `ble`                                    |
+| Serial port (if serial)       | Config `MESHTASTIC_SERIAL_PORT`                                 | `/dev/ttyACM0`                                            |
+| Host:port (if TCP)            | Config `MESHTASTIC_HOST:PORT`                                   | `192.168.1.100:4403`                                      |
+| mtjk version                  | `pip show mtjk`                                                 | `2.7.8.post2+`                                            |
+| Role / hw_model protobuf      | `node.localNode.nodeInfo`                                       | `CLIENT`, `ROUTER`                                        |
+| Device metrics (if available) | `diagnostics()` or `meshtastic --info`                          | Battery level, SNR, RSSI                                  |
 
 **Historical capture (H-tier, 2026-05-10):**
+
 - Hardware: LilyGO T-LORA V2.1
 - Firmware: 2.7.19
 - Node ID: `!25d6e474`
@@ -952,11 +964,11 @@ When recording live evidence, capture these hardware and firmware fields. These 
 #### NOT EXECUTED (current machine)
 
 No current hardware connected. When hardware is available, run:
+
 ```bash
 meshtastic --info 2>&1 | tee hardware-capture-$(date +%Y%m%d).txt
 pip show mtjk
 ```
-
 
 ### 2.12 Meshtastic Actual Runtime Duration and Restart/Recovery Observation (v2)
 
@@ -964,6 +976,7 @@ Documents procedures for recording actual runtime durations and observing restar
 
 **Runtime duration observation:**
 The Meshtastic adapter tracks `started` in diagnostics. To record actual runtime:
+
 ```bash
 # 1. Record wall-clock time at adapter start
 # 2. Record wall-clock time at adapter stop
@@ -973,6 +986,7 @@ The Meshtastic adapter tracks `started` in diagnostics. To record actual runtime
 ```
 
 **Restart/recovery observation:**
+
 ```bash
 # 1. Start adapter → healthy
 # 2. Record: connection establishment time (start to connected)
@@ -987,51 +1001,51 @@ The Meshtastic adapter tracks `started` in diagnostics. To record actual runtime
 ```
 
 **Deterministic validation (S-tier):**
+
 - Connection establishment: tested in `tests/test_meshtastic_session.py` with mocked interfaces.
 - Queue state reset: tested in `tests/test_meshtastic_adapter.py`.
 - Session state reset: `connected`, `reconnect_attempts`, `reconnecting` reset on `start()`.
 
 #### NOT EXECUTED (current machine)
 
-| Field | Value |
-|-------|-------|
-| **Runtime duration** | NOT EXECUTED — no live session |
-| **Connection establishment time** | NOT EXECUTED — no hardware |
-| **Reconnection time (second start)** | NOT EXECUTED — no hardware |
-| **Reason** | No Meshtastic hardware available for live session timing. |
-| **Resolution** | Connect hardware, run procedure, record wall-clock durations. |
+| Field                                | Value                                                         |
+| ------------------------------------ | ------------------------------------------------------------- |
+| **Runtime duration**                 | NOT EXECUTED — no live session                                |
+| **Connection establishment time**    | NOT EXECUTED — no hardware                                    |
+| **Reconnection time (second start)** | NOT EXECUTED — no hardware                                    |
+| **Reason**                           | No Meshtastic hardware available for live session timing.     |
+| **Resolution**                       | Connect hardware, run procedure, record wall-clock durations. |
 
 ### 2.13 Hardware Probe Evidence (2026-05-12)
 
 > **Hardware probe findings.** Not live-transport evidence (no MEDRE adapter interaction). Documents physical serial device landscape for follow-up planning.
 
-| Field | Value |
-|-------|-------|
-| **Probe date** | 2026-05-12 |
-| **Device 1: CP2104** | `/dev/ttyUSB0`, stable by-id path `Silicon_Labs_CP2104_USB_to_UART_Bridge_Controller_*/if00-port0` |
-| **Device 1: Likely hardware** | T-Beam (CP2104 is typical T-Beam USB-UART bridge) |
-| **Device 1: Serial chatter** | None observed. Device present but no spontaneous serial output at 9600 or 115200 baud. May be unflashed or running non-Meshtastic firmware. |
-| **Device 1: esptool** | `esptool` available via pipx. `esptool chip_id` not yet run — pending follow-up. |
-| **Device 2: CH9102F** | `/dev/ttyACM0`, stable by-id path `1a86_USB_Serial_5435017226/if00` |
-| **Device 2: Confirmed hardware** | LilyGO T-LoRa V2.1-1.6 (TLORA_V2_1_1P6), node `!25d6e474`, running Meshtastic firmware 2.7.19.bb3d6d5 |
-| **Device 2: Status** | Active Meshtastic node. CLI-level R-tier evidence recorded (§2.2, §2.3). |
-| **MeshCore firmware source** | Available at `/home/jeremiah/dev` (local source repo) |
-| **MeshCore Python library** | Available at `/home/jeremiah/dev` (local source repo) |
-| **LXMF source** | Available at `/home/jeremiah/dev` (local source repo) |
-| **Reticulum source** | Available at `/home/jeremiah/dev` (local source repo) |
-| **esptool** | Available via pipx (for ESP32 firmware flash operations) |
-| **pipx preference** | User prefers pipx for PyPI CLI tools |
+| Field                            | Value                                                                                                                                       |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Probe date**                   | 2026-05-12                                                                                                                                  |
+| **Device 1: CP2104**             | `/dev/ttyUSB0`, stable by-id path `Silicon_Labs_CP2104_USB_to_UART_Bridge_Controller_*/if00-port0`                                          |
+| **Device 1: Likely hardware**    | T-Beam (CP2104 is typical T-Beam USB-UART bridge)                                                                                           |
+| **Device 1: Serial chatter**     | None observed. Device present but no spontaneous serial output at 9600 or 115200 baud. May be unflashed or running non-Meshtastic firmware. |
+| **Device 1: esptool**            | `esptool` available via pipx. `esptool chip_id` not yet run — pending follow-up.                                                            |
+| **Device 2: CH9102F**            | `/dev/ttyACM0`, stable by-id path `1a86_USB_Serial_5435017226/if00`                                                                         |
+| **Device 2: Confirmed hardware** | LilyGO T-LoRa V2.1-1.6 (TLORA_V2_1_1P6), node `!25d6e474`, running Meshtastic firmware 2.7.19.bb3d6d5                                       |
+| **Device 2: Status**             | Active Meshtastic node. CLI-level R-tier evidence recorded (§2.2, §2.3).                                                                    |
+| **MeshCore firmware source**     | Available at `/home/jeremiah/dev` (local source repo)                                                                                       |
+| **MeshCore Python library**      | Available at `/home/jeremiah/dev` (local source repo)                                                                                       |
+| **LXMF source**                  | Available at `/home/jeremiah/dev` (local source repo)                                                                                       |
+| **Reticulum source**             | Available at `/home/jeremiah/dev` (local source repo)                                                                                       |
+| **esptool**                      | Available via pipx (for ESP32 firmware flash operations)                                                                                    |
+| **pipx preference**              | User prefers pipx for PyPI CLI tools                                                                                                        |
 
 #### Pending Follow-Up Operations
 
-| Operation | Target Device | Prerequisite | Status |
-|-----------|--------------|--------------|--------|
-| `esptool chip_id` on CP2104 | `/dev/ttyUSB0` (likely T-Beam) | Physical access | **Pending** |
-| MeshCore firmware flash attempt | `/dev/ttyUSB0` (likely T-Beam) | Confirm chip type, obtain MeshCore firmware binary | **Pending** |
-| MeshCore live smoke test | TBD (depends on flash) | MeshCore firmware running on device | **Pending** |
-| LXMF/Reticulum live path setup | N/A (software-only) | Install Reticulum from local source, configure transport | **Pending** |
-| LXMF live smoke test | N/A (Reticulum instance) | Running Reticulum instance with identity file | **Pending** |
-
+| Operation                       | Target Device                  | Prerequisite                                             | Status      |
+| ------------------------------- | ------------------------------ | -------------------------------------------------------- | ----------- |
+| `esptool chip_id` on CP2104     | `/dev/ttyUSB0` (likely T-Beam) | Physical access                                          | **Pending** |
+| MeshCore firmware flash attempt | `/dev/ttyUSB0` (likely T-Beam) | Confirm chip type, obtain MeshCore firmware binary       | **Pending** |
+| MeshCore live smoke test        | TBD (depends on flash)         | MeshCore firmware running on device                      | **Pending** |
+| LXMF/Reticulum live path setup  | N/A (software-only)            | Install Reticulum from local source, configure transport | **Pending** |
+| LXMF live smoke test            | N/A (Reticulum instance)       | Running Reticulum instance with identity file            | **Pending** |
 
 ### 2.14 MeshCore Live Procedure Placeholder
 
@@ -1043,23 +1057,22 @@ The Meshtastic adapter tracks `started` in diagnostics. To record actual runtime
 
 #### NOT EXECUTED
 
-| Field | Value |
-|-------|-------|
-| **Execution date** | NOT EXECUTED |
-| **Reason** | No MeshCore firmware running on CP2104 device. Hardware probe identified `/dev/ttyUSB0` (likely T-Beam) but no serial chatter observed. Device is present but requires firmware flash. MeshCore firmware source available at `/home/jeremiah/dev`. `esptool` available via pipx. |
-| **Next validation steps** | (1) Run `esptool chip_id` on `/dev/ttyUSB0` to confirm chip type. (2) Build/obtain MeshCore firmware binary from local source repo. (3) Flash firmware via `esptool`. (4) Verify serial chatter. (5) Run `pytest tests/test_meshcore_live.py -m live -v`. |
-| **Resolution** | Execute follow-up hardware operations, then record R-tier evidence here. |
+| Field                     | Value                                                                                                                                                                                                                                                                            |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Execution date**        | NOT EXECUTED                                                                                                                                                                                                                                                                     |
+| **Reason**                | No MeshCore firmware running on CP2104 device. Hardware probe identified `/dev/ttyUSB0` (likely T-Beam) but no serial chatter observed. Device is present but requires firmware flash. MeshCore firmware source available at `/home/jeremiah/dev`. `esptool` available via pipx. |
+| **Next validation steps** | (1) Run `esptool chip_id` on `/dev/ttyUSB0` to confirm chip type. (2) Build/obtain MeshCore firmware binary from local source repo. (3) Flash firmware via `esptool`. (4) Verify serial chatter. (5) Run `pytest tests/test_meshcore_live.py -m live -v`.                        |
+| **Resolution**            | Execute follow-up hardware operations, then record R-tier evidence here.                                                                                                                                                                                                         |
 
 #### Observations to Record
 
-| Field | What to observe | Source |
-|-------|-----------------|--------|
-| Connection established | TCP/Serial interface connects to MeshCore node | Test output |
-| Adapter start → healthy | `health_check()` returns `"healthy"` | Test output |
-| Send text → success | `deliver()` completes without error | Test output |
-| Diagnostics snapshot | Non-empty dict, no secrets | Test output |
-| Stop → clean teardown | No leaked connections | Test output |
-
+| Field                   | What to observe                                | Source      |
+| ----------------------- | ---------------------------------------------- | ----------- |
+| Connection established  | TCP/Serial interface connects to MeshCore node | Test output |
+| Adapter start → healthy | `health_check()` returns `"healthy"`           | Test output |
+| Send text → success     | `deliver()` completes without error            | Test output |
+| Diagnostics snapshot    | Non-empty dict, no secrets                     | Test output |
+| Stop → clean teardown   | No leaked connections                          | Test output |
 
 ### 2.15 LXMF/Reticulum Live Procedure Placeholder
 
@@ -1071,64 +1084,62 @@ The Meshtastic adapter tracks `started` in diagnostics. To record actual runtime
 
 #### NOT EXECUTED
 
-| Field | Value |
-|-------|-------|
-| **Execution date** | NOT EXECUTED |
-| **Reason** | No Reticulum instance configured. Local source repos for Reticulum and LXMF available at `/home/jeremiah/dev` but not yet installed/configured for live testing. |
+| Field                     | Value                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Execution date**        | NOT EXECUTED                                                                                                                                                                                                                                                                                                                                                                                              |
+| **Reason**                | No Reticulum instance configured. Local source repos for Reticulum and LXMF available at `/home/jeremiah/dev` but not yet installed/configured for live testing.                                                                                                                                                                                                                                          |
 | **Next validation steps** | (1) Install Reticulum from local source: `pip install -e /home/jeremiah/dev/rns` (or equivalent). (2) Install LXMF from local source: `pip install -e /home/jeremiah/dev/lxmf` (or equivalent). (3) Configure Reticulum transport (local TCP or serial). (4) Generate/create identity file. (5) Set `LXMF_CONNECTION_TYPE` and `LXMF_IDENTITY_PATH`. (6) Run `pytest tests/test_lxmf_live.py -m live -v`. |
-| **Resolution** | Execute follow-up Reticulum setup, then record R-tier evidence here. |
+| **Resolution**            | Execute follow-up Reticulum setup, then record R-tier evidence here.                                                                                                                                                                                                                                                                                                                                      |
 
 #### Observations to Record
 
-| Field | What to observe | Source |
-|-------|-----------------|--------|
-| Connection established | Reticulum transport initialized | Test output |
-| Adapter start → healthy | `health_check()` returns `"healthy"` | Test output |
-| Send text → success | `deliver()` completes, delivery state model progresses | Test output |
-| Delivery state progression | `OUTBOUND → SENDING → SENT → DELIVERED` observed | Test output |
-| Inbound callback received | LXMFRouter callback fires | Test output |
-| Diagnostics snapshot | Non-empty dict, no secrets | Test output |
-| Stop → clean teardown | No leaked Reticulum resources | Test output |
-
+| Field                      | What to observe                                        | Source      |
+| -------------------------- | ------------------------------------------------------ | ----------- |
+| Connection established     | Reticulum transport initialized                        | Test output |
+| Adapter start → healthy    | `health_check()` returns `"healthy"`                   | Test output |
+| Send text → success        | `deliver()` completes, delivery state model progresses | Test output |
+| Delivery state progression | `OUTBOUND → SENDING → SENT → DELIVERED` observed       | Test output |
+| Inbound callback received  | LXMFRouter callback fires                              | Test output |
+| Diagnostics snapshot       | Non-empty dict, no secrets                             | Test output |
+| Stop → clean teardown      | No leaked Reticulum resources                          | Test output |
 
 ### 3.1 Matrix Boundedness
 
-| Resource | Bound | Source | Deterministic test |
-|----------|-------|--------|--------------------|
-| Sync reconnect attempts | Max 10 consecutive | `_MAX_RECONNECT_ATTEMPTS` in `session.py` | `test_resource_containment.py` |
-| Backoff cap | 60 seconds | `_BACKOFF_CAP` in `session.py` | `test_matrix_session.py` |
-| Room state tracking | Max 10,000 rooms | `_MAX_ROOM_STATES` in `session.py` | `test_matrix_session.py` (eviction), `test_resource_containment.py` |
-| Delivery backoff | Base 0.5s, exponential | `_DELIVERY_BACKOFF_BASE` in `adapter.py` | `test_matrix_adapter.py` |
-| Delivery failures (transient/permanent) | Tracked in diagnostics, no hard cap | `diagnostics()` output | `test_matrix_adapter.py` |
+| Resource                                | Bound                               | Source                                    | Deterministic test                                                  |
+| --------------------------------------- | ----------------------------------- | ----------------------------------------- | ------------------------------------------------------------------- |
+| Sync reconnect attempts                 | Max 10 consecutive                  | `_MAX_RECONNECT_ATTEMPTS` in `session.py` | `test_resource_containment.py`                                      |
+| Backoff cap                             | 60 seconds                          | `_BACKOFF_CAP` in `session.py`            | `test_matrix_session.py`                                            |
+| Room state tracking                     | Max 10,000 rooms                    | `_MAX_ROOM_STATES` in `session.py`        | `test_matrix_session.py` (eviction), `test_resource_containment.py` |
+| Delivery backoff                        | Base 0.5s, exponential              | `_DELIVERY_BACKOFF_BASE` in `adapter.py`  | `test_matrix_adapter.py`                                            |
+| Delivery failures (transient/permanent) | Tracked in diagnostics, no hard cap | `diagnostics()` output                    | `test_matrix_adapter.py`                                            |
 
 ### 3.2 Meshtastic Boundedness
 
-| Resource | Bound | Source | Deterministic test |
-|----------|-------|--------|--------------------|
-| Reconnect attempts | Max 10 consecutive | `_MAX_RECONNECT_ATTEMPTS` in `session.py` | `test_resource_containment.py` |
-| Backoff cap | 30 seconds | `_BACKOFF_CAP` in `session.py` | `test_meshtastic_session.py` |
-| Send retries | Max 3 transient | `_MAX_SEND_RETRIES` in `session.py` | `test_resource_containment.py`, `test_meshtastic_session.py` |
-| Queue depth | Configurable (default 100) | `MeshtasticQueue` constructor | `test_meshtastic_adapter.py` |
+| Resource           | Bound                      | Source                                    | Deterministic test                                           |
+| ------------------ | -------------------------- | ----------------------------------------- | ------------------------------------------------------------ |
+| Reconnect attempts | Max 10 consecutive         | `_MAX_RECONNECT_ATTEMPTS` in `session.py` | `test_resource_containment.py`                               |
+| Backoff cap        | 30 seconds                 | `_BACKOFF_CAP` in `session.py`            | `test_meshtastic_session.py`                                 |
+| Send retries       | Max 3 transient            | `_MAX_SEND_RETRIES` in `session.py`       | `test_resource_containment.py`, `test_meshtastic_session.py` |
+| Queue depth        | Configurable (default 100) | `MeshtasticQueue` constructor             | `test_meshtastic_adapter.py`                                 |
 
 ### 3.3 Recovery and Restart Evidence Status (v2)
 
-| Transport | Recovery scenario | Observed? | Evidence tier | Procedure |
-|-----------|------------------|-----------|---------------|-----------|
-| Matrix | Sync failure → reconnect → healthy | Yes | H (2026-05-10) | §1.3 |
-| Matrix | Reconnect budget exhaustion → failed | Yes | H (2026-05-10) | §1.3 |
-| Matrix | Stop → restart → sync re-establishes | Yes | H (2026-05-10) | §1.4, §1.8 |
-| Matrix | E2EE crypto store reuse across restart | Yes | H (2026-05-10) | §1.12 |
-| Matrix | Repeated start/stop cycles (3x) | Yes | H (2026-05-10) | §1.7 |
-| Matrix | Long sync replay after offline gap | NOT EXECUTED | — | §1.8 |
-| Matrix | Long-running sync stability (>60s) | NOT EXECUTED | — | §1.9 |
-| Matrix | Room-state boundedness (10K cap) | NOT EXECUTED (S-tier confirmed) | S | §1.11 |
-| Meshtastic | Serial disconnect → reconnect | NOT EXECUTED | — | §2.8 |
-| Meshtastic | Send failure → transient retry (3x) | NOT EXECUTED (S-tier confirmed) | S | §2.8 |
-| Meshtastic | Reconnect budget exhaustion → failed | NOT EXECUTED (S-tier confirmed) | S | §2.8 |
-| Meshtastic | Repeated start/stop cycles (3x) | NOT EXECUTED | — | §2.7 |
-| Meshtastic | Long-running runtime stability (>60s) | NOT EXECUTED | — | §2.9 |
-| Meshtastic | Outbound degraded behavior | NOT EXECUTED | — | §2.8 |
-
+| Transport  | Recovery scenario                      | Observed?                       | Evidence tier  | Procedure  |
+| ---------- | -------------------------------------- | ------------------------------- | -------------- | ---------- |
+| Matrix     | Sync failure → reconnect → healthy     | Yes                             | H (2026-05-10) | §1.3       |
+| Matrix     | Reconnect budget exhaustion → failed   | Yes                             | H (2026-05-10) | §1.3       |
+| Matrix     | Stop → restart → sync re-establishes   | Yes                             | H (2026-05-10) | §1.4, §1.8 |
+| Matrix     | E2EE crypto store reuse across restart | Yes                             | H (2026-05-10) | §1.12      |
+| Matrix     | Repeated start/stop cycles (3x)        | Yes                             | H (2026-05-10) | §1.7       |
+| Matrix     | Long sync replay after offline gap     | NOT EXECUTED                    | —              | §1.8       |
+| Matrix     | Long-running sync stability (>60s)     | NOT EXECUTED                    | —              | §1.9       |
+| Matrix     | Room-state boundedness (10K cap)       | NOT EXECUTED (S-tier confirmed) | S              | §1.11      |
+| Meshtastic | Serial disconnect → reconnect          | NOT EXECUTED                    | —              | §2.8       |
+| Meshtastic | Send failure → transient retry (3x)    | NOT EXECUTED (S-tier confirmed) | S              | §2.8       |
+| Meshtastic | Reconnect budget exhaustion → failed   | NOT EXECUTED (S-tier confirmed) | S              | §2.8       |
+| Meshtastic | Repeated start/stop cycles (3x)        | NOT EXECUTED                    | —              | §2.7       |
+| Meshtastic | Long-running runtime stability (>60s)  | NOT EXECUTED                    | —              | §2.9       |
+| Meshtastic | Outbound degraded behavior             | NOT EXECUTED                    | —              | §2.8       |
 
 ## 4. Remaining Risks (v2)
 
@@ -1151,54 +1162,51 @@ The Meshtastic adapter tracks `started` in diagnostics. To record actual runtime
 6. **Degraded/outbound behavior unobserved:** The `degraded` health state and transient send retry path have not been observed against real hardware. S-tier tests confirm logic; R-tier observation pending. Procedure in §2.8.
 7. **Long-running stability unknown:** No sustained Meshtastic session (>60s) has been executed against real hardware. Runtime observation procedure in §2.9.
 
-
 ## 5. Cross-References
 
-| Document | Relationship |
-|----------|-------------|
-| `docs/contracts/61-operational-evidence-contract.md` | Evidence schema and classification |
-| `docs/runbooks/operational-evidence.md` | Primary evidence recording location |
-| `docs/runbooks/longrun-validation.md` | Extended operation evidence procedures |
-| `docs/runbooks/matrix-live-smoke.md` | Matrix live smoke test details |
-| `docs/runbooks/meshtastic-live-smoke.md` | Meshtastic live smoke test details |
-| `docs/runbooks/matrix-alpha-operation.md` | Full Matrix alpha operation procedures |
-| `docs/runbooks/meshtastic-alpha-operation.md` | Full Meshtastic alpha operation procedures |
-| `docs/contracts/37-transport-maturity-classification.md` | Transport maturity tiers |
-| `docs/contracts/39-operational-risk-register.md` | Risk register |
+| Document                                                   | Relationship                                          |
+| ---------------------------------------------------------- | ----------------------------------------------------- |
+| `docs/contracts/61-operational-evidence-contract.md`       | Evidence schema and classification                    |
+| `docs/runbooks/operational-evidence.md`                    | Primary evidence recording location                   |
+| `docs/runbooks/longrun-validation.md`                      | Extended operation evidence procedures                |
+| `docs/runbooks/matrix-live-smoke.md`                       | Matrix live smoke test details                        |
+| `docs/runbooks/meshtastic-live-smoke.md`                   | Meshtastic live smoke test details                    |
+| `docs/runbooks/matrix-alpha-operation.md`                  | Full Matrix alpha operation procedures                |
+| `docs/runbooks/meshtastic-alpha-operation.md`              | Full Meshtastic alpha operation procedures            |
+| `docs/contracts/37-transport-maturity-classification.md`   | Transport maturity tiers                              |
+| `docs/contracts/39-operational-risk-register.md`           | Risk register                                         |
 | `docs/contracts/62-adapter-operational-maturity-matrix.md` | Cross-adapter maturity assessment with evidence tiers |
-| `docs/contracts/48-runtime-observability-contract.md` | Diagnostics contract |
-| `docs/runbooks/deployment-validation.md` | Deployment boundary validation (Track 8/9) |
-| `docs/runbooks/container-operation.md` | Container deployment procedures (Track 8/9) |
-| `tests/test_deployment_boundaries.py` | Deployment boundary enforcement tests |
-| `tests/test_runtime_deployment_boundaries.py` | Runtime-level boundary enforcement tests |
-
+| `docs/contracts/48-runtime-observability-contract.md`      | Diagnostics contract                                  |
+| `docs/runbooks/deployment-validation.md`                   | Deployment boundary validation (Track 8/9)            |
+| `docs/runbooks/container-operation.md`                     | Container deployment procedures (Track 8/9)           |
+| `tests/test_deployment_boundaries.py`                      | Deployment boundary enforcement tests                 |
+| `tests/test_runtime_deployment_boundaries.py`              | Runtime-level boundary enforcement tests              |
 
 ## 6. Evidence Separation Summary
 
 This document contains the following evidence categories, clearly separated:
 
-| Category | Section | Status |
-|----------|---------|--------|
-| **R-tier (real-live-runtime)** | §2.2 (Meshtastic CLI-level serial validation 2026-05-12) | Meshtastic CLI-level evidence recorded |
-| **H-tier (historical)** | §1.3, §1.7, §1.8, §1.12 (Matrix); §2.2, §2.7, §2.11 (Meshtastic) | Historical evidence from 2026-05-10. May be stale. |
-| **Hardware probe** | §2.13 | CP2104/ttyUSB0 (likely T-Beam, no serial chatter), CH9102F/ttyACM0 (confirmed T-LoRa). Not live-transport evidence. |
-| **Follow-up placeholders** | §2.14 (MeshCore), §2.15 (LXMF) | Pending follow-up hardware/Reticulum operations. |
-| **S-tier (simulated/fake)** | §1.11, §1.10, §2.10, §3.1, §3.2, §3.3 | Deterministic unit test coverage confirmed |
-| **NOT EXECUTED** | All live procedure NOT EXECUTED sections | Live endpoints unavailable or pending follow-up validation |
+| Category                       | Section                                                          | Status                                                                                                              |
+| ------------------------------ | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| **R-tier (real-live-runtime)** | §2.2 (Meshtastic CLI-level serial validation 2026-05-12)         | Meshtastic CLI-level evidence recorded                                                                              |
+| **H-tier (historical)**        | §1.3, §1.7, §1.8, §1.12 (Matrix); §2.2, §2.7, §2.11 (Meshtastic) | Historical evidence from 2026-05-10. May be stale.                                                                  |
+| **Hardware probe**             | §2.13                                                            | CP2104/ttyUSB0 (likely T-Beam, no serial chatter), CH9102F/ttyACM0 (confirmed T-LoRa). Not live-transport evidence. |
+| **Follow-up placeholders**     | §2.14 (MeshCore), §2.15 (LXMF)                                   | Pending follow-up hardware/Reticulum operations.                                                                    |
+| **S-tier (simulated/fake)**    | §1.11, §1.10, §2.10, §3.1, §3.2, §3.3                            | Deterministic unit test coverage confirmed                                                                          |
+| **NOT EXECUTED**               | All live procedure NOT EXECUTED sections                         | Live endpoints unavailable or pending follow-up validation                                                          |
 
 **No overclaims:** This document does not claim any transport is production-ready, reliable, or performs at any specific latency. All live procedures are documented as NOT EXECUTED unless explicitly marked with R-tier evidence and an execution date.
 
-
 ## 7. Unresolved Risks (Track 9 Consolidation)
 
-| Risk | Status | Affects | Mitigation |
-|------|--------|---------|------------|
-| No current-tranche live evidence | All historical (H-tier) from 2026-05-10 | All transports | Re-run live procedures at current commit to produce C-tier evidence. |
-| MeshCore has no live evidence | S-tier only; hardware probe identified CP2104 device at `/dev/ttyUSB0` (likely T-Beam) | MeshCore | Next: flash MeshCore firmware, run live smoke test. Alpha (Tier 2) per Contract 62. |
-| LXMF has no live evidence | S-tier only; local source repos available at `/home/jeremiah/dev` | LXMF | Next: set up Reticulum from local source, configure live path, run live smoke test. Alpha (Tier 2) with experimental downgrade risk per Contract 62. |
-| CP2104 device may not be MeshCore-compatible | Unknown chip type, no serial chatter | MeshCore | Next: run `esptool chip_id` to confirm. If incompatible, document as hardware gap. |
-| No soak/longrun evidence | NOT EXECUTED | All transports | Run soak procedures with live endpoints. Record evidence per Contract 61 §3.6. |
-| Container deployment unvalidated | NOT EXECUTED | All transports | Build container image and run validation per deployment-validation.md. |
-| Historical evidence may be stale | H-tier from 2026-05-10 | Matrix, Meshtastic | Adapter code may have changed since recording. Re-run live tests at current commit to confirm. |
-| No third-party inbound evidence | NOT EXECUTED | Matrix | Requires second Matrix account and manual coordination. |
-| No multi-node inbound evidence | NOT EXECUTED | Meshtastic | Requires second Meshtastic node on same channel. |
+| Risk                                         | Status                                                                                 | Affects            | Mitigation                                                                                                                                           |
+| -------------------------------------------- | -------------------------------------------------------------------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| No current-tranche live evidence             | All historical (H-tier) from 2026-05-10                                                | All transports     | Re-run live procedures at current commit to produce C-tier evidence.                                                                                 |
+| MeshCore has no live evidence                | S-tier only; hardware probe identified CP2104 device at `/dev/ttyUSB0` (likely T-Beam) | MeshCore           | Next: flash MeshCore firmware, run live smoke test. Alpha (Tier 2) per Contract 62.                                                                  |
+| LXMF has no live evidence                    | S-tier only; local source repos available at `/home/jeremiah/dev`                      | LXMF               | Next: set up Reticulum from local source, configure live path, run live smoke test. Alpha (Tier 2) with experimental downgrade risk per Contract 62. |
+| CP2104 device may not be MeshCore-compatible | Unknown chip type, no serial chatter                                                   | MeshCore           | Next: run `esptool chip_id` to confirm. If incompatible, document as hardware gap.                                                                   |
+| No soak/longrun evidence                     | NOT EXECUTED                                                                           | All transports     | Run soak procedures with live endpoints. Record evidence per Contract 61 §3.6.                                                                       |
+| Container deployment unvalidated             | NOT EXECUTED                                                                           | All transports     | Build container image and run validation per deployment-validation.md.                                                                               |
+| Historical evidence may be stale             | H-tier from 2026-05-10                                                                 | Matrix, Meshtastic | Adapter code may have changed since recording. Re-run live tests at current commit to confirm.                                                       |
+| No third-party inbound evidence              | NOT EXECUTED                                                                           | Matrix             | Requires second Matrix account and manual coordination.                                                                                              |
+| No multi-node inbound evidence               | NOT EXECUTED                                                                           | Meshtastic         | Requires second Meshtastic node on same channel.                                                                                                     |

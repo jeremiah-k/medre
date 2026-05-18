@@ -11,11 +11,17 @@ from datetime import datetime, timezone
 import pytest
 
 from medre.adapters import FakeMeshCoreAdapter
-from medre.core.contracts.adapter import AdapterContext, AdapterDeliveryResult, AdapterPermanentError, AdapterRole, AdapterSendError
 from medre.adapters.meshcore.adapter import MeshCoreAdapter
-from medre.config.adapters.meshcore import MeshCoreConfig
-from medre.adapters.meshcore.errors import MeshCoreConnectionError, MeshCoreSendError
+from medre.adapters.meshcore.errors import MeshCoreConnectionError
 from medre.adapters.meshcore.session import MeshCoreSession
+from medre.config.adapters.meshcore import MeshCoreConfig
+from medre.core.contracts.adapter import (
+    AdapterContext,
+    AdapterDeliveryResult,
+    AdapterPermanentError,
+    AdapterRole,
+    AdapterSendError,
+)
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.events.kinds import EventKind
 from medre.core.rendering.renderer import RenderingResult
@@ -37,7 +43,8 @@ def _make_rendering_result(
         event_id=event_id,
         target_adapter=target_adapter,
         target_channel=target_channel,
-        payload=payload or {"text": "hello meshcore", "channel_index": 0, "meshnet_name": ""},
+        payload=payload
+        or {"text": "hello meshcore", "channel_index": 0, "meshnet_name": ""},
     )
 
 
@@ -73,38 +80,47 @@ class TestMeshCoreAdapterCapabilities:
 
     def test_capabilities_text_true(self) -> None:
         from medre.adapters.fake_meshcore import _FAKE_MESHCORE_CAPABILITIES
+
         assert _FAKE_MESHCORE_CAPABILITIES.text is True
 
     def test_capabilities_replies_unsupported(self) -> None:
         from medre.adapters.fake_meshcore import _FAKE_MESHCORE_CAPABILITIES
+
         assert _FAKE_MESHCORE_CAPABILITIES.replies == "unsupported"
 
     def test_capabilities_reactions_unsupported(self) -> None:
         from medre.adapters.fake_meshcore import _FAKE_MESHCORE_CAPABILITIES
+
         assert _FAKE_MESHCORE_CAPABILITIES.reactions == "unsupported"
 
     def test_capabilities_edits_unsupported(self) -> None:
         from medre.adapters.fake_meshcore import _FAKE_MESHCORE_CAPABILITIES
+
         assert _FAKE_MESHCORE_CAPABILITIES.edits == "unsupported"
 
     def test_capabilities_deletes_unsupported(self) -> None:
         from medre.adapters.fake_meshcore import _FAKE_MESHCORE_CAPABILITIES
+
         assert _FAKE_MESHCORE_CAPABILITIES.deletes == "unsupported"
 
     def test_capabilities_attachments_false(self) -> None:
         from medre.adapters.fake_meshcore import _FAKE_MESHCORE_CAPABILITIES
+
         assert _FAKE_MESHCORE_CAPABILITIES.attachments is False
 
     def test_capabilities_direct_messages_false(self) -> None:
         from medre.adapters.fake_meshcore import _FAKE_MESHCORE_CAPABILITIES
+
         assert _FAKE_MESHCORE_CAPABILITIES.direct_messages is False
 
     def test_capabilities_max_text_bytes_512(self) -> None:
         from medre.adapters.fake_meshcore import _FAKE_MESHCORE_CAPABILITIES
+
         assert _FAKE_MESHCORE_CAPABILITIES.max_text_bytes == 512
 
     def test_capabilities_max_text_chars_512(self) -> None:
         from medre.adapters.fake_meshcore import _FAKE_MESHCORE_CAPABILITIES
+
         assert _FAKE_MESHCORE_CAPABILITIES.max_text_chars == 512
 
 
@@ -118,6 +134,7 @@ class TestRealMeshCoreCapabilities:
 
     def test_real_adapter_capabilities_match_fake(self) -> None:
         from medre.adapters.fake_meshcore import _FAKE_MESHCORE_CAPABILITIES
+
         config = _make_config()
         adapter = MeshCoreAdapter(config)
         real_caps = adapter._capabilities
@@ -248,9 +265,7 @@ class TestMeshCoreAdapterSessionDelegation:
         await adapter.stop()
         assert adapter._session is None
 
-    async def test_session_connected_affects_health(
-        self, make_adapter_context
-    ) -> None:
+    async def test_session_connected_affects_health(self, make_adapter_context) -> None:
         config = _make_config(connection_type="fake")
         adapter = MeshCoreAdapter(config)
         ctx = make_adapter_context("meshcore-1")
@@ -294,9 +309,13 @@ class TestFakeMeshCoreAdapterDeliver:
 
     async def test_deliver_does_not_reformat(self) -> None:
         adapter = FakeMeshCoreAdapter()
-        result = _make_rendering_result(payload={
-            "text": "original", "channel_index": 0, "meshnet_name": "",
-        })
+        result = _make_rendering_result(
+            payload={
+                "text": "original",
+                "channel_index": 0,
+                "meshnet_name": "",
+            }
+        )
         await adapter.deliver(result)
         assert adapter.delivered_payloads[0] is result
 
@@ -316,7 +335,9 @@ class TestFakeMeshCoreAdapterDeliver:
             payload={"body": "hello"},
             metadata=EventMetadata(),
         )
-        with pytest.raises((TypeError, AdapterPermanentError), match="RenderingResult only"):
+        with pytest.raises(
+            (TypeError, AdapterPermanentError), match="RenderingResult only"
+        ):
             await adapter.deliver(event)
 
     async def test_deliver_failure_raises_send_error(self) -> None:
@@ -370,10 +391,6 @@ class TestFakeMeshCoreRenderingBoundary:
             assert isinstance(stored, RenderingResult)
 
 
-
-
-
-
 # ===================================================================
 # Real MeshCoreAdapter delivery
 # ===================================================================
@@ -385,9 +402,10 @@ class TestMeshCoreAdapterDelivery:
     async def test_deliver_returns_none_in_fake(self) -> None:
         config = _make_config(connection_type="fake")
         adapter = MeshCoreAdapter(config)
-        ctx = make_adapter_context = None
+        ctx = None
         # Need to start first
         from unittest.mock import AsyncMock
+
         ctx = AdapterContext(
             adapter_id="meshcore-1",
             event_bus=None,
@@ -418,12 +436,10 @@ class TestMeshCoreAdapterDelivery:
             payload={"body": "hello"},
             metadata=EventMetadata(),
         )
-        with pytest.raises((TypeError, AdapterPermanentError), match="RenderingResult only"):
+        with pytest.raises(
+            (TypeError, AdapterPermanentError), match="RenderingResult only"
+        ):
             await adapter.deliver(event)
-
-
-
-
 
 
 # ===================================================================
@@ -471,11 +487,13 @@ class TestMeshCoreCompat:
 
     def test_compat_module_importable(self) -> None:
         from medre.adapters.meshcore.compat import HAS_MESHCORE
+
         assert isinstance(HAS_MESHCORE, bool)
 
     def test_has_meshcore_is_false_without_sdk(self) -> None:
         """In default test environment, meshcore SDK is not installed."""
         from medre.adapters.meshcore.compat import HAS_MESHCORE
+
         # The SDK is not installed in the test environment
         assert HAS_MESHCORE is False
 
@@ -513,6 +531,7 @@ class TestHonestDeliverySemantics:
         config = _make_config(connection_type="fake")
         adapter = MeshCoreAdapter(config)
         from unittest.mock import AsyncMock
+
         ctx = AdapterContext(
             adapter_id="meshcore-1",
             event_bus=None,
@@ -535,8 +554,10 @@ class TestHonestDeliverySemantics:
         ctx = make_adapter_context("meshcore-1")
 
         # Manually construct a fake session to avoid real SDK connection.
+        from unittest.mock import AsyncMock
+
         from medre.adapters.meshcore.session import MeshCoreSession
-        from unittest.mock import AsyncMock, PropertyMock
+
         fake_session = MeshCoreSession(
             config=_make_config(connection_type="fake"),
             adapter_id="meshcore-1",
@@ -673,6 +694,7 @@ class TestMalformedSDKResponse:
         ctx = make_adapter_context("meshcore-1")
 
         from medre.adapters.meshcore.session import MeshCoreSession
+
         fake_session = MeshCoreSession(
             config=_make_config(connection_type="fake"),
             adapter_id="meshcore-1",
@@ -688,7 +710,10 @@ class TestMalformedSDKResponse:
     ) -> None:
         """When session.send_text returns None, adapter returns None."""
         from unittest.mock import AsyncMock
-        adapter, session = await self._make_real_adapter_with_session(make_adapter_context)
+
+        adapter, session = await self._make_real_adapter_with_session(
+            make_adapter_context
+        )
         session.send_text = AsyncMock(return_value=None)  # type: ignore[attr-defined]
 
         result = _make_rendering_result()
@@ -701,7 +726,10 @@ class TestMalformedSDKResponse:
     ) -> None:
         """When payload is not a dict, adapter returns None gracefully."""
         from unittest.mock import AsyncMock
-        adapter, session = await self._make_real_adapter_with_session(make_adapter_context)
+
+        adapter, session = await self._make_real_adapter_with_session(
+            make_adapter_context
+        )
         session.send_text = AsyncMock(return_value="pkt-1")  # type: ignore[attr-defined]
 
         result = _make_rendering_result(payload="not a dict")  # type: ignore[arg-type]
@@ -717,8 +745,6 @@ class TestMalformedSDKResponse:
         result = _make_rendering_result()
         with pytest.raises(AdapterPermanentError, match="Session not initialised"):
             await adapter.deliver(result)
-
-
 
 
 # ===================================================================
@@ -819,9 +845,9 @@ def _assert_json_safe(obj: object, path: str = "root") -> None:
         for i, v in enumerate(obj):
             _assert_json_safe(v, f"{path}[{i}]")
     else:
-        assert isinstance(obj, (str, int, float, bool)) or obj is None, (
-            f"Non-primitive at {path}: {type(obj).__name__} = {obj!r}"
-        )
+        assert (
+            isinstance(obj, (str, int, float, bool)) or obj is None
+        ), f"Non-primitive at {path}: {type(obj).__name__} = {obj!r}"
 
 
 # ===================================================================
@@ -832,9 +858,7 @@ def _assert_json_safe(obj: object, path: str = "root") -> None:
 class TestRepeatedStartStop:
     """Repeated start/stop cycles are safe and idempotent."""
 
-    async def test_fake_adapter_repeated_start_stop(
-        self, make_adapter_context
-    ) -> None:
+    async def test_fake_adapter_repeated_start_stop(self, make_adapter_context) -> None:
         """Fake adapter survives multiple start/stop cycles."""
         adapter = FakeMeshCoreAdapter()
         ctx = make_adapter_context("meshcore-1")
@@ -844,9 +868,7 @@ class TestRepeatedStartStop:
             await adapter.stop()
             assert adapter.is_started is False
 
-    async def test_fake_adapter_double_start(
-        self, make_adapter_context
-    ) -> None:
+    async def test_fake_adapter_double_start(self, make_adapter_context) -> None:
         """Double start is a no-op."""
         adapter = FakeMeshCoreAdapter()
         ctx = make_adapter_context("meshcore-1")
@@ -862,9 +884,7 @@ class TestRepeatedStartStop:
         await adapter.stop()  # still no-op
         assert adapter.is_started is False
 
-    async def test_real_adapter_repeated_start_stop(
-        self, make_adapter_context
-    ) -> None:
+    async def test_real_adapter_repeated_start_stop(self, make_adapter_context) -> None:
         """Real adapter survives multiple start/stop cycles in fake mode."""
         config = _make_config(connection_type="fake")
         for _ in range(3):
@@ -877,9 +897,7 @@ class TestRepeatedStartStop:
             info = await adapter.health_check()
             assert info.health == "unknown"
 
-    async def test_real_adapter_start_stop_start(
-        self, make_adapter_context
-    ) -> None:
+    async def test_real_adapter_start_stop_start(self, make_adapter_context) -> None:
         """Real adapter can restart after stop."""
         config = _make_config(connection_type="fake")
         adapter = MeshCoreAdapter(config)
@@ -913,5 +931,3 @@ class TestRepeatedStartStop:
         delivery2 = await adapter.deliver(result2)
         assert delivery2 is not None
         assert delivery2.native_message_id == "2"
-
-

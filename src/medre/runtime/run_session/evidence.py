@@ -174,11 +174,13 @@ async def _collect_native_refs(
                 f"resolve_native_ref failed for adapter={nref.adapter}: {exc}"
             )
             continue
-        refs.append({
-            "adapter": nref.adapter,
-            "channel": nref.native_channel_id or "",
-            "native_id": nref.native_message_id,
-            "resolves_to": resolved or nref.event_id,
-        })
+        refs.append(
+            {
+                "adapter": nref.adapter,
+                "channel": nref.native_channel_id or "",
+                "native_id": nref.native_message_id,
+                "resolves_to": resolved or nref.event_id,
+            }
+        )
 
     return refs

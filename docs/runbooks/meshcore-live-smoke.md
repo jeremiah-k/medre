@@ -21,26 +21,26 @@ The MeshCore session now correctly uses `await MeshCore.create_tcp()`, `await Me
 
 ### BLE Hardware Probe Findings
 
-| Item | Finding | Status |
-|------|---------|--------|
-| **BLE adapter** | `hci0` UP RUNNING (BlueZ) | ✅ CONFIRMED |
-| **bleak library** | Importable in project venv | ✅ CONFIRMED |
-| **Target device** | `MeshCore-B4C6ED2C` advertising at `C4:4F:33:6A:B0:23` | ✅ CONFIRMED via `bluetoothctl scan on` |
-| **BLE connection attempt** | Not yet attempted via `MeshCore.create_ble()` | ❌ NOT EXECUTED |
-| **BLE PIN pairing** | Unknown if device requires PIN | UNKNOWN |
-| **Blocker** | Need to run `await MeshCore.create_ble("C4:4F:33:6A:B0:23")` and observe appstart result | — |
+| Item                       | Finding                                                                                  | Status                                  |
+| -------------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------- |
+| **BLE adapter**            | `hci0` UP RUNNING (BlueZ)                                                                | ✅ CONFIRMED                            |
+| **bleak library**          | Importable in project venv                                                               | ✅ CONFIRMED                            |
+| **Target device**          | `MeshCore-B4C6ED2C` advertising at `C4:4F:33:6A:B0:23`                                   | ✅ CONFIRMED via `bluetoothctl scan on` |
+| **BLE connection attempt** | Not yet attempted via `MeshCore.create_ble()`                                            | ❌ NOT EXECUTED                         |
+| **BLE PIN pairing**        | Unknown if device requires PIN                                                           | UNKNOWN                                 |
+| **Blocker**                | Need to run `await MeshCore.create_ble("C4:4F:33:6A:B0:23")` and observe appstart result | —                                       |
 
 ### Serial Hardware Probe Findings
 
-| Item | Finding | Status |
-|------|---------|--------|
-| **ttyACM0 device** | T-Beam companion (CH9102F, serial 5435017200) via `cdc_acm` driver | ✅ CONFIRMED |
-| **Serial protocol observed** | 3-byte heartbeat: `0x27 0xXX 0xYY` (repeating ~1s interval) | ✅ CONFIRMED |
-| **MeshCore SDK serial protocol** | Expects `0x3e` start marker ( framing protocol) | ✅ CONFIRMED from SDK source |
-| **Protocol mismatch** | `0x27` heartbeat ≠ `0x3e` MeshCore serial frame start | ⚠️ MISMATCH |
-| **Root cause** | T-Beam runs custom companion_radio_ble firmware, NOT MeshCore serial mode. Serial port exposes companion heartbeat, not MeshCore app protocol. | CONFIRMED |
-| **ttyACM0 for MeshCore SDK** | **NOT VIABLE** via `create_serial()` — protocol mismatch | ❌ BLOCKED |
-| **Alternative path** | BLE (`create_ble()`) is the intended transport for companion_radio_ble firmware | — |
+| Item                             | Finding                                                                                                                                        | Status                       |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| **ttyACM0 device**               | T-Beam companion (CH9102F, serial 5435017200) via `cdc_acm` driver                                                                             | ✅ CONFIRMED                 |
+| **Serial protocol observed**     | 3-byte heartbeat: `0x27 0xXX 0xYY` (repeating ~1s interval)                                                                                    | ✅ CONFIRMED                 |
+| **MeshCore SDK serial protocol** | Expects `0x3e` start marker ( framing protocol)                                                                                                | ✅ CONFIRMED from SDK source |
+| **Protocol mismatch**            | `0x27` heartbeat ≠ `0x3e` MeshCore serial frame start                                                                                          | ⚠️ MISMATCH                  |
+| **Root cause**                   | T-Beam runs custom companion_radio_ble firmware, NOT MeshCore serial mode. Serial port exposes companion heartbeat, not MeshCore app protocol. | CONFIRMED                    |
+| **ttyACM0 for MeshCore SDK**     | **NOT VIABLE** via `create_serial()` — protocol mismatch                                                                                       | ❌ BLOCKED                   |
+| **Alternative path**             | BLE (`create_ble()`) is the intended transport for companion_radio_ble firmware                                                                | —                            |
 
 ### Summary: MeshCore Hardware Path Status
 
@@ -48,7 +48,6 @@ The MeshCore session now correctly uses `await MeshCore.create_tcp()`, `await Me
 - **Serial (ttyACM0)**: NOT VIABLE — companion heartbeat protocol, not MeshCore serial
 - **BLE**: Preconditions met (adapter, library, target advertising). Connection attempt NOT YET DONE.
 - **Next action**: Run `await MeshCore.create_ble("C4:4F:33:6A:B0:23")` to attempt BLE connection and appstart.
-
 
 ## Purpose
 
@@ -73,7 +72,6 @@ The live smoke harness in `tests/test_meshcore_live.py` validates:
 - Reconnection handling under real network conditions.
 - Production deployment readiness.
 
-
 ## Dependency Installation
 
 The MeshCore SDK is an optional dependency. Core MEDRE tests pass without it.
@@ -92,7 +90,6 @@ pip install meshcore
 - **Source:** `https://github.com/fdlamotte/meshcore_py` (INFERRED from PyPI; repo returned 404 at audit time).
 - **SDK is fully async:** All methods are coroutines. No synchronous wrappers. CONFIRMED.
 - **No custom exception classes:** SDK uses standard Python exceptions (`ConnectionError`, `ValueError`, `ImportError`, `OSError`). CONFIRMED.
-
 
 ## Connection Methods
 
@@ -175,22 +172,20 @@ export MESHCORE_BLE_PIN="123456"     # optional
 - BLE testing requires BLE-capable hardware and OS support (BlueZ on Linux).
 - **Not exercised in any existing harness.** Documented for reference.
 
-
 ## Required Environment Variables
 
-| Variable | Required for | Example | Description |
-|----------|-------------|---------|-------------|
-| `MESHCORE_CONNECTION_TYPE` | All | `tcp` | Connection mode: `tcp`, `serial`, `ble` |
-| `MESHCORE_HOST` | TCP | `192.168.1.100` | Node hostname or IP address |
-| `MESHCORE_PORT` | TCP | `4000` | TCP port (default `4000`) |
-| `MESHCORE_SERIAL_PORT` | Serial | `/dev/ttyUSB0` | Serial device path |
-| `MESHCORE_BLE_ADDRESS` | BLE | `AA:BB:CC:DD:EE:FF` | BLE MAC address |
-| `MESHCORE_BLE_PIN` | BLE (optional) | `123456` | BLE pairing PIN |
-| `MESHCORE_CHANNEL_INDEX` | All | `0` | Channel for test messages (default `0`) |
-| `MESHCORE_DESTINATION` | DM tests | `a1b2c3...` | Hex pubkey prefix for direct message target |
+| Variable                   | Required for   | Example             | Description                                 |
+| -------------------------- | -------------- | ------------------- | ------------------------------------------- |
+| `MESHCORE_CONNECTION_TYPE` | All            | `tcp`               | Connection mode: `tcp`, `serial`, `ble`     |
+| `MESHCORE_HOST`            | TCP            | `192.168.1.100`     | Node hostname or IP address                 |
+| `MESHCORE_PORT`            | TCP            | `4000`              | TCP port (default `4000`)                   |
+| `MESHCORE_SERIAL_PORT`     | Serial         | `/dev/ttyUSB0`      | Serial device path                          |
+| `MESHCORE_BLE_ADDRESS`     | BLE            | `AA:BB:CC:DD:EE:FF` | BLE MAC address                             |
+| `MESHCORE_BLE_PIN`         | BLE (optional) | `123456`            | BLE pairing PIN                             |
+| `MESHCORE_CHANNEL_INDEX`   | All            | `0`                 | Channel for test messages (default `0`)     |
+| `MESHCORE_DESTINATION`     | DM tests       | `a1b2c3...`         | Hex pubkey prefix for direct message target |
 
 If any required variable is unset, all live tests should skip with a descriptive message.
-
 
 ## Manual Verification Procedure
 
@@ -224,6 +219,7 @@ asyncio.run(test_connect())
 ```
 
 Expected:
+
 - `Connected: True`
 - `Self info` dict with public key and configuration.
 
@@ -252,6 +248,7 @@ asyncio.run(test_contacts())
 ```
 
 Expected:
+
 - `Event type: EventType.CONTACTS`
 - Contact list with public keys and advertised names.
 
@@ -297,6 +294,7 @@ asyncio.run(test_send())
 ```
 
 Expected:
+
 - `Send result type: EventType.MSG_SENT`
 - `Expected ACK:` 8-char hex string.
 - `ACK received: True` (if target node is reachable).
@@ -324,6 +322,7 @@ asyncio.run(test_channel())
 ```
 
 Expected:
+
 - `Channel send result: EventType.OK`
 - Success payload.
 
@@ -362,24 +361,24 @@ asyncio.run(test_receive())
 ```
 
 Expected (if another node sends a message during the 30-second window):
+
 - Callback fires with `EventType.CONTACT_MSG_RECV` or `CHANNEL_MSG_RECV`.
 - Payload includes `text`, `pubkey_prefix` (direct) or `channel_idx` (channel).
-
 
 ## Expected Output / Common Failures
 
 ### Common Failures
 
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| `ImportError: No module named 'meshcore'` | SDK not installed | `pip install meshcore` |
-| `ConnectionError: Failed to connect to device` | Node unreachable, wrong host/port | Verify IP; check node is powered on; try `ping 192.168.1.100` |
-| `EventType.ERROR` from send | Destination invalid or unreachable | Verify contact exists; check pubkey prefix format |
-| ACK timeout (no ACK received) | Target node out of range or off | Ensure target node is powered and within radio range |
-| `OSError: [Errno 13] Permission denied` on serial | User not in `dialout` group | `sudo usermod -aG dialout $USER`; re-login |
-| BLE scan finds no devices | BlueZ not running or adapter off | `bluetoothctl scan on`; check `rfkill list` |
-| `ModuleNotFoundError: No module named 'bleak'` | Incomplete install | `pip install meshcore` (bleak is a declared dependency) |
-| All tests SKIP | Env vars not set | Set `MESHCORE_CONNECTION_TYPE` and corresponding params |
+| Symptom                                           | Cause                              | Fix                                                           |
+| ------------------------------------------------- | ---------------------------------- | ------------------------------------------------------------- |
+| `ImportError: No module named 'meshcore'`         | SDK not installed                  | `pip install meshcore`                                        |
+| `ConnectionError: Failed to connect to device`    | Node unreachable, wrong host/port  | Verify IP; check node is powered on; try `ping 192.168.1.100` |
+| `EventType.ERROR` from send                       | Destination invalid or unreachable | Verify contact exists; check pubkey prefix format             |
+| ACK timeout (no ACK received)                     | Target node out of range or off    | Ensure target node is powered and within radio range          |
+| `OSError: [Errno 13] Permission denied` on serial | User not in `dialout` group        | `sudo usermod -aG dialout $USER`; re-login                    |
+| BLE scan finds no devices                         | BlueZ not running or adapter off   | `bluetoothctl scan on`; check `rfkill list`                   |
+| `ModuleNotFoundError: No module named 'bleak'`    | Incomplete install                 | `pip install meshcore` (bleak is a declared dependency)       |
+| All tests SKIP                                    | Env vars not set                   | Set `MESHCORE_CONNECTION_TYPE` and corresponding params       |
 
 ### Known Gotchas
 
@@ -394,7 +393,6 @@ Expected (if another node sends a message during the 30-second window):
 - **No custom exceptions in SDK.** (CONFIRMED) The SDK uses standard Python exceptions: `ConnectionError`, `ValueError`, `ImportError`, `OSError`, `asyncio.TimeoutError`.
 - **Command handler default timeout.** (CONFIRMED) 15.0 seconds (`CommandHandlerBase.DEFAULT_TIMEOUT`).
 
-
 ## Safety Notes
 
 1. **Radio traffic.** Tests send a small number of text messages on the configured channel. Ensure the channel is not used for critical or emergency communications during testing.
@@ -407,19 +405,17 @@ Expected (if another node sends a message during the 30-second window):
 
 5. **E2EE.** MeshCore uses always-on encryption. Test messages are encrypted on the wire but readable by any node sharing the channel secret.
 
-
 ## Send Semantics Summary
 
 For full details, see `docs/contracts/19-meshcore-connectivity-readiness.md` Section 3.
 
-| Method | Returns on Success | Returns on Failure | ACK Correlation |
-|--------|-------------------|-------------------|-----------------|
-| `send_msg(dst, msg)` | `Event(MSG_SENT)` with `expected_ack` + `suggested_timeout` | `Event(ERROR)` | `expected_ack.hex()` matches ACK `code` attribute |
-| `send_chan_msg(chan, msg)` | `Event(OK)` | `Event(ERROR)` | No per-message ACK |
-| `send_msg_with_retry(dst, msg, ...)` | `Event(MSG_SENT)` on success, `None` on exhaustion | `None` after max attempts | Built-in ACK waiting with configurable timeout |
+| Method                               | Returns on Success                                          | Returns on Failure        | ACK Correlation                                   |
+| ------------------------------------ | ----------------------------------------------------------- | ------------------------- | ------------------------------------------------- |
+| `send_msg(dst, msg)`                 | `Event(MSG_SENT)` with `expected_ack` + `suggested_timeout` | `Event(ERROR)`            | `expected_ack.hex()` matches ACK `code` attribute |
+| `send_chan_msg(chan, msg)`           | `Event(OK)`                                                 | `Event(ERROR)`            | No per-message ACK                                |
+| `send_msg_with_retry(dst, msg, ...)` | `Event(MSG_SENT)` on success, `None` on exhaustion          | `None` after max attempts | Built-in ACK waiting with configurable timeout    |
 
 **Key point for future implementers:** `expected_ack` is the candidate for MEDRE's `native_message_id`. It is a CRC-like token, not an incrementing ID. Two identical sends could produce the same `expected_ack`. This needs hardware verification before relying on it as a unique identifier.
-
 
 ## What It Proves / Does Not Prove
 
@@ -446,51 +442,49 @@ For full details, see `docs/contracts/19-meshcore-connectivity-readiness.md` Sec
 - Compatibility with all firmware versions.
 - `expected_ack` uniqueness guarantees under concurrent sends.
 
-
 ## API Findings Table
 
 Source: `meshcore-2.3.7-py3-none-any.whl` (PyPI, source-extracted 2026-05-12).
 All findings labeled CONFIRMED (source-read), INFERRED (pattern-derived), or UNKNOWN (needs hardware).
 
-| API Surface | Finding | Status |
-|-------------|---------|--------|
-| Import name | `from meshcore import MeshCore, EventType` | CONFIRMED |
-| `__all__` exports | `MeshCore, EventType, TCPConnection, SerialConnection, BLEConnection, ConnectionManager, BinaryReqType, logger` | CONFIRMED |
-| `MeshCore.create_tcp(host, port, ...)` | Async factory classmethod. Returns MeshCore, None, or raises ConnectionError | CONFIRMED |
-| `MeshCore.create_serial(port, baudrate=115200, cx_dly=0.1, ...)` | Async factory classmethod. Same return contract as create_tcp | CONFIRMED |
-| `MeshCore.create_ble(address=None, client=None, device=None, pin=None, ...)` | Async factory classmethod. Same return contract. Scans for "MeshCore" name prefix | CONFIRMED |
-| `mc.is_connected` | Property → `bool` via `connection_manager.is_connected` | CONFIRMED |
-| `mc.self_info` | Property → `dict` (populated by SELF_INFO event) | CONFIRMED |
-| `mc.contacts` | Property → `dict` (populated by CONTACTS events) | CONFIRMED |
-| `mc.subscribe(event_type, callback, attribute_filters)` | Returns `Subscription`. Sync method, delegates to dispatcher | CONFIRMED |
-| `mc.unsubscribe(subscription)` | Calls `subscription.unsubscribe()` | CONFIRMED |
-| `mc.wait_for_event(event_type, attribute_filters, timeout)` | Returns `Event` or `None` on timeout | CONFIRMED |
-| `mc.disconnect()` | Async. Stops dispatcher, stops auto-fetch, disconnects transport | CONFIRMED |
-| `mc.start_auto_message_fetching()` | Returns `Subscription`. Auto-calls get_msg() initially | CONFIRMED |
-| `mc.stop_auto_message_fetching()` | Async. Unsubscribes, cancels fetch task | CONFIRMED |
-| `mc.commands.send_msg(dst, msg, timestamp, attempt)` | Returns `Event(MSG_SENT)` or `Event(ERROR)` | CONFIRMED |
-| `mc.commands.send_chan_msg(chan, msg, timestamp)` | Returns `Event(OK)` or `Event(ERROR)` | CONFIRMED |
-| `mc.commands.send_msg_with_retry(...)` | Built-in ACK-waiting retry loop. Returns Event or None | CONFIRMED |
-| `mc.commands.get_contacts(lastmod, timeout)` | Returns `Event(CONTACTS)` or `Event(ERROR)` | CONFIRMED |
-| `mc.commands.get_msg(timeout)` | Returns message event or `Event(NO_MORE_MSGS)` | CONFIRMED |
-| `mc.commands.send_appstart()` | Sends `\x01\x03 mccli`. Returns `Event(SELF_INFO)` or `Event(ERROR)` | CONFIRMED |
-| `Event` dataclass | Fields: `type: EventType`, `payload: Any`, `attributes: Dict` | CONFIRMED |
-| `Event.is_error()` | Returns `self.type == EventType.ERROR` | CONFIRMED |
-| `Event.clone()` | Returns copy of event | CONFIRMED |
-| EventType enum | 50+ values. Key ones: CONTACT_MSG_RECV, CHANNEL_MSG_RECV, ACK, MSG_SENT, OK, ERROR, CONNECTED, DISCONNECTED, MESSAGES_WAITING, NO_MORE_MSGS, SELF_INFO, CONTACTS | CONFIRMED |
-| ErrorMessages | Error codes 1-6 mapped to string names | CONFIRMED |
-| Auto-reconnect | Flat 1s delay, iterative loop, max_reconnect_attempts, calls send_appstart on reconnect | CONFIRMED |
-| Command serialization | asyncio.Lock (lazy-created), default timeout 15.0s | CONFIRMED |
-| Custom exception classes | None. Uses ConnectionError, ValueError, ImportError, OSError, asyncio.TimeoutError | CONFIRMED |
-| `expected_ack` exact byte count | ~4 bytes CRC-like (from retry code pattern) | INFERRED |
-| `suggested_timeout` unit | Milliseconds (from `/1000` conversion in retry code) | INFERRED |
-| Channel secret size | 16 bytes | INFERRED |
-| Frame max payload | 300 bytes size limit in frame parser | INFERRED (could be a sanity limit, not actual max) |
-| Real hardware packet shape | Matches fixture shapes? | UNKNOWN |
-| `expected_ack` collision behavior | Same message, same recipient → same ack? | UNKNOWN |
-| BLE PIN interaction with Ed25519 | How pairing relates to identity | UNKNOWN |
-| Firmware default port | Is 4000 configurable on device? | UNKNOWN |
-
+| API Surface                                                                  | Finding                                                                                                                                                          | Status                                             |
+| ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| Import name                                                                  | `from meshcore import MeshCore, EventType`                                                                                                                       | CONFIRMED                                          |
+| `__all__` exports                                                            | `MeshCore, EventType, TCPConnection, SerialConnection, BLEConnection, ConnectionManager, BinaryReqType, logger`                                                  | CONFIRMED                                          |
+| `MeshCore.create_tcp(host, port, ...)`                                       | Async factory classmethod. Returns MeshCore, None, or raises ConnectionError                                                                                     | CONFIRMED                                          |
+| `MeshCore.create_serial(port, baudrate=115200, cx_dly=0.1, ...)`             | Async factory classmethod. Same return contract as create_tcp                                                                                                    | CONFIRMED                                          |
+| `MeshCore.create_ble(address=None, client=None, device=None, pin=None, ...)` | Async factory classmethod. Same return contract. Scans for "MeshCore" name prefix                                                                                | CONFIRMED                                          |
+| `mc.is_connected`                                                            | Property → `bool` via `connection_manager.is_connected`                                                                                                          | CONFIRMED                                          |
+| `mc.self_info`                                                               | Property → `dict` (populated by SELF_INFO event)                                                                                                                 | CONFIRMED                                          |
+| `mc.contacts`                                                                | Property → `dict` (populated by CONTACTS events)                                                                                                                 | CONFIRMED                                          |
+| `mc.subscribe(event_type, callback, attribute_filters)`                      | Returns `Subscription`. Sync method, delegates to dispatcher                                                                                                     | CONFIRMED                                          |
+| `mc.unsubscribe(subscription)`                                               | Calls `subscription.unsubscribe()`                                                                                                                               | CONFIRMED                                          |
+| `mc.wait_for_event(event_type, attribute_filters, timeout)`                  | Returns `Event` or `None` on timeout                                                                                                                             | CONFIRMED                                          |
+| `mc.disconnect()`                                                            | Async. Stops dispatcher, stops auto-fetch, disconnects transport                                                                                                 | CONFIRMED                                          |
+| `mc.start_auto_message_fetching()`                                           | Returns `Subscription`. Auto-calls get_msg() initially                                                                                                           | CONFIRMED                                          |
+| `mc.stop_auto_message_fetching()`                                            | Async. Unsubscribes, cancels fetch task                                                                                                                          | CONFIRMED                                          |
+| `mc.commands.send_msg(dst, msg, timestamp, attempt)`                         | Returns `Event(MSG_SENT)` or `Event(ERROR)`                                                                                                                      | CONFIRMED                                          |
+| `mc.commands.send_chan_msg(chan, msg, timestamp)`                            | Returns `Event(OK)` or `Event(ERROR)`                                                                                                                            | CONFIRMED                                          |
+| `mc.commands.send_msg_with_retry(...)`                                       | Built-in ACK-waiting retry loop. Returns Event or None                                                                                                           | CONFIRMED                                          |
+| `mc.commands.get_contacts(lastmod, timeout)`                                 | Returns `Event(CONTACTS)` or `Event(ERROR)`                                                                                                                      | CONFIRMED                                          |
+| `mc.commands.get_msg(timeout)`                                               | Returns message event or `Event(NO_MORE_MSGS)`                                                                                                                   | CONFIRMED                                          |
+| `mc.commands.send_appstart()`                                                | Sends `\x01\x03 mccli`. Returns `Event(SELF_INFO)` or `Event(ERROR)`                                                                                             | CONFIRMED                                          |
+| `Event` dataclass                                                            | Fields: `type: EventType`, `payload: Any`, `attributes: Dict`                                                                                                    | CONFIRMED                                          |
+| `Event.is_error()`                                                           | Returns `self.type == EventType.ERROR`                                                                                                                           | CONFIRMED                                          |
+| `Event.clone()`                                                              | Returns copy of event                                                                                                                                            | CONFIRMED                                          |
+| EventType enum                                                               | 50+ values. Key ones: CONTACT_MSG_RECV, CHANNEL_MSG_RECV, ACK, MSG_SENT, OK, ERROR, CONNECTED, DISCONNECTED, MESSAGES_WAITING, NO_MORE_MSGS, SELF_INFO, CONTACTS | CONFIRMED                                          |
+| ErrorMessages                                                                | Error codes 1-6 mapped to string names                                                                                                                           | CONFIRMED                                          |
+| Auto-reconnect                                                               | Flat 1s delay, iterative loop, max_reconnect_attempts, calls send_appstart on reconnect                                                                          | CONFIRMED                                          |
+| Command serialization                                                        | asyncio.Lock (lazy-created), default timeout 15.0s                                                                                                               | CONFIRMED                                          |
+| Custom exception classes                                                     | None. Uses ConnectionError, ValueError, ImportError, OSError, asyncio.TimeoutError                                                                               | CONFIRMED                                          |
+| `expected_ack` exact byte count                                              | ~4 bytes CRC-like (from retry code pattern)                                                                                                                      | INFERRED                                           |
+| `suggested_timeout` unit                                                     | Milliseconds (from `/1000` conversion in retry code)                                                                                                             | INFERRED                                           |
+| Channel secret size                                                          | 16 bytes                                                                                                                                                         | INFERRED                                           |
+| Frame max payload                                                            | 300 bytes size limit in frame parser                                                                                                                             | INFERRED (could be a sanity limit, not actual max) |
+| Real hardware packet shape                                                   | Matches fixture shapes?                                                                                                                                          | UNKNOWN                                            |
+| `expected_ack` collision behavior                                            | Same message, same recipient → same ack?                                                                                                                         | UNKNOWN                                            |
+| BLE PIN interaction with Ed25519                                             | How pairing relates to identity                                                                                                                                  | UNKNOWN                                            |
+| Firmware default port                                                        | Is 4000 configurable on device?                                                                                                                                  | UNKNOWN                                            |
 
 ## Cleanup
 
@@ -509,7 +503,6 @@ After running tests:
    ```
 
 4. **Disconnect the node** if it was powered on only for testing.
-
 
 ## Live Validation Evidence
 
@@ -545,7 +538,6 @@ After running tests:
   - `MeshCore.create_ble("C4:4F:33:6A:B0:23")` is the correct path but has not been attempted yet.
 - **Failures/Notes:** The hardware is physically present but the serial path is not viable. BLE is the only remaining viable path for this T-Beam companion firmware. Live smoke tests remain blocked until BLE connection is attempted and succeeds.
 
-
 ## Explicit Scope Exclusions
 
 The following are explicitly **out of scope** for the MeshCore live smoke harness and the MeshCore tranche 1 adapter:
@@ -563,4 +555,4 @@ The following are explicitly **out of scope** for the MeshCore live smoke harnes
 - Auto-reconnect stress testing
 - Production deployment instructions
 
-*Production MeshCore support remains deferred. This runbook documents the SDK interface for future use.*
+_Production MeshCore support remains deferred. This runbook documents the SDK interface for future use._

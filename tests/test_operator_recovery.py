@@ -20,31 +20,20 @@ Scenarios covered:
 Uses fake adapters, memory/sqlite temp storage, and CLI helpers only.
 No live transports, SDKs, or network required.
 """
+
 from __future__ import annotations
 
-import asyncio
 import io
 import os
-import traceback
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock
 
 import pytest
 
-from medre.core.contracts.adapter import (
-    AdapterCapabilities,
-    AdapterContext,
-    AdapterDeliveryResult,
-    AdapterInfo,
-    AdapterRole,
-    AdapterContract,
-)
 from medre.cli import main
 from medre.config.errors import (
-    ConfigError,
     ConfigFileError,
     ConfigNotFoundError,
     ConfigValidationError,
@@ -61,12 +50,18 @@ from medre.config.model import (
     StorageConfig,
 )
 from medre.config.paths import MedrePaths, MedrePathsError, resolve
+from medre.core.contracts.adapter import (
+    AdapterCapabilities,
+    AdapterContext,
+    AdapterContract,
+    AdapterDeliveryResult,
+    AdapterInfo,
+    AdapterRole,
+)
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.kinds import EventKind
 from medre.core.events.metadata import EventMetadata
 from medre.core.lifecycle.states import AdapterState
-from medre.core.routing.stats import RouteStats
-from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.runtime.supervision import (
     RuntimeHealth,
     StartupOutcome,
@@ -75,23 +70,18 @@ from medre.core.runtime.supervision import (
     runtime_supervision_snapshot,
 )
 from medre.core.storage.sqlite import SQLiteStorage
-from medre.runtime.boot_summary import BootSummary, build_boot_summary
+from medre.runtime.app import MedreApp, RuntimeState
+from medre.runtime.boot_summary import build_boot_summary
 from medre.runtime.builder import RuntimeBuilder
-from medre.runtime.capacity import CapacityController
 from medre.runtime.errors import RuntimeStartupError
 from medre.runtime.route_engine import (
     RouteValidationError,
-    build_runtime_routes,
     validate_route_adapter_refs,
 )
 from medre.runtime.routes import (
-    BridgePolicy,
     RouteConfig,
     RouteConfigSet,
-    RouteDirectionality,
 )
-from medre.runtime.app import MedreApp, RuntimeState
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -491,9 +481,7 @@ class TestStoragePathRecovery:
     actionable messages for the operator to fix.
     """
 
-    def test_unknown_placeholder_then_fix(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    def test_unknown_placeholder_then_fix(self, tmp_paths: MedrePaths) -> None:
         """Unknown path placeholder → MedrePathsError → fix → resolves."""
         with pytest.raises(MedrePathsError) as exc_info:
             tmp_paths.expand_placeholder("{totally_bogus}/data.db")
@@ -534,6 +522,7 @@ encryption_mode = "plaintext"
 
         # Building the runtime with unsupported backend raises.
         from medre.runtime.errors import RuntimeConfigError
+
         with pytest.raises(RuntimeConfigError) as exc_info:
             RuntimeBuilder(config, paths).build()
         msg = str(exc_info.value)
@@ -606,9 +595,7 @@ class TestStartupFailureRecovery:
             await app2.stop()
 
     @pytest.mark.asyncio
-    async def test_total_failure_error_is_clean(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    async def test_total_failure_error_is_clean(self, tmp_paths: MedrePaths) -> None:
         """RuntimeStartupError message is concise, no raw traceback."""
         config = _config_with_one_fake_adapter()
         app = _build_app(config, tmp_paths)
@@ -682,9 +669,7 @@ class TestDegradedRuntimeRecovery:
             await app.stop()
 
     @pytest.mark.asyncio
-    async def test_degraded_supervision_snapshot(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    async def test_degraded_supervision_snapshot(self, tmp_paths: MedrePaths) -> None:
         """Supervision snapshot correctly reports degraded state."""
         config = _config_with_fake_adapters()
         app = _build_app(config, tmp_paths)
@@ -744,9 +729,7 @@ class TestReplayAfterRestart:
     """
 
     @pytest.mark.asyncio
-    async def test_events_survive_sqlite_restart(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_events_survive_sqlite_restart(self, tmp_path: Path) -> None:
         """Events written in first storage session survive to second."""
         db_path = str(tmp_path / "replay_recovery.db")
 
@@ -858,9 +841,7 @@ class TestRouteValidationFailureRecovery:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """CLI 'routes validate' with bad refs → warnings → fix → valid."""
-        cfg_path = _write_config(
-            tmp_path / "config.toml", CONFIG_MISSING_ADAPTER_REF
-        )
+        cfg_path = _write_config(tmp_path / "config.toml", CONFIG_MISSING_ADAPTER_REF)
         monkeypatch.setenv("MEDRE_CONFIG", str(cfg_path))
 
         # Step 1: bad config shows warnings about ghost adapter.
@@ -910,8 +891,6 @@ enabled = true
         """Route with no source_adapters → error → fix → expansion succeeds."""
         # Create a route config with empty source_adapters to trigger expansion failure.
         # Use build_runtime_routes which expands routes.
-        from medre.runtime.route_engine import register_routes
-        from medre.core.routing.router import Router
 
         rc = RouteConfig(
             route_id="empty_source",
@@ -946,9 +925,7 @@ class TestAdapterDisableEnableWorkflows:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """'config check' shows disabled adapters with correct status."""
-        cfg_path = _write_config(
-            tmp_path / "config.toml", CONFIG_DISABLED_ADAPTER
-        )
+        cfg_path = _write_config(tmp_path / "config.toml", CONFIG_DISABLED_ADAPTER)
         monkeypatch.setenv("MEDRE_CONFIG", str(cfg_path))
 
         stdout = _run_cli("config", "check")
@@ -960,9 +937,7 @@ class TestAdapterDisableEnableWorkflows:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Config loads with mix of enabled and disabled adapters."""
-        cfg_path = _write_config(
-            tmp_path / "config.toml", CONFIG_DISABLED_ADAPTER
-        )
+        cfg_path = _write_config(tmp_path / "config.toml", CONFIG_DISABLED_ADAPTER)
         monkeypatch.setenv("MEDRE_CONFIG", str(cfg_path))
 
         config, _, _ = load_config(None)
@@ -999,9 +974,7 @@ class TestAdapterDisableEnableWorkflows:
             await app2.stop()
 
     @pytest.mark.asyncio
-    async def test_re_enable_adapter_after_fix(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    async def test_re_enable_adapter_after_fix(self, tmp_paths: MedrePaths) -> None:
         """Operator re-enables previously disabled adapter → full runtime."""
         # Start with one adapter.
         config1 = _config_with_one_fake_adapter()
@@ -1027,9 +1000,7 @@ class TestAdapterDisableEnableWorkflows:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """'adapters' command shows enabled/disabled status correctly."""
-        cfg_path = _write_config(
-            tmp_path / "config.toml", CONFIG_DISABLED_ADAPTER
-        )
+        cfg_path = _write_config(tmp_path / "config.toml", CONFIG_DISABLED_ADAPTER)
         monkeypatch.setenv("MEDRE_CONFIG", str(cfg_path))
 
         stdout = _run_cli("adapters")
@@ -1090,9 +1061,7 @@ class TestConfigRepairWorkflows:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """CLI 'config check' catches invalid limits and reports them."""
-        cfg_path = _write_config(
-            tmp_path / "config.toml", CONFIG_INVALID_LIMITS
-        )
+        cfg_path = _write_config(tmp_path / "config.toml", CONFIG_INVALID_LIMITS)
         monkeypatch.setenv("MEDRE_CONFIG", str(cfg_path))
 
         stdout, stderr, code = _run_cli_raw("config", "check")
@@ -1205,18 +1174,14 @@ class TestDeterministicMessaging:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """CLI 'routes validate' never shows tracebacks."""
-        cfg_path = _write_config(
-            tmp_path / "config.toml", CONFIG_MISSING_ADAPTER_REF
-        )
+        cfg_path = _write_config(tmp_path / "config.toml", CONFIG_MISSING_ADAPTER_REF)
         monkeypatch.setenv("MEDRE_CONFIG", str(cfg_path))
 
         stdout, stderr, code = _run_cli_raw("routes", "validate")
         assert "Traceback" not in stdout
         assert "Traceback" not in stderr
 
-    def test_boot_summary_deterministic_ordering(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    def test_boot_summary_deterministic_ordering(self, tmp_paths: MedrePaths) -> None:
         """Boot summary to_dict() has deterministic key ordering."""
         bs = build_boot_summary(
             startup_timestamp="2026-05-11T12:00:00+00:00",
@@ -1282,16 +1247,31 @@ class TestDeterministicMessaging:
     def test_classify_runtime_health_deterministic(self) -> None:
         """classify_runtime_health returns consistent results."""
         assert classify_runtime_health([AdapterState.READY]) == RuntimeHealth.HEALTHY
-        assert classify_runtime_health([AdapterState.READY, AdapterState.READY]) == RuntimeHealth.HEALTHY
-        assert classify_runtime_health([AdapterState.READY, AdapterState.FAILED]) == RuntimeHealth.DEGRADED
+        assert (
+            classify_runtime_health([AdapterState.READY, AdapterState.READY])
+            == RuntimeHealth.HEALTHY
+        )
+        assert (
+            classify_runtime_health([AdapterState.READY, AdapterState.FAILED])
+            == RuntimeHealth.DEGRADED
+        )
         assert classify_runtime_health([AdapterState.FAILED]) == RuntimeHealth.FAILED
         assert classify_runtime_health([]) == RuntimeHealth.FAILED
 
     def test_classify_startup_outcome_deterministic(self) -> None:
         """classify_startup_outcome returns consistent results."""
-        assert classify_startup_outcome(started=2, failed=0, total=2) == StartupOutcome.SUCCESS
-        assert classify_startup_outcome(started=1, failed=2, total=3) == StartupOutcome.PARTIAL
-        assert classify_startup_outcome(started=0, failed=1, total=1) == StartupOutcome.TOTAL_FAILURE
+        assert (
+            classify_startup_outcome(started=2, failed=0, total=2)
+            == StartupOutcome.SUCCESS
+        )
+        assert (
+            classify_startup_outcome(started=1, failed=2, total=3)
+            == StartupOutcome.PARTIAL
+        )
+        assert (
+            classify_startup_outcome(started=0, failed=1, total=1)
+            == StartupOutcome.TOTAL_FAILURE
+        )
 
     @pytest.mark.asyncio
     async def test_degraded_boot_summary_no_variable_content(

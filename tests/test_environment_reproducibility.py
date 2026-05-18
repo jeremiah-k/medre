@@ -36,16 +36,13 @@ actual package build pipeline.
 from __future__ import annotations
 
 import io
-import os
-import sys
 import tomllib
-from contextlib import redirect_stdout, redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from medre.config.paths import MedrePaths, resolve
 from medre.config.model import (
     AdapterConfigSet,
     LoggingConfig,
@@ -55,6 +52,7 @@ from medre.config.model import (
     RuntimeOptions,
     StorageConfig,
 )
+from medre.config.paths import resolve
 from medre.runtime.builder import RuntimeBuilder
 
 # ---------------------------------------------------------------------------
@@ -106,14 +104,14 @@ def _make_runtime_with(
     """Build a RuntimeConfig with specified adapters."""
     adapters = AdapterConfigSet()
 
-    for aid in (matrix_ids or []):
+    for aid in matrix_ids or []:
         adapters.matrix[aid] = MatrixRuntimeConfig(
             adapter_id=aid,
             enabled=True,
             adapter_kind="fake",
         )
 
-    for aid in (meshtastic_ids or []):
+    for aid in meshtastic_ids or []:
         adapters.meshtastic[aid] = MeshtasticRuntimeConfig(
             adapter_id=aid,
             enabled=True,
@@ -137,7 +135,9 @@ class TestXDGVariableIndependence:
     """Each XDG variable resolves independently of the others."""
 
     def test_xdg_config_only(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Setting only XDG_CONFIG_HOME affects config_dir."""
         cfg = tmp_path / "custom_config"
@@ -145,10 +145,14 @@ class TestXDGVariableIndependence:
         paths = resolve()
         assert paths.config_dir == cfg / "medre"
         # state_dir should use default (not affected by XDG_CONFIG_HOME)
-        assert "state" in str(paths.state_dir).lower() or paths.state_dir.name == "medre"
+        assert (
+            "state" in str(paths.state_dir).lower() or paths.state_dir.name == "medre"
+        )
 
     def test_xdg_state_only(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Setting only XDG_STATE_HOME affects state_dir, log_dir, database."""
         st = tmp_path / "custom_state"
@@ -159,7 +163,9 @@ class TestXDGVariableIndependence:
         assert paths.database_path == st / "medre" / "medre.sqlite"
 
     def test_xdg_data_only(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Setting only XDG_DATA_HOME affects data_dir."""
         data = tmp_path / "custom_data"
@@ -168,7 +174,9 @@ class TestXDGVariableIndependence:
         assert paths.data_dir == data / "medre"
 
     def test_xdg_cache_only(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Setting only XDG_CACHE_HOME affects cache_dir."""
         cache = tmp_path / "custom_cache"
@@ -177,7 +185,9 @@ class TestXDGVariableIndependence:
         assert paths.cache_dir == cache / "medre"
 
     def test_all_xdg_vars_independent(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """All four XDG vars can point to completely separate roots."""
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
@@ -237,7 +247,9 @@ class TestMEDREHomePrecedence:
     """MEDRE_HOME takes absolute precedence over any XDG vars."""
 
     def test_medre_home_ignores_xdg(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """When MEDRE_HOME is set, all XDG vars are ignored."""
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path / "home"))
@@ -251,7 +263,9 @@ class TestMEDREHomePrecedence:
         assert paths.config_dir is None  # MEDRE_HOME mode has no config_dir
 
     def test_empty_medre_home_falls_through_to_xdg(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """An empty MEDRE_HOME is treated as unset."""
         monkeypatch.setenv("MEDRE_HOME", "")
@@ -263,7 +277,9 @@ class TestMEDREHomePrecedence:
         assert str(paths.state_dir).startswith(str(tmp_path / "st"))
 
     def test_whitespace_medre_home_falls_through(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """A whitespace-only MEDRE_HOME is treated as unset."""
         monkeypatch.setenv("MEDRE_HOME", "   ")
@@ -282,7 +298,9 @@ class TestReproduciblePathResolution:
     """resolve() called twice with same env gives identical results."""
 
     def test_medre_home_reproducible(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Two resolve() calls with same MEDRE_HOME produce identical paths."""
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path / "vol"))
@@ -291,7 +309,9 @@ class TestReproduciblePathResolution:
         assert p1 == p2
 
     def test_xdg_reproducible(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Two resolve() calls with same XDG vars produce identical paths."""
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
@@ -307,7 +327,9 @@ class TestReproduciblePathResolution:
         assert p1 == p2
 
     def test_frozen_paths_immutable(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """MedrePaths instances are frozen (immutable)."""
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
@@ -343,7 +365,11 @@ class TestDistributionMetadataCompleteness:
     def test_has_python_version_classifiers(self) -> None:
         """Python version classifiers must be present."""
         classifiers = self._project.get("classifiers", [])
-        py_classifiers = [c for c in classifiers if "Programming Language :: Python ::" in c and "3." in c]
+        py_classifiers = [
+            c
+            for c in classifiers
+            if "Programming Language :: Python ::" in c and "3." in c
+        ]
         assert py_classifiers, "Missing Python version classifiers"
 
     def test_license_field_present(self) -> None:
@@ -367,22 +393,23 @@ class TestDistributionMetadataCompleteness:
         classifiers = self._project.get("classifiers", [])
         # Extract minimum version from requires-python (e.g., ">=3.11" → "3.11")
         import re
+
         m = re.search(r">=\s*(\d+\.\d+)", rp)
         if m:
             min_ver = m.group(1)
             # At least one classifier should mention this version
-            assert any(min_ver in c for c in classifiers), (
-                f"requires-python >= {min_ver} but no classifier mentions {min_ver}"
-            )
+            assert any(
+                min_ver in c for c in classifiers
+            ), f"requires-python >= {min_ver} but no classifier mentions {min_ver}"
 
     def test_typing_classifier_if_typed(self) -> None:
         """If Typed classifier is present, it must be valid."""
         classifiers = self._project.get("classifiers", [])
         typed = [c for c in classifiers if "Typed" in c]
         if typed:
-            assert typed[0] == "Typing :: Typed", (
-                f"Unexpected typing classifier: {typed[0]!r}"
-            )
+            assert (
+                typed[0] == "Typing :: Typed"
+            ), f"Unexpected typing classifier: {typed[0]!r}"
 
 
 # ===================================================================
@@ -399,7 +426,9 @@ class TestFakeRuntimeLifecycle:
 
     @pytest.mark.asyncio
     async def test_build_and_start_and_stop(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Complete lifecycle: build → start → stop with fake adapters."""
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
@@ -413,13 +442,16 @@ class TestFakeRuntimeLifecycle:
 
         await app.start()
         from medre.runtime.app import RuntimeState
+
         assert app.state == RuntimeState.RUNNING
 
         await app.stop()
 
     @pytest.mark.asyncio
     async def test_runtime_state_transitions(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Runtime state transitions: INITIALIZED → STARTING → RUNNING → STOPPING → STOPPED."""
         from medre.runtime.app import RuntimeState
@@ -440,7 +472,9 @@ class TestFakeRuntimeLifecycle:
 
     @pytest.mark.asyncio
     async def test_runtime_with_memory_storage(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Runtime with memory backend doesn't touch disk for storage."""
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
@@ -456,7 +490,9 @@ class TestFakeRuntimeLifecycle:
         await app.stop()
 
     def test_build_produces_app_with_adapters(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Builder produces app with correct adapter count."""
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
@@ -503,13 +539,12 @@ class TestDockerEnvKeyCoverage:
         # All extracted keys should be recognized
         unrecognized = env_keys - ALL_RECOGNIZED_ENV_NAMES
         # MEDRE_HOME and MEDRE_LOG_LEVEL are in CORE_ENV_NAMES
-        assert not unrecognized, (
-            f"docker.env.example has unrecognized MEDRE_ keys: {sorted(unrecognized)}"
-        )
+        assert (
+            not unrecognized
+        ), f"docker.env.example has unrecognized MEDRE_ keys: {sorted(unrecognized)}"
 
     def test_core_env_names_present(self) -> None:
         """Core env names are documented in docker.env.example."""
-        from medre.config.env import CORE_ENV_NAMES
 
         text = _DOCKER_ENV.read_text()
         # MEDRE_HOME and MEDRE_LOG_LEVEL should be present
@@ -531,7 +566,9 @@ class TestCLIConfigCheckWorkflow:
             monkeypatch.delenv(var, raising=False)
 
     def test_config_check_with_explicit_config(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """config check --config <path> with a valid config succeeds."""
         from medre.cli import main
@@ -563,7 +600,9 @@ class TestCLIPathsUnderModes:
             monkeypatch.delenv(var, raising=False)
 
     def test_paths_shows_medre_home_mode(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """paths command shows MEDRE_HOME mode when MEDRE_HOME is set."""
         from medre.cli import main
@@ -579,7 +618,9 @@ class TestCLIPathsUnderModes:
         assert "MEDRE_HOME" in output
 
     def test_paths_shows_xdg_mode(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """paths command shows XDG mode when MEDRE_HOME is not set."""
         from medre.cli import main
@@ -620,9 +661,9 @@ class TestVersionConsistency:
         cli_version = _get_version()
         # In an editable install, importlib.metadata may return the installed
         # version which should also match pyproject.toml
-        assert cli_version == pyproject_version, (
-            f"CLI version {cli_version!r} != pyproject version {pyproject_version!r}"
-        )
+        assert (
+            cli_version == pyproject_version
+        ), f"CLI version {cli_version!r} != pyproject version {pyproject_version!r}"
 
     def test_version_is_pep440_compatible(self) -> None:
         """Version string should be PEP 440 compatible (basic check)."""
@@ -633,7 +674,8 @@ class TestVersionConsistency:
             assert part.isdigit(), f"Version part {part!r} is not numeric"
 
     def test_version_command_output(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """version command outputs consistent version."""
         from medre.cli import main
@@ -647,9 +689,9 @@ class TestVersionConsistency:
 
         output = buf.getvalue()
         version = self._project["version"]
-        assert version in output, (
-            f"Version {version!r} not found in 'medre version' output"
-        )
+        assert (
+            version in output
+        ), f"Version {version!r} not found in 'medre version' output"
 
 
 # ===================================================================
@@ -661,7 +703,9 @@ class TestCrossModeReproducibility:
     """Switching between modes produces predictable results."""
 
     def test_switching_medre_home_to_xdg_produces_different_paths(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """MEDRE_HOME and XDG modes produce distinct path sets."""
         # MEDRE_HOME mode
@@ -678,7 +722,9 @@ class TestCrossModeReproducibility:
         assert paths_xdg.config_dir is not None
 
     def test_switching_xdg_to_medre_home_uses_home(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Setting MEDRE_HOME after XDG overrides XDG paths."""
         # XDG mode first

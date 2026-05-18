@@ -10,7 +10,6 @@ This document outlines a conservative, incremental roadmap for achieving first r
 
 This is a roadmap, not a commitment. Timelines are not specified. Dependencies are called out. Risk areas are highlighted. The goal is to provide enough structure that someone attempting first real connectivity knows what to try, in what order, and what to watch for.
 
-
 ## 1. Scope
 
 - Recommended rollout order for first real operation on each transport.
@@ -26,7 +25,6 @@ This is a roadmap, not a commitment. Timelines are not specified. Dependencies a
 - Expanding Matrix features beyond text and replies.
 - Implementing real Meshtastic, MeshCore, or LXMF networking.
 - Production deployment, scaling, or operations guidance.
-
 
 ## 3. Recommended Rollout Order
 
@@ -112,7 +110,6 @@ The order is driven by three factors: (1) how much real client code already exis
 - Reticulum is a single-maintainer project (Mark Qvist). Its long-term maintenance trajectory is uncertain.
 - The `lxmf` and `rns` packages have not been tested in MEDRE's CI. Their behavior under concurrent load is unknown.
 
-
 ## 4. Replay and Diagnostic Requirements
 
 Each phase requires diagnostic tooling to validate that real connectivity works correctly.
@@ -125,14 +122,14 @@ Each phase requires diagnostic tooling to validate that real connectivity works 
 
 ### 4.2 Diagnostic Queries
 
-| Question | Query |
-|----------|-------|
-| Did my message arrive? | `list_receipts_for_plan(plan_id, adapter_id)` → check latest receipt status |
-| What did the transport report? | Receipt's `native_message_id` and `native_channel_id` |
-| Was the event stored? | `storage.get(event_id)` |
-| What are the native refs? | `storage.resolve_native_ref(adapter_id, native_channel_id, native_message_id)` |
-| What is the lineage? | Event's `lineage` tuple + `parent_event_id` |
-| What relations exist? | `storage.list_relations(event_id)` |
+| Question                       | Query                                                                          |
+| ------------------------------ | ------------------------------------------------------------------------------ |
+| Did my message arrive?         | `list_receipts_for_plan(plan_id, adapter_id)` → check latest receipt status    |
+| What did the transport report? | Receipt's `native_message_id` and `native_channel_id`                          |
+| Was the event stored?          | `storage.get(event_id)`                                                        |
+| What are the native refs?      | `storage.resolve_native_ref(adapter_id, native_channel_id, native_message_id)` |
+| What is the lineage?           | Event's `lineage` tuple + `parent_event_id`                                    |
+| What relations exist?          | `storage.list_relations(event_id)`                                             |
 
 ### 4.3 Replay Requirements
 
@@ -144,31 +141,30 @@ The existing replay system (Contract 07) must work with real events:
 
 These requirements are already in the replay contract. Verifying them with real data is part of each connectivity phase.
 
-
 ## 5. Test Harness Requirements
 
 Each transport's live smoke harness must follow the same pattern:
 
 ### 5.1 Common Requirements
 
-| Requirement | Description |
-|-------------|-------------|
-| Skipped by default | No environment variables set = harness skipped in CI |
-| Enabled by env vars | `MEDRE_LIVE_MATRIX=1`, `MEDRE_LIVE_MESHTASTIC=1`, etc. |
-| Order-independent | Each test function can run standalone |
-| Cleanup guaranteed | Adapter `stop()` is always called, even on test failure |
-| No leaked tasks | Verify zero orphaned asyncio tasks after `stop()` |
-| Deterministic assertions | Check specific fields, not "something was returned" |
-| Timeout-bounded | Every async operation has a timeout to prevent hangs |
+| Requirement              | Description                                             |
+| ------------------------ | ------------------------------------------------------- |
+| Skipped by default       | No environment variables set = harness skipped in CI    |
+| Enabled by env vars      | `MEDRE_LIVE_MATRIX=1`, `MEDRE_LIVE_MESHTASTIC=1`, etc.  |
+| Order-independent        | Each test function can run standalone                   |
+| Cleanup guaranteed       | Adapter `stop()` is always called, even on test failure |
+| No leaked tasks          | Verify zero orphaned asyncio tasks after `stop()`       |
+| Deterministic assertions | Check specific fields, not "something was returned"     |
+| Timeout-bounded          | Every async operation has a timeout to prevent hangs    |
 
 ### 5.2 Per-Transport Harness Requirements
 
-| Transport | Additional Requirements |
-|-----------|----------------------|
-| Matrix | Requires: homeserver URL, access token, test room ID. Already implemented at `tests/test_matrix_live.py`. |
-| Meshtastic | Requires: connection type (TCP/serial/BLE), device address. Must verify paced send timing. |
-| MeshCore | Requires: connection type (TCP/serial/BLE), device address. Must verify ACK timing. |
-| LXMF | Requires: Reticulum config path, identity file, test destination hash. Must verify propagation timing (may be slow). |
+| Transport  | Additional Requirements                                                                                              |
+| ---------- | -------------------------------------------------------------------------------------------------------------------- |
+| Matrix     | Requires: homeserver URL, access token, test room ID. Already implemented at `tests/test_matrix_live.py`.            |
+| Meshtastic | Requires: connection type (TCP/serial/BLE), device address. Must verify paced send timing.                           |
+| MeshCore   | Requires: connection type (TCP/serial/BLE), device address. Must verify ACK timing.                                  |
+| LXMF       | Requires: Reticulum config path, identity file, test destination hash. Must verify propagation timing (may be slow). |
 
 ### 5.3 Runbook Requirements
 
@@ -179,7 +175,6 @@ Each live smoke harness must have a companion runbook (like `docs/runbooks/matri
 - Expected output and how to interpret failures.
 - Known limitations (e.g., Matrix inbound reception requires a second account).
 
-
 ## 6. Constrained-Network Concerns
 
 ### 6.1 Meshtastic and MeshCore
@@ -188,24 +183,24 @@ These two transports share similar constraints: LoRa radio links with duty cycle
 
 **Specific concerns:**
 
-| Concern | Impact | Mitigation |
-|---------|--------|-----------|
-| Payload truncation | Messages longer than 228/184 bytes will be truncated or fail | Renderer must enforce length limits before delivery |
+| Concern                | Impact                                                              | Mitigation                                                 |
+| ---------------------- | ------------------------------------------------------------------- | ---------------------------------------------------------- |
+| Payload truncation     | Messages longer than 228/184 bytes will be truncated or fail        | Renderer must enforce length limits before delivery        |
 | Duty cycle enforcement | Radio firmware may silently drop messages if duty cycle is exceeded | Adapter pacing must respect configured inter-message delay |
-| Radio contention | Multiple senders on the same channel may collide | No MEDRE mitigation; this is a transport-layer concern |
-| Range limits | Messages beyond radio range are lost | No MEDRE mitigation; physical deployment concern |
-| Battery impact | Frequent sending drains device batteries | Pacing and batching reduce impact; operator responsibility |
+| Radio contention       | Multiple senders on the same channel may collide                    | No MEDRE mitigation; this is a transport-layer concern     |
+| Range limits           | Messages beyond radio range are lost                                | No MEDRE mitigation; physical deployment concern           |
+| Battery impact         | Frequent sending drains device batteries                            | Pacing and batching reduce impact; operator responsibility |
 
 ### 6.2 LXMF
 
 LXMF operates over Reticulum, which can use multiple physical layers (LoRa, WiFi, serial, TCP). The concerns are different from direct radio:
 
-| Concern | Impact | Mitigation |
-|---------|--------|-----------|
-| Multi-hop latency | Messages may take seconds to hours depending on network topology | Operator must set realistic expectations; MEDRE cannot speed up the mesh |
-| Propagation node availability | Store-and-forward breaks if propagation node is down | Operator must ensure propagation node reliability |
-| Resource transfer size | Large LXMF messages are split into Reticulum resources | Adapter must handle multi-part assembly; timeout must be generous |
-| Identity discovery | New nodes must announce before they can receive directed messages | Operator must ensure announcements are sent and propagated |
+| Concern                       | Impact                                                            | Mitigation                                                               |
+| ----------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| Multi-hop latency             | Messages may take seconds to hours depending on network topology  | Operator must set realistic expectations; MEDRE cannot speed up the mesh |
+| Propagation node availability | Store-and-forward breaks if propagation node is down              | Operator must ensure propagation node reliability                        |
+| Resource transfer size        | Large LXMF messages are split into Reticulum resources            | Adapter must handle multi-part assembly; timeout must be generous        |
+| Identity discovery            | New nodes must announce before they can receive directed messages | Operator must ensure announcements are sent and propagated               |
 
 ### 6.3 General Guidance
 
@@ -214,7 +209,6 @@ LXMF operates over Reticulum, which can use multiple physical layers (LoRa, WiFi
 - **Test with real failures.** Disconnect hardware during operation. Verify that health state transitions correctly and that delivery receipts record failures.
 - **Test with real volumes.** Send more messages than you expect in production. Verify that queues, pacing, and receipts behave correctly under load.
 
-
 ## 7. What This Roadmap Does NOT Promise
 
 1. **No production deployment timeline.** This document describes an order of operations, not a schedule.
@@ -222,7 +216,6 @@ LXMF operates over Reticulum, which can use multiple physical layers (LoRa, WiFi
 3. **No commitment to all four transports.** An operator may choose to deploy only Matrix and Meshtastic, skipping MeshCore and LXMF entirely. The roadmap respects that choice.
 4. **No scheduler implementation.** The retry scheduler discussed in Contracts 21 and 22 is a prerequisite for sustained production operation, but it is not part of this roadmap.
 5. **No feature expansion.** This roadmap covers first real text message operation. Reactions, media, E2EE, admin APIs, and rich content are all out of scope.
-
 
 ## 8. Implications
 

@@ -39,6 +39,7 @@ Lifecycle
 times is safe.  The adapter tracks background :class:`asyncio.Task`
 instances spawned by inbound packet callbacks and drains them on stop.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -48,6 +49,13 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from medre.core.events.canonical import CanonicalEvent
 
+from medre.adapters.meshcore.codec import MeshCoreCodec
+from medre.adapters.meshcore.errors import (
+    MeshCoreSendError,
+)
+from medre.adapters.meshcore.packet_classifier import MeshCorePacketClassifier
+from medre.adapters.meshcore.session import MeshCoreSession
+from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
@@ -58,15 +66,6 @@ from medre.core.contracts.adapter import (
     AdapterRole,
     AdapterSendError,
 )
-from medre.adapters.meshcore.codec import MeshCoreCodec
-from medre.adapters.meshcore.compat import HAS_MESHCORE
-from medre.config.adapters.meshcore import MeshCoreConfig
-from medre.adapters.meshcore.errors import (
-    MeshCoreConnectionError,
-    MeshCoreSendError,
-)
-from medre.adapters.meshcore.packet_classifier import MeshCorePacketClassifier
-from medre.adapters.meshcore.session import MeshCoreSession
 from medre.core.rendering.renderer import RenderingResult
 from medre.core.runtime.diagnostic_contract import sanitize_diagnostic_mapping
 
@@ -194,9 +193,7 @@ class MeshCoreAdapter(AdapterContract):
         self._client = None
         self._started = False
         if self.ctx is not None:
-            self.ctx.logger.info(
-                "MeshCoreAdapter %s stopped", self.adapter_id
-            )
+            self.ctx.logger.info("MeshCoreAdapter %s stopped", self.adapter_id)
 
     async def health_check(self) -> AdapterInfo:
         """Return a snapshot of the adapter's current health.
@@ -319,9 +316,11 @@ class MeshCoreAdapter(AdapterContract):
                 "MeshCore alpha — no end-to-end ACK; "
                 "status reflects local acceptance only"
             ),
-            metadata=MappingProxyType({
-                "delivery_status": "local_accepted",
-            }),
+            metadata=MappingProxyType(
+                {
+                    "delivery_status": "local_accepted",
+                }
+            ),
         )
 
     # -- Inbound callback ---------------------------------------------------
@@ -432,9 +431,7 @@ class MeshCoreAdapter(AdapterContract):
             "mode": self._config.connection_type,
         }
         if self._session is not None:
-            base["session"] = sanitize_diagnostic_mapping(
-                self._session.diagnostics()
-            )
+            base["session"] = sanitize_diagnostic_mapping(self._session.diagnostics())
         return base
 
     # -- Background task management -----------------------------------------
@@ -452,9 +449,7 @@ class MeshCoreAdapter(AdapterContract):
         if self._background_tasks:
             try:
                 await asyncio.wait_for(
-                    asyncio.gather(
-                        *self._background_tasks, return_exceptions=True
-                    ),
+                    asyncio.gather(*self._background_tasks, return_exceptions=True),
                     timeout=timeout,
                 )
             except asyncio.TimeoutError:

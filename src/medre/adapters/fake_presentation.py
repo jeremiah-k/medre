@@ -29,14 +29,6 @@ import logging
 import uuid
 from typing import Any
 
-from medre.core.events.canonical import (
-    CanonicalEvent,
-    EventRelation,
-    NativeRef,
-)
-from medre.core.events.kinds import EventKind
-from medre.core.rendering.renderer import RenderingResult
-
 from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
@@ -45,6 +37,13 @@ from medre.core.contracts.adapter import (
     AdapterInfo,
     AdapterRole,
 )
+from medre.core.events.canonical import (
+    CanonicalEvent,
+    EventRelation,
+    NativeRef,
+)
+from medre.core.events.kinds import EventKind
+from medre.core.rendering.renderer import RenderingResult
 
 # Default capabilities for the fake presentation adapter.
 _FAKE_PRESENTATION_CAPABILITIES = AdapterCapabilities(
@@ -77,7 +76,8 @@ def _trim(lst: list[Any], maxsize: int = _MAX_FAKE_HISTORY) -> None:
         del lst[:excess]
         _logger.warning(
             "Fake adapter history trimmed %d oldest entries (cap=%d)",
-            excess, maxsize,
+            excess,
+            maxsize,
         )
 
 
@@ -147,9 +147,7 @@ class FakePresentationAdapter(AdapterContract):
         """Mark the adapter as stopped."""
         self._started = False
         if self.ctx is not None:
-            self.ctx.logger.info(
-                "FakePresentationAdapter %s stopped", self.adapter_id
-            )
+            self.ctx.logger.info("FakePresentationAdapter %s stopped", self.adapter_id)
 
     async def health_check(self) -> AdapterInfo:
         """Return a healthy :class:`AdapterInfo` snapshot."""
@@ -350,7 +348,9 @@ class FakePresentationAdapter(AdapterContract):
             A canonical event with a reaction relation.
         """
         ch = channel or self._channel
-        reaction = self.make_event(text=emoji, event_kind=EventKind.MESSAGE_REACTED, channel=ch)
+        reaction = self.make_event(
+            text=emoji, event_kind=EventKind.MESSAGE_REACTED, channel=ch
+        )
         relation = EventRelation(
             relation_type="reaction",
             target_event_id=target.event_id,

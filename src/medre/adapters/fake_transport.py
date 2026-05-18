@@ -21,14 +21,9 @@ Usage
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import uuid
 from typing import Any
-
-from medre.core.events.canonical import CanonicalEvent
-from medre.core.events.kinds import EventKind
-from medre.core.rendering.renderer import RenderingResult
 
 from medre.core.contracts.adapter import (
     AdapterCapabilities,
@@ -38,6 +33,9 @@ from medre.core.contracts.adapter import (
     AdapterInfo,
     AdapterRole,
 )
+from medre.core.events.canonical import CanonicalEvent
+from medre.core.events.kinds import EventKind
+from medre.core.rendering.renderer import RenderingResult
 
 _logger = logging.getLogger(__name__)
 
@@ -52,7 +50,8 @@ def _trim(lst: list[Any], maxsize: int = _MAX_FAKE_HISTORY) -> None:
         del lst[:excess]
         _logger.warning(
             "Fake adapter history trimmed %d oldest entries (cap=%d)",
-            excess, maxsize,
+            excess,
+            maxsize,
         )
 
 
@@ -279,7 +278,8 @@ class FakeTransportAdapter(AdapterContract):
                 del self.event_snapshots[k]
             _logger.warning(
                 "FakeTransportAdapter event_snapshots trimmed %d entries (cap=%d)",
-                excess, _MAX_FAKE_HISTORY,
+                excess,
+                _MAX_FAKE_HISTORY,
             )
         return event
 

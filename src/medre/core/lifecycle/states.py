@@ -128,14 +128,10 @@ class InvalidStateTransition(Exception):
         The requested target state.
     """
 
-    def __init__(
-        self, source: AdapterState, target: AdapterState
-    ) -> None:
+    def __init__(self, source: AdapterState, target: AdapterState) -> None:
         self.source = source
         self.target = target
-        super().__init__(
-            f"Invalid transition: {source.value} -> {target.value}"
-        )
+        super().__init__(f"Invalid transition: {source.value} -> {target.value}")
 
 
 def is_valid_transition(source: AdapterState, target: AdapterState) -> bool:
@@ -155,9 +151,7 @@ def is_valid_transition(source: AdapterState, target: AdapterState) -> bool:
     return target in VALID_TRANSITIONS.get(source, frozenset())
 
 
-def require_valid_transition(
-    source: AdapterState, target: AdapterState
-) -> None:
+def require_valid_transition(source: AdapterState, target: AdapterState) -> None:
     """Validate a state transition, raising if illegal.
 
     Parameters

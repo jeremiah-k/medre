@@ -13,21 +13,15 @@ No Docker, no live transports, no SDK dependencies required.
 
 from __future__ import annotations
 
-import uuid
-from datetime import datetime, timezone
-
 from medre.adapters.fake_matrix import FakeMatrixAdapter
 from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.engine.pipeline import PipelineRunner
-from medre.core.events import CanonicalEvent, EventMetadata, NativeRef
-from medre.core.events.kinds import EventKind
 from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite import SQLiteStorage
-
 from tests.helpers.bridge import (
     make_adapter_context,
     make_pipeline_config,
@@ -37,7 +31,6 @@ from tests.helpers.matrix import (
     make_matrix_config,
     make_nio_event,
     make_nio_room,
-    mock_nio,
 )
 
 
@@ -141,9 +134,7 @@ class TestMatrixWrapperMultiCallback:
         self, mock_nio, temp_storage: SQLiteStorage
     ) -> None:
         """MatrixAdapter suppresses messages from its own user_id."""
-        matrix_adapter = MatrixAdapter(
-            make_matrix_config(adapter_id="mx-self")
-        )
+        matrix_adapter = MatrixAdapter(make_matrix_config(adapter_id="mx-self"))
 
         route = Route(
             id="mx-self-route",

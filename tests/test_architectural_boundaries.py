@@ -14,13 +14,11 @@ from __future__ import annotations
 import importlib
 import os
 import re
-import sys
 import tempfile
 from pathlib import Path
 from typing import Any, AsyncGenerator
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Shared constants
@@ -66,9 +64,7 @@ def _banned_imports(lines: list[str], banned: tuple[str, ...]) -> list[str]:
     return found
 
 
-def _scan_dir_for_prefixes(
-    root: Path, prefixes: tuple[str, ...]
-) -> list[str]:
+def _scan_dir_for_prefixes(root: Path, prefixes: tuple[str, ...]) -> list[str]:
     """Scan all .py files under *root* for lines starting with any prefix.
 
     Returns a list of ``"relative_path:line_no: line"`` strings.
@@ -114,14 +110,12 @@ class TestReplayEngineBoundary:
         lines = _import_lines(source)
 
         banned_sdk = _banned_imports(lines, _SDK_PACKAGES)
-        assert banned_sdk == [], (
-            f"replay.py imports transport SDKs: {banned_sdk}"
-        )
+        assert banned_sdk == [], f"replay.py imports transport SDKs: {banned_sdk}"
 
         banned_adapters = _banned_imports(lines, _ADAPTER_PREFIXES)
-        assert banned_adapters == [], (
-            f"replay.py imports concrete adapter packages: {banned_adapters}"
-        )
+        assert (
+            banned_adapters == []
+        ), f"replay.py imports concrete adapter packages: {banned_adapters}"
 
 
 # ===================================================================
@@ -138,14 +132,12 @@ class TestRouteEngineBoundary:
         lines = _import_lines(source)
 
         banned_sdk = _banned_imports(lines, _SDK_PACKAGES)
-        assert banned_sdk == [], (
-            f"route_engine.py imports transport SDKs: {banned_sdk}"
-        )
+        assert banned_sdk == [], f"route_engine.py imports transport SDKs: {banned_sdk}"
 
         banned_adapters = _banned_imports(lines, _ADAPTER_PREFIXES)
-        assert banned_adapters == [], (
-            f"route_engine.py imports concrete adapter packages: {banned_adapters}"
-        )
+        assert (
+            banned_adapters == []
+        ), f"route_engine.py imports concrete adapter packages: {banned_adapters}"
 
 
 # ===================================================================
@@ -164,14 +156,12 @@ class TestPipelineRunnerBoundary:
         lines = _import_lines(source)
 
         banned_sdk = _banned_imports(lines, _SDK_PACKAGES)
-        assert banned_sdk == [], (
-            f"pipeline.py imports transport SDKs: {banned_sdk}"
-        )
+        assert banned_sdk == [], f"pipeline.py imports transport SDKs: {banned_sdk}"
 
         banned_adapters = _banned_imports(lines, _ADAPTER_PREFIXES)
-        assert banned_adapters == [], (
-            f"pipeline.py imports concrete adapter packages: {banned_adapters}"
-        )
+        assert (
+            banned_adapters == []
+        ), f"pipeline.py imports concrete adapter packages: {banned_adapters}"
 
 
 # ===================================================================
@@ -189,9 +179,9 @@ class TestRuntimeBuilderImportBoundary:
         # import does not fail.  The builder uses lazy _AdapterFactory
         # descriptors, so importing builder.py never triggers SDK imports.
         mod = importlib.import_module("medre.runtime.builder")
-        assert hasattr(mod, "RuntimeBuilder"), (
-            "RuntimeBuilder not found in medre.runtime.builder"
-        )
+        assert hasattr(
+            mod, "RuntimeBuilder"
+        ), "RuntimeBuilder not found in medre.runtime.builder"
 
 
 # ===================================================================
@@ -222,16 +212,15 @@ class TestFakeAdapterRuntimeBuild:
     ) -> None:
         from medre.adapters.fake_matrix import FakeMatrixAdapter
         from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
-
+        from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
         from medre.core.events.bus import EventBus
+        from medre.core.observability.metrics import Diagnostician
+        from medre.core.planning.fallback_resolution import FallbackResolver
+        from medre.core.planning.relation_resolution import RelationResolver
         from medre.core.rendering.renderer import RenderingPipeline
         from medre.core.rendering.text import TextRenderer
         from medre.core.routing.router import Router
         from medre.core.routing.stats import RouteStats
-        from medre.core.planning.fallback_resolution import FallbackResolver
-        from medre.core.planning.relation_resolution import RelationResolver
-        from medre.core.observability.metrics import Diagnostician
-        from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 
         # Construct a minimal pipeline using fake adapters only — no SDK calls.
         event_bus = EventBus()
@@ -322,15 +311,12 @@ class TestReplayTestPurity:
                 continue
             for pattern in self._BANNED_PATTERNS:
                 if pattern in stripped:
-                    violations.append(
-                        f"{replay_test_file.name}:{i}: {stripped}"
-                    )
+                    violations.append(f"{replay_test_file.name}:{i}: {stripped}")
                     break
 
-        assert violations == [], (
-            f"Replay test files contain live transport imports:\n"
-            + "\n".join(violations)
-        )
+        assert (
+            violations == []
+        ), "Replay test files contain live transport imports:\n" + "\n".join(violations)
 
 
 # ===================================================================
@@ -358,14 +344,15 @@ class TestCoreDoesNotImportAdapters:
                 stripped = line.strip()
                 if not stripped or stripped.startswith("#"):
                     continue
-                if stripped.startswith("from medre.adapters") or stripped.startswith("import medre.adapters"):
+                if stripped.startswith("from medre.adapters") or stripped.startswith(
+                    "import medre.adapters"
+                ):
                     rel = py_file.relative_to(repo_root)
                     violations.append(f"{rel}:{i}: {stripped}")
 
-        assert violations == [], (
-            f"Core modules must not import from medre.adapters:\n"
-            + "\n".join(violations)
-        )
+        assert (
+            violations == []
+        ), "Core modules must not import from medre.adapters:\n" + "\n".join(violations)
 
 
 # ===================================================================
@@ -395,13 +382,16 @@ class TestConfigDoesNotImportAdapters:
                 stripped = line.strip()
                 if not stripped or stripped.startswith("#"):
                     continue
-                if stripped.startswith("from medre.adapters") or stripped.startswith("import medre.adapters"):
+                if stripped.startswith("from medre.adapters") or stripped.startswith(
+                    "import medre.adapters"
+                ):
                     rel = py_file.relative_to(repo_root)
                     violations.append(f"{rel}:{i}: {stripped}")
 
-        assert violations == [], (
-            f"Config modules must not import from medre.adapters:\n"
-            + "\n".join(violations)
+        assert (
+            violations == []
+        ), "Config modules must not import from medre.adapters:\n" + "\n".join(
+            violations
         )
 
 
@@ -428,14 +418,15 @@ class TestCoreDoesNotImportConfig:
                 stripped = line.strip()
                 if not stripped or stripped.startswith("#"):
                     continue
-                if stripped.startswith("from medre.config") or stripped.startswith("import medre.config"):
+                if stripped.startswith("from medre.config") or stripped.startswith(
+                    "import medre.config"
+                ):
                     rel = py_file.relative_to(repo_root)
                     violations.append(f"{rel}:{i}: {stripped}")
 
-        assert violations == [], (
-            f"Core modules must not import from medre.config:\n"
-            + "\n".join(violations)
-        )
+        assert (
+            violations == []
+        ), "Core modules must not import from medre.config:\n" + "\n".join(violations)
 
 
 # ===================================================================
@@ -482,10 +473,9 @@ class TestNoOldImports:
         assert src_dir.exists()
 
         violations = _scan_dir_for_prefixes(src_dir, self._FORBIDDEN_PREFIXES)
-        assert violations == [], (
-            f"Old/noncanonical imports found in src/:\n"
-            + "\n".join(violations)
-        )
+        assert (
+            violations == []
+        ), "Old/noncanonical imports found in src/:\n" + "\n".join(violations)
 
     def test_no_old_imports_in_tests(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
@@ -493,10 +483,9 @@ class TestNoOldImports:
         assert tests_dir.exists()
 
         violations = _scan_dir_for_prefixes(tests_dir, self._FORBIDDEN_PREFIXES)
-        assert violations == [], (
-            f"Old/noncanonical imports found in tests/:\n"
-            + "\n".join(violations)
-        )
+        assert (
+            violations == []
+        ), "Old/noncanonical imports found in tests/:\n" + "\n".join(violations)
 
 
 # ===================================================================
@@ -528,11 +517,12 @@ class TestNoOldAdapterBaseReferences:
                 if not stripped or stripped.startswith("#"):
                     continue
                 if old_name in stripped:
-                    violations.append(f"{py_file.relative_to(repo_root)}:{i}: {stripped}")
+                    violations.append(
+                        f"{py_file.relative_to(repo_root)}:{i}: {stripped}"
+                    )
 
-        assert violations == [], (
-            f"{old_name} references found in src/:\n"
-            + "\n".join(violations)
+        assert violations == [], f"{old_name} references found in src/:\n" + "\n".join(
+            violations
         )
 
     def test_no_baseadapter_in_tests(self) -> None:
@@ -553,12 +543,13 @@ class TestNoOldAdapterBaseReferences:
                 if not stripped or stripped.startswith("#"):
                     continue
                 if old_name in stripped:
-                    violations.append(f"{py_file.relative_to(repo_root)}:{i}: {stripped}")
+                    violations.append(
+                        f"{py_file.relative_to(repo_root)}:{i}: {stripped}"
+                    )
 
-        assert violations == [], (
-            f"{old_name} references found in tests/:\n"
-            + "\n".join(violations)
-        )
+        assert (
+            violations == []
+        ), f"{old_name} references found in tests/:\n" + "\n".join(violations)
 
 
 # ===================================================================
@@ -582,9 +573,8 @@ class TestOldModulesRemoved:
     def test_old_modules_removed(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
         remaining = [p for p in self._EXPECTED_ABSENT if (repo_root / p).exists()]
-        assert remaining == [], (
-            f"Old/noncanonical modules still exist:\n"
-            + "\n".join(remaining)
+        assert remaining == [], "Old/noncanonical modules still exist:\n" + "\n".join(
+            remaining
         )
 
 
@@ -614,17 +604,15 @@ class TestCanonicalContractExports:
         import medre.core.contracts.adapter as mod
 
         for name in self._EXPECTED_NAMES:
-            assert hasattr(mod, name), (
-                f"medre.core.contracts.adapter missing export: {name}"
-            )
+            assert hasattr(
+                mod, name
+            ), f"medre.core.contracts.adapter missing export: {name}"
 
     def test_contracts_init_reexports(self) -> None:
         import medre.core.contracts as pkg
 
         for name in self._EXPECTED_NAMES:
-            assert hasattr(pkg, name), (
-                f"medre.core.contracts missing re-export: {name}"
-            )
+            assert hasattr(pkg, name), f"medre.core.contracts missing re-export: {name}"
 
 
 # ===================================================================
@@ -762,11 +750,13 @@ class TestMatrixCredentialSidecar:
 
         cred_file = tmp_path / "matrix.json"
         cred_file.write_text(
-            json.dumps({
-                "homeserver": "https://matrix.org",
-                "user_id": "@bot:matrix.org",
-                "access_token": "syt_abc123",
-            })
+            json.dumps(
+                {
+                    "homeserver": "https://matrix.org",
+                    "user_id": "@bot:matrix.org",
+                    "access_token": "syt_abc123",
+                }
+            )
         )
 
         with patch(
@@ -803,9 +793,7 @@ class TestConfigErrorCanonicalImports:
     """ConfigError classes must be imported from medre.config.adapters.errors."""
 
     # These are allowed paths for importing ConfigError classes.
-    _ALLOWED_ERROR_PATHS = (
-        "from medre.config.adapters.errors import ",
-    )
+    _ALLOWED_ERROR_PATHS = ("from medre.config.adapters.errors import ",)
 
     # These are FORBIDDEN — ConfigError classes must not be imported
     # from config dataclass modules.
@@ -826,7 +814,9 @@ class TestConfigErrorCanonicalImports:
                 if not stripped or stripped.startswith("#"):
                     continue
                 if any(p in stripped for p in self._FORBIDDEN_ERROR_IMPORTS):
-                    violations.append(f"{py_file.relative_to(repo_root)}:{i}: {stripped}")
+                    violations.append(
+                        f"{py_file.relative_to(repo_root)}:{i}: {stripped}"
+                    )
         for py_file in sorted((repo_root / "tests").rglob("*.py")):
             # Exclude this test file — it defines the forbidden patterns as literals.
             if py_file.name == "test_architectural_boundaries.py":
@@ -836,7 +826,9 @@ class TestConfigErrorCanonicalImports:
                 if not stripped or stripped.startswith("#"):
                     continue
                 if any(p in stripped for p in self._FORBIDDEN_ERROR_IMPORTS):
-                    violations.append(f"{py_file.relative_to(repo_root)}:{i}: {stripped}")
+                    violations.append(
+                        f"{py_file.relative_to(repo_root)}:{i}: {stripped}"
+                    )
 
         assert violations == [], (
             "ConfigError imports from dataclass modules found (must use medre.config.adapters.errors):\n"
@@ -845,12 +837,21 @@ class TestConfigErrorCanonicalImports:
 
     def test_package_re_exports_config_errors(self) -> None:
         """Package-level re-exports of ConfigError classes are valid from medre.config.adapters."""
-        from medre.config.adapters.errors import MatrixConfigError
-        from medre.config.adapters.errors import LxmfConfigError
-        from medre.config.adapters.errors import MeshtasticConfigError
-        from medre.config.adapters.errors import MeshCoreConfigError
-        _ = MatrixConfigError, LxmfConfigError, MeshtasticConfigError, MeshCoreConfigError
+        from medre.config.adapters.errors import (
+            LxmfConfigError,
+            MatrixConfigError,
+            MeshCoreConfigError,
+            MeshtasticConfigError,
+        )
+
+        _ = (
+            MatrixConfigError,
+            LxmfConfigError,
+            MeshtasticConfigError,
+            MeshCoreConfigError,
+        )
         import medre.config.adapters as mod
+
         assert hasattr(mod, "MatrixConfigError")
         assert hasattr(mod, "LxmfConfigError")
         assert hasattr(mod, "MeshtasticConfigError")
@@ -919,7 +920,10 @@ class TestNoActiveStaleDocsReferences:
             text = md_file.read_text(encoding="utf-8")
 
             # Exempt audit documents with explicit framing statements
-            if md_file.name == "66-release-hygiene-audit.md" and "before the current architecture was finalized" in text:
+            if (
+                md_file.name == "66-release-hygiene-audit.md"
+                and "before the current architecture was finalized" in text
+            ):
                 continue
 
             for i, line in enumerate(text.splitlines(), 1):
@@ -935,9 +939,10 @@ class TestNoActiveStaleDocsReferences:
 
                 violations.append((str(md_file.relative_to(repo_root)), i, stripped))
 
-        assert not violations, (
-            "Active stale architecture references found in docs:\n"
-            + "\n".join(f"{f}:{l}: {s}" for f, l, s in violations)
+        assert (
+            not violations
+        ), "Active stale architecture references found in docs:\n" + "\n".join(
+            f"{f}:{l}: {s}" for f, l, s in violations
         )
 
 
@@ -998,9 +1003,11 @@ class TestNoStaleWordingInDocs:
     )
 
     # These files are fully exempt from the wording check.
-    _EXEMPT_FILES = frozenset({
-        "66-release-hygiene-audit.md",  # audit document with explicit framing
-    })
+    _EXEMPT_FILES = frozenset(
+        {
+            "66-release-hygiene-audit.md",  # audit document with explicit framing
+        }
+    )
 
     def test_no_stale_wording_in_docs(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
@@ -1028,7 +1035,8 @@ class TestNoStaleWordingInDocs:
 
                 violations.append((str(md_file.relative_to(repo_root)), i, stripped))
 
-        assert not violations, (
-            "Stale transitional wording found in docs:\n"
-            + "\n".join(f"{f}:{l}: {s}" for f, l, s in violations)
+        assert (
+            not violations
+        ), "Stale transitional wording found in docs:\n" + "\n".join(
+            f"{f}:{l}: {s}" for f, l, s in violations
         )

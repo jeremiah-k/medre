@@ -12,13 +12,8 @@ TRACK 9 — Resource Boundary Tests
 from __future__ import annotations
 
 import importlib
-import os
 import re
 from pathlib import Path
-from typing import Any
-
-import pytest
-
 
 # ---------------------------------------------------------------------------
 # Shared constants & helpers
@@ -37,9 +32,7 @@ _ADAPTER_PREFIXES = (
 )
 """Concrete adapter package prefixes (excludes medre.core.contracts.adapter and fake_*)."""
 
-_RESOURCE_CONTROL_MODULES = (
-    "medre.runtime.capacity",
-)
+_RESOURCE_CONTROL_MODULES = ("medre.runtime.capacity",)
 """Runtime resource-control modules that must stay transport-agnostic."""
 
 
@@ -98,15 +91,13 @@ class TestCapacityControllerSDKIsolation:
         lines = _import_lines(source)
 
         banned_sdk = _banned_imports(lines, _SDK_PACKAGES)
-        assert banned_sdk == [], (
-            f"CapacityController imports transport SDKs: {banned_sdk}"
-        )
+        assert (
+            banned_sdk == []
+        ), f"CapacityController imports transport SDKs: {banned_sdk}"
 
         # Also verify no reference in the full source text (catches string refs)
         for sdk in _SDK_PACKAGES:
-            assert sdk not in source, (
-                f"capacity.py mentions SDK '{sdk}' in source text"
-            )
+            assert sdk not in source, f"capacity.py mentions SDK '{sdk}' in source text"
 
 
 # ===================================================================
@@ -150,9 +141,10 @@ class TestResourceControlAdapterIsolation:
                     violations.append(f"app.py (runtime): {stripped}")
                     break
 
-        assert violations == [], (
-            f"Resource-control modules import adapters directly:\n"
-            + "\n".join(violations)
+        assert (
+            violations == []
+        ), "Resource-control modules import adapters directly:\n" + "\n".join(
+            violations
         )
 
 
@@ -175,9 +167,9 @@ class TestAdapterResourceControlIsolation:
             for line in banned:
                 violations.append(f"{module_name}: {line}")
 
-        assert violations == [], (
-            f"Adapter modules import resource controls:\n" + "\n".join(violations)
-        )
+        assert (
+            violations == []
+        ), "Adapter modules import resource controls:\n" + "\n".join(violations)
 
 
 # ===================================================================
@@ -209,9 +201,9 @@ class TestSessionResourceControlIsolation:
             for line in banned:
                 violations.append(f"{module_name}: {line}")
 
-        assert violations == [], (
-            f"Session modules import resource controls:\n" + "\n".join(violations)
-        )
+        assert (
+            violations == []
+        ), "Session modules import resource controls:\n" + "\n".join(violations)
 
 
 # ===================================================================
@@ -228,15 +220,13 @@ class TestReplayEngineSDKFreedom:
         lines = _import_lines(source)
 
         banned_sdk = _banned_imports(lines, _SDK_PACKAGES)
-        assert banned_sdk == [], (
-            f"ReplayEngine imports transport SDKs: {banned_sdk}"
-        )
+        assert banned_sdk == [], f"ReplayEngine imports transport SDKs: {banned_sdk}"
 
         # Also check for concrete adapter package imports
         banned_adapters = _banned_imports(lines, _ADAPTER_PREFIXES)
-        assert banned_adapters == [], (
-            f"ReplayEngine imports concrete adapter packages: {banned_adapters}"
-        )
+        assert (
+            banned_adapters == []
+        ), f"ReplayEngine imports concrete adapter packages: {banned_adapters}"
 
 
 # ===================================================================
@@ -253,12 +243,10 @@ class TestRouteEngineSDKFreedom:
         lines = _import_lines(source)
 
         banned_sdk = _banned_imports(lines, _SDK_PACKAGES)
-        assert banned_sdk == [], (
-            f"RouteEngine imports transport SDKs: {banned_sdk}"
-        )
+        assert banned_sdk == [], f"RouteEngine imports transport SDKs: {banned_sdk}"
 
         # Also check for concrete adapter package imports
         banned_adapters = _banned_imports(lines, _ADAPTER_PREFIXES)
-        assert banned_adapters == [], (
-            f"RouteEngine imports concrete adapter packages: {banned_adapters}"
-        )
+        assert (
+            banned_adapters == []
+        ), f"RouteEngine imports concrete adapter packages: {banned_adapters}"

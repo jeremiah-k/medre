@@ -152,9 +152,7 @@ async def _inject_scenario(
             result: Any,
             _orig: Any = original_deliver,
         ) -> Any:
-            raise AdapterPermanentError(
-                "run-session: simulated permanent failure"
-            )
+            raise AdapterPermanentError("run-session: simulated permanent failure")
 
         adapter.deliver = _failing_deliver  # type: ignore[assignment]
 
@@ -185,8 +183,9 @@ async def _inject_scenario(
         if cc is None:
             return "No capacity controller wired"
         # Exhaust the delivery semaphore.
-        from medre.runtime.capacity import CapacityController
         from medre.config.model import RuntimeLimits
+        from medre.runtime.capacity import CapacityController
+
         small_cc = CapacityController(
             RuntimeLimits(
                 max_inflight_deliveries=1,
@@ -206,7 +205,12 @@ async def _inject_scenario(
             break
         if target_aid is None:
             return "No adapter available for health patch"
-        from medre.core.contracts.adapter import AdapterInfo, AdapterCapabilities, AdapterRole
+        from medre.core.contracts.adapter import (
+            AdapterCapabilities,
+            AdapterInfo,
+            AdapterRole,
+        )
+
         adapter = app.adapters[target_aid]
 
         # Preserve original capabilities.

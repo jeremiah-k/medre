@@ -6,11 +6,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-import pytest
-
-from medre.core.events import CanonicalEvent, EventMetadata, EventRelation, NativeRef
-from medre.core.events.kinds import EventKind
 from medre.adapters.matrix.renderer import MatrixRenderer
+from medre.core.events import CanonicalEvent, EventMetadata, EventRelation, NativeRef
 from medre.core.rendering.renderer import RenderingResult
 
 
@@ -46,12 +43,18 @@ class TestMatrixRenderer:
         """Renderer matches when target_platform is matrix."""
         renderer = MatrixRenderer()
         event = _make_event()
-        assert renderer.can_render(event, "chat-instance", target_platform="matrix") is True
+        assert (
+            renderer.can_render(event, "chat-instance", target_platform="matrix")
+            is True
+        )
 
     def test_can_render_non_matrix(self) -> None:
         renderer = MatrixRenderer()
         event = _make_event()
-        assert renderer.can_render(event, "fake_presentation", target_platform="fake") is False
+        assert (
+            renderer.can_render(event, "fake_presentation", target_platform="fake")
+            is False
+        )
 
     def test_can_render_without_platform_returns_false(self) -> None:
         """Without platform info, renderer cannot match (no prefix fallback)."""

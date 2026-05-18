@@ -86,16 +86,23 @@ def _build_cross_linked_commands(
     primary_text: dict[str, str] = {}
 
     for key, argv in [
-        ("inspect_event",
-         ["medre", "inspect", "event", event_id] + ro_flag_argv),
-        ("inspect_timeline",
-         ["medre", "inspect", "event", event_id, "--timeline"] + ro_flag_argv),
-        ("inspect_receipts",
-         ["medre", "inspect", "receipts", "--event", event_id] + ro_flag_argv),
-        ("inspect_evidence",
-         ["medre", "inspect", "event", event_id, "--evidence"] + ro_flag_argv),
-        ("inspect_recovery",
-         ["medre", "inspect", "event", event_id, "--recovery"] + ro_flag_argv),
+        ("inspect_event", ["medre", "inspect", "event", event_id] + ro_flag_argv),
+        (
+            "inspect_timeline",
+            ["medre", "inspect", "event", event_id, "--timeline"] + ro_flag_argv,
+        ),
+        (
+            "inspect_receipts",
+            ["medre", "inspect", "receipts", "--event", event_id] + ro_flag_argv,
+        ),
+        (
+            "inspect_evidence",
+            ["medre", "inspect", "event", event_id, "--evidence"] + ro_flag_argv,
+        ),
+        (
+            "inspect_recovery",
+            ["medre", "inspect", "event", event_id, "--recovery"] + ro_flag_argv,
+        ),
     ]:
         primary_argv[key], primary_text[key] = _cmd(argv)
 
@@ -105,17 +112,17 @@ def _build_cross_linked_commands(
 
     # trace_event and evidence_bundle are read-only → storage-path
     for key, argv in [
-        ("trace_event",
-         ["medre", "trace", "event", event_id] + ro_flag_argv),
-        ("evidence_bundle",
-         ["medre", "evidence", "--event", event_id] + ro_flag_argv + ["--json"]),
+        ("trace_event", ["medre", "trace", "event", event_id] + ro_flag_argv),
+        (
+            "evidence_bundle",
+            ["medre", "evidence", "--event", event_id] + ro_flag_argv + ["--json"],
+        ),
     ]:
         specialized_argv[key], specialized_text[key] = _cmd(argv)
 
     # recover_event is config-required → --config
     for key, argv in [
-        ("recover_event",
-         ["medre", "recover", "--event", event_id] + cfg_flag_argv),
+        ("recover_event", ["medre", "recover", "--event", event_id] + cfg_flag_argv),
     ]:
         specialized_argv[key], specialized_text[key] = _cmd(argv)
 

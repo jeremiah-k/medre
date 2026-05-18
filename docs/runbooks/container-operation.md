@@ -13,21 +13,19 @@ For the underlying path model and validation procedures, see [Deployment Validat
 
 **Boundary enforcement (Track 8):** Container deployment relies on transport-agnostic path resolution and runtime construction. No container-specific SDK coupling exists. All adapter construction goes through the `RuntimeBuilder` abstraction. Container environment variables map to adapter config dataclasses (pure frozen dataclasses, no SDK dependency).
 
-
 ## 1. Container Image Assumptions
 
 MEDRE's container deployment makes the following assumptions about the container environment:
 
-| Assumption               | Detail                                                      |
-|--------------------------|-------------------------------------------------------------|
-| Python runtime           | MEDRE requires Python 3.11+                                |
-| Single process           | One MEDRE runtime per container                             |
-| Non-root execution       | MEDRE does not require root; run as non-root user           |
-| No privileged ports      | MEDRE does not bind to ports < 1024                         |
-| Filesystem is writable   | `MEDRE_HOME` path must be writable by the process user      |
-| No init system           | MEDRE handles its own lifecycle; no systemd/supervisord     |
-| Single `MEDRE_HOME` mount | One volume mount captures all persistent state              |
-
+| Assumption                | Detail                                                  |
+| ------------------------- | ------------------------------------------------------- |
+| Python runtime            | MEDRE requires Python 3.11+                             |
+| Single process            | One MEDRE runtime per container                         |
+| Non-root execution        | MEDRE does not require root; run as non-root user       |
+| No privileged ports       | MEDRE does not bind to ports < 1024                     |
+| Filesystem is writable    | `MEDRE_HOME` path must be writable by the process user  |
+| No init system            | MEDRE handles its own lifecycle; no systemd/supervisord |
+| Single `MEDRE_HOME` mount | One volume mount captures all persistent state          |
 
 ## 2. Environment Variables
 
@@ -37,29 +35,29 @@ Reference: `examples/env/docker.env.example`
 
 ### 2.1 Core Variables
 
-| Variable              | Default           | Description                           |
-|-----------------------|-------------------|---------------------------------------|
-| `MEDRE_HOME`          | (unset → XDG)     | Root data directory. Set for containers. |
-| `MEDRE_LOG_LEVEL`     | `INFO`            | Log verbosity: DEBUG, INFO, WARNING, ERROR |
+| Variable          | Default       | Description                                |
+| ----------------- | ------------- | ------------------------------------------ |
+| `MEDRE_HOME`      | (unset → XDG) | Root data directory. Set for containers.   |
+| `MEDRE_LOG_LEVEL` | `INFO`        | Log verbosity: DEBUG, INFO, WARNING, ERROR |
 
 ### 2.2 Matrix Adapter Variables
 
-| Variable                          | Description                                    |
-|-----------------------------------|------------------------------------------------|
-| `MEDRE_MATRIX_ENABLED`            | `true` / `false`                              |
-| `MEDRE_MATRIX_HOMESERVER`         | Matrix homeserver URL                          |
-| `MEDRE_MATRIX_USER_ID`            | Bot user ID (e.g., `@bot:example.com`)        |
-| `MEDRE_MATRIX_ACCESS_TOKEN`       | Access token (generate via Matrix API)         |
-| `MEDRE_MATRIX_ROOM_ALLOWLIST`     | Comma-separated room IDs                      |
-| `MEDRE_MATRIX_ENCRYPTION_MODE`    | `plaintext` (default), `e2ee_required`, `e2ee_optional` |
+| Variable                       | Description                                             |
+| ------------------------------ | ------------------------------------------------------- |
+| `MEDRE_MATRIX_ENABLED`         | `true` / `false`                                        |
+| `MEDRE_MATRIX_HOMESERVER`      | Matrix homeserver URL                                   |
+| `MEDRE_MATRIX_USER_ID`         | Bot user ID (e.g., `@bot:example.com`)                  |
+| `MEDRE_MATRIX_ACCESS_TOKEN`    | Access token (generate via Matrix API)                  |
+| `MEDRE_MATRIX_ROOM_ALLOWLIST`  | Comma-separated room IDs                                |
+| `MEDRE_MATRIX_ENCRYPTION_MODE` | `plaintext` (default), `e2ee_required`, `e2ee_optional` |
 
 ### 2.3 Meshtastic Adapter Variables
 
-| Variable                              | Description                                    |
-|---------------------------------------|------------------------------------------------|
-| `MEDRE_MESHTASTIC_ENABLED`            | `true` / `false`                              |
-| `MEDRE_MESHTASTIC_CONNECTION_TYPE`    | `serial`, `tcp`, `ble`, `fake`                |
-| `MEDRE_MESHTASTIC_SERIAL_PORT`        | Serial device path (e.g., `/dev/ttyACM0`)     |
+| Variable                           | Description                               |
+| ---------------------------------- | ----------------------------------------- |
+| `MEDRE_MESHTASTIC_ENABLED`         | `true` / `false`                          |
+| `MEDRE_MESHTASTIC_CONNECTION_TYPE` | `serial`, `tcp`, `ble`, `fake`            |
+| `MEDRE_MESHTASTIC_SERIAL_PORT`     | Serial device path (e.g., `/dev/ttyACM0`) |
 
 ### 2.4 Path Derivation from MEDRE_HOME
 
@@ -77,7 +75,6 @@ paths = resolve()  # reads MEDRE_HOME from environment
 # paths.database_path → /opt/medre/state/medre.sqlite
 # paths.config_dir   → None (MEDRE_HOME mode has no config_dir)
 ```
-
 
 ## 3. Volume Mounting
 
@@ -133,7 +130,6 @@ docker run --user 1000:1000 \
   medre
 ```
 
-
 ## 4. Serial Device Passthrough
 
 ### 4.1 Meshtastic Serial Connection
@@ -167,7 +163,6 @@ To avoid serial passthrough complexity, use TCP connection type:
 
 This requires a Meshtastic device with IP connectivity (e.g., via a host serial-to-TCP bridge like `meshtasticd`).
 
-
 ## 5. Startup Sequence in Container
 
 When MEDRE starts inside a container:
@@ -183,7 +178,6 @@ When MEDRE starts inside a container:
 6. **Running** — Pipeline processes events between adapters.
 7. **Shutdown** — On `SIGTERM`/`SIGINT`, graceful shutdown in reverse order. State persists in volume.
 
-
 ## 6. XDG Behavior in Container
 
 Setting `MEDRE_HOME` disables XDG resolution entirely. When `MEDRE_HOME=/opt/medre`:
@@ -193,7 +187,6 @@ Setting `MEDRE_HOME` disables XDG resolution entirely. When `MEDRE_HOME=/opt/med
 - All `XDG_*` environment variables are ignored
 
 If `MEDRE_HOME` is not set in the container, MEDRE falls back to XDG mode, which resolves relative to the container's home directory. This is generally **not** what you want in a container — always set `MEDRE_HOME`.
-
 
 ## 7. Adapter-State Isolation
 
@@ -228,12 +221,12 @@ paths.adapter_transport_state_dir(adapter_id, "matrix") / "store"
 
 This derivation happens during `builder.build()`, before adapter construction. Explicit `store_path` overrides are preserved for testing.
 
-
 ## 8. Health Checking
 
 ### 8.1 Boot Summary
 
 After startup, inspect `app.boot_summary` for:
+
 - Which adapters started successfully
 - Which adapters failed (and why)
 - Overall health: `HEALTHY` or `DEGRADED`
@@ -241,6 +234,7 @@ After startup, inspect `app.boot_summary` for:
 ### 8.2 Diagnostic Snapshot
 
 The runtime provides `app.diagnostic_snapshot()` with:
+
 - Runtime state (`RUNNING`, `FAILED`, etc.)
 - Capacity controller status
 - Shutdown drain timeout
@@ -255,7 +249,6 @@ test -d /opt/medre/cache && echo "cache OK" || echo "cache MISSING"
 test -d /opt/medre/logs && echo "logs OK" || echo "logs MISSING"
 test -f /opt/medre/state/medre.sqlite && echo "db OK" || echo "db MISSING"
 ```
-
 
 ## 9. Operational Procedures
 
@@ -319,22 +312,21 @@ tar czf medre-backup-$(date +%Y%m%d).tar.gz /host/medre-data/
 tar czf medre-state-backup.tar.gz /host/medre-data/state/
 ```
 
-
 ## 10. Container Execution Evidence (2026-05-12)
 
 **Status: EXECUTED** — Docker 29.4.3 on Linux 6.17.0-23-generic (x86_64).
 
 ### 10.1 Environment
 
-| Item | Value |
-|------|-------|
-| Docker version | 29.4.3 |
-| Base image | python:3.12-slim (119 MB, pre-pulled) |
-| Host OS | Linux 6.17.0-23-generic x86_64 |
-| Python in container | 3.12.13 |
-| MEDRE version | 0.1.0 |
-| Test image tag | medre-test:validation |
-| Date | 2026-05-12 |
+| Item                | Value                                 |
+| ------------------- | ------------------------------------- |
+| Docker version      | 29.4.3                                |
+| Base image          | python:3.12-slim (119 MB, pre-pulled) |
+| Host OS             | Linux 6.17.0-23-generic x86_64        |
+| Python in container | 3.12.13                               |
+| MEDRE version       | 0.1.0                                 |
+| Test image tag      | medre-test:validation                 |
+| Date                | 2026-05-12                            |
 
 ### 10.2 Image Build
 
@@ -355,25 +347,25 @@ Image built successfully. Transitive dep: `msgspec==0.21.1`.
 
 ### 10.3 Test Results
 
-| # | Test | Command | Result |
-|---|------|---------|--------|
-| C1 | Version output | `docker run --rm medre-test:validation medre version` | ✅ `medre 0.1.0 / Python 3.12.13 / Linux x86_64` |
-| C2 | Path resolution (MEDRE_HOME) | `docker run --rm medre-test:validation medre paths` | ✅ All paths under `/opt/medre/`, `config_dir=None`, status `[will be created]` |
-| C3 | Adapter listing | `docker run --rm medre-test:validation medre adapters` | ✅ Lists 4 transport types, all SDKs not installed (expected — minimal image) |
-| C4 | Config sample | `docker run --rm medre-test:validation medre config sample` | ✅ Prints valid TOML |
-| C5 | Directory creation (volume) | `docker run --rm -v ... medre paths` after root mkdir+chown | ✅ `[exists]` for all dirs |
-| C6 | Non-root user | `docker run --rm ... id` | ✅ `uid=1000(medre) gid=1000(medre)` |
-| C7 | Write access per dir | Python write+delete in state/data/cache/logs | ✅ All 4 directories writable |
-| C8 | SQLite creation + WAL | Python `sqlite3.connect` + `PRAGMA journal_mode=WAL` | ✅ WAL mode confirmed, data committed |
-| C9 | SQLite persistence across restart | Second container reads row from first | ✅ Row recovered: `(1, 'container-test', '2026-05-12 19:50:09')` |
-| C10 | Config check (fake-multi-adapter) | `medre config check` with mounted config.toml | ✅ 4/4 adapters enabled, `Config valid`, all paths under `/opt/medre/` |
-| C11 | MEDRE_HOME resolution | `resolve()` with MEDRE_HOME set | ✅ `config_dir=None`, all paths under `/opt/medre/` |
-| C11b | XDG fallback (no MEDRE_HOME) | `resolve()` with MEDRE_HOME unset | ✅ Falls back to `/home/medre/.local/state/medre` etc. |
-| C12 | Compileall in container | `python -m compileall -q /usr/local/.../medre` | ✅ Exit 0, no errors |
-| C13 | Help output | `medre --help` | ✅ Lists all subcommands |
-| C14 | MEDRE_HOME precedence over XDG | MEDRE_HOME + XDG_* both set | ✅ MEDRE_HOME paths win, assertion passed |
-| C15 | No per-adapter databases | Walk adapters dir for .sqlite | ✅ No per-adapter .sqlite files |
-| C16 | No system directory writes | Assert state not in /usr/ /etc/ etc. | ✅ State at `/opt/medre/state` |
+| #    | Test                              | Command                                                     | Result                                                                          |
+| ---- | --------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| C1   | Version output                    | `docker run --rm medre-test:validation medre version`       | ✅ `medre 0.1.0 / Python 3.12.13 / Linux x86_64`                                |
+| C2   | Path resolution (MEDRE_HOME)      | `docker run --rm medre-test:validation medre paths`         | ✅ All paths under `/opt/medre/`, `config_dir=None`, status `[will be created]` |
+| C3   | Adapter listing                   | `docker run --rm medre-test:validation medre adapters`      | ✅ Lists 4 transport types, all SDKs not installed (expected — minimal image)   |
+| C4   | Config sample                     | `docker run --rm medre-test:validation medre config sample` | ✅ Prints valid TOML                                                            |
+| C5   | Directory creation (volume)       | `docker run --rm -v ... medre paths` after root mkdir+chown | ✅ `[exists]` for all dirs                                                      |
+| C6   | Non-root user                     | `docker run --rm ... id`                                    | ✅ `uid=1000(medre) gid=1000(medre)`                                            |
+| C7   | Write access per dir              | Python write+delete in state/data/cache/logs                | ✅ All 4 directories writable                                                   |
+| C8   | SQLite creation + WAL             | Python `sqlite3.connect` + `PRAGMA journal_mode=WAL`        | ✅ WAL mode confirmed, data committed                                           |
+| C9   | SQLite persistence across restart | Second container reads row from first                       | ✅ Row recovered: `(1, 'container-test', '2026-05-12 19:50:09')`                |
+| C10  | Config check (fake-multi-adapter) | `medre config check` with mounted config.toml               | ✅ 4/4 adapters enabled, `Config valid`, all paths under `/opt/medre/`          |
+| C11  | MEDRE_HOME resolution             | `resolve()` with MEDRE_HOME set                             | ✅ `config_dir=None`, all paths under `/opt/medre/`                             |
+| C11b | XDG fallback (no MEDRE_HOME)      | `resolve()` with MEDRE_HOME unset                           | ✅ Falls back to `/home/medre/.local/state/medre` etc.                          |
+| C12  | Compileall in container           | `python -m compileall -q /usr/local/.../medre`              | ✅ Exit 0, no errors                                                            |
+| C13  | Help output                       | `medre --help`                                              | ✅ Lists all subcommands                                                        |
+| C14  | MEDRE_HOME precedence over XDG    | MEDRE*HOME + XDG*\* both set                                | ✅ MEDRE_HOME paths win, assertion passed                                       |
+| C15  | No per-adapter databases          | Walk adapters dir for .sqlite                               | ✅ No per-adapter .sqlite files                                                 |
+| C16  | No system directory writes        | Assert state not in /usr/ /etc/ etc.                        | ✅ State at `/opt/medre/state`                                                  |
 
 ### 10.4 Observations
 
@@ -389,54 +381,52 @@ Image built successfully. Transitive dep: `msgspec==0.21.1`.
 
 ### 10.5 Not Tested (Requires Hardware/Live Services)
 
-| Item | Reason |
-|------|--------|
-| Adapter runtime startup (fake) | Would require a full `medre run` with event loop |
-| Adapter runtime startup (real) | No SDKs installed in minimal image; no hardware available |
-| SIGTERM/SIGINT graceful shutdown | Requires running event loop with adapters |
-| Serial device passthrough | No `/dev/ttyACM0` device available |
-| E2EE crypto store creation | Requires Matrix SDK + valid credentials |
-| Runtime health check | Requires running runtime |
-
+| Item                             | Reason                                                    |
+| -------------------------------- | --------------------------------------------------------- |
+| Adapter runtime startup (fake)   | Would require a full `medre run` with event loop          |
+| Adapter runtime startup (real)   | No SDKs installed in minimal image; no hardware available |
+| SIGTERM/SIGINT graceful shutdown | Requires running event loop with adapters                 |
+| Serial device passthrough        | No `/dev/ttyACM0` device available                        |
+| E2EE crypto store creation       | Requires Matrix SDK + valid credentials                   |
+| Runtime health check             | Requires running runtime                                  |
 
 ## 11. Container Runtime Observation Fields
 
 When recording container operation evidence per Contract 61 §3.6, the following fields apply:
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `container_runtime` | Yes | Docker, Podman, or other |
-| `container_image_tag` | Yes | MEDRE container image tag used |
-| `medre_home_path` | Yes | Value of MEDRE_HOME inside container |
-| `volume_mount_verified` | Yes | Whether bind mount persisted data across restart |
-| `runtime_duration_seconds` | Yes | Wall-clock duration of container session, or NOT EXECUTED |
-| `adapter_start_success` | Yes | Which adapters started successfully inside container |
-| `clean_shutdown_observed` | Yes | Whether SIGTERM produced clean shutdown |
-| `boundedness_observed` | Yes | Whether resources stayed bounded during observation, or NOT EXECUTED |
-| `reconnect_events` | Yes | Number of adapter reconnect events during observation, or NOT EXECUTED |
+| Field                      | Required | Description                                                            |
+| -------------------------- | -------- | ---------------------------------------------------------------------- |
+| `container_runtime`        | Yes      | Docker, Podman, or other                                               |
+| `container_image_tag`      | Yes      | MEDRE container image tag used                                         |
+| `medre_home_path`          | Yes      | Value of MEDRE_HOME inside container                                   |
+| `volume_mount_verified`    | Yes      | Whether bind mount persisted data across restart                       |
+| `runtime_duration_seconds` | Yes      | Wall-clock duration of container session, or NOT EXECUTED              |
+| `adapter_start_success`    | Yes      | Which adapters started successfully inside container                   |
+| `clean_shutdown_observed`  | Yes      | Whether SIGTERM produced clean shutdown                                |
+| `boundedness_observed`     | Yes      | Whether resources stayed bounded during observation, or NOT EXECUTED   |
+| `reconnect_events`         | Yes      | Number of adapter reconnect events during observation, or NOT EXECUTED |
 
 ### 11.1 Executed Observation (2026-05-12)
 
-| Field | Value |
-|-------|-------|
-| `container_runtime` | Docker 29.4.3 |
-| `container_image_tag` | medre-test:validation |
-| `medre_home_path` | `/opt/medre` |
-| `volume_mount_verified` | Yes — SQLite data persisted across container recreation (C8/C9) |
-| `runtime_duration_seconds` | NOT EXECUTED — no `medre run` was invoked |
-| `adapter_start_success` | NOT EXECUTED — no adapter runtime started |
-| `clean_shutdown_observed` | NOT EXECUTED — no running runtime to shut down |
-| `boundedness_observed` | NOT EXECUTED |
-| `reconnect_events` | NOT EXECUTED |
-
+| Field                      | Value                                                           |
+| -------------------------- | --------------------------------------------------------------- |
+| `container_runtime`        | Docker 29.4.3                                                   |
+| `container_image_tag`      | medre-test:validation                                           |
+| `medre_home_path`          | `/opt/medre`                                                    |
+| `volume_mount_verified`    | Yes — SQLite data persisted across container recreation (C8/C9) |
+| `runtime_duration_seconds` | NOT EXECUTED — no `medre run` was invoked                       |
+| `adapter_start_success`    | NOT EXECUTED — no adapter runtime started                       |
+| `clean_shutdown_observed`  | NOT EXECUTED — no running runtime to shut down                  |
+| `boundedness_observed`     | NOT EXECUTED                                                    |
+| `reconnect_events`         | NOT EXECUTED                                                    |
 
 ## 12. Unresolved Risks
 
-| Risk | Status | Mitigation |
-|------|--------|------------|
-| ~~No live container execution evidence~~ | **Resolved** (2026-05-12) | Container built and 16 validation tests passed. See §10. |
-| Non-root UID/GID mismatch | **Confirmed** (2026-05-12) | Docker creates bind-mount dirs as root:root. Non-root medre user (uid 1000) cannot create subdirs unless host dir pre-owned by uid 1000, or init step runs as root to mkdir+chown. See §3.3 and §10.4 observation 1. |
-| Serial device permission in container | Not tested | Device passthrough requires matching host permissions. Container user must be in correct group. No serial device available for testing. |
-| Timezone handling in container | Not tested | Container inherits host timezone. Log timestamps may differ if container TZ differs from host. |
-| Signal handling (SIGTERM/SIGINT) | Source-verified only | MEDRE handles SIGTERM via asyncio signal handlers. Not validated in a live container runtime (no `medre run` executed). |
-| Adapter runtime in container | Not tested | No adapter SDKs installed in minimal validation image. Requires separate image with transport deps for full runtime testing. |
+| Risk                                     | Status                     | Mitigation                                                                                                                                                                                                           |
+| ---------------------------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ~~No live container execution evidence~~ | **Resolved** (2026-05-12)  | Container built and 16 validation tests passed. See §10.                                                                                                                                                             |
+| Non-root UID/GID mismatch                | **Confirmed** (2026-05-12) | Docker creates bind-mount dirs as root:root. Non-root medre user (uid 1000) cannot create subdirs unless host dir pre-owned by uid 1000, or init step runs as root to mkdir+chown. See §3.3 and §10.4 observation 1. |
+| Serial device permission in container    | Not tested                 | Device passthrough requires matching host permissions. Container user must be in correct group. No serial device available for testing.                                                                              |
+| Timezone handling in container           | Not tested                 | Container inherits host timezone. Log timestamps may differ if container TZ differs from host.                                                                                                                       |
+| Signal handling (SIGTERM/SIGINT)         | Source-verified only       | MEDRE handles SIGTERM via asyncio signal handlers. Not validated in a live container runtime (no `medre run` executed).                                                                                              |
+| Adapter runtime in container             | Not tested                 | No adapter SDKs installed in minimal validation image. Requires separate image with transport deps for full runtime testing.                                                                                         |

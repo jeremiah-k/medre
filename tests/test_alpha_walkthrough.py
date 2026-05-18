@@ -18,7 +18,7 @@ import pytest
 from medre.config.loader import load_config
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.smoke import run_fake_bridge_smoke
-from medre.runtime.snapshot import build_runtime_snapshot, SCHEMA_VERSION
+from medre.runtime.snapshot import SCHEMA_VERSION, build_runtime_snapshot
 from medre.runtime.timeline import (
     assemble_event_timeline,
     assemble_storage_summary,
@@ -58,12 +58,16 @@ class TestAlphaConfigValidation:
     """Section 1.1: medre config check — config parses, adapters and routes
     validate."""
 
-    def test_config_loads_without_error(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_config_loads_without_error(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
         config, _source, _paths = load_config(CONFIG_PATH)
         assert config.runtime.name == "fake-bridge-smoke"
 
-    def test_routes_validate_at_least_one(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_routes_validate_at_least_one(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
         config, _source, _paths = load_config(CONFIG_PATH)
         assert len(config.routes.routes) >= 1
@@ -84,13 +88,16 @@ class TestAlphaSmokeInspectTrace:
         event_id: str = smoke_report["event_id"]
         assert isinstance(event_id, str) and len(event_id) > 0
 
-    def test_smoke_receipt_count_at_least_one(self, smoke_report: dict[str, Any]) -> None:
+    def test_smoke_receipt_count_at_least_one(
+        self, smoke_report: dict[str, Any]
+    ) -> None:
         receipts = smoke_report["delivery_receipts"]
         assert isinstance(receipts, list) and len(receipts) >= 1
 
     @pytest.mark.asyncio
     async def test_inspect_receipts_via_storage(
-        self, smoke_report: dict[str, Any],
+        self,
+        smoke_report: dict[str, Any],
     ) -> None:
         """Storage API returns at least one receipt with status 'sent'."""
         storage_path = smoke_report["storage_path"]
@@ -111,7 +118,8 @@ class TestAlphaSmokeInspectTrace:
 
     @pytest.mark.asyncio
     async def test_trace_event_timeline(
-        self, smoke_report: dict[str, Any],
+        self,
+        smoke_report: dict[str, Any],
     ) -> None:
         """assemble_event_timeline returns event with at least 1 receipt."""
         storage_path = smoke_report["storage_path"]
@@ -132,7 +140,8 @@ class TestAlphaSmokeInspectTrace:
 
     @pytest.mark.asyncio
     async def test_evidence_bundle(
-        self, smoke_report: dict[str, Any],
+        self,
+        smoke_report: dict[str, Any],
     ) -> None:
         """assemble_storage_summary shows event_count >= 1, receipt_count >= 1."""
         storage_path = smoke_report["storage_path"]
@@ -148,6 +157,7 @@ class TestAlphaSmokeInspectTrace:
             assert summary["receipt_count"] >= 1
         finally:
             await storage.close()
+
 
 # ===========================================================================
 # Test 8: Final snapshot
@@ -167,13 +177,17 @@ class TestAlphaFinalSnapshot:
         snap = smoke_report["snapshot"]
         assert snap["schema_version"] == SCHEMA_VERSION
 
-    def test_snapshot_accounting_section_present(self, smoke_report: dict[str, Any]) -> None:
+    def test_snapshot_accounting_section_present(
+        self, smoke_report: dict[str, Any]
+    ) -> None:
         snap = smoke_report["snapshot"]
         assert "accounting" in snap
 
     @pytest.mark.asyncio
     async def test_snapshot_lifecycle_runtime_state(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         """build_runtime_snapshot works with retry disabled, lifecycle section present."""
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
@@ -185,7 +199,9 @@ class TestAlphaFinalSnapshot:
             assert snap["schema_version"] == 1
             assert "lifecycle" in snap
             assert snap["lifecycle"]["runtime_state"] in (
-                "running", "initialized", "starting",
+                "running",
+                "initialized",
+                "starting",
             )
             # Retry section exists with disabled defaults
             assert "retry" in snap

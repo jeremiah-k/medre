@@ -1,4 +1,4 @@
-"""Live Matrix adapter connectivity smoke tests.
+r"""Live Matrix adapter connectivity smoke tests.
 
 These tests connect to a **real** Matrix homeserver and exercise the
 MEDRE Matrix adapter's lifecycle, outbound delivery, and self-message
@@ -246,9 +246,9 @@ class TestMatrixLiveSmoke:
         await adapter.start(ctx)
         try:
             info = await adapter.health_check()
-            assert info.health == "healthy", (
-                f"Expected healthy after start, got {info.health!r}"
-            )
+            assert (
+                info.health == "healthy"
+            ), f"Expected healthy after start, got {info.health!r}"
             assert info.platform == "matrix"
         finally:
             await adapter.stop()
@@ -266,9 +266,9 @@ class TestMatrixLiveSmoke:
         await adapter.start(ctx)
         await adapter.stop()
         info = await adapter.health_check()
-        assert info.health == "unknown", (
-            f"Expected unknown after stop, got {info.health!r}"
-        )
+        assert (
+            info.health == "unknown"
+        ), f"Expected unknown after stop, got {info.health!r}"
 
     async def test_adapter_health_unknown_before_start(self):
         """Health check on a never-started adapter returns unknown."""
@@ -310,9 +310,9 @@ class TestMatrixLiveSmoke:
             )
             delivery = await adapter.deliver(result)
             assert delivery is not None, "deliver() returned None"
-            assert delivery.native_message_id is not None, (
-                "native_message_id is None — homeserver did not return event_id"
-            )
+            assert (
+                delivery.native_message_id is not None
+            ), "native_message_id is None — homeserver did not return event_id"
             assert delivery.native_message_id.startswith("$"), (
                 f"Matrix event_id should start with '$', "
                 f"got {delivery.native_message_id!r}"
@@ -466,9 +466,7 @@ class TestMatrixLiveSmoke:
         await adapter.start(ctx)
         try:
             ts = int(time.time())
-            body_text = (
-                f"MEDRE echo-suppression live test (ts={ts}) — safe to ignore"
-            )
+            body_text = f"MEDRE echo-suppression live test (ts={ts}) — safe to ignore"
             result = RenderingResult(
                 event_id=f"live-echo-{ts}",
                 target_adapter="matrix-live-smoke",
@@ -481,9 +479,9 @@ class TestMatrixLiveSmoke:
             )
             delivery = await adapter.deliver(result)
             assert delivery is not None, "deliver() returned None"
-            assert delivery.native_message_id is not None, (
-                "native_message_id is None — homeserver did not return event_id"
-            )
+            assert (
+                delivery.native_message_id is not None
+            ), "native_message_id is None — homeserver did not return event_id"
             event_id_sent = delivery.native_message_id
 
             # Give the sync loop time to process the echo event.
@@ -571,8 +569,7 @@ class TestMatrixLiveSmoke:
                 payload={
                     "msgtype": "m.text",
                     "body": (
-                        f"MEDRE allowlist blocked test (ts={ts}) "
-                        f"— safe to ignore"
+                        f"MEDRE allowlist blocked test (ts={ts}) " f"— safe to ignore"
                     ),
                 },
                 metadata={
@@ -582,9 +579,9 @@ class TestMatrixLiveSmoke:
             )
             delivery = await adapter_blocked.deliver(result)
             assert delivery is not None, "deliver() returned None"
-            assert delivery.native_message_id is not None, (
-                "native_message_id is None with wrong allowlist"
-            )
+            assert (
+                delivery.native_message_id is not None
+            ), "native_message_id is None with wrong allowlist"
 
             # Wait for sync echo — should be suppressed by allowlist
             # (and also by self-message suppression as defense-in-depth).
@@ -625,8 +622,7 @@ class TestMatrixLiveSmoke:
         try:
             info = await adapter_allowed.health_check()
             assert info.health == "healthy", (
-                f"Expected healthy with correct allowlist, "
-                f"got {info.health!r}"
+                f"Expected healthy with correct allowlist, " f"got {info.health!r}"
             )
         finally:
             await adapter_allowed.stop()
@@ -714,14 +710,14 @@ class TestMatrixLiveSmoke:
         adapter = MatrixAdapter(config)
         await adapter.start(ctx1)
         info = await adapter.health_check()
-        assert info.health == "healthy", (
-            f"Cycle 1 start: expected healthy, got {info.health!r}"
-        )
+        assert (
+            info.health == "healthy"
+        ), f"Cycle 1 start: expected healthy, got {info.health!r}"
         await adapter.stop()
         info = await adapter.health_check()
-        assert info.health == "unknown", (
-            f"Cycle 1 stop: expected unknown, got {info.health!r}"
-        )
+        assert (
+            info.health == "unknown"
+        ), f"Cycle 1 stop: expected unknown, got {info.health!r}"
 
         # Cycle 2 — same adapter instance, new context
         ctx2 = AdapterContext(
@@ -734,14 +730,14 @@ class TestMatrixLiveSmoke:
         )
         await adapter.start(ctx2)
         info = await adapter.health_check()
-        assert info.health == "healthy", (
-            f"Cycle 2 start: expected healthy, got {info.health!r}"
-        )
+        assert (
+            info.health == "healthy"
+        ), f"Cycle 2 start: expected healthy, got {info.health!r}"
         await adapter.stop()
         info = await adapter.health_check()
-        assert info.health == "unknown", (
-            f"Cycle 2 stop: expected unknown, got {info.health!r}"
-        )
+        assert (
+            info.health == "unknown"
+        ), f"Cycle 2 stop: expected unknown, got {info.health!r}"
 
     # -- Adapter redelivery smoke --------------------------------------------
 
@@ -793,9 +789,9 @@ class TestMatrixLiveSmoke:
             )
             delivery1 = await adapter.deliver(result1)
             assert delivery1 is not None, "First deliver() returned None"
-            assert delivery1.native_message_id is not None, (
-                "First delivery: native_message_id is None"
-            )
+            assert (
+                delivery1.native_message_id is not None
+            ), "First delivery: native_message_id is None"
             native_id_1 = delivery1.native_message_id
 
             # Second send — same canonical ID, identical payload
@@ -811,9 +807,9 @@ class TestMatrixLiveSmoke:
             )
             delivery2 = await adapter.deliver(result2)
             assert delivery2 is not None, "Second deliver() returned None"
-            assert delivery2.native_message_id is not None, (
-                "Second delivery: native_message_id is None"
-            )
+            assert (
+                delivery2.native_message_id is not None
+            ), "Second delivery: native_message_id is None"
             native_id_2 = delivery2.native_message_id
 
             # Matrix assigns unique event IDs even for identical content.
@@ -914,12 +910,9 @@ class TestMatrixLiveSmoke:
 
             # Validate sender if MATRIX_INBOUND_SENDER was specified.
             if inbound_sender:
-                matched_sender = getattr(
-                    found_event, "source_transport_id", None
-                )
+                matched_sender = getattr(found_event, "source_transport_id", None)
                 assert matched_sender == inbound_sender, (
-                    f"Expected sender {inbound_sender!r}, "
-                    f"got {matched_sender!r}"
+                    f"Expected sender {inbound_sender!r}, " f"got {matched_sender!r}"
                 )
 
             # Track 2 — validate CanonicalEvent shape for third-party inbound
@@ -935,28 +928,22 @@ class TestMatrixLiveSmoke:
                 f"Expected source_channel_id {MATRIX_ROOM_ID!r}, "
                 f"got {found_event.source_channel_id!r}"
             )
-            assert isinstance(found_event.payload, dict), (
-                f"Expected payload dict, got {type(found_event.payload)}"
-            )
-            assert "body" in found_event.payload, (
-                "Payload missing 'body' key"
-            )
+            assert isinstance(
+                found_event.payload, dict
+            ), f"Expected payload dict, got {type(found_event.payload)}"
+            assert "body" in found_event.payload, "Payload missing 'body' key"
 
             # Validate source_native_ref carries the Matrix event_id
             ref = getattr(found_event, "source_native_ref", None)
             assert ref is not None, "source_native_ref is None"
-            assert ref.native_message_id, (
-                "source_native_ref.native_message_id is empty"
-            )
+            assert ref.native_message_id, "source_native_ref.native_message_id is empty"
             assert ref.adapter == "matrix-live-smoke", (
-                f"Expected ref.adapter 'matrix-live-smoke', "
-                f"got {ref.adapter!r}"
+                f"Expected ref.adapter 'matrix-live-smoke', " f"got {ref.adapter!r}"
             )
 
             # Validate diagnostics counters
             assert adapter._inbound_published >= 1, (
-                f"Expected inbound_published >= 1, "
-                f"got {adapter._inbound_published}"
+                f"Expected inbound_published >= 1, " f"got {adapter._inbound_published}"
             )
             diag = adapter.diagnostics()
             assert diag["inbound_published"] >= 1, (

@@ -2,7 +2,6 @@
 
 This runbook describes how to embed MEDRE inside a host application — constructing the runtime programmatically, loading configuration from files, starting and stopping the app, and accessing diagnostics. It covers the "library" usage path, as opposed to running MEDRE as a standalone service via `medre run`.
 
-
 ## Dual Role
 
 MEDRE serves two roles:
@@ -11,7 +10,6 @@ MEDRE serves two roles:
 2. **Optional runtime** — the `medre run` CLI (via `medre.cli`) provides a standalone process that reads TOML, applies environment overrides, handles signals, and runs the full lifecycle. This path is for operators.
 
 Both paths produce the same `MedreApp` object via the same `RuntimeBuilder`. The difference is solely in how `RuntimeConfig` and `MedrePaths` are obtained.
-
 
 ## Importing RuntimeBuilder
 
@@ -39,7 +37,6 @@ from medre.config.adapters.lxmf import LxmfConfig
 ```
 
 The adapter config classes (`MatrixConfig`, `MeshtasticConfig`, etc.) are frozen dataclasses that hold transport-specific settings. Each `XxxRuntimeConfig` wraps one adapter config and adds runtime-level fields (`enabled`, `adapter_id`, `adapter_kind`).
-
 
 ## Programmatic Config
 
@@ -75,7 +72,6 @@ config = RuntimeConfig(
 )
 ```
 
-
 ## Loading TOML Config
 
 For the operator path, load configuration from a TOML file using the config loader:
@@ -102,7 +98,6 @@ from medre.config.env import apply_env_overrides
 config = apply_env_overrides(config, paths)
 ```
 
-
 ## Building the Runtime
 
 `RuntimeBuilder` takes a `RuntimeConfig` and `MedrePaths` and produces a fully wired `MedreApp`:
@@ -128,7 +123,6 @@ The builder constructs all subsystems in order (see `builder.py` docstring):
 After `build()`, the app is **constructed but not started**. Check `app.build_failures` for any adapters that failed during construction.
 
 Routes are registered automatically from `config.routes` during the build step. No separate route registration call is needed.
-
 
 ## Starting and Stopping
 
@@ -170,7 +164,6 @@ await app.wait_for_shutdown()
 
 Blocks until the shutdown event is set (e.g., by signal handling or explicit `app.shutdown_event.set()`). An optional `timeout` parameter is available.
 
-
 ## Accessing Diagnostics
 
 ### Route Stats
@@ -207,7 +200,6 @@ If any adapters failed during construction (before start), they are recorded:
 for failure in app.build_failures:
     print(f"  {failure.transport}.{failure.adapter_id}: {failure.error}")
 ```
-
 
 ## Examples
 
@@ -314,7 +306,6 @@ async def main():
 
 asyncio.run(main())
 ```
-
 
 ## Stability Expectations
 

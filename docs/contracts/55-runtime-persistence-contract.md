@@ -7,7 +7,6 @@
 
 Every agent or document that references **where** MEDRE state is stored, **what format** it uses, or **when** it is written must defer to this contract. For **whether** state survives a specific failure scenario, see Contract 59.
 
-
 ## 1. Scope
 
 This contract defines **where** MEDRE runtime state is stored and **when** it is written. It establishes the storage format (SQLite, filesystem), file locations, write timing, and per-subsystem persistence mapping.
@@ -16,22 +15,21 @@ Crash recovery expectations, durability guarantees and non-guarantees, boundedne
 
 This is not a persistence design document. It describes the current runtime's actual persistence behavior. No new storage mechanisms are introduced by this contract.
 
-
 ## 2. Authoritative Persisted State
 
 ### 2.1 SQLite Database
 
 The single SQLite database at `{state}/medre.sqlite` is the authoritative persisted state of the MEDRE runtime. It holds:
 
-| Table/Area | Contents | Written When |
-|------------|----------|--------------|
-| Canonical events | Every normalized event that entered the pipeline | During the pipeline store step, before delivery begins |
-| Delivery receipts | `DeliveryReceipt` records with status, attribution, retry lineage | After each delivery attempt completes (success or failure) |
-| Native references | Platform-native message IDs and channel IDs | With the delivery receipt |
-| Route attribution | `route_id` on `DeliveryReceipt` | With the delivery receipt |
-| Replay state | Replay run metadata and results | After each replay run completes |
-| Cross-adapter relationships | Links between events across adapters | During the pipeline store step |
-| Global runtime metadata | Schema version, runtime identity | On first creation and migration |
+| Table/Area                  | Contents                                                          | Written When                                               |
+| --------------------------- | ----------------------------------------------------------------- | ---------------------------------------------------------- |
+| Canonical events            | Every normalized event that entered the pipeline                  | During the pipeline store step, before delivery begins     |
+| Delivery receipts           | `DeliveryReceipt` records with status, attribution, retry lineage | After each delivery attempt completes (success or failure) |
+| Native references           | Platform-native message IDs and channel IDs                       | With the delivery receipt                                  |
+| Route attribution           | `route_id` on `DeliveryReceipt`                                   | With the delivery receipt                                  |
+| Replay state                | Replay run metadata and results                                   | After each replay run completes                            |
+| Cross-adapter relationships | Links between events across adapters                              | During the pipeline store step                             |
+| Global runtime metadata     | Schema version, runtime identity                                  | On first creation and migration                            |
 
 **Key properties:**
 
@@ -44,19 +42,18 @@ The single SQLite database at `{state}/medre.sqlite` is the authoritative persis
 
 The following files are persisted on disk but are owned by their respective transports, not by the MEDRE runtime core:
 
-| Path | Owner | Survives Crash |
-|------|-------|---------------|
-| `{state}/adapters/{adapter_id}/matrix/store/` | Matrix SDK (nio crypto store: Olm/Megolm session keys, device keys) | Yes |
-| `{state}/adapters/{adapter_id}/lxmf/` | LXMF/Reticulum (identity files) | Yes |
-| `{state}/logs/medre.log` | Runtime logging | Yes (appended) |
-| Config file (operator-managed) | Operator | Yes |
+| Path                                          | Owner                                                               | Survives Crash |
+| --------------------------------------------- | ------------------------------------------------------------------- | -------------- |
+| `{state}/adapters/{adapter_id}/matrix/store/` | Matrix SDK (nio crypto store: Olm/Megolm session keys, device keys) | Yes            |
+| `{state}/adapters/{adapter_id}/lxmf/`         | LXMF/Reticulum (identity files)                                     | Yes            |
+| `{state}/logs/medre.log`                      | Runtime logging                                                     | Yes (appended) |
+| Config file (operator-managed)                | Operator                                                            | Yes            |
 
 These survive crashes and restarts. The MEDRE runtime does not manage their consistency — the owning transport or SDK does.
 
 ### 2.3 What Persistence Means Here
 
 "Persisted" means: the state exists on disk in a form that survives process termination, including hard kills (`kill -9`, OOM, power loss). It does not mean: replicated, backed up, or remotely stored. MEDRE persistence is single-machine, single-file (SQLite) plus transport-owned files. Operators are responsible for backup and disaster recovery.
-
 
 ## 3. Process-Local State (NOT Persisted)
 
@@ -70,16 +67,16 @@ The following runtime state is held in memory only and is never written to SQLit
 
 `CapacityController` state — semaphore counts, diagnostic gauges, and all counters. **These are CapacityController internal gauge names**, not the operator-facing `RuntimeAccounting` counter names (`capacity_rejections`, `outbound_failed`, etc.).
 
-| Counter | Nature |
-|---------|--------|
-| `delivery_current` | Process-local gauge |
-| `delivery_limit` | Derived from config (re-created on startup) |
-| `delivery_timeouts` | Process-local counter |
-| `delivery_rejections` | Process-local counter |
-| `replay_current` | Process-local gauge |
-| `replay_limit` | Derived from config (re-created on startup) |
-| `replay_timeouts` | Process-local counter |
-| `replay_rejections` | Process-local counter |
+| Counter               | Nature                                      |
+| --------------------- | ------------------------------------------- |
+| `delivery_current`    | Process-local gauge                         |
+| `delivery_limit`      | Derived from config (re-created on startup) |
+| `delivery_timeouts`   | Process-local counter                       |
+| `delivery_rejections` | Process-local counter                       |
+| `replay_current`      | Process-local gauge                         |
+| `replay_limit`        | Derived from config (re-created on startup) |
+| `replay_timeouts`     | Process-local counter                       |
+| `replay_rejections`   | Process-local counter                       |
 
 All of these reset to zero on startup. No history is retained across restarts.
 
@@ -102,7 +99,6 @@ Which events are currently being processed by the pipeline runner (routing, plan
 ### 3.7 RoutingMetadata (In-Flight)
 
 `RoutingMetadata.route_trace` on in-flight `CanonicalEvent` instances. Populated during route matching, travels with the event through the pipeline, never written to SQLite. See Contract 51 §2.1.
-
 
 ## 4. Persistence Timing Semantics
 
@@ -134,7 +130,6 @@ During the Persist phase of shutdown (Contract 54 §1, Phase 4), the runtime ens
 
 This flush does **not** happen on hard crash. On hard crash, only transactions that were committed before the crash are preserved. WAL mode makes committed transactions robust against corruption.
 
-
 ## 5. Crash Consistency
 
 The persistence layer (SQLite WAL mode) provides crash consistency for committed transactions. The detailed crash recovery expectations — what survives hard crash vs. clean shutdown, database integrity verification, and startup-after-crash procedures — are in **Contract 59 §7 (Crash Recovery)** and **Contract 59 §2 (Runtime Guarantees)**.
@@ -145,48 +140,45 @@ From a storage perspective: committed SQLite transactions survive hard crash. Th
 sqlite3 {state}/medre.sqlite "PRAGMA integrity_check;"
 ```
 
-
 ## 6. Replay Persistence Guarantees
 
 Replay is an **ephemeral runtime operation**, not a durable job system.
 
-| Property | Value |
-|----------|-------|
-| Replay request durability | Not persisted. Replay runs are initiated in-memory and lost on crash. |
-| Replay queue | Does not exist. There is no persistent replay queue. |
-| Replay resume after crash | Not supported. Replay must be re-initiated manually. |
-| Replay deduplication | Not provided. Re-running replay may produce duplicate deliveries. |
-| Replay receipt persistence | **Yes.** Delivery receipts produced by `BEST_EFFORT` replay are persisted to SQLite like any other receipt. |
-| Replay route attribution persistence | **No.** `ReplayRouteAttribution` is an ephemeral result. It is not written to SQLite. |
+| Property                             | Value                                                                                                       |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| Replay request durability            | Not persisted. Replay runs are initiated in-memory and lost on crash.                                       |
+| Replay queue                         | Does not exist. There is no persistent replay queue.                                                        |
+| Replay resume after crash            | Not supported. Replay must be re-initiated manually.                                                        |
+| Replay deduplication                 | Not provided. Re-running replay may produce duplicate deliveries.                                           |
+| Replay receipt persistence           | **Yes.** Delivery receipts produced by `BEST_EFFORT` replay are persisted to SQLite like any other receipt. |
+| Replay route attribution persistence | **No.** `ReplayRouteAttribution` is an ephemeral result. It is not written to SQLite.                       |
 
 **Operator implication:** If a replay run is interrupted by a crash or shutdown, the operator must re-run the replay manually. Completed deliveries from the interrupted run are already recorded (receipts in SQLite). The operator should inspect existing receipts before re-running to understand what was already delivered.
 
-
 ## 7. Route Attribution Persistence Guarantees
 
-| Attribution Location | Persistence | Survives Crash |
-|---------------------|-------------|---------------|
-| `DeliveryReceipt.route_id` | Persisted in SQLite with the receipt | Yes |
-| `RoutingMetadata.route_trace` (in-flight) | Process-local, on the CanonicalEvent object | No |
-| `DeliveryOutcome.route_id` (pipeline-internal) | Process-local, pipeline result | No |
-| `ReplayRouteAttribution.route_ids` | Process-local, replay result only | No |
-| `RouteStats` per-route counters | Process-local, in-memory | No |
+| Attribution Location                           | Persistence                                 | Survives Crash |
+| ---------------------------------------------- | ------------------------------------------- | -------------- |
+| `DeliveryReceipt.route_id`                     | Persisted in SQLite with the receipt        | Yes            |
+| `RoutingMetadata.route_trace` (in-flight)      | Process-local, on the CanonicalEvent object | No             |
+| `DeliveryOutcome.route_id` (pipeline-internal) | Process-local, pipeline result              | No             |
+| `ReplayRouteAttribution.route_ids`             | Process-local, replay result only           | No             |
+| `RouteStats` per-route counters                | Process-local, in-memory                    | No             |
 
 The only route attribution that survives a crash is the `route_id` on persisted `DeliveryReceipt` records. All other attribution is ephemeral.
 
 **Operator implication:** To reconstruct what routes matched historical events, query delivery receipts by `route_id`. In-flight attribution at the time of crash is lost.
 
-
 ## 8. Observability Persistence
 
-| Observability Data | Persistence | Survives Crash |
-|-------------------|-------------|---------------|
-| Structured log entries | Appended to `{state}/logs/medre.log` | Yes (up to last flush) |
-| Diagnostic counters (`delivery_timeouts`, etc.) — CapacityController internal gauges | Process-local only | No |
-| Capacity gauges (`delivery_current`, etc.) | Process-local only | No |
-| RouteStats per-route counters | Process-local only | No |
-| `medre diagnostics` output | Ephemeral snapshot, never persisted | No |
-| Adapter health states | Process-local only | No |
+| Observability Data                                                                   | Persistence                          | Survives Crash         |
+| ------------------------------------------------------------------------------------ | ------------------------------------ | ---------------------- |
+| Structured log entries                                                               | Appended to `{state}/logs/medre.log` | Yes (up to last flush) |
+| Diagnostic counters (`delivery_timeouts`, etc.) — CapacityController internal gauges | Process-local only                   | No                     |
+| Capacity gauges (`delivery_current`, etc.)                                           | Process-local only                   | No                     |
+| RouteStats per-route counters                                                        | Process-local only                   | No                     |
+| `medre diagnostics` output                                                           | Ephemeral snapshot, never persisted  | No                     |
+| Adapter health states                                                                | Process-local only                   | No                     |
 
 There is no persistent metrics store. Observability is split into two categories:
 
@@ -195,13 +187,11 @@ There is no persistent metrics store. Observability is split into two categories
 
 **Operator implication:** If you need historical metrics (delivery rates over time, capacity timeout trends), you must implement external log aggregation and metric extraction. MEDRE does not retain runtime counters across restarts.
 
-
 ## 9. Crash Recovery Matrix
 
 The full crash recovery matrix (what survives hard crash, what survives clean shutdown, startup-after-crash procedures, and SQL queries for identifying orphaned events) is in **Contract 59 §7 (Crash Recovery)**.
 
 From a storage perspective: SQLite data and transport-owned files survive crash. All process-local state (§3) is lost. Recovery begins with a clean runtime start that reopens the existing database.
-
 
 ## 10. Runtime Snapshot Semantics
 
@@ -212,7 +202,6 @@ Runtime snapshot (point-in-time capture of runtime state for supervision or diag
 - Snapshot mechanisms do not change the fundamental persistence model described in this contract.
 
 Snapshot implementation details are out of scope for this contract.
-
 
 ## 11. Degraded Runtime Examples
 
@@ -244,7 +233,6 @@ If a transport disconnects (radio unplugged, Matrix homeserver unreachable):
 3. SQLite persistence is unaffected — the database continues to accept writes.
 4. Other adapters continue operating independently.
 5. **Operator action:** Restore transport connectivity. The adapter's reconnect policy attempts recovery autonomously. Check adapter health via `medre diagnostics`.
-
 
 ## 12. Startup Recovery Examples
 
@@ -320,20 +308,19 @@ medre run --config /opt/medre/config.toml
 
 If recovery fails, delete the database and accept data loss. Crypto stores and identity files are unaffected (they are in separate directories).
 
-
 ## 13. Persistence Expectations Summary
 
-| Question | Answer |
-|----------|--------|
-| Is event history preserved across restarts? | **Yes.** Events are in SQLite. |
-| Are delivery receipts preserved across restarts? | **Yes.** Receipts are in SQLite. |
-| Is route attribution on receipts preserved? | **Yes.** `route_id` is stored with the receipt. |
-| Are runtime counters preserved across restarts? | **No.** All counters reset to zero. |
-| Is in-flight work recoverable after crash? | **No.** No retry, no recovery, no receipt. |
-| Are replay requests durable? | **No.** Replay is ephemeral, not a job queue. |
-| Does replay deduplication exist? | **No.** Re-running replay may produce duplicates. |
-| Are E2EE sessions preserved across restarts? | **Yes.** Crypto store is on disk. |
-| Is transport identity preserved across restarts? | **Yes.** Identity files are on disk. |
-| Are logs preserved across restarts? | **Yes.** Appended to log file. |
-| Is there a persistent metrics store? | **No.** Counters are process-local only. |
-| Does MEDRE backup its own database? | **No.** Operators are responsible for backup. |
+| Question                                         | Answer                                            |
+| ------------------------------------------------ | ------------------------------------------------- |
+| Is event history preserved across restarts?      | **Yes.** Events are in SQLite.                    |
+| Are delivery receipts preserved across restarts? | **Yes.** Receipts are in SQLite.                  |
+| Is route attribution on receipts preserved?      | **Yes.** `route_id` is stored with the receipt.   |
+| Are runtime counters preserved across restarts?  | **No.** All counters reset to zero.               |
+| Is in-flight work recoverable after crash?       | **No.** No retry, no recovery, no receipt.        |
+| Are replay requests durable?                     | **No.** Replay is ephemeral, not a job queue.     |
+| Does replay deduplication exist?                 | **No.** Re-running replay may produce duplicates. |
+| Are E2EE sessions preserved across restarts?     | **Yes.** Crypto store is on disk.                 |
+| Is transport identity preserved across restarts? | **Yes.** Identity files are on disk.              |
+| Are logs preserved across restarts?              | **Yes.** Appended to log file.                    |
+| Is there a persistent metrics store?             | **No.** Counters are process-local only.          |
+| Does MEDRE backup its own database?              | **No.** Operators are responsible for backup.     |

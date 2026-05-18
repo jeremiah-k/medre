@@ -9,18 +9,19 @@ do not transitively import optional SDK packages (nio, meshtastic, RNS,
 LXMF).  The public API is unchanged — ``from medre.config import
 RuntimeConfig`` still works, the import is just deferred to first access.
 """
-from __future__ import annotations
 
-# -- Lightweight imports (no transitive SDK dependencies) --
-from medre.config.paths import MedrePaths, MedrePathsError
+from __future__ import annotations
 
 # -- errors --
 from medre.config.errors import (
     ConfigError,
+    ConfigFileError,
     ConfigNotFoundError,
     ConfigValidationError,
-    ConfigFileError,
 )
+
+# -- Lightweight imports (no transitive SDK dependencies) --
+from medre.config.paths import MedrePaths, MedrePathsError
 
 # -- sample (pure string generation, no SDKs) --
 from medre.config.sample import generate_sample_config

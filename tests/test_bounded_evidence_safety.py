@@ -18,7 +18,7 @@ from medre.core.engine.pipeline import PipelineRunner
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.events.metadata import RoutingMetadata
 from medre.core.observability.metrics import Diagnostician
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.routing.stats import RouteStats
 from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage.backend import StorageBackend
@@ -32,7 +32,6 @@ from medre.core.storage.sqlite import SQLiteStorage
 from medre.observability.sanitization import sanitize_error
 from medre.runtime.app import RuntimeState
 from medre.runtime.snapshot import SCHEMA_VERSION, build_runtime_snapshot
-
 from tests.helpers.bridge import make_pipeline_config
 from tests.helpers.pipeline import make_event
 
@@ -44,6 +43,7 @@ _RECURSIVE_DEPTH = 50
 
 
 # -- Helpers --
+
 
 def _make_bridge_route() -> Route:
     return Route(
@@ -64,21 +64,27 @@ async def _open_storage() -> SQLiteStorage:
 
 
 def _build_runner(
-    storage: SQLiteStorage, router: Router, *,
+    storage: SQLiteStorage,
+    router: Router,
+    *,
     adapters: dict[str, Any] | None = None,
     accounting: RuntimeAccounting | None = None,
     route_stats: RouteStats | None = None,
 ) -> PipelineRunner:
     config = make_pipeline_config(
-        storage=cast(StorageBackend, storage), router=router,
-        adapters=adapters or {}, accounting=accounting,
+        storage=cast(StorageBackend, storage),
+        router=router,
+        adapters=adapters or {},
+        accounting=accounting,
         route_stats=route_stats,
     )
     return PipelineRunner(config)
 
 
 async def _inject_events(
-    runner: PipelineRunner, count: int, *,
+    runner: PipelineRunner,
+    count: int,
+    *,
     prefix: str = "evt",
     source_adapter: str = "fake_transport",
     source_channel_id: str = "ch-0",
@@ -89,8 +95,10 @@ async def _inject_events(
         eid = f"{prefix}-{i:04d}"
         payload = payload_factory(eid) if payload_factory else {"text": f"msg-{i}"}
         evt = make_event(
-            event_id=eid, source_adapter=source_adapter,
-            source_channel_id=source_channel_id, payload=payload,
+            event_id=eid,
+            source_adapter=source_adapter,
+            source_channel_id=source_channel_id,
+            payload=payload,
         )
         await runner.handle_ingress(evt)
         event_ids.append(eid)
@@ -100,7 +108,9 @@ async def _inject_events(
 class _AppStub:
     """Minimal MedreApp-like object for build_runtime_snapshot."""
 
-    def __init__(self, *,
+    def __init__(
+        self,
+        *,
         storage: SQLiteStorage | None = None,
         accounting: RuntimeAccounting | None = None,
         adapters: dict[str, Any] | None = None,
@@ -166,8 +176,10 @@ async def test_large_replay_history_does_not_explode_evidence() -> None:
     accounting = RuntimeAccounting()
     pres = FakePresentationAdapter(adapter_id="fake_presentation")
     runner = _build_runner(
-        storage, router,
-        adapters={"fake_presentation": pres}, accounting=accounting,
+        storage,
+        router,
+        adapters={"fake_presentation": pres},
+        accounting=accounting,
     )
     await runner.start()
 
@@ -179,10 +191,13 @@ async def test_large_replay_history_does_not_explode_evidence() -> None:
     # Replay all 50 via BEST_EFFORT.
     replay = ReplayEngine(storage=storage, pipeline=runner, accounting=accounting)
     summary = await collect_replay_summary(
-        replay.replay(ReplayRequest(
-            mode=ReplayMode.BEST_EFFORT, run_id="large-replay-001",
-            limit=_LARGE_EVENT_COUNT,
-        )),
+        replay.replay(
+            ReplayRequest(
+                mode=ReplayMode.BEST_EFFORT,
+                run_id="large-replay-001",
+                limit=_LARGE_EVENT_COUNT,
+            )
+        ),
         events_scanned=_LARGE_EVENT_COUNT,
     )
     assert summary.events_replayed > 0
@@ -197,11 +212,14 @@ async def test_large_replay_history_does_not_explode_evidence() -> None:
     assert {r.source for r in receipts} == {"live", "replay"}
 
     # Snapshot stays bounded.
-    snap = build_runtime_snapshot(_AppStub(
-        storage=storage, accounting=accounting,
-        adapters={"fake_presentation": pres},
-        route_stats=runner._config.route_stats,
-    ))
+    snap = build_runtime_snapshot(
+        _AppStub(
+            storage=storage,
+            accounting=accounting,
+            adapters={"fake_presentation": pres},
+            route_stats=runner._config.route_stats,
+        )
+    )
     snap_json = json.dumps(snap, sort_keys=True)
     assert len(snap_json.encode()) < _SNAPSHOT_SIZE_LIMIT
     assert snap["schema_version"] == SCHEMA_VERSION
@@ -222,16 +240,22 @@ async def test_oversized_payloads_truncated() -> None:
     router = Router(routes=[_make_bridge_route()])
     pres = FakePresentationAdapter(adapter_id="fake_presentation")
     runner = _build_runner(
-        storage, router, adapters={"fake_presentation": pres},
+        storage,
+        router,
+        adapters={"fake_presentation": pres},
     )
     await runner.start()
 
     big_text = "X" * _OVERSIZED_PAYLOAD_SIZE
+
     def _big_payload(eid: str) -> dict[str, str]:
         return {"text": big_text, "ref": eid}
 
     event_ids = await _inject_events(
-        runner, count=3, prefix="big-evt", payload_factory=_big_payload,
+        runner,
+        count=3,
+        prefix="big-evt",
+        payload_factory=_big_payload,
     )
 
     # Stored payloads are intact (SQLite stores as-is).
@@ -241,9 +265,12 @@ async def test_oversized_payloads_truncated() -> None:
         assert retrieved.payload["text"] == big_text
 
     # Snapshot is metadata-only — no oversized strings inlined.
-    snap = build_runtime_snapshot(_AppStub(
-        storage=storage, adapters={"fake_presentation": pres},
-    ))
+    snap = build_runtime_snapshot(
+        _AppStub(
+            storage=storage,
+            adapters={"fake_presentation": pres},
+        )
+    )
     snap_json = json.dumps(snap, sort_keys=True)
     assert big_text not in snap_json
     assert len(snap_json.encode()) < 50_000
@@ -265,8 +292,10 @@ async def test_repeated_replay_runs_deterministic() -> None:
     accounting = RuntimeAccounting()
     pres = FakePresentationAdapter(adapter_id="fake_presentation")
     runner = _build_runner(
-        storage, router,
-        adapters={"fake_presentation": pres}, accounting=accounting,
+        storage,
+        router,
+        adapters={"fake_presentation": pres},
+        accounting=accounting,
     )
     await runner.start()
 
@@ -282,10 +311,13 @@ async def test_repeated_replay_runs_deterministic() -> None:
     for run_id in run_ids:
         replay = ReplayEngine(storage=storage, pipeline=runner, accounting=accounting)
         summary = await collect_replay_summary(
-            replay.replay(ReplayRequest(
-                mode=ReplayMode.BEST_EFFORT, run_id=run_id,
-                correlation_ids=[target_eid],
-            )),
+            replay.replay(
+                ReplayRequest(
+                    mode=ReplayMode.BEST_EFFORT,
+                    run_id=run_id,
+                    correlation_ids=[target_eid],
+                )
+            ),
         )
         assert summary.events_replayed >= 1
 
@@ -301,7 +333,8 @@ async def test_repeated_replay_runs_deterministic() -> None:
 
     # Each replay_run_id is distinct.
     replay_run_ids = {
-        r.replay_run_id for r in all_receipts
+        r.replay_run_id
+        for r in all_receipts
         if r.source == "replay" and r.replay_run_id is not None
     }
     assert replay_run_ids == set(run_ids)
@@ -333,11 +366,17 @@ async def test_recursive_metadata_payloads() -> None:
         route_trace=tuple(f"route-trace-{i}" for i in range(_RECURSIVE_DEPTH)),
     )
     evt = CanonicalEvent(
-        event_id="recursive-evt-001", event_kind="message.created",
-        schema_version=1, timestamp=datetime.now(timezone.utc),
-        source_adapter="fake_transport", source_transport_id="node-1",
-        source_channel_id="ch-0", parent_event_id=None,
-        lineage=(), relations=(), payload=nested,
+        event_id="recursive-evt-001",
+        event_kind="message.created",
+        schema_version=1,
+        timestamp=datetime.now(timezone.utc),
+        source_adapter="fake_transport",
+        source_transport_id="node-1",
+        source_channel_id="ch-0",
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload=nested,
         metadata=EventMetadata(routing=routing_meta),
     )
     await storage.append(evt)
@@ -352,15 +391,19 @@ async def test_recursive_metadata_payloads() -> None:
 
     # Wide payload: 500 top-level keys + nested sub-dicts.
     wide_payload: dict[str, Any] = {f"key_{i}": f"value_{i}" for i in range(500)}
-    wide_payload["nested"] = {
-        f"sub_{i}": {"data": list(range(10))} for i in range(100)
-    }
+    wide_payload["nested"] = {f"sub_{i}": {"data": list(range(10))} for i in range(100)}
     wide_evt = CanonicalEvent(
-        event_id="recursive-evt-002", event_kind="message.created",
-        schema_version=1, timestamp=datetime.now(timezone.utc),
-        source_adapter="fake_transport", source_transport_id="node-1",
-        source_channel_id="ch-0", parent_event_id=None,
-        lineage=(), relations=(), payload=wide_payload,
+        event_id="recursive-evt-002",
+        event_kind="message.created",
+        schema_version=1,
+        timestamp=datetime.now(timezone.utc),
+        source_adapter="fake_transport",
+        source_transport_id="node-1",
+        source_channel_id="ch-0",
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload=wide_payload,
         metadata=EventMetadata(),
     )
     await storage.append(wide_evt)
@@ -377,7 +420,7 @@ async def test_recursive_metadata_payloads() -> None:
 
 
 def test_huge_error_sanitization() -> None:
-    """sanitize_error truncates, redacts tokens, and handles edge cases.
+    r"""sanitize_error truncates, redacts tokens, and handles edge cases.
 
     Note: _TOKEN_RE has a ``(?!(.)\\3{39,})[A-Za-z0-9+/=]{40,}`` branch
     that triggers catastrophic backtracking on long runs of a single
@@ -390,9 +433,8 @@ def test_huge_error_sanitization() -> None:
     assert sanitize_error(huge).endswith("...")
 
     # Tokens are redacted in large strings.
-    token_err = (
-        "Connection failed: access_token=syt_abcdef123456 for user "
-        + " ".join(f"detail-{i}" for i in range(10_000))
+    token_err = "Connection failed: access_token=syt_abcdef123456 for user " + " ".join(
+        f"detail-{i}" for i in range(10_000)
     )
     r = sanitize_error(token_err)
     assert "syt_" not in r
@@ -400,18 +442,16 @@ def test_huge_error_sanitization() -> None:
     assert len(r) <= 512
 
     # SDK object repr is redacted.
-    sdk_err = (
-        "Failed: <nio.client.AsyncClient object at 0x7f1234> "
-        + " ".join(f"frame-{i}" for i in range(10_000))
+    sdk_err = "Failed: <nio.client.AsyncClient object at 0x7f1234> " + " ".join(
+        f"frame-{i}" for i in range(10_000)
     )
     r = sanitize_error(sdk_err)
     assert "<nio.client.AsyncClient object at 0x7f1234>" not in r
     assert "[OBJECT_REPR]" in r
 
     # Multiple secret patterns redacted.
-    multi = (
-        "password=secret123 api_key=sk-abc123 token=abc123 "
-        + " ".join(f"log-{i}" for i in range(5_000))
+    multi = "password=secret123 api_key=sk-abc123 token=abc123 " + " ".join(
+        f"log-{i}" for i in range(5_000)
     )
     r = sanitize_error(multi)
     assert "[REDACTED]" in r
@@ -420,7 +460,9 @@ def test_huge_error_sanitization() -> None:
 
     # Edge cases.
     assert sanitize_error("") == ""
-    assert sanitize_error("Connection timeout after 30s") == "Connection timeout after 30s"
+    assert (
+        sanitize_error("Connection timeout after 30s") == "Connection timeout after 30s"
+    )
 
     # Boundary: exactly 512 chars stays as-is (no truncation marker).
     boundary = " ".join(f"part{i}" for i in range(50))
@@ -449,9 +491,11 @@ async def test_snapshot_bounded_after_long_run() -> None:
     pres = FakePresentationAdapter(adapter_id="fake_presentation")
     route_stats = RouteStats()
     runner = _build_runner(
-        storage, router,
+        storage,
+        router,
         adapters={"fake_presentation": pres},
-        accounting=accounting, route_stats=route_stats,
+        accounting=accounting,
+        route_stats=route_stats,
     )
     await runner.start()
 
@@ -459,18 +503,25 @@ async def test_snapshot_bounded_after_long_run() -> None:
 
     replay = ReplayEngine(storage=storage, pipeline=runner, accounting=accounting)
     summary = await collect_replay_summary(
-        replay.replay(ReplayRequest(
-            mode=ReplayMode.BEST_EFFORT, run_id="snap-test-replay",
-            limit=_LARGE_EVENT_COUNT,
-        )),
+        replay.replay(
+            ReplayRequest(
+                mode=ReplayMode.BEST_EFFORT,
+                run_id="snap-test-replay",
+                limit=_LARGE_EVENT_COUNT,
+            )
+        ),
         events_scanned=_LARGE_EVENT_COUNT,
     )
     assert summary.events_replayed > 0
 
-    snap = build_runtime_snapshot(_AppStub(
-        storage=storage, accounting=accounting,
-        adapters={"fake_presentation": pres}, route_stats=route_stats,
-    ))
+    snap = build_runtime_snapshot(
+        _AppStub(
+            storage=storage,
+            accounting=accounting,
+            adapters={"fake_presentation": pres},
+            route_stats=route_stats,
+        )
+    )
     snap_json = json.dumps(snap, sort_keys=True, indent=2)
 
     # Valid JSON with correct schema.

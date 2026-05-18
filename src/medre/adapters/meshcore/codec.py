@@ -7,6 +7,7 @@ The codec expects the native packet to be a plain dict and does not import
 any MeshCore library directly.  This keeps the codec testable without a
 MeshCore dependency.
 """
+
 from __future__ import annotations
 
 import uuid

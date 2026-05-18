@@ -54,6 +54,7 @@ __all__ = [
 # Env var accessors
 # ---------------------------------------------------------------------------
 
+
 def _get_matrix_env() -> tuple[str, str, str, str]:
     """Return (homeserver, user_id, access_token, room_id) from env."""
     return (
@@ -79,6 +80,7 @@ def _get_meshtastic_env() -> tuple[str, str, str, str, str, str]:
 # ---------------------------------------------------------------------------
 # Env gate predicates
 # ---------------------------------------------------------------------------
+
 
 def all_live_env_set() -> bool:
     """Return ``True`` only when **all** required Matrix and Meshtastic env vars are set."""
@@ -108,6 +110,7 @@ def meshtastic_env_set() -> bool:
 # ---------------------------------------------------------------------------
 # RuntimeConfig builder
 # ---------------------------------------------------------------------------
+
 
 def build_live_bridge_runtime_config(tmp_path: Path) -> "RuntimeConfig":
     """Construct a :class:`RuntimeConfig` from live environment variables.
@@ -163,9 +166,7 @@ def build_live_bridge_runtime_config(tmp_path: Path) -> "RuntimeConfig":
     }
     if ct == "tcp":
         if not host:
-            raise RuntimeError(
-                "MESHTASTIC_HOST is required for TCP connection type"
-            )
+            raise RuntimeError("MESHTASTIC_HOST is required for TCP connection type")
         meshtastic_kwargs["connection_type"] = "tcp"
         meshtastic_kwargs["host"] = host
         meshtastic_kwargs["port"] = int(port) if port else 4403
@@ -185,8 +186,7 @@ def build_live_bridge_runtime_config(tmp_path: Path) -> "RuntimeConfig":
         meshtastic_kwargs["ble_address"] = ble_address
     else:
         raise RuntimeError(
-            f"Unknown MESHTASTIC_CONNECTION_TYPE {ct!r}; "
-            "use tcp, serial, or ble"
+            f"Unknown MESHTASTIC_CONNECTION_TYPE {ct!r}; " "use tcp, serial, or ble"
         )
 
     matrix_config = MatrixConfig(
@@ -247,6 +247,7 @@ def build_live_bridge_runtime_config(tmp_path: Path) -> "RuntimeConfig":
 # ---------------------------------------------------------------------------
 # TOML writer
 # ---------------------------------------------------------------------------
+
 
 def _escape_toml_string(value: str) -> str:
     """Escape *value* for safe embedding in a TOML double-quoted string.
@@ -311,7 +312,7 @@ def write_live_bridge_toml(tmp_path: Path) -> Path:
         meshtastic_connection_block = (
             f'connection_type = "tcp"\n'
             f'host = "{_escape_toml_string(host)}"\n'
-            f'port = {int(port) if port else 4403}'
+            f"port = {int(port) if port else 4403}"
         )
     elif ct == "serial":
         meshtastic_connection_block = (
@@ -324,9 +325,7 @@ def write_live_bridge_toml(tmp_path: Path) -> Path:
             f'ble_address = "{_escape_toml_string(ble_address)}"'
         )
     else:
-        meshtastic_connection_block = (
-            f'connection_type = "{_escape_toml_string(ct)}"'
-        )
+        meshtastic_connection_block = f'connection_type = "{_escape_toml_string(ct)}"'
 
     toml_content = f"""\
 [runtime]

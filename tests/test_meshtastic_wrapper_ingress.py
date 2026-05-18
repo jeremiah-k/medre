@@ -15,10 +15,13 @@ from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
 from medre.core.rendering.text import TextRenderer
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite import SQLiteStorage
-
-from tests.helpers.bridge import make_adapter_context, make_pipeline_config, make_text_packet
+from tests.helpers.bridge import (
+    make_adapter_context,
+    make_pipeline_config,
+    make_text_packet,
+)
 
 
 class TestMeshtasticWrapperCallbackPath:
@@ -61,9 +64,7 @@ class TestMeshtasticWrapperCallbackPath:
         await mesh_adapter.start(make_adapter_context("mesh-cb-src", runner))
         await fake_target.start(make_adapter_context("fake-mx-dst", runner))
 
-        packet = make_text_packet(
-            text="mesh callback test", packet_id=44444, channel=0
-        )
+        packet = make_text_packet(text="mesh callback test", packet_id=44444, channel=0)
         await mesh_adapter.simulate_inbound(packet)
 
         await mesh_adapter.stop()
@@ -146,9 +147,7 @@ class TestMeshtasticWrapperCallbackPath:
         """Full bridge: Meshtastic simulate_inbound → pipeline → fake
         Matrix adapter delivery."""
         mesh_adapter = MeshtasticAdapter(
-            MeshtasticConfig(
-                adapter_id="mesh-bridge-src", connection_type="fake"
-            )
+            MeshtasticConfig(adapter_id="mesh-bridge-src", connection_type="fake")
         )
         fake_mx = FakeMatrixAdapter("mx-bridge-dst", channel="!bridge-dst:fake")
 
@@ -159,9 +158,7 @@ class TestMeshtasticWrapperCallbackPath:
                 event_kinds=("message.created",),
                 channel="0",
             ),
-            targets=[
-                RouteTarget(adapter="mx-bridge-dst", channel="!bridge-dst:fake")
-            ],
+            targets=[RouteTarget(adapter="mx-bridge-dst", channel="!bridge-dst:fake")],
         )
         router = Router(routes=[route])
 

@@ -4,10 +4,11 @@
 required to connect to a Matrix homeserver.  Use :meth:`MatrixConfig.validate`
 to verify the configuration before passing it to :class:`MatrixAdapter`.
 """
+
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
-from typing import Literal, Self
+from dataclasses import dataclass, replace
+from typing import Literal
 
 from medre.config.adapters.errors import MatrixConfigError
 
@@ -96,9 +97,13 @@ class MatrixConfig:
         empty, returns *self* unchanged.  Otherwise loads the sidecar
         JSON and applies any missing values it contains.
         """
-        needs_homeserver = not (isinstance(self.homeserver, str) and self.homeserver.strip())
+        needs_homeserver = not (
+            isinstance(self.homeserver, str) and self.homeserver.strip()
+        )
         needs_user_id = not (isinstance(self.user_id, str) and self.user_id.strip())
-        needs_access_token = not (isinstance(self.access_token, str) and self.access_token.strip())
+        needs_access_token = not (
+            isinstance(self.access_token, str) and self.access_token.strip()
+        )
 
         if not (needs_homeserver or needs_user_id or needs_access_token):
             return self

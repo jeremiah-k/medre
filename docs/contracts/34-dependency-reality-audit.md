@@ -14,7 +14,6 @@ not a deployment guide.
 No deployment tooling, CI configuration changes, or packaging changes are
 proposed.
 
-
 ## 1. Scope
 
 - Per-dependency install experience and friction points.
@@ -30,36 +29,34 @@ proposed.
 - Changing dependency versions or pinning strategy.
 - Comparing dependencies on unrelated dimensions (licensing, community size).
 
-
 ## 3. Core Dependencies
 
 ### 3.1 msgspec (required)
 
-| Property | Value |
-|----------|-------|
-| **Distribution name** | `msgspec` |
-| **Pinned version** | `0.21.1` |
-| **Required** | Yes (core dependency) |
-| **Binary wheels** | Available for Linux (x86_64, aarch64), macOS, Windows |
-| **Platform issues** | None observed. Binary wheels cover standard platforms. |
-| **Install friction** | None. `pip install msgspec==0.21.1` works cleanly. |
-| **Optional import** | No. Core MEDRE requires it. |
+| Property               | Value                                                                  |
+| ---------------------- | ---------------------------------------------------------------------- |
+| **Distribution name**  | `msgspec`                                                              |
+| **Pinned version**     | `0.21.1`                                                               |
+| **Required**           | Yes (core dependency)                                                  |
+| **Binary wheels**      | Available for Linux (x86_64, aarch64), macOS, Windows                  |
+| **Platform issues**    | None observed. Binary wheels cover standard platforms.                 |
+| **Install friction**   | None. `pip install msgspec==0.21.1` works cleanly.                     |
+| **Optional import**    | No. Core MEDRE requires it.                                            |
 | **Docker suitability** | Excellent. Pre-built wheels; no compilation needed in standard images. |
-
 
 ## 4. Optional Transport Dependencies
 
 ### 4.1 mindroom-nio (Matrix — plaintext)
 
-| Property | Value |
-|----------|-------|
-| **Distribution name** | `mindroom-nio` |
-| **Install command** | `pip install mindroom-nio` or `pip install -e ".[matrix]"` |
-| **Import name** | `nio` |
-| **MEDRE compat guard** | `medre.adapters.matrix.compat.HAS_NIO` |
-| **Audited version** | ≥ 0.25 |
-| **Relationship** | Fork of `matrix-nio` (upstream Matrix client library) |
-| **Source** | Fork maintained by project; upstream is `matrix-nio` |
+| Property               | Value                                                      |
+| ---------------------- | ---------------------------------------------------------- |
+| **Distribution name**  | `mindroom-nio`                                             |
+| **Install command**    | `pip install mindroom-nio` or `pip install -e ".[matrix]"` |
+| **Import name**        | `nio`                                                      |
+| **MEDRE compat guard** | `medre.adapters.matrix.compat.HAS_NIO`                     |
+| **Audited version**    | ≥ 0.25                                                     |
+| **Relationship**       | Fork of `matrix-nio` (upstream Matrix client library)      |
+| **Source**             | Fork maintained by project; upstream is `matrix-nio`       |
 
 **Install friction:**
 
@@ -92,15 +89,14 @@ proposed.
   may require `gcc` and `python3-dev` packages.
 - No hardware or device dependencies.
 
-
 ### 4.2 mindroom-nio[e2e] (Matrix — E2EE)
 
-| Property | Value |
-|----------|-------|
-| **Distribution name** | `mindroom-nio[e2e]` |
-| **Install command** | `pip install -e ".[matrix-e2e]"` |
+| Property               | Value                                                     |
+| ---------------------- | --------------------------------------------------------- |
+| **Distribution name**  | `mindroom-nio[e2e]`                                       |
+| **Install command**    | `pip install -e ".[matrix-e2e]"`                          |
 | **Extra dependencies** | `vodozemac` (Rust-based Olm/Megolm crypto implementation) |
-| **MEDRE compat guard** | `medre.adapters.matrix.compat.HAS_E2EE` |
+| **MEDRE compat guard** | `medre.adapters.matrix.compat.HAS_E2EE`                   |
 
 **Install friction:**
 
@@ -137,18 +133,17 @@ proposed.
   Crypto store requires a persistent volume mount for production use.
   For testing, `/tmp` is acceptable but loses state across container restarts.
 
-
 ### 4.3 mtjk (Meshtastic)
 
-| Property | Value |
-|----------|-------|
-| **Distribution name** | `mtjk` |
-| **Install command** | `pip install mtjk` |
-| **Import name** | `meshtastic` |
+| Property               | Value                                             |
+| ---------------------- | ------------------------------------------------- |
+| **Distribution name**  | `mtjk`                                            |
+| **Install command**    | `pip install mtjk`                                |
+| **Import name**        | `meshtastic`                                      |
 | **MEDRE compat guard** | `medre.adapters.meshtastic.compat.HAS_MESHTASTIC` |
-| **Audited version** | 2.7.8.post2+ |
-| **Relationship** | Fork of upstream Meshtastic Python library |
-| **Source** | `github.com/jeremiah-k/mtjk` |
+| **Audited version**    | 2.7.8.post2+                                      |
+| **Relationship**       | Fork of upstream Meshtastic Python library        |
+| **Source**             | `github.com/jeremiah-k/mtjk`                      |
 
 **Install friction:**
 
@@ -156,7 +151,7 @@ proposed.
   imported as `meshtastic`. This is intentional (fork maintains import
   compatibility with upstream).
 - **PyPubSub is declared in the `[meshtastic]` extra.** `pip install -e
-  ".[meshtastic]"` pulls `PyPubSub>=4.0` (distribution: `PyPubSub`, import:
+".[meshtastic]"` pulls `PyPubSub>=4.0` (distribution: `PyPubSub`, import:
   `pubsub`) automatically. This was not the case previously; the prior
   packaging agent omitted it, requiring manual `pip install pubsub`.
 - Pulls in `protobuf` as a dependency for message serialization.
@@ -193,18 +188,17 @@ proposed.
 - **Pubsub threading:** The library uses background threads for callbacks.
   In Docker, ensure the event loop is properly bridged.
 
-
 ### 4.4 lxmf / RNS (LXMF over Reticulum)
 
-| Property | Value |
-|----------|-------|
-| **Distribution names** | `lxmf`, `rns` (or `rnspure`) |
-| **Install command** | `pip install lxmf` (pulls in `rns` automatically) |
-| **Import names** | `LXMF`, `RNS` |
+| Property                | Value                                                              |
+| ----------------------- | ------------------------------------------------------------------ |
+| **Distribution names**  | `lxmf`, `rns` (or `rnspure`)                                       |
+| **Install command**     | `pip install lxmf` (pulls in `rns` automatically)                  |
+| **Import names**        | `LXMF`, `RNS`                                                      |
 | **MEDRE compat guards** | `medre.adapters.lxmf.compat.HAS_LXMF`, `rns_module`, `lxmf_module` |
-| **Audited versions** | lxmf 0.9.6, RNS 1.2.4 |
-| **Author** | Mark Qvist |
-| **License** | Reticulum License (non-standard; review for your use case) |
+| **Audited versions**    | lxmf 0.9.6, RNS 1.2.4                                              |
+| **Author**              | Mark Qvist                                                         |
+| **License**             | Reticulum License (non-standard; review for your use case)         |
 
 **Install friction:**
 
@@ -246,18 +240,17 @@ proposed.
 - **Long-running processes.** Reticulum is designed for long-running daemons.
   Short-lived Docker containers may not establish stable mesh connectivity.
 
-
 ### 4.5 meshcore
 
-| Property | Value |
-|----------|-------|
-| **Distribution name** | `meshcore` |
-| **Install command** | `pip install meshcore` |
-| **Import name** | `meshcore` |
+| Property               | Value                                         |
+| ---------------------- | --------------------------------------------- |
+| **Distribution name**  | `meshcore`                                    |
+| **Install command**    | `pip install meshcore`                        |
+| **Import name**        | `meshcore`                                    |
 | **MEDRE compat guard** | `medre.adapters.meshcore.compat.HAS_MESHCORE` |
-| **Audited version** | 2.2.5 |
-| **Source** | `github.com/fdlamotte/meshcore_py` |
-| **License** | MIT |
+| **Audited version**    | 2.2.5                                         |
+| **Source**             | `github.com/fdlamotte/meshcore_py`            |
+| **License**            | MIT                                           |
 
 **Install friction:**
 
@@ -294,16 +287,15 @@ proposed.
 - **BLE mode: Poor.** Same challenges as Meshtastic BLE.
 - **Async-native.** No thread/event-loop bridging needed, unlike Meshtastic.
 
-
 ## 5. Development Dependencies
 
 ### 5.1 pytest / pytest-asyncio
 
-| Property | Value |
-|----------|-------|
+| Property               | Value                      |
+| ---------------------- | -------------------------- |
 | **Distribution names** | `pytest`, `pytest-asyncio` |
-| **Install command** | `pip install -e ".[dev]"` |
-| **Required for** | Test suite only |
+| **Install command**    | `pip install -e ".[dev]"`  |
+| **Required for**       | Test suite only            |
 
 **Install friction:** None. Standard test tooling.
 
@@ -316,13 +308,12 @@ proposed.
 
 ### 5.2 setuptools (build system)
 
-| Property | Value |
-|----------|-------|
-| **Required** | `setuptools >= 68` |
+| Property          | Value                   |
+| ----------------- | ----------------------- |
+| **Required**      | `setuptools >= 68`      |
 | **Build backend** | `setuptools.build_meta` |
 
 No friction. Standard build tooling.
-
 
 ## 6. Cross-Dependency Observations
 
@@ -333,8 +324,8 @@ No friction. Standard build tooling.
 2. **Import name ≠ distribution name** for two dependencies:
    - `mtjk` → `meshtastic`
    - `mindroom-nio` → `nio`
-   This can cause confusion during debugging. The compat modules document
-   the mapping.
+     This can cause confusion during debugging. The compat modules document
+     the mapping.
 
 3. **Two of five dependencies are forks** (`mindroom-nio`, `mtjk`). Fork
    maintenance is the project's responsibility. Track upstream for security
@@ -346,10 +337,9 @@ No friction. Standard build tooling.
 5. **Reticulum's license is non-standard.** Not an install issue, but a
    distribution concern for downstream consumers.
 
- 6. **No dependency requires Docker.** All can be installed via pip. Docker
+6. **No dependency requires Docker.** All can be installed via pip. Docker
    suitability varies by connection type (TCP = good, serial = moderate,
-    BLE = poor).
-
+   BLE = poor).
 
 ## 7. Dependency Versioning Strategy
 
@@ -370,11 +360,11 @@ dependencies. This means:
 
 ### 7.2 Exceptions
 
-| Dependency | Pin type | Reason |
-|------------|----------|--------|
-| `msgspec` | Exact pin (`==0.21.1`) | Core dependency. Exact pin ensures deterministic serialization behavior across all environments. msgspec has broken forward compatibility in minor releases before. |
-| `setuptools` | Minimum (`>=68`) | Build system only. Wide compatibility tolerance is acceptable. |
-| `pytest` / `pytest-asyncio` | Minimum (`>=`) | Dev-only dependency. Not shipped. |
+| Dependency                  | Pin type               | Reason                                                                                                                                                              |
+| --------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `msgspec`                   | Exact pin (`==0.21.1`) | Core dependency. Exact pin ensures deterministic serialization behavior across all environments. msgspec has broken forward compatibility in minor releases before. |
+| `setuptools`                | Minimum (`>=68`)       | Build system only. Wide compatibility tolerance is acceptable.                                                                                                      |
+| `pytest` / `pytest-asyncio` | Minimum (`>=`)         | Dev-only dependency. Not shipped.                                                                                                                                   |
 
 ### 7.3 What MEDRE Does NOT Do
 
@@ -416,8 +406,8 @@ documented as an intentional decision, not a silent drift.
 
 Potential future strategies and when they might become appropriate:
 
-| Strategy | When appropriate |
-|----------|-----------------|
-| Lockfile in repo | When MEDRE has CI or reproducible deployment requirements |
-| Compatible ranges (`~=`) | When upstream SDKs demonstrate reliable semver compliance |
-| Strict pins (`==`) for all | When MEDRE becomes an application rather than a library |
+| Strategy                   | When appropriate                                          |
+| -------------------------- | --------------------------------------------------------- |
+| Lockfile in repo           | When MEDRE has CI or reproducible deployment requirements |
+| Compatible ranges (`~=`)   | When upstream SDKs demonstrate reliable semver compliance |
+| Strict pins (`==`) for all | When MEDRE becomes an application rather than a library   |

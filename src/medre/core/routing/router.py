@@ -15,7 +15,6 @@ from __future__ import annotations
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.routing.models import Route, RouteSource, RouteTarget
 
-
 # ---------------------------------------------------------------------------
 # Exceptions
 # ---------------------------------------------------------------------------
@@ -213,10 +212,9 @@ class Router:
             specifications that can match the same event.
         """
         exclusive = [
-            route for route in self._routes.values()
-            if route.ownership == "exclusive"
+            route for route in self._routes.values() if route.ownership == "exclusive"
         ]
         for i, route_a in enumerate(exclusive):
-            for route_b in exclusive[i + 1:]:
+            for route_b in exclusive[i + 1 :]:
                 if _sources_overlap(route_a.source, route_b.source):
                     raise RouteConflictError(route_a.id, route_b.id)

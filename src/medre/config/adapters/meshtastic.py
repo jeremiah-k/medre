@@ -5,6 +5,7 @@ required to connect to a Meshtastic radio node.  Use
 :meth:`MeshtasticConfig.validate` to verify the configuration before
 passing it to :class:`MeshtasticAdapter`.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

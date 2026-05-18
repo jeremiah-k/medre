@@ -18,12 +18,9 @@ import re
 import time as _time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from medre.adapters.fake_matrix import FakeMatrixAdapter
 from medre.config.model import (
     AdapterConfigSet,
     LoggingConfig,
@@ -35,24 +32,13 @@ from medre.config.model import (
 )
 from medre.config.paths import MedrePaths, resolve
 from medre.core.diagnostics.replay_metrics import ReplayMetrics
-from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.events import CanonicalEvent, EventMetadata
-from medre.core.events.bus import EventBus
 from medre.core.events.kinds import EventKind
-from medre.core.observability.metrics import Diagnostician
 from medre.core.planning.delivery_plan import DeliveryPlan, DeliveryStrategy
-from medre.core.planning.fallback_resolution import FallbackResolver
-from medre.core.planning.relation_resolution import RelationResolver
-from medre.core.rendering.renderer import RenderingPipeline
-from medre.core.rendering.text import TextRenderer
 from medre.core.routing.models import Route, RouteSource, RouteTarget
-from medre.core.routing.router import Router
-from medre.core.routing.stats import RouteStats
-from medre.core.storage.sqlite import SQLiteStorage
-from medre.runtime.app import MedreApp, RuntimeState
+from medre.runtime.app import RuntimeState
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.capacity import CapacityController
-
 
 # ---------------------------------------------------------------------------
 # Shared constants & helpers
@@ -61,16 +47,24 @@ from medre.runtime.capacity import CapacityController
 _SRC = Path(__file__).resolve().parent.parent / "src"
 
 _SDK_PACKAGES = (
-    "mindroom", "meshtastic", "meshcore", "lxmf", "reticulum",
-    "nio", "RNS", "LXMF",
+    "mindroom",
+    "meshtastic",
+    "meshcore",
+    "lxmf",
+    "reticulum",
+    "nio",
+    "RNS",
+    "LXMF",
 )
 """Third-party transport SDK package names as they appear in import statements."""
 
 # Config-level references (e.g. MeshtasticConfig, MeshtasticRuntimeConfig)
 # that are *not* SDK imports.  Only check import lines for these.
-_SDK_IMPORT_ONLY_MODULES = frozenset({
-    "medre.runtime.builder",  # imports MeshtasticConfig etc, not SDKs
-})
+_SDK_IMPORT_ONLY_MODULES = frozenset(
+    {
+        "medre.runtime.builder",  # imports MeshtasticConfig etc, not SDKs
+    }
+)
 
 _RUNTIME_MODULES = (
     "medre.runtime.capacity",
@@ -82,8 +76,13 @@ _RUNTIME_MODULES = (
 
 @pytest.fixture(autouse=True)
 def _clean_path_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for var in ("MEDRE_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME",
-                "XDG_DATA_HOME", "XDG_CACHE_HOME"):
+    for var in (
+        "MEDRE_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_STATE_HOME",
+        "XDG_DATA_HOME",
+        "XDG_CACHE_HOME",
+    ):
         monkeypatch.delenv(var, raising=False)
 
 
@@ -122,7 +121,8 @@ def _make_config_with_fake_matrix(
         runtime=RuntimeOptions(name="test-boundary"),
         logging=LoggingConfig(level="DEBUG"),
         storage=StorageConfig(backend="memory"),
-        limits=limits or RuntimeLimits(
+        limits=limits
+        or RuntimeLimits(
             max_inflight_deliveries=2,
             max_inflight_replay_events=2,
             shutdown_drain_timeout_seconds=2,
@@ -185,7 +185,8 @@ class TestAllDeliveryPathsAcquireCapacity:
         assert snap_after["delivery_current"] == 0
 
     async def test_delivery_via_pipeline_runner_uses_capacity(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """PipelineRunner.deliver_to_targets acquires capacity when wired."""
         config = _make_config_with_fake_matrix()
@@ -203,7 +204,9 @@ class TestAllDeliveryPathsAcquireCapacity:
             event = _make_event()
             route = Route(
                 id="r-boundary",
-                source=RouteSource(adapter="mx_boundary", event_kinds=(), channel="ch-0"),
+                source=RouteSource(
+                    adapter="mx_boundary", event_kinds=(), channel="ch-0"
+                ),
                 targets=[RouteTarget(adapter="mx_boundary", channel="ch-out")],
             )
             plan = DeliveryPlan(
@@ -214,7 +217,8 @@ class TestAllDeliveryPathsAcquireCapacity:
             )
             # PipelineRunner.deliver_to_targets needs a started runner.
             outcomes = await app.pipeline_runner.deliver_to_targets(
-                event, [(route, plan)],
+                event,
+                [(route, plan)],
             )
             assert len(outcomes) == 1
             # After delivery completes, capacity must be released.
@@ -337,7 +341,8 @@ class TestShutdownCancelsReplayCleanly:
     """Verify that runtime shutdown completes without hanging during replay."""
 
     async def test_shutdown_completes_within_timeout(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Runtime stop() completes within shutdown_drain_timeout_seconds."""
         config = _make_config_with_fake_matrix()
@@ -353,7 +358,8 @@ class TestShutdownCancelsReplayCleanly:
         assert app.state is RuntimeState.STOPPED
 
     async def test_shutdown_sets_not_accepting_work(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """After stop(), capacity controller no longer accepts work."""
         config = _make_config_with_fake_matrix()
@@ -368,7 +374,8 @@ class TestShutdownCancelsReplayCleanly:
         assert cc.accepting_work is False
 
     async def test_shutdown_idempotent(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Calling stop() twice does not raise."""
         config = _make_config_with_fake_matrix()
@@ -383,7 +390,8 @@ class TestShutdownCancelsReplayCleanly:
         assert app.state is RuntimeState.STOPPED
 
     async def test_stop_without_start_is_safe(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Calling stop() on an uninitialized app is a no-op."""
         config = _make_config_with_fake_matrix()
@@ -476,9 +484,9 @@ class TestQueuesStayBounded:
                 ok = await cc.acquire_delivery()
                 if ok:
                     snap = cc.snapshot()
-                    assert snap["delivery_current"] <= limit, (
-                        f"delivery_current {snap['delivery_current']} > limit {limit}"
-                    )
+                    assert (
+                        snap["delivery_current"] <= limit
+                    ), f"delivery_current {snap['delivery_current']} > limit {limit}"
                     await cc.release_delivery()
 
         # Run many concurrent workers.
@@ -488,15 +496,18 @@ class TestQueuesStayBounded:
         assert snap["delivery_current"] == 0
 
     async def test_capacity_controller_in_runtime_enforces_bounds(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Runtime CapacityController limits are respected during lifecycle."""
-        config = _make_config_with_fake_matrix(limits=RuntimeLimits(
-            max_inflight_deliveries=1,
-            max_inflight_replay_events=1,
-            delivery_acquire_timeout_seconds=0.1,
-            shutdown_drain_timeout_seconds=1,
-        ))
+        config = _make_config_with_fake_matrix(
+            limits=RuntimeLimits(
+                max_inflight_deliveries=1,
+                max_inflight_replay_events=1,
+                delivery_acquire_timeout_seconds=0.1,
+                shutdown_drain_timeout_seconds=1,
+            )
+        )
         app = RuntimeBuilder(config, tmp_paths).build()
         cc = app._capacity_controller
         assert cc is not None
@@ -527,13 +538,14 @@ class TestNoTransportSDKImports:
         lines = _import_lines(source)
         for sdk in _SDK_PACKAGES:
             for line in lines:
-                assert not re.search(rf"\b{re.escape(sdk)}\b", line), (
-                    f"{module_name} imports transport SDK '{sdk}': {line}"
-                )
+                assert not re.search(
+                    rf"\b{re.escape(sdk)}\b", line
+                ), f"{module_name} imports transport SDK '{sdk}': {line}"
 
     @pytest.mark.parametrize("module_name", _RUNTIME_MODULES)
     def test_runtime_module_source_has_no_sdk_references(
-        self, module_name: str,
+        self,
+        module_name: str,
     ) -> None:
         """Full source text of runtime modules must not reference SDKs.
 
@@ -552,15 +564,15 @@ class TestNoTransportSDKImports:
             lines = _import_lines(source)
             for sdk in _SDK_PACKAGES:
                 for line in lines:
-                    assert not re.search(rf"\b{re.escape(sdk)}\b", line), (
-                        f"{module_name} imports SDK '{sdk}': {line}"
-                    )
+                    assert not re.search(
+                        rf"\b{re.escape(sdk)}\b", line
+                    ), f"{module_name} imports SDK '{sdk}': {line}"
             return
 
         for sdk in _SDK_PACKAGES:
-            assert sdk not in source, (
-                f"{module_name} references SDK '{sdk}' in source text"
-            )
+            assert (
+                sdk not in source
+            ), f"{module_name} references SDK '{sdk}' in source text"
 
 
 # ===================================================================
@@ -572,7 +584,8 @@ class TestShutdownDrainObservable:
     """Verify that shutdown drain outcomes are observable via diagnostics."""
 
     async def test_diagnostic_snapshot_includes_capacity(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """MedreApp.diagnostic_snapshot() includes capacity controller data."""
         config = _make_config_with_fake_matrix()
@@ -596,7 +609,8 @@ class TestShutdownDrainObservable:
             await app.stop()
 
     async def test_diagnostic_snapshot_shows_accepting_work(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Before stop: accepting_work=True; after stop: False."""
         config = _make_config_with_fake_matrix()
@@ -613,7 +627,8 @@ class TestShutdownDrainObservable:
         assert snap_stopped["runtime_state"] == "stopped"
 
     async def test_drain_timeout_in_snapshot(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """diagnostic_snapshot includes shutdown_drain_timeout_seconds."""
         config = _make_config_with_fake_matrix()
@@ -623,12 +638,17 @@ class TestShutdownDrainObservable:
         try:
             snap = app.diagnostic_snapshot()
             assert "shutdown_drain_timeout_seconds" in snap
-            assert snap["shutdown_drain_timeout_seconds"] == config.limits.shutdown_drain_timeout_seconds
+            assert (
+                snap["shutdown_drain_timeout_seconds"]
+                == config.limits.shutdown_drain_timeout_seconds
+            )
         finally:
             await app.stop()
 
     async def test_state_transitions_are_logged(
-        self, tmp_paths: MedrePaths, caplog: pytest.LogCaptureFixture,
+        self,
+        tmp_paths: MedrePaths,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         """Runtime state transitions appear in logs during start/stop."""
         config = _make_config_with_fake_matrix()
@@ -644,7 +664,9 @@ class TestShutdownDrainObservable:
         assert "stopped" in log_text.lower() or "STOPPED" in log_text
 
     async def test_drain_logs_inflight_counts(
-        self, tmp_paths: MedrePaths, caplog: pytest.LogCaptureFixture,
+        self,
+        tmp_paths: MedrePaths,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         """When drain completes, logs should reflect the drain outcome."""
         config = _make_config_with_fake_matrix()

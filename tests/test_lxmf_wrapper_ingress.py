@@ -20,12 +20,10 @@ from medre.core.engine.pipeline import PipelineRunner
 from medre.core.events.kinds import EventKind
 from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
 from medre.core.rendering.text import TextRenderer
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage.sqlite import SQLiteStorage
-
 from tests.helpers.bridge import make_adapter_context, make_pipeline_config
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -181,9 +179,7 @@ class TestLxmfWrapperCallbackIngress:
             await lxmf_adapter.simulate_inbound({"fields": {"ack": True}})
 
             # No canonical events stored
-            events = await temp_storage._read_all(
-                "SELECT * FROM canonical_events"
-            )
+            events = await temp_storage._read_all("SELECT * FROM canonical_events")
             assert len(events) == 0
         finally:
             await lxmf_adapter.stop()
@@ -276,9 +272,7 @@ class TestLxmfWrapperCallbackIngress:
         runner = PipelineRunner(config)
         await runner.start()
 
-        await lxmf_adapter.start(
-            make_adapter_context("lxmf-malformed", runner)
-        )
+        await lxmf_adapter.start(make_adapter_context("lxmf-malformed", runner))
 
         try:
             # Malformed: content is an int (unsupported type by classifier)
@@ -426,12 +420,8 @@ class TestLxmfWrapperCallbackIngress:
         runner = PipelineRunner(config)
         await runner.start()
 
-        await lxmf_adapter.start(
-            make_adapter_context("lxmf-sync-cb", runner)
-        )
-        await fake_target.start(
-            make_adapter_context("fake-sync-target", runner)
-        )
+        await lxmf_adapter.start(make_adapter_context("lxmf-sync-cb", runner))
+        await fake_target.start(make_adapter_context("fake-sync-target", runner))
 
         try:
             packet = make_lxmf_text_packet(

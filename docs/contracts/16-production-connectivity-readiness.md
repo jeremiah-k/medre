@@ -10,7 +10,6 @@ All four adapters are in tranche 1. Fake mode is the default development path fo
 
 **Note (2026-05-09):** The per-transport sections below were written before the MeshCore and LXMF real session code was merged. MeshCore and LXMF now have real session implementations (see contracts 19, 20) and live smoke harnesses. The current cross-transport assessment is consolidated in contract 28 (`28-alpha-readiness-report.md`). The diagnostics consistency audit is in contract 27 (`27-diagnostics-consistency-audit.md`).
 
-
 ## Matrix
 
 ### What tranche 1 proves (deterministic / fake-only)
@@ -33,25 +32,25 @@ A skipped-by-default live test harness at `tests/test_matrix_live.py` with a com
 - The full lifecycle (start → send → healthy → stop → unknown) works as an ordered sequence.
 - No asyncio tasks are leaked after stop.
 
-The live harness is **optional** and **does not gate CI**.  Default `pytest` remains fake-only.  See `docs/runbooks/matrix-live-smoke.md` for setup and usage.
+The live harness is **optional** and **does not gate CI**. Default `pytest` remains fake-only. See `docs/runbooks/matrix-live-smoke.md` for setup and usage.
 
 ### What the live smoke harness does NOT prove
 
-- **Inbound message reception.**  Requires a second Matrix account to send a message into the room.  With one account, timing-sensitive polling would be needed, making tests flaky.  Inbound codec correctness is covered by deterministic unit tests.
-- **Self-message suppression with real sync echoes.**  The homeserver echoes outbound messages back.  Verifying suppression requires waiting for the echo with a timeout, which is unreliable.  Self-message suppression is covered by deterministic unit tests.
-- **MEDRE-origin envelope suppression.**  Secondary suppression path, unit-tested.
-- **E2EE, reactions, edits, deletes, attachments, media.**  Not implemented in tranche 1.
-- **Admin API, webhooks, HTTP server.**  Out of scope.
-- **Non-Matrix connectivity.**  Meshtastic, MeshCore, LXMF are out of scope.
-- **Auth command / credential storage.**  Current tranche uses env-var access tokens.  A future mmrelay-like auth command may be useful but is not implemented.
-- **Real operation scope.**  The live harness confirms transport-level connectivity for Matrix tranche 1 features only.  It does not prove production readiness for bridging, federation, encrypted rooms, or multi-user scenarios.
+- **Inbound message reception.** Requires a second Matrix account to send a message into the room. With one account, timing-sensitive polling would be needed, making tests flaky. Inbound codec correctness is covered by deterministic unit tests.
+- **Self-message suppression with real sync echoes.** The homeserver echoes outbound messages back. Verifying suppression requires waiting for the echo with a timeout, which is unreliable. Self-message suppression is covered by deterministic unit tests.
+- **MEDRE-origin envelope suppression.** Secondary suppression path, unit-tested.
+- **E2EE, reactions, edits, deletes, attachments, media.** Not implemented in tranche 1.
+- **Admin API, webhooks, HTTP server.** Out of scope.
+- **Non-Matrix connectivity.** Meshtastic, MeshCore, LXMF are out of scope.
+- **Auth command / credential storage.** Current tranche uses env-var access tokens. A future mmrelay-like auth command may be useful but is not implemented.
+- **Real operation scope.** The live harness confirms transport-level connectivity for Matrix tranche 1 features only. It does not prove production readiness for bridging, federation, encrypted rooms, or multi-user scenarios.
 
 ### What is still fake/scaffolded
 
 - **No inbound message reception has been verified against a real homeserver.** The sync loop starts, but no test has verified that a real inbound event flows through `_on_room_message` → codec → `publish_inbound`.
 - **E2EE is not implemented.** No olm/megolm support.
 - **Reactions, edits, deletes, and attachments are all deferred.** Only text and replies work.
-- **Storage is authoritative.** The metadata envelope is secondary and diagnostic.  The live harness does not test storage round-trips against a real homeserver.
+- **Storage is authoritative.** The metadata envelope is secondary and diagnostic. The live harness does not test storage round-trips against a real homeserver.
 
 ### What must be done before real operation
 
@@ -59,18 +58,17 @@ The live harness is **optional** and **does not gate CI**.  Default `pytest` rem
 2. **Verify self-message suppression** with real echo events from the homeserver (requires a second account or device).
 3. **Test against multiple room types.** Public, private, DMs.
 4. **Test federation.** Cross-server message delivery.
-5. **Token storage and rotation.** The `access_token` is a plain string.  Production deployment needs a security review.  A future mmrelay-like auth command may address this.
+5. **Token storage and rotation.** The `access_token` is a plain string. Production deployment needs a security review. A future mmrelay-like auth command may address this.
 
 ### Likely first production-connectivity tranche focus
 
-The live smoke harness already covers the smallest useful connectivity milestone (connect, send, lifecycle).  The next step is verifying inbound reception with a second account and testing self-message suppression with real echoes.
+The live smoke harness already covers the smallest useful connectivity milestone (connect, send, lifecycle). The next step is verifying inbound reception with a second account and testing self-message suppression with real echoes.
 
 ### Known risks
 
 - `mindroom-nio` is a fork. Its maintenance status and API stability relative to upstream `matrix-nio` need verification.
 - Sync loop error handling may need hardening for real network conditions (timeouts, reconnects, rate limiting).
 - The `access_token` config field is stored as a plain string. Token storage and rotation need a security review before production deployment.
-
 
 ## Meshtastic
 
@@ -134,7 +132,6 @@ Connect to a real Meshtastic node via TCP. Receive text packets, decode them, se
 - The `_on_packet` callback is synchronous but publishes async. The background task management works, but error propagation from the async publish back to the callback context needs review.
 - Real Meshtastic nodes may send packets with different protobuf schemas than the scaffold map expects.
 
-
 ## MeshCore
 
 ### What tranche 1 proves
@@ -170,7 +167,6 @@ Obtain real MeshCore event samples. Validate that the codec and classifier handl
 - Packet format assumptions are based on source code review, not live testing. The real format may differ.
 - MeshCore's event model (channels, direct messages, ACKs) may not map cleanly to the current classifier's assumptions.
 - The adapter is structurally ready (following the Meshtastic template) but substantively empty. This is the most speculative of the four adapters.
-
 
 ## LXMF
 
@@ -212,7 +208,6 @@ Integrate the `rns` and `lxmf` packages. Create a minimal Reticulum identity. Co
 - The fields envelope approach (key `0xFD`) is an assumption. It needs validation against real LXMF field usage to ensure no conflicts.
 - Identity management (creation, storage, rotation) is a significant piece of work that hasn't been scoped yet.
 - LXMF's store-and-forward and propagation mechanisms add complexity that the current adapter doesn't address at all.
-
 
 ## Summary
 

@@ -8,6 +8,7 @@ packet to be a plain dict (as produced by the Meshtastic Python library's
 callback or a test fake) and does not import ``meshtastic`` directly.
 This keeps the codec testable without the mtjk dependency.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -130,7 +131,9 @@ class MeshtasticCodec:
                     target_event_id=None,
                     target_native_ref=NativeRef(
                         adapter=self._adapter_id,
-                        native_channel_id=str(pkt_channel) if pkt_channel is not None else None,
+                        native_channel_id=(
+                            str(pkt_channel) if pkt_channel is not None else None
+                        ),
                         native_message_id=str(reply_id),
                     ),
                     key=None,

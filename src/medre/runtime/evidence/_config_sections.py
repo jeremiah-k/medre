@@ -11,7 +11,6 @@ from medre.observability.sanitization import sanitize_error
 
 from ._helpers import _section_ok, _section_partial
 
-
 # ---------------------------------------------------------------------------
 # Config summary
 # ---------------------------------------------------------------------------
@@ -29,24 +28,28 @@ def _collect_config_summary(
     """
     adapters_summary: list[dict[str, Any]] = []
     for transport, adapter_id, rtc in config.adapters.all_configs():
-        adapters_summary.append({
-            "adapter_id": adapter_id,
-            "adapter_kind": getattr(rtc, "adapter_kind", "real"),
-            "enabled": rtc.enabled,
-            "transport": transport,
-        })
+        adapters_summary.append(
+            {
+                "adapter_id": adapter_id,
+                "adapter_kind": getattr(rtc, "adapter_kind", "real"),
+                "enabled": rtc.enabled,
+                "transport": transport,
+            }
+        )
 
     routes_summary: list[dict[str, Any]] = []
     routes = config.routes
     if routes is not None:
         for route in routes.routes:
-            routes_summary.append({
-                "dest_adapters": sorted(route.dest_adapters),
-                "directionality": route.directionality.value,
-                "enabled": route.enabled,
-                "route_id": route.route_id,
-                "source_adapters": sorted(route.source_adapters),
-            })
+            routes_summary.append(
+                {
+                    "dest_adapters": sorted(route.dest_adapters),
+                    "directionality": route.directionality.value,
+                    "enabled": route.enabled,
+                    "route_id": route.route_id,
+                    "source_adapters": sorted(route.source_adapters),
+                }
+            )
 
     # Limits — numeric, no secrets.
     limits = config.limits
@@ -101,8 +104,8 @@ def _collect_config_summary(
 def _collect_route_validation(config: Any) -> dict[str, Any]:
     """Validate route configuration and return results."""
     from medre.runtime.route_engine import (
-        build_runtime_routes,
         RouteValidationError,
+        build_runtime_routes,
     )
 
     routes = config.routes
@@ -121,7 +124,7 @@ def _collect_route_validation(config: Any) -> dict[str, Any]:
 
     # Check adapter references.
     known_adapter_ids: set[str] = set()
-    for _transport, adapter_id, rtc in config.adapters.all_configs():
+    for _transport, adapter_id, _rtc in config.adapters.all_configs():
         known_adapter_ids.add(adapter_id)
 
     for route in route_list:

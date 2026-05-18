@@ -22,10 +22,11 @@ All non-fake modes require the ``lxmf`` optional dependency at runtime.
 raises :class:`~medre.adapters.lxmf.errors.LxmfConnectionError` when the
 SDK is unavailable or production connectivity is not yet implemented.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Self
+from typing import Self
 
 from medre.config.adapters.errors import LxmfConfigError
 
@@ -36,14 +37,22 @@ __all__ = ["LxmfConfig"]
 _ALLOWED_CONNECTION_TYPES: frozenset[str] = frozenset({"fake", "reticulum"})
 
 # Allowed default_delivery_method values.
-_ALLOWED_DELIVERY_METHODS: frozenset[str] = frozenset({
-    "direct", "opportunistic", "propagated", "paper",
-})
+_ALLOWED_DELIVERY_METHODS: frozenset[str] = frozenset(
+    {
+        "direct",
+        "opportunistic",
+        "propagated",
+        "paper",
+    }
+)
 
 # Fields that must never contain secrets or private keys.
-_NO_SECRET_FIELDS: frozenset[str] = frozenset({
-    "display_name", "meshnet_name",
-})
+_NO_SECRET_FIELDS: frozenset[str] = frozenset(
+    {
+        "display_name",
+        "meshnet_name",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -145,9 +154,7 @@ class LxmfConfig:
                 f"default_channel must be >= 0, got {self.default_channel}"
             )
         if self.stamp_cost < 0:
-            raise LxmfConfigError(
-                f"stamp_cost must be >= 0, got {self.stamp_cost}"
-            )
+            raise LxmfConfigError(f"stamp_cost must be >= 0, got {self.stamp_cost}")
         if self.stamp_cost != 0 and not isinstance(self.stamp_cost, int):
             raise LxmfConfigError(
                 f"stamp_cost must be an integer, "

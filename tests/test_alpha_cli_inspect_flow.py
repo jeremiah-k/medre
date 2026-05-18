@@ -10,15 +10,10 @@ import json
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
-import pytest
-
 from medre.cli import main
-
 from tests.helpers.alpha_cli import (
-    clean_path_env,
     seed_via_smoke_cli,
 )
-
 
 # ---------------------------------------------------------------------------
 # Tests: inspect receipts with --storage-path
@@ -34,11 +29,16 @@ class TestAlphaInspectReceiptsCLI:
 
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
-            main([
-                "inspect", "receipts",
-                "--event", event_id,
-                "--storage-path", str(db_path),
-            ])
+            main(
+                [
+                    "inspect",
+                    "receipts",
+                    "--event",
+                    event_id,
+                    "--storage-path",
+                    str(db_path),
+                ]
+            )
 
         output = stdout_buf.getvalue()
         assert "sent" in output
@@ -49,11 +49,16 @@ class TestAlphaInspectReceiptsCLI:
 
         # Should NOT raise SystemExit.
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-            main([
-                "inspect", "receipts",
-                "--event", event_id,
-                "--storage-path", str(db_path),
-            ])
+            main(
+                [
+                    "inspect",
+                    "receipts",
+                    "--event",
+                    event_id,
+                    "--storage-path",
+                    str(db_path),
+                ]
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -70,12 +75,16 @@ class TestAlphaInspectEventTimelineCLI:
 
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
-            main([
-                "inspect", "event",
-                event_id,
-                "--timeline",
-                "--storage-path", str(db_path),
-            ])
+            main(
+                [
+                    "inspect",
+                    "event",
+                    event_id,
+                    "--timeline",
+                    "--storage-path",
+                    str(db_path),
+                ]
+            )
 
         result = json.loads(stdout_buf.getvalue())
         assert isinstance(result, dict)
@@ -90,18 +99,22 @@ class TestAlphaInspectEventTimelineCLI:
 
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
-            main([
-                "inspect", "event",
-                event_id,
-                "--timeline",
-                "--storage-path", str(db_path),
-            ])
+            main(
+                [
+                    "inspect",
+                    "event",
+                    event_id,
+                    "--timeline",
+                    "--storage-path",
+                    str(db_path),
+                ]
+            )
 
         result = json.loads(stdout_buf.getvalue())
         entry_types = [e.get("entry_type") for e in result["timeline"]]
-        assert "receipt" in entry_types, (
-            f"Expected 'receipt' in timeline entry types, got: {entry_types}"
-        )
+        assert (
+            "receipt" in entry_types
+        ), f"Expected 'receipt' in timeline entry types, got: {entry_types}"
 
 
 # ---------------------------------------------------------------------------
@@ -118,12 +131,16 @@ class TestAlphaInspectEventEvidenceCLI:
 
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
-            main([
-                "inspect", "event",
-                event_id,
-                "--evidence",
-                "--storage-path", str(db_path),
-            ])
+            main(
+                [
+                    "inspect",
+                    "event",
+                    event_id,
+                    "--evidence",
+                    "--storage-path",
+                    str(db_path),
+                ]
+            )
 
         result = json.loads(stdout_buf.getvalue())
         assert isinstance(result, dict)
@@ -137,12 +154,16 @@ class TestAlphaInspectEventEvidenceCLI:
 
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
-            main([
-                "inspect", "event",
-                event_id,
-                "--evidence",
-                "--storage-path", str(db_path),
-            ])
+            main(
+                [
+                    "inspect",
+                    "event",
+                    event_id,
+                    "--evidence",
+                    "--storage-path",
+                    str(db_path),
+                ]
+            )
 
         result = json.loads(stdout_buf.getvalue())
         evidence = result["evidence"]
@@ -164,12 +185,16 @@ class TestAlphaInspectEventRecoveryCLI:
 
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
-            main([
-                "inspect", "event",
-                event_id,
-                "--recovery",
-                "--storage-path", str(db_path),
-            ])
+            main(
+                [
+                    "inspect",
+                    "event",
+                    event_id,
+                    "--recovery",
+                    "--storage-path",
+                    str(db_path),
+                ]
+            )
 
         result = json.loads(stdout_buf.getvalue())
         assert isinstance(result, dict)
@@ -182,14 +207,18 @@ class TestAlphaInspectEventRecoveryCLI:
 
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
-            main([
-                "inspect", "event",
-                event_id,
-                "--timeline",
-                "--evidence",
-                "--recovery",
-                "--storage-path", str(db_path),
-            ])
+            main(
+                [
+                    "inspect",
+                    "event",
+                    event_id,
+                    "--timeline",
+                    "--evidence",
+                    "--recovery",
+                    "--storage-path",
+                    str(db_path),
+                ]
+            )
 
         result = json.loads(stdout_buf.getvalue())
         assert "event" in result

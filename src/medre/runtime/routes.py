@@ -16,19 +16,20 @@ Public symbols
 * :class:`RouteConfig` — a single named route definition
 * :class:`RouteConfigSet` — ordered, validated collection of routes
 """
+
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Self
 
 from medre.config.errors import ConfigValidationError
 
-
 # ---------------------------------------------------------------------------
 # Directionality enum
 # ---------------------------------------------------------------------------
+
 
 class RouteDirectionality(Enum):
     """Direction of event flow between source and destination adapters.
@@ -119,7 +120,10 @@ class BridgePolicy:
 
 
 def _reject_unsupported_policy_fields(
-    policy: BridgePolicy, *, route_id: str, section_path: str,
+    policy: BridgePolicy,
+    *,
+    route_id: str,
+    section_path: str,
 ) -> None:
     """Raise :class:`ConfigValidationError` for policy fields not enforced at runtime.
 
@@ -243,7 +247,9 @@ class RouteRetryConfig:
                 f"got {backoff_base}",
                 section_path=f"{section_path}.retry",
             )
-        if not isinstance(max_delay_seconds, (int, float)) or isinstance(max_delay_seconds, bool):
+        if not isinstance(max_delay_seconds, (int, float)) or isinstance(
+            max_delay_seconds, bool
+        ):
             raise ConfigValidationError(
                 f"Route {route_id!r}: retry.max_delay_seconds must be a number, "
                 f"got {max_delay_seconds!r}",
@@ -421,8 +427,11 @@ class RouteConfig:
 
         # Room/channel are aliases for the same runtime field.
         # Reject when both are set to different values.
-        if (source_room is not None and source_channel is not None
-                and source_room != source_channel):
+        if (
+            source_room is not None
+            and source_channel is not None
+            and source_room != source_channel
+        ):
             raise ConfigValidationError(
                 f"Route {route_id!r}: 'source_room' ({source_room!r}) and "
                 f"'source_channel' ({source_channel!r}) are both set but "
@@ -430,8 +439,11 @@ class RouteConfig:
                 f"'source_channel'.",
                 section_path=section_path,
             )
-        if (dest_room is not None and dest_channel is not None
-                and dest_room != dest_channel):
+        if (
+            dest_room is not None
+            and dest_channel is not None
+            and dest_room != dest_channel
+        ):
             raise ConfigValidationError(
                 f"Route {route_id!r}: 'dest_room' ({dest_room!r}) and "
                 f"'dest_channel' ({dest_channel!r}) are both set but "
@@ -456,7 +468,9 @@ class RouteConfig:
                 )
             policy = BridgePolicy.from_toml_dict(raw_policy)
             _reject_unsupported_policy_fields(
-                policy, route_id=route_id, section_path=section_path,
+                policy,
+                route_id=route_id,
+                section_path=section_path,
             )
 
         # --- retry ---

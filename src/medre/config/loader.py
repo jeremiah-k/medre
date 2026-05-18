@@ -9,6 +9,7 @@ Public API
 :class:`ConfigSource`
     Enum indicating where the config file was found.
 """
+
 from __future__ import annotations
 
 import os
@@ -18,23 +19,26 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Protocol, Self, TypeVar
 
-from medre.config.errors import ConfigNotFoundError, ConfigFileError, ConfigValidationError
-from medre.config.model import (
-    RuntimeConfig,
-    RuntimeOptions,
-    RuntimeLimits,
-    LoggingConfig,
-    StorageConfig,
-    RetryConfig,
-    AdapterConfigSet,
-    MatrixRuntimeConfig,
-    MeshtasticRuntimeConfig,
-    MeshCoreRuntimeConfig,
-    LxmfRuntimeConfig,
+from medre.config.errors import (
+    ConfigFileError,
+    ConfigNotFoundError,
+    ConfigValidationError,
 )
+from medre.config.model import (
+    AdapterConfigSet,
+    LoggingConfig,
+    LxmfRuntimeConfig,
+    MatrixRuntimeConfig,
+    MeshCoreRuntimeConfig,
+    MeshtasticRuntimeConfig,
+    RetryConfig,
+    RuntimeConfig,
+    RuntimeLimits,
+    RuntimeOptions,
+    StorageConfig,
+)
+from medre.config.paths import MedrePaths, MedrePathsError, resolve
 from medre.runtime.routes import RouteConfigSet
-from medre.config.paths import MedrePaths, resolve, MedrePathsError
-
 
 # ---------------------------------------------------------------------------
 # Config source enum
@@ -44,11 +48,11 @@ from medre.config.paths import MedrePaths, resolve, MedrePathsError
 class ConfigSource(Enum):
     """Indicates how the configuration file was located."""
 
-    EXPLICIT = "explicit"          # --config CLI flag
+    EXPLICIT = "explicit"  # --config CLI flag
     MEDRE_CONFIG = "MEDRE_CONFIG"  # $MEDRE_CONFIG env var
-    MEDRE_HOME = "MEDRE_HOME"      # $MEDRE_HOME/config.toml
-    XDG = "xdg"                    # XDG default config path
-    LOCAL = "local"                # ./medre.toml
+    MEDRE_HOME = "MEDRE_HOME"  # $MEDRE_HOME/config.toml
+    XDG = "xdg"  # XDG default config path
+    LOCAL = "local"  # ./medre.toml
 
 
 # ---------------------------------------------------------------------------
@@ -90,9 +94,7 @@ def find_config(
     if explicit_path is not None:
         p = Path(explicit_path).expanduser().resolve()
         if not p.is_file():
-            raise ConfigFileError(
-                f"Config file not found: {p} (specified explicitly)"
-            )
+            raise ConfigFileError(f"Config file not found: {p} (specified explicitly)")
         return (p, ConfigSource.EXPLICIT)
 
     checked: list[str] = []
@@ -201,8 +203,12 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
     limits = RuntimeLimits(
         max_inflight_deliveries=limits_data.get("max_inflight_deliveries", 100),
         max_inflight_replay_events=limits_data.get("max_inflight_replay_events", 100),
-        shutdown_drain_timeout_seconds=limits_data.get("shutdown_drain_timeout_seconds", 10),
-        delivery_acquire_timeout_seconds=limits_data.get("delivery_acquire_timeout_seconds", 1.0),
+        shutdown_drain_timeout_seconds=limits_data.get(
+            "shutdown_drain_timeout_seconds", 10
+        ),
+        delivery_acquire_timeout_seconds=limits_data.get(
+            "delivery_acquire_timeout_seconds", 1.0
+        ),
     ).validate()
 
     # [logging] section
@@ -245,9 +251,7 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
         meshcore=_parse_adapter_section(
             adapters_data, "meshcore", MeshCoreRuntimeConfig, paths
         ),
-        lxmf=_parse_adapter_section(
-            adapters_data, "lxmf", LxmfRuntimeConfig, paths
-        ),
+        lxmf=_parse_adapter_section(adapters_data, "lxmf", LxmfRuntimeConfig, paths),
     )
 
     # Validate adapter config consistency (duplicate IDs, etc.)
@@ -257,8 +261,13 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
     routes = RouteConfigSet.from_toml_dict(data)
 
     return RuntimeConfig(
-        runtime=runtime, logging=logging, storage=storage, limits=limits,
-        retry=retry, adapters=adapters, routes=routes,
+        runtime=runtime,
+        logging=logging,
+        storage=storage,
+        limits=limits,
+        retry=retry,
+        adapters=adapters,
+        routes=routes,
     )
 
 
@@ -277,7 +286,7 @@ def _validate_retry_section(retry_data: dict) -> None:
     }
     _RETRY_BOOL_FIELDS = {"enabled"}
 
-    for field_name, (label, min_val) in _RETRY_INT_FIELDS.items():
+    for field_name, (_label, min_val) in _RETRY_INT_FIELDS.items():
         raw = retry_data.get(field_name)
         if raw is None:
             continue
@@ -293,7 +302,7 @@ def _validate_retry_section(retry_data: dict) -> None:
                 section_path="retry",
             )
 
-    for field_name, (label, min_val) in _RETRY_FLOAT_FIELDS.items():
+    for field_name, (_label, min_val) in _RETRY_FLOAT_FIELDS.items():
         raw = retry_data.get(field_name)
         if raw is None:
             continue
@@ -324,6 +333,7 @@ def _validate_retry_section(retry_data: dict) -> None:
 # ---------------------------------------------------------------------------
 # Adapter section parsing helper
 # ---------------------------------------------------------------------------
+
 
 class _TomlConstructible(Protocol):
     """Protocol for runtime config wrappers with a TOML factory method."""

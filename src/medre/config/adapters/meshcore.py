@@ -22,6 +22,7 @@ Validation rules
 - ``message_delay_seconds`` ≥ 0, ``default_channel`` ≥ 0,
   ``sync_timeout_ms`` > 0.
 """
+
 from __future__ import annotations
 
 import re
@@ -134,9 +135,7 @@ class MeshCoreConfig:
 
         # Non-fake connection type validation
         if self.connection_type == "tcp" and not self.host:
-            raise MeshCoreConfigError(
-                "host is required when connection_type is 'tcp'"
-            )
+            raise MeshCoreConfigError("host is required when connection_type is 'tcp'")
         if self.connection_type == "serial" and not self.serial_port:
             raise MeshCoreConfigError(
                 "serial_port is required when connection_type is 'serial'"

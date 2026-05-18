@@ -1,4 +1,5 @@
 """Run CLI command: load config, build runtime, and run until interrupted."""
+
 from __future__ import annotations
 
 import asyncio
@@ -10,18 +11,18 @@ import time
 from pathlib import Path
 from typing import Any
 
-from medre.config.loader import load_config
-from medre.config.errors import ConfigError
 from medre.config.env import apply_env_overrides
+from medre.config.errors import ConfigError
+from medre.config.loader import load_config
 from medre.observability import (
     format_duration_ms,
     sanitize_for_log,
-    startup_summary,
     shutdown_summary,
+    startup_summary,
 )
 
-from .exit_codes import EXIT_CONFIG, EXIT_BUILD, EXIT_STARTUP
-from .smoke_commands import _transport_for_adapter, _setup_logging
+from .exit_codes import EXIT_BUILD, EXIT_CONFIG, EXIT_STARTUP
+from .smoke_commands import _setup_logging, _transport_for_adapter
 
 logger = logging.getLogger("medre")
 
@@ -202,12 +203,24 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
             for adapter_id in app.started_adapter_ids:
                 dur = time.monotonic() - run_start
                 startup_results.append(
-                    (adapter_id, _transport_for_adapter(adapter_id, config), True, dur, None)
+                    (
+                        adapter_id,
+                        _transport_for_adapter(adapter_id, config),
+                        True,
+                        dur,
+                        None,
+                    )
                 )
             for adapter_id in app._failed_adapter_ids:
                 dur = time.monotonic() - run_start
                 startup_results.append(
-                    (adapter_id, _transport_for_adapter(adapter_id, config), False, dur, str(exc))
+                    (
+                        adapter_id,
+                        _transport_for_adapter(adapter_id, config),
+                        False,
+                        dur,
+                        str(exc),
+                    )
                 )
 
             summary = startup_summary(startup_results)
@@ -221,17 +234,32 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
 
         # Build startup results from app state (supports partial startup).
         for adapter_id in app.started_adapter_ids:
-            dur = getattr(app, "adapter_start_duration_ms", {}).get(
-                adapter_id,
-                (time.monotonic() - run_start) * 1000,
-            ) / 1000.0
+            dur = (
+                getattr(app, "adapter_start_duration_ms", {}).get(
+                    adapter_id,
+                    (time.monotonic() - run_start) * 1000,
+                )
+                / 1000.0
+            )
             startup_results.append(
-                (adapter_id, _transport_for_adapter(adapter_id, config), True, dur, None)
+                (
+                    adapter_id,
+                    _transport_for_adapter(adapter_id, config),
+                    True,
+                    dur,
+                    None,
+                )
             )
         for adapter_id in app._failed_adapter_ids:
             dur = time.monotonic() - run_start
             startup_results.append(
-                (adapter_id, _transport_for_adapter(adapter_id, config), False, dur, "failed during startup")
+                (
+                    adapter_id,
+                    _transport_for_adapter(adapter_id, config),
+                    False,
+                    dur,
+                    "failed during startup",
+                )
             )
 
         # Print startup summary
@@ -257,7 +285,9 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
         if app.boot_summary is not None:
             bs = app.boot_summary
             if bs.runtime_health == "degraded":
-                _print(f"  \u26a0 Runtime is DEGRADED: {bs.adapters_started}/{bs.adapters_total} adapter(s) started")
+                _print(
+                    f"  \u26a0 Runtime is DEGRADED: {bs.adapters_started}/{bs.adapters_total} adapter(s) started"
+                )
                 if bs.failed_adapter_ids:
                     _print(f"    Failed adapters: {', '.join(bs.failed_adapter_ids)}")
             if bs.persisted_events_count is not None:
@@ -320,7 +350,9 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
                     f"({abandoned_count} adapter(s) abandoned)"
                 )
 
-            summary = shutdown_summary(list(app.adapters.keys()), shutdown_errors or None)
+            summary = shutdown_summary(
+                list(app.adapters.keys()), shutdown_errors or None
+            )
             _print(summary)
 
             # Print final accounting counters.
@@ -341,10 +373,16 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
                     snap = build_runtime_snapshot(app)
                     snap_path = Path(snapshot_path)
                     snap_path.parent.mkdir(parents=True, exist_ok=True)
-                    snap_path.write_text(json.dumps(snap, indent=2, sort_keys=True) + "\n")
+                    snap_path.write_text(
+                        json.dumps(snap, indent=2, sort_keys=True) + "\n"
+                    )
                     _print(f"  Final snapshot written to: {snapshot_path}")
                 except Exception as exc:
-                    print(f"  Warning: failed to write snapshot: {exc}", file=sys.stderr, flush=True)
+                    print(
+                        f"  Warning: failed to write snapshot: {exc}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
 
             logger.info("MEDRE stopped")
     finally:

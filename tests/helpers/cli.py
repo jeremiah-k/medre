@@ -8,11 +8,10 @@ pytest can discover them.
 from __future__ import annotations
 
 import io
-from contextlib import redirect_stdout, redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 from medre.cli import main
-
 
 # ---------------------------------------------------------------------------
 # Sample TOML configs used across route / config / diagnostics / run tests

@@ -1,4 +1,5 @@
 """Read-only storage access helpers for CLI inspection commands."""
+
 from __future__ import annotations
 
 import sys
@@ -6,7 +7,7 @@ from typing import Any
 
 from medre.config.loader import load_config
 
-from .exit_codes import EXIT_CONFIG, EXIT_BUILD
+from .exit_codes import EXIT_BUILD, EXIT_CONFIG
 
 
 async def _open_readonly_storage(

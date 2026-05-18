@@ -13,15 +13,16 @@ object to carry ``.sender``, ``.body``, ``.event_id``, and ``.source``
 attributes but does not import ``nio`` directly.  This keeps the codec
 testable without the mindroom-nio dependency.
 """
+
 from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from medre.core.contracts.adapter import AdapterCodec
 from medre.adapters.matrix.errors import MatrixCodecError
 from medre.adapters.matrix.relations import extract_reply_target
+from medre.core.contracts.adapter import AdapterCodec
 from medre.core.events.canonical import CanonicalEvent, EventRelation, NativeRef
 from medre.core.events.kinds import EventKind
 from medre.core.events.metadata import EventMetadata, NativeMetadata
@@ -72,9 +73,7 @@ class MatrixCodec(AdapterCodec):
         """
         source = getattr(native_event, "source", None)
         if source is None:
-            raise MatrixCodecError(
-                "native_event is missing .source attribute"
-            )
+            raise MatrixCodecError("native_event is missing .source attribute")
 
         sender = getattr(native_event, "sender", "")
         body = getattr(native_event, "body", "")

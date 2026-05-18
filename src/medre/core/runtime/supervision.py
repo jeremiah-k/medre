@@ -318,9 +318,7 @@ def runtime_supervision_snapshot(
     for state in adapter_states:
         state_counts[state.value] = state_counts.get(state.value, 0) + 1
     # Sort for determinism
-    fingerprint = ", ".join(
-        f"{k}={v}" for k, v in sorted(state_counts.items())
-    )
+    fingerprint = ", ".join(f"{k}={v}" for k, v in sorted(state_counts.items()))
 
     return {
         "runtime_health": health.value,

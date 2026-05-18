@@ -48,9 +48,7 @@ pytestmark = pytest.mark.docker
 
 if _SKIP_DOCKER or not _DOCKER_AVAILABLE:
     _SKIP_REASON = (
-        "Docker not available"
-        if not _DOCKER_AVAILABLE
-        else "MEDRE_SKIP_DOCKER is set"
+        "Docker not available" if not _DOCKER_AVAILABLE else "MEDRE_SKIP_DOCKER is set"
     )
     # Every test in this package gets an additional skip-if marker so that
     # they are *collected* (visible in ``-v`` output) but *skipped* unless
@@ -67,9 +65,7 @@ if _SKIP_DOCKER or not _DOCKER_AVAILABLE:
 # Defaults — configurable via environment variables.
 # ---------------------------------------------------------------------------
 
-_SYNAPSE_IMAGE = os.environ.get(
-    "MEDRE_SYNAPSE_IMAGE", "matrixdotorg/synapse:v1.149.0"
-)
+_SYNAPSE_IMAGE = os.environ.get("MEDRE_SYNAPSE_IMAGE", "matrixdotorg/synapse:v1.149.0")
 _MESHTASTICD_IMAGE = os.environ.get(
     "MEDRE_MESHTASTICD_IMAGE", "meshtastic/meshtasticd:2.7.15"
 )
@@ -84,7 +80,11 @@ _SESSION_PREFIX = f"medre-ci-{os.getpid()}"
 _ARTIFACT_DIR = Path(
     os.environ.get(
         "MEDRE_CI_ARTIFACT_DIR",
-        str(Path(__file__).resolve().parent.parent.parent / ".ci-artifacts" / "docker-integration"),
+        str(
+            Path(__file__).resolve().parent.parent.parent
+            / ".ci-artifacts"
+            / "docker-integration"
+        ),
     )
 )
 
@@ -150,7 +150,9 @@ def _capture_container_logs(container_name: str, log_name: str) -> None:
         )
         log_path = artifact_dir / log_name
         with open(log_path, "w") as fh:
-            fh.write(f"=== stdout ===\n{result.stdout}\n=== stderr ===\n{result.stderr}\n")
+            fh.write(
+                f"=== stdout ===\n{result.stdout}\n=== stderr ===\n{result.stderr}\n"
+            )
         logger.info("Captured container logs: %s -> %s", container_name, log_path)
     except Exception as exc:
         logger.warning("Failed to capture logs for %s: %s", container_name, exc)
@@ -288,7 +290,9 @@ def _write_config_snapshot(
                     snapshot[key] = value
             _write_artifact_json(filename, snapshot)
         except Exception as exc:
-            logger.warning("Failed to read config snapshot from %s: %s", config_path, exc)
+            logger.warning(
+                "Failed to read config snapshot from %s: %s", config_path, exc
+            )
 
 
 def _persist_storage_db(source_db_path: str, dest_filename: str) -> None:
@@ -335,7 +339,11 @@ def _container_exists(name: str) -> bool:
             timeout=5,
         )
         return True
-    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+    except (
+        subprocess.CalledProcessError,
+        FileNotFoundError,
+        subprocess.TimeoutExpired,
+    ):
         return False
 
 
@@ -349,11 +357,17 @@ def _container_running(name: str) -> bool:
             timeout=5,
         )
         return result.stdout.strip().lower() == "true"
-    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+    except (
+        subprocess.CalledProcessError,
+        FileNotFoundError,
+        subprocess.TimeoutExpired,
+    ):
         return False
 
 
-def _docker_run(args: list[str], timeout: int = 120) -> subprocess.CompletedProcess[str]:
+def _docker_run(
+    args: list[str], timeout: int = 120
+) -> subprocess.CompletedProcess[str]:
     """Run a docker CLI command, raising on failure."""
     return subprocess.run(
         ["docker", *args],
@@ -493,39 +507,67 @@ def synapse_env() -> Generator[SynapseEnvironment, None, None]:
         try:
             shutil.rmtree(data_dir)
         except PermissionError:
-            _docker_run([
-                "run", "--rm",
-                "--user", "root",
-                "--entrypoint", "",
-                "-v", f"{data_dir}:/data",
-                _SYNAPSE_IMAGE,
-                "find", "/data", "-mindepth", "1", "-delete",
-            ], timeout=30)
+            _docker_run(
+                [
+                    "run",
+                    "--rm",
+                    "--user",
+                    "root",
+                    "--entrypoint",
+                    "",
+                    "-v",
+                    f"{data_dir}:/data",
+                    _SYNAPSE_IMAGE,
+                    "find",
+                    "/data",
+                    "-mindepth",
+                    "1",
+                    "-delete",
+                ],
+                timeout=30,
+            )
 
     data_dir.mkdir(parents=True, exist_ok=True)
 
     # Generate Synapse config.
-    _docker_run([
-        "run", "--rm",
-        "-e", f"SYNAPSE_SERVER_NAME={_SYNAPSE_SERVER_NAME}",
-        "-e", "SYNAPSE_REPORT_STATS=no",
-        "-v", f"{data_dir}:/data",
-        _SYNAPSE_IMAGE,
-        "generate",
-    ], timeout=60)
+    _docker_run(
+        [
+            "run",
+            "--rm",
+            "-e",
+            f"SYNAPSE_SERVER_NAME={_SYNAPSE_SERVER_NAME}",
+            "-e",
+            "SYNAPSE_REPORT_STATS=no",
+            "-v",
+            f"{data_dir}:/data",
+            _SYNAPSE_IMAGE,
+            "generate",
+        ],
+        timeout=60,
+    )
 
     # Fix permissions on generated files so the host process (which runs the
     # test suite) can read *and write* them.  The Synapse container creates
     # files as UID 991; ``chmod a+rw`` is applied via the same image running
     # as root so it works regardless of host UID.
-    _docker_run([
-        "run", "--rm",
-        "--user", "root",
-        "--entrypoint", "",
-        "-v", f"{data_dir}:/data",
-        _SYNAPSE_IMAGE,
-        "chmod", "-R", "a+rw", "/data",
-    ], timeout=30)
+    _docker_run(
+        [
+            "run",
+            "--rm",
+            "--user",
+            "root",
+            "--entrypoint",
+            "",
+            "-v",
+            f"{data_dir}:/data",
+            _SYNAPSE_IMAGE,
+            "chmod",
+            "-R",
+            "a+rw",
+            "/data",
+        ],
+        timeout=30,
+    )
 
     # Append CI-friendly config.
     homeserver_yaml = data_dir / "homeserver.yaml"
@@ -535,60 +577,83 @@ def synapse_env() -> Generator[SynapseEnvironment, None, None]:
             fh.write("enable_registration: true\n")
             fh.write("enable_registration_without_verification: true\n")
             fh.write("registration_shared_secret: medre-ci-shared-secret\n")
-            fh.write(
-                "rc_message:\n  per_second: 25\n  burst_count: 100\n"
-            )
-            fh.write(
-                "rc_login:\n  account:\n    per_second: 5\n    burst_count: 30\n"
-            )
+            fh.write("rc_message:\n  per_second: 25\n  burst_count: 100\n")
+            fh.write("rc_login:\n  account:\n    per_second: 5\n    burst_count: 30\n")
 
     # Start Synapse.
-    _docker_run([
-        "run", "-d",
-        "--name", container,
-        "-e", f"SYNAPSE_SERVER_NAME={_SYNAPSE_SERVER_NAME}",
-        "-e", "SYNAPSE_REPORT_STATS=no",
-        "-p", f"{_SYNAPSE_PORT}:8008",
-        "-v", f"{data_dir}:/data",
-        _SYNAPSE_IMAGE,
-    ], timeout=60)
+    _docker_run(
+        [
+            "run",
+            "-d",
+            "--name",
+            container,
+            "-e",
+            f"SYNAPSE_SERVER_NAME={_SYNAPSE_SERVER_NAME}",
+            "-e",
+            "SYNAPSE_REPORT_STATS=no",
+            "-p",
+            f"{_SYNAPSE_PORT}:8008",
+            "-v",
+            f"{data_dir}:/data",
+            _SYNAPSE_IMAGE,
+        ],
+        timeout=60,
+    )
 
     logger.info("Waiting for Synapse to become ready on %s ...", base_url)
-    if not _wait_for_http_200(f"{base_url}/_matrix/client/versions", timeout=_READY_TIMEOUT):
+    if not _wait_for_http_200(
+        f"{base_url}/_matrix/client/versions", timeout=_READY_TIMEOUT
+    ):
         _docker_run(["rm", "-f", container], timeout=30)
         pytest.fail(f"Synapse did not become ready within {_READY_TIMEOUT}s")
 
     # Register bot user.
-    _docker_run([
-        "exec", container,
-        "register_new_matrix_user",
-        "-u", bot_localpart,
-        "-p", bot_password,
-        "-a",
-        "-c", "/data/homeserver.yaml",
-        "http://localhost:8008",
-    ], timeout=30)
+    _docker_run(
+        [
+            "exec",
+            container,
+            "register_new_matrix_user",
+            "-u",
+            bot_localpart,
+            "-p",
+            bot_password,
+            "-a",
+            "-c",
+            "/data/homeserver.yaml",
+            "http://localhost:8008",
+        ],
+        timeout=30,
+    )
 
     # Register test user.
-    _docker_run([
-        "exec", container,
-        "register_new_matrix_user",
-        "-u", user_localpart,
-        "-p", user_password,
-        "--no-admin",
-        "-c", "/data/homeserver.yaml",
-        "http://localhost:8008",
-    ], timeout=30)
+    _docker_run(
+        [
+            "exec",
+            container,
+            "register_new_matrix_user",
+            "-u",
+            user_localpart,
+            "-p",
+            user_password,
+            "--no-admin",
+            "-c",
+            "/data/homeserver.yaml",
+            "http://localhost:8008",
+        ],
+        timeout=30,
+    )
 
     # Get bot access token via login API.
     import urllib.error
     import urllib.request
 
-    login_payload = json.dumps({
-        "type": "m.login.password",
-        "user": bot_localpart,
-        "password": bot_password,
-    }).encode()
+    login_payload = json.dumps(
+        {
+            "type": "m.login.password",
+            "user": bot_localpart,
+            "password": bot_password,
+        }
+    ).encode()
 
     req = urllib.request.Request(
         f"{base_url}/_matrix/client/v3/login",
@@ -603,11 +668,13 @@ def synapse_env() -> Generator[SynapseEnvironment, None, None]:
     bot_user_id = login_body["user_id"]
 
     # Create a test room.
-    room_payload = json.dumps({
-        "room_alias_name": "medre-ci-test",
-        "name": "MEDRE CI Test Room",
-        "preset": "public_chat",
-    }).encode()
+    room_payload = json.dumps(
+        {
+            "room_alias_name": "medre-ci-test",
+            "name": "MEDRE CI Test Room",
+            "preset": "public_chat",
+        }
+    ).encode()
     room_req = urllib.request.Request(
         f"{base_url}/_matrix/client/v3/createRoom",
         data=room_payload,
@@ -623,11 +690,13 @@ def synapse_env() -> Generator[SynapseEnvironment, None, None]:
     test_room_id = room_body["room_id"]
 
     # Get test user access token via login API (for inbound message tests).
-    test_login_payload = json.dumps({
-        "type": "m.login.password",
-        "user": user_localpart,
-        "password": user_password,
-    }).encode()
+    test_login_payload = json.dumps(
+        {
+            "type": "m.login.password",
+            "user": user_localpart,
+            "password": user_password,
+        }
+    ).encode()
     test_login_req = urllib.request.Request(
         f"{base_url}/_matrix/client/v3/login",
         data=test_login_payload,
@@ -743,17 +812,25 @@ def meshtasticd_env() -> Generator[MeshtasticdEnvironment, None, None]:
 
     _ensure_image(_MESHTASTICD_IMAGE)
 
-    _docker_run([
-        "run", "-d",
-        "--name", container,
-        "--network", "host",
-        _MESHTASTICD_IMAGE,
-        "meshtasticd",
-        "-s",
-        "--fsdir=/var/lib/meshtasticd-medre-ci",
-        "-p", str(_MESHTASTICD_PORT),
-        "-h", _MESHTASTICD_HWID,
-    ], timeout=60)
+    _docker_run(
+        [
+            "run",
+            "-d",
+            "--name",
+            container,
+            "--network",
+            "host",
+            _MESHTASTICD_IMAGE,
+            "meshtasticd",
+            "-s",
+            "--fsdir=/var/lib/meshtasticd-medre-ci",
+            "-p",
+            str(_MESHTASTICD_PORT),
+            "-h",
+            _MESHTASTICD_HWID,
+        ],
+        timeout=60,
+    )
 
     logger.info(
         "Waiting for meshtasticd on %s:%s ...",
@@ -762,9 +839,7 @@ def meshtasticd_env() -> Generator[MeshtasticdEnvironment, None, None]:
     )
     if not _wait_for_tcp(host, _MESHTASTICD_PORT, timeout=_READY_TIMEOUT):
         _docker_run(["rm", "-f", container], timeout=30)
-        pytest.fail(
-            f"meshtasticd did not become ready within {_READY_TIMEOUT}s"
-        )
+        pytest.fail(f"meshtasticd did not become ready within {_READY_TIMEOUT}s")
 
     env = MeshtasticdEnvironment(
         container_name=container,

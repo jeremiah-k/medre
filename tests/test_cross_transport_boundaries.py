@@ -29,16 +29,13 @@ from __future__ import annotations
 
 import importlib
 import re
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 import pytest
 
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.rendering.renderer import RenderingResult
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -50,9 +47,7 @@ _ADAPTER_TRANSPORTS = ("matrix", "meshtastic", "meshcore", "lxmf")
 _SDK_PACKAGES = ("nio", "meshtastic", "meshcore", "RNS", "lxmf")
 """Third-party transport SDK package names that must not appear in core."""
 
-_CONCRETE_ADAPTER_PREFIXES = tuple(
-    f"medre.adapters.{t}" for t in _ADAPTER_TRANSPORTS
-)
+_CONCRETE_ADAPTER_PREFIXES = tuple(f"medre.adapters.{t}" for t in _ADAPTER_TRANSPORTS)
 """Fully-qualified concrete adapter package prefixes."""
 
 
@@ -156,8 +151,7 @@ class TestCoreImportBoundary:
         for line in _import_lines(source):
             for prefix in _CONCRETE_ADAPTER_PREFIXES:
                 assert prefix not in line, (
-                    f"{core_module.__name__} imports concrete adapter "
-                    f"in: {line!r}"
+                    f"{core_module.__name__} imports concrete adapter " f"in: {line!r}"
                 )
 
     def test_core_does_not_import_transport_sdks(self, core_module) -> None:
@@ -168,19 +162,16 @@ class TestCoreImportBoundary:
                 # Allow "meshtastic" as a word in comments/docstrings;
                 # only check import lines.
                 assert not (
-                    line.startswith(f"import {sdk}")
-                    or line.startswith(f"from {sdk}")
-                ), (
-                    f"{core_module.__name__} imports SDK {sdk!r} in: {line!r}"
-                )
+                    line.startswith(f"import {sdk}") or line.startswith(f"from {sdk}")
+                ), f"{core_module.__name__} imports SDK {sdk!r} in: {line!r}"
 
     def test_core_does_not_import_nio(self, core_module) -> None:
         """Core module source must not import the nio Matrix SDK."""
         source = _read_module_source(core_module)
         for line in _import_lines(source):
-            assert "nio" not in line.lower() or "medre" in line, (
-                f"{core_module.__name__} imports nio in: {line!r}"
-            )
+            assert (
+                "nio" not in line.lower() or "medre" in line
+            ), f"{core_module.__name__} imports nio in: {line!r}"
 
 
 # ===================================================================
@@ -211,16 +202,10 @@ class TestRuntimeImportBoundary:
         for line in _import_lines(source):
             for sdk in _SDK_PACKAGES:
                 assert not (
-                    line.startswith(f"import {sdk}")
-                    or line.startswith(f"from {sdk}")
-                ), (
-                    f"{runtime_module.__name__} imports SDK {sdk!r} "
-                    f"in: {line!r}"
-                )
+                    line.startswith(f"import {sdk}") or line.startswith(f"from {sdk}")
+                ), (f"{runtime_module.__name__} imports SDK {sdk!r} " f"in: {line!r}")
 
-    def test_runtime_does_not_import_concrete_adapters(
-        self, runtime_module
-    ) -> None:
+    def test_runtime_does_not_import_concrete_adapters(self, runtime_module) -> None:
         """Runtime modules must not import concrete adapter packages."""
         source = _read_module_source(runtime_module)
         for line in _import_lines(source):
@@ -259,16 +244,11 @@ class TestAdapterIsolation:
                     sibling_prefix = f"medre.adapters.{sibling}"
                     if sibling_prefix in line:
                         violations.append(
-                            f"{mod_name} imports sibling {sibling!r} "
-                            f"in: {line!r}"
+                            f"{mod_name} imports sibling {sibling!r} " f"in: {line!r}"
                         )
-        assert not violations, (
-            "Adapter isolation violations:\n" + "\n".join(violations)
-        )
+        assert not violations, "Adapter isolation violations:\n" + "\n".join(violations)
 
-    def test_adapter_modules_do_not_reference_sibling_sdks(
-        self, transport
-    ) -> None:
+    def test_adapter_modules_do_not_reference_sibling_sdks(self, transport) -> None:
         """Adapter modules must not reference sibling SDK names in imports."""
         siblings = _sibling_transports(transport)
         # Map transport names to their SDK names
@@ -299,11 +279,10 @@ class TestAdapterIsolation:
                         f"from {sdk}"
                     ):
                         violations.append(
-                            f"{mod_name} imports sibling SDK {sdk!r} "
-                            f"in: {line!r}"
+                            f"{mod_name} imports sibling SDK {sdk!r} " f"in: {line!r}"
                         )
-        assert not violations, (
-            "Sibling SDK import violations:\n" + "\n".join(violations)
+        assert not violations, "Sibling SDK import violations:\n" + "\n".join(
+            violations
         )
 
 
@@ -334,9 +313,9 @@ class TestRendererBoundary:
         mod = _load_module(mod_name)
         cls = getattr(mod, cls_name)
         instance = cls()
-        assert not hasattr(instance, "deliver"), (
-            f"{cls_name} must not have a deliver method"
-        )
+        assert not hasattr(
+            instance, "deliver"
+        ), f"{cls_name} must not have a deliver method"
 
     def test_renderer_has_no_send_method(self, renderer_info) -> None:
         """Renderer class has no send method."""
@@ -344,9 +323,7 @@ class TestRendererBoundary:
         mod = _load_module(mod_name)
         cls = getattr(mod, cls_name)
         instance = cls()
-        assert not hasattr(instance, "send"), (
-            f"{cls_name} must not have a send method"
-        )
+        assert not hasattr(instance, "send"), f"{cls_name} must not have a send method"
 
     def test_renderer_has_no_start_method(self, renderer_info) -> None:
         """Renderer class has no start method."""
@@ -354,9 +331,9 @@ class TestRendererBoundary:
         mod = _load_module(mod_name)
         cls = getattr(mod, cls_name)
         instance = cls()
-        assert not hasattr(instance, "start"), (
-            f"{cls_name} must not have a start method"
-        )
+        assert not hasattr(
+            instance, "start"
+        ), f"{cls_name} must not have a start method"
 
     def test_renderer_has_no_stop_method(self, renderer_info) -> None:
         """Renderer class has no stop method."""
@@ -364,9 +341,7 @@ class TestRendererBoundary:
         mod = _load_module(mod_name)
         cls = getattr(mod, cls_name)
         instance = cls()
-        assert not hasattr(instance, "stop"), (
-            f"{cls_name} must not have a stop method"
-        )
+        assert not hasattr(instance, "stop"), f"{cls_name} must not have a stop method"
 
     def test_renderer_has_no_connect_method(self, renderer_info) -> None:
         """Renderer class has no connect method."""
@@ -374,9 +349,9 @@ class TestRendererBoundary:
         mod = _load_module(mod_name)
         cls = getattr(mod, cls_name)
         instance = cls()
-        assert not hasattr(instance, "connect"), (
-            f"{cls_name} must not have a connect method"
-        )
+        assert not hasattr(
+            instance, "connect"
+        ), f"{cls_name} must not have a connect method"
 
     def test_renderer_has_no_publish_method(self, renderer_info) -> None:
         """Renderer class has no publish method."""
@@ -384,26 +359,27 @@ class TestRendererBoundary:
         mod = _load_module(mod_name)
         cls = getattr(mod, cls_name)
         instance = cls()
-        assert not hasattr(instance, "publish"), (
-            f"{cls_name} must not have a publish method"
-        )
+        assert not hasattr(
+            instance, "publish"
+        ), f"{cls_name} must not have a publish method"
 
-    def test_renderer_source_has_no_lifecycle_definitions(
-        self, renderer_info
-    ) -> None:
+    def test_renderer_source_has_no_lifecycle_definitions(self, renderer_info) -> None:
         """Renderer source has no def for lifecycle/delivery methods."""
         _transport, mod_name, _cls_name = renderer_info
         mod = _load_module(mod_name)
         source = _read_module_source(mod)
         defs = _method_defs(source)
         forbidden = {
-            "deliver", "send", "start", "stop", "connect",
-            "reconnect", "publish",
+            "deliver",
+            "send",
+            "start",
+            "stop",
+            "connect",
+            "reconnect",
+            "publish",
         }
         found = forbidden & set(defs)
-        assert not found, (
-            f"{mod_name} defines forbidden methods: {found}"
-        )
+        assert not found, f"{mod_name} defines forbidden methods: {found}"
 
     def test_renderer_source_does_not_import_adapter_or_session(
         self, renderer_info
@@ -416,19 +392,13 @@ class TestRendererBoundary:
             # Check for import of the adapter.py module (not medre.adapters.* namespace)
             assert (
                 f"medre.adapters.{_transport}.adapter" not in line
-            ), (
-                f"Renderer must not import adapter module; found: {line!r}"
-            )
+            ), f"Renderer must not import adapter module; found: {line!r}"
             # Check for import of the session module
             assert (
                 f"medre.adapters.{_transport}.session" not in line
-            ), (
-                f"Renderer must not import session module; found: {line!r}"
-            )
+            ), f"Renderer must not import session module; found: {line!r}"
 
-    async def test_renderer_returns_rendering_result(
-        self, renderer_info
-    ) -> None:
+    async def test_renderer_returns_rendering_result(self, renderer_info) -> None:
         """Renderer.render() returns RenderingResult, not CanonicalEvent."""
         _transport, mod_name, cls_name = renderer_info
         mod = _load_module(mod_name)
@@ -473,9 +443,7 @@ class TestSessionBoundary:
     def session_info(self, request):
         return request.param
 
-    def test_session_does_not_import_canonical_event(
-        self, session_info
-    ) -> None:
+    def test_session_does_not_import_canonical_event(self, session_info) -> None:
         """Session source must not import CanonicalEvent or core.events."""
         _transport, mod_name, _cls_name = session_info
         mod = _load_module(mod_name)
@@ -483,12 +451,11 @@ class TestSessionBoundary:
         for line in _import_lines(source):
             # Sessions should not import canonical event types
             assert "canonical" not in line, (
-                f"Session must not import canonical event module; "
-                f"found: {line!r}"
+                f"Session must not import canonical event module; " f"found: {line!r}"
             )
-            assert "medre.core.events" not in line, (
-                f"Session must not import core events; found: {line!r}"
-            )
+            assert (
+                "medre.core.events" not in line
+            ), f"Session must not import core events; found: {line!r}"
 
     def test_session_does_not_import_event_kinds(self, session_info) -> None:
         """Session source must not import EventKind."""
@@ -496,8 +463,7 @@ class TestSessionBoundary:
         mod = _load_module(mod_name)
         source = _read_module_source(mod)
         assert "EventKind" not in source, (
-            f"Session must not reference EventKind; "
-            f"found in {mod_name}"
+            f"Session must not reference EventKind; " f"found in {mod_name}"
         )
 
     def test_session_does_not_define_publish(self, session_info) -> None:
@@ -508,9 +474,7 @@ class TestSessionBoundary:
         defs = _method_defs(source)
         forbidden = {"publish", "emit", "broadcast", "fire"}
         found = forbidden & set(defs)
-        assert not found, (
-            f"{mod_name} defines forbidden publish methods: {found}"
-        )
+        assert not found, f"{mod_name} defines forbidden publish methods: {found}"
 
     def test_session_does_not_import_rendering(self, session_info) -> None:
         """Session source must not import rendering modules."""
@@ -518,9 +482,9 @@ class TestSessionBoundary:
         mod = _load_module(mod_name)
         source = _read_module_source(mod)
         for line in _import_lines(source):
-            assert "rendering" not in line, (
-                f"Session must not import rendering; found: {line!r}"
-            )
+            assert (
+                "rendering" not in line
+            ), f"Session must not import rendering; found: {line!r}"
 
     def test_session_does_not_import_routing(self, session_info) -> None:
         """Session source must not import routing modules."""
@@ -528,9 +492,9 @@ class TestSessionBoundary:
         mod = _load_module(mod_name)
         source = _read_module_source(mod)
         for line in _import_lines(source):
-            assert "routing" not in line.lower() or "medre.adapters" not in line, (
-                f"Session must not import routing; found: {line!r}"
-            )
+            assert (
+                "routing" not in line.lower() or "medre.adapters" not in line
+            ), f"Session must not import routing; found: {line!r}"
 
     def test_session_normalizes_to_plain_dicts(self, session_info) -> None:
         """Session source should normalize data to plain dicts/callbacks,
@@ -542,9 +506,9 @@ class TestSessionBoundary:
         _transport, mod_name, _cls_name = session_info
         mod = _load_module(mod_name)
         source = _read_module_source(mod)
-        assert "CanonicalEvent(" not in source, (
-            f"Session must not construct CanonicalEvent; found in {mod_name}"
-        )
+        assert (
+            "CanonicalEvent(" not in source
+        ), f"Session must not construct CanonicalEvent; found in {mod_name}"
 
 
 # ===================================================================
@@ -612,9 +576,9 @@ class TestCodecBoundary:
         codec = self._make_codec(transport, mod_name, cls_name)
 
         for method in ("start", "stop", "reconnect", "connect", "send"):
-            assert not hasattr(codec, method), (
-                f"{cls_name} must not have a {method} method"
-            )
+            assert not hasattr(
+                codec, method
+            ), f"{cls_name} must not have a {method} method"
 
     def test_codec_source_has_no_lifecycle_definitions(self, codec_info) -> None:
         """Codec source has no def for lifecycle methods."""
@@ -623,13 +587,16 @@ class TestCodecBoundary:
         source = _read_module_source(mod)
         defs = _method_defs(source)
         forbidden = {
-            "start", "stop", "reconnect", "connect",
-            "deliver", "send", "publish",
+            "start",
+            "stop",
+            "reconnect",
+            "connect",
+            "deliver",
+            "send",
+            "publish",
         }
         found = forbidden & set(defs)
-        assert not found, (
-            f"{mod_name} defines forbidden methods: {found}"
-        )
+        assert not found, f"{mod_name} defines forbidden methods: {found}"
 
     def test_codec_does_not_import_session(self, codec_info) -> None:
         """Codec source must not import session modules."""
@@ -637,9 +604,9 @@ class TestCodecBoundary:
         mod = _load_module(mod_name)
         source = _read_module_source(mod)
         for line in _import_lines(source):
-            assert ".session" not in line, (
-                f"Codec must not import session; found: {line!r}"
-            )
+            assert (
+                ".session" not in line
+            ), f"Codec must not import session; found: {line!r}"
 
     def test_codec_does_not_import_adapter(self, codec_info) -> None:
         """Codec source must not import its own adapter module."""
@@ -650,9 +617,9 @@ class TestCodecBoundary:
             # Allow imports from medre.core.contracts.adapter
             if "medre.core.contracts.adapter" in line:
                 continue
-            assert f"medre.adapters.{_transport}.adapter" not in line, (
-                f"Codec must not import adapter module; found: {line!r}"
-            )
+            assert (
+                f"medre.adapters.{_transport}.adapter" not in line
+            ), f"Codec must not import adapter module; found: {line!r}"
 
     def test_codec_does_not_import_sdk_directly(self, codec_info) -> None:
         """Codec source must not import SDK packages directly.
@@ -665,12 +632,8 @@ class TestCodecBoundary:
         for line in _import_lines(source):
             for sdk in _SDK_PACKAGES:
                 assert not (
-                    line.startswith(f"import {sdk}")
-                    or line.startswith(f"from {sdk}")
-                ), (
-                    f"Codec must not import SDK {sdk!r} directly; "
-                    f"found: {line!r}"
-                )
+                    line.startswith(f"import {sdk}") or line.startswith(f"from {sdk}")
+                ), (f"Codec must not import SDK {sdk!r} directly; " f"found: {line!r}")
 
     def test_codec_does_not_instantiate_sdk_clients(self, codec_info) -> None:
         """Codec source must not instantiate SDK client/router objects.
@@ -682,10 +645,13 @@ class TestCodecBoundary:
         mod = _load_module(mod_name)
         source = _read_module_source(mod)
         sdk_constructors = [
-            "AsyncClient(", "MatrixClient(",  # nio
-            "StreamInterface(", "SerialInterface(",  # meshtastic
+            "AsyncClient(",
+            "MatrixClient(",  # nio
+            "StreamInterface(",
+            "SerialInterface(",  # meshtastic
             "MeshCore(",  # meshcore SDK
-            "LXMRouter(", "Reticulum(",  # RNS/LXMF
+            "LXMRouter(",
+            "Reticulum(",  # RNS/LXMF
         ]
         for ctor in sdk_constructors:
             assert ctor not in source, (
@@ -693,23 +659,21 @@ class TestCodecBoundary:
                 f"found in {mod_name}"
             )
 
-    def test_codec_does_not_import_routing_or_planning(
-        self, codec_info
-    ) -> None:
+    def test_codec_does_not_import_routing_or_planning(self, codec_info) -> None:
         """Codec must not import routing or planning modules."""
         _transport, mod_name, _cls_name = codec_info
         mod = _load_module(mod_name)
         source = _read_module_source(mod)
         for line in _import_lines(source):
-            assert "routing" not in line, (
-                f"Codec must not import routing; found: {line!r}"
-            )
-            assert "planning" not in line, (
-                f"Codec must not import planning; found: {line!r}"
-            )
-            assert "storage" not in line or "medre.adapters" not in line, (
-                f"Codec must not import storage; found: {line!r}"
-            )
+            assert (
+                "routing" not in line
+            ), f"Codec must not import routing; found: {line!r}"
+            assert (
+                "planning" not in line
+            ), f"Codec must not import planning; found: {line!r}"
+            assert (
+                "storage" not in line or "medre.adapters" not in line
+            ), f"Codec must not import storage; found: {line!r}"
 
     def test_codec_has_no_route_match_plan_methods(self, codec_info) -> None:
         """Codec instance has no route/match/plan methods."""
@@ -717,9 +681,9 @@ class TestCodecBoundary:
         codec = self._make_codec(transport, mod_name, cls_name)
 
         for method in ("route", "match", "plan", "deliver", "publish"):
-            assert not hasattr(codec, method), (
-                f"{cls_name} must not have a {method} method"
-            )
+            assert not hasattr(
+                codec, method
+            ), f"{cls_name} must not have a {method} method"
 
 
 # ===================================================================
@@ -754,73 +718,72 @@ class TestDiagnosticContractBoundary:
         return mod
 
     def test_diagnostic_contract_does_not_import_concrete_adapters(
-        self, diag_module,
+        self,
+        diag_module,
     ) -> None:
         """Diagnostic contract source must not import concrete adapter packages."""
         source = _read_module_source(diag_module)
         for line in _import_lines(source):
             for prefix in _CONCRETE_ADAPTER_PREFIXES:
                 assert prefix not in line, (
-                    f"{diag_module.__name__} imports concrete adapter "
-                    f"in: {line!r}"
+                    f"{diag_module.__name__} imports concrete adapter " f"in: {line!r}"
                 )
 
     def test_diagnostic_contract_does_not_import_transport_sdks(
-        self, diag_module,
+        self,
+        diag_module,
     ) -> None:
         """Diagnostic contract source must not import transport SDK packages."""
         source = _read_module_source(diag_module)
         for line in _import_lines(source):
             for sdk in _SDK_PACKAGES:
                 assert not (
-                    line.startswith(f"import {sdk}")
-                    or line.startswith(f"from {sdk}")
-                ), (
-                    f"{diag_module.__name__} imports SDK {sdk!r} in: {line!r}"
-                )
+                    line.startswith(f"import {sdk}") or line.startswith(f"from {sdk}")
+                ), f"{diag_module.__name__} imports SDK {sdk!r} in: {line!r}"
 
     def test_diagnostic_contract_does_not_import_nio(
-        self, diag_module,
+        self,
+        diag_module,
     ) -> None:
         """Diagnostic contract source must not import the nio Matrix SDK."""
         source = _read_module_source(diag_module)
         for line in _import_lines(source):
-            assert "nio" not in line.lower() or "medre" in line, (
-                f"{diag_module.__name__} imports nio in: {line!r}"
-            )
+            assert (
+                "nio" not in line.lower() or "medre" in line
+            ), f"{diag_module.__name__} imports nio in: {line!r}"
 
     def test_diagnostic_contract_does_not_import_pipeline(
-        self, diag_module,
+        self,
+        diag_module,
     ) -> None:
         """Diagnostic contract source must not import pipeline internals."""
         source = _read_module_source(diag_module)
         for line in _import_lines(source):
-            assert "pipeline" not in line, (
-                f"{diag_module.__name__} imports pipeline in: {line!r}"
-            )
+            assert (
+                "pipeline" not in line
+            ), f"{diag_module.__name__} imports pipeline in: {line!r}"
 
     def test_diagnostic_contract_does_not_import_router(
-        self, diag_module,
+        self,
+        diag_module,
     ) -> None:
         """Diagnostic contract source must not import router internals."""
         source = _read_module_source(diag_module)
         for line in _import_lines(source):
             assert (
-                "medre.core.routing.router" not in line
-                and "medre.routing" not in line
-            ), (
-                f"{diag_module.__name__} imports router in: {line!r}"
-            )
+                "medre.core.routing.router" not in line and "medre.routing" not in line
+            ), f"{diag_module.__name__} imports router in: {line!r}"
 
     def test_diagnostic_contract_does_not_import_storage(
-        self, diag_module,
+        self,
+        diag_module,
     ) -> None:
         """Diagnostic contract source must not import storage internals."""
         source = _read_module_source(diag_module)
         for line in _import_lines(source):
-            assert "medre.core.storage" not in line, (
-                f"{diag_module.__name__} imports storage in: {line!r}"
-            )
+            assert (
+                "medre.core.storage" not in line
+            ), f"{diag_module.__name__} imports storage in: {line!r}"
 
 
 # ===================================================================
@@ -859,7 +822,8 @@ class TestDeliveryContractBoundary:
         return mod
 
     def test_delivery_contract_does_not_import_concrete_adapters(
-        self, delivery_module,
+        self,
+        delivery_module,
     ) -> None:
         """Delivery contract source must not import concrete adapter packages."""
         source = _read_module_source(delivery_module)
@@ -871,32 +835,31 @@ class TestDeliveryContractBoundary:
                 )
 
     def test_delivery_contract_does_not_import_transport_sdks(
-        self, delivery_module,
+        self,
+        delivery_module,
     ) -> None:
         """Delivery contract source must not import transport SDK packages."""
         source = _read_module_source(delivery_module)
         for line in _import_lines(source):
             for sdk in _SDK_PACKAGES:
                 assert not (
-                    line.startswith(f"import {sdk}")
-                    or line.startswith(f"from {sdk}")
-                ), (
-                    f"{delivery_module.__name__} imports SDK {sdk!r} "
-                    f"in: {line!r}"
-                )
+                    line.startswith(f"import {sdk}") or line.startswith(f"from {sdk}")
+                ), (f"{delivery_module.__name__} imports SDK {sdk!r} " f"in: {line!r}")
 
     def test_delivery_contract_does_not_import_nio(
-        self, delivery_module,
+        self,
+        delivery_module,
     ) -> None:
         """Delivery contract source must not import the nio Matrix SDK."""
         source = _read_module_source(delivery_module)
         for line in _import_lines(source):
-            assert "nio" not in line.lower() or "medre" in line, (
-                f"{delivery_module.__name__} imports nio in: {line!r}"
-            )
+            assert (
+                "nio" not in line.lower() or "medre" in line
+            ), f"{delivery_module.__name__} imports nio in: {line!r}"
 
     def test_delivery_contract_has_adapter_delivery_result(
-        self, delivery_module,
+        self,
+        delivery_module,
     ) -> None:
         """Delivery contract module must export AdapterDeliveryResult.
 
@@ -904,23 +867,21 @@ class TestDeliveryContractBoundary:
         module and documents the architectural decision.
         """
         if delivery_module.__name__ != _ADAPTER_BASE_MODULE:
-            pytest.skip(
-                "AdapterDeliveryResult location check only applies to base"
-            )
-        assert hasattr(delivery_module, "AdapterDeliveryResult"), (
-            f"{delivery_module.__name__} must export AdapterDeliveryResult"
-        )
+            pytest.skip("AdapterDeliveryResult location check only applies to base")
+        assert hasattr(
+            delivery_module, "AdapterDeliveryResult"
+        ), f"{delivery_module.__name__} must export AdapterDeliveryResult"
 
     def test_delivery_contract_does_not_import_pipeline_router_storage(
-        self, delivery_module,
+        self,
+        delivery_module,
     ) -> None:
         """Delivery contract must not import pipeline/router/storage internals."""
         source = _read_module_source(delivery_module)
         for line in _import_lines(source):
             for forbidden in ("pipeline", "router", "storage"):
                 assert forbidden not in line, (
-                    f"{delivery_module.__name__} imports {forbidden} "
-                    f"in: {line!r}"
+                    f"{delivery_module.__name__} imports {forbidden} " f"in: {line!r}"
                 )
 
 
@@ -962,8 +923,7 @@ class TestSessionRuntimeContainment:
         source = _read_module_source(mod)
         for line in _import_lines(source):
             assert "medre.core.engine.pipeline" not in line, (
-                f"Session must not import pipeline; found in {mod_name}: "
-                f"{line!r}"
+                f"Session must not import pipeline; found in {mod_name}: " f"{line!r}"
             )
 
     def test_session_does_not_import_core_router(self, session_info) -> None:
@@ -987,12 +947,12 @@ class TestSessionRuntimeContainment:
         source = _read_module_source(mod)
         for line in _import_lines(source):
             assert "medre.core.storage" not in line, (
-                f"Session must not import storage; found in {mod_name}: "
-                f"{line!r}"
+                f"Session must not import storage; found in {mod_name}: " f"{line!r}"
             )
 
     def test_session_does_not_import_medre_routing_top_level(
-        self, session_info,
+        self,
+        session_info,
     ) -> None:
         """Session source must not import medre.routing (top-level routing)."""
         _transport, mod_name, _cls_name = session_info
@@ -1009,7 +969,8 @@ class TestSessionRuntimeContainment:
                 )
 
     def test_session_does_not_import_runtime_diagnostics_or_health(
-        self, session_info,
+        self,
+        session_info,
     ) -> None:
         """Session source must not import runtime diagnostics/health modules.
 
@@ -1069,11 +1030,9 @@ class TestAdapterRuntimeContainment:
             source = _read_module_source(mod)
             for line in _import_lines(source):
                 if "medre.core.engine.pipeline" in line:
-                    violations.append(
-                        f"{mod_name} imports pipeline in: {line!r}"
-                    )
-        assert not violations, (
-            "Adapter pipeline import violations:\n" + "\n".join(violations)
+                    violations.append(f"{mod_name} imports pipeline in: {line!r}")
+        assert not violations, "Adapter pipeline import violations:\n" + "\n".join(
+            violations
         )
 
     def test_adapter_modules_do_not_import_router(self, transport) -> None:
@@ -1090,11 +1049,9 @@ class TestAdapterRuntimeContainment:
                     "medre.core.routing.router" in line
                     or "medre.core.routing.models" in line
                 ):
-                    violations.append(
-                        f"{mod_name} imports router in: {line!r}"
-                    )
-        assert not violations, (
-            "Adapter router import violations:\n" + "\n".join(violations)
+                    violations.append(f"{mod_name} imports router in: {line!r}")
+        assert not violations, "Adapter router import violations:\n" + "\n".join(
+            violations
         )
 
     def test_adapter_modules_do_not_import_storage(self, transport) -> None:
@@ -1108,15 +1065,14 @@ class TestAdapterRuntimeContainment:
             source = _read_module_source(mod)
             for line in _import_lines(source):
                 if "medre.core.storage" in line:
-                    violations.append(
-                        f"{mod_name} imports storage in: {line!r}"
-                    )
-        assert not violations, (
-            "Adapter storage import violations:\n" + "\n".join(violations)
+                    violations.append(f"{mod_name} imports storage in: {line!r}")
+        assert not violations, "Adapter storage import violations:\n" + "\n".join(
+            violations
         )
 
     def test_adapter_modules_do_not_import_runtime_internals(
-        self, transport,
+        self,
+        transport,
     ) -> None:
         """Adapter modules must not import runtime diagnostics/health.
 
@@ -1140,12 +1096,13 @@ class TestAdapterRuntimeContainment:
                         violations.append(
                             f"{mod_name} imports {forbidden} in: {line!r}"
                         )
-        assert not violations, (
-            "Adapter runtime import violations:\n" + "\n".join(violations)
+        assert not violations, "Adapter runtime import violations:\n" + "\n".join(
+            violations
         )
 
     def test_adapter_modules_do_not_import_sibling_packages(
-        self, transport,
+        self,
+        transport,
     ) -> None:
         """Adapter modules must not import sibling adapter packages.
 
@@ -1170,12 +1127,13 @@ class TestAdapterRuntimeContainment:
                             f"{mod_name} imports sibling adapter "
                             f"{sibling!r} in: {line!r}"
                         )
-        assert not violations, (
-            "Adapter sibling import violations:\n" + "\n".join(violations)
+        assert not violations, "Adapter sibling import violations:\n" + "\n".join(
+            violations
         )
 
     def test_adapter_modules_do_not_import_medre_routing(
-        self, transport,
+        self,
+        transport,
     ) -> None:
         """Adapter modules must not import the top-level medre.routing."""
         modules = _adapter_modules(transport)
@@ -1187,10 +1145,7 @@ class TestAdapterRuntimeContainment:
             source = _read_module_source(mod)
             for line in _import_lines(source):
                 if "medre.routing" in line:
-                    violations.append(
-                        f"{mod_name} imports medre.routing in: {line!r}"
-                    )
-        assert not violations, (
-            "Adapter medre.routing import violations:\n"
-            + "\n".join(violations)
+                    violations.append(f"{mod_name} imports medre.routing in: {line!r}")
+        assert not violations, "Adapter medre.routing import violations:\n" + "\n".join(
+            violations
         )

@@ -25,7 +25,6 @@ from medre.core.contracts.adapter import (
     AdapterContext,
     AdapterInfo,
     AdapterRole,
-    AdapterContract,
 )
 from medre.core.lifecycle.states import AdapterState
 from medre.core.runtime.health import (
@@ -33,10 +32,10 @@ from medre.core.runtime.health import (
     normalize_adapter_health,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_info(
     adapter_id: str = "test-adapter",
@@ -97,8 +96,13 @@ class TestNormalizeStructure:
         info = _make_info()
         result = normalize_adapter_health(info)
         assert set(result.keys()) == {
-            "adapter_id", "platform", "role", "health",
-            "fake_or_live", "capabilities", "details",
+            "adapter_id",
+            "platform",
+            "role",
+            "health",
+            "fake_or_live",
+            "capabilities",
+            "details",
         }
 
     def test_adapter_id_from_info(self) -> None:
@@ -176,14 +180,16 @@ class TestLifecycleStateOverride:
     def test_initializing_maps_to_starting(self) -> None:
         info = _make_info(health="unknown")
         result = normalize_adapter_health(
-            info, lifecycle_state=AdapterState.INITIALIZING,
+            info,
+            lifecycle_state=AdapterState.INITIALIZING,
         )
         assert result["health"] == "starting"
 
     def test_stopping_maps_to_stopping(self) -> None:
         info = _make_info(health="healthy")
         result = normalize_adapter_health(
-            info, lifecycle_state=AdapterState.STOPPING,
+            info,
+            lifecycle_state=AdapterState.STOPPING,
         )
         assert result["health"] == "stopping"
 
@@ -191,14 +197,16 @@ class TestLifecycleStateOverride:
         """Non-transitional states let adapter self-report through."""
         info = _make_info(health="degraded")
         result = normalize_adapter_health(
-            info, lifecycle_state=AdapterState.READY,
+            info,
+            lifecycle_state=AdapterState.READY,
         )
         assert result["health"] == "degraded"
 
     def test_failed_does_not_override_adapter_health(self) -> None:
         info = _make_info(health="unknown")
         result = normalize_adapter_health(
-            info, lifecycle_state=AdapterState.FAILED,
+            info,
+            lifecycle_state=AdapterState.FAILED,
         )
         # FAILED is not transitional, so adapter self-report is used
         assert result["health"] == "unknown"
@@ -206,7 +214,8 @@ class TestLifecycleStateOverride:
     def test_lifecycle_state_raw_in_details(self) -> None:
         info = _make_info()
         result = normalize_adapter_health(
-            info, lifecycle_state=AdapterState.INITIALIZING,
+            info,
+            lifecycle_state=AdapterState.INITIALIZING,
         )
         assert result["details"]["lifecycle_state_raw"] == "initializing"
 
@@ -322,8 +331,13 @@ class TestDetailsIsolation:
     def test_top_level_keys_are_fixed(self) -> None:
         """Top-level key set is always the same seven keys."""
         expected_keys = {
-            "adapter_id", "platform", "role", "health",
-            "fake_or_live", "capabilities", "details",
+            "adapter_id",
+            "platform",
+            "role",
+            "health",
+            "fake_or_live",
+            "capabilities",
+            "details",
         }
         for health_val in ("healthy", "failed", "unknown"):
             info = _make_info(health=health_val)
@@ -354,7 +368,10 @@ class TestAdapterInfoContract:
         ],
     )
     async def test_fake_adapter_returns_adapter_info(
-        self, make_adapter_context, adapter_cls, adapter_kwargs,
+        self,
+        make_adapter_context,
+        adapter_cls,
+        adapter_kwargs,
     ) -> None:
         import medre.adapters as mod
 
@@ -379,7 +396,8 @@ class TestAdapterInfoContract:
         assert info.health == "unknown"
 
     async def test_fake_transport_health_after_start(
-        self, make_adapter_context,
+        self,
+        make_adapter_context,
     ) -> None:
         from medre.adapters import FakeTransportAdapter
 
@@ -390,12 +408,14 @@ class TestAdapterInfoContract:
         assert info.health == "healthy"
 
     async def test_faulty_adapter_returns_adapter_info(
-        self, make_adapter_context,
+        self,
+        make_adapter_context,
     ) -> None:
         from medre.adapters.fake_presentation import FaultyPresentationAdapter
 
         adapter = FaultyPresentationAdapter(
-            adapter_id="faulty", failure_mode="succeed",
+            adapter_id="faulty",
+            failure_mode="succeed",
         )
         ctx = make_adapter_context("faulty")
         await adapter.start(ctx)
@@ -413,7 +433,8 @@ class TestEndToEndNormalization:
     """Full normalize_adapter_health call with real fake adapters."""
 
     async def test_normalize_fake_transport(
-        self, make_adapter_context,
+        self,
+        make_adapter_context,
     ) -> None:
         from medre.adapters import FakeTransportAdapter
 
@@ -430,7 +451,8 @@ class TestEndToEndNormalization:
         assert isinstance(result["details"], dict)
 
     async def test_normalize_fake_matrix(
-        self, make_adapter_context,
+        self,
+        make_adapter_context,
     ) -> None:
         from medre.adapters import FakeMatrixAdapter
 
@@ -446,7 +468,8 @@ class TestEndToEndNormalization:
         assert result["fake_or_live"] == "fake"
 
     async def test_normalize_with_lifecycle_starting(
-        self, make_adapter_context,
+        self,
+        make_adapter_context,
     ) -> None:
         from medre.adapters import FakeTransportAdapter
 
@@ -462,7 +485,8 @@ class TestEndToEndNormalization:
         assert result["details"]["lifecycle_state_raw"] == "initializing"
 
     async def test_normalize_with_lifecycle_stopping(
-        self, make_adapter_context,
+        self,
+        make_adapter_context,
     ) -> None:
         from medre.adapters import FakeTransportAdapter
 
@@ -478,7 +502,8 @@ class TestEndToEndNormalization:
         assert result["health"] == "stopping"
 
     async def test_normalize_preserves_capabilities_in_details(
-        self, make_adapter_context,
+        self,
+        make_adapter_context,
     ) -> None:
         from medre.adapters import FakeTransportAdapter
 

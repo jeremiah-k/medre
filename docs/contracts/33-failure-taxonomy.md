@@ -17,7 +17,6 @@ handle the same class of failure differently, this document records both
 behaviors honestly. It does **not** propose new features, retry engines, or
 cross-transport orchestration.
 
-
 ## 1. Scope
 
 - Per-transport failure classification along defined axes.
@@ -34,73 +33,71 @@ cross-transport orchestration.
 - Claiming production failure coverage (no live failure injection data).
 - Comparing transports on dimensions unrelated to failure behavior.
 
-
 ## 3. Failure Classification Axes
 
 ### 3.1 Transient vs. Permanent
 
-| Axis | Definition |
-|------|-----------|
+| Axis          | Definition                                                                                   |
+| ------------- | -------------------------------------------------------------------------------------------- |
 | **Transient** | Failure may resolve with time, retry, or reconnection. The message may still be deliverable. |
-| **Permanent** | Failure is definitive. The message will not be delivered regardless of retries. |
+| **Permanent** | Failure is definitive. The message will not be delivered regardless of retries.              |
 
 ### 3.2 Reconnectable vs. Unrecoverable
 
-| Axis | Definition |
-|------|-----------|
+| Axis              | Definition                                                                                  |
+| ----------------- | ------------------------------------------------------------------------------------------- |
 | **Reconnectable** | The transport session can re-establish connectivity and resume operation after the failure. |
-| **Unrecoverable** | The transport session cannot recover; a new session must be created. |
+| **Unrecoverable** | The transport session cannot recover; a new session must be created.                        |
 
 ### 3.3 Duplicate-Send Risk
 
-| Level | Definition |
-|-------|-----------|
-| **None** | The transport guarantees exactly-once delivery or idempotent sends. |
-| **Low** | Duplicates are possible only under specific, documented conditions. |
-| **Medium** | Duplicates are possible under normal failure/retry scenarios. |
-| **High** | Duplicates are likely during normal operation; consumer must deduplicate. |
+| Level      | Definition                                                                |
+| ---------- | ------------------------------------------------------------------------- |
+| **None**   | The transport guarantees exactly-once delivery or idempotent sends.       |
+| **Low**    | Duplicates are possible only under specific, documented conditions.       |
+| **Medium** | Duplicates are possible under normal failure/retry scenarios.             |
+| **High**   | Duplicates are likely during normal operation; consumer must deduplicate. |
 
 ### 3.4 Queue-Drain Semantics
 
-| Category | Definition |
-|----------|-----------|
-| **FIFO drain** | Messages are drained in order; no reordering under normal conditions. |
-| **Lossy drain** | Some messages may be silently dropped during drain (e.g., queue overflow). |
-| **No queue** | No outbound queue; sends are immediate and fire-and-forget. |
+| Category           | Definition                                                                    |
+| ------------------ | ----------------------------------------------------------------------------- |
+| **FIFO drain**     | Messages are drained in order; no reordering under normal conditions.         |
+| **Lossy drain**    | Some messages may be silently dropped during drain (e.g., queue overflow).    |
+| **No queue**       | No outbound queue; sends are immediate and fire-and-forget.                   |
 | **Scaffold queue** | Outbound queue exists but failed items are permanently dropped, not requeued. |
-
 
 ## 4. Matrix Failure Taxonomy
 
 ### 4.1 Connection Failures
 
-| Failure | Transient/Permanent | Reconnectable | Notes |
-|---------|---------------------|---------------|-------|
-| Network unreachable | Transient | Yes | TCP/TLS failure to homeserver. Resolves when network returns. |
-| DNS resolution failure | Transient | Yes | Resolves when DNS is restored. |
-| TLS handshake failure | Transient (misconfig → permanent) | Yes (transient) | Bad cert = permanent until fixed. Transient = cert rotation in progress. |
-| HTTP 429 (rate limit) | Transient | Yes | Homeserver enforces rate limit. nio/MEDRE should back off. |
-| HTTP 401/403 (auth) | Permanent | No | Access token revoked or invalid. Requires new token. Session is unrecoverable. |
-| Homeserver shutdown | Transient | Yes | If homeserver restarts, session can reconnect. |
-| Federation timeout | Transient | Yes | Remote server unreachable; local server remains functional. |
+| Failure                | Transient/Permanent               | Reconnectable   | Notes                                                                          |
+| ---------------------- | --------------------------------- | --------------- | ------------------------------------------------------------------------------ |
+| Network unreachable    | Transient                         | Yes             | TCP/TLS failure to homeserver. Resolves when network returns.                  |
+| DNS resolution failure | Transient                         | Yes             | Resolves when DNS is restored.                                                 |
+| TLS handshake failure  | Transient (misconfig → permanent) | Yes (transient) | Bad cert = permanent until fixed. Transient = cert rotation in progress.       |
+| HTTP 429 (rate limit)  | Transient                         | Yes             | Homeserver enforces rate limit. nio/MEDRE should back off.                     |
+| HTTP 401/403 (auth)    | Permanent                         | No              | Access token revoked or invalid. Requires new token. Session is unrecoverable. |
+| Homeserver shutdown    | Transient                         | Yes             | If homeserver restarts, session can reconnect.                                 |
+| Federation timeout     | Transient                         | Yes             | Remote server unreachable; local server remains functional.                    |
 
 ### 4.2 Sync Loop Failures
 
-| Failure | Transient/Permanent | Reconnectable | Notes |
-|---------|---------------------|---------------|-------|
-| Sync timeout | Transient | Yes | `sync_forever` times out; retry with backoff. MatrixSession uses exponential backoff, max 10 attempts. |
-| Sync exception (unclassified) | Transient | Yes | `_MAX_RECONNECT_ATTEMPTS = 10`, exponential backoff with 1–60 s, ±25% jitter. |
-| `sync_forever` task cancellation | Permanent | No | Session is stopping; no reconnect. |
-| Long-poll gap | Transient | Yes | Client may miss events during gap; Matrix protocol allows gap fill via `/sync` `since` token. |
+| Failure                          | Transient/Permanent | Reconnectable | Notes                                                                                                  |
+| -------------------------------- | ------------------- | ------------- | ------------------------------------------------------------------------------------------------------ |
+| Sync timeout                     | Transient           | Yes           | `sync_forever` times out; retry with backoff. MatrixSession uses exponential backoff, max 10 attempts. |
+| Sync exception (unclassified)    | Transient           | Yes           | `_MAX_RECONNECT_ATTEMPTS = 10`, exponential backoff with 1–60 s, ±25% jitter.                          |
+| `sync_forever` task cancellation | Permanent           | No            | Session is stopping; no reconnect.                                                                     |
+| Long-poll gap                    | Transient           | Yes           | Client may miss events during gap; Matrix protocol allows gap fill via `/sync` `since` token.          |
 
 ### 4.3 Send Failures
 
-| Failure | Transient/Permanent | Duplicate-Send Risk |
-|---------|---------------------|---------------------|
-| `room_send` HTTP error | Transient (4xx → permanent) | Low: event_id is server-assigned. Retrying creates a new event_id. No dedup key. |
-| `room_send` timeout | Transient | Medium: message may have been accepted but ACK lost. Server may have created the event. |
-| Room not joined | Permanent | None: send fails immediately. |
-| Message too large | Permanent | None: deterministic rejection. |
+| Failure                | Transient/Permanent         | Duplicate-Send Risk                                                                     |
+| ---------------------- | --------------------------- | --------------------------------------------------------------------------------------- |
+| `room_send` HTTP error | Transient (4xx → permanent) | Low: event_id is server-assigned. Retrying creates a new event_id. No dedup key.        |
+| `room_send` timeout    | Transient                   | Medium: message may have been accepted but ACK lost. Server may have created the event. |
+| Room not joined        | Permanent                   | None: send fails immediately.                                                           |
+| Message too large      | Permanent                   | None: deterministic rejection.                                                          |
 
 ### 4.4 Duplicate-Send Risk Assessment: Matrix
 
@@ -132,15 +129,15 @@ raise `AdapterSendError` to the caller (normalizing the internal `MatrixSendErro
 
 ### 4.7 Encrypted-Room Failure Classes
 
-| Failure | Class | Recovery |
-|---------|-------|----------|
-| Missing crypto dependency (vodozemac) | Permanent, startup-fatal in `e2ee_required` mode | Install `mindroom-nio[e2e]` and restart. |
-| Device not verified | Permanent per message | Verify device via interactive verification. |
-| Megolm session not received | Transient | Wait for session key from other device. Undecryptable events are counted and logged, not forwarded. |
-| Crypto store corruption | Permanent | Delete store, re-verify device, accept key loss. |
-| `encryption_mode="e2ee_required"` + plaintext room | Permanent | Adapter raises `AdapterPermanentError` on deliver to unencrypted room (normalizing internal `MatrixSendError`). |
-| `encryption_mode="e2ee_optional"` + no deps | Graceful degradation | Falls back to plaintext operation. |
-| Cross-signing not set up | Warning, not fatal | Messages decrypt if session keys are available. |
+| Failure                                            | Class                                            | Recovery                                                                                                        |
+| -------------------------------------------------- | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| Missing crypto dependency (vodozemac)              | Permanent, startup-fatal in `e2ee_required` mode | Install `mindroom-nio[e2e]` and restart.                                                                        |
+| Device not verified                                | Permanent per message                            | Verify device via interactive verification.                                                                     |
+| Megolm session not received                        | Transient                                        | Wait for session key from other device. Undecryptable events are counted and logged, not forwarded.             |
+| Crypto store corruption                            | Permanent                                        | Delete store, re-verify device, accept key loss.                                                                |
+| `encryption_mode="e2ee_required"` + plaintext room | Permanent                                        | Adapter raises `AdapterPermanentError` on deliver to unencrypted room (normalizing internal `MatrixSendError`). |
+| `encryption_mode="e2ee_optional"` + no deps        | Graceful degradation                             | Falls back to plaintext operation.                                                                              |
+| Cross-signing not set up                           | Warning, not fatal                               | Messages decrypt if session keys are available.                                                                 |
 
 ### 4.8 Matrix-Specific Caveats
 
@@ -153,26 +150,25 @@ raise `AdapterSendError` to the caller (normalizing the internal `MatrixSendErro
 - Rate limiting is enforced server-side; MEDRE does not implement client-side
   rate limiting for sends.
 
-
 ## 5. Meshtastic Failure Taxonomy
 
 ### 5.1 Connection Failures
 
-| Failure | Transient/Permanent | Reconnectable | Notes |
-|---------|---------------------|---------------|-------|
-| TCP connection refused | Transient | Yes | Node offline or wrong port. Resolves when node returns. |
-| Serial port unavailable | Transient (permission) → Permanent (absent) | Yes (transient) | `dialout` group issue = transient. No device = permanent. |
-| BLE pairing failure | Transient | Yes | Retry pairing; device-specific. |
-| Radio firmware crash | Transient | Yes (if node reboots) | Node may reboot automatically. |
+| Failure                 | Transient/Permanent                         | Reconnectable         | Notes                                                     |
+| ----------------------- | ------------------------------------------- | --------------------- | --------------------------------------------------------- |
+| TCP connection refused  | Transient                                   | Yes                   | Node offline or wrong port. Resolves when node returns.   |
+| Serial port unavailable | Transient (permission) → Permanent (absent) | Yes (transient)       | `dialout` group issue = transient. No device = permanent. |
+| BLE pairing failure     | Transient                                   | Yes                   | Retry pairing; device-specific.                           |
+| Radio firmware crash    | Transient                                   | Yes (if node reboots) | Node may reboot automatically.                            |
 
 ### 5.2 Send Failures
 
-| Failure | Transient/Permanent | Duplicate-Send Risk |
-|---------|---------------------|---------------------|
-| `sendText` exception (transient) | Transient | **High**: session retries up to 3 times. ACK may have been sent but lost on link. |
-| `sendText` exception (permanent) | Permanent | None: definitive failure. |
-| Channel busy | Transient | Medium: radio CSMA may retry at firmware level independently of MEDRE retry. |
-| Packet too large | Permanent | None: deterministic rejection. |
+| Failure                          | Transient/Permanent | Duplicate-Send Risk                                                               |
+| -------------------------------- | ------------------- | --------------------------------------------------------------------------------- |
+| `sendText` exception (transient) | Transient           | **High**: session retries up to 3 times. ACK may have been sent but lost on link. |
+| `sendText` exception (permanent) | Permanent           | None: definitive failure.                                                         |
+| Channel busy                     | Transient           | Medium: radio CSMA may retry at firmware level independently of MEDRE retry.      |
+| Packet too large                 | Permanent           | None: deterministic rejection.                                                    |
 
 ### 5.3 Duplicate-Send Risk Assessment: Meshtastic
 
@@ -219,25 +215,24 @@ MEDRE uses a **scaffold outbound queue** (`MeshtasticOutboundQueue`):
 - Radio channels are shared medium; test messages may interfere with other
   traffic on the same channel.
 
-
 ## 6. MeshCore Failure Taxonomy
 
 ### 6.1 Connection Failures
 
-| Failure | Transient/Permanent | Reconnectable | Notes |
-|---------|---------------------|---------------|-------|
-| TCP connection refused | Transient | Yes | Node offline. Resolves when node returns. |
-| Serial port unavailable | Transient → Permanent | Yes (transient) | Same as Meshtastic serial. |
-| BLE pairing failure | Transient | Yes | Device-specific. |
-| SDK connect timeout | Transient | Yes | Bounded backoff: 1–30 s, max 10 attempts, ±25% jitter. |
+| Failure                 | Transient/Permanent   | Reconnectable   | Notes                                                  |
+| ----------------------- | --------------------- | --------------- | ------------------------------------------------------ |
+| TCP connection refused  | Transient             | Yes             | Node offline. Resolves when node returns.              |
+| Serial port unavailable | Transient → Permanent | Yes (transient) | Same as Meshtastic serial.                             |
+| BLE pairing failure     | Transient             | Yes             | Device-specific.                                       |
+| SDK connect timeout     | Transient             | Yes             | Bounded backoff: 1–30 s, max 10 attempts, ±25% jitter. |
 
 ### 6.2 Send Failures
 
-| Failure | Transient/Permanent | Duplicate-Send Risk |
-|---------|---------------------|---------------------|
-| `send_text` exception (transient) | Transient | **Medium**: session retries up to 3 times (`_SEND_MAX_RETRIES = 3`). ACK may have been lost. |
-| `send_text` exception (permanent) | Permanent | None. |
-| Channel index invalid | Permanent | None: deterministic. |
+| Failure                           | Transient/Permanent | Duplicate-Send Risk                                                                          |
+| --------------------------------- | ------------------- | -------------------------------------------------------------------------------------------- |
+| `send_text` exception (transient) | Transient           | **Medium**: session retries up to 3 times (`_SEND_MAX_RETRIES = 3`). ACK may have been lost. |
+| `send_text` exception (permanent) | Permanent           | None.                                                                                        |
+| Channel index invalid             | Permanent           | None: deterministic.                                                                         |
 
 ### 6.3 Duplicate-Send Risk Assessment: MeshCore
 
@@ -269,26 +264,25 @@ on the session. There is no buffering or drain behavior.
 - Sender identity is a 6-byte pubkey prefix — not globally unique.
 - No built-in reply/threading support.
 
-
 ## 7. LXMF/Reticulum Failure Taxonomy
 
 ### 7.1 Connection Failures
 
-| Failure | Transient/Permanent | Reconnectable | Notes |
-|---------|---------------------|---------------|-------|
-| RNS.Reticulum init failure | Permanent | No (session-level) | Config or interface error. New session required. |
-| Identity file missing/corrupt | Permanent | No | `LxmfConnectionError` raised on start. |
-| LXMRouter init failure | Permanent | No | Depends on Reticulum instance being healthy. |
-| Transport interface down | Transient | Yes | Reticulum supports multiple interfaces; failover is SDK-managed. |
+| Failure                       | Transient/Permanent | Reconnectable      | Notes                                                            |
+| ----------------------------- | ------------------- | ------------------ | ---------------------------------------------------------------- |
+| RNS.Reticulum init failure    | Permanent           | No (session-level) | Config or interface error. New session required.                 |
+| Identity file missing/corrupt | Permanent           | No                 | `LxmfConnectionError` raised on start.                           |
+| LXMRouter init failure        | Permanent           | No                 | Depends on Reticulum instance being healthy.                     |
+| Transport interface down      | Transient           | Yes                | Reticulum supports multiple interfaces; failover is SDK-managed. |
 
 ### 7.2 Send Failures
 
-| Failure | Transient/Permanent | Duplicate-Send Risk |
-|---------|---------------------|---------------------|
-| `handle_outbound` exception | Transient (network) → Permanent (identity) | **Low**: LXMF assigns a unique message hash. Retrying creates a new message with a new hash. |
-| Destination unreachable | Transient (long-lived) | None: message enters `OUTBOUND`/`SENDING` state and may timeout to `FAILED`. |
-| Message rejected by recipient | Permanent | None: `REJECTED` state is definitive. |
-| Propagation node unavailable | Transient | Low: propagated messages queue at the node; delivery is opportunistic. |
+| Failure                       | Transient/Permanent                        | Duplicate-Send Risk                                                                          |
+| ----------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| `handle_outbound` exception   | Transient (network) → Permanent (identity) | **Low**: LXMF assigns a unique message hash. Retrying creates a new message with a new hash. |
+| Destination unreachable       | Transient (long-lived)                     | None: message enters `OUTBOUND`/`SENDING` state and may timeout to `FAILED`.                 |
+| Message rejected by recipient | Permanent                                  | None: `REJECTED` state is definitive.                                                        |
+| Propagation node unavailable  | Transient                                  | Low: propagated messages queue at the node; delivery is opportunistic.                       |
 
 ### 7.3 Duplicate-Send Risk Assessment: LXMF
 
@@ -330,21 +324,19 @@ directly on the LXMRouter. The router manages its own internal delivery queue.
 - No built-in message deduplication at the MEDRE level; consumers must handle
   `message_id` (hash) for dedup if needed.
 
-
 ## 8. Cross-Transport Failure Summary
 
-| Dimension | Matrix | Meshtastic | MeshCore | LXMF |
-|-----------|--------|------------|----------|------|
-| **Transient failure primary cause** | Network/auth/rate-limit | Radio/link/serial | Radio/link/serial | Network/RNS transport |
-| **Permanent failure primary cause** | Auth revocation, config error | Config error, port error | Config error | Identity/RNS init error |
-| **Reconnect model** | Exponential backoff, 10 attempts, 1–60 s | Exponential backoff, 10 attempts, 1–30 s | Exponential backoff, 10 attempts, 1–30 s | Exponential backoff, 10 attempts, 1–30 s |
-| **Duplicate-send risk** | Low–Medium | High | Medium | Low |
-| **Outbound queue** | None (direct send) | Scaffold (lossy drain) | None (direct send) | None (router-managed) |
-| **Delivery confirmation** | Server event_id (sync) | None (fire-and-forget) | None (fire-and-forget) | Async state callback |
-| **Uncertainty window** | ~0 (server-side) to one sync cycle | Unbounded | Unbounded | Unbounded |
-| **E2EE failure class** | Megolm session loss, device verification | N/A (no E2EE) | N/A (radio-level E2EE, not MEDRE-managed) | N/A (identity-based signing) |
-| **ACK model** | HTTP response | LoRa hop-by-hop (unreliable) | Link-level (unreliable) | Reticulum transport-dependent |
-
+| Dimension                           | Matrix                                   | Meshtastic                               | MeshCore                                  | LXMF                                     |
+| ----------------------------------- | ---------------------------------------- | ---------------------------------------- | ----------------------------------------- | ---------------------------------------- |
+| **Transient failure primary cause** | Network/auth/rate-limit                  | Radio/link/serial                        | Radio/link/serial                         | Network/RNS transport                    |
+| **Permanent failure primary cause** | Auth revocation, config error            | Config error, port error                 | Config error                              | Identity/RNS init error                  |
+| **Reconnect model**                 | Exponential backoff, 10 attempts, 1–60 s | Exponential backoff, 10 attempts, 1–30 s | Exponential backoff, 10 attempts, 1–30 s  | Exponential backoff, 10 attempts, 1–30 s |
+| **Duplicate-send risk**             | Low–Medium                               | High                                     | Medium                                    | Low                                      |
+| **Outbound queue**                  | None (direct send)                       | Scaffold (lossy drain)                   | None (direct send)                        | None (router-managed)                    |
+| **Delivery confirmation**           | Server event_id (sync)                   | None (fire-and-forget)                   | None (fire-and-forget)                    | Async state callback                     |
+| **Uncertainty window**              | ~0 (server-side) to one sync cycle       | Unbounded                                | Unbounded                                 | Unbounded                                |
+| **E2EE failure class**              | Megolm session loss, device verification | N/A (no E2EE)                            | N/A (radio-level E2EE, not MEDRE-managed) | N/A (identity-based signing)             |
+| **ACK model**                       | HTTP response                            | LoRa hop-by-hop (unreliable)             | Link-level (unreliable)                   | Reticulum transport-dependent            |
 
 ## 9. Operational Implications
 

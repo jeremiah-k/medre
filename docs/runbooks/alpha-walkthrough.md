@@ -219,18 +219,18 @@ risk assessment.
 
 ## What This Proves
 
-| Capability | Proven |
-|-----------|--------|
-| Config validation (check + routes validate) | Yes |
-| Pipeline routing (source to target) | Yes |
-| Canonical event storage (SQLite) | Yes |
-| Delivery receipt recording | Yes |
-| Inspect-first investigation (event + receipts) | Yes |
-| Inspect augmentation (--timeline, --evidence, --recovery) | Yes |
-| Replay engine (dry_run and best_effort) | Yes |
-| `--storage-path` for zero-config read-only commands | Yes |
-| Config-file-driven replay | Yes |
-| Replay duplicate-risk warning | Yes |
+| Capability                                                | Proven |
+| --------------------------------------------------------- | ------ |
+| Config validation (check + routes validate)               | Yes    |
+| Pipeline routing (source to target)                       | Yes    |
+| Canonical event storage (SQLite)                          | Yes    |
+| Delivery receipt recording                                | Yes    |
+| Inspect-first investigation (event + receipts)            | Yes    |
+| Inspect augmentation (--timeline, --evidence, --recovery) | Yes    |
+| Replay engine (dry_run and best_effort)                   | Yes    |
+| `--storage-path` for zero-config read-only commands       | Yes    |
+| Config-file-driven replay                                 | Yes    |
+| Replay duplicate-risk warning                             | Yes    |
 
 This path proves the software architecture works using fake adapters. It does
 not prove any transport works with real hardware or real networks.

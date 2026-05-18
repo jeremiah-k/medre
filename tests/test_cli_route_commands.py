@@ -13,12 +13,11 @@ from tests.helpers.cli import (
     CONFIG_MINIMAL,
     CONFIG_NO_ROUTES,
     CONFIG_ROUTE_UNKNOWN_ADAPTERS,
-    CONFIG_WITH_ROUTES,
     CONFIG_WITH_ROUTE_TARGETING,
+    CONFIG_WITH_ROUTES,
     _run_cli,
     _run_cli_both,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -117,9 +116,7 @@ class TestRoutesValidate:
         from medre.cli import EXIT_CONFIG
 
         with pytest.raises(SystemExit) as exc_info:
-            _run_cli(
-                "routes", "validate", "--config", str(config_unknown_adapters)
-            )
+            _run_cli("routes", "validate", "--config", str(config_unknown_adapters))
         assert exc_info.value.code == EXIT_CONFIG
         # Capture output from the SystemExit path via _run_cli_both
         stdout, _stderr = _run_cli_both(
@@ -176,7 +173,9 @@ class TestRoutesValidate:
 
     def test_validate_missing_config_file(self, tmp_path: Path) -> None:
         with pytest.raises(SystemExit):
-            _run_cli("routes", "validate", "--config", str(tmp_path / "nonexistent.toml"))
+            _run_cli(
+                "routes", "validate", "--config", str(tmp_path / "nonexistent.toml")
+            )
 
     def test_validate_unknown_source_exits_config(
         self, config_unknown_adapters: Path
@@ -185,10 +184,14 @@ class TestRoutesValidate:
         from medre.cli import EXIT_CONFIG
 
         with pytest.raises(SystemExit) as exc_info:
-            main([
-                "routes", "validate", "--config",
-                str(config_unknown_adapters),
-            ])
+            main(
+                [
+                    "routes",
+                    "validate",
+                    "--config",
+                    str(config_unknown_adapters),
+                ]
+            )
         assert exc_info.value.code == EXIT_CONFIG
 
     def test_validate_unknown_dest_exits_config(
@@ -198,13 +201,19 @@ class TestRoutesValidate:
         from medre.cli import EXIT_CONFIG
 
         with pytest.raises(SystemExit) as exc_info:
-            main([
-                "routes", "validate", "--config",
-                str(config_unknown_adapters),
-            ])
+            main(
+                [
+                    "routes",
+                    "validate",
+                    "--config",
+                    str(config_unknown_adapters),
+                ]
+            )
         assert exc_info.value.code == EXIT_CONFIG
         stdout, _ = _run_cli_both(
-            "routes", "validate", "--config",
+            "routes",
+            "validate",
+            "--config",
             str(config_unknown_adapters),
         )
         assert "'also_missing'" in stdout
@@ -214,7 +223,9 @@ class TestRoutesValidate:
     ) -> None:
         """Route referencing a known-but-disabled adapter is a warning, not an error."""
         output = _run_cli(
-            "routes", "validate", "--config",
+            "routes",
+            "validate",
+            "--config",
             str(config_disabled_adapter_in_route),
         )
         assert "warning" in output.lower() or "\u26a0" in output
@@ -225,7 +236,9 @@ class TestRoutesValidate:
     ) -> None:
         """Unknown adapter refs in a disabled route do not fail validation."""
         output = _run_cli(
-            "routes", "validate", "--config",
+            "routes",
+            "validate",
+            "--config",
             str(config_disabled_route_unknown_refs),
         )
         assert "ghost_route" in output
@@ -237,7 +250,10 @@ class TestRoutesValidate:
     ) -> None:
         """Valid route configuration exits 0."""
         output = _run_cli(
-            "routes", "validate", "--config", str(config_with_routes),
+            "routes",
+            "validate",
+            "--config",
+            str(config_with_routes),
         )
         assert "Routes valid" in output
 
@@ -257,9 +273,7 @@ class TestRoutesTopology:
         assert "radio_to_matrix" in output
         assert "bidirectional_bridge" in output
 
-    def test_topology_shows_transport_labels(
-        self, config_with_routes: Path
-    ) -> None:
+    def test_topology_shows_transport_labels(self, config_with_routes: Path) -> None:
         output = _run_cli("routes", "topology", "--config", str(config_with_routes))
         assert "main(matrix)" in output
         assert "radio(meshtastic)" in output
@@ -274,17 +288,13 @@ class TestRoutesTopology:
         assert "[OFF]" in output
         assert "disabled" not in output or "radio_to_matrix" in output
 
-    def test_topology_enabled_disabled_markers(
-        self, config_with_routes: Path
-    ) -> None:
+    def test_topology_enabled_disabled_markers(self, config_with_routes: Path) -> None:
         """Topology uses [ON] and [OFF] prefixes for routes."""
         output = _run_cli("routes", "topology", "--config", str(config_with_routes))
         assert "[ON]" in output
         assert "[OFF]" in output
 
-    def test_topology_targeting_fields(
-        self, config_with_routes: Path
-    ) -> None:
+    def test_topology_targeting_fields(self, config_with_routes: Path) -> None:
         output = _run_cli("routes", "topology", "--config", str(config_with_routes))
         assert "src_room=" in output
         assert "dst_ch=" in output
@@ -307,16 +317,12 @@ class TestRoutesTopology:
         output = _run_cli("routes", "topology", "--config", str(config_no_routes))
         assert "No routes configured" in output
 
-    def test_topology_full_targeting(
-        self, config_with_targeting: Path
-    ) -> None:
+    def test_topology_full_targeting(self, config_with_targeting: Path) -> None:
         output = _run_cli("routes", "topology", "--config", str(config_with_targeting))
         assert "src_room=" in output
         assert "dst_room=" in output
 
-    def test_topology_full_policy(
-        self, config_with_targeting: Path
-    ) -> None:
+    def test_topology_full_policy(self, config_with_targeting: Path) -> None:
         output = _run_cli("routes", "topology", "--config", str(config_with_targeting))
         assert "events=message,reaction" in output
 
@@ -346,32 +352,24 @@ class TestRoutesList:
         assert "direction:     source_to_dest" in output
         assert "direction:     bidirectional" in output
 
-    def test_list_shows_sources_and_dests(
-        self, config_with_routes: Path
-    ) -> None:
+    def test_list_shows_sources_and_dests(self, config_with_routes: Path) -> None:
         output = _run_cli("routes", "list", "--config", str(config_with_routes))
         assert "sources:       [main]" in output
         assert "destinations:  [radio]" in output
         assert "sources:       [radio]" in output
         assert "destinations:  [main]" in output
 
-    def test_list_shows_targeting(
-        self, config_with_routes: Path
-    ) -> None:
+    def test_list_shows_targeting(self, config_with_routes: Path) -> None:
         output = _run_cli("routes", "list", "--config", str(config_with_routes))
         assert "source_room:" in output
         assert "dest_channel:" in output
 
-    def test_list_shows_policy(
-        self, config_with_routes: Path
-    ) -> None:
+    def test_list_shows_policy(self, config_with_routes: Path) -> None:
         output = _run_cli("routes", "list", "--config", str(config_with_routes))
         assert "policy:" in output
         assert "event_types:" in output
 
-    def test_list_no_filter_hooks_shown(
-        self, config_with_routes: Path
-    ) -> None:
+    def test_list_no_filter_hooks_shown(self, config_with_routes: Path) -> None:
         """filter_hooks are rejected at parse time, so they never appear in output."""
         output = _run_cli("routes", "list", "--config", str(config_with_routes))
         assert "filter_hooks:" not in output
@@ -380,9 +378,7 @@ class TestRoutesList:
         output = _run_cli("routes", "list", "--config", str(config_no_routes))
         assert "No routes configured" in output
 
-    def test_list_full_targeting_and_policy(
-        self, config_with_targeting: Path
-    ) -> None:
+    def test_list_full_targeting_and_policy(self, config_with_targeting: Path) -> None:
         output = _run_cli("routes", "list", "--config", str(config_with_targeting))
         assert "source_room:" in output
         assert "dest_room:" in output

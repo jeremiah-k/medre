@@ -13,38 +13,30 @@ Tests cover:
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import AsyncGenerator
-from dataclasses import dataclass
 from datetime import datetime, timezone
-
-from unittest.mock import MagicMock
 
 import pytest
 
-from medre.core.contracts.adapter import AdapterSendError
 from medre.config.model import (
-    AdapterConfigSet,
     LoggingConfig,
-    MatrixRuntimeConfig,
-    MeshtasticRuntimeConfig,
     RuntimeConfig,
     RuntimeOptions,
     StorageConfig,
 )
 from medre.config.paths import MedrePaths, resolve
+from medre.core.contracts.adapter import AdapterSendError
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.events.bus import EventBus
 from medre.core.planning import FallbackResolver, RelationResolver
-from medre.core.planning.delivery_plan import DeliveryPlan, RetryPolicy
+from medre.core.planning.delivery_plan import RetryPolicy
 from medre.core.routing import Router
 from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.core.storage import SQLiteStorage
 from medre.core.storage.backend import StorageBackend
 from medre.runtime.builder import RuntimeBuilder
-from medre.runtime.routes import RouteConfig, RouteConfigSet, RouteRetryConfig
-
+from medre.runtime.routes import RouteConfig, RouteConfigSet
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -144,8 +136,13 @@ class _SuccessAdapter:
 
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for var in ("MEDRE_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME",
-                "XDG_DATA_HOME", "XDG_CACHE_HOME"):
+    for var in (
+        "MEDRE_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_STATE_HOME",
+        "XDG_DATA_HOME",
+        "XDG_CACHE_HOME",
+    ):
         monkeypatch.delenv(var, raising=False)
 
 
@@ -184,25 +181,35 @@ class TestBuilderRetryPolicies:
         )
 
     def test_no_retry_routes_empty_mapping(self, tmp_paths: MedrePaths) -> None:
-        routes = RouteConfigSet(routes=(
-            RouteConfig.from_toml_dict("r1", {
-                "source_adapters": ["a"],
-                "dest_adapters": ["b"],
-            }),
-        ))
+        routes = RouteConfigSet(
+            routes=(
+                RouteConfig.from_toml_dict(
+                    "r1",
+                    {
+                        "source_adapters": ["a"],
+                        "dest_adapters": ["b"],
+                    },
+                ),
+            )
+        )
         config = self._make_config_with_routes(routes)
         builder = RuntimeBuilder(config, tmp_paths)
         result = builder._build_route_retry_policies({"r1": "r1"})
         assert result == {}
 
     def test_enabled_retry_produces_policy(self, tmp_paths: MedrePaths) -> None:
-        routes = RouteConfigSet(routes=(
-            RouteConfig.from_toml_dict("r1", {
-                "source_adapters": ["a"],
-                "dest_adapters": ["b"],
-                "retry": {"enabled": True, "max_attempts": 5},
-            }),
-        ))
+        routes = RouteConfigSet(
+            routes=(
+                RouteConfig.from_toml_dict(
+                    "r1",
+                    {
+                        "source_adapters": ["a"],
+                        "dest_adapters": ["b"],
+                        "retry": {"enabled": True, "max_attempts": 5},
+                    },
+                ),
+            )
+        )
         config = self._make_config_with_routes(routes)
         builder = RuntimeBuilder(config, tmp_paths)
         result = builder._build_route_retry_policies({"r1": "r1"})
@@ -210,35 +217,51 @@ class TestBuilderRetryPolicies:
         assert result["r1"].max_attempts == 5
 
     def test_disabled_retry_not_in_mapping(self, tmp_paths: MedrePaths) -> None:
-        routes = RouteConfigSet(routes=(
-            RouteConfig.from_toml_dict("r1", {
-                "source_adapters": ["a"],
-                "dest_adapters": ["b"],
-                "retry": {"enabled": False},
-            }),
-        ))
+        routes = RouteConfigSet(
+            routes=(
+                RouteConfig.from_toml_dict(
+                    "r1",
+                    {
+                        "source_adapters": ["a"],
+                        "dest_adapters": ["b"],
+                        "retry": {"enabled": False},
+                    },
+                ),
+            )
+        )
         config = self._make_config_with_routes(routes)
         builder = RuntimeBuilder(config, tmp_paths)
         result = builder._build_route_retry_policies({"r1": "r1"})
         assert result == {}
 
     def test_mixed_routes(self, tmp_paths: MedrePaths) -> None:
-        routes = RouteConfigSet(routes=(
-            RouteConfig.from_toml_dict("with_retry", {
-                "source_adapters": ["a"],
-                "dest_adapters": ["b"],
-                "retry": {"enabled": True, "max_attempts": 3},
-            }),
-            RouteConfig.from_toml_dict("no_retry", {
-                "source_adapters": ["c"],
-                "dest_adapters": ["d"],
-            }),
-            RouteConfig.from_toml_dict("disabled_retry", {
-                "source_adapters": ["e"],
-                "dest_adapters": ["f"],
-                "retry": {"enabled": False},
-            }),
-        ))
+        routes = RouteConfigSet(
+            routes=(
+                RouteConfig.from_toml_dict(
+                    "with_retry",
+                    {
+                        "source_adapters": ["a"],
+                        "dest_adapters": ["b"],
+                        "retry": {"enabled": True, "max_attempts": 3},
+                    },
+                ),
+                RouteConfig.from_toml_dict(
+                    "no_retry",
+                    {
+                        "source_adapters": ["c"],
+                        "dest_adapters": ["d"],
+                    },
+                ),
+                RouteConfig.from_toml_dict(
+                    "disabled_retry",
+                    {
+                        "source_adapters": ["e"],
+                        "dest_adapters": ["f"],
+                        "retry": {"enabled": False},
+                    },
+                ),
+            )
+        )
         config = self._make_config_with_routes(routes)
         builder = RuntimeBuilder(config, tmp_paths)
         provenance = {
@@ -251,14 +274,19 @@ class TestBuilderRetryPolicies:
         assert result["with_retry"].max_attempts == 3
 
     def test_bidirectional_expands_provenance(self, tmp_paths: MedrePaths) -> None:
-        routes = RouteConfigSet(routes=(
-            RouteConfig.from_toml_dict("bidir", {
-                "source_adapters": ["a"],
-                "dest_adapters": ["b"],
-                "directionality": "bidirectional",
-                "retry": {"enabled": True, "max_attempts": 4},
-            }),
-        ))
+        routes = RouteConfigSet(
+            routes=(
+                RouteConfig.from_toml_dict(
+                    "bidir",
+                    {
+                        "source_adapters": ["a"],
+                        "dest_adapters": ["b"],
+                        "directionality": "bidirectional",
+                        "retry": {"enabled": True, "max_attempts": 4},
+                    },
+                ),
+            )
+        )
         config = self._make_config_with_routes(routes)
         builder = RuntimeBuilder(config, tmp_paths)
         # Bidirectional expands to "bidir" + "bidir__rev_0"
@@ -270,33 +298,43 @@ class TestBuilderRetryPolicies:
         assert result["bidir__rev_0"].max_attempts == 4
 
     def test_disabled_route_not_in_mapping(self, tmp_paths: MedrePaths) -> None:
-        routes = RouteConfigSet(routes=(
-            RouteConfig.from_toml_dict("disabled", {
-                "source_adapters": ["a"],
-                "dest_adapters": ["b"],
-                "enabled": False,
-                "retry": {"enabled": True, "max_attempts": 3},
-            }),
-        ))
+        routes = RouteConfigSet(
+            routes=(
+                RouteConfig.from_toml_dict(
+                    "disabled",
+                    {
+                        "source_adapters": ["a"],
+                        "dest_adapters": ["b"],
+                        "enabled": False,
+                        "retry": {"enabled": True, "max_attempts": 3},
+                    },
+                ),
+            )
+        )
         config = self._make_config_with_routes(routes)
         builder = RuntimeBuilder(config, tmp_paths)
         result = builder._build_route_retry_policies({"disabled": "disabled"})
         assert result == {}
 
     def test_retry_policy_fields_match_config(self, tmp_paths: MedrePaths) -> None:
-        routes = RouteConfigSet(routes=(
-            RouteConfig.from_toml_dict("r1", {
-                "source_adapters": ["a"],
-                "dest_adapters": ["b"],
-                "retry": {
-                    "enabled": True,
-                    "max_attempts": 7,
-                    "backoff_base": 3.0,
-                    "max_delay_seconds": 90.0,
-                    "jitter": True,
-                },
-            }),
-        ))
+        routes = RouteConfigSet(
+            routes=(
+                RouteConfig.from_toml_dict(
+                    "r1",
+                    {
+                        "source_adapters": ["a"],
+                        "dest_adapters": ["b"],
+                        "retry": {
+                            "enabled": True,
+                            "max_attempts": 7,
+                            "backoff_base": 3.0,
+                            "max_delay_seconds": 90.0,
+                            "jitter": True,
+                        },
+                    },
+                ),
+            )
+        )
         config = self._make_config_with_routes(routes)
         builder = RuntimeBuilder(config, tmp_paths)
         result = builder._build_route_retry_policies({"r1": "r1"})
@@ -317,7 +355,8 @@ class TestPipelineRetryAttachment:
 
     @pytest.mark.asyncio()
     async def test_retry_policy_attached_to_plan(
-        self, mem_storage: SQLiteStorage,
+        self,
+        mem_storage: SQLiteStorage,
     ) -> None:
         """When route_retry_policies maps a route, the plan gets the policy."""
         route = Route(
@@ -348,7 +387,8 @@ class TestPipelineRetryAttachment:
 
     @pytest.mark.asyncio()
     async def test_no_retry_policy_when_absent(
-        self, mem_storage: SQLiteStorage,
+        self,
+        mem_storage: SQLiteStorage,
     ) -> None:
         """When route is not in route_retry_policies, plan.retry_policy is None."""
         route = Route(
@@ -384,7 +424,8 @@ class TestTransientRetryScheduling:
 
     @pytest.mark.asyncio()
     async def test_transient_failure_with_retry_schedules_retry(
-        self, mem_storage: SQLiteStorage,
+        self,
+        mem_storage: SQLiteStorage,
     ) -> None:
         """With route retry enabled, transient failure produces next_retry_at."""
         route = Route(
@@ -421,7 +462,8 @@ class TestTransientRetryScheduling:
 
     @pytest.mark.asyncio()
     async def test_transient_failure_without_retry_no_schedule(
-        self, mem_storage: SQLiteStorage,
+        self,
+        mem_storage: SQLiteStorage,
     ) -> None:
         """Without route retry, transient failure has no next_retry_at."""
         route = Route(
@@ -453,7 +495,8 @@ class TestTransientRetryScheduling:
 
     @pytest.mark.asyncio()
     async def test_retry_metadata_persisted(
-        self, mem_storage: SQLiteStorage,
+        self,
+        mem_storage: SQLiteStorage,
     ) -> None:
         """Retry policy metadata is persisted on the receipt."""
         route = Route(
@@ -508,7 +551,8 @@ class TestGlobalRetrySemantics:
 
     @pytest.mark.asyncio()
     async def test_route_retry_schedules_regardless_of_global(
-        self, mem_storage: SQLiteStorage,
+        self,
+        mem_storage: SQLiteStorage,
     ) -> None:
         """Route retry produces next_retry_at even without global RetryWorker."""
         route = Route(
@@ -553,7 +597,8 @@ class TestReplayRetryInteraction:
 
     @pytest.mark.asyncio()
     async def test_replay_transient_failure_creates_retry_receipt(
-        self, mem_storage: SQLiteStorage,
+        self,
+        mem_storage: SQLiteStorage,
     ) -> None:
         """Transient failure during BEST_EFFORT replay produces a receipt
         with source='replay', replay_run_id, next_retry_at, and retry metadata."""
@@ -603,15 +648,15 @@ class TestReplayRetryInteraction:
 
             # Verify the receipt in storage.
             receipts = await mem_storage.list_receipts_for_event(event.event_id)
-            assert len(receipts) >= 1, (
-                f"Expected >= 1 receipt after replay, got {len(receipts)}"
-            )
+            assert (
+                len(receipts) >= 1
+            ), f"Expected >= 1 receipt after replay, got {len(receipts)}"
 
             # The receipt must carry replay attribution.
             rcpt = receipts[0]
-            assert rcpt.source == "replay", (
-                f"Expected source='replay', got source={rcpt.source!r}"
-            )
+            assert (
+                rcpt.source == "replay"
+            ), f"Expected source='replay', got source={rcpt.source!r}"
             assert rcpt.replay_run_id == "replay-retry-run-42", (
                 f"Expected replay_run_id='replay-retry-run-42', "
                 f"got {rcpt.replay_run_id!r}"
@@ -630,9 +675,9 @@ class TestReplayRetryInteraction:
             assert rcpt.retry_jitter is False
 
             # First transient failure on a retry-enabled route.
-            assert rcpt.attempt_number == 1, (
-                f"Expected attempt_number=1, got {rcpt.attempt_number!r}"
-            )
+            assert (
+                rcpt.attempt_number == 1
+            ), f"Expected attempt_number=1, got {rcpt.attempt_number!r}"
             assert rcpt.failure_kind == "adapter_transient", (
                 f"Expected failure_kind='adapter_transient', "
                 f"got {rcpt.failure_kind!r}"
@@ -642,7 +687,8 @@ class TestReplayRetryInteraction:
 
     @pytest.mark.asyncio()
     async def test_replay_success_no_retry_scheduled(
-        self, mem_storage: SQLiteStorage,
+        self,
+        mem_storage: SQLiteStorage,
     ) -> None:
         """Successful replay delivery through retry-enabled route has no
         next_retry_at."""
@@ -693,8 +739,8 @@ class TestReplayRetryInteraction:
             assert rcpt.source == "replay"
             assert rcpt.replay_run_id == "replay-ok-run"
             assert rcpt.status == "sent"
-            assert rcpt.next_retry_at is None, (
-                "Successful replay should not schedule a retry"
-            )
+            assert (
+                rcpt.next_retry_at is None
+            ), "Successful replay should not schedule a retry"
         finally:
             await runner.stop()

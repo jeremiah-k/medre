@@ -13,8 +13,7 @@ Public symbols
 from __future__ import annotations
 
 import time as _time
-from dataclasses import dataclass, field
-
+from dataclasses import dataclass
 
 # ---------------------------------------------------------------------------
 # Per-route replay counters (frozen, immutable snapshots)
@@ -99,74 +98,92 @@ class ReplayMetrics:
     def record_events_processed(self, route_id: str) -> None:
         """Record a replayed event processed through *route_id*."""
         c = self._get(route_id)
-        self._put(route_id, ReplayRouteCounters(
-            events_processed=c.events_processed + 1,
-            deliveries_attempted=c.deliveries_attempted,
-            deliveries_succeeded=c.deliveries_succeeded,
-            deliveries_failed=c.deliveries_failed,
-            skipped_by_filter=c.skipped_by_filter,
-            skipped_by_loop=c.skipped_by_loop,
-        ))
+        self._put(
+            route_id,
+            ReplayRouteCounters(
+                events_processed=c.events_processed + 1,
+                deliveries_attempted=c.deliveries_attempted,
+                deliveries_succeeded=c.deliveries_succeeded,
+                deliveries_failed=c.deliveries_failed,
+                skipped_by_filter=c.skipped_by_filter,
+                skipped_by_loop=c.skipped_by_loop,
+            ),
+        )
 
     def record_delivery_attempted(self, route_id: str) -> None:
         """Record a delivery attempt for *route_id* during replay."""
         c = self._get(route_id)
-        self._put(route_id, ReplayRouteCounters(
-            events_processed=c.events_processed,
-            deliveries_attempted=c.deliveries_attempted + 1,
-            deliveries_succeeded=c.deliveries_succeeded,
-            deliveries_failed=c.deliveries_failed,
-            skipped_by_filter=c.skipped_by_filter,
-            skipped_by_loop=c.skipped_by_loop,
-        ))
+        self._put(
+            route_id,
+            ReplayRouteCounters(
+                events_processed=c.events_processed,
+                deliveries_attempted=c.deliveries_attempted + 1,
+                deliveries_succeeded=c.deliveries_succeeded,
+                deliveries_failed=c.deliveries_failed,
+                skipped_by_filter=c.skipped_by_filter,
+                skipped_by_loop=c.skipped_by_loop,
+            ),
+        )
 
     def record_delivery_succeeded(self, route_id: str) -> None:
         """Record a successful delivery for *route_id* during replay."""
         c = self._get(route_id)
-        self._put(route_id, ReplayRouteCounters(
-            events_processed=c.events_processed,
-            deliveries_attempted=c.deliveries_attempted,
-            deliveries_succeeded=c.deliveries_succeeded + 1,
-            deliveries_failed=c.deliveries_failed,
-            skipped_by_filter=c.skipped_by_filter,
-            skipped_by_loop=c.skipped_by_loop,
-        ))
+        self._put(
+            route_id,
+            ReplayRouteCounters(
+                events_processed=c.events_processed,
+                deliveries_attempted=c.deliveries_attempted,
+                deliveries_succeeded=c.deliveries_succeeded + 1,
+                deliveries_failed=c.deliveries_failed,
+                skipped_by_filter=c.skipped_by_filter,
+                skipped_by_loop=c.skipped_by_loop,
+            ),
+        )
 
     def record_delivery_failed(self, route_id: str) -> None:
         """Record a failed delivery for *route_id* during replay."""
         c = self._get(route_id)
-        self._put(route_id, ReplayRouteCounters(
-            events_processed=c.events_processed,
-            deliveries_attempted=c.deliveries_attempted,
-            deliveries_succeeded=c.deliveries_succeeded,
-            deliveries_failed=c.deliveries_failed + 1,
-            skipped_by_filter=c.skipped_by_filter,
-            skipped_by_loop=c.skipped_by_loop,
-        ))
+        self._put(
+            route_id,
+            ReplayRouteCounters(
+                events_processed=c.events_processed,
+                deliveries_attempted=c.deliveries_attempted,
+                deliveries_succeeded=c.deliveries_succeeded,
+                deliveries_failed=c.deliveries_failed + 1,
+                skipped_by_filter=c.skipped_by_filter,
+                skipped_by_loop=c.skipped_by_loop,
+            ),
+        )
 
     def record_skipped_by_filter(self, route_id: str) -> None:
         """Record a replay event skipped by filter for *route_id*."""
         c = self._get(route_id)
-        self._put(route_id, ReplayRouteCounters(
-            events_processed=c.events_processed,
-            deliveries_attempted=c.deliveries_attempted,
-            deliveries_succeeded=c.deliveries_succeeded,
-            deliveries_failed=c.deliveries_failed,
-            skipped_by_filter=c.skipped_by_filter + 1,
-            skipped_by_loop=c.skipped_by_loop,
-        ))
+        self._put(
+            route_id,
+            ReplayRouteCounters(
+                events_processed=c.events_processed,
+                deliveries_attempted=c.deliveries_attempted,
+                deliveries_succeeded=c.deliveries_succeeded,
+                deliveries_failed=c.deliveries_failed,
+                skipped_by_filter=c.skipped_by_filter + 1,
+                skipped_by_loop=c.skipped_by_loop,
+            ),
+        )
 
     def record_skipped_by_loop(self, route_id: str) -> None:
         """Record a replay event skipped by loop prevention for *route_id*."""
         c = self._get(route_id)
-        self._put(route_id, ReplayRouteCounters(
-            events_processed=c.events_processed,
-            deliveries_attempted=c.deliveries_attempted,
-            deliveries_succeeded=c.deliveries_succeeded,
-            deliveries_failed=c.deliveries_failed,
-            skipped_by_filter=c.skipped_by_filter,
-            skipped_by_loop=c.skipped_by_loop + 1,
-        ))
+        self._put(
+            route_id,
+            ReplayRouteCounters(
+                events_processed=c.events_processed,
+                deliveries_attempted=c.deliveries_attempted,
+                deliveries_succeeded=c.deliveries_succeeded,
+                deliveries_failed=c.deliveries_failed,
+                skipped_by_filter=c.skipped_by_filter,
+                skipped_by_loop=c.skipped_by_loop + 1,
+            ),
+        )
 
     # -- Track 6+7: Backlog / rejection / cancellation counters ----------------
 

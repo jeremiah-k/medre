@@ -22,28 +22,27 @@ Pipeline stages
 
 from __future__ import annotations
 
-import msgspec
 import asyncio
 import logging
 import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Callable, Awaitable, Literal
+from typing import TYPE_CHECKING, Any, Callable, Literal
+
+import msgspec
 
 from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContract,
     AdapterDeliveryResult,
-    AdapterSendError,
 )
+from medre.core.events.bus import EventBus
 from medre.core.events.canonical import (
     CanonicalEvent,
     DeliveryReceipt,
     NativeMessageRef,
-    NativeRef,
 )
-from medre.core.events.bus import EventBus, EventMiddleware
 from medre.core.observability.metrics import Diagnostician
 from medre.core.planning.delivery_plan import (
     DeliveryFailureKind,
@@ -54,7 +53,7 @@ from medre.core.planning.delivery_plan import (
 )
 from medre.core.planning.fallback_resolution import FallbackResolver
 from medre.core.planning.relation_resolution import RelationResolver
-from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
+from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing.models import Route, RouteTarget
 from medre.core.routing.router import Router
@@ -232,17 +231,13 @@ class PipelineRunner:
     def __init__(self, config: PipelineConfig) -> None:
         self._config = config
         self._log: logging.Logger = config.logger or _logger
-        self._diagnostician: Diagnostician = (
-            config.diagnostician or Diagnostician()
-        )
+        self._diagnostician: Diagnostician = config.diagnostician or Diagnostician()
         self._rendering_pipeline: RenderingPipeline = (
             config.rendering_pipeline or _default_rendering_pipeline()
         )
         self._middleware: _PipelineLoggingMiddleware | None = None
         self._route_stats: RouteStats | None = config.route_stats
-        self._runtime_accounting: RuntimeAccounting | None = (
-            config.runtime_accounting
-        )
+        self._runtime_accounting: RuntimeAccounting | None = config.runtime_accounting
         self._capacity_controller: CapacityController | None = None
         self._delivery_rejection_count: int = 0
 
@@ -311,9 +306,7 @@ class PipelineRunner:
         """
         return self.handle_ingress
 
-    async def handle_ingress(
-        self, event: CanonicalEvent
-    ) -> list[DeliveryOutcome]:
+    async def handle_ingress(self, event: CanonicalEvent) -> list[DeliveryOutcome]:
         """Process an inbound event through the full pipeline.
 
         Flow:
@@ -412,9 +405,7 @@ class PipelineRunner:
             ]
 
         if not deliveries:
-            self._log.info(
-                "No routes matched for event_id=%s", event.event_id
-            )
+            self._log.info("No routes matched for event_id=%s", event.event_id)
             return []
 
         # Deliver to all targets independently with error isolation.
@@ -469,9 +460,7 @@ class PipelineRunner:
 
     # -- Stage 2: Relation resolution ------------------------------------
 
-    async def _resolve_relations(
-        self, event: CanonicalEvent
-    ) -> CanonicalEvent:
+    async def _resolve_relations(self, event: CanonicalEvent) -> CanonicalEvent:
         """Resolve event-level relations using the relation resolver.
 
         Delegates to :class:`RelationResolver` to look up
@@ -483,9 +472,7 @@ class PipelineRunner:
 
     # -- Stage 4: Inbound native ref persistence -------------------------
 
-    async def _persist_inbound_native_ref(
-        self, event: CanonicalEvent
-    ) -> None:
+    async def _persist_inbound_native_ref(self, event: CanonicalEvent) -> None:
         """Persist an inbound native ref when ``source_native_ref`` exists.
 
         Creates a :class:`NativeMessageRef` with ``direction="inbound"``
@@ -553,7 +540,9 @@ class PipelineRunner:
         # the existing trace, bounded to at most 16 entries.
         prior_trace: tuple[str, ...] = ()
         if existing_routing is not None:
-            prior_trace = existing_routing.route_trace if existing_routing.route_trace else ()
+            prior_trace = (
+                existing_routing.route_trace if existing_routing.route_trace else ()
+            )
         new_trace = (prior_trace + route_ids)[-16:]
         if existing_routing is not None:
             new_routing = msgspec.structs.replace(
@@ -563,11 +552,14 @@ class PipelineRunner:
             )
         else:
             from medre.core.events.metadata import RoutingMetadata
+
             new_routing = RoutingMetadata(
-                matched_routes=route_ids, route_trace=new_trace,
+                matched_routes=route_ids,
+                route_trace=new_trace,
             )
         new_metadata = msgspec.structs.replace(
-            event.metadata, routing=new_routing,
+            event.metadata,
+            routing=new_routing,
         )
         event = msgspec.structs.replace(event, metadata=new_metadata)
 
@@ -579,7 +571,9 @@ class PipelineRunner:
             for target in targets:
                 capabilities = self._get_adapter_capabilities(target)
                 plan = self._config.fallback_resolver.resolve_fallback(
-                    event, target, capabilities,
+                    event,
+                    target,
+                    capabilities,
                 )
                 # Attach route-level retry policy if configured.
                 retry_policy = self._config.route_retry_policies.get(route.id)
@@ -632,7 +626,10 @@ class PipelineRunner:
         """
         # Per-target capacity acquire/release happens inside _deliver_one().
         return await self._deliver_to_targets_inner(
-            event, route_targets, source=source, replay_run_id=replay_run_id,
+            event,
+            route_targets,
+            source=source,
+            replay_run_id=replay_run_id,
         )
 
     async def _deliver_to_targets_inner(
@@ -762,8 +759,11 @@ class PipelineRunner:
                     if self._runtime_accounting is not None:
                         self._runtime_accounting.record_outbound_attempt()
                     receipt = await self.deliver_to_target(
-                        event, route, route_plan,
-                        source=source, replay_run_id=replay_run_id,
+                        event,
+                        route,
+                        route_plan,
+                        source=source,
+                        replay_run_id=replay_run_id,
                     )
                     elapsed = (time.monotonic() - t0) * 1000.0
                     if self._route_stats is not None:
@@ -881,9 +881,7 @@ class PipelineRunner:
                     await self._capacity_controller.release_delivery()
 
         return list(
-            await asyncio.gather(
-                *[_deliver_one(r, p) for r, p in route_targets]
-            )
+            await asyncio.gather(*[_deliver_one(r, p) for r, p in route_targets])
         )
 
     @staticmethod
@@ -908,9 +906,7 @@ class PipelineRunner:
             ``"transient_failure"`` or ``"permanent_failure"``.
         """
         kind = RetryExecutor.classify_failure(exc)
-        return (
-            "transient_failure" if kind.is_retryable else "permanent_failure"
-        )
+        return "transient_failure" if kind.is_retryable else "permanent_failure"
 
     async def deliver_to_target(
         self,
@@ -989,8 +985,8 @@ class PipelineRunner:
                 route_id=route.id,
                 status="failed",
                 error=f"Adapter {adapter_id!r} is not registered in the runtime "
-                      f"— the adapter may have failed to build or was not configured. "
-                      f"Check build logs for {adapter_id!r}",
+                f"— the adapter may have failed to build or was not configured. "
+                f"Check build logs for {adapter_id!r}",
                 failure_kind=DeliveryFailureKind.ADAPTER_MISSING.value,
                 next_retry_at=None,
                 created_at=now,
@@ -1007,9 +1003,7 @@ class PipelineRunner:
                 retry_max_delay=(
                     plan.retry_policy.max_delay_seconds if plan.retry_policy else None
                 ),
-                retry_jitter=(
-                    plan.retry_policy.jitter if plan.retry_policy else None
-                ),
+                retry_jitter=(plan.retry_policy.jitter if plan.retry_policy else None),
             )
             await self._config.storage.append_receipt(receipt)
             raise _AdapterDeliveryError(
@@ -1047,9 +1041,7 @@ class PipelineRunner:
                 retry_max_delay=(
                     plan.retry_policy.max_delay_seconds if plan.retry_policy else None
                 ),
-                retry_jitter=(
-                    plan.retry_policy.jitter if plan.retry_policy else None
-                ),
+                retry_jitter=(plan.retry_policy.jitter if plan.retry_policy else None),
             )
             await self._config.storage.append_receipt(receipt)
             raise _AdapterDeliveryError(
@@ -1068,7 +1060,9 @@ class PipelineRunner:
             platform_param = None
         try:
             rendering_result = await self._rendering_pipeline.render(
-                event, adapter_id or "", target.channel,
+                event,
+                adapter_id or "",
+                target.channel,
                 target_platform=platform_param,
             )
         except Exception as exc:
@@ -1102,9 +1096,7 @@ class PipelineRunner:
                 retry_max_delay=(
                     plan.retry_policy.max_delay_seconds if plan.retry_policy else None
                 ),
-                retry_jitter=(
-                    plan.retry_policy.jitter if plan.retry_policy else None
-                ),
+                retry_jitter=(plan.retry_policy.jitter if plan.retry_policy else None),
             )
             await self._config.storage.append_receipt(receipt)
             raise _RendererDeliveryError(adapter_id or "", rendering_error) from None
@@ -1144,9 +1136,7 @@ class PipelineRunner:
                 retry_max_delay=(
                     plan.retry_policy.max_delay_seconds if plan.retry_policy else None
                 ),
-                retry_jitter=(
-                    plan.retry_policy.jitter if plan.retry_policy else None
-                ),
+                retry_jitter=(plan.retry_policy.jitter if plan.retry_policy else None),
             )
             await self._config.storage.append_receipt(receipt)
             raise _AdapterDeliveryError(
@@ -1243,9 +1233,7 @@ class PipelineRunner:
             retry_max_delay=(
                 plan.retry_policy.max_delay_seconds if plan.retry_policy else None
             ),
-            retry_jitter=(
-                plan.retry_policy.jitter if plan.retry_policy else None
-            ),
+            retry_jitter=(plan.retry_policy.jitter if plan.retry_policy else None),
         )
         await self._config.storage.append_receipt(receipt)
 
@@ -1268,7 +1256,11 @@ class PipelineRunner:
 
         # Store native ref mapping (outbound direction) ONLY on success.
         # Use adapter-provided native IDs; never fabricate synthetic IDs.
-        if status == "sent" and adapter_result is not None and adapter_result.native_message_id is not None:
+        if (
+            status == "sent"
+            and adapter_result is not None
+            and adapter_result.native_message_id is not None
+        ):
             native_ref = NativeMessageRef(
                 id=f"nref-{uuid.uuid4()}",
                 event_id=event.event_id,
@@ -1304,6 +1296,7 @@ class PipelineRunner:
         Returns a list parallel to *deliveries*; ``None`` entries indicate
         a target that raised an unhandled exception.
         """
+
         async def _safe_deliver(
             route: Route, plan: DeliveryPlan
         ) -> DeliveryReceipt | None:
@@ -1317,11 +1310,7 @@ class PipelineRunner:
                 )
                 return None
 
-        return list(
-            await asyncio.gather(
-                *[_safe_deliver(r, p) for r, p in deliveries]
-            )
-        )
+        return list(await asyncio.gather(*[_safe_deliver(r, p) for r, p in deliveries]))
 
     def _get_adapter_capabilities(self, target: RouteTarget) -> dict:
         """Retrieve the capabilities dict for a target adapter.

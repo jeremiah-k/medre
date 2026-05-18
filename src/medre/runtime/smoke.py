@@ -53,14 +53,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from medre.config.loader import load_config, ConfigSource
-from medre.config.paths import MedrePaths, resolve as resolve_paths
 from medre.config.env import apply_env_overrides
+from medre.config.loader import load_config
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.kinds import EventKind
-from medre.core.rendering.renderer import RenderingResult
 from medre.observability.sanitization import sanitize_error
-from medre.runtime.app import MedreApp, RuntimeState
+from medre.runtime.app import MedreApp
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.snapshot import SCHEMA_VERSION, build_runtime_snapshot
 
@@ -89,7 +87,12 @@ def _default_smoke_config_path() -> str | None:
     """Return the shipped fake-bridge-smoke.toml path if it exists."""
     # Walk up from this file to find the repo root (src/medre/runtime/smoke.py)
     this_dir = Path(__file__).resolve().parent
-    candidate = this_dir.parent.parent.parent / "examples" / "configs" / "fake-bridge-smoke.toml"
+    candidate = (
+        this_dir.parent.parent.parent
+        / "examples"
+        / "configs"
+        / "fake-bridge-smoke.toml"
+    )
     if candidate.is_file():
         return str(candidate)
     return None
@@ -162,8 +165,8 @@ def _run_preflight(config: Any) -> dict[str, Any]:
     Returns a dict summarising what was validated.
     """
     from medre.runtime.route_engine import (
-        build_runtime_routes,
         RouteValidationError,
+        build_runtime_routes,
     )
 
     route_errors: list[str] = []
@@ -234,16 +237,20 @@ async def _collect_native_refs(
             native_message_id = getattr(nref, "native_message_id", "")
             try:
                 resolved = await app.storage.resolve_native_ref(
-                    target, native_channel_id, native_message_id,
+                    target,
+                    native_channel_id,
+                    native_message_id,
                 )
             except Exception:
                 continue
-            refs.append({
-                "adapter": target,
-                "channel": native_channel_id,
-                "native_id": native_message_id,
-                "resolves_to": resolved or getattr(nref, "event_id", ""),
-            })
+            refs.append(
+                {
+                    "adapter": target,
+                    "channel": native_channel_id,
+                    "native_id": native_message_id,
+                    "resolves_to": resolved or getattr(nref, "event_id", ""),
+                }
+            )
     return refs
 
 
@@ -328,7 +335,7 @@ async def run_fake_bridge_smoke(
     # -- Override storage if --storage-path provided -------------------------
     if storage_path is not None:
         import dataclasses as _dc
-        from medre.config.model import StorageConfig as _SC
+
         config = _dc.replace(
             config,
             storage=_dc.replace(config.storage, backend="sqlite", path=storage_path),
@@ -424,22 +431,18 @@ async def run_fake_bridge_smoke(
     snap: dict[str, Any] = {}
     try:
         snap = build_runtime_snapshot(
-            app, now_fn=now_fn, monotonic_fn=monotonic_fn,
+            app,
+            now_fn=now_fn,
+            monotonic_fn=monotonic_fn,
         )
     except Exception:
         pass
 
     # Target adapters from outcomes
-    target_adapters = sorted({
-        o.target_adapter
-        for o in outcomes
-        if o.status == "success"
-    })
-    route_ids = sorted({
-        o.route_id
-        for o in outcomes
-        if o.route_id
-    })
+    target_adapters = sorted(
+        {o.target_adapter for o in outcomes if o.status == "success"}
+    )
+    route_ids = sorted({o.route_id for o in outcomes if o.route_id})
 
     # Receipt summaries
     receipt_summaries = [

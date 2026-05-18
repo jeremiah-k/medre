@@ -23,9 +23,7 @@ from medre.config.model import (
     StorageConfig,
 )
 from medre.config.paths import MedrePaths, MedrePathsError, resolve
-from medre.runtime.app import MedreApp
 from medre.runtime.builder import RuntimeBuilder
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -34,8 +32,13 @@ from medre.runtime.builder import RuntimeBuilder
 
 @pytest.fixture(autouse=True)
 def _clean_path_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for var in ("MEDRE_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME",
-                "XDG_DATA_HOME", "XDG_CACHE_HOME"):
+    for var in (
+        "MEDRE_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_STATE_HOME",
+        "XDG_DATA_HOME",
+        "XDG_CACHE_HOME",
+    ):
         monkeypatch.delenv(var, raising=False)
 
 
@@ -126,7 +129,8 @@ class TestMultipleMatrixStoresIsolated:
     """Two Matrix adapters → two separate store directories."""
 
     async def test_two_matrix_stores(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Two Matrix adapters get separate matrix/store directories."""
         config = _make_two_matrix_config()
@@ -134,8 +138,12 @@ class TestMultipleMatrixStoresIsolated:
         app = builder.build()
         await app.start()
         try:
-            store_main = tmp_paths.adapter_transport_state_dir("main", "matrix") / "store"
-            store_secondary = tmp_paths.adapter_transport_state_dir("secondary", "matrix") / "store"
+            store_main = (
+                tmp_paths.adapter_transport_state_dir("main", "matrix") / "store"
+            )
+            store_secondary = (
+                tmp_paths.adapter_transport_state_dir("secondary", "matrix") / "store"
+            )
 
             assert store_main.is_dir(), f"Expected {store_main} to exist"
             assert store_secondary.is_dir(), f"Expected {store_secondary} to exist"
@@ -144,7 +152,8 @@ class TestMultipleMatrixStoresIsolated:
             await app.stop()
 
     async def test_store_paths_are_under_adapter_roots(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Store paths are correct: {state}/adapters/{id}/matrix/store."""
         config = _make_two_matrix_config()
@@ -171,7 +180,8 @@ class TestMeshtasticNoMatrixStores:
     """Meshtastic adapters must not have matrix/store directories."""
 
     async def test_no_matrix_store_for_meshtastic(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Meshtastic adapter → no matrix/store directory created."""
         config = _make_meshtastic_config()
@@ -179,15 +189,18 @@ class TestMeshtasticNoMatrixStores:
         app = builder.build()
         await app.start()
         try:
-            matrix_store = tmp_paths.adapter_transport_state_dir("radio", "matrix") / "store"
-            assert not matrix_store.exists(), (
-                f"Meshtastic adapter should not have Matrix store at {matrix_store}"
+            matrix_store = (
+                tmp_paths.adapter_transport_state_dir("radio", "matrix") / "store"
             )
+            assert (
+                not matrix_store.exists()
+            ), f"Meshtastic adapter should not have Matrix store at {matrix_store}"
         finally:
             await app.stop()
 
     async def test_mixed_runtime_only_matrix_gets_stores(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """In mixed runtime, only Matrix adapters get matrix/store dirs."""
         config = _make_mixed_config()
@@ -216,7 +229,8 @@ class TestAdapterStateRootsCorrect:
     """Each adapter's state root resolves correctly."""
 
     def test_adapter_state_dir(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """adapter_state_dir returns {state}/adapters/{adapter_id}."""
         root = tmp_paths.adapter_state_dir("main")
@@ -224,7 +238,8 @@ class TestAdapterStateRootsCorrect:
         assert root == expected
 
     def test_adapter_transport_state_dir(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """adapter_transport_state_dir returns {state}/adapters/{id}/{transport}."""
         root = tmp_paths.adapter_transport_state_dir("main", "matrix")
@@ -232,35 +247,41 @@ class TestAdapterStateRootsCorrect:
         assert root == expected
 
     def test_adapter_state_dir_rejects_empty(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Empty adapter_id raises MedrePathsError."""
         with pytest.raises(MedrePathsError, match="non-empty"):
             tmp_paths.adapter_state_dir("")
 
     def test_adapter_state_dir_rejects_separators(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """adapter_id with path separators raises MedrePathsError."""
         with pytest.raises(MedrePathsError, match="path separators"):
             tmp_paths.adapter_state_dir("foo/bar")
 
     def test_adapter_transport_state_dir_rejects_empty_transport(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Empty transport raises MedrePathsError."""
         with pytest.raises(MedrePathsError, match="non-empty"):
             tmp_paths.adapter_transport_state_dir("main", "")
 
     def test_adapter_transport_state_dir_rejects_separator_in_transport(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Transport with path separators raises MedrePathsError."""
         with pytest.raises(MedrePathsError, match="path separators"):
             tmp_paths.adapter_transport_state_dir("main", "mat/rix")
 
     def test_medre_home_mode_paths(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """MEDRE_HOME mode resolves all paths under one root."""
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
@@ -274,7 +295,9 @@ class TestAdapterStateRootsCorrect:
         assert paths.database_path == tmp_path / "state" / "medre.sqlite"
 
     def test_xdg_mode_paths(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """XDG mode resolves paths under XDG base directories."""
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
@@ -299,7 +322,8 @@ class TestNoPerAdapterMedreDBs:
     """Only one medre.sqlite at {state}/medre.sqlite."""
 
     async def test_single_db_at_state_root(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Only one medre.sqlite exists, at the global state root."""
         config = _make_mixed_config()
@@ -343,7 +367,8 @@ class TestNoPerAdapterMedreDBs:
             await app.stop()
 
     async def test_no_adapter_subdir_dbs(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """No medre.sqlite files in adapter subdirectories."""
         config = _make_mixed_config()
@@ -353,10 +378,10 @@ class TestNoPerAdapterMedreDBs:
         try:
             adapters_dir = tmp_paths.state_dir / "adapters"
             if adapters_dir.exists():
-                for root, dirs, files in os.walk(adapters_dir):
-                    assert "medre.sqlite" not in files, (
-                        f"Found medre.sqlite in adapter subdir: {root}"
-                    )
+                for root, _dirs, files in os.walk(adapters_dir):
+                    assert (
+                        "medre.sqlite" not in files
+                    ), f"Found medre.sqlite in adapter subdir: {root}"
         finally:
             await app.stop()
 
@@ -370,27 +395,30 @@ class TestGlobalDBShared:
     """The global DB path is consistent regardless of adapter count."""
 
     def test_db_path_consistent_one_adapter(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """DB path is the same with one adapter."""
         config = _make_meshtastic_config()
         builder = RuntimeBuilder(config, tmp_paths)
-        app = builder.build()
+        builder.build()
         expected = tmp_paths.database_path
         assert expected == tmp_paths.state_dir / "medre.sqlite"
 
     def test_db_path_consistent_three_adapters(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """DB path is the same with three adapters."""
         config = _make_mixed_config()
         builder = RuntimeBuilder(config, tmp_paths)
-        app = builder.build()
+        builder.build()
         expected = tmp_paths.database_path
         assert expected == tmp_paths.state_dir / "medre.sqlite"
 
     def test_db_path_constant_across_builds(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Same paths object always returns same database_path."""
         db1 = tmp_paths.database_path
@@ -408,7 +436,8 @@ class TestRuntimeCleanupPreservesStateDirs:
     """After runtime stop, state directories persist."""
 
     async def test_state_dirs_persist_after_stop(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """State directories are NOT cleaned up after stop."""
         config = _make_two_matrix_config()
@@ -419,7 +448,9 @@ class TestRuntimeCleanupPreservesStateDirs:
         root_main = tmp_paths.adapter_state_dir("main")
         root_secondary = tmp_paths.adapter_state_dir("secondary")
         store_main = tmp_paths.adapter_transport_state_dir("main", "matrix") / "store"
-        store_secondary = tmp_paths.adapter_transport_state_dir("secondary", "matrix") / "store"
+        store_secondary = (
+            tmp_paths.adapter_transport_state_dir("secondary", "matrix") / "store"
+        )
 
         assert root_main.is_dir()
         assert root_secondary.is_dir()
@@ -435,7 +466,8 @@ class TestRuntimeCleanupPreservesStateDirs:
         assert store_secondary.is_dir(), "Matrix store should persist after stop"
 
     async def test_db_persists_after_stop(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Database file persists after runtime stop."""
         config = RuntimeConfig(
@@ -461,7 +493,8 @@ class TestRuntimeCleanupPreservesStateDirs:
         assert db_path.is_file(), "Database file should persist after stop"
 
     async def test_global_state_dir_persists(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Global state dir persists after runtime stop."""
         config = _make_mixed_config()

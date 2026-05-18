@@ -11,21 +11,18 @@ import uuid
 from datetime import datetime, timezone
 from typing import cast
 
-import pytest
-
 from medre.adapters import FakeMatrixAdapter, FakePresentationAdapter
-from medre.core.contracts.adapter import AdapterContext, AdapterContract
+from medre.adapters.matrix.renderer import MatrixRenderer
+from medre.core.contracts.adapter import AdapterContext
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.events import CanonicalEvent, EventMetadata, NativeMessageRef, NativeRef
 from medre.core.events.bus import EventBus
 from medre.core.planning import FallbackResolver, RelationResolver
-from medre.adapters.matrix.renderer import MatrixRenderer
 from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
 from medre.core.rendering.text import TextRenderer
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage import SQLiteStorage
 from medre.core.storage.backend import StorageBackend
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -44,6 +41,7 @@ def _make_pipeline_config(
     if use_matrix_renderer:
         pipeline.register(MatrixRenderer())
     from medre.core.rendering.text import TextRenderer
+
     pipeline.register(TextRenderer())
 
     return PipelineConfig(
@@ -418,15 +416,17 @@ class TestMatrixPlatformRendererSelection:
         rp.register(TextRenderer(), priority=100)
 
         # 4. PipelineRunner — start() calls _populate_renderer_platforms()
-        runner = PipelineRunner(PipelineConfig(
-            storage=cast(StorageBackend, temp_storage),
-            router=router,
-            fallback_resolver=FallbackResolver(),
-            relation_resolver=RelationResolver(storage=temp_storage),
-            adapters={"chat-source": in_adapter, "chat-service": out_adapter},
-            event_bus=EventBus(),
-            rendering_pipeline=rp,
-        ))
+        runner = PipelineRunner(
+            PipelineConfig(
+                storage=cast(StorageBackend, temp_storage),
+                router=router,
+                fallback_resolver=FallbackResolver(),
+                relation_resolver=RelationResolver(storage=temp_storage),
+                adapters={"chat-source": in_adapter, "chat-service": out_adapter},
+                event_bus=EventBus(),
+                rendering_pipeline=rp,
+            )
+        )
         await runner.start()
 
         # 5. Wire inbound adapter

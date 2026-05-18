@@ -31,12 +31,12 @@ environment, results, caveats, reconnect observations, and limitations.
 
 **Evidence classification (per Contract 61):**
 
-| Tier | Label | Meaning |
-|------|-------|---------|
-| **H** | Historical | Recorded during a prior phase. May be stale. |
-| **C** | Current-tranche | Recorded against current codebase during active tranche. |
-| **S** | Simulated / Fake-runtime | Recorded using mocks/fakes. No real endpoint. |
-| **R** | Real-live-runtime | Recorded against a real transport endpoint. |
+| Tier  | Label                    | Meaning                                                  |
+| ----- | ------------------------ | -------------------------------------------------------- |
+| **H** | Historical               | Recorded during a prior phase. May be stale.             |
+| **C** | Current-tranche          | Recorded against current codebase during active tranche. |
+| **S** | Simulated / Fake-runtime | Recorded using mocks/fakes. No real endpoint.            |
+| **R** | Real-live-runtime        | Recorded against a real transport endpoint.              |
 
 **How to use this document:**
 
@@ -50,7 +50,6 @@ environment, results, caveats, reconnect observations, and limitations.
    results. Unit tests are recorded separately.
 5. Every evidence entry must include a `tier` field per Contract 61 §2.
 
-
 ## 1. Matrix Operational Evidence
 
 > **Evidence tier:** H (historical, recorded 2026-05-10 against matrix.org). Current beta-entry tranche live execution: **NOT EXECUTED** (2026-05-12 attempts: `sk.community` access token rejected `M_UNKNOWN_TOKEN` (§1.4); `matrix.org` password login rejected `M_FORBIDDEN Invalid username/password` (§1.4b)).
@@ -58,141 +57,141 @@ environment, results, caveats, reconnect observations, and limitations.
 
 ### 1.1 Live Smoke Test Evidence (Tier: H — recorded 2026-05-10)
 
-| Field | Value |
-|-------|-------|
-| **Test file** | `tests/test_matrix_live.py` |
-| **Evidence tier** | H (historical) |
-| **Last execution date** | 2026-05-10 |
-| **Executor** | Live agent (automated) |
-| **Homeserver** | matrix.org (public homeserver) |
-| **MEDRE commit** | Pre-beta HEAD (2026-05-10) |
-| **Python version** | 3.12 |
-| **mindroom-nio version** | Installed via `pip install -e ".[matrix]"` |
-| **Environment** | Local development machine |
-| **Test command** | `pytest tests/test_matrix_live.py -m live -v` |
-| **Total tests run** | 13 |
-| **Passed / Failed / Skipped** | 13 passed / 0 failed / 0 skipped |
-| **Non-live regression** | 202 passed, 0 failed (full suite minus live) |
-| **Start/connect** | ✅ Adapter started, `restore_login` succeeded, sync task running |
-| **Health check → healthy** | ✅ `info.health == "healthy"`, `info.platform == "matrix"` |
-| **Room join** | ✅ Room `!sRlwdLCwIGBpSzoRsV:matrix.org` joined successfully |
-| **Room encryption status** | Unencrypted (plaintext alpha path) |
-| **Outbound send → event_id** | ✅ `room_send` returned event_id starting with `$` |
-| **Self-message suppression** | ✅ Own messages suppressed by sender match |
-| **Stop → clean teardown** | ✅ `stop()` completed; no leaked tasks |
-| **Reconnect observations** | ✅ Health stays `degraded` during reconnect, `healthy` after recovery. Budget exhaustion → `failed`. |
-| **Caveats observed** | Initial harness had a bug where `health_check()` was awaited as a coroutine instead of called as a regular method. Fixed in-tree before final run. No remaining issues. |
-| **Restart idempotency** | ✅ Stop → start cycle re-establishes sync; second `health_check()` returns `healthy` |
+| Field                         | Value                                                                                                                                                                   |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Test file**                 | `tests/test_matrix_live.py`                                                                                                                                             |
+| **Evidence tier**             | H (historical)                                                                                                                                                          |
+| **Last execution date**       | 2026-05-10                                                                                                                                                              |
+| **Executor**                  | Live agent (automated)                                                                                                                                                  |
+| **Homeserver**                | matrix.org (public homeserver)                                                                                                                                          |
+| **MEDRE commit**              | Pre-beta HEAD (2026-05-10)                                                                                                                                              |
+| **Python version**            | 3.12                                                                                                                                                                    |
+| **mindroom-nio version**      | Installed via `pip install -e ".[matrix]"`                                                                                                                              |
+| **Environment**               | Local development machine                                                                                                                                               |
+| **Test command**              | `pytest tests/test_matrix_live.py -m live -v`                                                                                                                           |
+| **Total tests run**           | 13                                                                                                                                                                      |
+| **Passed / Failed / Skipped** | 13 passed / 0 failed / 0 skipped                                                                                                                                        |
+| **Non-live regression**       | 202 passed, 0 failed (full suite minus live)                                                                                                                            |
+| **Start/connect**             | ✅ Adapter started, `restore_login` succeeded, sync task running                                                                                                        |
+| **Health check → healthy**    | ✅ `info.health == "healthy"`, `info.platform == "matrix"`                                                                                                              |
+| **Room join**                 | ✅ Room `!sRlwdLCwIGBpSzoRsV:matrix.org` joined successfully                                                                                                            |
+| **Room encryption status**    | Unencrypted (plaintext alpha path)                                                                                                                                      |
+| **Outbound send → event_id**  | ✅ `room_send` returned event_id starting with `$`                                                                                                                      |
+| **Self-message suppression**  | ✅ Own messages suppressed by sender match                                                                                                                              |
+| **Stop → clean teardown**     | ✅ `stop()` completed; no leaked tasks                                                                                                                                  |
+| **Reconnect observations**    | ✅ Health stays `degraded` during reconnect, `healthy` after recovery. Budget exhaustion → `failed`.                                                                    |
+| **Caveats observed**          | Initial harness had a bug where `health_check()` was awaited as a coroutine instead of called as a regular method. Fixed in-tree before final run. No remaining issues. |
+| **Restart idempotency**       | ✅ Stop → start cycle re-establishes sync; second `health_check()` returns `healthy`                                                                                    |
 
 ### 1.2 E2EE Live Test Evidence (Tier: H — recorded 2026-05-10)
 
-| Field | Value |
-|-------|-------|
-| **Test file** | `tests/test_matrix_e2ee_live.py` |
-| **Evidence tier** | H (historical) |
-| **Last execution date** | 2026-05-10 |
-| **Executor** | Live agent (automated) |
-| **Homeserver** | matrix.org (public homeserver) |
-| **Room type** | Unencrypted room used for initial E2EE-mode startup tests |
-| **E2EE mode** | `e2ee_required` config used; crypto store loaded |
-| **mindroom-nio[e2e] version** | Installed via `pip install -e ".[matrix-e2e]"` |
-| **vodozemac version** | Pulled as dependency of `mindroom-nio[e2e]` |
-| **Total tests run** | 7 |
-| **Passed / Failed / Skipped** | 7 passed / 0 failed / 0 skipped |
-| **Crypto store loaded** | ✅ `crypto_store_loaded == True` |
-| **Encrypted send → event_id** | Tests ran against unencrypted room in E2EE mode. Encrypted-room results: see §1.3 below. |
-| **Undecryptable events** | 0 observed during run |
-| **Caveats observed** | E2EE tests validated startup with crypto deps against an unencrypted room. See §1.3 for encrypted-room follow-up results. |
+| Field                         | Value                                                                                                                     |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| **Test file**                 | `tests/test_matrix_e2ee_live.py`                                                                                          |
+| **Evidence tier**             | H (historical)                                                                                                            |
+| **Last execution date**       | 2026-05-10                                                                                                                |
+| **Executor**                  | Live agent (automated)                                                                                                    |
+| **Homeserver**                | matrix.org (public homeserver)                                                                                            |
+| **Room type**                 | Unencrypted room used for initial E2EE-mode startup tests                                                                 |
+| **E2EE mode**                 | `e2ee_required` config used; crypto store loaded                                                                          |
+| **mindroom-nio[e2e] version** | Installed via `pip install -e ".[matrix-e2e]"`                                                                            |
+| **vodozemac version**         | Pulled as dependency of `mindroom-nio[e2e]`                                                                               |
+| **Total tests run**           | 7                                                                                                                         |
+| **Passed / Failed / Skipped** | 7 passed / 0 failed / 0 skipped                                                                                           |
+| **Crypto store loaded**       | ✅ `crypto_store_loaded == True`                                                                                          |
+| **Encrypted send → event_id** | Tests ran against unencrypted room in E2EE mode. Encrypted-room results: see §1.3 below.                                  |
+| **Undecryptable events**      | 0 observed during run                                                                                                     |
+| **Caveats observed**          | E2EE tests validated startup with crypto deps against an unencrypted room. See §1.3 for encrypted-room follow-up results. |
 
 ### 1.3 Encrypted Room Follow-up Evidence (Tier: H — recorded 2026-05-10)
 
 #### 1.3.1 Pre-fix Run (initial)
 
-| Field | Value |
-|-------|-------|
-| **Test type** | Manual / agent-driven encrypted-room follow-up |
-| **Execution date** | 2026-05-10 |
-| **Executor** | Live agent (automated) |
-| **Homeserver** | matrix.org (public homeserver) |
-| **Target room** | `!rnmyZMhUoraPwZUDPP:matrix.org` (E2EE enabled) |
-| **Room join** | ✅ Adapter successfully joined the encrypted room |
-| **Room encryption confirmed** | ✅ Room confirmed as encrypted (`RoomEncryptionEvent` received) |
-| **Outbound send attempt 1** | ❌ Failed with `OlmUnverifiedDeviceError` |
-| **Outbound send attempt 2** | ❌ Failed with `OlmUnverifiedDeviceError` |
-| **Root cause** | `ignore_unverified_devices` was `False` (nio strict default). The bot's device was not verified by other room members, so nio refused to share the Megolm session key with unverified devices. |
-| **Implication** | Encrypted-room **join** and **detection** work. Outbound encrypted send was blocked by nio's unverified-device policy. |
-| **Fix applied** | MEDRE now internally sets `ignore_unverified_devices=True` when `encryption_mode` is not `"plaintext"` — required by upstream nio (no cross-signing support). No operator toggle needed. See `docs/contracts/25-matrix-e2ee-readiness.md` §5.2 for rationale. |
+| Field                         | Value                                                                                                                                                                                                                                                         |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Test type**                 | Manual / agent-driven encrypted-room follow-up                                                                                                                                                                                                                |
+| **Execution date**            | 2026-05-10                                                                                                                                                                                                                                                    |
+| **Executor**                  | Live agent (automated)                                                                                                                                                                                                                                        |
+| **Homeserver**                | matrix.org (public homeserver)                                                                                                                                                                                                                                |
+| **Target room**               | `!rnmyZMhUoraPwZUDPP:matrix.org` (E2EE enabled)                                                                                                                                                                                                               |
+| **Room join**                 | ✅ Adapter successfully joined the encrypted room                                                                                                                                                                                                             |
+| **Room encryption confirmed** | ✅ Room confirmed as encrypted (`RoomEncryptionEvent` received)                                                                                                                                                                                               |
+| **Outbound send attempt 1**   | ❌ Failed with `OlmUnverifiedDeviceError`                                                                                                                                                                                                                     |
+| **Outbound send attempt 2**   | ❌ Failed with `OlmUnverifiedDeviceError`                                                                                                                                                                                                                     |
+| **Root cause**                | `ignore_unverified_devices` was `False` (nio strict default). The bot's device was not verified by other room members, so nio refused to share the Megolm session key with unverified devices.                                                                |
+| **Implication**               | Encrypted-room **join** and **detection** work. Outbound encrypted send was blocked by nio's unverified-device policy.                                                                                                                                        |
+| **Fix applied**               | MEDRE now internally sets `ignore_unverified_devices=True` when `encryption_mode` is not `"plaintext"` — required by upstream nio (no cross-signing support). No operator toggle needed. See `docs/contracts/25-matrix-e2ee-readiness.md` §5.2 for rationale. |
 
 #### 1.3.2 Post-fix Re-test (E2EE live suite)
 
-| Field | Value |
-|-------|-------|
-| **Test file** | `tests/test_matrix_e2ee_live.py` |
-| **Execution date** | 2026-05-10 |
-| **Executor** | Live agent (automated) |
-| **Homeserver** | matrix.org (public homeserver) |
-| **Target room** | `!rnmyZMhUoraPwZUDPP:matrix.org` (E2EE enabled) |
-| **Test command** | `pytest tests/test_matrix_e2ee_live.py -m live -v` |
-| **Total tests run** | 7 |
-| **Passed / Failed / Skipped** | 7 passed / 0 failed / 0 skipped |
-| **Duration** | 3.73s |
-| **Previously failing `test_send_encrypted_text`** | ✅ Passed post-fix |
-| **Previously failing `test_restart_send_encrypted`** | ✅ Passed post-fix |
-| **Crypto store loaded** | ✅ |
-| **Encrypted send → event_id** | ✅ Outbound encrypted send succeeds — MEDRE passes `ignore_unverified_devices=True` for non-plaintext modes |
-| **Caveats** | This is not a security downgrade — `ignore_unverified_devices=True` is required by the upstream nio client (no cross-signing support, MSC1756). MEDRE applies this automatically based on `encryption_mode`. Device verification via cross-signing is an upstream nio gap, not a MEDRE deferral. |
+| Field                                                | Value                                                                                                                                                                                                                                                                                            |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Test file**                                        | `tests/test_matrix_e2ee_live.py`                                                                                                                                                                                                                                                                 |
+| **Execution date**                                   | 2026-05-10                                                                                                                                                                                                                                                                                       |
+| **Executor**                                         | Live agent (automated)                                                                                                                                                                                                                                                                           |
+| **Homeserver**                                       | matrix.org (public homeserver)                                                                                                                                                                                                                                                                   |
+| **Target room**                                      | `!rnmyZMhUoraPwZUDPP:matrix.org` (E2EE enabled)                                                                                                                                                                                                                                                  |
+| **Test command**                                     | `pytest tests/test_matrix_e2ee_live.py -m live -v`                                                                                                                                                                                                                                               |
+| **Total tests run**                                  | 7                                                                                                                                                                                                                                                                                                |
+| **Passed / Failed / Skipped**                        | 7 passed / 0 failed / 0 skipped                                                                                                                                                                                                                                                                  |
+| **Duration**                                         | 3.73s                                                                                                                                                                                                                                                                                            |
+| **Previously failing `test_send_encrypted_text`**    | ✅ Passed post-fix                                                                                                                                                                                                                                                                               |
+| **Previously failing `test_restart_send_encrypted`** | ✅ Passed post-fix                                                                                                                                                                                                                                                                               |
+| **Crypto store loaded**                              | ✅                                                                                                                                                                                                                                                                                               |
+| **Encrypted send → event_id**                        | ✅ Outbound encrypted send succeeds — MEDRE passes `ignore_unverified_devices=True` for non-plaintext modes                                                                                                                                                                                      |
+| **Caveats**                                          | This is not a security downgrade — `ignore_unverified_devices=True` is required by the upstream nio client (no cross-signing support, MSC1756). MEDRE applies this automatically based on `encryption_mode`. Device verification via cross-signing is an upstream nio gap, not a MEDRE deferral. |
 
 ### 1.4 Live Smoke Test Attempt — sk.community (Tier: NOT EXECUTED — 2026-05-12)
 
-| Field | Value |
-|-------|-------|
-| **Test file** | `tests/test_matrix_live.py` |
-| **Evidence tier** | NOT EXECUTED (credential failure) |
-| **Attempt date** | 2026-05-12 |
-| **Executor** | Live agent (automated) |
-| **Homeserver** | `sk.community` (reachable, Matrix API v1.12 confirmed via `/_matrix/client/versions`) |
-| **User** | `@forxrelay:sk.community` |
-| **MATRIX_ROOM_ID** | Not provided; bot has 0 joined rooms |
-| **MATRIX_DEVICE_ID** | Not set — E2EE NOT EXECUTED |
-| **MATRIX_STORE_PATH** | Not set — E2EE NOT EXECUTED |
-| **Test command** | Not executed — credentials rejected before pytest invocation |
-| **Prerequisite check** | `curl /_matrix/client/v3/joined_rooms` with provided access token → `{"errcode":"M_UNKNOWN_TOKEN","error":"Token is not active","soft_logout":false}` |
-| **Homeserver connectivity** | ✅ `/_matrix/client/versions` → HTTP 200, flows: `m.login.password`, `m.login.sso`, `m.login.token` |
-| **Access token validity** | ❌ Rejected — token not active |
-| **Resolution** | Obtain a valid (non-expired) access token for `@forxrelay:sk.community`. Create or join at least one room to provide `MATRIX_ROOM_ID`. Then re-run `pytest tests/test_matrix_live.py -m live -v`. |
+| Field                       | Value                                                                                                                                                                                             |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Test file**               | `tests/test_matrix_live.py`                                                                                                                                                                       |
+| **Evidence tier**           | NOT EXECUTED (credential failure)                                                                                                                                                                 |
+| **Attempt date**            | 2026-05-12                                                                                                                                                                                        |
+| **Executor**                | Live agent (automated)                                                                                                                                                                            |
+| **Homeserver**              | `sk.community` (reachable, Matrix API v1.12 confirmed via `/_matrix/client/versions`)                                                                                                             |
+| **User**                    | `@forxrelay:sk.community`                                                                                                                                                                         |
+| **MATRIX_ROOM_ID**          | Not provided; bot has 0 joined rooms                                                                                                                                                              |
+| **MATRIX_DEVICE_ID**        | Not set — E2EE NOT EXECUTED                                                                                                                                                                       |
+| **MATRIX_STORE_PATH**       | Not set — E2EE NOT EXECUTED                                                                                                                                                                       |
+| **Test command**            | Not executed — credentials rejected before pytest invocation                                                                                                                                      |
+| **Prerequisite check**      | `curl /_matrix/client/v3/joined_rooms` with provided access token → `{"errcode":"M_UNKNOWN_TOKEN","error":"Token is not active","soft_logout":false}`                                             |
+| **Homeserver connectivity** | ✅ `/_matrix/client/versions` → HTTP 200, flows: `m.login.password`, `m.login.sso`, `m.login.token`                                                                                               |
+| **Access token validity**   | ❌ Rejected — token not active                                                                                                                                                                    |
+| **Resolution**              | Obtain a valid (non-expired) access token for `@forxrelay:sk.community`. Create or join at least one room to provide `MATRIX_ROOM_ID`. Then re-run `pytest tests/test_matrix_live.py -m live -v`. |
 
 ### 1.4b Live Smoke Test Attempt — matrix.org (Tier: NOT EXECUTED — 2026-05-12)
 
-| Field | Value |
-|-------|-------|
-| **Test file** | `tests/test_matrix_live.py` |
-| **Evidence tier** | NOT EXECUTED (credential failure) |
-| **Attempt date** | 2026-05-12 |
-| **Executor** | Live agent (automated) |
-| **Homeserver** | `matrix.org` (reachable, login flows: `m.login.password`, `m.login.sso`, `m.login.token`) |
-| **User** | `@forxrelay:matrix.org` |
-| **Target rooms** | `!sRlwdLCwIGBpSzoRsV:matrix.org` (unencrypted), `!rnmyZMhUoraPwZUDPP:matrix.org` (encrypted — E2EE skipped, no DEVICE_ID/STORE_PATH) |
-| **MATRIX_DEVICE_ID** | Not set — E2EE NOT EXECUTED |
-| **MATRIX_STORE_PATH** | Not set — E2EE NOT EXECUTED |
-| **Test command** | Not executed — login rejected before pytest invocation |
-| **Login method** | `POST /_matrix/client/v3/login` with `m.login.password`, user `forxrelay` |
-| **Login result** | ❌ HTTP 403 `M_FORBIDDEN: Invalid username/password` (3 attempts: shell curl, Python urllib, full MXID identifier — all identical failure) |
-| **Password encoding verified** | ✅ 14 chars, hex `212a696c30442456753530526426`, matches specification exactly |
-| **Homeserver connectivity** | ✅ `/_matrix/client/v3/login` (GET) → HTTP 200, 3 flows listed |
-| **Resolution** | The provided password was transmitted correctly (verified via hex dump) but is not accepted by matrix.org for user `forxrelay`. The account password may have changed, the account may be locked, or matrix.org may require SSO/captcha for this account. Obtain a valid access token via Element or another Matrix client and set `MATRIX_ACCESS_TOKEN` directly, or confirm the correct password. |
+| Field                          | Value                                                                                                                                                                                                                                                                                                                                                                                               |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Test file**                  | `tests/test_matrix_live.py`                                                                                                                                                                                                                                                                                                                                                                         |
+| **Evidence tier**              | NOT EXECUTED (credential failure)                                                                                                                                                                                                                                                                                                                                                                   |
+| **Attempt date**               | 2026-05-12                                                                                                                                                                                                                                                                                                                                                                                          |
+| **Executor**                   | Live agent (automated)                                                                                                                                                                                                                                                                                                                                                                              |
+| **Homeserver**                 | `matrix.org` (reachable, login flows: `m.login.password`, `m.login.sso`, `m.login.token`)                                                                                                                                                                                                                                                                                                           |
+| **User**                       | `@forxrelay:matrix.org`                                                                                                                                                                                                                                                                                                                                                                             |
+| **Target rooms**               | `!sRlwdLCwIGBpSzoRsV:matrix.org` (unencrypted), `!rnmyZMhUoraPwZUDPP:matrix.org` (encrypted — E2EE skipped, no DEVICE_ID/STORE_PATH)                                                                                                                                                                                                                                                                |
+| **MATRIX_DEVICE_ID**           | Not set — E2EE NOT EXECUTED                                                                                                                                                                                                                                                                                                                                                                         |
+| **MATRIX_STORE_PATH**          | Not set — E2EE NOT EXECUTED                                                                                                                                                                                                                                                                                                                                                                         |
+| **Test command**               | Not executed — login rejected before pytest invocation                                                                                                                                                                                                                                                                                                                                              |
+| **Login method**               | `POST /_matrix/client/v3/login` with `m.login.password`, user `forxrelay`                                                                                                                                                                                                                                                                                                                           |
+| **Login result**               | ❌ HTTP 403 `M_FORBIDDEN: Invalid username/password` (3 attempts: shell curl, Python urllib, full MXID identifier — all identical failure)                                                                                                                                                                                                                                                          |
+| **Password encoding verified** | ✅ 14 chars, hex `212a696c30442456753530526426`, matches specification exactly                                                                                                                                                                                                                                                                                                                      |
+| **Homeserver connectivity**    | ✅ `/_matrix/client/v3/login` (GET) → HTTP 200, 3 flows listed                                                                                                                                                                                                                                                                                                                                      |
+| **Resolution**                 | The provided password was transmitted correctly (verified via hex dump) but is not accepted by matrix.org for user `forxrelay`. The account password may have changed, the account may be locked, or matrix.org may require SSO/captcha for this account. Obtain a valid access token via Element or another Matrix client and set `MATRIX_ACCESS_TOKEN` directly, or confirm the correct password. |
 
 ### 1.5 Soak Test Evidence (Tier: NOT EXECUTED)
 
-| Field | Value |
-|-------|-------|
-| **Test file** | `tests/test_soak.py::TestMatrixSoak` |
-| **Last execution date** | **NOT EXECUTED** |
-| **Soak duration (seconds)** | **NOT EXECUTED** |
-| **Messages sent** | **NOT EXECUTED** |
-| **Messages succeeded** | **NOT EXECUTED** |
-| **Max reconnect attempts seen** | **NOT EXECUTED** |
-| **Session health throughout** | **NOT EXECUTED** |
-| **Caveats observed** | **NOT EXECUTED** |
+| Field                           | Value                                |
+| ------------------------------- | ------------------------------------ |
+| **Test file**                   | `tests/test_soak.py::TestMatrixSoak` |
+| **Last execution date**         | **NOT EXECUTED**                     |
+| **Soak duration (seconds)**     | **NOT EXECUTED**                     |
+| **Messages sent**               | **NOT EXECUTED**                     |
+| **Messages succeeded**          | **NOT EXECUTED**                     |
+| **Max reconnect attempts seen** | **NOT EXECUTED**                     |
+| **Session health throughout**   | **NOT EXECUTED**                     |
+| **Caveats observed**            | **NOT EXECUTED**                     |
 
 ### 1.6 Matrix Known Limitations (confirmed from source and live testing)
 
@@ -208,28 +207,28 @@ environment, results, caveats, reconnect observations, and limitations.
 
 #### 1.7.1 What has been validated (deterministic)
 
-| Aspect | Validation | Evidence |
-|--------|-----------|----------|
+| Aspect                                            | Validation     | Evidence                                                                               |
+| ------------------------------------------------- | -------------- | -------------------------------------------------------------------------------------- |
 | `publish_inbound()` called for third-party sender | ✅ Unit tested | `TestThirdPartyInboundCanonicalEventShape` (8 tests) in `tests/test_matrix_adapter.py` |
-| `source_transport_id` is sender MXID (not bot) | ✅ Unit tested | `test_third_party_event_has_sender_as_transport_id` |
-| `source_channel_id` is Matrix room ID | ✅ Unit tested | `test_third_party_event_has_room_as_channel_id` |
-| `source_native_ref` carries Matrix event_id | ✅ Unit tested | `test_third_party_event_has_source_native_ref` |
-| `event_kind == "message.created"` | ✅ Unit tested | `test_third_party_event_kind_is_message_created` |
-| Payload contains body and msgtype | ✅ Unit tested | `test_third_party_event_has_correct_payload` |
-| Self-loop suppression (sender == bot) | ✅ Unit tested | `TestSelfMessageSuppression` (3 tests) |
-| MEDRE-origin envelope suppression | ✅ Unit tested | `TestMEDREOriginLoopSuppression` (4 tests) |
-| Room allowlist filtering | ✅ Unit tested | `TestRoomAllowlist` (4 tests) |
-| Inbound diagnostics counters | ✅ Unit tested | `TestInboundDiagnosticsCounters` (8 tests) |
-| Diagnostics dict exposure | ✅ Unit tested | `test_diagnostics_exposes_inbound_counters` |
+| `source_transport_id` is sender MXID (not bot)    | ✅ Unit tested | `test_third_party_event_has_sender_as_transport_id`                                    |
+| `source_channel_id` is Matrix room ID             | ✅ Unit tested | `test_third_party_event_has_room_as_channel_id`                                        |
+| `source_native_ref` carries Matrix event_id       | ✅ Unit tested | `test_third_party_event_has_source_native_ref`                                         |
+| `event_kind == "message.created"`                 | ✅ Unit tested | `test_third_party_event_kind_is_message_created`                                       |
+| Payload contains body and msgtype                 | ✅ Unit tested | `test_third_party_event_has_correct_payload`                                           |
+| Self-loop suppression (sender == bot)             | ✅ Unit tested | `TestSelfMessageSuppression` (3 tests)                                                 |
+| MEDRE-origin envelope suppression                 | ✅ Unit tested | `TestMEDREOriginLoopSuppression` (4 tests)                                             |
+| Room allowlist filtering                          | ✅ Unit tested | `TestRoomAllowlist` (4 tests)                                                          |
+| Inbound diagnostics counters                      | ✅ Unit tested | `TestInboundDiagnosticsCounters` (8 tests)                                             |
+| Diagnostics dict exposure                         | ✅ Unit tested | `test_diagnostics_exposes_inbound_counters`                                            |
 
 #### 1.7.2 What requires operator-dependent live validation
 
-| Aspect | Status | Blocker |
-|--------|--------|---------|
-| nio sync delivers third-party event to `_on_room_message` | ⏳ Not executed | Requires second Matrix account sending to test room during 30 s window |
-| Live self-echo suppression (send → sync → suppress) | ⏳ Partially tested | `test_live_send_and_receive` validates self-echo doesn't leak, but full round-trip timing is environment-dependent |
-| Inbound diagnostics counters on live server | ⏳ Not executed | Requires live third-party inbound event |
-| Encrypted-room inbound from third party | ⏳ Not executed | Requires second account in encrypted room with crypto store |
+| Aspect                                                    | Status              | Blocker                                                                                                            |
+| --------------------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| nio sync delivers third-party event to `_on_room_message` | ⏳ Not executed     | Requires second Matrix account sending to test room during 30 s window                                             |
+| Live self-echo suppression (send → sync → suppress)       | ⏳ Partially tested | `test_live_send_and_receive` validates self-echo doesn't leak, but full round-trip timing is environment-dependent |
+| Inbound diagnostics counters on live server               | ⏳ Not executed     | Requires live third-party inbound event                                                                            |
+| Encrypted-room inbound from third party                   | ⏳ Not executed     | Requires second account in encrypted room with crypto store                                                        |
 
 #### 1.7.3 Live third-party inbound test procedure
 
@@ -260,7 +259,6 @@ pytest tests/test_matrix_live.py::TestMatrixLiveSmoke::test_inbound_message_rece
 2. **Manual coordination**: The sender must send during the 30-second test window. No automated sender harness exists.
 3. **No shared second account credentials in repository**: Credentials are operator-specific and must not be stored in the repo.
 
-
 ## 2. Meshtastic Operational Evidence
 
 > **Evidence tier:** R (real-live-runtime, recorded 2026-05-12 against real hardware via serial). Prior H-tier evidence from 2026-05-10 remains valid for historical reference. Track 2 follow-up evidence added 2026-05-12.
@@ -274,45 +272,45 @@ pytest tests/test_matrix_live.py::TestMatrixLiveSmoke::test_inbound_message_rece
 
 **Evidence lifecycle** (per Contract 61 §8):
 
-| Field | Value |
-|-------|-------|
-| evidence_type | observed |
-| confidence | medium |
-| verified_at | 2026-05-12 |
+| Field              | Value                                                                                                                                                                                                                |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| evidence_type      | observed                                                                                                                                                                                                             |
+| confidence         | medium                                                                                                                                                                                                               |
+| verified_at        | 2026-05-12                                                                                                                                                                                                           |
 | verification_scope | Manual CLI serial validation: device discovery, hardware/firmware capture, 1 outbound send on ch0, 3 reconnect cycles. NOT MEDRE adapter lifecycle — CLI-level only. No soak, no second-node, no encrypted channels. |
-| environment | Dev laptop, serial `/dev/ttyACM0` (CH9102F, T-LoRa V2.1-1.6), firmware 2.7.19, meshtastic CLI 2.7.8, Python (platformio penv). `mtjk` not in project venv. |
+| environment        | Dev laptop, serial `/dev/ttyACM0` (CH9102F, T-LoRa V2.1-1.6), firmware 2.7.19, meshtastic CLI 2.7.8, Python (platformio penv). `mtjk` not in project venv.                                                           |
 
-| Field | Value |
-|-------|-------|
-| **Evidence tier** | R (real-live-runtime) |
-| **Execution date** | 2026-05-12 |
-| **Executor** | Manual operator (serial CLI validation) |
-| **Connection type** | Serial (USB CDC ACM) |
-| **Serial port** | `/dev/ttyACM0` (USB ID: `1a86_USB_Single_Serial_5435017226-if00`) |
-| **meshtastic CLI version** | 2.7.8 (`/home/jeremiah/.platformio/penv/bin/meshtastic`) |
-| **pyserial version** | 3.5 |
-| **mtjk package** | NOT installed (used platformio penv meshtastic 2.7.8 instead) |
-| **User groups** | `dialout` (serial write access confirmed) |
-| **Node hardware** | LilyGO T-LoRa V2.1.1.6 (`hwModel: TLORA_V2_1_1P6`, `pioEnv: tlora-v2-1-1_6`) |
-| **Node ID** | `!25d6e474` (num 634840180) |
-| **Node name** | "Meshtastic e474" (short: "e474") |
-| **Firmware version** | 2.7.19.bb3d6d5 (firmwareEdition: VANILLA) |
-| **Device role** | CLIENT |
-| **Capabilities** | hasWifi: true, hasBluetooth: true, hasPKC: true, canShutdown: true |
-| **LoRa config** | Region: US, Bandwidth: 250, SF: 11, CR: 5, hopLimit: 3, txEnabled: true |
-| **Device serialEnabled** | false (device pref, but serial CLI connects fine via CDC ACM) |
-| **GPS mode** | NOT_PRESENT (no GPS module) |
-| **Battery at first query** | 97%, voltage 4.157V |
-| **Battery at second query** | 96% (normal drain) |
-| **Battery at nodes query** | "Powered" (USB power detected) |
-| **Battery at Track 2 query** | 101% / 4.202V ("Powered" — USB power detected) |
-| **Channel utilization** | 1.0% initially, 7.51% after test message, 1.68% at Track 2 query |
-| **Air util TX** | 0.028% initially, 0.06% after test message, 0.06% at Track 2 query |
-| **Uptime at first query** | 1276 seconds |
-| **Uptime at Track 2 query** | 27616 seconds (~7.7 hours) |
-| **Reboot count** | 26 (unchanged across initial and Track 2 queries) |
-| **Min app version** | 30200 |
-| **Device state version** | 24 |
+| Field                        | Value                                                                        |
+| ---------------------------- | ---------------------------------------------------------------------------- |
+| **Evidence tier**            | R (real-live-runtime)                                                        |
+| **Execution date**           | 2026-05-12                                                                   |
+| **Executor**                 | Manual operator (serial CLI validation)                                      |
+| **Connection type**          | Serial (USB CDC ACM)                                                         |
+| **Serial port**              | `/dev/ttyACM0` (USB ID: `1a86_USB_Single_Serial_5435017226-if00`)            |
+| **meshtastic CLI version**   | 2.7.8 (`/home/jeremiah/.platformio/penv/bin/meshtastic`)                     |
+| **pyserial version**         | 3.5                                                                          |
+| **mtjk package**             | NOT installed (used platformio penv meshtastic 2.7.8 instead)                |
+| **User groups**              | `dialout` (serial write access confirmed)                                    |
+| **Node hardware**            | LilyGO T-LoRa V2.1.1.6 (`hwModel: TLORA_V2_1_1P6`, `pioEnv: tlora-v2-1-1_6`) |
+| **Node ID**                  | `!25d6e474` (num 634840180)                                                  |
+| **Node name**                | "Meshtastic e474" (short: "e474")                                            |
+| **Firmware version**         | 2.7.19.bb3d6d5 (firmwareEdition: VANILLA)                                    |
+| **Device role**              | CLIENT                                                                       |
+| **Capabilities**             | hasWifi: true, hasBluetooth: true, hasPKC: true, canShutdown: true           |
+| **LoRa config**              | Region: US, Bandwidth: 250, SF: 11, CR: 5, hopLimit: 3, txEnabled: true      |
+| **Device serialEnabled**     | false (device pref, but serial CLI connects fine via CDC ACM)                |
+| **GPS mode**                 | NOT_PRESENT (no GPS module)                                                  |
+| **Battery at first query**   | 97%, voltage 4.157V                                                          |
+| **Battery at second query**  | 96% (normal drain)                                                           |
+| **Battery at nodes query**   | "Powered" (USB power detected)                                               |
+| **Battery at Track 2 query** | 101% / 4.202V ("Powered" — USB power detected)                               |
+| **Channel utilization**      | 1.0% initially, 7.51% after test message, 1.68% at Track 2 query             |
+| **Air util TX**              | 0.028% initially, 0.06% after test message, 0.06% at Track 2 query           |
+| **Uptime at first query**    | 1276 seconds                                                                 |
+| **Uptime at Track 2 query**  | 27616 seconds (~7.7 hours)                                                   |
+| **Reboot count**             | 26 (unchanged across initial and Track 2 queries)                            |
+| **Min app version**          | 30200                                                                        |
+| **Device state version**     | 24                                                                           |
 
 #### 2.0.1 Commands Run (no secrets)
 
@@ -356,45 +354,45 @@ meshtastic --port /dev/ttyACM0 --info
 
 #### 2.0.2 Outbound Send Observation
 
-| Field | Value |
-|-------|-------|
-| **Command** | `meshtastic --port /dev/ttyACM0 --ch-index 0 --sendtext "MEDRE serial validation test 2026-05-12 - disregard"` |
-| **CLI output** | `Connected to radio` → `Sending text message MEDRE serial validation test 2026-05-12 - disregard to ^all on channelIndex:0` |
-| **No error raised** | ✅ CLI completed with exit code 0 |
-| **Explicit ACK received** | **No** — meshtastic 2.7.8 CLI does not print ACK confirmation for broadcast sends. sendText completed without error, but no delivery acknowledgment was observed. |
+| Field                               | Value                                                                                                                                                                                                           |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Command**                         | `meshtastic --port /dev/ttyACM0 --ch-index 0 --sendtext "MEDRE serial validation test 2026-05-12 - disregard"`                                                                                                  |
+| **CLI output**                      | `Connected to radio` → `Sending text message MEDRE serial validation test 2026-05-12 - disregard to ^all on channelIndex:0`                                                                                     |
+| **No error raised**                 | ✅ CLI completed with exit code 0                                                                                                                                                                               |
+| **Explicit ACK received**           | **No** — meshtastic 2.7.8 CLI does not print ACK confirmation for broadcast sends. sendText completed without error, but no delivery acknowledgment was observed.                                               |
 | **Second-node reception confirmed** | **No** — a second node (`!ee4a65b1`, "Meshtastic 65b1") appeared in the node DB after the send, but its appearance is due to hearing its periodic announcement, NOT evidence that it received our test message. |
-| **Duplicate-send risk** | Not assessed in this session. Only one send was performed. |
+| **Duplicate-send risk**             | Not assessed in this session. Only one send was performed.                                                                                                                                                      |
 
 #### 2.0.3 Second Node Observation
 
 During the validation session, a second node appeared in the mesh:
 
-| Field | Value |
-|-------|-------|
-| **Node ID** | `!ee4a65b1` |
-| **Short name** | "65b1" |
-| **Long name** | "Meshtastic 65b1" |
-| **Hardware model** | UNSET (not yet broadcast or older firmware) |
-| **Public key** | N/A (PKC not available or not broadcast) |
-| **SNR** | -0 dB (direct, 1 hop) |
-| **Channel** | 0 |
-| **Battery** | N/A |
-| **Position** | N/A |
-| **When observed** | Appeared in node DB between first `--info` (nodedbCount: 1) and second `--info` (nodedbCount: 2), approximately 30–60 seconds into the session |
+| Field              | Value                                                                                                                                          |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Node ID**        | `!ee4a65b1`                                                                                                                                    |
+| **Short name**     | "65b1"                                                                                                                                         |
+| **Long name**      | "Meshtastic 65b1"                                                                                                                              |
+| **Hardware model** | UNSET (not yet broadcast or older firmware)                                                                                                    |
+| **Public key**     | N/A (PKC not available or not broadcast)                                                                                                       |
+| **SNR**            | -0 dB (direct, 1 hop)                                                                                                                          |
+| **Channel**        | 0                                                                                                                                              |
+| **Battery**        | N/A                                                                                                                                            |
+| **Position**       | N/A                                                                                                                                            |
+| **When observed**  | Appeared in node DB between first `--info` (nodedbCount: 1) and second `--info` (nodedbCount: 2), approximately 30–60 seconds into the session |
 
 **Honest assessment:** The second node's appearance confirms that at least one other Meshtastic device is active on the same LoRa channel in radio range. We CANNOT confirm this node received our test message, acknowledged it, or processed it in any way. Its node DB entry is evidence of its presence, not evidence of message delivery.
 
 #### 2.0.4 Disconnect/Reconnect Resilience (CLI-level)
 
-| Field | Value |
-|-------|-------|
-| **Cycle count** | 3 (after initial connection, then 2 more CLI sessions, plus 1 Track 2 follow-up) |
-| **Cycle 1** | `--info` connected successfully. nodedbCount: 2. All fields consistent. |
-| **Cycle 2** | `--info` connected successfully. nodedbCount: 2. All fields consistent. |
-| **Cycle 3 (Track 2)** | `--info` connected successfully after 3s disconnect. nodedbCount: 2. Battery: Powered, uptime: 27616s, channel util: 1.68%, air util TX: 0.06%. All fields consistent. |
-| **Connection failures** | 0 across all 4 CLI sessions (initial + 3 reconnect cycles) |
-| **Serial errors** | 0 across all sessions |
-| **Observation** | Each CLI invocation creates a fresh serial connection to `/dev/ttyACM0`, completes its operation, and disconnects. All 4 connections (initial + 3 reconnects) succeeded within 15-second timeouts. Device stable across 7.7+ hours of uptime with no reboot (rebootCount: 26 unchanged). |
+| Field                   | Value                                                                                                                                                                                                                                                                                    |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Cycle count**         | 3 (after initial connection, then 2 more CLI sessions, plus 1 Track 2 follow-up)                                                                                                                                                                                                         |
+| **Cycle 1**             | `--info` connected successfully. nodedbCount: 2. All fields consistent.                                                                                                                                                                                                                  |
+| **Cycle 2**             | `--info` connected successfully. nodedbCount: 2. All fields consistent.                                                                                                                                                                                                                  |
+| **Cycle 3 (Track 2)**   | `--info` connected successfully after 3s disconnect. nodedbCount: 2. Battery: Powered, uptime: 27616s, channel util: 1.68%, air util TX: 0.06%. All fields consistent.                                                                                                                   |
+| **Connection failures** | 0 across all 4 CLI sessions (initial + 3 reconnect cycles)                                                                                                                                                                                                                               |
+| **Serial errors**       | 0 across all sessions                                                                                                                                                                                                                                                                    |
+| **Observation**         | Each CLI invocation creates a fresh serial connection to `/dev/ttyACM0`, completes its operation, and disconnects. All 4 connections (initial + 3 reconnects) succeeded within 15-second timeouts. Device stable across 7.7+ hours of uptime with no reboot (rebootCount: 26 unchanged). |
 
 **Caveat:** These are CLI-level disconnect/reconnect cycles (each meshtastic CLI invocation opens and closes the serial port). This is NOT the same as MEDRE adapter session reconnect with exponential backoff, health transitions, and pubsub resubscription. MEDRE adapter session reconnect remains NOT EXECUTED (see §2.3).
 
@@ -409,71 +407,71 @@ During the validation session, a second node appeared in the mesh:
 
 > **Added 2026-05-12 (Track 2 follow-up).** Based on CLI-level serial validation across 4 sessions and 1 outbound send attempt.
 
-| Field | Value |
-|-------|-------|
-| **ACK reliability** | **UNRELIABLE** — meshtastic 2.7.8 CLI does not print ACK confirmation for broadcast sends. `sendText` completed without error, but no delivery acknowledgment was observed. The Meshtastic protocol does not guarantee ACK for broadcast messages on shared channels. |
-| **Delivery guarantee** | **BEST EFFORT** — fire-and-forget LoRa broadcast. No second-node reception confirmed. A second node (`!ee4a65b1`) was present in the node DB at SNR -0.25 dB, 1 hop away, but its presence confirms radio range overlap only, NOT message delivery to that node. |
-| **Reconnect reliability (CLI-level)** | **RELIABLE** — 4/4 serial connections succeeded across ~7.7 hours of device uptime. No serial errors, no connection failures. |
-| **Device stability** | **STABLE** — device ran continuously without reboot (rebootCount: 26 unchanged), battery at "Powered" (USB), channel utilization low (1.68%). |
-| **MEDRE adapter reliability** | **NOT ASSESSED** — CLI-level validation only. MEDRE adapter session lifecycle, health transitions, and send_one pipeline remain untested against real hardware. |
+| Field                                 | Value                                                                                                                                                                                                                                                                 |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **ACK reliability**                   | **UNRELIABLE** — meshtastic 2.7.8 CLI does not print ACK confirmation for broadcast sends. `sendText` completed without error, but no delivery acknowledgment was observed. The Meshtastic protocol does not guarantee ACK for broadcast messages on shared channels. |
+| **Delivery guarantee**                | **BEST EFFORT** — fire-and-forget LoRa broadcast. No second-node reception confirmed. A second node (`!ee4a65b1`) was present in the node DB at SNR -0.25 dB, 1 hop away, but its presence confirms radio range overlap only, NOT message delivery to that node.      |
+| **Reconnect reliability (CLI-level)** | **RELIABLE** — 4/4 serial connections succeeded across ~7.7 hours of device uptime. No serial errors, no connection failures.                                                                                                                                         |
+| **Device stability**                  | **STABLE** — device ran continuously without reboot (rebootCount: 26 unchanged), battery at "Powered" (USB), channel utilization low (1.68%).                                                                                                                         |
+| **MEDRE adapter reliability**         | **NOT ASSESSED** — CLI-level validation only. MEDRE adapter session lifecycle, health transitions, and send_one pipeline remain untested against real hardware.                                                                                                       |
 
 #### 2.0.7 NOT EXECUTED (this session)
 
-| Item | Reason |
-|------|--------|
+| Item                                                                | Reason                                                                                                                            |
+| ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | MEDRE adapter lifecycle (start/stop/health) via `pytest` live tests | mtjk package not installed in project venv; meshtastic 2.7.8 available only via platformio penv. Live pytest suite requires mtjk. |
-| `send_one` path via MEDRE adapter | Requires MEDRE adapter running against real hardware. Not tested. |
-| MEDRE session reconnect with exponential backoff | Requires adapter session; only CLI-level reconnect tested. |
-| Soak test (sustained runtime) | Not in scope for minimal validation. |
-| Second-node inbound reception | Requires second node to send during test window. Not attempted. |
-| Encrypted channel support | Not tested. |
-| Admin operations, config writes, firmware changes | Explicitly excluded as destructive. |
-| BLE connectivity | Not tested. |
-| Multi-hop delivery | Not tested. |
+| `send_one` path via MEDRE adapter                                   | Requires MEDRE adapter running against real hardware. Not tested.                                                                 |
+| MEDRE session reconnect with exponential backoff                    | Requires adapter session; only CLI-level reconnect tested.                                                                        |
+| Soak test (sustained runtime)                                       | Not in scope for minimal validation.                                                                                              |
+| Second-node inbound reception                                       | Requires second node to send during test window. Not attempted.                                                                   |
+| Encrypted channel support                                           | Not tested.                                                                                                                       |
+| Admin operations, config writes, firmware changes                   | Explicitly excluded as destructive.                                                                                               |
+| BLE connectivity                                                    | Not tested.                                                                                                                       |
+| Multi-hop delivery                                                  | Not tested.                                                                                                                       |
 
 ### 2.1 Live Smoke Test Evidence (Tier: H — recorded 2026-05-10)
 
-| Field | Value |
-|-------|-------|
-| **Test file** | `tests/test_meshtastic_live.py` |
-| **Evidence tier** | H (historical) |
-| **Last execution date** | 2026-05-10 |
-| **Executor** | Live agent (automated) |
-| **Connection type** | Serial (direct USB connection to `/dev/ttyACM0`) |
-| **Node hardware** | LilyGO T-LORA V2.1, node `!25d6e474` |
-| **Firmware version** | 2.7.19 |
-| **Channel** | Test (PRIMARY, LONG_FAST) |
-| **mtjk version** | 2.7.8.post2+ (imported as `meshtastic`) |
-| **MEDRE commit** | Pre-beta HEAD (2026-05-10) |
-| **Python version** | 3.12 |
-| **Environment** | Local development machine |
-| **Test command** | `pytest tests/test_meshtastic_live.py -m live -v` |
-| **Total tests run** | 10 |
-| **Passed / Failed / Skipped** | 10 passed / 0 failed / 0 skipped |
-| **Wall time** | 34.47s |
-| **Raw mtjk sendText** | ✅ `sendText()` returned `MeshPacket` with populated `id`. Outbound packet IDs were unique across sends. |
-| **Raw mtjk sendData** | ✅ `sendData()` returned `MeshPacket` with populated `id`. |
-| **Raw mtjk receive callback** | ✅ Pubsub callback fired on packet reception. Received packets have expected shape (`decoded`, `id`, `portnum`). Inbound telemetry packet observed (not just text). |
-| **MEDRE adapter start** | ✅ Adapter created client via `_create_client()`, connected and subscribed. |
-| **MEDRE adapter health → healthy** | ✅ `health_check()` returned `"healthy"` after start. |
-| **MEDRE adapter stop** | ✅ `stop()` closed client, unsubscribed cleanly. |
-| **Caveats observed** | Initial harness had two bugs fixed in-tree before final run: (1) `isConnected` TypeError — attribute used instead of correct API; (2) `pypubsub` ListenerMismatchError — callback signature mismatch (`pub.sendMessage` vs `pypubsub.subscribe`). Both fixed. Final 10/10 pass reflects corrected harness. |
-| **Reconnect observations** | Not explicitly tested in this run. Session maintained stable connection throughout 34.47s execution. |
-| **Destructive operations** | None performed. No admin packets, no firmware changes, no config writes. |
-| **Second-node inbound** | **NOT EXECUTED** — requires a second Meshtastic node not present in this run. |
+| Field                              | Value                                                                                                                                                                                                                                                                                                      |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Test file**                      | `tests/test_meshtastic_live.py`                                                                                                                                                                                                                                                                            |
+| **Evidence tier**                  | H (historical)                                                                                                                                                                                                                                                                                             |
+| **Last execution date**            | 2026-05-10                                                                                                                                                                                                                                                                                                 |
+| **Executor**                       | Live agent (automated)                                                                                                                                                                                                                                                                                     |
+| **Connection type**                | Serial (direct USB connection to `/dev/ttyACM0`)                                                                                                                                                                                                                                                           |
+| **Node hardware**                  | LilyGO T-LORA V2.1, node `!25d6e474`                                                                                                                                                                                                                                                                       |
+| **Firmware version**               | 2.7.19                                                                                                                                                                                                                                                                                                     |
+| **Channel**                        | Test (PRIMARY, LONG_FAST)                                                                                                                                                                                                                                                                                  |
+| **mtjk version**                   | 2.7.8.post2+ (imported as `meshtastic`)                                                                                                                                                                                                                                                                    |
+| **MEDRE commit**                   | Pre-beta HEAD (2026-05-10)                                                                                                                                                                                                                                                                                 |
+| **Python version**                 | 3.12                                                                                                                                                                                                                                                                                                       |
+| **Environment**                    | Local development machine                                                                                                                                                                                                                                                                                  |
+| **Test command**                   | `pytest tests/test_meshtastic_live.py -m live -v`                                                                                                                                                                                                                                                          |
+| **Total tests run**                | 10                                                                                                                                                                                                                                                                                                         |
+| **Passed / Failed / Skipped**      | 10 passed / 0 failed / 0 skipped                                                                                                                                                                                                                                                                           |
+| **Wall time**                      | 34.47s                                                                                                                                                                                                                                                                                                     |
+| **Raw mtjk sendText**              | ✅ `sendText()` returned `MeshPacket` with populated `id`. Outbound packet IDs were unique across sends.                                                                                                                                                                                                   |
+| **Raw mtjk sendData**              | ✅ `sendData()` returned `MeshPacket` with populated `id`.                                                                                                                                                                                                                                                 |
+| **Raw mtjk receive callback**      | ✅ Pubsub callback fired on packet reception. Received packets have expected shape (`decoded`, `id`, `portnum`). Inbound telemetry packet observed (not just text).                                                                                                                                        |
+| **MEDRE adapter start**            | ✅ Adapter created client via `_create_client()`, connected and subscribed.                                                                                                                                                                                                                                |
+| **MEDRE adapter health → healthy** | ✅ `health_check()` returned `"healthy"` after start.                                                                                                                                                                                                                                                      |
+| **MEDRE adapter stop**             | ✅ `stop()` closed client, unsubscribed cleanly.                                                                                                                                                                                                                                                           |
+| **Caveats observed**               | Initial harness had two bugs fixed in-tree before final run: (1) `isConnected` TypeError — attribute used instead of correct API; (2) `pypubsub` ListenerMismatchError — callback signature mismatch (`pub.sendMessage` vs `pypubsub.subscribe`). Both fixed. Final 10/10 pass reflects corrected harness. |
+| **Reconnect observations**         | Not explicitly tested in this run. Session maintained stable connection throughout 34.47s execution.                                                                                                                                                                                                       |
+| **Destructive operations**         | None performed. No admin packets, no firmware changes, no config writes.                                                                                                                                                                                                                                   |
+| **Second-node inbound**            | **NOT EXECUTED** — requires a second Meshtastic node not present in this run.                                                                                                                                                                                                                              |
 
 ### 2.2 Soak Test Evidence (Tier: NOT EXECUTED)
 
-| Field | Value |
-|-------|-------|
-| **Test file** | `tests/test_soak.py::TestMeshtasticSoak` |
-| **Last execution date** | **NOT EXECUTED** |
-| **Soak duration (seconds)** | **NOT EXECUTED** |
-| **Messages sent** | **NOT EXECUTED** |
-| **Messages succeeded** | **NOT EXECUTED** |
-| **Max reconnect attempts seen** | **NOT EXECUTED** |
-| **Session health throughout** | **NOT EXECUTED** |
-| **Caveats observed** | **NOT EXECUTED** |
+| Field                           | Value                                    |
+| ------------------------------- | ---------------------------------------- |
+| **Test file**                   | `tests/test_soak.py::TestMeshtasticSoak` |
+| **Last execution date**         | **NOT EXECUTED**                         |
+| **Soak duration (seconds)**     | **NOT EXECUTED**                         |
+| **Messages sent**               | **NOT EXECUTED**                         |
+| **Messages succeeded**          | **NOT EXECUTED**                         |
+| **Max reconnect attempts seen** | **NOT EXECUTED**                         |
+| **Session health throughout**   | **NOT EXECUTED**                         |
+| **Caveats observed**            | **NOT EXECUTED**                         |
 
 ### 2.3 Meshtastic Known Limitations (confirmed from source and live testing)
 
@@ -490,7 +488,6 @@ During the validation session, a second node appeared in the mesh:
 - **Delivery guarantee:** Classified **BEST EFFORT** (Track 2, 2026-05-12). Fire-and-forget LoRa broadcast. Second-node presence in node DB confirms radio range overlap only, NOT message delivery.
 - **Second-node observation:** A second node (`!ee4a65b1`, "Meshtastic 65b1") was observed on channel 0 during both initial and Track 2 validation (SNR -0.25 dB at Track 2, UNSET hardware). Its presence confirms radio range overlap but does NOT confirm message delivery. No second-node inbound or ACK was observed.
 
-
 ## 3. MeshCore Operational Evidence
 
 > **Evidence tier:** NOT EXECUTED. No live evidence of any tier. S-tier unit tests pass.
@@ -500,43 +497,43 @@ During the validation session, a second node appeared in the mesh:
 
 ### 3.1 Live Smoke Test Evidence (Tier: NOT EXECUTED)
 
-| Field | Value |
-|-------|-------|
-| **Test file** | `tests/test_meshcore_live.py` |
-| **Last execution date** | **NOT EXECUTED** |
-| **Executor** | **NOT EXECUTED** |
-| **Connection type** | **NOT EXECUTED** (TCP/serial/BLE) |
-| **Node hardware** | **NOT EXECUTED** |
-| **SDK version** | **NOT EXECUTED** |
-| **MEDRE commit** | **NOT EXECUTED** |
-| **Python version** | **NOT EXECUTED** |
-| **Environment** | **NOT EXECUTED** |
-| **Total tests run** | **NOT EXECUTED** |
-| **Passed / Failed / Skipped** | **NOT EXECUTED** |
-| **Adapter start** | **NOT EXECUTED** |
-| **Health check → healthy** | **NOT EXECUTED** |
-| **Send text → success** | **NOT EXECUTED** |
-| **Inbound callback received** | **NOT EXECUTED** |
-| **Diagnostics snapshot** | **NOT EXECUTED** |
-| **Stop → clean teardown** | **NOT EXECUTED** |
-| **Caveats observed** | **NOT EXECUTED** |
-| **Reconnect observations** | **NOT EXECUTED** |
+| Field                         | Value                             |
+| ----------------------------- | --------------------------------- |
+| **Test file**                 | `tests/test_meshcore_live.py`     |
+| **Last execution date**       | **NOT EXECUTED**                  |
+| **Executor**                  | **NOT EXECUTED**                  |
+| **Connection type**           | **NOT EXECUTED** (TCP/serial/BLE) |
+| **Node hardware**             | **NOT EXECUTED**                  |
+| **SDK version**               | **NOT EXECUTED**                  |
+| **MEDRE commit**              | **NOT EXECUTED**                  |
+| **Python version**            | **NOT EXECUTED**                  |
+| **Environment**               | **NOT EXECUTED**                  |
+| **Total tests run**           | **NOT EXECUTED**                  |
+| **Passed / Failed / Skipped** | **NOT EXECUTED**                  |
+| **Adapter start**             | **NOT EXECUTED**                  |
+| **Health check → healthy**    | **NOT EXECUTED**                  |
+| **Send text → success**       | **NOT EXECUTED**                  |
+| **Inbound callback received** | **NOT EXECUTED**                  |
+| **Diagnostics snapshot**      | **NOT EXECUTED**                  |
+| **Stop → clean teardown**     | **NOT EXECUTED**                  |
+| **Caveats observed**          | **NOT EXECUTED**                  |
+| **Reconnect observations**    | **NOT EXECUTED**                  |
 
 ### 3.1b Hardware Probe Evidence (2026-05-12)
 
 > **Not live-transport evidence.** Documents physical device findings relevant to MeshCore follow-up validation.
 
-| Field | Value |
-|-------|-------|
-| **Probe date** | 2026-05-12 |
-| **Device** | CP2104 USB-to-UART bridge at `/dev/ttyUSB0` |
-| **Stable by-id path** | `Silicon_Labs_CP2104_USB_to_UART_Bridge_Controller_*/if00-port0` |
-| **Likely hardware** | T-Beam (CP2104 is typical T-Beam USB-UART bridge) |
-| **Serial chatter** | None observed at 9600 or 115200 baud. Device may be unflashed or running non-MeshCore firmware. |
-| **esptool availability** | Available via pipx. `esptool chip_id` not yet run. |
-| **MeshCore firmware source** | Available at `/home/jeremiah/dev` (local source repo) |
-| **MeshCore Python library** | Available at `/home/jeremiah/dev` (local source repo) |
-| **Follow-up status** | **Pending** — firmware flash attempt required before live test |
+| Field                        | Value                                                                                           |
+| ---------------------------- | ----------------------------------------------------------------------------------------------- |
+| **Probe date**               | 2026-05-12                                                                                      |
+| **Device**                   | CP2104 USB-to-UART bridge at `/dev/ttyUSB0`                                                     |
+| **Stable by-id path**        | `Silicon_Labs_CP2104_USB_to_UART_Bridge_Controller_*/if00-port0`                                |
+| **Likely hardware**          | T-Beam (CP2104 is typical T-Beam USB-UART bridge)                                               |
+| **Serial chatter**           | None observed at 9600 or 115200 baud. Device may be unflashed or running non-MeshCore firmware. |
+| **esptool availability**     | Available via pipx. `esptool chip_id` not yet run.                                              |
+| **MeshCore firmware source** | Available at `/home/jeremiah/dev` (local source repo)                                           |
+| **MeshCore Python library**  | Available at `/home/jeremiah/dev` (local source repo)                                           |
+| **Follow-up status**         | **Pending** — firmware flash attempt required before live test                                  |
 
 ### 3.2 MeshCore Known Limitations (confirmed from source)
 
@@ -548,7 +545,6 @@ During the validation session, a second node appeared in the mesh:
 - Duplicate-send risk acknowledged (session retries up to 3 times).
 - **Hardware gap:** CP2104 device at `/dev/ttyUSB0` identified but produces no serial chatter. Firmware flash required before any MeshCore interaction is possible. This is a specific, documented gap — not a vague blocker.
 
-
 ## 4. LXMF/Reticulum Operational Evidence
 
 > **Evidence tier:** NOT EXECUTED. No live evidence of any tier. S-tier unit tests pass.
@@ -558,42 +554,43 @@ During the validation session, a second node appeared in the mesh:
 
 ### 4.1 Live Smoke Test Evidence (Tier: NOT EXECUTED)
 
-| Field | Value |
-|-------|-------|
-| **Test file** | `tests/test_lxmf_live.py` |
-| **Last execution date** | **NOT EXECUTED** |
-| **Executor** | **NOT EXECUTED** |
-| **Connection type** | **NOT EXECUTED** (`reticulum`) |
-| **RNS version** | **NOT EXECUTED** |
-| **lxmf version** | **NOT EXECUTED** |
-| **Identity source** | **NOT EXECUTED** (loaded/generated) |
-| **MEDRE commit** | **NOT EXECUTED** |
-| **Python version** | **NOT EXECUTED** |
-| **Environment** | **NOT EXECUTED** |
-| **Total tests run** | **NOT EXECUTED** |
-| **Passed / Failed / Skipped** | **NOT EXECUTED** |
-| **Fake mode lifecycle** | **NOT EXECUTED** |
-| **Real mode start/connect** | **NOT EXECUTED** |
-| **Real mode deliver** | **NOT EXECUTED** |
-| **Inbound callback received** | **NOT EXECUTED** |
-| **Diagnostics snapshot** | **NOT EXECUTED** |
-| **Stop → clean teardown** | **NOT EXECUTED** |
-| **Caveats observed** | **NOT EXECUTED** |
-| **Reconnect observations** | **NOT EXECUTED** |
+| Field                         | Value                               |
+| ----------------------------- | ----------------------------------- |
+| **Test file**                 | `tests/test_lxmf_live.py`           |
+| **Last execution date**       | **NOT EXECUTED**                    |
+| **Executor**                  | **NOT EXECUTED**                    |
+| **Connection type**           | **NOT EXECUTED** (`reticulum`)      |
+| **RNS version**               | **NOT EXECUTED**                    |
+| **lxmf version**              | **NOT EXECUTED**                    |
+| **Identity source**           | **NOT EXECUTED** (loaded/generated) |
+| **MEDRE commit**              | **NOT EXECUTED**                    |
+| **Python version**            | **NOT EXECUTED**                    |
+| **Environment**               | **NOT EXECUTED**                    |
+| **Total tests run**           | **NOT EXECUTED**                    |
+| **Passed / Failed / Skipped** | **NOT EXECUTED**                    |
+| **Fake mode lifecycle**       | **NOT EXECUTED**                    |
+| **Real mode start/connect**   | **NOT EXECUTED**                    |
+| **Real mode deliver**         | **NOT EXECUTED**                    |
+| **Inbound callback received** | **NOT EXECUTED**                    |
+| **Diagnostics snapshot**      | **NOT EXECUTED**                    |
+| **Stop → clean teardown**     | **NOT EXECUTED**                    |
+| **Caveats observed**          | **NOT EXECUTED**                    |
+| **Reconnect observations**    | **NOT EXECUTED**                    |
 
 ### 4.1b Local Source Repos (2026-05-12)
 
 > **Not live-transport evidence.** Documents available source code for Reticulum/LXMF follow-up setup.
 
-| Resource | Location | Notes |
-|----------|----------|-------|
-| LXMF source | `/home/jeremiah/dev` (local source repo) | Available for `pip install -e` |
-| Reticulum source | `/home/jeremiah/dev` (local source repo) | Available for `pip install -e` |
-| MeshCore firmware | `/home/jeremiah/dev` (local source repo) | For MeshCore device, not LXMF |
-| MeshCore Python library | `/home/jeremiah/dev` (local source repo) | For MeshCore adapter, not LXMF |
-| pipx preference | User prefers pipx for PyPI CLI tools | esptool already available via pipx |
+| Resource                | Location                                 | Notes                              |
+| ----------------------- | ---------------------------------------- | ---------------------------------- |
+| LXMF source             | `/home/jeremiah/dev` (local source repo) | Available for `pip install -e`     |
+| Reticulum source        | `/home/jeremiah/dev` (local source repo) | Available for `pip install -e`     |
+| MeshCore firmware       | `/home/jeremiah/dev` (local source repo) | For MeshCore device, not LXMF      |
+| MeshCore Python library | `/home/jeremiah/dev` (local source repo) | For MeshCore adapter, not LXMF     |
+| pipx preference         | User prefers pipx for PyPI CLI tools     | esptool already available via pipx |
 
 **Setup steps for LXMF live path:**
+
 1. Install Reticulum from local source: `pip install -e /path/to/rns-source`
 2. Install LXMF from local source: `pip install -e /path/to/lxmf-source`
 3. Configure Reticulum transport (local TCP or serial interface)
@@ -612,7 +609,6 @@ During the validation session, a second node appeared in the mesh:
 - **Reticulum live path gap:** Local source repos available but no Reticulum instance configured. This is a specific, documented gap — not a vague blocker. Requires follow-up: install from source, configure transport, run live test.
 - **Delivery state model unvalidated:** The `OUTBOUND → SENDING → SENT → DELIVERED` progression (1,260 LOC session) is implemented but never observed against real Reticulum infrastructure. Experimental downgrade risk per Contract 62 §5.4 if live path reveals fundamental issues.
 
-
 ## 5. Deterministic Test Evidence (Tier: S — confirmed)
 
 This section records evidence from deterministic/unit tests that do not require
@@ -620,30 +616,29 @@ live services. These are confirmed from CI runs.
 
 ### 5.1 Current Evidence (as of 2026-05-11)
 
-| Field | Value |
-|-------|-------|
-| **Test command** | `pytest` (default, no live) |
-| **Last confirmed date** | 2026-05-11 |
-| **Passed** | 3237 |
-| **Skipped** | 4 |
-| **Deselected** | 63 (live + soak tests excluded by default) |
-| **compileall** | Clean (`python -m compileall -q src tests`) |
-| **All adapters covered** | Yes (Matrix, Meshtastic, MeshCore, LXMF) |
+| Field                    | Value                                       |
+| ------------------------ | ------------------------------------------- |
+| **Test command**         | `pytest` (default, no live)                 |
+| **Last confirmed date**  | 2026-05-11                                  |
+| **Passed**               | 3237                                        |
+| **Skipped**              | 4                                           |
+| **Deselected**           | 63 (live + soak tests excluded by default)  |
+| **compileall**           | Clean (`python -m compileall -q src tests`) |
+| **All adapters covered** | Yes (Matrix, Meshtastic, MeshCore, LXMF)    |
 
 ### 5.2 Historical Evidence (superseded)
 
 > The following counts are from a prior run and are preserved for traceability.
 > They are NOT the current evidence — use §5.1 above for current numbers.
 
-| Field | Value |
-|-------|-------|
-| **Run date** | 2026-05-10 |
+| Field           | Value                                          |
+| --------------- | ---------------------------------------------- |
+| **Run date**    | 2026-05-10                                     |
 | **Total tests** | 2076 (including 27 resource containment tests) |
-| **Passed** | 2076 |
-| **Failed** | 0 |
-| **Deselected** | 61 (live + soak tests excluded by default) |
-| **compileall** | Clean |
-
+| **Passed**      | 2076                                           |
+| **Failed**      | 0                                              |
+| **Deselected**  | 61 (live + soak tests excluded by default)     |
+| **compileall**  | Clean                                          |
 
 ## 6. Live Evidence Commands and Environment Variables
 
@@ -774,27 +769,25 @@ pytest tests/test_soak.py::TestMeshtasticSoak -m live -v -s
 pytest tests/test_soak_harness.py tests/test_soak_config_builder.py -q
 ```
 
-
 ## 7. NOT EXECUTED Reasoning
 
 The following table documents why specific evidence has not been collected.
 This section exists to ensure honesty: absence of evidence is not evidence
 of absence, and every gap is traceable to a specific reason.
 
-| Transport | Evidence type | Status | Reason | Required command | Required env vars |
-|-----------|--------------|--------|--------|------------------|-------------------|
-| Matrix | Soak test | NOT EXECUTED | No sustained Matrix session executed against real homeserver | `SOAK_DURATION_SECONDS=30 pytest tests/test_soak.py::TestMatrixSoak -m live -v -s` | `MATRIX_HOMESERVER`, `MATRIX_USER_ID`, `MATRIX_ACCESS_TOKEN`, `MATRIX_ROOM_ID` |
-| Meshtastic | Soak test | NOT EXECUTED | No sustained Meshtastic session executed against real hardware | `SOAK_DURATION_SECONDS=30 pytest tests/test_soak.py::TestMeshtasticSoak -m live -v -s` | `MESHTASTIC_CONNECTION_TYPE`, `MESHTASTIC_HOST` or `MESHTASTIC_SERIAL_PORT` |
-| Meshtastic | Second-node inbound | NOT EXECUTED | No second Meshtastic node available in test environment | (same as Meshtastic live smoke, with second node transmitting) | Same as Meshtastic live + second node on same channel |
-| MeshCore | Live smoke | NOT EXECUTED | CP2104 `/dev/ttyUSB0` identified (stable by-id, likely T-Beam). No serial chatter observed. MeshCore firmware source available at `/home/jeremiah/dev`. Firmware flash required. | `pytest tests/test_meshcore_live.py -m live -v` | `MESHCORE_CONNECTION_TYPE`, `MESHCORE_HOST` or `MESHCORE_SERIAL_PORT` |
-| MeshCore | Soak test | NOT EXECUTED | No soak test class exists for MeshCore; hardware not yet flashed | N/A (test class does not exist yet) | N/A |
-| LXMF | Live smoke | NOT EXECUTED | Local source repos for Reticulum and LXMF available at `/home/jeremiah/dev`. Reticulum not yet installed or configured. Follow-up setup required. | `pytest tests/test_lxmf_live.py -m live -v` | `LXMF_CONNECTION_TYPE`, `LXMF_IDENTITY_PATH` |
-| LXMF | Soak test | NOT EXECUTED | No soak test class exists for LXMF; Reticulum not configured | N/A (test class does not exist yet) | N/A |
+| Transport  | Evidence type       | Status       | Reason                                                                                                                                                                           | Required command                                                                       | Required env vars                                                              |
+| ---------- | ------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Matrix     | Soak test           | NOT EXECUTED | No sustained Matrix session executed against real homeserver                                                                                                                     | `SOAK_DURATION_SECONDS=30 pytest tests/test_soak.py::TestMatrixSoak -m live -v -s`     | `MATRIX_HOMESERVER`, `MATRIX_USER_ID`, `MATRIX_ACCESS_TOKEN`, `MATRIX_ROOM_ID` |
+| Meshtastic | Soak test           | NOT EXECUTED | No sustained Meshtastic session executed against real hardware                                                                                                                   | `SOAK_DURATION_SECONDS=30 pytest tests/test_soak.py::TestMeshtasticSoak -m live -v -s` | `MESHTASTIC_CONNECTION_TYPE`, `MESHTASTIC_HOST` or `MESHTASTIC_SERIAL_PORT`    |
+| Meshtastic | Second-node inbound | NOT EXECUTED | No second Meshtastic node available in test environment                                                                                                                          | (same as Meshtastic live smoke, with second node transmitting)                         | Same as Meshtastic live + second node on same channel                          |
+| MeshCore   | Live smoke          | NOT EXECUTED | CP2104 `/dev/ttyUSB0` identified (stable by-id, likely T-Beam). No serial chatter observed. MeshCore firmware source available at `/home/jeremiah/dev`. Firmware flash required. | `pytest tests/test_meshcore_live.py -m live -v`                                        | `MESHCORE_CONNECTION_TYPE`, `MESHCORE_HOST` or `MESHCORE_SERIAL_PORT`          |
+| MeshCore   | Soak test           | NOT EXECUTED | No soak test class exists for MeshCore; hardware not yet flashed                                                                                                                 | N/A (test class does not exist yet)                                                    | N/A                                                                            |
+| LXMF       | Live smoke          | NOT EXECUTED | Local source repos for Reticulum and LXMF available at `/home/jeremiah/dev`. Reticulum not yet installed or configured. Follow-up setup required.                                | `pytest tests/test_lxmf_live.py -m live -v`                                            | `LXMF_CONNECTION_TYPE`, `LXMF_IDENTITY_PATH`                                   |
+| LXMF       | Soak test           | NOT EXECUTED | No soak test class exists for LXMF; Reticulum not configured                                                                                                                     | N/A (test class does not exist yet)                                                    | N/A                                                                            |
 
 **To resolve any NOT EXECUTED entry:** set the required environment variables,
 ensure the transport SDK is installed, run the command, and record results
 in the relevant section of this document.
-
 
 ## 8. Evidence Integration Instructions
 
@@ -811,22 +804,21 @@ When live agents or operators report results:
 6. Update `docs/contracts/32-beta-readiness-checklist.md` section 1.3.2
    to reflect the new evidence status.
 7. Follow the evidence honesty requirements in
-    `docs/runbooks/beta-entry-validation.md` §4.
+   `docs/runbooks/beta-entry-validation.md` §4.
 8. Ensure every new evidence entry includes a `tier` field per
    `docs/contracts/61-operational-evidence-contract.md` §2.
 9. Record longrun evidence in `docs/runbooks/longrun-validation.md` §5.
 
-
 ## 9. Cross-References
 
-| Document | Relationship |
-|----------|-------------|
-| `docs/contracts/61-operational-evidence-contract.md` | Evidence schema, classification tiers, required fields |
-| `docs/runbooks/live-operational-evidence.md` | Detailed Matrix and Meshtastic live procedures |
-| `docs/runbooks/longrun-validation.md` | Longrun evidence capture and recording |
-| `docs/runbooks/soak-testing.md` | Soak harness infrastructure and procedures |
-| `docs/contracts/32-beta-readiness-checklist.md` | Beta entry criteria referencing evidence status |
-| `docs/contracts/37-transport-maturity-classification.md` | Transport maturity tiers using evidence scores |
-| `docs/contracts/39-operational-risk-register.md` | Risk register informed by evidence gaps |
-| `docs/contracts/48-runtime-observability-contract.md` | Diagnostics field definitions |
-| `docs/contracts/59-runtime-durability-contract.md` | Durability claims requiring evidence |
+| Document                                                 | Relationship                                           |
+| -------------------------------------------------------- | ------------------------------------------------------ |
+| `docs/contracts/61-operational-evidence-contract.md`     | Evidence schema, classification tiers, required fields |
+| `docs/runbooks/live-operational-evidence.md`             | Detailed Matrix and Meshtastic live procedures         |
+| `docs/runbooks/longrun-validation.md`                    | Longrun evidence capture and recording                 |
+| `docs/runbooks/soak-testing.md`                          | Soak harness infrastructure and procedures             |
+| `docs/contracts/32-beta-readiness-checklist.md`          | Beta entry criteria referencing evidence status        |
+| `docs/contracts/37-transport-maturity-classification.md` | Transport maturity tiers using evidence scores         |
+| `docs/contracts/39-operational-risk-register.md`         | Risk register informed by evidence gaps                |
+| `docs/contracts/48-runtime-observability-contract.md`    | Diagnostics field definitions                          |
+| `docs/contracts/59-runtime-durability-contract.md`       | Durability claims requiring evidence                   |

@@ -5,13 +5,12 @@ DeliveryFailureKind, RetryExecutor, and receipt lineage semantics.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from medre.core.events import (
     CanonicalEvent,
-    DeliveryReceipt,
     EventMetadata,
     EventRelation,
     NativeRef,
@@ -99,7 +98,9 @@ class TestDeliveryPlan:
         assert policy.jitter is True
 
     def test_delivery_strategy_custom_params(self) -> None:
-        strategy = DeliveryStrategy(method="direct", max_retries=10, timeout_seconds=60.0)
+        strategy = DeliveryStrategy(
+            method="direct", max_retries=10, timeout_seconds=60.0
+        )
         assert strategy.max_retries == 10
         assert strategy.timeout_seconds == 60.0
 
@@ -251,9 +252,7 @@ class TestRelationResolver:
                 return None
 
         resolver = RelationResolver(storage=_EmptyStorage())
-        nref = NativeRef(
-            adapter="a", native_channel_id="c", native_message_id="nope"
-        )
+        nref = NativeRef(adapter="a", native_channel_id="c", native_message_id="nope")
         relation = EventRelation(
             relation_type="reply",
             target_event_id=None,
@@ -566,9 +565,9 @@ class TestDeliveryFailureKind:
         ]
         for exc in transient_exc:
             kind = RetryExecutor.classify_failure(exc)
-            assert kind is DeliveryFailureKind.ADAPTER_TRANSIENT, (
-                f"{type(exc).__name__} should classify as ADAPTER_TRANSIENT"
-            )
+            assert (
+                kind is DeliveryFailureKind.ADAPTER_TRANSIENT
+            ), f"{type(exc).__name__} should classify as ADAPTER_TRANSIENT"
 
     def test_classify_permanent_errors(self) -> None:
         """Non-transient exceptions classify as ADAPTER_PERMANENT."""
@@ -577,15 +576,11 @@ class TestDeliveryFailureKind:
         assert kind is DeliveryFailureKind.ADAPTER_PERMANENT
 
     def test_classify_planner_failure(self) -> None:
-        kind = RetryExecutor.classify_failure(
-            RuntimeError("x"), planner_failed=True
-        )
+        kind = RetryExecutor.classify_failure(RuntimeError("x"), planner_failed=True)
         assert kind is DeliveryFailureKind.PLANNER_FAILURE
 
     def test_classify_renderer_failure(self) -> None:
-        kind = RetryExecutor.classify_failure(
-            RuntimeError("x"), renderer_failed=True
-        )
+        kind = RetryExecutor.classify_failure(RuntimeError("x"), renderer_failed=True)
         assert kind is DeliveryFailureKind.RENDERER_FAILURE
 
     def test_classify_adapter_missing(self) -> None:
@@ -596,16 +591,12 @@ class TestDeliveryFailureKind:
 
     def test_classify_deadline_exceeded(self) -> None:
         past = datetime.now(timezone.utc) - timedelta(hours=1)
-        kind = RetryExecutor.classify_failure(
-            RuntimeError("x"), deadline=past
-        )
+        kind = RetryExecutor.classify_failure(RuntimeError("x"), deadline=past)
         assert kind is DeliveryFailureKind.DEADLINE_EXCEEDED
 
     def test_classify_no_deadline_not_exceeded(self) -> None:
         """When deadline is None, deadline_exceeded is never returned."""
-        kind = RetryExecutor.classify_failure(
-            TimeoutError("timeout"), deadline=None
-        )
+        kind = RetryExecutor.classify_failure(TimeoutError("timeout"), deadline=None)
         assert kind is DeliveryFailureKind.ADAPTER_TRANSIENT
 
 
@@ -628,9 +619,7 @@ class TestRetryExecutor:
 
     def test_compute_backoff_capped_at_max_delay(self) -> None:
         """Backoff is capped at max_delay_seconds."""
-        policy = RetryPolicy(
-            backoff_base=2.0, jitter=False, max_delay_seconds=10.0
-        )
+        policy = RetryPolicy(backoff_base=2.0, jitter=False, max_delay_seconds=10.0)
         executor = RetryExecutor(policy)
         # attempt 1: 2, 2: 4, 3: 8, 4: 10 (capped), 5: 10 (capped)
         assert executor.compute_backoff(4) == timedelta(seconds=10.0)
@@ -638,9 +627,7 @@ class TestRetryExecutor:
 
     def test_compute_backoff_with_jitter(self) -> None:
         """Jitter produces backoff values within expected bounds."""
-        policy = RetryPolicy(
-            backoff_base=4.0, jitter=True, max_delay_seconds=1000.0
-        )
+        policy = RetryPolicy(backoff_base=4.0, jitter=True, max_delay_seconds=1000.0)
         executor = RetryExecutor(policy)
         for attempt in range(1, 6):
             backoff = executor.compute_backoff(attempt)
@@ -651,27 +638,25 @@ class TestRetryExecutor:
 
     def test_compute_backoff_jitter_is_deterministic(self) -> None:
         """Repeated calls with the same policy and attempt return identical values."""
-        policy = RetryPolicy(
-            backoff_base=4.0, jitter=True, max_delay_seconds=1000.0
-        )
+        policy = RetryPolicy(backoff_base=4.0, jitter=True, max_delay_seconds=1000.0)
         executor = RetryExecutor(policy)
         for attempt in range(1, 6):
             values = [executor.compute_backoff(attempt) for _ in range(20)]
-            assert len(set(values)) == 1, (
-                f"Attempt {attempt}: jitter is nondeterministic, got {set(values)}"
-            )
+            assert (
+                len(set(values)) == 1
+            ), f"Attempt {attempt}: jitter is nondeterministic, got {set(values)}"
 
     def test_compute_backoff_jitter_different_attempts_differ(self) -> None:
         """Different attempt numbers produce different jittered backoffs."""
-        policy = RetryPolicy(
-            backoff_base=2.0, jitter=True, max_delay_seconds=1000.0
-        )
+        policy = RetryPolicy(backoff_base=2.0, jitter=True, max_delay_seconds=1000.0)
         executor = RetryExecutor(policy)
-        backoffs = {attempt: executor.compute_backoff(attempt) for attempt in range(1, 6)}
+        backoffs = {
+            attempt: executor.compute_backoff(attempt) for attempt in range(1, 6)
+        }
         # Each attempt should produce a distinct jittered value (before capping)
-        assert len(set(backoffs.values())) == len(backoffs), (
-            f"All attempts should produce distinct backoffs, got {backoffs}"
-        )
+        assert len(set(backoffs.values())) == len(
+            backoffs
+        ), f"All attempts should produce distinct backoffs, got {backoffs}"
 
     def test_compute_backoff_jitter_different_policies_differ(self) -> None:
         """Different policies produce different jittered backoffs for the same attempt."""
@@ -681,7 +666,9 @@ class TestRetryExecutor:
         executor_b = RetryExecutor(policy_b)
         # Same attempt, different policy → different hash seed → different result
         for attempt in range(1, 4):
-            assert executor_a.compute_backoff(attempt) != executor_b.compute_backoff(attempt)
+            assert executor_a.compute_backoff(attempt) != executor_b.compute_backoff(
+                attempt
+            )
 
     def test_is_exhausted_within_max_attempts(self) -> None:
         """Not exhausted when attempts remaining."""
@@ -705,9 +692,7 @@ class TestRetryExecutor:
 
     def test_build_retry_receipt(self) -> None:
         """Retry receipt has status=failed and next_retry_at populated."""
-        policy = RetryPolicy(
-            backoff_base=2.0, jitter=False, max_delay_seconds=60.0
-        )
+        policy = RetryPolicy(backoff_base=2.0, jitter=False, max_delay_seconds=60.0)
         executor = RetryExecutor(policy)
         receipt = executor.build_retry_receipt(
             event_id="evt-1",
@@ -1028,9 +1013,7 @@ class TestDeliveryOutcomeWithFailureKind:
 
     def test_positional_args_without_failure_kind(self) -> None:
         """DeliveryOutcome works with positional args (no failure_kind)."""
-        outcome = DeliveryOutcome(
-            "e6", "a", None, "r6", "p6", "skipped"
-        )
+        outcome = DeliveryOutcome("e6", "a", None, "r6", "p6", "skipped")
         assert outcome.status == "skipped"
         assert outcome.failure_kind is None
         assert outcome.receipt is None
@@ -1062,7 +1045,9 @@ class TestRetryDeadLetterObservability:
             attempt_number=1,
             error="ConnectionError: timeout",
         )
-        diag.record_adapter_failure("evt-obs-1", "adapter-obs", "ConnectionError: timeout")
+        diag.record_adapter_failure(
+            "evt-obs-1", "adapter-obs", "ConnectionError: timeout"
+        )
 
         # Attempt 2 fails
         assert executor.is_exhausted(2) is False
@@ -1074,7 +1059,9 @@ class TestRetryDeadLetterObservability:
             attempt_number=2,
             error="ConnectionError: timeout",
         )
-        diag.record_adapter_failure("evt-obs-1", "adapter-obs", "ConnectionError: timeout")
+        diag.record_adapter_failure(
+            "evt-obs-1", "adapter-obs", "ConnectionError: timeout"
+        )
 
         # Attempt 3 fails — exhausted
         assert executor.is_exhausted(3) is True
@@ -1099,13 +1086,17 @@ class TestRetryDeadLetterObservability:
 
         # Observability snapshot
         snap = diag.snapshot()
-        assert snap["adapter_failures"]["adapter-obs"] == 2  # Only 2 recorded (not at attempt 3)
+        assert (
+            snap["adapter_failures"]["adapter-obs"] == 2
+        )  # Only 2 recorded (not at attempt 3)
         assert snap["planner_failures"] == {}
         assert snap["renderer_failures"] == {}
 
     def test_retry_receipt_backoff_chain_deterministic(self) -> None:
         """Retry receipt chain with jitter=False produces exact backoff times."""
-        policy = RetryPolicy(max_attempts=5, backoff_base=2.0, jitter=False, max_delay_seconds=60.0)
+        policy = RetryPolicy(
+            max_attempts=5, backoff_base=2.0, jitter=False, max_delay_seconds=60.0
+        )
         executor = RetryExecutor(policy)
 
         receipts = []
@@ -1130,11 +1121,11 @@ class TestRetryDeadLetterObservability:
         # Verify backoff progression: base * 2^(attempt-1)
         # attempt 1: 2.0, attempt 2: 4.0, attempt 3: 8.0, attempt 4: 16.0, attempt 5: 32.0
         for i, r in enumerate(receipts):
-            expected_backoff = 2.0 * (2 ** i)
+            expected_backoff = 2.0 * (2**i)
             actual_backoff = (r.next_retry_at - r.created_at).total_seconds()
-            assert abs(actual_backoff - expected_backoff) < 0.01, (
-                f"Attempt {i+1}: expected backoff {expected_backoff}s, got {actual_backoff}s"
-            )
+            assert (
+                abs(actual_backoff - expected_backoff) < 0.01
+            ), f"Attempt {i+1}: expected backoff {expected_backoff}s, got {actual_backoff}s"
 
     def test_dead_letter_receipt_observability(self) -> None:
         """Dead-letter receipt flow produces complete observability trail."""
@@ -1151,7 +1142,9 @@ class TestRetryDeadLetterObservability:
             attempt_number=1,
             error="ConnectionError: refused",
         )
-        diag.record_adapter_failure("evt-dl-obs", "dl-target", "ConnectionError: refused")
+        diag.record_adapter_failure(
+            "evt-dl-obs", "dl-target", "ConnectionError: refused"
+        )
 
         # Attempt 2 — still under max
         assert executor.is_exhausted(2) is True
@@ -1179,35 +1172,58 @@ class TestRetryDeadLetterObservability:
     def test_classify_failure_coverage(self) -> None:
         """All failure kinds produce correct retryability classification."""
         # ADAPTER_TRANSIENT is retryable
-        assert RetryExecutor.classify_failure(
-            ConnectionError("net"), adapter_registered=True,
-        ) is DeliveryFailureKind.ADAPTER_TRANSIENT
+        assert (
+            RetryExecutor.classify_failure(
+                ConnectionError("net"),
+                adapter_registered=True,
+            )
+            is DeliveryFailureKind.ADAPTER_TRANSIENT
+        )
 
         # PLANNER_FAILURE
-        assert RetryExecutor.classify_failure(
-            RuntimeError("x"), planner_failed=True,
-        ) is DeliveryFailureKind.PLANNER_FAILURE
+        assert (
+            RetryExecutor.classify_failure(
+                RuntimeError("x"),
+                planner_failed=True,
+            )
+            is DeliveryFailureKind.PLANNER_FAILURE
+        )
 
         # RENDERER_FAILURE
-        assert RetryExecutor.classify_failure(
-            RuntimeError("x"), renderer_failed=True,
-        ) is DeliveryFailureKind.RENDERER_FAILURE
+        assert (
+            RetryExecutor.classify_failure(
+                RuntimeError("x"),
+                renderer_failed=True,
+            )
+            is DeliveryFailureKind.RENDERER_FAILURE
+        )
 
         # ADAPTER_MISSING
-        assert RetryExecutor.classify_failure(
-            RuntimeError("x"), adapter_registered=False,
-        ) is DeliveryFailureKind.ADAPTER_MISSING
+        assert (
+            RetryExecutor.classify_failure(
+                RuntimeError("x"),
+                adapter_registered=False,
+            )
+            is DeliveryFailureKind.ADAPTER_MISSING
+        )
 
         # DEADLINE_EXCEEDED
         past = datetime.now(timezone.utc) - timedelta(hours=1)
-        assert RetryExecutor.classify_failure(
-            TimeoutError("x"), deadline=past,
-        ) is DeliveryFailureKind.DEADLINE_EXCEEDED
+        assert (
+            RetryExecutor.classify_failure(
+                TimeoutError("x"),
+                deadline=past,
+            )
+            is DeliveryFailureKind.DEADLINE_EXCEEDED
+        )
 
         # ADAPTER_PERMANENT for non-transient
-        assert RetryExecutor.classify_failure(
-            RuntimeError("business error"),
-        ) is DeliveryFailureKind.ADAPTER_PERMANENT
+        assert (
+            RetryExecutor.classify_failure(
+                RuntimeError("business error"),
+            )
+            is DeliveryFailureKind.ADAPTER_PERMANENT
+        )
 
 
 # ===================================================================
@@ -1295,6 +1311,11 @@ class TestRouteStats:
         stats.record_failed("r2", "err")
         stats.record_loop_prevented("r3")
         snap = stats.snapshot()
-        assert snap["r1"] == {"delivered": 1, "failed": 0, "skipped": 0, "loop_prevented": 0}
+        assert snap["r1"] == {
+            "delivered": 1,
+            "failed": 0,
+            "skipped": 0,
+            "loop_prevented": 0,
+        }
         assert snap["r2"]["failed"] == 1
         assert snap["r3"]["loop_prevented"] == 1

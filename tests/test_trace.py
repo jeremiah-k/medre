@@ -5,8 +5,6 @@ medre.runtime.trace timeline assembly, and medre trace CLI commands.
 from __future__ import annotations
 
 import json
-import os
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -19,10 +17,8 @@ from medre.core.events import (
     EventMetadata,
     EventRelation,
     NativeMessageRef,
-    NativeRef,
 )
 from medre.core.storage import SQLiteStorage
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -103,20 +99,22 @@ def _make_receipt(
 class TestListNativeRefsForEvent:
     """list_native_refs_for_event returns all native refs for an event."""
 
-    async def test_returns_refs_for_event(
-        self, temp_storage: SQLiteStorage
-    ) -> None:
+    async def test_returns_refs_for_event(self, temp_storage: SQLiteStorage) -> None:
         """Native refs for an event are returned in created_at order."""
         event = _make_event(event_id="evt-nrefs-1")
         await temp_storage.append(event)
 
         ref_a = _make_native_ref(
-            ref_id="nref-a", event_id="evt-nrefs-1",
-            adapter="adapter_a", message_id="msg-a",
+            ref_id="nref-a",
+            event_id="evt-nrefs-1",
+            adapter="adapter_a",
+            message_id="msg-a",
         )
         ref_b = _make_native_ref(
-            ref_id="nref-b", event_id="evt-nrefs-1",
-            adapter="adapter_b", message_id="msg-b",
+            ref_id="nref-b",
+            event_id="evt-nrefs-1",
+            adapter="adapter_b",
+            message_id="msg-b",
         )
         await temp_storage.store_native_ref(ref_a)
         await temp_storage.store_native_ref(ref_b)
@@ -153,12 +151,16 @@ class TestListNativeRefsForEvent:
         await temp_storage.append(event_b)
 
         ref_a = _make_native_ref(
-            ref_id="nref-a", event_id="evt-a",
-            adapter="adapter_a", message_id="msg-a",
+            ref_id="nref-a",
+            event_id="evt-a",
+            adapter="adapter_a",
+            message_id="msg-a",
         )
         ref_b = _make_native_ref(
-            ref_id="nref-b", event_id="evt-b",
-            adapter="adapter_b", message_id="msg-b",
+            ref_id="nref-b",
+            event_id="evt-b",
+            adapter="adapter_b",
+            message_id="msg-b",
         )
         await temp_storage.store_native_ref(ref_a)
         await temp_storage.store_native_ref(ref_b)
@@ -167,9 +169,7 @@ class TestListNativeRefsForEvent:
         assert len(refs) == 1
         assert refs[0].id == "nref-a"
 
-    async def test_fields_round_trip(
-        self, temp_storage: SQLiteStorage
-    ) -> None:
+    async def test_fields_round_trip(self, temp_storage: SQLiteStorage) -> None:
         """All NativeMessageRef fields survive storage round-trip."""
         event = _make_event(event_id="evt-fields")
         await temp_storage.append(event)
@@ -203,9 +203,7 @@ class TestListNativeRefsForEvent:
         assert got.metadata == {"extra": "data"}
         assert got.created_at == ts
 
-    async def test_ordered_by_created_at(
-        self, temp_storage: SQLiteStorage
-    ) -> None:
+    async def test_ordered_by_created_at(self, temp_storage: SQLiteStorage) -> None:
         """Native refs are returned in created_at ascending order."""
         event = _make_event(event_id="evt-order")
         await temp_storage.append(event)
@@ -333,7 +331,7 @@ class TestAssembleEventTimeline:
 
     def test_bounded_max_entries(self) -> None:
         """Timeline is bounded to 1000 entries."""
-        from medre.runtime.trace import assemble_event_timeline, _MAX_TIMELINE_ENTRIES
+        from medre.runtime.trace import _MAX_TIMELINE_ENTRIES, assemble_event_timeline
 
         ts = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
         event = _make_event(event_id="evt-bounded", timestamp=ts)
@@ -457,7 +455,9 @@ class TestAssembleReplayTimeline:
             replay_run_id="run-json",
         )
 
-        result = assemble_replay_timeline("run-json", [receipt], {"evt-rpl-json": event})
+        result = assemble_replay_timeline(
+            "run-json", [receipt], {"evt-rpl-json": event}
+        )
         serialised = json.dumps(result, sort_keys=True)
         assert isinstance(serialised, str)
 
@@ -531,6 +531,7 @@ def _seed_trace_db(
 ) -> None:
     """Synchronously seed a trace test database."""
     import asyncio
+
     from medre.core.storage.sqlite import SQLiteStorage
 
     async def _seed() -> None:
@@ -538,13 +539,17 @@ def _seed_trace_db(
         await storage.initialize()
 
         ts = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
-        relation = EventRelation(
-            relation_type="reply",
-            target_event_id="target-evt",
-            target_native_ref=None,
-            key=None,
-            fallback_text=None,
-        ) if with_relation else None
+        relation = (
+            EventRelation(
+                relation_type="reply",
+                target_event_id="target-evt",
+                target_native_ref=None,
+                key=None,
+                fallback_text=None,
+            )
+            if with_relation
+            else None
+        )
 
         event = CanonicalEvent(
             event_id=event_id,
@@ -563,17 +568,19 @@ def _seed_trace_db(
         await storage.append(event)
 
         if with_native_ref:
-            await storage.store_native_ref(NativeMessageRef(
-                id="nref-trace-1",
-                event_id=event_id,
-                adapter="matrix",
-                native_channel_id="!room:test",
-                native_message_id="$trace-msg-1",
-                native_thread_id=None,
-                native_relation_id=None,
-                direction="outbound",
-                created_at=ts,
-            ))
+            await storage.store_native_ref(
+                NativeMessageRef(
+                    id="nref-trace-1",
+                    event_id=event_id,
+                    adapter="matrix",
+                    native_channel_id="!room:test",
+                    native_message_id="$trace-msg-1",
+                    native_thread_id=None,
+                    native_relation_id=None,
+                    direction="outbound",
+                    created_at=ts,
+                )
+            )
 
         rcpt_kwargs: dict[str, Any] = dict(
             receipt_id="rcpt-trace-1",
@@ -625,6 +632,7 @@ def config_trace_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     db_path = str(tmp_path / "state" / "trace.db")
     # Just initialize the DB, no data.
     import asyncio
+
     from medre.core.storage.sqlite import SQLiteStorage
 
     async def _init() -> None:
@@ -644,7 +652,8 @@ def config_trace_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def _run_cli(*args: str) -> str:
     """Run CLI with given args, capture stdout, and return output."""
     import io
-    from contextlib import redirect_stdout, redirect_stderr
+    from contextlib import redirect_stderr, redirect_stdout
+
     from medre.cli import main
 
     stdout = io.StringIO()
@@ -661,7 +670,8 @@ def _run_cli(*args: str) -> str:
 def _run_cli_both(*args: str) -> tuple[str, str]:
     """Run CLI and return (stdout, stderr) pair."""
     import io
-    from contextlib import redirect_stdout, redirect_stderr
+    from contextlib import redirect_stderr, redirect_stdout
+
     from medre.cli import main
 
     stdout = io.StringIO()
@@ -694,12 +704,16 @@ class TestTraceEvent:
     """Tests for 'medre trace event' command."""
 
     def test_event_found_json(
-        self, config_trace_sqlite: Path,
+        self,
+        config_trace_sqlite: Path,
     ) -> None:
         """trace event --json returns parseable JSON timeline."""
         output = _run_cli(
-            "trace", "event", "evt-trace-1",
-            "--config", str(config_trace_sqlite),
+            "trace",
+            "event",
+            "evt-trace-1",
+            "--config",
+            str(config_trace_sqlite),
             "--json",
         )
         parsed = json.loads(output)
@@ -709,12 +723,16 @@ class TestTraceEvent:
         assert "receipt" in types
 
     def test_event_timeline_contains_expected_entries(
-        self, config_trace_sqlite: Path,
+        self,
+        config_trace_sqlite: Path,
     ) -> None:
         """Timeline includes event, receipt, native_ref, and relation entries."""
         output = _run_cli(
-            "trace", "event", "evt-trace-1",
-            "--config", str(config_trace_sqlite),
+            "trace",
+            "event",
+            "evt-trace-1",
+            "--config",
+            str(config_trace_sqlite),
             "--json",
         )
         parsed = json.loads(output)
@@ -725,36 +743,48 @@ class TestTraceEvent:
         assert "relation" in types
 
     def test_event_not_found(
-        self, config_trace_sqlite: Path,
+        self,
+        config_trace_sqlite: Path,
     ) -> None:
         """trace event with unknown ID exits EXIT_NOT_FOUND."""
         from medre.cli import EXIT_NOT_FOUND
 
         with pytest.raises(SystemExit) as exc_info:
             _run_cli(
-                "trace", "event", "nonexistent",
-                "--config", str(config_trace_sqlite),
+                "trace",
+                "event",
+                "nonexistent",
+                "--config",
+                str(config_trace_sqlite),
             )
         assert exc_info.value.code == EXIT_NOT_FOUND
 
     def test_event_not_found_stderr(
-        self, config_trace_sqlite: Path,
+        self,
+        config_trace_sqlite: Path,
     ) -> None:
         """Error message mentions the missing event."""
         stdout, stderr = _run_cli_both(
-            "trace", "event", "nonexistent",
-            "--config", str(config_trace_sqlite),
+            "trace",
+            "event",
+            "nonexistent",
+            "--config",
+            str(config_trace_sqlite),
         )
         assert "event not found" in stderr
         assert "nonexistent" in stderr
 
     def test_event_human_readable(
-        self, config_trace_sqlite: Path,
+        self,
+        config_trace_sqlite: Path,
     ) -> None:
         """Human-readable output includes event info."""
         output = _run_cli(
-            "trace", "event", "evt-trace-1",
-            "--config", str(config_trace_sqlite),
+            "trace",
+            "event",
+            "evt-trace-1",
+            "--config",
+            str(config_trace_sqlite),
         )
         assert "Event: evt-trace-1 (message.created) from test_adapter" in output
         assert "Timeline (4 entries):" in output
@@ -764,12 +794,16 @@ class TestTraceEvent:
         assert "Relations:" in output
 
     def test_event_json_deterministic(
-        self, config_trace_sqlite: Path,
+        self,
+        config_trace_sqlite: Path,
     ) -> None:
         """JSON output has sorted keys."""
         output = _run_cli(
-            "trace", "event", "evt-trace-1",
-            "--config", str(config_trace_sqlite),
+            "trace",
+            "event",
+            "evt-trace-1",
+            "--config",
+            str(config_trace_sqlite),
             "--json",
         )
         parsed = json.loads(output)
@@ -778,7 +812,9 @@ class TestTraceEvent:
             assert keys == sorted(keys)
 
     def test_event_memory_backend_exits_config(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Memory backend exits with EXIT_CONFIG."""
         from medre.cli import EXIT_CONFIG
@@ -803,12 +839,16 @@ class TestTraceReplay:
     """Tests for 'medre trace replay' command."""
 
     def test_replay_found_json(
-        self, config_trace_replay: Path,
+        self,
+        config_trace_replay: Path,
     ) -> None:
         """trace replay --json returns parseable JSON timeline."""
         output = _run_cli(
-            "trace", "replay", "run-trace-42",
-            "--config", str(config_trace_replay),
+            "trace",
+            "replay",
+            "run-trace-42",
+            "--config",
+            str(config_trace_replay),
             "--json",
         )
         parsed = json.loads(output)
@@ -818,12 +858,16 @@ class TestTraceReplay:
         assert parsed["receipt_count"] == 1
 
     def test_replay_timeline_has_entries(
-        self, config_trace_replay: Path,
+        self,
+        config_trace_replay: Path,
     ) -> None:
         """Replay timeline contains receipt and event_summary entries."""
         output = _run_cli(
-            "trace", "replay", "run-trace-42",
-            "--config", str(config_trace_replay),
+            "trace",
+            "replay",
+            "run-trace-42",
+            "--config",
+            str(config_trace_replay),
             "--json",
         )
         parsed = json.loads(output)
@@ -832,48 +876,64 @@ class TestTraceReplay:
         assert "event_summary" in types
 
     def test_replay_not_found(
-        self, config_trace_sqlite: Path,
+        self,
+        config_trace_sqlite: Path,
     ) -> None:
         """trace replay with unknown run_id exits EXIT_NOT_FOUND."""
         from medre.cli import EXIT_NOT_FOUND
 
         with pytest.raises(SystemExit) as exc_info:
             _run_cli(
-                "trace", "replay", "nonexistent-run",
-                "--config", str(config_trace_sqlite),
+                "trace",
+                "replay",
+                "nonexistent-run",
+                "--config",
+                str(config_trace_sqlite),
             )
         assert exc_info.value.code == EXIT_NOT_FOUND
 
     def test_replay_not_found_stderr(
-        self, config_trace_sqlite: Path,
+        self,
+        config_trace_sqlite: Path,
     ) -> None:
         """Error message mentions the missing run."""
         stdout, stderr = _run_cli_both(
-            "trace", "replay", "nonexistent-run",
-            "--config", str(config_trace_sqlite),
+            "trace",
+            "replay",
+            "nonexistent-run",
+            "--config",
+            str(config_trace_sqlite),
         )
         assert "no receipts found" in stderr
         assert "nonexistent-run" in stderr
 
     def test_replay_human_readable(
-        self, config_trace_replay: Path,
+        self,
+        config_trace_replay: Path,
     ) -> None:
         """Human-readable output includes replay info."""
         output = _run_cli(
-            "trace", "replay", "run-trace-42",
-            "--config", str(config_trace_replay),
+            "trace",
+            "replay",
+            "run-trace-42",
+            "--config",
+            str(config_trace_replay),
         )
         assert "Replay timeline: run-trace-42" in output
         assert "complete" in output
         assert "Receipts:" in output
 
     def test_replay_json_deterministic(
-        self, config_trace_replay: Path,
+        self,
+        config_trace_replay: Path,
     ) -> None:
         """JSON output has sorted keys."""
         output = _run_cli(
-            "trace", "replay", "run-trace-42",
-            "--config", str(config_trace_replay),
+            "trace",
+            "replay",
+            "run-trace-42",
+            "--config",
+            str(config_trace_replay),
             "--json",
         )
         parsed = json.loads(output)
@@ -907,10 +967,19 @@ class TestEnrichedReceiptEntries:
         data = receipt_entry["data"]
 
         required = [
-            "receipt_id", "event_id", "route_id", "delivery_plan_id",
-            "target_adapter", "status", "failure_kind", "error",
-            "attempt_number", "source", "replay_run_id",
-            "native_message_id", "native_channel_id",
+            "receipt_id",
+            "event_id",
+            "route_id",
+            "delivery_plan_id",
+            "target_adapter",
+            "status",
+            "failure_kind",
+            "error",
+            "attempt_number",
+            "source",
+            "replay_run_id",
+            "native_message_id",
+            "native_channel_id",
         ]
         for field in required:
             assert field in data, f"Missing field: {field}"
@@ -1074,7 +1143,9 @@ class TestEnrichedReplayTimeline:
         )
 
         result = assemble_replay_timeline(
-            "run-fields", [receipt], {"evt-rpl-fields": event},
+            "run-fields",
+            [receipt],
+            {"evt-rpl-fields": event},
         )
         receipt_entry = next(
             e for e in result["timeline"] if e["entry_type"] == "receipt"
@@ -1082,10 +1153,19 @@ class TestEnrichedReplayTimeline:
         data = receipt_entry["data"]
 
         required = [
-            "receipt_id", "event_id", "route_id", "delivery_plan_id",
-            "target_adapter", "status", "failure_kind", "error",
-            "attempt_number", "source", "replay_run_id",
-            "native_message_id", "native_channel_id",
+            "receipt_id",
+            "event_id",
+            "route_id",
+            "delivery_plan_id",
+            "target_adapter",
+            "status",
+            "failure_kind",
+            "error",
+            "attempt_number",
+            "source",
+            "replay_run_id",
+            "native_message_id",
+            "native_channel_id",
         ]
         for field in required:
             assert field in data, f"Missing field: {field}"
@@ -1121,7 +1201,9 @@ class TestEnrichedReplayTimeline:
         )
 
         result = assemble_replay_timeline(
-            "run-complete", [receipt], {"evt-complete": event},
+            "run-complete",
+            [receipt],
+            {"evt-complete": event},
         )
 
         assert result["missing_event_ids"] == []
@@ -1140,7 +1222,9 @@ class TestEnrichedReplayTimeline:
         )
 
         result = assemble_replay_timeline(
-            "run-caveat", [receipt], {"evt-caveat": event},
+            "run-caveat",
+            [receipt],
+            {"evt-caveat": event},
         )
 
         assert "duplicate_send_caveat" in result
@@ -1172,8 +1256,10 @@ class TestBestEffortWarningText:
 
         assert "distinguishable" in _BEST_EFFORT_WARNING.lower()
         # Must NOT say "NOT distinguishable from live records"
-        assert "NOT" not in _BEST_EFFORT_WARNING or \
-            "NOT distinguishable" not in _BEST_EFFORT_WARNING
+        assert (
+            "NOT" not in _BEST_EFFORT_WARNING
+            or "NOT distinguishable" not in _BEST_EFFORT_WARNING
+        )
 
     def test_warning_mentions_source_replay(self) -> None:
         from medre.cli.replay_commands import _BEST_EFFORT_WARNING
@@ -1185,8 +1271,10 @@ class TestBestEffortWarningText:
         from medre.cli.replay_commands import _BEST_EFFORT_WARNING
 
         assert "traceability" in _BEST_EFFORT_WARNING.lower()
-        assert "dedupe" in _BEST_EFFORT_WARNING.lower() or \
-            "NOT dedupe" in _BEST_EFFORT_WARNING
+        assert (
+            "dedupe" in _BEST_EFFORT_WARNING.lower()
+            or "NOT dedupe" in _BEST_EFFORT_WARNING
+        )
 
     def test_warning_mentions_duplicate_send_risk(self) -> None:
         from medre.cli.replay_commands import _BEST_EFFORT_WARNING

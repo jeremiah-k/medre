@@ -10,7 +10,6 @@ This document defines the ownership boundaries of each transport session: what r
 
 This is a contract document. No session restructuring, adapter abstraction, or runtime redesign is proposed.
 
-
 ## 1. Scope
 
 - What each session owns and is responsible for.
@@ -27,7 +26,6 @@ This is a contract document. No session restructuring, adapter abstraction, or r
 - Extracting shared session abstractions or base classes.
 - Building runtime-level session orchestration.
 
-
 ## 3. Responsibilities Sessions Own
 
 Each session owns its transport SDK lifecycle end to end. The adapter delegates all SDK interaction to the session. The adapter owns semantic conversion (codec, routing, event publishing); the session owns raw transport management.
@@ -36,55 +34,53 @@ Each session owns its transport SDK lifecycle end to end. The adapter delegates 
 
 All four sessions own these responsibilities:
 
-| Responsibility | Description |
-|---------------|-------------|
-| SDK client lifecycle | Construction, initialization, teardown of the SDK client object |
-| Connection management | Establishing and maintaining the transport connection |
-| Callback registration | Registering transport-level callbacks/subscriptions internally |
-| Inbound forwarding | Forwarding received messages to the adapter-provided `message_callback` |
-| Bounded reconnect | Exponential backoff reconnect with max 10 attempts |
-| Outbound send | Sending messages through the transport SDK |
-| Send retry | Bounded retry (up to 3 attempts) for transient send failures |
-| Diagnostics | Providing a read-only snapshot of session operational state |
-| Graceful teardown | Clean shutdown of SDK client, cancellation of background tasks |
+| Responsibility        | Description                                                             |
+| --------------------- | ----------------------------------------------------------------------- |
+| SDK client lifecycle  | Construction, initialization, teardown of the SDK client object         |
+| Connection management | Establishing and maintaining the transport connection                   |
+| Callback registration | Registering transport-level callbacks/subscriptions internally          |
+| Inbound forwarding    | Forwarding received messages to the adapter-provided `message_callback` |
+| Bounded reconnect     | Exponential backoff reconnect with max 10 attempts                      |
+| Outbound send         | Sending messages through the transport SDK                              |
+| Send retry            | Bounded retry (up to 3 attempts) for transient send failures            |
+| Diagnostics           | Providing a read-only snapshot of session operational state             |
+| Graceful teardown     | Clean shutdown of SDK client, cancellation of background tasks          |
 
 ### 3.2 Per-Session Additional Owned Responsibilities
 
-| Session | Additional Owned Responsibilities |
-|---------|----------------------------------|
-| MatrixSession | nio `AsyncClient` lifecycle, login restoration, sync loop management, E2EE crypto lifecycle, room encryption state tracking, crypto store continuity |
-| MeshtasticSession | Interface type dispatch (TCP/serial/BLE), pubsub callback wiring |
-| MeshCoreSession | Connection type dispatch (TCP/serial/BLE), event subscription management |
-| LxmfSession | Reticulum lifecycle, identity loading, LXMRouter initialization, delivery state model (8 states), outbound delivery map, state update callbacks, delivery state progression tracking |
-
+| Session           | Additional Owned Responsibilities                                                                                                                                                    |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| MatrixSession     | nio `AsyncClient` lifecycle, login restoration, sync loop management, E2EE crypto lifecycle, room encryption state tracking, crypto store continuity                                 |
+| MeshtasticSession | Interface type dispatch (TCP/serial/BLE), pubsub callback wiring                                                                                                                     |
+| MeshCoreSession   | Connection type dispatch (TCP/serial/BLE), event subscription management                                                                                                             |
+| LxmfSession       | Reticulum lifecycle, identity loading, LXMRouter initialization, delivery state model (8 states), outbound delivery map, state update callbacks, delivery state progression tracking |
 
 ## 4. Responsibilities Sessions Must Not Own
 
 These boundaries are contractual. Sessions must not absorb these responsibilities, now or in future extraction.
 
-| Responsibility | Owner | Rationale |
-|---------------|-------|-----------|
-| Canonical event construction | Codec | Sessions receive and forward raw/normalized dicts. They never construct `CanonicalEvent`. |
-| Routing decisions | Routing layer | Sessions never decide where messages go. |
-| Delivery receipt recording | Pipeline | Sessions never record receipts or interact with storage. |
-| Bridge policy evaluation | Bridge policy layer (not yet built) | Sessions are transport-tunnel endpoints, not routing decision makers. |
-| Health polling or circuit breaking | Runtime health layer | Sessions report state; they do not implement health polling loops. |
-| Rate limiting or backpressure | Pipeline/runtime | Sessions send when asked. They do not throttle or reject based on load. |
-| Plugin hook dispatch | Plugin system (if built) | Sessions are not extension points. |
-| Secret storage or rotation | Config/external | Sessions receive config; they do not manage secret lifecycles. |
-| Cross-transport coordination | Runtime (future) | Sessions are isolated per transport. No cross-session coordination. |
-
+| Responsibility                     | Owner                               | Rationale                                                                                 |
+| ---------------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------- |
+| Canonical event construction       | Codec                               | Sessions receive and forward raw/normalized dicts. They never construct `CanonicalEvent`. |
+| Routing decisions                  | Routing layer                       | Sessions never decide where messages go.                                                  |
+| Delivery receipt recording         | Pipeline                            | Sessions never record receipts or interact with storage.                                  |
+| Bridge policy evaluation           | Bridge policy layer (not yet built) | Sessions are transport-tunnel endpoints, not routing decision makers.                     |
+| Health polling or circuit breaking | Runtime health layer                | Sessions report state; they do not implement health polling loops.                        |
+| Rate limiting or backpressure      | Pipeline/runtime                    | Sessions send when asked. They do not throttle or reject based on load.                   |
+| Plugin hook dispatch               | Plugin system (if built)            | Sessions are not extension points.                                                        |
+| Secret storage or rotation         | Config/external                     | Sessions receive config; they do not manage secret lifecycles.                            |
+| Cross-transport coordination       | Runtime (future)                    | Sessions are isolated per transport. No cross-session coordination.                       |
 
 ## 5. Size and Complexity Risks
 
 ### 5.1 Current Sizes
 
-| Session | LOC | Complexity Assessment |
-|---------|-----|----------------------|
-| MatrixSession | 682 | Moderate. E2EE lifecycle adds complexity but is well-contained. |
-| MeshtasticSession | 608 | Low-moderate. Straightforward connection dispatch and send. |
-| MeshCoreSession | 654 | Low-moderate. Simplest conceptual model, similar to Meshtastic. |
-| LxmfSession | 1260 | High. Roughly 2x the size of the other three. |
+| Session           | LOC  | Complexity Assessment                                           |
+| ----------------- | ---- | --------------------------------------------------------------- |
+| MatrixSession     | 682  | Moderate. E2EE lifecycle adds complexity but is well-contained. |
+| MeshtasticSession | 608  | Low-moderate. Straightforward connection dispatch and send.     |
+| MeshCoreSession   | 654  | Low-moderate. Simplest conceptual model, similar to Meshtastic. |
+| LxmfSession       | 1260 | High. Roughly 2x the size of the other three.                   |
 
 ### 5.2 Risk Assessment
 
@@ -95,7 +91,6 @@ These boundaries are contractual. Sessions must not absorb these responsibilitie
 **MeshCoreSession (654 LOC):** Acceptable size. Very similar shape to MeshtasticSession. Connection type dispatch and event subscription are simple.
 
 **LxmfSession (1260 LOC):** This is the primary size/complexity risk. The honest delivery state model (8 states, individual outbound delivery tracking, state change callbacks) accounts for roughly half the session's complexity. This is an inherent property of LXMF's async store-and-forward architecture, not a design flaw. However, the size makes the session harder to reason about and test in isolation.
-
 
 ## 6. Split Candidates
 
@@ -137,7 +132,6 @@ At 608 LOC with straightforward logic, there is no viable extraction candidate. 
 
 Same assessment as MeshtasticSession. The session is cohesive and small enough.
 
-
 ## 7. Future Extraction Boundaries
 
 These boundaries are documented so that future work does not accidentally violate session encapsulation.
@@ -158,59 +152,57 @@ Sessions expose `diagnostics()` returning either a frozen dataclass or a plain d
 
 Sessions receive a validated config object at construction time. Sessions do not modify config. Sessions may read config values during operation (e.g., connection parameters, retry limits). The config is immutable from the session's perspective.
 
-
 ## 8. Per-Session Status
 
 ### 8.1 MatrixSession
 
-| Dimension | Status |
-|-----------|--------|
-| Lifecycle | Complete: start/stop/diagnostics |
-| Reconnect | Bounded exponential backoff, max 10, cap 60s |
-| E2EE | Implemented. Crypto store continuity across restarts. |
-| Send retry | 3 attempts with jitter (adapter-level, not session) |
-| Diagnostics | Frozen dataclass, 14 fields |
-| Size | 682 LOC. Acceptable. |
-| Split candidate | E2EE lifecycle extraction. Low priority. |
-| Beta status | Most complete. Needs live inbound reception test. |
+| Dimension       | Status                                                |
+| --------------- | ----------------------------------------------------- |
+| Lifecycle       | Complete: start/stop/diagnostics                      |
+| Reconnect       | Bounded exponential backoff, max 10, cap 60s          |
+| E2EE            | Implemented. Crypto store continuity across restarts. |
+| Send retry      | 3 attempts with jitter (adapter-level, not session)   |
+| Diagnostics     | Frozen dataclass, 14 fields                           |
+| Size            | 682 LOC. Acceptable.                                  |
+| Split candidate | E2EE lifecycle extraction. Low priority.              |
+| Beta status     | Most complete. Needs live inbound reception test.     |
 
 ### 8.2 MeshtasticSession
 
-| Dimension | Status |
-|-----------|--------|
-| Lifecycle | Complete: start/stop/diagnostics |
-| Reconnect | Bounded exponential backoff, max 10, cap 30s |
-| E2EE | Not applicable (AES-256 CTR at channel level, not session-managed) |
-| Send retry | 3 attempts with jitter (session-level) |
-| Diagnostics | Frozen dataclass, 8 fields |
-| Size | 608 LOC. Acceptable. No split candidate. |
-| Beta status | Needs confirmed delivery plumbing. `deliver()` returns `None`. |
+| Dimension   | Status                                                             |
+| ----------- | ------------------------------------------------------------------ |
+| Lifecycle   | Complete: start/stop/diagnostics                                   |
+| Reconnect   | Bounded exponential backoff, max 10, cap 30s                       |
+| E2EE        | Not applicable (AES-256 CTR at channel level, not session-managed) |
+| Send retry  | 3 attempts with jitter (session-level)                             |
+| Diagnostics | Frozen dataclass, 8 fields                                         |
+| Size        | 608 LOC. Acceptable. No split candidate.                           |
+| Beta status | Needs confirmed delivery plumbing. `deliver()` returns `None`.     |
 
 ### 8.3 MeshCoreSession
 
-| Dimension | Status |
-|-----------|--------|
-| Lifecycle | Complete: start/stop/diagnostics |
-| Reconnect | Bounded exponential backoff, max 10, cap 30s |
-| E2EE | Not applicable |
-| Send retry | 3 attempts with jitter (session-level) |
-| Diagnostics | Plain dict copy, 5 fields |
-| Size | 654 LOC. Acceptable. No split candidate. |
+| Dimension   | Status                                       |
+| ----------- | -------------------------------------------- |
+| Lifecycle   | Complete: start/stop/diagnostics             |
+| Reconnect   | Bounded exponential backoff, max 10, cap 30s |
+| E2EE        | Not applicable                               |
+| Send retry  | 3 attempts with jitter (session-level)       |
+| Diagnostics | Plain dict copy, 5 fields                    |
+| Size        | 654 LOC. Acceptable. No split candidate.     |
 | Beta status | Needs confirmed delivery. BLE mode untested. |
 
 ### 8.4 LxmfSession
 
-| Dimension | Status |
-|-----------|--------|
-| Lifecycle | Complete: start/stop/diagnostics |
-| Reconnect | Bounded exponential backoff, max 10, cap 30s |
-| E2EE | Built into Reticulum link layer, not session-managed |
-| Send retry | 3 attempts with jitter (session-level) |
-| Diagnostics | Frozen dataclass, 6 fields |
-| Size | 1260 LOC. High complexity. |
-| Split candidate | Delivery state tracker extraction. Not blocking. |
-| Beta status | Needs live delivery state progression test. Identity file protection. |
-
+| Dimension       | Status                                                                |
+| --------------- | --------------------------------------------------------------------- |
+| Lifecycle       | Complete: start/stop/diagnostics                                      |
+| Reconnect       | Bounded exponential backoff, max 10, cap 30s                          |
+| E2EE            | Built into Reticulum link layer, not session-managed                  |
+| Send retry      | 3 attempts with jitter (session-level)                                |
+| Diagnostics     | Frozen dataclass, 6 fields                                            |
+| Size            | 1260 LOC. High complexity.                                            |
+| Split candidate | Delivery state tracker extraction. Not blocking.                      |
+| Beta status     | Needs live delivery state progression test. Identity file protection. |
 
 ## 9. Contractual Guarantees for Beta
 

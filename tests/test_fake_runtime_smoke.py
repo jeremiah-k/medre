@@ -47,7 +47,6 @@ from medre.runtime.app import MedreApp, RuntimeState
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.snapshot import SCHEMA_VERSION, build_runtime_snapshot
 
-
 # ---------------------------------------------------------------------------
 # Async helpers
 # ---------------------------------------------------------------------------
@@ -221,9 +220,7 @@ def _make_cross_transport_config_with_route() -> tuple[RuntimeConfig, Route]:
 # ---------------------------------------------------------------------------
 
 
-async def _build_and_start(
-    config: RuntimeConfig, paths: MedrePaths
-) -> MedreApp:
+async def _build_and_start(config: RuntimeConfig, paths: MedrePaths) -> MedreApp:
     """Build a MedreApp from config and start it."""
     builder = RuntimeBuilder(config, paths)
     app = builder.build()
@@ -247,7 +244,8 @@ class TestFakeRuntimeStartsFromMultiAdapterConfig:
 
     @pytest.mark.asyncio
     async def test_build_produces_app_with_4_adapters(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """RuntimeBuilder produces a MedreApp with 4 fake adapters."""
         config = _make_multi_adapter_config()
@@ -264,7 +262,8 @@ class TestFakeRuntimeStartsFromMultiAdapterConfig:
 
     @pytest.mark.asyncio
     async def test_start_transitions_to_running(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """App transitions INITIALIZED → RUNNING after start()."""
         config = _make_multi_adapter_config()
@@ -280,16 +279,15 @@ class TestFakeRuntimeStartsFromMultiAdapterConfig:
 
     @pytest.mark.asyncio
     async def test_all_adapters_are_correct_type(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Each adapter is the correct fake type."""
         config = _make_multi_adapter_config()
         app = await _build_and_start(config, tmp_paths)
         try:
             assert isinstance(app.adapters["fake_matrix"], FakeMatrixAdapter)
-            assert isinstance(
-                app.adapters["fake_meshtastic"], FakeMeshtasticAdapter
-            )
+            assert isinstance(app.adapters["fake_meshtastic"], FakeMeshtasticAdapter)
         finally:
             await _clean_stop(app)
 
@@ -299,7 +297,8 @@ class TestSyntheticEventRoutesThroughPipeline:
 
     @pytest.mark.asyncio
     async def test_routed_event_reaches_target_adapter(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Event from mx_alpha is routed to mx_beta via the pipeline."""
         config, route = _make_two_adapter_config_with_route()
@@ -328,7 +327,8 @@ class TestSyntheticEventRoutesThroughPipeline:
 
     @pytest.mark.asyncio
     async def test_cross_transport_routing(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Event routes from Matrix to Meshtastic across transports."""
         config, route = _make_cross_transport_config_with_route()
@@ -353,7 +353,8 @@ class TestSyntheticEventRoutesThroughPipeline:
 
     @pytest.mark.asyncio
     async def test_unrouted_event_stored_not_delivered(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Event with no matching route is stored but not delivered."""
         config = _make_multi_adapter_config()
@@ -390,7 +391,8 @@ class TestDeliveryReceiptGenerated:
 
     @pytest.mark.asyncio
     async def test_receipt_stored_after_successful_delivery(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Routing an event produces a stored DeliveryReceipt."""
         config, route = _make_two_adapter_config_with_route()
@@ -419,7 +421,8 @@ class TestDeliveryReceiptGenerated:
 
     @pytest.mark.asyncio
     async def test_direct_delivery_returns_receipt(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Direct adapter.deliver() returns AdapterDeliveryResult."""
         config = _make_multi_adapter_config()
@@ -450,7 +453,8 @@ class TestRuntimeSnapshotCapturesState:
 
     @pytest.mark.asyncio
     async def test_snapshot_json_safe(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Snapshot is JSON-serialisable with sorted keys."""
         from datetime import datetime, timezone
@@ -479,15 +483,14 @@ class TestRuntimeSnapshotCapturesState:
                 now_fn=lambda: frozen_now,
                 monotonic_fn=lambda: frozen_mono,
             )
-            assert json.dumps(snap, sort_keys=True) == json.dumps(
-                snap2, sort_keys=True
-            )
+            assert json.dumps(snap, sort_keys=True) == json.dumps(snap2, sort_keys=True)
         finally:
             await _clean_stop(app)
 
     @pytest.mark.asyncio
     async def test_snapshot_contains_expected_keys(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Snapshot has required top-level keys."""
         config = _make_multi_adapter_config()
@@ -511,7 +514,8 @@ class TestRuntimeSnapshotCapturesState:
 
     @pytest.mark.asyncio
     async def test_snapshot_adapters_populated(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Snapshot adapters dict has all 4 fake adapters."""
         config = _make_multi_adapter_config()
@@ -535,7 +539,8 @@ class TestDiagnosticsAccessible:
 
     @pytest.mark.asyncio
     async def test_diagnostic_snapshot_structure(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """app.diagnostic_snapshot() returns a dict with expected keys."""
         config = _make_multi_adapter_config()
@@ -553,7 +558,8 @@ class TestDiagnosticsAccessible:
 
     @pytest.mark.asyncio
     async def test_diagnostician_records_activity(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Diagnostician snapshot is a dict with expected failure keys."""
         config = _make_multi_adapter_config()
@@ -571,7 +577,8 @@ class TestDiagnosticsAccessible:
 
     @pytest.mark.asyncio
     async def test_boot_summary_present(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Boot summary is populated after start."""
         config = _make_multi_adapter_config()
@@ -593,7 +600,8 @@ class TestRuntimeStopsCleanly:
 
     @pytest.mark.asyncio
     async def test_stop_transitions_to_stopped(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """stop() transitions RUNNING → STOPPED."""
         config = _make_multi_adapter_config()
@@ -605,7 +613,8 @@ class TestRuntimeStopsCleanly:
 
     @pytest.mark.asyncio
     async def test_stop_idempotent(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Calling stop() twice does not raise."""
         config = _make_multi_adapter_config()
@@ -618,7 +627,8 @@ class TestRuntimeStopsCleanly:
 
     @pytest.mark.asyncio
     async def test_no_lingering_tasks_after_stop(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """After stop, no lingering asyncio tasks from the runtime remain."""
         config = _make_multi_adapter_config()
@@ -634,15 +644,16 @@ class TestRuntimeStopsCleanly:
         all_tasks = asyncio.all_tasks()
         # Exclude the current test task and the pytest runner.
         runtime_tasks = [
-            t for t in all_tasks
-            if t is not current_task
-            and not t.get_name().startswith("pytest")
+            t
+            for t in all_tasks
+            if t is not current_task and not t.get_name().startswith("pytest")
         ]
         # Allow a small margin — the event loop may have cleanup tasks
         # from pytest itself.  The important thing is no adapter/pipeline
         # tasks remain.
         runtime_named = [
-            t for t in runtime_tasks
+            t
+            for t in runtime_tasks
             if any(
                 kw in t.get_name().lower()
                 for kw in ("adapter", "pipeline", "runner", "medre")
@@ -664,12 +675,13 @@ class TestRepeatedStartStopCycles:
 
     @pytest.mark.asyncio
     async def test_5_start_stop_cycles(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """5 start/stop cycles — runtime reaches RUNNING then STOPPED each time."""
         config = _make_multi_adapter_config()
 
-        for cycle in range(5):
+        for _cycle in range(5):
             builder = RuntimeBuilder(config, tmp_paths)
             app = builder.build()
             await app.start()
@@ -683,7 +695,8 @@ class TestRepeatedStartStopCycles:
 
     @pytest.mark.asyncio
     async def test_3_cycles_with_event_routing(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """3 cycles of start → route events → stop with clean state each time."""
         config, route = _make_two_adapter_config_with_route()
@@ -717,12 +730,13 @@ class TestSoakWithDiagnosticsSnapshots:
 
     @pytest.mark.asyncio
     async def test_snapshots_stable_across_3_cycles(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Runtime snapshots have consistent shape across 3 cycles."""
         config = _make_multi_adapter_config()
 
-        for cycle in range(3):
+        for _cycle in range(3):
             builder = RuntimeBuilder(config, tmp_paths)
             app = builder.build()
             await app.start()
@@ -747,12 +761,13 @@ class TestSoakWithDiagnosticsSnapshots:
 
     @pytest.mark.asyncio
     async def test_diagnostician_counters_reset_per_cycle(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Fresh runtime per cycle has clean diagnostician counters."""
         config = _make_multi_adapter_config()
 
-        for cycle in range(3):
+        for _cycle in range(3):
             builder = RuntimeBuilder(config, tmp_paths)
             app = builder.build()
             await app.start()
@@ -771,7 +786,8 @@ class TestSoakWithReplayDelivery:
 
     @pytest.mark.asyncio
     async def test_repeated_delivery_to_same_adapter(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Same adapter accepts repeated deliveries without error."""
         config = _make_multi_adapter_config()
@@ -800,7 +816,8 @@ class TestSoakWithReplayDelivery:
 
     @pytest.mark.asyncio
     async def test_cross_adapter_isolation_across_cycles(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Deliveries to one adapter never appear in another across cycles."""
         config, route = _make_two_adapter_config_with_route()
@@ -878,7 +895,9 @@ class TestFullFakeRuntimeHappyPath:
 
             # -- Rendering completed (delivery payload produced) --
             payload = beta.delivered_payloads[0]
-            assert "body" in payload.payload  # MatrixRenderer produces {"body": ..., "msgtype": ...}
+            assert (
+                "body" in payload.payload
+            )  # MatrixRenderer produces {"body": ..., "msgtype": ...}
             assert payload.target_adapter == "mx_beta"
 
             # -- DeliveryReceipt with full field verification --
@@ -897,7 +916,9 @@ class TestFullFakeRuntimeHappyPath:
             # specified in the route, the adapter stores native_channel_id="".
             native_id = f"$fake_{event.event_id}"
             resolved = await app.storage.resolve_native_ref(
-                "mx_beta", "", native_id,
+                "mx_beta",
+                "",
+                native_id,
             )
             assert resolved is not None
             assert resolved == event.event_id
@@ -939,10 +960,14 @@ def _make_pipeline_failure_config(
         adapters=AdapterConfigSet(
             matrix={
                 "mx_alpha": MatrixRuntimeConfig(
-                    adapter_id="mx_alpha", enabled=True, adapter_kind="fake",
+                    adapter_id="mx_alpha",
+                    enabled=True,
+                    adapter_kind="fake",
                 ),
                 "mx_beta": MatrixRuntimeConfig(
-                    adapter_id="mx_beta", enabled=True, adapter_kind="fake",
+                    adapter_id="mx_beta",
+                    enabled=True,
+                    adapter_kind="fake",
                 ),
             },
         ),
@@ -974,19 +999,25 @@ class TestFailureKindIntegration:
             adapters=AdapterConfigSet(
                 matrix={
                     "mx_src": MatrixRuntimeConfig(
-                        adapter_id="mx_src", enabled=True, adapter_kind="fake",
+                        adapter_id="mx_src",
+                        enabled=True,
+                        adapter_kind="fake",
                     ),
                 },
                 meshtastic={
                     "mesh_dst": MeshtasticRuntimeConfig(
-                        adapter_id="mesh_dst", enabled=True, adapter_kind="fake",
+                        adapter_id="mesh_dst",
+                        enabled=True,
+                        adapter_kind="fake",
                     ),
                 },
             ),
         )
         route = Route(
             id="to-mesh",
-            source=RouteSource(adapter="mx_src", event_kinds=(EventKind.MESSAGE_TEXT,), channel=None),
+            source=RouteSource(
+                adapter="mx_src", event_kinds=(EventKind.MESSAGE_TEXT,), channel=None
+            ),
             targets=[RouteTarget(adapter="mesh_dst")],
         )
         app = await _build_and_start(config, tmp_paths)
@@ -1151,7 +1182,9 @@ class TestFailureKindIntegration:
             )
             with pytest.raises(_AdapterDeliveryError) as exc_info:
                 await app.pipeline_runner.deliver_to_target(
-                    event, route, plan,
+                    event,
+                    route,
+                    plan,
                 )
             assert exc_info.value.failure_kind == DeliveryFailureKind.DEADLINE_EXCEEDED
 
@@ -1173,18 +1206,26 @@ class TestFailureKindIntegration:
             adapters=AdapterConfigSet(
                 matrix={
                     "mx_a": MatrixRuntimeConfig(
-                        adapter_id="mx_a", enabled=True, adapter_kind="fake",
+                        adapter_id="mx_a",
+                        enabled=True,
+                        adapter_kind="fake",
                     ),
                     "mx_b": MatrixRuntimeConfig(
-                        adapter_id="mx_b", enabled=True, adapter_kind="fake",
+                        adapter_id="mx_b",
+                        enabled=True,
+                        adapter_kind="fake",
                     ),
                 },
             ),
-            limits=RuntimeLimits(max_inflight_deliveries=1, delivery_acquire_timeout_seconds=0.01),
+            limits=RuntimeLimits(
+                max_inflight_deliveries=1, delivery_acquire_timeout_seconds=0.01
+            ),
         )
         route = Route(
             id="a-to-b",
-            source=RouteSource(adapter="mx_a", event_kinds=(EventKind.MESSAGE_TEXT,), channel=None),
+            source=RouteSource(
+                adapter="mx_a", event_kinds=(EventKind.MESSAGE_TEXT,), channel=None
+            ),
             targets=[RouteTarget(adapter="mx_b")],
         )
         app = await _build_and_start(config, tmp_paths)
@@ -1267,7 +1308,9 @@ class TestStartupShutdownIntegration:
     """Multi-adapter startup, partial failure, total failure, and shutdown coverage."""
 
     @pytest.mark.asyncio
-    async def test_multi_adapter_successful_startup(self, tmp_paths: MedrePaths) -> None:
+    async def test_multi_adapter_successful_startup(
+        self, tmp_paths: MedrePaths
+    ) -> None:
         """All 4 adapters start successfully → HEALTHY."""
         config = _make_multi_adapter_config()
         app = await _build_and_start(config, tmp_paths)
@@ -1281,7 +1324,9 @@ class TestStartupShutdownIntegration:
             await _clean_stop(app)
 
     @pytest.mark.asyncio
-    async def test_partial_startup_degraded_running(self, tmp_paths: MedrePaths) -> None:
+    async def test_partial_startup_degraded_running(
+        self, tmp_paths: MedrePaths
+    ) -> None:
         """Partial adapter startup → DEGRADED + RUNNING."""
         config = _make_multi_adapter_config()
         builder = RuntimeBuilder(config, tmp_paths)
@@ -1326,7 +1371,8 @@ class TestStartupShutdownIntegration:
 
     @pytest.mark.asyncio
     async def test_clean_shutdown_transitions_adapters_to_stopped(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """After stop, all started adapters transition to STOPPED."""
         from medre.core.lifecycle.states import AdapterState
@@ -1336,9 +1382,9 @@ class TestStartupShutdownIntegration:
         try:
             await _clean_stop(app)
             for aid, state in app.adapter_states.items():
-                assert state is AdapterState.STOPPED, (
-                    f"Adapter {aid} in state {state}, expected STOPPED"
-                )
+                assert (
+                    state is AdapterState.STOPPED
+                ), f"Adapter {aid} in state {state}, expected STOPPED"
         except Exception:
             await app.stop()
             raise
@@ -1350,7 +1396,9 @@ class TestStartupShutdownIntegration:
         app = await _build_and_start(config, tmp_paths)
         # Fire two concurrent stops.
         results = await asyncio.gather(
-            app.stop(), app.stop(), return_exceptions=True,
+            app.stop(),
+            app.stop(),
+            return_exceptions=True,
         )
         # None should be exceptions.
         for r in results:
@@ -1359,7 +1407,8 @@ class TestStartupShutdownIntegration:
 
     @pytest.mark.asyncio
     async def test_shutdown_stops_accepting_delivery_work(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """After stop(), capacity controller no longer accepts work."""
         config = _make_multi_adapter_config()
@@ -1439,7 +1488,8 @@ class TestSnapshotIntegration:
 
     @pytest.mark.asyncio
     async def test_routes_build_readiness_and_startup_readiness(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Routes section has build_readiness, startup_readiness, eligibility."""
         config = _make_multi_adapter_config()
@@ -1464,9 +1514,14 @@ class TestSnapshotIntegration:
             acc = snap["accounting"]["counters"]
             assert acc is not None
             for key in (
-                "inbound_accepted", "outbound_attempts", "outbound_delivered",
-                "outbound_failed", "replay_processed", "replay_rejected",
-                "loop_prevented", "capacity_rejections",
+                "inbound_accepted",
+                "outbound_attempts",
+                "outbound_delivered",
+                "outbound_failed",
+                "replay_processed",
+                "replay_rejected",
+                "loop_prevented",
+                "capacity_rejections",
             ):
                 assert key in acc, f"Missing accounting key: {key}"
                 assert isinstance(acc[key], int)

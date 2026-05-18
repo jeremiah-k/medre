@@ -17,7 +17,9 @@ import pytest
 
 _ROOT = Path(__file__).resolve().parent.parent
 RUNBOOKS_DIR = _ROOT / "docs" / "runbooks"
-_OPERATOR_COMMAND_SURFACE = _ROOT / "docs" / "architecture" / "operator-command-surface.md"
+_OPERATOR_COMMAND_SURFACE = (
+    _ROOT / "docs" / "architecture" / "operator-command-surface.md"
+)
 
 
 def _read(path: Path) -> str:
@@ -126,10 +128,14 @@ class TestAlphaCommandSurfaceFreeze:
         if freeze_end < 0:
             freeze_end = len(text)
         section = text[freeze_start:freeze_end]
-        for category in ("Product surface", "Validation surface", "Specialized surface"):
-            assert category in section, (
-                f"Freeze section must list '{category}' category."
-            )
+        for category in (
+            "Product surface",
+            "Validation surface",
+            "Specialized surface",
+        ):
+            assert (
+                category in section
+            ), f"Freeze section must list '{category}' category."
 
     def test_freeze_section_states_inspect_preferred(self) -> None:
         """The freeze section must state that inspect is the preferred

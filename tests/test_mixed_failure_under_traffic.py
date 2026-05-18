@@ -42,9 +42,6 @@ Assertions verify:
 from __future__ import annotations
 
 from datetime import datetime, timezone
-
-import pytest
-
 from typing import cast
 
 from medre.adapters.fake_presentation import (
@@ -59,13 +56,11 @@ from medre.core.planning import FallbackResolver, RelationResolver
 from medre.core.planning.delivery_plan import DeliveryFailureKind, DeliveryOutcome
 from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage import SQLiteStorage
 from medre.core.storage.backend import StorageBackend
-
 from tests.helpers.pipeline import make_event
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -227,9 +222,9 @@ class TestMixedFailureUnderTraffic:
                 evt = make_event(event_id=f"msg-{label}", source_adapter="src")
                 om = _outcome_map(await runner.handle_ingress(evt))
                 assert om["stable"].status == "success"
-                assert om["flaky"].status == "success", (
-                    f"msg-{label}: flaky must succeed after recovery"
-                )
+                assert (
+                    om["flaky"].status == "success"
+                ), f"msg-{label}: flaky must succeed after recovery"
                 assert om["ghost"].status == "permanent_failure"
 
             # ============================================================
@@ -240,9 +235,9 @@ class TestMixedFailureUnderTraffic:
                 native_ref=native_ref_a,
             )
             outcomes_e = await runner.handle_ingress(event_e)
-            assert outcomes_e == [], (
-                "Duplicate source_native_ref should produce no outcomes"
-            )
+            assert (
+                outcomes_e == []
+            ), "Duplicate source_native_ref should produce no outcomes"
 
             # ============================================================
             # Message F — success continues after duplicate suppression
@@ -252,9 +247,9 @@ class TestMixedFailureUnderTraffic:
             om_f = _outcome_map(outcomes_f)
 
             assert om_f["stable"].status == "success"
-            assert om_f["flaky"].status == "success", (
-                "Suppression of msg-E must not affect msg-F"
-            )
+            assert (
+                om_f["flaky"].status == "success"
+            ), "Suppression of msg-E must not affect msg-F"
             assert om_f["ghost"].status == "permanent_failure"
 
             # ============================================================
@@ -291,9 +286,9 @@ class TestMixedFailureUnderTraffic:
 
             # All values are deterministic ints (not floats, not None).
             for key, value in snap.items():
-                assert isinstance(value, int), (
-                    f"accounting[{key!r}] = {value!r}; expected int"
-                )
+                assert isinstance(
+                    value, int
+                ), f"accounting[{key!r}] = {value!r}; expected int"
 
         finally:
             await runner.stop()
@@ -328,9 +323,9 @@ class TestReceiptConsistency:
                         "WHERE event_id = ? AND target_adapter = ?",
                         (outcome.event_id, outcome.target_adapter),
                     )
-                    assert len(rows) >= 1, (
-                        f"Expected failed receipt for {outcome.target_adapter}"
-                    )
+                    assert (
+                        len(rows) >= 1
+                    ), f"Expected failed receipt for {outcome.target_adapter}"
                     assert rows[0]["status"] == "failed"
                     assert rows[0]["error"] is not None
 
@@ -341,9 +336,9 @@ class TestReceiptConsistency:
                         "WHERE event_id = ? AND target_adapter = ?",
                         (outcome.event_id, outcome.target_adapter),
                     )
-                    assert len(rows) >= 1, (
-                        f"Expected sent receipt for {outcome.target_adapter}"
-                    )
+                    assert (
+                        len(rows) >= 1
+                    ), f"Expected sent receipt for {outcome.target_adapter}"
                     assert rows[0]["status"] == "sent"
         finally:
             await runner.stop()
@@ -370,9 +365,9 @@ class TestReceiptConsistency:
                     "WHERE event_id = ? AND adapter = ? AND direction = 'outbound'",
                     (outcome.event_id, outcome.target_adapter),
                 )
-                assert len(refs) >= 1, (
-                    f"Expected outbound native_ref for {outcome.target_adapter}"
-                )
+                assert (
+                    len(refs) >= 1
+                ), f"Expected outbound native_ref for {outcome.target_adapter}"
         finally:
             await runner.stop()
 
@@ -489,14 +484,13 @@ class TestFailureIsolation:
 
                 if i < 2:
                     # First 2 calls: flaky fails.
-                    assert om["flaky"].status == "permanent_failure", (
-                        f"flaky should fail on call {i + 1}"
-                    )
+                    assert (
+                        om["flaky"].status == "permanent_failure"
+                    ), f"flaky should fail on call {i + 1}"
                 else:
                     # Calls 3+: flaky succeeds.
                     assert om["flaky"].status == "success", (
-                        f"flaky should succeed on call {i + 1} "
-                        f"(past fail_count=2)"
+                        f"flaky should succeed on call {i + 1} " f"(past fail_count=2)"
                     )
 
             # Verify accounting over 10 messages.

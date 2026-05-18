@@ -17,8 +17,6 @@ These tests are **not** marked ``live`` — they must pass in a bare
 
 from __future__ import annotations
 
-import importlib
-import json
 import os
 import subprocess
 import sys
@@ -65,18 +63,20 @@ class TestPackageMetadata:
         # Not a full PEP 440 parse — just ensure it is non-empty and dotted.
         assert version, "version must not be empty"
         parts = version.split(".")
-        assert len(parts) >= 2, f"version {version!r} should have ≥2 dot-separated parts"
+        assert (
+            len(parts) >= 2
+        ), f"version {version!r} should have ≥2 dot-separated parts"
         for part in parts:
             assert part.isdigit(), f"version segment {part!r} is not numeric"
 
     def test_console_script_entry_point(self) -> None:
         scripts = self._project.get("scripts", {})
-        assert "medre" in scripts, (
-            "pyproject.toml [project.scripts] missing 'medre' entry"
-        )
-        assert scripts["medre"] == "medre.cli:main", (
-            f"expected 'medre.cli:main', got {scripts['medre']!r}"
-        )
+        assert (
+            "medre" in scripts
+        ), "pyproject.toml [project.scripts] missing 'medre' entry"
+        assert (
+            scripts["medre"] == "medre.cli:main"
+        ), f"expected 'medre.cli:main', got {scripts['medre']!r}"
 
     def test_requires_python_gte_311(self) -> None:
         rp = self._project.get("requires-python", "")
@@ -88,22 +88,22 @@ class TestPackageMetadata:
 
     def test_classifiers_include_beta(self) -> None:
         classifiers = self._project.get("classifiers", [])
-        assert "Development Status :: 4 - Beta" in classifiers, (
-            "classifiers missing 'Development Status :: 4 - Beta'"
-        )
+        assert (
+            "Development Status :: 4 - Beta" in classifiers
+        ), "classifiers missing 'Development Status :: 4 - Beta'"
 
     def test_base_dependency_is_msgspec(self) -> None:
         deps = self._project.get("dependencies", [])
-        assert any("msgspec" in d for d in deps), (
-            f"msgspec not found in dependencies: {deps}"
-        )
+        assert any(
+            "msgspec" in d for d in deps
+        ), f"msgspec not found in dependencies: {deps}"
 
     def test_build_system_uses_setuptools(self) -> None:
         bs = self._data.get("build-system", {})
         requires = bs.get("requires", [])
-        assert any("setuptools" in r for r in requires), (
-            f"build-system does not require setuptools: {requires}"
-        )
+        assert any(
+            "setuptools" in r for r in requires
+        ), f"build-system does not require setuptools: {requires}"
 
 
 # ===================================================================
@@ -133,52 +133,48 @@ class TestOptionalExtras:
         for name, deps in self._opt.items():
             assert isinstance(deps, list), f"extra {name!r} is not a list"
             for dep in deps:
-                assert isinstance(dep, str), f"extra {name!r} contains non-string: {dep!r}"
+                assert isinstance(
+                    dep, str
+                ), f"extra {name!r} contains non-string: {dep!r}"
 
     def test_extras_do_not_overlap_base_deps(self) -> None:
         base = set(_load_pyproject()["project"].get("dependencies", []))
         for name, deps in self._opt.items():
             overlap = set(deps) & base
-            assert not overlap, (
-                f"extra {name!r} shares deps with base: {overlap}"
-            )
+            assert not overlap, f"extra {name!r} shares deps with base: {overlap}"
 
     def test_matrix_extra_contains_nio(self) -> None:
         deps = self._opt.get("matrix", [])
-        assert any("mindroom-nio" in d or "nio" in d for d in deps), (
-            f"matrix extra missing mindroom-nio: {deps}"
-        )
+        assert any(
+            "mindroom-nio" in d or "nio" in d for d in deps
+        ), f"matrix extra missing mindroom-nio: {deps}"
 
     def test_meshtastic_extra_contains_mtjk(self) -> None:
         deps = self._opt.get("meshtastic", [])
-        assert any("mtjk" in d for d in deps), (
-            f"meshtastic extra missing mtjk: {deps}"
-        )
+        assert any("mtjk" in d for d in deps), f"meshtastic extra missing mtjk: {deps}"
 
     def test_meshcore_extra_contains_meshcore(self) -> None:
         deps = self._opt.get("meshcore", [])
-        assert any("meshcore" in d for d in deps), (
-            f"meshcore extra missing meshcore: {deps}"
-        )
+        assert any(
+            "meshcore" in d for d in deps
+        ), f"meshcore extra missing meshcore: {deps}"
 
     def test_lxmf_extra_contains_lxmf(self) -> None:
         deps = self._opt.get("lxmf", [])
-        assert any("lxmf" in d for d in deps), (
-            f"lxmf extra missing lxmf: {deps}"
-        )
+        assert any("lxmf" in d for d in deps), f"lxmf extra missing lxmf: {deps}"
 
     def test_matrix_e2e_contains_e2e_marker(self) -> None:
         deps = self._opt.get("matrix-e2e", [])
-        assert any("e2e" in d for d in deps), (
-            f"matrix-e2e extra missing e2e marker: {deps}"
-        )
+        assert any(
+            "e2e" in d for d in deps
+        ), f"matrix-e2e extra missing e2e marker: {deps}"
 
     def test_no_unknown_transport_extras(self) -> None:
         """All extras in pyproject should be known to this test."""
         unknown = set(self._opt.keys()) - _ALL_KNOWN_EXTRAS
-        assert not unknown, (
-            f"unknown extras in pyproject.toml (add to this test): {sorted(unknown)}"
-        )
+        assert (
+            not unknown
+        ), f"unknown extras in pyproject.toml (add to this test): {sorted(unknown)}"
 
 
 # ===================================================================
@@ -191,33 +187,38 @@ class TestBaseImportBoundary:
 
     def test_import_medre(self) -> None:
         import medre  # noqa: F401
+
         assert medre is not None
 
     def test_import_medre_config(self) -> None:
-        from medre.config import RuntimeConfig, load_config, MedrePaths
+        from medre.config import MedrePaths, RuntimeConfig, load_config
+
         assert RuntimeConfig is not None
         assert load_config is not None
         assert MedrePaths is not None
 
     def test_import_medre_runtime(self) -> None:
         from medre.runtime import (
-            RuntimeError,
-            RuntimeConfigError,
-            MedreApp,
             RuntimeBuilder,
-            AdapterBuildFailure,
+            RuntimeError,
         )
+
         assert RuntimeError is not None
         assert RuntimeBuilder is not None
 
     def test_import_medre_adapters_base(self) -> None:
-        from medre.core.contracts.adapter import AdapterContract, AdapterRole, AdapterCapabilities
+        from medre.core.contracts.adapter import (
+            AdapterContract,
+            AdapterRole,
+        )
+
         assert AdapterContract is not None
         assert AdapterRole is not None
 
     def test_import_medre_cli(self) -> None:
         """CLI module imports must not pull in optional SDKs."""
         from medre.cli.main import _get_version
+
         assert callable(_get_version)
 
 
@@ -231,17 +232,20 @@ class TestFakeAdaptersWithoutSDKs:
 
     def test_fake_transport_instantiation(self) -> None:
         from medre.adapters.fake_transport import FakeTransportAdapter
+
         adapter = FakeTransportAdapter("test_transport")
         assert adapter.adapter_id == "test_transport"
 
     def test_fake_matrix_instantiation(self) -> None:
         from medre.adapters.fake_matrix import FakeMatrixAdapter
+
         adapter = FakeMatrixAdapter("test_matrix")
         assert adapter.adapter_id == "test_matrix"
 
     def test_fake_meshtastic_instantiation(self) -> None:
         from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
         from medre.config.adapters.meshtastic import MeshtasticConfig
+
         config = MeshtasticConfig(adapter_id="test_mesh")
         adapter = FakeMeshtasticAdapter(config)
         assert adapter is not None
@@ -249,6 +253,7 @@ class TestFakeAdaptersWithoutSDKs:
     def test_fake_meshcore_instantiation(self) -> None:
         from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
         from medre.config.adapters.meshcore import MeshCoreConfig
+
         config = MeshCoreConfig(adapter_id="test_meshcore")
         adapter = FakeMeshCoreAdapter(config)
         assert adapter is not None
@@ -256,6 +261,7 @@ class TestFakeAdaptersWithoutSDKs:
     def test_fake_lxmf_instantiation(self) -> None:
         from medre.adapters.fake_lxmf import FakeLxmfAdapter
         from medre.config.adapters.lxmf import LxmfConfig
+
         config = LxmfConfig(adapter_id="test_lxmf")
         adapter = FakeLxmfAdapter(config)
         assert adapter is not None
@@ -265,6 +271,7 @@ class TestFakeAdaptersWithoutSDKs:
             FakePresentationAdapter,
             FaultyPresentationAdapter,
         )
+
         adapter = FakePresentationAdapter("test_pres")
         assert adapter.adapter_id == "test_pres"
         faulty = FaultyPresentationAdapter("test_faulty")
@@ -272,21 +279,24 @@ class TestFakeAdaptersWithoutSDKs:
 
     def test_all_fakes_importable_from_adapters_init(self) -> None:
         from medre.adapters import (
-            FakeTransportAdapter,
-            FakeMatrixAdapter,
-            FakeMeshtasticAdapter,
-            FakeMeshCoreAdapter,
             FakeLxmfAdapter,
+            FakeMatrixAdapter,
+            FakeMeshCoreAdapter,
+            FakeMeshtasticAdapter,
             FakePresentationAdapter,
+            FakeTransportAdapter,
         )
-        assert all([
-            FakeTransportAdapter,
-            FakeMatrixAdapter,
-            FakeMeshtasticAdapter,
-            FakeMeshCoreAdapter,
-            FakeLxmfAdapter,
-            FakePresentationAdapter,
-        ])
+
+        assert all(
+            [
+                FakeTransportAdapter,
+                FakeMatrixAdapter,
+                FakeMeshtasticAdapter,
+                FakeMeshCoreAdapter,
+                FakeLxmfAdapter,
+                FakePresentationAdapter,
+            ]
+        )
 
 
 # ===================================================================
@@ -299,22 +309,27 @@ class TestCompatGuards:
 
     def test_matrix_compat_has_nio_is_bool(self) -> None:
         from medre.adapters.matrix.compat import HAS_NIO
+
         assert isinstance(HAS_NIO, bool)
 
     def test_matrix_compat_has_e2ee_is_bool(self) -> None:
         from medre.adapters.matrix.compat import HAS_E2EE
+
         assert isinstance(HAS_E2EE, bool)
 
     def test_meshtastic_compat_has_meshtastic_is_bool(self) -> None:
         from medre.adapters.meshtastic.compat import HAS_MESHTASTIC
+
         assert isinstance(HAS_MESHTASTIC, bool)
 
     def test_meshcore_compat_has_meshcore_is_bool(self) -> None:
         from medre.adapters.meshcore.compat import HAS_MESHCORE
+
         assert isinstance(HAS_MESHCORE, bool)
 
     def test_lxmf_compat_has_lxmf_is_bool(self) -> None:
         from medre.adapters.lxmf.compat import HAS_LXMF
+
         assert isinstance(HAS_LXMF, bool)
 
 
@@ -330,8 +345,11 @@ class TestRuntimeBuilderWithFakeMultiAdapter:
     @pytest.fixture(autouse=True)
     def _clean_path_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         for var in (
-            "MEDRE_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME",
-            "XDG_DATA_HOME", "XDG_CACHE_HOME",
+            "MEDRE_HOME",
+            "XDG_CONFIG_HOME",
+            "XDG_STATE_HOME",
+            "XDG_DATA_HOME",
+            "XDG_CACHE_HOME",
         ):
             monkeypatch.delenv(var, raising=False)
 
@@ -339,11 +357,10 @@ class TestRuntimeBuilderWithFakeMultiAdapter:
     def tmp_paths(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> MedrePaths:
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
         from medre.config.paths import resolve
+
         return resolve()
 
-    def test_build_all_four_transport_fakes(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    def test_build_all_four_transport_fakes(self, tmp_paths: MedrePaths) -> None:
         """Build a runtime with all four transports in fake mode."""
         from medre.config.model import (
             AdapterConfigSet,
@@ -413,9 +430,7 @@ class TestRuntimeBuilderWithFakeMultiAdapter:
             f"want {sorted(expected_keys)}"
         )
 
-    def test_build_no_adapters(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    def test_build_no_adapters(self, tmp_paths: MedrePaths) -> None:
         """Builder works with zero adapters (bare install)."""
         from medre.config.model import RuntimeConfig, StorageConfig
         from medre.runtime.builder import RuntimeBuilder
@@ -443,10 +458,12 @@ class TestDocsContractConsistency:
         self._opt = _load_pyproject()["project"].get("optional-dependencies", {})
 
     def test_contract_doc_exists(self) -> None:
-        contract_path = _REPO_ROOT / "docs" / "contracts" / "58-packaging-and-install-contract.md"
-        assert contract_path.is_file(), (
-            f"Packaging contract doc missing: {contract_path}"
+        contract_path = (
+            _REPO_ROOT / "docs" / "contracts" / "58-packaging-and-install-contract.md"
         )
+        assert (
+            contract_path.is_file()
+        ), f"Packaging contract doc missing: {contract_path}"
 
     def test_contract_doc_mentions_all_extras(self) -> None:
         contract_path = (
@@ -454,9 +471,9 @@ class TestDocsContractConsistency:
         )
         content = contract_path.read_text()
         for extra_name in _REQUIRED_EXTRAS:
-            assert extra_name in content, (
-                f"Contract doc does not mention extra {extra_name!r}"
-            )
+            assert (
+                extra_name in content
+            ), f"Contract doc does not mention extra {extra_name!r}"
 
 
 # ===================================================================
@@ -480,18 +497,18 @@ class TestPyTypedMarker:
         marker = _REPO_ROOT / "src" / "medre" / "py.typed"
         content = marker.read_text().strip()
         # Allow empty or just whitespace; must not have import stubs.
-        assert not content or content.startswith("#"), (
-            f"py.typed has unexpected content: {content!r}"
-        )
+        assert not content or content.startswith(
+            "#"
+        ), f"py.typed has unexpected content: {content!r}"
 
     def test_typed_classifier_matches_marker(self) -> None:
         """If 'Typing :: Typed' is declared, py.typed must exist."""
         classifiers = _load_pyproject()["project"].get("classifiers", [])
         has_typed_classifier = "Typing :: Typed" in classifiers
         has_marker = (_REPO_ROOT / "src" / "medre" / "py.typed").is_file()
-        assert has_typed_classifier == has_marker, (
-            f"classifier={has_typed_classifier}, marker={has_marker} — must match"
-        )
+        assert (
+            has_typed_classifier == has_marker
+        ), f"classifier={has_typed_classifier}, marker={has_marker} — must match"
 
 
 # ===================================================================
@@ -511,9 +528,7 @@ class TestPythonMModule:
         """__main__.py must import from medre.cli."""
         main_mod = _REPO_ROOT / "src" / "medre" / "__main__.py"
         content = main_mod.read_text()
-        assert "medre.cli" in content, (
-            "__main__.py must delegate to medre.cli"
-        )
+        assert "medre.cli" in content, "__main__.py must delegate to medre.cli"
 
     def test_main_module_importable(self) -> None:
         """``python -m medre`` resolves to __main__.py that delegates to CLI.
@@ -534,6 +549,7 @@ class TestPythonMModule:
     def test_import_medre_cli_main_callable(self) -> None:
         """``medre.cli.main`` is a callable entry point."""
         from medre.cli import main
+
         assert callable(main)
 
 
@@ -544,9 +560,15 @@ class TestPythonMModule:
 
 # Optional SDK module names that must NOT appear in sys.modules after
 # importing medre.core / medre.cli / medre.adapters (fake path only).
-_OPTIONAL_SDK_MODULES = frozenset({
-    "nio", "meshtastic", "meshcore", "RNS", "LXMF",
-})
+_OPTIONAL_SDK_MODULES = frozenset(
+    {
+        "nio",
+        "meshtastic",
+        "meshcore",
+        "RNS",
+        "LXMF",
+    }
+)
 
 
 class TestCLIHelpWithoutSDKs:
@@ -559,7 +581,7 @@ class TestCLIHelpWithoutSDKs:
         sys.modules after the help invocation.
         """
         import io
-        from contextlib import redirect_stdout, redirect_stderr
+        from contextlib import redirect_stderr, redirect_stdout
 
         from medre.cli import main
 
@@ -577,22 +599,26 @@ class TestCLIHelpWithoutSDKs:
 
         after = {m for m in _OPTIONAL_SDK_MODULES if m in sys.modules}
         leaked = after - before
-        assert not leaked, (
-            f"optional SDK modules leaked into sys.modules by --help: {sorted(leaked)}"
-        )
+        assert (
+            not leaked
+        ), f"optional SDK modules leaked into sys.modules by --help: {sorted(leaked)}"
 
     def test_config_check_fake_without_optional_sdks(self) -> None:
         """``config check`` with a fake-only config succeeds without SDKs."""
         import io
         import os
-        from contextlib import redirect_stdout, redirect_stderr
+        from contextlib import redirect_stderr, redirect_stdout
 
         from medre.cli import main
 
         # Clean env.
         for var in (
-            "MEDRE_HOME", "MEDRE_CONFIG", "XDG_CONFIG_HOME",
-            "XDG_STATE_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME",
+            "MEDRE_HOME",
+            "MEDRE_CONFIG",
+            "XDG_CONFIG_HOME",
+            "XDG_STATE_HOME",
+            "XDG_DATA_HOME",
+            "XDG_CACHE_HOME",
         ):
             os.environ.pop(var, None)
 
@@ -608,9 +634,8 @@ class TestCLIHelpWithoutSDKs:
 
         # Write it to a temp file and check it.
         import tempfile
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".toml", delete=False
-        ) as tf:
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as tf:
             tf.write(sample)
             config_path = tf.name
 
@@ -622,23 +647,23 @@ class TestCLIHelpWithoutSDKs:
             try:
                 with redirect_stdout(stdout2), redirect_stderr(stderr2):
                     main(["config", "check", "--config", config_path])
-            except SystemExit as exc:
+            except SystemExit:
                 # config check may succeed or fail depending on sample content;
                 # the key requirement is no SDK imports.
                 pass
 
             after = {m for m in _OPTIONAL_SDK_MODULES if m in sys.modules}
             leaked = after - before
-            assert not leaked, (
-                f"optional SDK modules leaked by config check: {sorted(leaked)}"
-            )
+            assert (
+                not leaked
+            ), f"optional SDK modules leaked by config check: {sorted(leaked)}"
         finally:
             os.unlink(config_path)
 
     def test_version_without_optional_sdks(self) -> None:
         """``main(["version"])`` succeeds without importing optional SDKs."""
         import io
-        from contextlib import redirect_stdout, redirect_stderr
+        from contextlib import redirect_stderr, redirect_stdout
 
         from medre.cli import main
 
@@ -654,21 +679,23 @@ class TestCLIHelpWithoutSDKs:
 
         after = {m for m in _OPTIONAL_SDK_MODULES if m in sys.modules}
         leaked = after - before
-        assert not leaked, (
-            f"optional SDK modules leaked by version: {sorted(leaked)}"
-        )
+        assert not leaked, f"optional SDK modules leaked by version: {sorted(leaked)}"
 
     def test_adapters_without_optional_sdks(self) -> None:
         """``main(["adapters"])`` succeeds without importing optional SDKs."""
         import io
         import os
-        from contextlib import redirect_stdout, redirect_stderr
+        from contextlib import redirect_stderr, redirect_stdout
 
         from medre.cli import main
 
         for var in (
-            "MEDRE_HOME", "MEDRE_CONFIG", "XDG_CONFIG_HOME",
-            "XDG_STATE_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME",
+            "MEDRE_HOME",
+            "MEDRE_CONFIG",
+            "XDG_CONFIG_HOME",
+            "XDG_STATE_HOME",
+            "XDG_DATA_HOME",
+            "XDG_CACHE_HOME",
         ):
             os.environ.pop(var, None)
 
@@ -684,9 +711,7 @@ class TestCLIHelpWithoutSDKs:
 
         after = {m for m in _OPTIONAL_SDK_MODULES if m in sys.modules}
         leaked = after - before
-        assert not leaked, (
-            f"optional SDK modules leaked by adapters: {sorted(leaked)}"
-        )
+        assert not leaked, f"optional SDK modules leaked by adapters: {sorted(leaked)}"
 
 
 # ===================================================================
@@ -700,29 +725,43 @@ class TestFakeAdaptersNoTransitiveSDKImports:
     def test_fake_matrix_no_nio_import(self) -> None:
         before = "nio" in sys.modules
         from medre.adapters.fake_matrix import FakeMatrixAdapter  # noqa: F401
+
         after = "nio" in sys.modules
-        assert before == after, "importing FakeMatrixAdapter leaked 'nio' into sys.modules"
+        assert (
+            before == after
+        ), "importing FakeMatrixAdapter leaked 'nio' into sys.modules"
 
     def test_fake_meshtastic_no_sdk_import(self) -> None:
         before = "meshtastic" in sys.modules
         from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter  # noqa: F401
+
         after = "meshtastic" in sys.modules
-        assert before == after, "importing FakeMeshtasticAdapter leaked 'meshtastic' into sys.modules"
+        assert (
+            before == after
+        ), "importing FakeMeshtasticAdapter leaked 'meshtastic' into sys.modules"
 
     def test_fake_meshcore_no_sdk_import(self) -> None:
         before = "meshcore" in sys.modules
         from medre.adapters.fake_meshcore import FakeMeshCoreAdapter  # noqa: F401
+
         after = "meshcore" in sys.modules
-        assert before == after, "importing FakeMeshCoreAdapter leaked 'meshcore' into sys.modules"
+        assert (
+            before == after
+        ), "importing FakeMeshCoreAdapter leaked 'meshcore' into sys.modules"
 
     def test_fake_lxmf_no_sdk_import(self) -> None:
         before_rns = "RNS" in sys.modules
         before_lxmf = "LXMF" in sys.modules
         from medre.adapters.fake_lxmf import FakeLxmfAdapter  # noqa: F401
+
         after_rns = "RNS" in sys.modules
         after_lxmf = "LXMF" in sys.modules
-        assert before_rns == after_rns, "importing FakeLxmfAdapter leaked 'RNS' into sys.modules"
-        assert before_lxmf == after_lxmf, "importing FakeLxmfAdapter leaked 'LXMF' into sys.modules"
+        assert (
+            before_rns == after_rns
+        ), "importing FakeLxmfAdapter leaked 'RNS' into sys.modules"
+        assert (
+            before_lxmf == after_lxmf
+        ), "importing FakeLxmfAdapter leaked 'LXMF' into sys.modules"
 
 
 # ===================================================================
@@ -738,45 +777,45 @@ class TestMissingSDKErrorMessages:
 
     def test_matrix_adapter_mentions_medre_matrix(self) -> None:
         src = self._get_source("src/medre/adapters/matrix/adapter.py")
-        assert "medre[matrix]" in src, (
-            "Matrix adapter error message should mention pip install 'medre[matrix]'"
-        )
+        assert (
+            "medre[matrix]" in src
+        ), "Matrix adapter error message should mention pip install 'medre[matrix]'"
 
     def test_matrix_session_e2ee_mentions_medre_matrix_e2e(self) -> None:
         src = self._get_source("src/medre/adapters/matrix/session.py")
-        assert "medre[matrix-e2e]" in src, (
-            "Matrix session E2EE error should mention pip install 'medre[matrix-e2e]'"
-        )
+        assert (
+            "medre[matrix-e2e]" in src
+        ), "Matrix session E2EE error should mention pip install 'medre[matrix-e2e]'"
 
     def test_meshtastic_session_mentions_medre_meshtastic(self) -> None:
         src = self._get_source("src/medre/adapters/meshtastic/session.py")
-        assert "medre[meshtastic]" in src, (
-            "Meshtastic session error should mention pip install 'medre[meshtastic]'"
-        )
+        assert (
+            "medre[meshtastic]" in src
+        ), "Meshtastic session error should mention pip install 'medre[meshtastic]'"
 
     def test_meshcore_session_mentions_medre_meshcore(self) -> None:
         src = self._get_source("src/medre/adapters/meshcore/session.py")
-        assert "medre[meshcore]" in src, (
-            "MeshCore session error should mention pip install 'medre[meshcore]'"
-        )
+        assert (
+            "medre[meshcore]" in src
+        ), "MeshCore session error should mention pip install 'medre[meshcore]'"
 
     def test_lxmf_adapter_mentions_medre_lxmf(self) -> None:
         src = self._get_source("src/medre/adapters/lxmf/adapter.py")
-        assert "medre[lxmf]" in src, (
-            "LXMF adapter error should mention pip install 'medre[lxmf]'"
-        )
+        assert (
+            "medre[lxmf]" in src
+        ), "LXMF adapter error should mention pip install 'medre[lxmf]'"
 
     def test_lxmf_session_mentions_medre_lxmf(self) -> None:
         src = self._get_source("src/medre/adapters/lxmf/session.py")
-        assert "medre[lxmf]" in src, (
-            "LXMF session error should mention pip install 'medre[lxmf]'"
-        )
+        assert (
+            "medre[lxmf]" in src
+        ), "LXMF session error should mention pip install 'medre[lxmf]'"
 
     def test_lxmf_compat_mentions_medre_lxmf(self) -> None:
         src = self._get_source("src/medre/adapters/lxmf/compat.py")
-        assert "medre[lxmf]" in src, (
-            "LXMF compat error should mention pip install 'medre[lxmf]'"
-        )
+        assert (
+            "medre[lxmf]" in src
+        ), "LXMF compat error should mention pip install 'medre[lxmf]'"
 
     def test_smoke_fake_path_no_sdk_import(self) -> None:
         """Smoke with a fake-only config must not import optional SDKs.
@@ -786,13 +825,17 @@ class TestMissingSDKErrorMessages:
         """
         import io
         import os
-        from contextlib import redirect_stdout, redirect_stderr
+        from contextlib import redirect_stderr, redirect_stdout
 
         from medre.cli import main
 
         for var in (
-            "MEDRE_HOME", "MEDRE_CONFIG", "XDG_CONFIG_HOME",
-            "XDG_STATE_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME",
+            "MEDRE_HOME",
+            "MEDRE_CONFIG",
+            "XDG_CONFIG_HOME",
+            "XDG_STATE_HOME",
+            "XDG_DATA_HOME",
+            "XDG_CACHE_HOME",
         ):
             os.environ.pop(var, None)
 
@@ -813,9 +856,9 @@ class TestMissingSDKErrorMessages:
 
         after = {m for m in _OPTIONAL_SDK_MODULES if m in sys.modules}
         leaked = after - before
-        assert not leaked, (
-            f"optional SDK modules leaked by smoke fake path: {sorted(leaked)}"
-        )
+        assert (
+            not leaked
+        ), f"optional SDK modules leaked by smoke fake path: {sorted(leaked)}"
 
 
 # ===================================================================
@@ -833,9 +876,9 @@ class TestContractMetadataAlignment:
         content = contract_path.read_text()
         project = _load_pyproject()["project"]
         license_val = project.get("license", "")
-        assert license_val in content, (
-            f"pyproject license {license_val!r} not mentioned in contract 58"
-        )
+        assert (
+            license_val in content
+        ), f"pyproject license {license_val!r} not mentioned in contract 58"
 
     def test_contract_classifier_matches_pyproject(self) -> None:
         contract_path = (
@@ -846,18 +889,18 @@ class TestContractMetadataAlignment:
         # Find the Development Status classifier.
         status_clf = [c for c in classifiers if "Development Status" in c]
         assert status_clf, "no Development Status classifier in pyproject"
-        assert status_clf[0] in content, (
-            f"classifier {status_clf[0]!r} not mentioned in contract 58"
-        )
+        assert (
+            status_clf[0] in content
+        ), f"classifier {status_clf[0]!r} not mentioned in contract 58"
 
     def test_console_script_in_contract(self) -> None:
         contract_path = (
             _REPO_ROOT / "docs" / "contracts" / "58-packaging-and-install-contract.md"
         )
         content = contract_path.read_text()
-        assert "medre.cli:main" in content, (
-            "contract 58 must mention the canonical entry point medre.cli:main"
-        )
+        assert (
+            "medre.cli:main" in content
+        ), "contract 58 must mention the canonical entry point medre.cli:main"
 
 
 # ===================================================================
@@ -880,20 +923,16 @@ class TestPackageDataConfig:
     def test_package_data_section_exists(self) -> None:
         """[tool.setuptools.package-data] must be present in pyproject.toml."""
         pkg_data = self._data.get("tool", {}).get("setuptools", {}).get("package-data")
-        assert pkg_data is not None, (
-            "pyproject.toml missing [tool.setuptools.package-data] section"
-        )
+        assert (
+            pkg_data is not None
+        ), "pyproject.toml missing [tool.setuptools.package-data] section"
 
     def test_medre_package_data_includes_py_typed(self) -> None:
         """medre package must list py.typed in its package-data."""
         pkg_data = (
-            self._data.get("tool", {})
-            .get("setuptools", {})
-            .get("package-data", {})
+            self._data.get("tool", {}).get("setuptools", {}).get("package-data", {})
         )
-        assert "medre" in pkg_data, (
-            "[tool.setuptools.package-data] missing 'medre' key"
-        )
+        assert "medre" in pkg_data, "[tool.setuptools.package-data] missing 'medre' key"
         medre_files = pkg_data["medre"]
         assert "py.typed" in medre_files, (
             f"[tool.setuptools.package-data] medre does not list 'py.typed': "
@@ -921,9 +960,7 @@ class TestCliMainModule:
     def test_cli_main_module_delegates(self) -> None:
         cli_main = _REPO_ROOT / "src" / "medre" / "cli" / "__main__.py"
         content = cli_main.read_text()
-        assert "medre.cli" in content, (
-            "cli/__main__.py must delegate to medre.cli"
-        )
+        assert "medre.cli" in content, "cli/__main__.py must delegate to medre.cli"
 
 
 # ===================================================================
@@ -949,9 +986,9 @@ class TestWheelArtifactContract:
     @pytest.fixture(scope="class")
     def _wheel_path(self: "TestWheelArtifactContract") -> object:
         """Build wheel once per class and return its path."""
-        import build
         import tempfile
-        from collections.abc import Generator
+
+        import build
 
         with tempfile.TemporaryDirectory(prefix="medre-wheel-test-") as tmpdir:
             builder = build.ProjectBuilder(_REPO_ROOT)
@@ -978,39 +1015,30 @@ class TestWheelArtifactContract:
 
     def test_wheel_contains_main_module(self, _wheel_path: Path) -> None:
         names = self._wheel_names(_wheel_path)
-        assert "medre/__main__.py" in names, (
-            "wheel missing medre/__main__.py"
-        )
+        assert "medre/__main__.py" in names, "wheel missing medre/__main__.py"
 
     def test_wheel_contains_cli_main_module(self, _wheel_path: Path) -> None:
         names = self._wheel_names(_wheel_path)
-        assert "medre/cli/__main__.py" in names, (
-            "wheel missing medre/cli/__main__.py"
-        )
+        assert "medre/cli/__main__.py" in names, "wheel missing medre/cli/__main__.py"
 
     def test_wheel_excludes_tests(self, _wheel_path: Path) -> None:
         names = self._wheel_names(_wheel_path)
         test_files = [n for n in names if n.startswith("tests/") or "/tests/" in n]
-        assert not test_files, (
-            f"wheel should not contain tests/: {sorted(test_files)}"
-        )
+        assert not test_files, f"wheel should not contain tests/: {sorted(test_files)}"
 
     def test_wheel_excludes_docs(self, _wheel_path: Path) -> None:
         names = self._wheel_names(_wheel_path)
         doc_files = [n for n in names if n.startswith("docs/") or "/docs/" in n]
-        assert not doc_files, (
-            f"wheel should not contain docs/: {sorted(doc_files)}"
-        )
+        assert not doc_files, f"wheel should not contain docs/: {sorted(doc_files)}"
 
     def test_wheel_excludes_examples(self, _wheel_path: Path) -> None:
         names = self._wheel_names(_wheel_path)
         example_files = [
-            n for n in names
-            if n.startswith("examples/") or "/examples/" in n
+            n for n in names if n.startswith("examples/") or "/examples/" in n
         ]
-        assert not example_files, (
-            f"wheel should not contain examples/: {sorted(example_files)}"
-        )
+        assert (
+            not example_files
+        ), f"wheel should not contain examples/: {sorted(example_files)}"
 
 
 # ===================================================================
@@ -1031,8 +1059,12 @@ class TestPythonMInvocation:
     @pytest.fixture(autouse=True)
     def _clean_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         for var in (
-            "MEDRE_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME",
-            "XDG_DATA_HOME", "XDG_CACHE_HOME", "MEDRE_CONFIG",
+            "MEDRE_HOME",
+            "XDG_CONFIG_HOME",
+            "XDG_STATE_HOME",
+            "XDG_DATA_HOME",
+            "XDG_CACHE_HOME",
+            "MEDRE_CONFIG",
         ):
             monkeypatch.delenv(var, raising=False)
 
@@ -1053,9 +1085,9 @@ class TestPythonMInvocation:
             f"python -m medre --help exited {result.returncode}: "
             f"stderr={result.stderr!r}"
         )
-        assert "usage:" in result.stdout.lower() or "medre" in result.stdout.lower(), (
-            f"Expected usage text in stdout: {result.stdout[:200]!r}"
-        )
+        assert (
+            "usage:" in result.stdout.lower() or "medre" in result.stdout.lower()
+        ), f"Expected usage text in stdout: {result.stdout[:200]!r}"
 
     def test_python_m_medre_cli_help_exits_zero(self) -> None:
         """``python -m medre.cli --help`` exits 0 and prints usage."""
@@ -1064,9 +1096,9 @@ class TestPythonMInvocation:
             f"python -m medre.cli --help exited {result.returncode}: "
             f"stderr={result.stderr!r}"
         )
-        assert "usage:" in result.stdout.lower() or "medre" in result.stdout.lower(), (
-            f"Expected usage text in stdout: {result.stdout[:200]!r}"
-        )
+        assert (
+            "usage:" in result.stdout.lower() or "medre" in result.stdout.lower()
+        ), f"Expected usage text in stdout: {result.stdout[:200]!r}"
 
     def test_python_m_medre_version(self) -> None:
         """``python -m medre version`` prints version info."""
@@ -1075,9 +1107,9 @@ class TestPythonMInvocation:
             f"python -m medre version exited {result.returncode}: "
             f"stderr={result.stderr!r}"
         )
-        assert "medre" in result.stdout.lower(), (
-            f"Expected 'medre' in version output: {result.stdout!r}"
-        )
+        assert (
+            "medre" in result.stdout.lower()
+        ), f"Expected 'medre' in version output: {result.stdout!r}"
 
     def test_python_m_medre_cli_version(self) -> None:
         """``python -m medre.cli version`` prints version info."""
@@ -1086,9 +1118,9 @@ class TestPythonMInvocation:
             f"python -m medre.cli version exited {result.returncode}: "
             f"stderr={result.stderr!r}"
         )
-        assert "medre" in result.stdout.lower(), (
-            f"Expected 'medre' in version output: {result.stdout!r}"
-        )
+        assert (
+            "medre" in result.stdout.lower()
+        ), f"Expected 'medre' in version output: {result.stdout!r}"
 
     def test_python_m_medre_config_sample(self) -> None:
         """``python -m medre config sample`` produces valid TOML."""
@@ -1098,12 +1130,12 @@ class TestPythonMInvocation:
             f"stderr={result.stderr!r}"
         )
         parsed = tomllib.loads(result.stdout)
-        assert "runtime" in parsed, (
-            f"Sample output missing [runtime]: {list(parsed.keys())}"
-        )
-        assert "adapters" in parsed, (
-            f"Sample output missing [adapters]: {list(parsed.keys())}"
-        )
+        assert (
+            "runtime" in parsed
+        ), f"Sample output missing [runtime]: {list(parsed.keys())}"
+        assert (
+            "adapters" in parsed
+        ), f"Sample output missing [adapters]: {list(parsed.keys())}"
 
     def test_python_m_medre_paths(self) -> None:
         """``python -m medre paths`` prints path information."""
@@ -1112,9 +1144,9 @@ class TestPythonMInvocation:
             f"python -m medre paths exited {result.returncode}: "
             f"stderr={result.stderr!r}"
         )
-        assert "medre" in result.stdout.lower(), (
-            f"Expected 'medre' in paths output: {result.stdout!r}"
-        )
+        assert (
+            "medre" in result.stdout.lower()
+        ), f"Expected 'medre' in paths output: {result.stdout!r}"
 
     def test_python_m_medre_adapters(self) -> None:
         """``python -m medre adapters`` lists adapter types."""
@@ -1124,6 +1156,6 @@ class TestPythonMInvocation:
             f"stderr={result.stderr!r}"
         )
         combined = (result.stdout + result.stderr).lower()
-        assert "matrix" in combined or "adapter" in combined, (
-            f"Expected adapter info in output: {combined[:200]!r}"
-        )
+        assert (
+            "matrix" in combined or "adapter" in combined
+        ), f"Expected adapter info in output: {combined[:200]!r}"

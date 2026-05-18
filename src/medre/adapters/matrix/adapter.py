@@ -8,6 +8,7 @@ payloads back to Matrix rooms.
 All client lifecycle (creation, login, sync, teardown) is delegated to
 :class:`~medre.adapters.matrix.session.MatrixSession`.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -15,6 +16,13 @@ import logging
 import random
 from typing import Any
 
+from medre.adapters.matrix.codec import MatrixCodec
+from medre.adapters.matrix.compat import HAS_NIO
+from medre.adapters.matrix.errors import MatrixConnectionError, MatrixSendError
+from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
+from medre.adapters.matrix.relations import MatrixRelationHandler
+from medre.adapters.matrix.session import MatrixSession
+from medre.config.adapters.matrix import MatrixConfig
 from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
@@ -25,13 +33,6 @@ from medre.core.contracts.adapter import (
     AdapterRole,
     AdapterSendError,
 )
-from medre.adapters.matrix.codec import MatrixCodec
-from medre.adapters.matrix.compat import HAS_NIO
-from medre.config.adapters.matrix import MatrixConfig
-from medre.adapters.matrix.errors import MatrixConnectionError, MatrixSendError
-from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
-from medre.adapters.matrix.relations import MatrixRelationHandler
-from medre.adapters.matrix.session import MatrixSession
 from medre.core.rendering.renderer import RenderingResult
 
 _logger = logging.getLogger(__name__)
@@ -111,11 +112,16 @@ class MatrixAdapter(AdapterContract):
     """
 
     __slots__ = (
-        "_config", "_capabilities", "_session",
-        "_client", "_sync_task",
+        "_config",
+        "_capabilities",
+        "_session",
+        "_client",
+        "_sync_task",
         "_sync_failure_stored",
-        "_codec", "_relation_handler",
-        "_envelope_handler", "ctx",
+        "_codec",
+        "_relation_handler",
+        "_envelope_handler",
+        "ctx",
         # Track 5 — delivery retry stats
         "_transient_delivery_failures",
         "_permanent_delivery_failures",
@@ -455,7 +461,7 @@ class MatrixAdapter(AdapterContract):
                 if _is_transient_error(exc):
                     self._transient_delivery_failures += 1
                     if attempt < _MAX_DELIVERY_RETRIES - 1:
-                        delay = _DELIVERY_BACKOFF_BASE * (2 ** attempt)
+                        delay = _DELIVERY_BACKOFF_BASE * (2**attempt)
                         jitter = delay * _DELIVERY_BACKOFF_JITTER
                         actual_delay = max(0.0, delay + random.uniform(-jitter, jitter))
                         await asyncio.sleep(actual_delay)
@@ -474,9 +480,7 @@ class MatrixAdapter(AdapterContract):
                     raise AdapterPermanentError(str(exc)) from exc
 
         # Should not reach here, but safety net
-        raise AdapterPermanentError(
-            f"Delivery failed: {last_exc}"
-        ) from last_exc
+        raise AdapterPermanentError(f"Delivery failed: {last_exc}") from last_exc
 
     # -- Inbound callback ---------------------------------------------------
 
@@ -577,7 +581,9 @@ class MatrixAdapter(AdapterContract):
                 "connected": diag.connected,
                 "logged_in": diag.logged_in,
                 "sync_task_running": diag.sync_task_running,
-                "last_sync_error": str(diag.last_sync_error) if diag.last_sync_error else None,
+                "last_sync_error": (
+                    str(diag.last_sync_error) if diag.last_sync_error else None
+                ),
                 "store_path_configured": diag.store_path_configured,
                 "device_id_configured": diag.device_id_configured,
                 "encryption_mode": diag.encryption_mode,

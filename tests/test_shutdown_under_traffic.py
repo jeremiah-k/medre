@@ -4,6 +4,7 @@ Seven tests exercise deterministic shutdown behaviour while ingress events
 are in-flight.  Every test uses fake adapters (zero network, zero hardware)
 and deterministic signalling (asyncio.Event / wait_until) instead of fixed sleeps.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -16,10 +17,10 @@ from typing import Any, AsyncGenerator, cast
 
 import pytest
 
-from medre.core.contracts.adapter import AdapterContext
 from medre.adapters.fake_presentation import FakePresentationAdapter
 from medre.adapters.fake_transport import FakeTransportAdapter
 from medre.config.model import RuntimeLimits
+from medre.core.contracts.adapter import AdapterContext
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.events.bus import EventBus
@@ -27,16 +28,15 @@ from medre.core.planning import FallbackResolver, RelationResolver
 from medre.core.planning.delivery_plan import DeliveryFailureKind
 from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.routing.stats import RouteStats
 from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage.backend import StorageBackend
 from medre.core.storage.sqlite import SQLiteStorage
-from medre.runtime.app import MedreApp, RuntimeState
+from medre.runtime.app import RuntimeState
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.capacity import CapacityController
 from medre.runtime.snapshot import build_runtime_snapshot
-
 from tests.helpers.async_utils import wait_until
 
 _LOG = __import__("logging").getLogger(__name__)
@@ -44,6 +44,7 @@ _LOG = __import__("logging").getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_event(
     event_id: str | None = None,
@@ -110,8 +111,11 @@ def _build_runner(
     return PipelineRunner(config)
 
 
-def _make_src_ctx(runner: PipelineRunner, shutdown_event: asyncio.Event) -> AdapterContext:
+def _make_src_ctx(
+    runner: PipelineRunner, shutdown_event: asyncio.Event
+) -> AdapterContext:
     """Build an AdapterContext for a fake source adapter."""
+
     # Wrap ingress_handler to discard return value, matching MedreApp._make_publish_inbound.
     async def _publish(event: CanonicalEvent) -> None:
         await runner.ingress_handler(event)
@@ -129,6 +133,7 @@ def _make_src_ctx(runner: PipelineRunner, shutdown_event: asyncio.Event) -> Adap
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 async def temp_db() -> AsyncGenerator[SQLiteStorage, None]:
@@ -162,7 +167,9 @@ class TestIngressWhileShutdownBegins:
         dst = FakePresentationAdapter("fake_dst")
         router = Router(routes=[_make_route()])
         accounting = RuntimeAccounting()
-        runner = _build_runner(temp_db, router, {"fake_dst": dst}, accounting=accounting)
+        runner = _build_runner(
+            temp_db, router, {"fake_dst": dst}, accounting=accounting
+        )
         await runner.start()
 
         src_ctx = _make_src_ctx(runner, asyncio.Event())
@@ -173,7 +180,8 @@ class TestIngressWhileShutdownBegins:
 
         # Fire ingress concurrently with stop.
         ingress_task = asyncio.gather(
-            *[src.simulate_inbound(e) for e in events], return_exceptions=True,
+            *[src.simulate_inbound(e) for e in events],
+            return_exceptions=True,
         )
         stop_task = asyncio.ensure_future(runner.stop())
 
@@ -205,11 +213,15 @@ class TestDeliveryAcquireDuringShutdown:
     """CapacityController rejects deliveries when shutting down."""
 
     @pytest.mark.asyncio
-    async def test_delivery_acquire_during_shutdown(self, temp_db: SQLiteStorage) -> None:
+    async def test_delivery_acquire_during_shutdown(
+        self, temp_db: SQLiteStorage
+    ) -> None:
         """Hold delivery semaphore, trigger shutdown, verify SHUTDOWN_REJECTION."""
         limits = RuntimeLimits(
-            max_inflight_deliveries=1, max_inflight_replay_events=1,
-            shutdown_drain_timeout_seconds=2, delivery_acquire_timeout_seconds=0.5,
+            max_inflight_deliveries=1,
+            max_inflight_replay_events=1,
+            shutdown_drain_timeout_seconds=2,
+            delivery_acquire_timeout_seconds=0.5,
         )
         cc = CapacityController(limits)
 
@@ -218,8 +230,11 @@ class TestDeliveryAcquireDuringShutdown:
         accounting = RuntimeAccounting()
         route_stats = RouteStats()
         runner = _build_runner(
-            temp_db, router, {"fake_dst": dst},
-            accounting=accounting, route_stats=route_stats,
+            temp_db,
+            router,
+            {"fake_dst": dst},
+            accounting=accounting,
+            route_stats=route_stats,
         )
         runner.set_capacity_controller(cc)
         await runner.start()
@@ -258,7 +273,9 @@ class TestCallbackIngressAfterStopRequested:
     """simulate_inbound after shutdown is requested does not crash."""
 
     @pytest.mark.asyncio
-    async def test_callback_ingress_after_stop_requested(self, temp_db: SQLiteStorage) -> None:
+    async def test_callback_ingress_after_stop_requested(
+        self, temp_db: SQLiteStorage
+    ) -> None:
         """Set shutdown_event, submit events: no crash, storage readable."""
         shutdown_event = asyncio.Event()
 
@@ -277,7 +294,8 @@ class TestCallbackIngressAfterStopRequested:
         # Submit events after shutdown signal.
         events = [src.make_event(text=f"post-shutdown-{i}") for i in range(3)]
         results = await asyncio.gather(
-            *[src.simulate_inbound(e) for e in events], return_exceptions=True,
+            *[src.simulate_inbound(e) for e in events],
+            return_exceptions=True,
         )
 
         for r in results:
@@ -353,7 +371,9 @@ class TestSnapshotValidAfterShutdownUnderTraffic:
     """Snapshot is structurally valid after concurrent traffic + shutdown."""
 
     @pytest.mark.asyncio
-    async def test_snapshot_valid_after_shutdown_under_traffic(self, temp_db: SQLiteStorage) -> None:
+    async def test_snapshot_valid_after_shutdown_under_traffic(
+        self, temp_db: SQLiteStorage
+    ) -> None:
         """Inject 8 events, stop, snapshot: valid JSON, sane accounting."""
         fd, cfg_path = tempfile.mkstemp(suffix=".toml")
         os.close(fd)
@@ -361,13 +381,13 @@ class TestSnapshotValidAfterShutdownUnderTraffic:
             cfg_path_obj = __import__("pathlib").Path(cfg_path)
             cfg_path_obj.write_text(
                 '[runtime]\nname = "shutdown-traffic"\n\n'
-                "[storage]\nbackend = \"memory\"\n\n"
-                "[adapters.matrix.src]\nenabled = true\nadapter_kind = \"fake\"\n"
-                "homeserver = \"https://fake.local\"\n"
+                '[storage]\nbackend = "memory"\n\n'
+                '[adapters.matrix.src]\nenabled = true\nadapter_kind = "fake"\n'
+                'homeserver = "https://fake.local"\n'
                 'user_id = "@bot:fake.local"\naccess_token = "tok"\n'
                 'room_allowlist = ["!room:fake.local"]\nencryption_mode = "plaintext"\n\n'
-                "[adapters.matrix.dst]\nenabled = true\nadapter_kind = \"fake\"\n"
-                "homeserver = \"https://fake.local\"\n"
+                '[adapters.matrix.dst]\nenabled = true\nadapter_kind = "fake"\n'
+                'homeserver = "https://fake.local"\n'
                 'user_id = "@bot2:fake.local"\naccess_token = "tok"\n'
                 'room_allowlist = ["!room:fake.local"]\nencryption_mode = "plaintext"\n\n'
                 '[routes."r-1"]\n'
@@ -441,16 +461,20 @@ class TestNoOrphanTasksAfterShutdown:
         await runner.stop()
 
         adapter_patterns = (
-            "simulate_inbound", "_ingress_loop", "_deliver_one", "_deliver_all",
+            "simulate_inbound",
+            "_ingress_loop",
+            "_deliver_one",
+            "_deliver_all",
         )
         orphans = [
-            t for t in asyncio.all_tasks()
+            t
+            for t in asyncio.all_tasks()
             if t.get_coro() is not None
             and any(p in (t.get_coro().__qualname__ or "") for p in adapter_patterns)
         ]
-        assert orphans == [], (
-            f"Orphan tasks: {[t.get_coro().__qualname__ for t in orphans]}"
-        )
+        assert (
+            orphans == []
+        ), f"Orphan tasks: {[t.get_coro().__qualname__ for t in orphans]}"
 
 
 # ===================================================================
@@ -486,9 +510,9 @@ class TestDoubleStopHarmless:
             cfg_path_obj = __import__("pathlib").Path(cfg_path)
             cfg_path_obj.write_text(
                 '[runtime]\nname = "double-stop"\n\n'
-                "[storage]\nbackend = \"memory\"\n\n"
-                "[adapters.matrix.solo]\nenabled = true\nadapter_kind = \"fake\"\n"
-                "homeserver = \"https://fake.local\"\n"
+                '[storage]\nbackend = "memory"\n\n'
+                '[adapters.matrix.solo]\nenabled = true\nadapter_kind = "fake"\n'
+                'homeserver = "https://fake.local"\n'
                 'user_id = "@bot:fake.local"\naccess_token = "tok"\n'
                 'room_allowlist = ["!room:fake.local"]\nencryption_mode = "plaintext"\n'
             )

@@ -13,13 +13,12 @@ required environment variables are set:
 
 These tests do NOT pollute the standard test run.
 """
+
 from __future__ import annotations
 
 import asyncio
 import logging
 import os
-import sys
-import tempfile
 from typing import Any
 from unittest.mock import AsyncMock
 
@@ -72,9 +71,10 @@ class TestLiveE2EEStart:
     async def test_e2ee_required_starts_with_valid_config(self) -> None:
         """Start in e2ee_required mode with real credentials and verify."""
         pytest.importorskip("nio")
-        from medre.core.contracts.adapter import AdapterContext
-        from medre.adapters.matrix.adapter import MatrixAdapter
         from datetime import datetime, timezone
+
+        from medre.adapters.matrix.adapter import MatrixAdapter
+        from medre.core.contracts.adapter import AdapterContext
 
         config = _live_config()
         adapter = MatrixAdapter(config)
@@ -103,10 +103,11 @@ class TestLiveE2EESend:
     async def test_send_encrypted_text(self) -> None:
         """Send a text message in an encrypted room."""
         pytest.importorskip("nio")
-        from medre.core.contracts.adapter import AdapterContext
-        from medre.adapters.matrix.adapter import MatrixAdapter
-        from medre.core.rendering.renderer import RenderingResult
         from datetime import datetime, timezone
+
+        from medre.adapters.matrix.adapter import MatrixAdapter
+        from medre.core.contracts.adapter import AdapterContext
+        from medre.core.rendering.renderer import RenderingResult
 
         config = _live_config()
         adapter = MatrixAdapter(config)
@@ -143,9 +144,10 @@ class TestLiveE2EERestart:
     async def test_restart_same_store_device(self) -> None:
         """Stop and restart with same store_path/device_id."""
         pytest.importorskip("nio")
-        from medre.core.contracts.adapter import AdapterContext
-        from medre.adapters.matrix.adapter import MatrixAdapter
         from datetime import datetime, timezone
+
+        from medre.adapters.matrix.adapter import MatrixAdapter
+        from medre.core.contracts.adapter import AdapterContext
 
         config = _live_config()
         adapter = MatrixAdapter(config)
@@ -173,9 +175,10 @@ class TestLiveE2EERestart:
     async def test_restart_preserves_crypto_state(self) -> None:
         """Restart preserves crypto_enabled and crypto_store_loaded."""
         pytest.importorskip("nio")
-        from medre.core.contracts.adapter import AdapterContext
-        from medre.adapters.matrix.adapter import MatrixAdapter
         from datetime import datetime, timezone
+
+        from medre.adapters.matrix.adapter import MatrixAdapter
+        from medre.core.contracts.adapter import AdapterContext
 
         config = _live_config()
         adapter = MatrixAdapter(config)
@@ -205,10 +208,11 @@ class TestLiveE2EERestart:
     async def test_restart_send_encrypted(self) -> None:
         """After restart, can still send encrypted messages."""
         pytest.importorskip("nio")
-        from medre.core.contracts.adapter import AdapterContext
-        from medre.adapters.matrix.adapter import MatrixAdapter
-        from medre.core.rendering.renderer import RenderingResult
         from datetime import datetime, timezone
+
+        from medre.adapters.matrix.adapter import MatrixAdapter
+        from medre.core.contracts.adapter import AdapterContext
+        from medre.core.rendering.renderer import RenderingResult
 
         config = _live_config()
         adapter = MatrixAdapter(config)
@@ -245,9 +249,10 @@ class TestLiveE2EEStartStopCycles:
     async def test_repeated_start_stop_cycles(self) -> None:
         """2-3 start/stop cycles are safe with no leaked resources."""
         pytest.importorskip("nio")
-        from medre.core.contracts.adapter import AdapterContext
-        from medre.adapters.matrix.adapter import MatrixAdapter
         from datetime import datetime, timezone
+
+        from medre.adapters.matrix.adapter import MatrixAdapter
+        from medre.core.contracts.adapter import AdapterContext
 
         config = _live_config()
         adapter = MatrixAdapter(config)
@@ -260,7 +265,7 @@ class TestLiveE2EEStartStopCycles:
             shutdown_event=asyncio.Event(),
         )
 
-        for cycle in range(3):
+        for _cycle in range(3):
             await adapter.start(ctx)
             diag = adapter.diagnostics()
             assert diag["connected"] is True
@@ -273,9 +278,10 @@ class TestLiveE2EEStartStopCycles:
     async def test_disconnect_reconnect(self) -> None:
         """Stop/restart adapter simulates disconnect/reconnect."""
         pytest.importorskip("nio")
-        from medre.core.contracts.adapter import AdapterContext
-        from medre.adapters.matrix.adapter import MatrixAdapter
         from datetime import datetime, timezone
+
+        from medre.adapters.matrix.adapter import MatrixAdapter
+        from medre.core.contracts.adapter import AdapterContext
 
         config = _live_config()
         adapter = MatrixAdapter(config)

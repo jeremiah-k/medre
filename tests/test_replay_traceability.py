@@ -7,8 +7,6 @@ existing traceability tests and new replay bridge condition tests.
 
 from __future__ import annotations
 
-import pytest
-
 from medre.core.events import CanonicalEvent
 from medre.core.storage import SQLiteStorage
 from medre.core.storage.replay import (
@@ -18,11 +16,8 @@ from medre.core.storage.replay import (
     ReplayState,
     collect_replay_state,
 )
-
 from tests.helpers.replay import (
-    StubPipeline,
     make_engine,
-    make_events,
     make_second_event,
 )
 
@@ -81,16 +76,24 @@ class TestReplayTraceability:
         """ReplayState updates current_lineage from results."""
         state = ReplayState()
 
-        state.record(ReplayResult(
-            event_id="a", stage="store", status="passed",
-            lineage=["parent-1"],
-        ))
+        state.record(
+            ReplayResult(
+                event_id="a",
+                stage="store",
+                status="passed",
+                lineage=["parent-1"],
+            )
+        )
         assert state.current_lineage == ["parent-1"]
 
-        state.record(ReplayResult(
-            event_id="b", stage="store", status="passed",
-            lineage=["parent-2", "parent-3"],
-        ))
+        state.record(
+            ReplayResult(
+                event_id="b",
+                stage="store",
+                status="passed",
+                lineage=["parent-2", "parent-3"],
+            )
+        )
         assert state.current_lineage == ["parent-2", "parent-3"]
 
     # ------------------------------------------------------------------

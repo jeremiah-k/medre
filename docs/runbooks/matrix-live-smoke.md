@@ -6,13 +6,12 @@
 This runbook describes how to run the Matrix live smoke tests against a
 real Matrix homeserver, what the tests cover, and what they do not cover.
 
-
 ## Purpose
 
 The live smoke harness validates that the MEDRE Matrix adapter works
 against a real Matrix homeserver — not just against the
-`FakeMatrixAdapter` and mock-based unit tests.  It is **optional** and
-**skipped by default**.  Default `pytest` runs remain fake-only.
+`FakeMatrixAdapter` and mock-based unit tests. It is **optional** and
+**skipped by default**. Default `pytest` runs remain fake-only.
 
 What live smoke proves:
 
@@ -42,25 +41,23 @@ What live smoke does **not** prove (without second-party cooperation):
 - Meshtastic, MeshCore, LXMF, or any non-Matrix adapter connectivity.
 - Production credential management or token rotation.
 
-
 ## Required Environment Variables
 
-| Variable                 | Example                       | Description                          |
-|--------------------------|-------------------------------|--------------------------------------|
-| `MATRIX_HOMESERVER`      | `http://localhost:8008`       | Full URL of the Matrix homeserver    |
-| `MATRIX_USER_ID`         | `@bot:localhost`              | Fully-qualified Matrix user ID       |
-| `MATRIX_ACCESS_TOKEN`    | `syt_xxxxxxxxxxxxx`           | Access token for the bot account     |
-| `MATRIX_ROOM_ID`         | `!abc123:localhost`           | Room ID to send test messages to     |
-| `MATRIX_DEVICE_ID`       | `DEVICEABC`                   | Device ID (live E2EE harness only; normal operation derives via `whoami()`) |
-| `MATRIX_STORE_PATH`      | `/tmp/nio-store`              | Crypto store directory (live E2EE harness only; normal operation derives internally) |
-| `MATRIX_INBOUND_SENDER`  | `@alice:example.com`          | (Optional) Expected third-party sender MXID for inbound test |
+| Variable                | Example                 | Description                                                                          |
+| ----------------------- | ----------------------- | ------------------------------------------------------------------------------------ |
+| `MATRIX_HOMESERVER`     | `http://localhost:8008` | Full URL of the Matrix homeserver                                                    |
+| `MATRIX_USER_ID`        | `@bot:localhost`        | Fully-qualified Matrix user ID                                                       |
+| `MATRIX_ACCESS_TOKEN`   | `syt_xxxxxxxxxxxxx`     | Access token for the bot account                                                     |
+| `MATRIX_ROOM_ID`        | `!abc123:localhost`     | Room ID to send test messages to                                                     |
+| `MATRIX_DEVICE_ID`      | `DEVICEABC`             | Device ID (live E2EE harness only; normal operation derives via `whoami()`)          |
+| `MATRIX_STORE_PATH`     | `/tmp/nio-store`        | Crypto store directory (live E2EE harness only; normal operation derives internally) |
+| `MATRIX_INBOUND_SENDER` | `@alice:example.com`    | (Optional) Expected third-party sender MXID for inbound test                         |
 
 If any of the first four variables is unset, all live tests skip with a descriptive message. E2EE-specific tests additionally require `MATRIX_DEVICE_ID` and `MATRIX_STORE_PATH` and an encrypted room. Note: the live test harness uses explicit `device_id`/`store_path` for isolation; normal MEDRE operation discovers and derives these automatically.
 
-
 ## Local Homeserver Setup
 
-You do **not** need Docker.  Both Synapse and Conduit can run locally.
+You do **not** need Docker. Both Synapse and Conduit can run locally.
 
 ### Option 1: Synapse via pip (recommended)
 
@@ -118,37 +115,34 @@ curl -s -X POST \
   http://localhost:8008/_matrix/client/v3/login
 ```
 
-> **Note:** Docker is optional.  The primary instructions use pip (Synapse)
-> or a native binary (Conduit).  No Docker dependency is required.
-
+> **Note:** Docker is optional. The primary instructions use pip (Synapse)
+> or a native binary (Conduit). No Docker dependency is required.
 
 ## Account and Token Setup
 
-1. **Create a dedicated bot account** on your homeserver.  Do not use your
+1. **Create a dedicated bot account** on your homeserver. Do not use your
    personal Matrix account for testing.
 
 2. **Obtain an access token** via:
    - The login API endpoint (`/_matrix/client/v3/login`), or
    - Element → Settings → Help & About → Access Token.
 
-3. **Do not commit or log the token.**  The live test file uses
-   placeholders only.  Set the token via an environment variable.
+3. **Do not commit or log the token.** The live test file uses
+   placeholders only. Set the token via an environment variable.
 
 4. **Future note:** A mmrelay-like `auth` command for interactive login
    and credential management may be useful in a future tranche, but the
    current tranche uses environment-variable access tokens exclusively.
-
 
 ## Room Setup
 
 1. **Create a test room** using your Matrix client (Element, etc.).
 2. **Invite the bot user** to the room.
 3. **Ensure the bot has joined** the room.
-4. **Copy the room ID** (format: `!opaque:server`).  Set it as
+4. **Copy the room ID** (format: `!opaque:server`). Set it as
    `MATRIX_ROOM_ID`.
 5. The room should be **unencrypted** for the base live smoke tests.
 6. For E2EE harness tests: create a separate encrypted room (enable encryption in room settings in Element). The bot must be joined to it. This room is used only by E2EE-specific tests.
-
 
 ## Running the Tests
 
@@ -219,23 +213,21 @@ tests/test_matrix_live.py::TestMatrixLiveSmoke::test_adapter_health_unknown_afte
 13 skipped in X.XXs
 ```
 
-With reason: *"Set MATRIX_HOMESERVER, MATRIX_USER_ID, MATRIX_ACCESS_TOKEN,
-and MATRIX_ROOM_ID env vars to run live Matrix tests"*
-
+With reason: _"Set MATRIX_HOMESERVER, MATRIX_USER_ID, MATRIX_ACCESS_TOKEN,
+and MATRIX_ROOM_ID env vars to run live Matrix tests"_
 
 ## Common Failures
 
-| Symptom                             | Cause                                    | Fix                                                   |
-|-------------------------------------|------------------------------------------|-------------------------------------------------------|
-| `MatrixConnectionError: mindroom-nio not installed` | Missing dependency | `pip install -e ".[matrix]"`                         |
-| `MatrixConnectionError: failed to authenticate` | Bad token or user ID | Verify token via `curl` login; check user ID format (`@bot:server`) |
-| `AdapterPermanentError: no room_id` | Missing `MATRIX_ROOM_ID`                 | Set the room ID env var; ensure bot has joined the room |
-| `assert info.health == "healthy"` fails | Homeserver unreachable or token expired | Check homeserver URL; regenerate token                |
-| `native_message_id is None`         | Homeserver returned error response       | Check homeserver logs; verify room membership         |
-| All tests SKIP                      | Env vars not set                         | Set all four `MATRIX_*` environment variables         |
-| Health stays `degraded`             | Reconnect cycle in progress              | Wait for reconnect or check homeserver availability   |
-| Health `failed` after restart test  | Token expired during test                | Regenerate token; re-export env var                   |
-
+| Symptom                                             | Cause                                   | Fix                                                                 |
+| --------------------------------------------------- | --------------------------------------- | ------------------------------------------------------------------- |
+| `MatrixConnectionError: mindroom-nio not installed` | Missing dependency                      | `pip install -e ".[matrix]"`                                        |
+| `MatrixConnectionError: failed to authenticate`     | Bad token or user ID                    | Verify token via `curl` login; check user ID format (`@bot:server`) |
+| `AdapterPermanentError: no room_id`                 | Missing `MATRIX_ROOM_ID`                | Set the room ID env var; ensure bot has joined the room             |
+| `assert info.health == "healthy"` fails             | Homeserver unreachable or token expired | Check homeserver URL; regenerate token                              |
+| `native_message_id is None`                         | Homeserver returned error response      | Check homeserver logs; verify room membership                       |
+| All tests SKIP                                      | Env vars not set                        | Set all four `MATRIX_*` environment variables                       |
+| Health stays `degraded`                             | Reconnect cycle in progress             | Wait for reconnect or check homeserver availability                 |
+| Health `failed` after restart test                  | Token expired during test               | Regenerate token; re-export env var                                 |
 
 ## Cleanup
 
@@ -254,7 +246,6 @@ After running tests:
    ```
 
 5. **Stop the homeserver** if started locally for testing.
-
 
 ## M14 Inbound Third-Party Reception Test
 
@@ -314,7 +305,6 @@ human actor or account.
 - **Result:** 13 tests skipped (all gated by env vars). M14 remains blocked on valid credentials.
   Test infrastructure is complete; the blocker is purely operational.
 
-
 ## E2EE Statement
 
 **E2EE text alpha is now available.** The Matrix adapter supports encrypted rooms for text messages when installed with `pip install -e ".[matrix-e2e]"`. Normal runtime derives `store_path` under the resolved state directory (`{state}/adapters/{adapter_id}/matrix/store`) and discovers `device_id` via `whoami()` — no operator configuration needed for either. See the E2EE harness section below for live test instructions.
@@ -322,24 +312,26 @@ human actor or account.
 **Plaintext alpha remains the primary path.** Base live smoke tests target **unencrypted rooms only** and work with `pip install -e ".[matrix]"` (no crypto libs). Plaintext rooms work identically in both modes.
 
 **E2EE text alpha scope:**
+
 - Inbound: encrypted messages auto-decrypted to `RoomMessageText` during sync.
 - Outbound: `room_send` auto-encrypts for encrypted rooms.
 - Key lifecycle: automatic via `sync_forever`.
 - Crypto store: persisted under `store_path`, loaded on `restore_login`.
 
 **Unsupported in E2EE text alpha:**
+
 - Reactions, edits, media, attachments.
 - Cross-signing, key backup, key import/export.
 - Interactive device verification (emoji/QR).
 - Unverified device policy: MEDRE internally passes the required nio `ignore_unverified_devices=True` flag for non-plaintext sends. There is no operator toggle for this. This is required by upstream nio limitations (no cross-signing or programmatic verification support).
 
 **Implemented in E2EE text alpha:**
+
 - Undecryptable event handling: `MegolmEvent` callback counts events, logs warning (event_id/room_id only, no session_id), does not forward to canonical pipeline.
 - `RoomEncryptionEvent` callback sets `encrypted_room_seen`, logs at INFO level, does not forward.
 - Diagnostics: `undecryptable_event_count`, `last_crypto_error`, `encrypted_room_seen` — exclude session_id, keys, and tokens.
 
 See the alpha operation runbook (`docs/runbooks/matrix-alpha-operation.md`, sections 8 and 13) and the E2EE readiness contract (`docs/contracts/25-matrix-e2ee-readiness.md`) for full posture details.
-
 
 ## E2EE Live Harness
 
@@ -353,14 +345,14 @@ See the alpha operation runbook (`docs/runbooks/matrix-alpha-operation.md`, sect
 
 ### Environment Variables
 
-| Variable | Required | Example | Notes |
-|----------|----------|---------|-------|
-| `MATRIX_HOMESERVER` | Yes | `http://localhost:8008` | Full URL |
-| `MATRIX_USER_ID` | Yes | `@bot:localhost` | Bot's user ID |
-| `MATRIX_ACCESS_TOKEN` | Yes | `syt_...` | Bot's access token |
-| `MATRIX_ROOM_ID` | Yes | `!encrypted:localhost` | Must be an encrypted room |
-| `MATRIX_DEVICE_ID` | Yes | `MEDRE_SMOKE_01` | Stable device ID |
-| `MATRIX_STORE_PATH` | Yes | `/tmp/nio-smoke-store` | Writable directory for crypto store |
+| Variable              | Required | Example                 | Notes                               |
+| --------------------- | -------- | ----------------------- | ----------------------------------- |
+| `MATRIX_HOMESERVER`   | Yes      | `http://localhost:8008` | Full URL                            |
+| `MATRIX_USER_ID`      | Yes      | `@bot:localhost`        | Bot's user ID                       |
+| `MATRIX_ACCESS_TOKEN` | Yes      | `syt_...`               | Bot's access token                  |
+| `MATRIX_ROOM_ID`      | Yes      | `!encrypted:localhost`  | Must be an encrypted room           |
+| `MATRIX_DEVICE_ID`    | Yes      | `MEDRE_SMOKE_01`        | Stable device ID                    |
+| `MATRIX_STORE_PATH`   | Yes      | `/tmp/nio-smoke-store`  | Writable directory for crypto store |
 
 ### Running
 
@@ -394,14 +386,13 @@ pytest tests/test_matrix_live.py -m live -v
 
 ### First run vs subsequent runs — quick reference
 
-| Aspect | First run | Subsequent runs |
-|--------|-----------|-----------------|
-| Crypto store | Created fresh | Loaded from disk |
-| Device keys | Uploaded to homeserver | Already registered |
-| Room keys | Not yet distributed | Available from store |
-| Inbound decryption | May fail until sender re-encrypts | Works immediately |
-| Outbound encryption | Works (auto-shares session) | Works (session in store) |
-
+| Aspect              | First run                         | Subsequent runs          |
+| ------------------- | --------------------------------- | ------------------------ |
+| Crypto store        | Created fresh                     | Loaded from disk         |
+| Device keys         | Uploaded to homeserver            | Already registered       |
+| Room keys           | Not yet distributed               | Available from store     |
+| Inbound decryption  | May fail until sender re-encrypts | Works immediately        |
+| Outbound encryption | Works (auto-shares session)       | Works (session in store) |
 
 ## Stop/Start Cycle and Reconnect Tests
 
@@ -429,7 +420,6 @@ The live smoke harness includes tests that validate adapter behavior across life
 - Verifying no message loss during reconnect gaps (requires a second actor).
 - Measuring backoff timing precision (requires time-sensitive assertions).
 - Recovery from process-level crashes (requires external supervisor).
-
 
 ## Live Validation Evidence
 
@@ -499,7 +489,6 @@ The live smoke harness includes tests that validate adapter behavior across life
   - **Fix applied:** Adapter configured `ignore_unverified_devices=True` in `room_send()`.
   - **Post-fix re-test:** Full suite 7/7 pass in 3.73s. Encrypted send succeeded, event_id returned.
 - **Trust tradeoff note:** Setting `ignore_unverified_devices=True` bypasses nio's verified-device check. This is **not a MEDRE design preference** — it is required by the upstream nio client, which lacks cross-signing support (MSC1756) and provides no API for programmatic device verification. Every nio-based automated E2EE client must set this flag. The Olm/Megolm stack initializes correctly, keys are uploaded, and messages are encrypted in transit, but there is no cryptographic guarantee that the receiving device is the intended one. This is the current operational reality for all nio-based E2EE clients. See `docs/contracts/25-matrix-e2ee-readiness.md` §5.2 for rationale.
-
 
 ## Explicit Scope Exclusions
 

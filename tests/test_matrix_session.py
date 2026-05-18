@@ -14,6 +14,7 @@ Covers:
 
 No test requires mindroom-nio[e2e].
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -25,14 +26,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from medre.core.contracts.adapter import AdapterContext, AdapterPermanentError, AdapterSendError
 from medre.adapters.matrix.adapter import MatrixAdapter
-from medre.adapters.matrix.compat import HAS_E2EE, HAS_NIO
-from medre.config.adapters.matrix import MatrixConfig
-from medre.config.adapters.errors import MatrixConfigError
 from medre.adapters.matrix.errors import MatrixConnectionError, MatrixSendError
 from medre.adapters.matrix.session import MatrixSession, MatrixSessionDiagnostics
-
+from medre.config.adapters.errors import MatrixConfigError
+from medre.config.adapters.matrix import MatrixConfig
+from medre.core.contracts.adapter import (
+    AdapterContext,
+    AdapterPermanentError,
+    AdapterSendError,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -290,9 +293,7 @@ class TestE2EEDefaultDerivation:
         finally:
             compat.HAS_E2EE = original
 
-    async def test_e2ee_required_uses_configured_store_when_set(
-        self, mock_nio
-    ) -> None:
+    async def test_e2ee_required_uses_configured_store_when_set(self, mock_nio) -> None:
         """When store_path is explicitly configured, it is used as-is."""
         import medre.adapters.matrix.compat as compat
 
@@ -358,6 +359,7 @@ class TestE2EEDependencyDetection:
     def test_has_e2ee_default_false(self) -> None:
         """Without crypto deps, HAS_E2EE is False."""
         import medre.adapters.matrix.compat as compat
+
         # The default in CI/test envs is False (no vodozemac)
         # Just check it is a bool and False in this env
         assert isinstance(compat.HAS_E2EE, bool)
@@ -365,6 +367,7 @@ class TestE2EEDependencyDetection:
     def test_has_e2ee_monkeypatch_true(self) -> None:
         """Tests can monkeypatch HAS_E2EE to True."""
         import medre.adapters.matrix.compat as compat
+
         original = compat.HAS_E2EE
         try:
             compat.HAS_E2EE = True
@@ -375,6 +378,7 @@ class TestE2EEDependencyDetection:
     def test_has_e2ee_monkeypatch_false(self) -> None:
         """Tests can monkeypatch HAS_E2EE to False."""
         import medre.adapters.matrix.compat as compat
+
         original = compat.HAS_E2EE
         try:
             compat.HAS_E2EE = False
@@ -384,8 +388,9 @@ class TestE2EEDependencyDetection:
 
     def test_check_e2ee_returns_false_when_no_nio(self) -> None:
         """_check_e2ee returns False when HAS_NIO is False."""
-        from medre.adapters.matrix.compat import _check_e2ee
         import medre.adapters.matrix.compat as compat
+        from medre.adapters.matrix.compat import _check_e2ee
+
         original_nio = compat.HAS_NIO
         try:
             compat.HAS_NIO = False
@@ -448,9 +453,7 @@ class TestMatrixSessionLifecycle:
         try:
             await session.start()
             # Three callbacks: message types + MegolmEvent + RoomEncryptionEvent
-            assert (
-                mock_nio.AsyncClient.return_value.add_event_callback.call_count == 3
-            )
+            assert mock_nio.AsyncClient.return_value.add_event_callback.call_count == 3
         finally:
             await session.stop()
 
@@ -482,10 +485,12 @@ class TestMatrixSessionLifecycle:
 
         # Mock sleep: instant for backoff (>0), real yield for 0
         original_sleep = asyncio.sleep
+
         async def _fast_sleep(delay: float) -> None:
             if delay <= 0:
                 await original_sleep(0)
             # else: instant (skip backoff)
+
         try:
             with patch("asyncio.sleep", side_effect=_fast_sleep):
                 await session.start()
@@ -568,9 +573,9 @@ class TestMatrixSessionDiagnostics:
                 "undecryptable_event_count": diag.undecryptable_event_count,
             }
             for key, val in diag_dict.items():
-                assert "super-secret-token-123" not in str(val), (
-                    f"Secret leaked in diagnostics field {key!r}"
-                )
+                assert "super-secret-token-123" not in str(
+                    val
+                ), f"Secret leaked in diagnostics field {key!r}"
         finally:
             await session.stop()
 
@@ -596,6 +601,7 @@ class TestAdapterStartBehavior:
     async def test_e2ee_required_raises_without_e2ee_deps(self, mock_nio) -> None:
         """e2ee_required raises when HAS_E2EE is False (no crypto deps)."""
         import medre.adapters.matrix.compat as compat
+
         original = compat.HAS_E2EE
         try:
             compat.HAS_E2EE = False
@@ -616,6 +622,7 @@ class TestAdapterStartBehavior:
     async def test_e2ee_required_succeeds_with_e2ee_deps(self, mock_nio) -> None:
         """e2ee_required starts with crypto_enabled=True when HAS_E2EE=True."""
         import medre.adapters.matrix.compat as compat
+
         original = compat.HAS_E2EE
         try:
             compat.HAS_E2EE = True
@@ -640,6 +647,7 @@ class TestAdapterStartBehavior:
     async def test_e2ee_optional_starts_plaintext(self, mock_nio) -> None:
         """e2ee_optional without HAS_E2EE falls back to plaintext."""
         import medre.adapters.matrix.compat as compat
+
         original = compat.HAS_E2EE
         try:
             compat.HAS_E2EE = False
@@ -659,6 +667,7 @@ class TestAdapterStartBehavior:
     async def test_e2ee_optional_with_crypto_deps(self, mock_nio) -> None:
         """e2ee_optional with HAS_E2EE=True, store_path, device_id → crypto_enabled."""
         import medre.adapters.matrix.compat as compat
+
         original = compat.HAS_E2EE
         try:
             compat.HAS_E2EE = True
@@ -679,11 +688,10 @@ class TestAdapterStartBehavior:
         finally:
             compat.HAS_E2EE = original
 
-    async def test_e2ee_optional_falls_back_on_crypto_failure(
-        self, mock_nio
-    ) -> None:
+    async def test_e2ee_optional_falls_back_on_crypto_failure(self, mock_nio) -> None:
         """e2ee_optional falls back to plaintext when crypto setup fails."""
         import medre.adapters.matrix.compat as compat
+
         original = compat.HAS_E2EE
         try:
             compat.HAS_E2EE = True
@@ -709,7 +717,9 @@ class TestAdapterStartBehavior:
         config = _make_config()
         adapter = MatrixAdapter(config)
         with patch("medre.adapters.matrix.adapter.HAS_NIO", False):
-            with pytest.raises(MatrixConnectionError, match="mindroom-nio not installed"):
+            with pytest.raises(
+                MatrixConnectionError, match="mindroom-nio not installed"
+            ):
                 await adapter.start(_make_context())
 
 
@@ -755,9 +765,9 @@ class TestAdapterDiagnostics:
         adapter = MatrixAdapter(config)
         diag = adapter.diagnostics()
         for key, val in diag.items():
-            assert "super-secret-token-123" not in str(val), (
-                f"Secret leaked in diagnostics field {key!r}"
-            )
+            assert "super-secret-token-123" not in str(
+                val
+            ), f"Secret leaked in diagnostics field {key!r}"
 
 
 # ===================================================================
@@ -831,6 +841,7 @@ class TestSyncFailureLogging:
         self, mock_nio, caplog
     ) -> None:
         """Sync failure is recorded AND logged to the session logger."""
+
         async def _failing_sync(*a: object, **kw: object) -> None:
             await asyncio.sleep(0)
             raise RuntimeError("sync died")
@@ -864,8 +875,7 @@ class TestSyncFailureLogging:
                     await asyncio.sleep(0)
 
             assert any(
-                "Max sync reconnect attempts" in rec.getMessage()
-                for rec in log_records
+                "Max sync reconnect attempts" in rec.getMessage() for rec in log_records
             ), f"Expected sync failure log; got: {[r.getMessage() for r in log_records]}"
             logger.removeHandler(handler)
             await session2.stop()
@@ -889,6 +899,7 @@ class TestMegolmEventHandling:
             device_id="DEV",
         )
         import medre.adapters.matrix.compat as compat
+
         original = compat.HAS_E2EE
         try:
             compat.HAS_E2EE = True
@@ -924,6 +935,7 @@ class TestMegolmEventHandling:
             device_id="DEV",
         )
         import medre.adapters.matrix.compat as compat
+
         original = compat.HAS_E2EE
         try:
             compat.HAS_E2EE = True
@@ -950,6 +962,7 @@ class TestMegolmEventHandling:
             access_token="super-secret-token",
         )
         import medre.adapters.matrix.compat as compat
+
         original = compat.HAS_E2EE
         try:
             compat.HAS_E2EE = True
@@ -979,11 +992,8 @@ class TestMegolmEventHandling:
 class TestEncryptedRoomSafety:
     """_check_encrypted_room_safety in adapter deliver() path."""
 
-    async def test_deliver_raises_if_encrypted_room_no_crypto(
-        self, mock_nio
-    ) -> None:
+    async def test_deliver_raises_if_encrypted_room_no_crypto(self, mock_nio) -> None:
         """deliver() raises when room is encrypted but crypto is not active."""
-        from medre.adapters.matrix.errors import MatrixSendError
         from medre.core.rendering.renderer import RenderingResult
 
         config = _make_config()
@@ -1004,7 +1014,9 @@ class TestEncryptedRoomSafety:
                 payload={"msgtype": "m.text", "body": "hello"},
                 target_channel=room_id,
             )
-            with pytest.raises(AdapterPermanentError, match="encrypted but E2EE crypto is not active"):
+            with pytest.raises(
+                AdapterPermanentError, match="encrypted but E2EE crypto is not active"
+            ):
                 await adapter.deliver(result)
         finally:
             await adapter.stop()
@@ -1068,9 +1080,8 @@ class TestEncryptedRoomSafety:
 
     async def test_e2ee_crypto_enabled_allows_send(self, mock_nio) -> None:
         """e2ee_required with crypto_enabled=True allows send even in encrypted room."""
-        from medre.adapters.matrix.errors import MatrixSendError
-        from medre.core.rendering.renderer import RenderingResult
         import medre.adapters.matrix.compat as compat
+        from medre.core.rendering.renderer import RenderingResult
 
         original = compat.HAS_E2EE
         try:
@@ -1145,11 +1156,10 @@ class TestEncryptedRoomSafety:
 class TestE2EEDiagnostics:
     """Diagnostics truthfully report crypto state."""
 
-    async def test_e2ee_required_diagnostics_with_crypto(
-        self, mock_nio
-    ) -> None:
+    async def test_e2ee_required_diagnostics_with_crypto(self, mock_nio) -> None:
         """e2ee_required mode shows crypto_enabled=True in diagnostics."""
         import medre.adapters.matrix.compat as compat
+
         original = compat.HAS_E2EE
         try:
             compat.HAS_E2EE = True
@@ -1188,6 +1198,7 @@ class TestE2EEDiagnostics:
     async def test_diagnostics_after_megolm_event(self, mock_nio) -> None:
         """Diagnostics reflect undecryptable event state."""
         import medre.adapters.matrix.compat as compat
+
         original = compat.HAS_E2EE
         try:
             compat.HAS_E2EE = True
@@ -1226,6 +1237,7 @@ class TestBlocker3ClientConfigFailure:
     async def test_client_config_succeeds_crypto_enabled(self, mock_nio) -> None:
         """ClientConfig succeeds → crypto_enabled=True."""
         import medre.adapters.matrix.compat as compat
+
         original = compat.HAS_E2EE
         try:
             compat.HAS_E2EE = True
@@ -1243,11 +1255,10 @@ class TestBlocker3ClientConfigFailure:
         finally:
             compat.HAS_E2EE = original
 
-    async def test_client_config_raises_matrix_connection_error(
-        self, mock_nio
-    ) -> None:
+    async def test_client_config_raises_matrix_connection_error(self, mock_nio) -> None:
         """ClientConfig raises → MatrixConnectionError raised, crypto_enabled stays False."""
         import medre.adapters.matrix.compat as compat
+
         original = compat.HAS_E2EE
         try:
             compat.HAS_E2EE = True
@@ -1268,6 +1279,7 @@ class TestBlocker3ClientConfigFailure:
     async def test_client_closed_on_config_failure(self, mock_nio) -> None:
         """If AsyncClient was created but ClientConfig fails, client is closed."""
         import medre.adapters.matrix.compat as compat
+
         original = compat.HAS_E2EE
         try:
             compat.HAS_E2EE = True
@@ -1295,9 +1307,7 @@ class TestBlocker3ClientConfigFailure:
 class TestBlocker4RoomEncryptionEvent:
     """Blocker 4: RoomEncryptionEvent callback registration and state update."""
 
-    async def test_room_encryption_event_callback_registered(
-        self, mock_nio
-    ) -> None:
+    async def test_room_encryption_event_callback_registered(self, mock_nio) -> None:
         """RoomEncryptionEvent callback is registered on start."""
         cb = MagicMock()
         config = _make_config()
@@ -1333,9 +1343,7 @@ class TestBlocker4RoomEncryptionEvent:
         finally:
             await session.stop()
 
-    async def test_room_encryption_event_logs_info(
-        self, mock_nio, caplog
-    ) -> None:
+    async def test_room_encryption_event_logs_info(self, mock_nio, caplog) -> None:
         """_on_room_encryption_event logs an info message."""
         config = _make_config()
         session = MatrixSession(config)
@@ -1349,8 +1357,7 @@ class TestBlocker4RoomEncryptionEvent:
                 await session._on_room_encryption_event(room, event)
 
             assert any(
-                "RoomEncryptionEvent" in rec.getMessage()
-                for rec in caplog.records
+                "RoomEncryptionEvent" in rec.getMessage() for rec in caplog.records
             )
         finally:
             await session.stop()
@@ -1367,6 +1374,7 @@ class TestBlocker6DiagnosticsRedaction:
     async def test_no_session_id_in_last_crypto_error(self, mock_nio) -> None:
         """session_id from event.source must not appear in last_crypto_error."""
         import medre.adapters.matrix.compat as compat
+
         original = compat.HAS_E2EE
         try:
             compat.HAS_E2EE = True
@@ -1402,6 +1410,7 @@ class TestBlocker6DiagnosticsRedaction:
     async def test_no_access_token_in_last_crypto_error(self, mock_nio) -> None:
         """Access token must not appear in last_crypto_error."""
         import medre.adapters.matrix.compat as compat
+
         original = compat.HAS_E2EE
         try:
             compat.HAS_E2EE = True
@@ -1561,6 +1570,7 @@ class TestSyncRecovery:
 
     async def test_cancelled_error_stops_reconnect(self, mock_nio) -> None:
         """CancelledError during sync stops reconnect loop."""
+
         async def _cancel_sync(*a: object, **kw: object) -> None:
             await asyncio.sleep(0)
             raise asyncio.CancelledError()
@@ -1612,9 +1622,9 @@ class TestSyncRecovery:
         real_delays = [d for d in sleep_delays if d > 0.01]
         if len(real_delays) >= 2:
             for i in range(1, min(len(real_delays), 5)):
-                assert real_delays[i] >= real_delays[i - 1] * 0.5, (
-                    f"Delay not increasing: {real_delays}"
-                )
+                assert (
+                    real_delays[i] >= real_delays[i - 1] * 0.5
+                ), f"Delay not increasing: {real_delays}"
 
 
 # ===================================================================
@@ -1625,11 +1635,10 @@ class TestSyncRecovery:
 class TestCryptoStoreContinuity:
     """Crypto-store continuity and identity preservation."""
 
-    async def test_e2ee_session_crypto_enabled_and_store_loaded(
-        self, mock_nio
-    ) -> None:
+    async def test_e2ee_session_crypto_enabled_and_store_loaded(self, mock_nio) -> None:
         """E2EE session sets crypto_enabled and crypto_store_loaded."""
         import medre.adapters.matrix.compat as compat
+
         original = compat.HAS_E2EE
         try:
             compat.HAS_E2EE = True
@@ -1650,9 +1659,7 @@ class TestCryptoStoreContinuity:
         finally:
             compat.HAS_E2EE = original
 
-    async def test_plaintext_session_no_crypto_store_loaded(
-        self, mock_nio
-    ) -> None:
+    async def test_plaintext_session_no_crypto_store_loaded(self, mock_nio) -> None:
         """Plaintext session has crypto_store_loaded=False."""
         config = _make_config()
         session = MatrixSession(config)
@@ -1689,6 +1696,7 @@ class TestCryptoStoreContinuity:
     async def test_e2ee_optional_fallback_no_store_loaded(self, mock_nio) -> None:
         """e2ee_optional without HAS_E2EE has crypto_store_loaded=False."""
         import medre.adapters.matrix.compat as compat
+
         original = compat.HAS_E2EE
         try:
             compat.HAS_E2EE = False
@@ -1767,6 +1775,7 @@ class TestSyncStateResilience:
 
     async def test_no_unobserved_exceptions(self, mock_nio) -> None:
         """Sync failure does not produce unobserved task exceptions."""
+
         async def _failing_sync(*a: object, **kw: object) -> None:
             await asyncio.sleep(0)
             raise RuntimeError("sync died")
@@ -1807,9 +1816,7 @@ class TestSyncStateResilience:
 class TestRoomStateTracking:
     """Room encryption state cache in MatrixSession."""
 
-    async def test_room_encryption_event_marks_encrypted(
-        self, mock_nio
-    ) -> None:
+    async def test_room_encryption_event_marks_encrypted(self, mock_nio) -> None:
         """RoomEncryptionEvent sets room state to encrypted."""
         config = _make_config()
         session = MatrixSession(config)
@@ -1900,9 +1907,7 @@ class TestRoomStateTracking:
         assert session.plaintext_room_count == 0
         await session.stop()
 
-    async def test_encrypted_room_send_blocked_without_crypto(
-        self, mock_nio
-    ) -> None:
+    async def test_encrypted_room_send_blocked_without_crypto(self, mock_nio) -> None:
         """Session-tracked encrypted room blocks send without crypto."""
         from medre.core.rendering.renderer import RenderingResult
 
@@ -1956,9 +1961,7 @@ class TestRoomStateTracking:
         finally:
             await adapter.stop()
 
-    async def test_unknown_room_falls_back_to_client_rooms(
-        self, mock_nio
-    ) -> None:
+    async def test_unknown_room_falls_back_to_client_rooms(self, mock_nio) -> None:
         """Unknown room state falls back to client.rooms check."""
         from medre.core.rendering.renderer import RenderingResult
 
@@ -2107,11 +2110,13 @@ class TestDeliveryRetry:
     async def test_oserror_is_transient(self) -> None:
         """OSError is classified as transient."""
         from medre.adapters.matrix.adapter import _is_transient_error
+
         assert _is_transient_error(OSError("network")) is True
 
     async def test_matrix_send_error_is_not_transient(self) -> None:
         """MatrixSendError is NOT classified as transient."""
         from medre.adapters.matrix.adapter import _is_transient_error
+
         assert _is_transient_error(MatrixSendError("fail")) is False
 
     async def test_delivery_stats_in_diagnostics(self, mock_nio) -> None:
@@ -2205,9 +2210,9 @@ class TestOperationalDiagnostics:
         adapter = MatrixAdapter(config)
         diag = adapter.diagnostics()
         for key, val in diag.items():
-            assert "super-secret-token-123" not in str(val), (
-                f"Secret leaked in diagnostics field {key!r}"
-            )
+            assert "super-secret-token-123" not in str(
+                val
+            ), f"Secret leaked in diagnostics field {key!r}"
 
     async def test_session_properties_default_values(self) -> None:
         """Session properties have correct defaults before start."""

@@ -14,15 +14,14 @@ that is significantly more mature than another will be classified accordingly.
 
 The four classification tiers are:
 
-| Tier | Label | Meaning |
-|------|-------|---------|
-| **1** | Experimental | Architectural skeleton exists. Unit tests pass against mocks. No live validation. Not suitable for any real workload. |
-| **2** | Alpha-operational | Core pipeline works (codec, renderer, session, adapter). Unit tests comprehensive. Live smoke test passed against real endpoint. Known limitations documented. Suitable for controlled testing, not production. |
-| **3** | Beta-candidate | Alpha-operational plus: live test evidence recorded, failure modes classified, resource containment reviewed, diagnostics contract satisfied, delivery semantics documented. Suitable for beta release with documented caveats. |
-| **4** | Constrained-beta | Beta-candidate plus: operational runbook validated, edge cases exercised, sustained testing done. Suitable for constrained production use within documented boundaries. |
+| Tier  | Label             | Meaning                                                                                                                                                                                                                         |
+| ----- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1** | Experimental      | Architectural skeleton exists. Unit tests pass against mocks. No live validation. Not suitable for any real workload.                                                                                                           |
+| **2** | Alpha-operational | Core pipeline works (codec, renderer, session, adapter). Unit tests comprehensive. Live smoke test passed against real endpoint. Known limitations documented. Suitable for controlled testing, not production.                 |
+| **3** | Beta-candidate    | Alpha-operational plus: live test evidence recorded, failure modes classified, resource containment reviewed, diagnostics contract satisfied, delivery semantics documented. Suitable for beta release with documented caveats. |
+| **4** | Constrained-beta  | Beta-candidate plus: operational runbook validated, edge cases exercised, sustained testing done. Suitable for constrained production use within documented boundaries.                                                         |
 
 No transport in MEDRE currently qualifies as production-ready.
-
 
 ## 1. Scope
 
@@ -38,18 +37,16 @@ No transport in MEDRE currently qualifies as production-ready.
 - Claiming production readiness for any transport.
 - Redesigning adapter architecture.
 
-
 ## 3. Maturity Axes
 
-| Axis | What it measures | Evidence sources |
-|------|-----------------|------------------|
-| **Architectural maturity** | Completeness of codec, renderer, session, adapter, config, errors, compat, metadata | Source file inventory, LOC, interface coverage |
-| **Unit-test maturity** | Depth and breadth of mock-based test coverage | Test file count, test function count, LOC, edge case coverage |
-| **Live-test maturity** | Evidence of real endpoint validation | Live harness results recorded in `operational-evidence.md` |
-| **Operational maturity** | Runbooks, failure taxonomy, resource containment, delivery semantics documentation | Contract inventory |
-| **Known risks** | Documented failure modes, SDK risks, platform caveats | Contracts 33, 34, 35, 36 |
-| **Production suitability** | Honest assessment of readiness for real workloads | All of the above |
-
+| Axis                       | What it measures                                                                    | Evidence sources                                              |
+| -------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| **Architectural maturity** | Completeness of codec, renderer, session, adapter, config, errors, compat, metadata | Source file inventory, LOC, interface coverage                |
+| **Unit-test maturity**     | Depth and breadth of mock-based test coverage                                       | Test file count, test function count, LOC, edge case coverage |
+| **Live-test maturity**     | Evidence of real endpoint validation                                                | Live harness results recorded in `operational-evidence.md`    |
+| **Operational maturity**   | Runbooks, failure taxonomy, resource containment, delivery semantics documentation  | Contract inventory                                            |
+| **Known risks**            | Documented failure modes, SDK risks, platform caveats                               | Contracts 33, 34, 35, 36                                      |
+| **Production suitability** | Honest assessment of readiness for real workloads                                   | All of the above                                              |
 
 ## 4. Matrix Transport
 
@@ -57,14 +54,14 @@ No transport in MEDRE currently qualifies as production-ready.
 
 ### 4.2 Axis Assessment
 
-| Axis | Rating | Evidence |
-|------|--------|----------|
-| **Architectural maturity** | High | Full adapter suite: codec (217 LOC), renderer (162 LOC), session (694 LOC), adapter (559 LOC), config (144 LOC), errors (41 LOC), compat (44 LOC), metadata (125 LOC), relations (103 LOC). E2EE layer implemented. Most complete transport. |
-| **Unit-test maturity** | High | 2,903 LOC across 10 test files. `test_matrix_session.py` alone has 102 test functions. Covers codec, renderer, adapter, session, config, metadata, relations, boundaries, lifecycle, pipeline, E2EE live. |
-| **Live-test maturity** | High | 13/13 plaintext pass against matrix.org (2026-05-10). 7/7 E2EE pass in encrypted room (2026-05-10). Inbound reception confirmed via self-message suppression. Third-party inbound **not** confirmed (M14 blocked). |
-| **Operational maturity** | High | Full runbooks (`matrix-live-smoke.md`, `matrix-alpha-operation.md`). Failure modes classified in contract 33. Resource containment reviewed in contract 35. E2EE readiness documented in contract 25. Session boundary in contract 31. |
-| **Known risks** | Moderate | Fork dependency (`mindroom-nio`) maintained by project. E2EE install friction (vodozemac/Rust). Access token stored as plain string. No cross-signed device trust. No confirmed third-party inbound. |
-| **Production suitability** | Constrained | Suitable for beta with documented caveats. Fork maintenance is an ongoing responsibility. E2EE requires Rust toolchain on some platforms. Token security is operator's responsibility. |
+| Axis                       | Rating      | Evidence                                                                                                                                                                                                                                     |
+| -------------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Architectural maturity** | High        | Full adapter suite: codec (217 LOC), renderer (162 LOC), session (694 LOC), adapter (559 LOC), config (144 LOC), errors (41 LOC), compat (44 LOC), metadata (125 LOC), relations (103 LOC). E2EE layer implemented. Most complete transport. |
+| **Unit-test maturity**     | High        | 2,903 LOC across 10 test files. `test_matrix_session.py` alone has 102 test functions. Covers codec, renderer, adapter, session, config, metadata, relations, boundaries, lifecycle, pipeline, E2EE live.                                    |
+| **Live-test maturity**     | High        | 13/13 plaintext pass against matrix.org (2026-05-10). 7/7 E2EE pass in encrypted room (2026-05-10). Inbound reception confirmed via self-message suppression. Third-party inbound **not** confirmed (M14 blocked).                           |
+| **Operational maturity**   | High        | Full runbooks (`matrix-live-smoke.md`, `matrix-alpha-operation.md`). Failure modes classified in contract 33. Resource containment reviewed in contract 35. E2EE readiness documented in contract 25. Session boundary in contract 31.       |
+| **Known risks**            | Moderate    | Fork dependency (`mindroom-nio`) maintained by project. E2EE install friction (vodozemac/Rust). Access token stored as plain string. No cross-signed device trust. No confirmed third-party inbound.                                         |
+| **Production suitability** | Constrained | Suitable for beta with documented caveats. Fork maintenance is an ongoing responsibility. E2EE requires Rust toolchain on some platforms. Token security is operator's responsibility.                                                       |
 
 ### 4.3 Operational Caveats
 
@@ -74,21 +71,20 @@ No transport in MEDRE currently qualifies as production-ready.
 4. **Unverified device workaround.** Encrypted-room sends require `ignore_unverified_devices=True` (contract 25, section 5.2). This is a deliberate trade-off: without cross-signing support, strict verification would block all encrypted sends.
 5. **Third-party inbound unconfirmed.** No live test has confirmed inbound reception from a second Matrix account.
 
-
 ## 5. Meshtastic Transport
 
 ### 5.1 Classification: Beta-candidate (Tier 3)
 
 ### 5.2 Axis Assessment
 
-| Axis | Rating | Evidence |
-|------|--------|----------|
+| Axis                       | Rating        | Evidence                                                                                                                                                                                                                                                 |
+| -------------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Architectural maturity** | Moderate–High | Full adapter suite: codec (164 LOC), renderer (162 LOC), session (608 LOC), adapter (516 LOC), config (100 LOC), errors (45 LOC), compat (77 LOC), packet_classifier (233 LOC), queue (206 LOC). Queue-based send architecture unique to this transport. |
-| **Unit-test maturity** | High | 3,429 LOC across 8 test files. `test_meshtastic_adapter.py` has 89 test functions. Covers codec, renderer, adapter, session, config, boundaries, pipeline, packet_classifier, live. |
-| **Live-test maturity** | Moderate | 10/10 pass against real radio (2026-05-10). Serial `/dev/ttyACM0`, LilyGO T-LORA V2.1, firmware 2.7.19. No sustained throughput or reconnect resilience testing. BLE mode untested. |
-| **Operational maturity** | Moderate | Full runbooks (`meshtastic-live-smoke.md`, `meshtastic-alpha-operation.md`). Fire-and-forget delivery documented (contract 36). Failure modes classified (contract 33). Resource containment reviewed (contract 35). |
-| **Known risks** | Moderate | Fork dependency (`mtjk`). Fire-and-forget delivery (no E2E ACK). Duplicate-send risk from retries. Radio-specific behavior varies by firmware. BLE untested. Serial permission requirements. |
-| **Production suitability** | Constrained | Suitable for beta with documented caveats. Radio transport inherent limitations apply (contract 36). Duplicate handling is consumer's responsibility. |
+| **Unit-test maturity**     | High          | 3,429 LOC across 8 test files. `test_meshtastic_adapter.py` has 89 test functions. Covers codec, renderer, adapter, session, config, boundaries, pipeline, packet_classifier, live.                                                                      |
+| **Live-test maturity**     | Moderate      | 10/10 pass against real radio (2026-05-10). Serial `/dev/ttyACM0`, LilyGO T-LORA V2.1, firmware 2.7.19. No sustained throughput or reconnect resilience testing. BLE mode untested.                                                                      |
+| **Operational maturity**   | Moderate      | Full runbooks (`meshtastic-live-smoke.md`, `meshtastic-alpha-operation.md`). Fire-and-forget delivery documented (contract 36). Failure modes classified (contract 33). Resource containment reviewed (contract 35).                                     |
+| **Known risks**            | Moderate      | Fork dependency (`mtjk`). Fire-and-forget delivery (no E2E ACK). Duplicate-send risk from retries. Radio-specific behavior varies by firmware. BLE untested. Serial permission requirements.                                                             |
+| **Production suitability** | Constrained   | Suitable for beta with documented caveats. Radio transport inherent limitations apply (contract 36). Duplicate handling is consumer's responsibility.                                                                                                    |
 
 ### 5.3 Operational Caveats
 
@@ -99,21 +95,20 @@ No transport in MEDRE currently qualifies as production-ready.
 5. **BLE untested.** BLE connection mode constructor exists but has not been exercised in any live harness.
 6. **Fork dependency.** `mtjk` is a maintained fork of upstream Meshtastic Python library.
 
-
 ## 6. MeshCore Transport
 
 ### 6.1 Classification: Alpha-operational (Tier 2)
 
 ### 6.2 Axis Assessment
 
-| Axis | Rating | Evidence |
-|------|--------|----------|
-| **Architectural maturity** | Moderate | Full adapter suite: codec (138 LOC), renderer (177 LOC), session (654 LOC), adapter (489 LOC), config (168 LOC), errors (45 LOC), compat (20 LOC), packet_classifier (84 LOC). Async-native (no thread bridging). |
-| **Unit-test maturity** | Moderate | 2,321 LOC across 7 test files. `test_meshcore_session.py` has 18 test functions (lowest session test count of all transports). Covers codec, renderer, adapter, session, config, boundaries, pipeline, packet_classifier, live. |
-| **Live-test maturity** | Low | Harness exists (`test_meshcore_live.py`, 401 LOC) but **not run** against real hardware. Requires physical radio hardware and environment variables. No live evidence recorded. |
-| **Operational maturity** | Moderate | Runbooks exist (`meshcore-live-smoke.md`, `meshcore-alpha-operation.md`) but without live results. Fire-and-forget delivery documented (contract 36). Failure modes classified (contract 33). Resource containment reviewed (contract 35). |
-| **Known risks** | Moderate–High | Small SDK community (`meshcore_py` v2.2.5–2.3.7). No live validation. BLE untested. Radio hardware required for validation. |
-| **Production suitability** | Not recommended for beta without live evidence. | Unit-tested only. No proof of real hardware operation. |
+| Axis                       | Rating                                          | Evidence                                                                                                                                                                                                                                   |
+| -------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Architectural maturity** | Moderate                                        | Full adapter suite: codec (138 LOC), renderer (177 LOC), session (654 LOC), adapter (489 LOC), config (168 LOC), errors (45 LOC), compat (20 LOC), packet_classifier (84 LOC). Async-native (no thread bridging).                          |
+| **Unit-test maturity**     | Moderate                                        | 2,321 LOC across 7 test files. `test_meshcore_session.py` has 18 test functions (lowest session test count of all transports). Covers codec, renderer, adapter, session, config, boundaries, pipeline, packet_classifier, live.            |
+| **Live-test maturity**     | Low                                             | Harness exists (`test_meshcore_live.py`, 401 LOC) but **not run** against real hardware. Requires physical radio hardware and environment variables. No live evidence recorded.                                                            |
+| **Operational maturity**   | Moderate                                        | Runbooks exist (`meshcore-live-smoke.md`, `meshcore-alpha-operation.md`) but without live results. Fire-and-forget delivery documented (contract 36). Failure modes classified (contract 33). Resource containment reviewed (contract 35). |
+| **Known risks**            | Moderate–High                                   | Small SDK community (`meshcore_py` v2.2.5–2.3.7). No live validation. BLE untested. Radio hardware required for validation.                                                                                                                |
+| **Production suitability** | Not recommended for beta without live evidence. | Unit-tested only. No proof of real hardware operation.                                                                                                                                                                                     |
 
 ### 6.3 Operational Caveats
 
@@ -124,21 +119,20 @@ No transport in MEDRE currently qualifies as production-ready.
 5. **BLE untested.** Same as Meshtastic.
 6. **Lowest session test count.** 18 test functions for session vs. 102 (Matrix), 41 (LXMF). Session edge cases may be under-tested.
 
-
 ## 7. LXMF Transport
 
 ### 7.1 Classification: Alpha-operational (Tier 2)
 
 ### 7.2 Axis Assessment
 
-| Axis | Rating | Evidence |
-|------|--------|----------|
-| **Architectural maturity** | Moderate | Full adapter suite: codec (154 LOC), renderer (190 LOC), session (1,260 LOC — largest session), adapter (428 LOC), config (164 LOC), errors (49 LOC), compat (54 LOC), fields (210 LOC), packet_classifier (167 LOC). Session is the most complex (1,260 LOC), handling LXMRouter lifecycle, identity, announce loop, delivery state tracking. |
-| **Unit-test maturity** | Moderate | 3,381 LOC across 8 test files. `test_lxmf_session.py` has 41 test functions. Covers codec, renderer, adapter, session, config, fields, boundaries, pipeline, packet_classifier, live. |
-| **Live-test maturity** | Low | Harness exists (`test_lxmf_live.py`, 829 LOC — most comprehensive live harness) but **not run** against real Reticulum instance. Requires Reticulum setup and identity file. No live evidence recorded. |
-| **Operational maturity** | Moderate | Runbooks exist (`lxmf-live-smoke.md`, `lxmf-alpha-operation.md`) but without live results. Delivery state model implemented but not live-validated. Fire-and-forget documented (contract 36). Failure modes classified (contract 33). Resource containment reviewed (contract 35). |
-| **Known risks** | Moderate | Reticulum requires ongoing daemon process. Identity file is 64-byte private key (no encryption). Non-standard license (Reticulum License). Delivery state progression not confirmed against real network. |
-| **Production suitability** | Not recommended for beta without live evidence. | Unit-tested only. Delivery state model is the most ambitious of all radio transports but unvalidated. |
+| Axis                       | Rating                                          | Evidence                                                                                                                                                                                                                                                                                                                                       |
+| -------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Architectural maturity** | Moderate                                        | Full adapter suite: codec (154 LOC), renderer (190 LOC), session (1,260 LOC — largest session), adapter (428 LOC), config (164 LOC), errors (49 LOC), compat (54 LOC), fields (210 LOC), packet_classifier (167 LOC). Session is the most complex (1,260 LOC), handling LXMRouter lifecycle, identity, announce loop, delivery state tracking. |
+| **Unit-test maturity**     | Moderate                                        | 3,381 LOC across 8 test files. `test_lxmf_session.py` has 41 test functions. Covers codec, renderer, adapter, session, config, fields, boundaries, pipeline, packet_classifier, live.                                                                                                                                                          |
+| **Live-test maturity**     | Low                                             | Harness exists (`test_lxmf_live.py`, 829 LOC — most comprehensive live harness) but **not run** against real Reticulum instance. Requires Reticulum setup and identity file. No live evidence recorded.                                                                                                                                        |
+| **Operational maturity**   | Moderate                                        | Runbooks exist (`lxmf-live-smoke.md`, `lxmf-alpha-operation.md`) but without live results. Delivery state model implemented but not live-validated. Fire-and-forget documented (contract 36). Failure modes classified (contract 33). Resource containment reviewed (contract 35).                                                             |
+| **Known risks**            | Moderate                                        | Reticulum requires ongoing daemon process. Identity file is 64-byte private key (no encryption). Non-standard license (Reticulum License). Delivery state progression not confirmed against real network.                                                                                                                                      |
+| **Production suitability** | Not recommended for beta without live evidence. | Unit-tested only. Delivery state model is the most ambitious of all radio transports but unvalidated.                                                                                                                                                                                                                                          |
 
 ### 7.3 Operational Caveats
 
@@ -149,18 +143,16 @@ No transport in MEDRE currently qualifies as production-ready.
 5. **Non-standard license.** Reticulum License is not OSI-approved. Review for downstream distribution.
 6. **Largest session.** At 1,260 LOC, `LxmfSession` is the most complex session in MEDRE. Complexity correlates with risk.
 
-
 ## 8. Classification Summary
 
-| Transport | Tier | Label | Key Distinguishing Factor |
-|-----------|------|-------|--------------------------|
-| Matrix | 3 | Beta-candidate | Live evidence recorded (20/20 pass). E2EE validated. Most complete adapter. |
-| Meshtastic | 3 | Beta-candidate | Live evidence recorded (10/10 pass). Fire-and-forget is documented, not a blocker. |
-| MeshCore | 2 | Alpha-operational | No live evidence. Unit-tested only. |
-| LXMF | 2 | Alpha-operational | No live evidence. Most complex session. Delivery state model unvalidated. |
+| Transport  | Tier | Label             | Key Distinguishing Factor                                                          |
+| ---------- | ---- | ----------------- | ---------------------------------------------------------------------------------- |
+| Matrix     | 3    | Beta-candidate    | Live evidence recorded (20/20 pass). E2EE validated. Most complete adapter.        |
+| Meshtastic | 3    | Beta-candidate    | Live evidence recorded (10/10 pass). Fire-and-forget is documented, not a blocker. |
+| MeshCore   | 2    | Alpha-operational | No live evidence. Unit-tested only.                                                |
+| LXMF       | 2    | Alpha-operational | No live evidence. Most complex session. Delivery state model unvalidated.          |
 
 **Honest assessment:** Matrix and Meshtastic are ahead of MeshCore and LXMF by one maturity tier. The gap is primarily live-test maturity. All four have comparable architectural and unit-test maturity, but MeshCore and LXMF lack the real-endpoint validation that moves a transport from alpha to beta-candidate.
-
 
 ## 9. Path to Next Tier
 
@@ -188,16 +180,15 @@ No transport in MEDRE currently qualifies as production-ready.
 2. Run sustained throughput smoke test.
 3. Document BLE mode status.
 
-
 ## 10. Cross-Transport Risk Summary
 
-| Risk | Matrix | Meshtastic | MeshCore | LXMF |
-|------|--------|------------|----------|------|
-| Fork dependency | Yes (`mindroom-nio`) | Yes (`mtjk`) | No | No |
-| Fire-and-forget delivery | No (Matrix has event IDs) | Yes | Yes | Yes |
-| Duplicate-send risk | Low | Medium | Medium | Low |
-| Hardware required for validation | No | Yes (serial/TCP) | Yes (serial/TCP) | Yes (Reticulum) |
-| SDK maturity risk | Low (mature fork) | Moderate (fork) | Moderate–High (small community) | Moderate (single-author) |
-| Install friction (base) | Low | Low | Low | Moderate |
-| Install friction (E2EE) | High (Rust) | N/A | N/A | N/A |
-| Live evidence recorded | Yes (20/20) | Yes (10/10) | No | No |
+| Risk                             | Matrix                    | Meshtastic       | MeshCore                        | LXMF                     |
+| -------------------------------- | ------------------------- | ---------------- | ------------------------------- | ------------------------ |
+| Fork dependency                  | Yes (`mindroom-nio`)      | Yes (`mtjk`)     | No                              | No                       |
+| Fire-and-forget delivery         | No (Matrix has event IDs) | Yes              | Yes                             | Yes                      |
+| Duplicate-send risk              | Low                       | Medium           | Medium                          | Low                      |
+| Hardware required for validation | No                        | Yes (serial/TCP) | Yes (serial/TCP)                | Yes (Reticulum)          |
+| SDK maturity risk                | Low (mature fork)         | Moderate (fork)  | Moderate–High (small community) | Moderate (single-author) |
+| Install friction (base)          | Low                       | Low              | Low                             | Moderate                 |
+| Install friction (E2EE)          | High (Rust)               | N/A              | N/A                             | N/A                      |
+| Live evidence recorded           | Yes (20/20)               | Yes (10/10)      | No                              | No                       |

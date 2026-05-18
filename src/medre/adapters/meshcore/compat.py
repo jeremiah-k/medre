@@ -8,6 +8,7 @@ on :meth:`start` for non-fake connection types.
 This module is the **sole** import site for the ``meshcore`` package.
 All other MeshCore adapter modules must not import ``meshcore`` directly.
 """
+
 from __future__ import annotations
 
 HAS_MESHCORE: bool

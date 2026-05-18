@@ -9,6 +9,7 @@ Covers diagnostics truthfulness gaps found during audit:
 
 All tests use fake mode or mocks — no real transport dependency required.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -18,13 +19,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from medre.config.adapters.lxmf import LxmfConfig
 from medre.adapters.lxmf.session import LxmfSession
-from medre.config.adapters.matrix import MatrixConfig
 from medre.adapters.matrix.session import MatrixSession
-from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.adapters.meshtastic.session import MeshtasticSession
-
+from medre.config.adapters.lxmf import LxmfConfig
+from medre.config.adapters.matrix import MatrixConfig
+from medre.config.adapters.meshtastic import MeshtasticConfig
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -286,9 +286,7 @@ class TestMeshtasticAdapterDiagnosticsQueueDropped:
 
         await adapter.stop()
 
-    async def test_diagnostics_shows_dropped_count(
-        self, make_adapter_context
-    ) -> None:
+    async def test_diagnostics_shows_dropped_count(self, make_adapter_context) -> None:
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 
         config = _make_meshtastic_config(connection_type="fake")

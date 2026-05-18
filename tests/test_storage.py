@@ -61,9 +61,7 @@ def _make_event(
 class TestAppendAndGet:
     """append() then get() must return an equivalent event."""
 
-    async def test_append_and_get_round_trip(
-        self, temp_storage: SQLiteStorage
-    ) -> None:
+    async def test_append_and_get_round_trip(self, temp_storage: SQLiteStorage) -> None:
         event = _make_event()
         await temp_storage.append(event)
         retrieved = await temp_storage.get(event.event_id)
@@ -129,9 +127,7 @@ class TestNativeRef:
 class TestRelations:
     """store_relation / list_relations."""
 
-    async def test_store_and_list_relations(
-        self, temp_storage: SQLiteStorage
-    ) -> None:
+    async def test_store_and_list_relations(self, temp_storage: SQLiteStorage) -> None:
         event = _make_event(event_id="evt-rel-1")
         await temp_storage.append(event)
 
@@ -264,27 +260,21 @@ class TestQuery:
         for e in events:
             await storage.append(e)
 
-    async def test_query_by_event_kind(
-        self, temp_storage: SQLiteStorage
-    ) -> None:
+    async def test_query_by_event_kind(self, temp_storage: SQLiteStorage) -> None:
         await self._seed_events(temp_storage)
         filt = EventFilter(event_kinds=["message.created"])
         results = [e async for e in temp_storage.query(filt)]
         ids = {e.event_id for e in results}
         assert ids == {"q-1", "q-4"}
 
-    async def test_query_by_source_adapter(
-        self, temp_storage: SQLiteStorage
-    ) -> None:
+    async def test_query_by_source_adapter(self, temp_storage: SQLiteStorage) -> None:
         await self._seed_events(temp_storage)
         filt = EventFilter(source_adapters=["other_adapter"])
         results = [e async for e in temp_storage.query(filt)]
         assert len(results) == 1
         assert results[0].event_id == "q-4"
 
-    async def test_query_with_limit(
-        self, temp_storage: SQLiteStorage
-    ) -> None:
+    async def test_query_with_limit(self, temp_storage: SQLiteStorage) -> None:
         await self._seed_events(temp_storage)
         filt = EventFilter(limit=2)
         results = [e async for e in temp_storage.query(filt)]
@@ -396,8 +386,14 @@ class TestIdempotentNativeRef:
         await temp_storage.store_native_ref(ref_a)
         await temp_storage.store_native_ref(ref_b)
 
-        assert await temp_storage.resolve_native_ref("adapter_a", "ch-a", "msg-a") == "evt-multi-ref"
-        assert await temp_storage.resolve_native_ref("adapter_b", "ch-b", "msg-b") == "evt-multi-ref"
+        assert (
+            await temp_storage.resolve_native_ref("adapter_a", "ch-a", "msg-a")
+            == "evt-multi-ref"
+        )
+        assert (
+            await temp_storage.resolve_native_ref("adapter_b", "ch-b", "msg-b")
+            == "evt-multi-ref"
+        )
 
     async def test_missing_native_ref_returns_none(
         self, temp_storage: SQLiteStorage
@@ -490,7 +486,11 @@ class TestAppendOnlyReceipts:
             ("plan-hist", "adapter_z"),
         )
         assert len(rows) == 3
-        assert [r["receipt_id"] for r in rows] == ["rcpt-hist-0", "rcpt-hist-1", "rcpt-hist-2"]
+        assert [r["receipt_id"] for r in rows] == [
+            "rcpt-hist-0",
+            "rcpt-hist-1",
+            "rcpt-hist-2",
+        ]
         assert [r["status"] for r in rows] == ["queued", "sent", "failed"]
 
 
@@ -614,9 +614,7 @@ class TestReceiptLineage:
         assert status.attempt_number == 3
         assert status.parent_receipt_id == "rcpt-lin-0"
 
-    async def test_receipt_lineage_chain(
-        self, temp_storage: SQLiteStorage
-    ) -> None:
+    async def test_receipt_lineage_chain(self, temp_storage: SQLiteStorage) -> None:
         """A chain of receipts linked by parent_receipt_id."""
         event = _make_event(event_id="evt-chain")
         await temp_storage.append(event)
@@ -655,9 +653,7 @@ class TestReceiptLineage:
         await temp_storage.append_receipt(r3)
 
         # list_receipts_for_plan returns all in attempt order.
-        receipts = await temp_storage.list_receipts_for_plan(
-            "plan-chain", "adapter_b"
-        )
+        receipts = await temp_storage.list_receipts_for_plan("plan-chain", "adapter_b")
         assert len(receipts) == 3
         assert [r.attempt_number for r in receipts] == [1, 2, 3]
         assert receipts[0].parent_receipt_id is None
@@ -774,9 +770,7 @@ class TestReceiptQueryHelpers:
 
         # Live receipt (no replay_run_id)
         await temp_storage.append_receipt(
-            self._make_receipt(
-                "rcpt-live-1", "evt-replay-q", "plan-a", "adapter_a"
-            )
+            self._make_receipt("rcpt-live-1", "evt-replay-q", "plan-a", "adapter_a")
         )
         # Replay receipt with run_id="run-42"
         await temp_storage.append_receipt(
@@ -848,9 +842,7 @@ class TestReceiptQueryHelpers:
         await temp_storage.append(event)
 
         await temp_storage.append_receipt(
-            self._make_receipt(
-                "rcpt-ev-1", "evt-ev-q", "plan-x", "adapter_x"
-            )
+            self._make_receipt("rcpt-ev-1", "evt-ev-q", "plan-x", "adapter_x")
         )
         await temp_storage.append_receipt(
             self._make_receipt(
@@ -963,9 +955,9 @@ class TestReceiptSequenceMonotonicity:
 
         seqs = [r["sequence"] for r in rows]
         for i in range(1, len(seqs)):
-            assert seqs[i] > seqs[i - 1], (
-                f"Sequence not monotonic: {seqs[i]} <= {seqs[i-1]} at index {i}"
-            )
+            assert (
+                seqs[i] > seqs[i - 1]
+            ), f"Sequence not monotonic: {seqs[i]} <= {seqs[i-1]} at index {i}"
 
     async def test_receipt_ordering_across_retry_chain(
         self, temp_storage: SQLiteStorage
@@ -1176,9 +1168,7 @@ class TestRelationTargetNativeThreadId:
             key=None,
             fallback_text=None,
         )
-        event = _make_event(
-            event_id="evt-inline-thread", relations=(relation,)
-        )
+        event = _make_event(event_id="evt-inline-thread", relations=(relation,))
         await temp_storage.append(event)
 
         retrieved = await temp_storage.get("evt-inline-thread")
@@ -1410,7 +1400,9 @@ class TestSchemaShapeValidation:
             raw.close()
 
             storage = SQLiteStorage(db_path=db_path)
-            with pytest.raises(StorageInitializationError, match="schema shape mismatch"):
+            with pytest.raises(
+                StorageInitializationError, match="schema shape mismatch"
+            ):
                 await storage.initialize()
         finally:
             os.unlink(db_path)
@@ -1504,7 +1496,9 @@ class TestSchemaShapeValidation:
             raw.close()
 
             storage = SQLiteStorage(db_path=db_path)
-            with pytest.raises(StorageInitializationError, match="schema shape mismatch"):
+            with pytest.raises(
+                StorageInitializationError, match="schema shape mismatch"
+            ):
                 await storage.initialize()
         finally:
             os.unlink(db_path)
@@ -1530,9 +1524,7 @@ class TestReceiptSourceReplayRunId:
     """DeliveryReceipt source and replay_run_id fields round-trip through
     storage and are populated correctly by default."""
 
-    async def test_live_receipt_round_trip(
-        self, temp_storage: SQLiteStorage
-    ) -> None:
+    async def test_live_receipt_round_trip(self, temp_storage: SQLiteStorage) -> None:
         """A receipt with source='live' and no replay_run_id round-trips."""
         event = _make_event(event_id="evt-live-rcpt")
         await temp_storage.append(event)
@@ -1552,9 +1544,7 @@ class TestReceiptSourceReplayRunId:
         assert fetched.source == "live"
         assert fetched.replay_run_id is None
 
-    async def test_replay_receipt_round_trip(
-        self, temp_storage: SQLiteStorage
-    ) -> None:
+    async def test_replay_receipt_round_trip(self, temp_storage: SQLiteStorage) -> None:
         """A receipt with source='replay' and replay_run_id round-trips."""
         event = _make_event(event_id="evt-replay-rcpt")
         await temp_storage.append(event)
@@ -1575,9 +1565,7 @@ class TestReceiptSourceReplayRunId:
         assert fetched.source == "replay"
         assert fetched.replay_run_id == "run-abc-123"
 
-    async def test_default_source_is_live(
-        self, temp_storage: SQLiteStorage
-    ) -> None:
+    async def test_default_source_is_live(self, temp_storage: SQLiteStorage) -> None:
         """DeliveryReceipt default source is 'live' and replay_run_id is None."""
         receipt = DeliveryReceipt(
             receipt_id="rcpt-default",
@@ -1732,20 +1720,18 @@ class TestStorageIndexes:
     """Targeted indexes matching actual query patterns are created on init."""
 
     @staticmethod
-    async def _index_columns(storage: SQLiteStorage, table: str) -> dict[str, frozenset[str]]:
+    async def _index_columns(
+        storage: SQLiteStorage, table: str
+    ) -> dict[str, frozenset[str]]:
         """Return {index_name: frozenset of column names} for *table*."""
-        rows = await storage._read_all(
-            f"PRAGMA index_list({table})", ()
-        )
+        rows = await storage._read_all(f"PRAGMA index_list({table})", ())
         result: dict[str, frozenset[str]] = {}
         for row in rows:
             idx_name = row["name"]
             # Skip SQLite autoindices (internal names like sqlite_autoindex_...)
             if idx_name.startswith("sqlite_autoindex"):
                 continue
-            cols = await storage._read_all(
-                f"PRAGMA index_info({idx_name})", ()
-            )
+            cols = await storage._read_all(f"PRAGMA index_info({idx_name})", ())
             result[idx_name] = frozenset(r["name"] for r in cols)
         return result
 
@@ -1779,11 +1765,11 @@ class TestStorageIndexes:
         """
         indexes = await self._index_columns(temp_storage, "native_message_refs")
         assert "idx_nrefs_event_created" in indexes
-        assert indexes["idx_nrefs_event_created"] == frozenset({"event_id", "created_at"})
+        assert indexes["idx_nrefs_event_created"] == frozenset(
+            {"event_id", "created_at"}
+        )
 
-    async def test_receipts_plan_index(
-        self, temp_storage: SQLiteStorage
-    ) -> None:
+    async def test_receipts_plan_index(self, temp_storage: SQLiteStorage) -> None:
         """idx_receipts_plan on delivery_receipts(delivery_plan_id, target_adapter, attempt_number, sequence)."""
         indexes = await self._index_columns(temp_storage, "delivery_receipts")
         assert "idx_receipts_plan" in indexes
@@ -1791,25 +1777,19 @@ class TestStorageIndexes:
             {"delivery_plan_id", "target_adapter", "attempt_number", "sequence"}
         )
 
-    async def test_receipts_event_index(
-        self, temp_storage: SQLiteStorage
-    ) -> None:
+    async def test_receipts_event_index(self, temp_storage: SQLiteStorage) -> None:
         """idx_receipts_event on delivery_receipts(event_id, sequence)."""
         indexes = await self._index_columns(temp_storage, "delivery_receipts")
         assert "idx_receipts_event" in indexes
         assert indexes["idx_receipts_event"] == frozenset({"event_id", "sequence"})
 
-    async def test_receipts_source_index(
-        self, temp_storage: SQLiteStorage
-    ) -> None:
+    async def test_receipts_source_index(self, temp_storage: SQLiteStorage) -> None:
         """idx_receipts_source on delivery_receipts(source, replay_run_id)."""
         indexes = await self._index_columns(temp_storage, "delivery_receipts")
         assert "idx_receipts_source" in indexes
         assert indexes["idx_receipts_source"] == frozenset({"source", "replay_run_id"})
 
-    async def test_receipts_replay_run_index(
-        self, temp_storage: SQLiteStorage
-    ) -> None:
+    async def test_receipts_replay_run_index(self, temp_storage: SQLiteStorage) -> None:
         """idx_receipts_replay_run on delivery_receipts(replay_run_id).
 
         Serves _SELECT_RECEIPTS_BY_REPLAY_RUN which filters by replay_run_id
@@ -1853,7 +1833,9 @@ class TestOpenReadonly:
 
     async def test_missing_file_not_created(self) -> None:
         """open_readonly does not create the file even transiently."""
-        db_path = os.path.join(tempfile.gettempdir(), f"medre-test-nocreate-{os.getpid()}.db")
+        db_path = os.path.join(
+            tempfile.gettempdir(), f"medre-test-nocreate-{os.getpid()}.db"
+        )
         assert not os.path.exists(db_path)
         try:
             with pytest.raises(StorageInitializationError):
@@ -1979,7 +1961,9 @@ class TestOpenReadonly:
             """)
             raw.close()
 
-            with pytest.raises(StorageInitializationError, match="schema shape mismatch"):
+            with pytest.raises(
+                StorageInitializationError, match="schema shape mismatch"
+            ):
                 await SQLiteStorage.open_readonly(db_path)
         finally:
             os.unlink(db_path)
@@ -2022,7 +2006,8 @@ class TestPublicCountMethods:
         assert await temp_storage.count_native_refs() == 0
 
     async def test_count_native_refs_after_storing(
-        self, temp_storage: SQLiteStorage,
+        self,
+        temp_storage: SQLiteStorage,
     ) -> None:
         """count_native_refs returns the correct total after storing refs."""
         event = _make_event(event_id="evt-cnt-nref")
@@ -2044,7 +2029,8 @@ class TestPublicCountMethods:
         assert await temp_storage.count_native_refs() == 3
 
     async def test_count_receipts_by_source_live_only(
-        self, temp_storage: SQLiteStorage,
+        self,
+        temp_storage: SQLiteStorage,
     ) -> None:
         """count_receipts_by_source('live') counts only live receipts."""
         event = _make_event(event_id="evt-src-live")
@@ -2065,7 +2051,8 @@ class TestPublicCountMethods:
         assert await temp_storage.count_receipts_by_source("replay") == 0
 
     async def test_count_receipts_by_source_replay(
-        self, temp_storage: SQLiteStorage,
+        self,
+        temp_storage: SQLiteStorage,
     ) -> None:
         """count_receipts_by_source('replay') counts only replay receipts."""
         event = _make_event(event_id="evt-src-replay")
@@ -2086,7 +2073,8 @@ class TestPublicCountMethods:
         assert await temp_storage.count_receipts_by_source("live") == 0
 
     async def test_count_receipts_by_source_mixed(
-        self, temp_storage: SQLiteStorage,
+        self,
+        temp_storage: SQLiteStorage,
     ) -> None:
         """count_receipts_by_source distinguishes live from replay in mixed data."""
         event = _make_event(event_id="evt-src-mix")
@@ -2119,7 +2107,8 @@ class TestPublicCountMethods:
         assert await temp_storage.count_receipts_by_source("replay") == 3
 
     async def test_count_receipts_by_source_empty(
-        self, temp_storage: SQLiteStorage,
+        self,
+        temp_storage: SQLiteStorage,
     ) -> None:
         """count_receipts_by_source returns 0 when no receipts exist."""
         assert await temp_storage.count_receipts_by_source("live") == 0
@@ -2130,7 +2119,8 @@ class TestPublicCountMethods:
         assert await temp_storage.count_replay_runs() == 0
 
     async def test_count_replay_runs_distinct(
-        self, temp_storage: SQLiteStorage,
+        self,
+        temp_storage: SQLiteStorage,
     ) -> None:
         """count_replay_runs returns the count of distinct replay_run_ids."""
         event = _make_event(event_id="evt-replay-runs")
@@ -2175,7 +2165,8 @@ class TestPublicCountMethods:
         assert await temp_storage.count_replay_runs() == 2
 
     async def test_count_receipts_by_source_unknown_source(
-        self, temp_storage: SQLiteStorage,
+        self,
+        temp_storage: SQLiteStorage,
     ) -> None:
         """count_receipts_by_source returns 0 for a source that has no matches."""
         assert await temp_storage.count_receipts_by_source("nonexistent") == 0
@@ -2248,9 +2239,7 @@ class TestListDueRetryReceiptsIntegration:
         results = await temp_storage.list_due_retry_receipts(now)
         assert len(results) == 0
 
-    async def test_max_attempts_exhausted(
-        self, temp_storage: SQLiteStorage
-    ) -> None:
+    async def test_max_attempts_exhausted(self, temp_storage: SQLiteStorage) -> None:
         """A transient failure with attempt_number >= 3 is NOT returned
         (retries exhausted)."""
         event = _make_event(event_id="evt-retry-3")

@@ -115,9 +115,9 @@ class TestStoragePathReadOnlyConsistency:
     def test_replay_operation_states_config_requirement(self) -> None:
         """replay-operation.md must state that replay requires config."""
         text = _read(RUNBOOKS_DIR / "replay-operation.md")
-        assert "--config" in text, (
-            "replay-operation.md must mention --config requirement."
-        )
+        assert (
+            "--config" in text
+        ), "replay-operation.md must mention --config requirement."
 
     def test_alpha_walkthrough_storage_path_for_inspect(self) -> None:
         """alpha-walkthrough.md inspect section should show --storage-path."""
@@ -149,9 +149,9 @@ class TestReplayConfigRequirement:
         # replay in the table / notes.
         # Both should mention that replay requires config.
         if doc_path.name == "replay-operation.md":
-            assert "--config" in text, (
-                f"{doc_path.name} must mention --config for replay."
-            )
+            assert (
+                "--config" in text
+            ), f"{doc_path.name} must mention --config for replay."
         else:
             # alpha-walkthrough mentions replay in the table and notes
             # -- storage-path note says replay still requires config

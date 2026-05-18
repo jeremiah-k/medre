@@ -244,9 +244,10 @@ class TestMeshCoreLiveSmoke:
         try:
             await adapter.start(ctx)
             info = await adapter.health_check()
-            assert info.health in ("healthy", "degraded"), (
-                f"Expected healthy or degraded, got {info.health!r}"
-            )
+            assert info.health in (
+                "healthy",
+                "degraded",
+            ), f"Expected healthy or degraded, got {info.health!r}"
         finally:
             await adapter.stop()
 
@@ -323,7 +324,6 @@ class TestMeshCoreLiveSmoke:
     async def test_send_channel_message(self):
         """Send a channel message and verify no error is raised."""
         from medre.adapters.meshcore.adapter import MeshCoreAdapter
-        from medre.adapters.meshcore.errors import MeshCoreSendError
 
         config = _make_config()
         adapter = MeshCoreAdapter(config)
@@ -332,7 +332,7 @@ class TestMeshCoreLiveSmoke:
         try:
             await adapter.start(ctx)
             assert adapter._session is not None
-            result = await adapter._session.send_text(
+            await adapter._session.send_text(
                 contact_id="",
                 text="MEDRE live smoke: send test",
                 channel_index=int(MESHCORE_CHANNEL_INDEX),
@@ -391,7 +391,7 @@ class TestMeshCoreLiveSmoke:
         ctx = _make_context()
 
         try:
-            for i in range(3):
+            for _i in range(3):
                 await adapter.start(ctx)
                 assert adapter._session is not None
                 assert adapter._session.connected is True

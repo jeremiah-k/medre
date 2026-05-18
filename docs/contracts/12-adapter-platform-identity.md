@@ -90,11 +90,11 @@ source_transport_id: str
 
 Examples by platform:
 
-| Platform | What source_transport_id carries | Example |
-|----------|---------------------------------|---------|
-| Matrix | MXID | `@alice:example.com` |
+| Platform   | What source_transport_id carries    | Example                   |
+| ---------- | ----------------------------------- | ------------------------- |
+| Matrix     | MXID                                | `@alice:example.com`      |
 | Meshtastic | Node number (stringified) or fromId | `"42"` or `"+1234567890"` |
-| MeshCore | Ed25519 public key hex | `"a3f1b2c4..."` |
+| MeshCore   | Ed25519 public key hex              | `"a3f1b2c4..."`           |
 
 ### 1.7 source_native_ref
 
@@ -188,15 +188,15 @@ The platform registry decouples these two concerns. `target_adapter` remains the
 
 The identity concepts split into two scopes:
 
-| Concept | Scope | What it identifies |
-|---------|-------|--------------------|
-| `adapter_id` | Transport-local | A specific adapter instance in this MEDRE process |
-| `platform` | Platform-level | The protocol family (Meshtastic, MeshCore, Matrix) |
-| `role` | Platform-level | The functional classification (TRANSPORT, PRESENTATION, HYBRID) |
-| `target_adapter` | Transport-local | Routing destination (an adapter_id) |
-| `source_adapter` | Transport-local | Event origin (an adapter_id) |
-| `source_transport_id` | Transport-local | Native actor identity (MXID, node number, pubkey) |
-| `target_platform` | Platform-level | Renderer selection key (resolved from adapter_id via registry) |
+| Concept               | Scope           | What it identifies                                              |
+| --------------------- | --------------- | --------------------------------------------------------------- |
+| `adapter_id`          | Transport-local | A specific adapter instance in this MEDRE process               |
+| `platform`            | Platform-level  | The protocol family (Meshtastic, MeshCore, Matrix)              |
+| `role`                | Platform-level  | The functional classification (TRANSPORT, PRESENTATION, HYBRID) |
+| `target_adapter`      | Transport-local | Routing destination (an adapter_id)                             |
+| `source_adapter`      | Transport-local | Event origin (an adapter_id)                                    |
+| `source_transport_id` | Transport-local | Native actor identity (MXID, node number, pubkey)               |
+| `target_platform`     | Platform-level  | Renderer selection key (resolved from adapter_id via registry)  |
 
 The important distinction: `adapter_id` is meaningful only within a single MEDRE deployment. `platform` is meaningful across deployments and even across implementations. Code that needs to answer "what protocol is this?" should use `platform`, not `adapter_id`.
 
@@ -232,11 +232,11 @@ MEDRE currently conflates several distinct identity categories into `source_tran
 
 **Transport-local identity** is the native actor ID from the protocol itself:
 
-| Platform | Transport-local ID | Type | Notes |
-|----------|-------------------|------|-------|
-| Matrix | MXID | String | `@user:server.org` |
-| Meshtastic | NodeNum / fromId | Int / String | Numeric node number or phone-style ID |
-| MeshCore | pubkey_prefix | Hex string | First bytes of Ed25519 public key |
+| Platform   | Transport-local ID | Type         | Notes                                 |
+| ---------- | ------------------ | ------------ | ------------------------------------- |
+| Matrix     | MXID               | String       | `@user:server.org`                    |
+| Meshtastic | NodeNum / fromId   | Int / String | Numeric node number or phone-style ID |
+| MeshCore   | pubkey_prefix      | Hex string   | First bytes of Ed25519 public key     |
 
 This is what `source_transport_id` currently carries. It works as a string, but it loses type information. A Meshtastic node number `42` becomes the string `"42"`. A MeshCore pubkey hex `"a3f1..."` is just a string. The consumer has to know which platform produced the event to interpret it.
 
@@ -257,11 +257,11 @@ The resolver indexes by `(platform, adapter_id, native_id)` triples. This works,
 
 **Cryptographic identity** is key-based verification:
 
-| Platform | Crypto identity | Verification |
-|----------|----------------|--------------|
-| Matrix | None at the protocol layer (TLS handles transport) | Server-trusted |
-| Meshtastic | None native (optional admin key) | None |
-| MeshCore | Ed25519 public key | Always-on E2EE |
+| Platform   | Crypto identity                                    | Verification   |
+| ---------- | -------------------------------------------------- | -------------- |
+| Matrix     | None at the protocol layer (TLS handles transport) | Server-trusted |
+| Meshtastic | None native (optional admin key)                   | None           |
+| MeshCore   | Ed25519 public key                                 | Always-on E2EE |
 
 MeshCore has real cryptographic identity baked in. Every message is signed. Every contact is a public key. Meshtastic has nothing comparable at the protocol layer. Matrix delegates trust to the homeserver. The `VerificationStatus` enum anticipates this:
 
@@ -277,11 +277,11 @@ But nothing in the current system populates `CRYPTOGRAPHIC` for MeshCore yet. Th
 
 **Presentation identity** is the human-facing metadata:
 
-| Platform | Display name | Avatar | Profile |
-|----------|-------------|--------|---------|
-| Matrix | Display name from profile | Avatar URL | Full profile |
-| Meshtastic | Short name from config (4 chars) | None | None |
-| MeshCore | `adv_name` from contact | None | None |
+| Platform   | Display name                     | Avatar     | Profile      |
+| ---------- | -------------------------------- | ---------- | ------------ |
+| Matrix     | Display name from profile        | Avatar URL | Full profile |
+| Meshtastic | Short name from config (4 chars) | None       | None         |
+| MeshCore   | `adv_name` from contact          | None       | None         |
 
 `NativeIdentity.display_name` captures this at observation time, but there's no mechanism to update it when it changes, and no concept of "preferred" display name across platforms.
 
@@ -314,13 +314,13 @@ This section documents the semantic differences between the three adapter famili
 
 ### 6.1 Message graph richness
 
-| Dimension | Matrix | Meshtastic | MeshCore |
-|-----------|--------|------------|----------|
-| Replies | Native: `m.in_reply_to` | Native: `replyId` (int) | None |
-| Reactions | Native: `m.reaction` | None | None |
-| Edits | Native: `m.replace` | None | None |
-| Deletes | Native: redaction event | None | None |
-| Threads | Native: thread relations | None | None |
+| Dimension | Matrix                   | Meshtastic              | MeshCore |
+| --------- | ------------------------ | ----------------------- | -------- |
+| Replies   | Native: `m.in_reply_to`  | Native: `replyId` (int) | None     |
+| Reactions | Native: `m.reaction`     | None                    | None     |
+| Edits     | Native: `m.replace`      | None                    | None     |
+| Deletes   | Native: redaction event  | None                    | None     |
+| Threads   | Native: thread relations | None                    | None     |
 
 Matrix has a rich message graph with first-class relations for replies, reactions, edits, and deletes. Meshtastic has a single `replyId` field at the packet layer. MeshCore has nothing. MEDRE's `EventRelation` model handles Matrix and Meshtastic but assumes the protocol can carry a relation reference, which MeshCore cannot.
 
@@ -334,51 +334,51 @@ Matrix has a rich message graph with first-class relations for replies, reaction
 
 ### 6.3 Native refs
 
-| Platform | Message ID type | Example | Scope |
-|----------|----------------|---------|-------|
-| Matrix | `event_id` string | `"$abc123:server.org"` | Global (federated) |
-| Meshtastic | `packet_id` int | `42` | Local (per-node) |
-| MeshCore | `sender_timestamp` int | `1715234567` | Per-sender |
+| Platform   | Message ID type        | Example                | Scope              |
+| ---------- | ---------------------- | ---------------------- | ------------------ |
+| Matrix     | `event_id` string      | `"$abc123:server.org"` | Global (federated) |
+| Meshtastic | `packet_id` int        | `42`                   | Local (per-node)   |
+| MeshCore   | `sender_timestamp` int | `1715234567`           | Per-sender         |
 
 Matrix event IDs are globally unique across federation. Meshtastic packet IDs are locally scoped; two nodes can produce the same packet ID. MeshCore sender timestamps are unique per-sender but can collide across senders.
 
 ### 6.4 Actor identity
 
-| Platform | Actor ID | Persistence | Uniqueness |
-|----------|----------|-------------|------------|
-| Matrix | MXID (`@user:server.org`) | Server-bound | Globally unique |
-| Meshtastic | NodeNum (int) or fromId (str) | Ephemeral session | Local mesh |
-| MeshCore | Ed25519 pubkey (32B hex) | Key material | Globally unique |
+| Platform   | Actor ID                      | Persistence       | Uniqueness      |
+| ---------- | ----------------------------- | ----------------- | --------------- |
+| Matrix     | MXID (`@user:server.org`)     | Server-bound      | Globally unique |
+| Meshtastic | NodeNum (int) or fromId (str) | Ephemeral session | Local mesh      |
+| MeshCore   | Ed25519 pubkey (32B hex)      | Key material      | Globally unique |
 
 Matrix and MeshCore have stable, globally unique actor identities. Meshtastic node numbers are ephemeral; a node that leaves and rejoins the mesh may get a different number.
 
 ### 6.5 Addressing model
 
-| Platform | Model | Send targets |
-|----------|-------|-------------|
-| Matrix | Room-based | Room ID (group) or room ID (DM room) |
-| Meshtastic | Broadcast/DM | Channel index (broadcast) or node number (DM) |
-| MeshCore | Contact-based | Pubkey (direct) or flood (broadcast) |
+| Platform   | Model         | Send targets                                  |
+| ---------- | ------------- | --------------------------------------------- |
+| Matrix     | Room-based    | Room ID (group) or room ID (DM room)          |
+| Meshtastic | Broadcast/DM  | Channel index (broadcast) or node number (DM) |
+| MeshCore   | Contact-based | Pubkey (direct) or flood (broadcast)          |
 
 Matrix routes messages to rooms. Meshtastic routes to channels (broadcast) or specific nodes. MeshCore routes to contacts (pubkeys) or floods. All three reduce to `target_channel` and optional routing metadata at the MEDRE boundary.
 
 ### 6.6 Delivery expectations
 
-| Platform | Model | Confirmation |
-|----------|-------|-------------|
-| Matrix | Sync `/sync` confirm | Implicit in sync response |
-| Meshtastic | Async ACK packet | ROUTING_APP ACK, separate from send |
-| MeshCore | Async ACK event | ACK event with CRC code, separate from send |
+| Platform   | Model                | Confirmation                                |
+| ---------- | -------------------- | ------------------------------------------- |
+| Matrix     | Sync `/sync` confirm | Implicit in sync response                   |
+| Meshtastic | Async ACK packet     | ROUTING_APP ACK, separate from send         |
+| MeshCore   | Async ACK event      | ACK event with CRC code, separate from send |
 
 Matrix confirms delivery synchronously through the sync loop. Both radio protocols use asynchronous ACKs. MeshCore's ACK includes a CRC code that the sender can verify against the original payload.
 
 ### 6.7 Constrained payloads
 
-| Platform | Payload limit | Encoding overhead |
-|----------|--------------|-------------------|
-| Matrix | ~100 KB | JSON (verbose) |
-| Meshtastic | ~228 bytes | Protobuf (compact) |
-| MeshCore | 184 bytes | Custom binary (minimal) |
+| Platform   | Payload limit | Encoding overhead       |
+| ---------- | ------------- | ----------------------- |
+| Matrix     | ~100 KB       | JSON (verbose)          |
+| Meshtastic | ~228 bytes    | Protobuf (compact)      |
+| MeshCore   | 184 bytes     | Custom binary (minimal) |
 
 Both constrained transports require aggressive payload truncation. The `max_text_bytes` capability declaration handles this, and each adapter declares its limit at registration. The renderers apply truncation during rendering.
 

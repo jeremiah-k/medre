@@ -53,7 +53,11 @@ class TestNoStaleSmokeStatusOk:
 
     @pytest.mark.parametrize(
         "doc_path",
-        [p for p in TARGET_DOCS if p.name in ("alpha-walkthrough.md", "bridge-evidence-bundle.md")],
+        [
+            p
+            for p in TARGET_DOCS
+            if p.name in ("alpha-walkthrough.md", "bridge-evidence-bundle.md")
+        ],
         ids=lambda p: p.name,
     )
     def test_smoke_examples_use_passed_not_ok(self, doc_path: Path) -> None:
@@ -71,7 +75,11 @@ class TestNoStaleSmokeStatusOk:
 
     @pytest.mark.parametrize(
         "doc_path",
-        [p for p in TARGET_DOCS if p.name in ("alpha-walkthrough.md", "bridge-evidence-bundle.md")],
+        [
+            p
+            for p in TARGET_DOCS
+            if p.name in ("alpha-walkthrough.md", "bridge-evidence-bundle.md")
+        ],
         ids=lambda p: p.name,
     )
     def test_evidence_examples_use_passed_not_ok(self, doc_path: Path) -> None:
@@ -129,8 +137,7 @@ class TestEvidenceStatusValueConsistency:
 
         result = _section_ok({"test": True})
         assert result["status"] == "passed", (
-            f"_section_ok() should return status='passed', "
-            f"got '{result['status']}'"
+            f"_section_ok() should return status='passed', " f"got '{result['status']}'"
         )
 
     def test_overall_status_never_ok(self) -> None:
@@ -146,15 +153,17 @@ class TestEvidenceStatusValueConsistency:
         ]:
             sections = {f"s{i}": {"status": s} for i, s in enumerate(statuses)}
             result = _compute_overall_status(sections)
-            assert result != "ok", (
-                f"_compute_overall_status({statuses}) returned 'ok'"
-            )
+            assert result != "ok", f"_compute_overall_status({statuses}) returned 'ok'"
 
     def test_alpha_walkthrough_evidence_status_not_ok(self) -> None:
         """alpha-walkthrough.md evidence example must not say 'status: ok'."""
         text = _read(RUNBOOKS_DIR / "alpha-walkthrough.md")
         for lineno, line in enumerate(text.splitlines(), start=1):
-            if '"status": "ok"' in line and "evidence" in text[max(0, text.find(line) - 500):text.find(line) + 500].lower():
+            if (
+                '"status": "ok"' in line
+                and "evidence"
+                in text[max(0, text.find(line) - 500) : text.find(line) + 500].lower()
+            ):
                 pytest.fail(
                     f"alpha-walkthrough.md:{lineno}: evidence example uses "
                     f'stale "status": "ok" (code returns "passed" or "partial").\n'
@@ -177,7 +186,11 @@ class TestBareStatusVocabularyDrift:
 
     @pytest.mark.parametrize(
         "doc_path",
-        [p for p in TARGET_DOCS if p.name in ("bridge-evidence-bundle.md", "alpha-walkthrough.md")],
+        [
+            p
+            for p in TARGET_DOCS
+            if p.name in ("bridge-evidence-bundle.md", "alpha-walkthrough.md")
+        ],
         ids=lambda p: p.name,
     )
     def test_no_bare_ok_in_status_tables(self, doc_path: Path) -> None:

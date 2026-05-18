@@ -15,8 +15,8 @@ Covers:
 
 from __future__ import annotations
 
-import json
 import importlib
+import json
 from typing import Any
 
 import pytest
@@ -157,7 +157,9 @@ def _assert_json_safe(obj: object) -> None:
     elif isinstance(obj, (str, int, float, bool)) or obj is None:
         pass
     else:
-        raise AssertionError(f"Non-JSON-safe value: {obj!r} (type={type(obj).__name__})")
+        raise AssertionError(
+            f"Non-JSON-safe value: {obj!r} (type={type(obj).__name__})"
+        )
 
 
 # ===================================================================
@@ -353,14 +355,21 @@ class TestNoSecretLeakage:
 
         # Sensitive data should be in details, NOT at top level
         adapter = result["adapters"][0]
-        assert "access_token" not in adapter or "access_token" in adapter.get("details", {})
+        assert "access_token" not in adapter or "access_token" in adapter.get(
+            "details", {}
+        )
         assert "access_token" in adapter["details"]
         assert adapter["details"]["access_token"] == "syt_super_secret_value"
 
         # Top-level keys must be the fixed set
         assert set(adapter.keys()) == {
-            "adapter_id", "platform", "role", "health",
-            "fake_or_live", "capabilities", "details",
+            "adapter_id",
+            "platform",
+            "role",
+            "health",
+            "fake_or_live",
+            "capabilities",
+            "details",
         }
 
     def test_snapshot_top_level_has_no_secrets(self) -> None:
@@ -467,12 +476,12 @@ class TestRenderingPipelineStatusSummary:
 
     def test_returns_dict(self) -> None:
         pipeline = RenderingPipeline()
-        summary = getattr(pipeline, "status_summary")()
+        summary = pipeline.status_summary()
         assert isinstance(summary, dict)
 
     def test_keys(self) -> None:
         pipeline = RenderingPipeline()
-        summary = getattr(pipeline, "status_summary")()
+        summary = pipeline.status_summary()
         assert "renderer_count" in summary
         assert "renderer_names" in summary
         assert "platform_registry" in summary
@@ -481,7 +490,7 @@ class TestRenderingPipelineStatusSummary:
         pipeline = RenderingPipeline()
         pipeline.register_adapter_platform("z-radio", "meshtastic")
         pipeline.register_adapter_platform("a-chat", "matrix")
-        summary = getattr(pipeline, "status_summary")()
+        summary = pipeline.status_summary()
         keys = list(summary["platform_registry"].keys())
         assert keys == sorted(keys)
 
@@ -747,8 +756,12 @@ class TestRouteTopologyAdapterMap:
 
     def test_multiple_routes_same_adapter(self) -> None:
         routes = [
-            _make_route(route_id="r1", source_adapter="matrix", target_adapter="discord"),
-            _make_route(route_id="r2", source_adapter="matrix", target_adapter="meshtastic"),
+            _make_route(
+                route_id="r1", source_adapter="matrix", target_adapter="discord"
+            ),
+            _make_route(
+                route_id="r2", source_adapter="matrix", target_adapter="meshtastic"
+            ),
         ]
         router = Router(routes=routes)
         topo = capture_route_topology(router)

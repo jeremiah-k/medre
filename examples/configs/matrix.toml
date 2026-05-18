@@ -27,4 +27,4 @@ homeserver = "https://matrix.example.com"
 user_id = "@bot:example.com"
 access_token = ""
 room_allowlist = ["!room:example.com"]
-encryption_mode = "plaintext"        # plaintext | e2ee_required | e2ee_optional
+encryption_mode = "plaintext"             # plaintext | e2ee_required | e2ee_optional

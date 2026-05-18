@@ -8,7 +8,6 @@ This runbook explains how routes work end-to-end, how loop prevention operates, 
 
 **Important scoping note:** Routing correctness in this document refers to **local-process** behavior only. MEDRE does not provide distributed loop prevention, distributed consensus, or exactly-once delivery across multiple instances. Radio transports remain probabilistic. See section 8.
 
-
 ## 1. Route Lifecycle
 
 A route progresses through these stages:
@@ -61,10 +60,10 @@ For each matched route's targets:
 1. **Route-trace loop prevention:** if `route.id` already exists in `event.metadata.routing.route_trace`, the delivery is skipped with `loop_prevented`. This prevents an event from being re-routed through the same route more than once across routing passes (live or replay).
 2. **Self-loop guard:** `target_adapter == event.source_adapter` → skip with `loop_prevented`.
 3. The event is rendered and delivered to the target adapter.
-2. `deliver_to_target` calls the adapter's `deliver()` method.
-3. `DeliveryReceipt` is recorded with `route_id` for attribution.
-4. `DeliveryOutcome` is produced with status, receipt, and failure classification.
-5. `RouteStats` counters are updated per route.
+4. `deliver_to_target` calls the adapter's `deliver()` method.
+5. `DeliveryReceipt` is recorded with `route_id` for attribution.
+6. `DeliveryOutcome` is produced with status, receipt, and failure classification.
+7. `RouteStats` counters are updated per route.
 
 The full lifecycle for a single event through routing:
 
@@ -73,7 +72,6 @@ Event arrives → store → route_event() → match routes → populate route_tr
   → execute_route_deliveries() → per target:
     → self-loop check → adapter.deliver() → record receipt → record outcome
 ```
-
 
 ## 2. Loop Prevention
 
@@ -108,10 +106,12 @@ MEDRE provides three layers of loop prevention, operating at different stages.
 **How it works:** `check_route_loops` builds edge pairs `(source, dest)` from all enabled routes. If both `(A, B)` and `(B, A)` edges exist, a direct loop warning is logged.
 
 **Example:**
+
 ```
 Route X: bot1 → longfast
 Route Y: longfast → bot1
 ```
+
 This produces: `"Direct routing loop detected between adapters 'bot1' and 'longfast': routes ['X'] and ['Y']"`.
 
 **Effect:** Warning only. Startup is not blocked.
@@ -123,11 +123,13 @@ This produces: `"Direct routing loop detected between adapters 'bot1' and 'longf
 **How it works:** `check_route_loops` builds a directed adjacency graph of adapter edges and runs DFS with a recursion stack to detect back-edges. When a back-edge is found, the cycle path is extracted and logged.
 
 **Example:**
+
 ```
 Route A: alpha → beta
 Route B: beta → gamma
 Route C: gamma → alpha
 ```
+
 This produces: `"Route cycle detected: alpha -> beta -> gamma -> alpha"`.
 
 **Effect:** Warning only. Startup is not blocked.
@@ -135,6 +137,7 @@ This produces: `"Route cycle detected: alpha -> beta -> gamma -> alpha"`.
 ### 2.5 Replay Loop Prevention
 
 During replay, `_filter_replay_loops` applies additional filtering:
+
 - Self-loop: route would deliver back to `source_adapter`.
 - Previously routed: event's `RoutingMetadata.matched_routes` **or** `route_trace` overlaps with a matched route ID.
 
@@ -166,13 +169,12 @@ This means a route can be correctly configured and correctly matched, but still 
 
 ### 2.6 Loop Prevention Scope
 
-| Context | Mechanism | Blocks startup? | Blocks delivery? |
-|---------|-----------|-----------------|------------------|
-| Config-time | `check_route_loops` (direct + DFS) | No (warning only) | N/A |
-| Runtime | Route-trace loop prevention in `PipelineRunner` | N/A | Yes (skips delivery) |
-| Runtime | Self-loop guard in `PipelineRunner` | N/A | Yes (skips delivery) |
-| Replay | `_filter_replay_loops` (route_trace + matched_routes) | N/A | Yes (skips route) |
-
+| Context     | Mechanism                                             | Blocks startup?   | Blocks delivery?     |
+| ----------- | ----------------------------------------------------- | ----------------- | -------------------- |
+| Config-time | `check_route_loops` (direct + DFS)                    | No (warning only) | N/A                  |
+| Runtime     | Route-trace loop prevention in `PipelineRunner`       | N/A               | Yes (skips delivery) |
+| Runtime     | Self-loop guard in `PipelineRunner`                   | N/A               | Yes (skips delivery) |
+| Replay      | `_filter_replay_loops` (route_trace + matched_routes) | N/A               | Yes (skips route)    |
 
 ## 3. Route Attribution Visibility
 
@@ -202,7 +204,6 @@ After route matching, `RoutingMetadata.route_trace` on the event's metadata cont
 
 Route attribution is internal to MEDRE. It does not appear in radio packets, Matrix messages, LXMF messages, or any external output.
 
-
 ## 4. Diagnostics and Topology Visibility
 
 ### 4.1 Router Snapshot
@@ -220,7 +221,6 @@ Query stored `DeliveryReceipt` records to trace individual delivery histories. E
 ### 4.4 Replay Attribution
 
 For route-aware replay modes (`RE_ROUTE`, `BEST_EFFORT`, `DRY_RUN`), `ReplayRouteAttribution` records which routes matched each historical event. Use `DRY_RUN` first to preview matching behavior without side effects.
-
 
 ## 5. Common Troubleshooting
 
@@ -271,12 +271,12 @@ For route-aware replay modes (`RE_ROUTE`, `BEST_EFFORT`, `DRY_RUN`), `ReplayRout
 **Symptom:** `route_trace` is populated but no delivery occurs.
 
 **Possible causes:**
+
 - The adapter is not started or has no active connection.
 - The delivery plan has a `DEADLINE_EXCEEDED` failure.
 - The renderer failed to produce output.
 
 **Fix:** Check delivery receipts for the event. Check adapter health. Check `RouteStats` for error details.
-
 
 ## 6. Explicit Non-Guarantees
 
@@ -304,14 +304,13 @@ These are things the routing layer explicitly does **not** provide:
 
 11. **Exactly-once delivery.** No transport in MEDRE provides exactly-once semantics. MEDRE remains best-effort. Radio transports are probabilistic. Queue bounds prevent unbounded accumulation but not data loss under extreme pressure.
 
-
 ## 7. Quick Reference: Route Matching Rules
 
-| Condition | Matches? |
-|-----------|----------|
-| `event.source_adapter` in route's `source_adapters` | Yes |
-| `event.source_adapter` not in route's `source_adapters` | No |
-| Route is `enabled = false` | No (not registered) |
-| Route policy `allowed_event_types` is empty | Yes (no restriction) |
-| Route policy `allowed_event_types` does not include `event.event_kind` | No (filtered by policy) |
-| Target adapter is the same as source adapter | Matched, but delivery skipped by self-loop guard |
+| Condition                                                              | Matches?                                         |
+| ---------------------------------------------------------------------- | ------------------------------------------------ |
+| `event.source_adapter` in route's `source_adapters`                    | Yes                                              |
+| `event.source_adapter` not in route's `source_adapters`                | No                                               |
+| Route is `enabled = false`                                             | No (not registered)                              |
+| Route policy `allowed_event_types` is empty                            | Yes (no restriction)                             |
+| Route policy `allowed_event_types` does not include `event.event_kind` | No (filtered by policy)                          |
+| Target adapter is the same as source adapter                           | Matched, but delivery skipped by self-loop guard |

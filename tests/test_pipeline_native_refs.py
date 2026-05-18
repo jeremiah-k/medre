@@ -14,11 +14,9 @@ from medre.adapters.fake_presentation import FakePresentationAdapter
 from medre.adapters.fake_transport import FakeTransportAdapter
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.events import CanonicalEvent, EventMetadata, NativeRef
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage import SQLiteStorage
-
 from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -97,11 +95,11 @@ class TestCanonicalImmutabilityDownstream:
         """CanonicalEvent is frozen — assigning to any field raises."""
         event = make_event(event_id="freeze-001")
         with pytest.raises(AttributeError):
-            setattr(event, "event_kind", "tampered")
+            event.event_kind = "tampered"
         with pytest.raises(AttributeError):
-            setattr(event, "payload", {"evil": True})
+            event.payload = {"evil": True}
         with pytest.raises(AttributeError):
-            setattr(event, "source_adapter", "impostor")
+            event.source_adapter = "impostor"
 
     async def test_frozen_event_payload_dict_is_immutable(self) -> None:
         """The frozen event's payload dict cannot be reassigned.
@@ -114,7 +112,7 @@ class TestCanonicalImmutabilityDownstream:
         original_text = event.payload["text"]
         # Struct is frozen — reassignment raises.
         with pytest.raises(AttributeError):
-            setattr(event, "payload", {"hacked": True})
+            event.payload = {"hacked": True}
         # Original value unchanged.
         assert event.payload["text"] == original_text
 
@@ -320,6 +318,7 @@ class TestPipelineNativeChannelIdNoFallback:
 
             async def deliver(self, payload: object):
                 from medre.core.contracts.adapter import AdapterDeliveryResult
+
                 return AdapterDeliveryResult(
                     native_message_id="msg-001",
                     native_channel_id=None,
@@ -371,6 +370,7 @@ class TestPipelineNativeChannelIdNoFallback:
 
             async def deliver(self, payload: object):
                 from medre.core.contracts.adapter import AdapterDeliveryResult
+
                 return AdapterDeliveryResult(
                     native_message_id=None,
                     native_channel_id="ch-1",

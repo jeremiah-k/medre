@@ -15,17 +15,14 @@ import pytest
 from medre.core.events.canonical import (
     CanonicalEvent,
     DeliveryReceipt,
-    NativeMessageRef,
 )
 from medre.core.events.metadata import EventMetadata
-from medre.core.storage.sqlite import SQLiteStorage
 from medre.observability.classification import (
-    infer_failure_kind,
     failure_category,
+    infer_failure_kind,
     recommended_commands,
 )
 from medre.runtime.timeline import assemble_event_timeline
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -252,8 +249,7 @@ class TestRetryTraceEvidence:
         r_a = timeline_a["receipts"]
         # Pending: has failed receipt with next_retry_at
         has_pending = any(
-            r.status == "failed" and r.next_retry_at is not None
-            for r in r_a
+            r.status == "failed" and r.next_retry_at is not None for r in r_a
         )
         assert has_pending
 
@@ -286,7 +282,8 @@ class TestRetryTraceEvidence:
 
         # Dead-lettered is inferred as adapter_transient (was retriable)
         kind_b = infer_failure_kind(
-            dead_lettered[0].error, dead_lettered[0].status,
+            dead_lettered[0].error,
+            dead_lettered[0].status,
         )
         assert kind_b == "adapter_transient"
         # But the receipt status tells us it's exhausted
@@ -301,21 +298,24 @@ class TestRetryTraceEvidence:
     async def test_cross_surface_retry_consistency(self, temp_storage):
         """Full pipeline: inject event → transient failure → retry succeeds.
         Timeline assembly shows both receipts, correct lineage, and mixed source."""
-        from medre.core.contracts.adapter import AdapterContext
+        from unittest.mock import AsyncMock
+
         from medre.adapters.fake_presentation import FakePresentationAdapter
+        from medre.core.contracts.adapter import AdapterContext
+        from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
         from medre.core.events.bus import EventBus
         from medre.core.observability.metrics import Diagnostician
         from medre.core.planning.delivery_plan import RetryPolicy
-        from medre.core.planning.fallback_resolution import FallbackResolver as _BaseFallback
+        from medre.core.planning.fallback_resolution import (
+            FallbackResolver as _BaseFallback,
+        )
         from medre.core.planning.relation_resolution import RelationResolver
         from medre.core.rendering.renderer import RenderingPipeline
         from medre.core.rendering.text import TextRenderer
         from medre.core.routing.models import Route, RouteSource, RouteTarget
         from medre.core.routing.router import Router
         from medre.core.routing.stats import RouteStats
-        from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
         from medre.core.runtime.accounting import RuntimeAccounting
-        from unittest.mock import AsyncMock
 
         class _FallbackResolverWithRetry(_BaseFallback):
             """Injects a RetryPolicy into every delivery plan."""
@@ -397,8 +397,10 @@ class TestRetryTraceEvidence:
 
             # Retry through pipeline with previous_receipt and source="retry"
             from medre.core.planning.delivery_plan import (
-                DeliveryPlan, DeliveryStrategy, RetryExecutor,
+                DeliveryPlan,
+                DeliveryStrategy,
             )
+
             plan = DeliveryPlan(
                 plan_id=original.delivery_plan_id,
                 event_id=event.event_id,
@@ -412,13 +414,17 @@ class TestRetryTraceEvidence:
             route_obj = Route(
                 id=original.route_id,
                 source=RouteSource(adapter=None, event_kinds=(), channel=None),
-                targets=[RouteTarget(
-                    adapter="trace_target",
-                    channel=getattr(original, "target_channel", None),
-                )],
+                targets=[
+                    RouteTarget(
+                        adapter="trace_target",
+                        channel=getattr(original, "target_channel", None),
+                    )
+                ],
             )
-            retry_receipt = await runner.deliver_to_target(
-                event, route_obj, plan,
+            await runner.deliver_to_target(
+                event,
+                route_obj,
+                plan,
                 previous_receipt=original,
                 source="retry",
             )
@@ -489,9 +495,7 @@ class TestRetryTraceEvidence:
         timeline = await assemble_event_timeline(temp_storage, event.event_id)
         assert timeline is not None
         receipts = timeline["receipts"]
-        assert len(receipts) == 2, (
-            f"Expected exactly 2 receipts, got {len(receipts)}"
-        )
+        assert len(receipts) == 2, f"Expected exactly 2 receipts, got {len(receipts)}"
 
         # Verify lineage
         assert receipts[0].receipt_id == "rcpt-fail-dup"
@@ -504,20 +508,18 @@ class TestRetryTraceEvidence:
         assert receipts[1].source == "retry"
 
         # No duplicate retry receipts
-        retry_receipts = [
-            r for r in receipts if r.source == "retry"
-        ]
-        assert len(retry_receipts) == 1, (
-            "Should have exactly 1 retry receipt, no duplicates"
-        )
+        retry_receipts = [r for r in receipts if r.source == "retry"]
+        assert (
+            len(retry_receipts) == 1
+        ), "Should have exactly 1 retry receipt, no duplicates"
 
         # Second assembly (simulates second worker cycle reading same data)
         timeline2 = await assemble_event_timeline(temp_storage, event.event_id)
         assert timeline2 is not None
         receipts2 = timeline2["receipts"]
-        assert len(receipts2) == 2, (
-            "Timeline should be unchanged on second assembly — still 2 receipts"
-        )
+        assert (
+            len(receipts2) == 2
+        ), "Timeline should be unchanged on second assembly — still 2 receipts"
 
         # Receipt IDs identical between both calls
         ids_1 = [r.receipt_id for r in receipts]
@@ -528,8 +530,11 @@ class TestRetryTraceEvidence:
         """RetryWorker with event_buffer emits retry_attempted and
         retry_succeeded events during a transient-failure → retry-succeed
         cycle."""
-        from medre.core.contracts.adapter import AdapterContext
+        from unittest.mock import AsyncMock
+
         from medre.adapters.fake_presentation import FakePresentationAdapter
+        from medre.core.contracts.adapter import AdapterContext
+        from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
         from medre.core.events.bus import EventBus
         from medre.core.observability.metrics import Diagnostician
         from medre.core.planning.delivery_plan import RetryPolicy
@@ -542,11 +547,9 @@ class TestRetryTraceEvidence:
         from medre.core.routing.models import Route, RouteSource, RouteTarget
         from medre.core.routing.router import Router
         from medre.core.routing.stats import RouteStats
-        from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
         from medre.core.runtime.accounting import RuntimeAccounting
         from medre.runtime.events import EventBuffer, RuntimeEventType
         from medre.runtime.retry import RetryWorker
-        from unittest.mock import AsyncMock
 
         class _FallbackResolverWithRetry(_BaseFallback):
             def __init__(self, retry_policy: RetryPolicy | None = None) -> None:
@@ -644,17 +647,16 @@ class TestRetryTraceEvidence:
             events = list(event_buffer)
             event_types = [e.event_type for e in events]
 
-            assert RuntimeEventType.RETRY_ATTEMPTED in event_types, (
-                f"Expected retry_attempted event, got: {[e.value for e in event_types]}"
-            )
-            assert RuntimeEventType.RETRY_SUCCEEDED in event_types, (
-                f"Expected retry_succeeded event, got: {[e.value for e in event_types]}"
-            )
+            assert (
+                RuntimeEventType.RETRY_ATTEMPTED in event_types
+            ), f"Expected retry_attempted event, got: {[e.value for e in event_types]}"
+            assert (
+                RuntimeEventType.RETRY_SUCCEEDED in event_types
+            ), f"Expected retry_succeeded event, got: {[e.value for e in event_types]}"
 
             # Verify retry_attempted has correct receipt IDs
             attempted = [
-                e for e in events
-                if e.event_type == RuntimeEventType.RETRY_ATTEMPTED
+                e for e in events if e.event_type == RuntimeEventType.RETRY_ATTEMPTED
             ]
             assert len(attempted) >= 1
             assert attempted[0].detail["receipt_id"] == original.receipt_id
@@ -663,8 +665,7 @@ class TestRetryTraceEvidence:
 
             # Verify retry_succeeded has correct receipt IDs
             succeeded = [
-                e for e in events
-                if e.event_type == RuntimeEventType.RETRY_SUCCEEDED
+                e for e in events if e.event_type == RuntimeEventType.RETRY_SUCCEEDED
             ]
             assert len(succeeded) >= 1
             assert succeeded[0].detail["parent_receipt_id"] == original.receipt_id
@@ -677,8 +678,11 @@ class TestRetryTraceEvidence:
     async def test_retry_snapshot_consistency(self, temp_storage):
         """After retry succeeds, the RetryWorkerState snapshot shows
         processed >= 1 and succeeded >= 1."""
-        from medre.core.contracts.adapter import AdapterContext
+        from unittest.mock import AsyncMock
+
         from medre.adapters.fake_presentation import FakePresentationAdapter
+        from medre.core.contracts.adapter import AdapterContext
+        from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
         from medre.core.events.bus import EventBus
         from medre.core.observability.metrics import Diagnostician
         from medre.core.planning.delivery_plan import RetryPolicy
@@ -691,10 +695,8 @@ class TestRetryTraceEvidence:
         from medre.core.routing.models import Route, RouteSource, RouteTarget
         from medre.core.routing.router import Router
         from medre.core.routing.stats import RouteStats
-        from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
         from medre.core.runtime.accounting import RuntimeAccounting
         from medre.runtime.retry import RetryWorker, RetryWorkerState
-        from unittest.mock import AsyncMock
 
         class _FallbackResolverWithRetry(_BaseFallback):
             def __init__(self, retry_policy: RetryPolicy | None = None) -> None:
@@ -788,12 +790,12 @@ class TestRetryTraceEvidence:
             # Verify snapshot retry section consistency
             state = retry_worker.state
             assert isinstance(state, RetryWorkerState)
-            assert state.processed >= 1, (
-                f"Expected processed >= 1, got {state.processed}"
-            )
-            assert state.succeeded >= 1, (
-                f"Expected succeeded >= 1, got {state.succeeded}"
-            )
+            assert (
+                state.processed >= 1
+            ), f"Expected processed >= 1, got {state.processed}"
+            assert (
+                state.succeeded >= 1
+            ), f"Expected succeeded >= 1, got {state.succeeded}"
             assert state.failed == 0
             assert state.dead_lettered == 0
         finally:
@@ -902,7 +904,8 @@ class TestRetryTraceEvidence:
 
         # === Timeline assembly ===
         timeline = await assemble_event_timeline(
-            temp_storage, event.event_id,
+            temp_storage,
+            event.event_id,
         )
         assert timeline is not None
 
@@ -952,16 +955,14 @@ class TestRetryTraceEvidence:
         assert timeline["source"] == "mixed"
 
         # === Replay duplicate-risk warning present ===
-        from medre.runtime.trace import (
-            assemble_replay_timeline as _trace_replay_tl,
-        )
-        replay_receipts = [
-            r for r in tl_receipts
-            if r.replay_run_id == replay_run_id
-        ]
+        from medre.runtime.trace import assemble_replay_timeline as _trace_replay_tl
+
+        replay_receipts = [r for r in tl_receipts if r.replay_run_id == replay_run_id]
         event_cache = {event.event_id: event}
         replay_tl = _trace_replay_tl(
-            replay_run_id, replay_receipts, event_cache,
+            replay_run_id,
+            replay_receipts,
+            event_cache,
         )
         assert "duplicate_send_caveat" in replay_tl
         assert replay_tl["duplicate_send_caveat"] is not None
@@ -974,11 +975,18 @@ class TestRetryTraceEvidence:
 class TestRecommendedCommandsInspectFirst:
     """Verify that recommended_commands never starts with 'medre trace event'."""
 
-    @pytest.mark.parametrize("category", [
-        "retryable", "permanent", "operational", "unknown",
-    ])
+    @pytest.mark.parametrize(
+        "category",
+        [
+            "retryable",
+            "permanent",
+            "operational",
+            "unknown",
+        ],
+    )
     def test_no_trace_event_in_primary_recommendation(
-        self, category: str,
+        self,
+        category: str,
     ) -> None:
         """Primary recommended command does not start with 'medre trace event'.
 
@@ -994,11 +1002,18 @@ class TestRecommendedCommandsInspectFirst:
             f"'medre trace event', got: {first!r}"
         )
 
-    @pytest.mark.parametrize("category", [
-        "retryable", "permanent", "operational", "unknown",
-    ])
+    @pytest.mark.parametrize(
+        "category",
+        [
+            "retryable",
+            "permanent",
+            "operational",
+            "unknown",
+        ],
+    )
     def test_no_trace_event_in_any_recommendation(
-        self, category: str,
+        self,
+        category: str,
     ) -> None:
         """No recommended command starts with 'medre trace event'."""
         cmds = recommended_commands(category, "evt-test-001")

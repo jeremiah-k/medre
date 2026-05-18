@@ -26,20 +26,16 @@ Every test here:
 
 from __future__ import annotations
 
-import asyncio
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 import pytest
 
 from medre.config.model import (
     AdapterConfigSet,
-    LxmfRuntimeConfig,
     LoggingConfig,
     MatrixRuntimeConfig,
-    MeshCoreRuntimeConfig,
     MeshtasticRuntimeConfig,
     RuntimeConfig,
     RuntimeLimits,
@@ -55,16 +51,12 @@ from medre.runtime.app import MedreApp, RuntimeState
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.capacity import CapacityController
 from medre.runtime.snapshot import (
-    _MAX_ADAPTERS,
-    _MAX_BUILD_FAILURES,
-    _MAX_ROUTES,
     build_runtime_snapshot,
 )
-
-# Reuse existing harness helpers.
-from tests.test_soak_harness import DiagnosticsSnapshot, SoakRuntime
 from tests.test_soak_foundations_v2 import _count_asyncio_tasks
 
+# Reuse existing harness helpers.
+from tests.test_soak_harness import SoakRuntime
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -195,7 +187,8 @@ class TestRepeatedReplayChurn:
 
     @pytest.mark.asyncio
     async def test_10_replay_cycles_deterministic(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """10 replay-style cycles: start → burst 5 events → diagnostics → stop.
 
@@ -215,16 +208,17 @@ class TestRepeatedReplayChurn:
 
             await soak.stop()
 
-        assert all(c == 4 for c in adapter_counts), (
-            f"Adapter counts drifted: {adapter_counts}"
-        )
-        assert all(s == "running" for s in states), (
-            f"Runtime states inconsistent: {states}"
-        )
+        assert all(
+            c == 4 for c in adapter_counts
+        ), f"Adapter counts drifted: {adapter_counts}"
+        assert all(
+            s == "running" for s in states
+        ), f"Runtime states inconsistent: {states}"
 
     @pytest.mark.asyncio
     async def test_replay_churn_no_task_leak(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """6 replay cycles must not leak asyncio tasks."""
         baseline = _count_asyncio_tasks()
@@ -236,9 +230,9 @@ class TestRepeatedReplayChurn:
             await soak.stop()
 
         after = _count_asyncio_tasks()
-        assert after <= baseline + 2, (
-            f"Task leak after replay churn: baseline={baseline}, after={after}"
-        )
+        assert (
+            after <= baseline + 2
+        ), f"Task leak after replay churn: baseline={baseline}, after={after}"
 
 
 # ===================================================================
@@ -251,7 +245,8 @@ class TestRouteFanout:
 
     @pytest.mark.asyncio
     async def test_sustained_delivery_bursts(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """10 bursts of 5 events each — runtime stays healthy."""
         await soak.start()
@@ -269,7 +264,8 @@ class TestRouteFanout:
 
     @pytest.mark.asyncio
     async def test_route_stats_accumulate_under_fanout(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """RouteStats counters must be monotonically non-decreasing."""
         await soak.start()
@@ -303,14 +299,15 @@ class TestSnapshotGeneration:
 
     @pytest.mark.asyncio
     async def test_20_consecutive_snapshots_stable_keys(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """20 consecutive snapshots must have identical key structures."""
         await soak.start()
         assert soak.app is not None
 
         structures: list[frozenset[str]] = []
-        for i in range(20):
+        for _i in range(20):
             raw = soak.app.diagnostic_snapshot()
             structures.append(frozenset(raw.keys()))
 
@@ -325,7 +322,8 @@ class TestSnapshotGeneration:
 
     @pytest.mark.asyncio
     async def test_build_runtime_snapshot_deterministic(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """Two build_runtime_snapshot calls with fixed clocks produce identical JSON."""
         await soak.start()
@@ -362,7 +360,9 @@ class TestDegradedAdapterChurn:
 
     @pytest.mark.asyncio
     async def test_degraded_5_cycles(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """5 start/stop cycles with 1-adapter degraded runtime."""
         for cycle in range(5):
@@ -380,7 +380,9 @@ class TestDegradedAdapterChurn:
 
     @pytest.mark.asyncio
     async def test_degraded_with_event_delivery(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Degraded runtime must tolerate event delivery failures gracefully."""
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
@@ -390,17 +392,13 @@ class TestDegradedAdapterChurn:
         await app.start()
 
         for i in range(8):
-            for adapter_id, adapter in app.adapters.items():
+            for _adapter_id, adapter in app.adapters.items():
                 try:
                     if hasattr(adapter, "simulate_inbound"):
                         if hasattr(adapter, "make_text_event"):
-                            event = adapter.make_text_event(
-                                f"deg-{i}", channel="ch"
-                            )
+                            event = adapter.make_text_event(f"deg-{i}", channel="ch")
                         elif hasattr(adapter, "make_event"):
-                            event = adapter.make_event(
-                                f"deg-{i}", channel="ch"
-                            )
+                            event = adapter.make_event(f"deg-{i}", channel="ch")
                         else:
                             continue
                         await adapter.simulate_inbound(event)
@@ -421,7 +419,9 @@ class TestStartupFailureRecovery:
 
     @pytest.mark.asyncio
     async def test_3_failure_recovery_cycles(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """3 cycles of failed build → successful build must all recover."""
         for cycle in range(3):
@@ -458,10 +458,11 @@ class TestCancellationCycles:
 
     @pytest.mark.asyncio
     async def test_15_rapid_start_stop_cycles(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """15 rapid start/stop cycles — each must reach RUNNING → STOPPED."""
-        for cycle in range(15):
+        for _cycle in range(15):
             await soak.start_fresh()
             assert soak.app is not None
             assert soak.app.state is RuntimeState.RUNNING
@@ -470,13 +471,14 @@ class TestCancellationCycles:
 
     @pytest.mark.asyncio
     async def test_cancellation_no_task_accumulation(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """10 cancellation cycles must not accumulate tasks."""
         task_counts: list[int] = []
 
         for _ in range(10):
-            baseline = _count_asyncio_tasks()
+            _count_asyncio_tasks()
             await soak.start_fresh()
             assert soak.app is not None
             await soak.stop()
@@ -484,9 +486,9 @@ class TestCancellationCycles:
 
         max_count = max(task_counts)
         min_count = min(task_counts)
-        assert max_count - min_count <= 2, (
-            f"Task count drifted over cancellation cycles: {task_counts}"
-        )
+        assert (
+            max_count - min_count <= 2
+        ), f"Task count drifted over cancellation cycles: {task_counts}"
 
 
 # ===================================================================
@@ -573,13 +575,14 @@ class TestDiagnosticsExport:
 
     @pytest.mark.asyncio
     async def test_diagnostics_json_serializable(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """Diagnostics snapshots must be JSON-serializable."""
         await soak.start()
         assert soak.app is not None
 
-        for i in range(5):
+        for _i in range(5):
             raw = soak.app.diagnostic_snapshot()
             # Must not raise.
             serialized = json.dumps(raw, sort_keys=True, default=str)
@@ -590,7 +593,8 @@ class TestDiagnosticsExport:
 
     @pytest.mark.asyncio
     async def test_build_runtime_snapshot_json_safe(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """build_runtime_snapshot must produce JSON-safe output."""
         await soak.start()
@@ -605,12 +609,13 @@ class TestDiagnosticsExport:
 
     @pytest.mark.asyncio
     async def test_diagnostics_export_across_cycles(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """Diagnostics structure must be consistent across 6 lifecycle cycles."""
         structures: list[frozenset[str]] = []
 
-        for cycle in range(6):
+        for _cycle in range(6):
             await soak.start_fresh()
             assert soak.app is not None
             raw = build_runtime_snapshot(soak.app)
@@ -619,9 +624,7 @@ class TestDiagnosticsExport:
 
         first = structures[0]
         for idx, struct in enumerate(structures[1:], 1):
-            assert struct == first, (
-                f"Diagnostics structure changed at cycle {idx}"
-            )
+            assert struct == first, f"Diagnostics structure changed at cycle {idx}"
 
 
 # ===================================================================
@@ -644,9 +647,9 @@ class TestRouteStatsChurn:
 
         snap = stats.snapshot()
         for route_id in routes:
-            assert snap[route_id]["delivered"] == 200, (
-                f"{route_id}: expected 200, got {snap[route_id]['delivered']}"
-            )
+            assert (
+                snap[route_id]["delivered"] == 200
+            ), f"{route_id}: expected 200, got {snap[route_id]['delivered']}"
 
     @pytest.mark.asyncio
     async def test_mixed_counter_operations(self) -> None:
@@ -694,9 +697,9 @@ class TestRouteTraceBoundedness:
         for i in range(30):
             route_ids = (f"route-{i}",)
             new_trace = (prior_trace + route_ids)[-16:]
-            assert len(new_trace) <= 16, (
-                f"Trace exceeded 16 at iteration {i}: len={len(new_trace)}"
-            )
+            assert (
+                len(new_trace) <= 16
+            ), f"Trace exceeded 16 at iteration {i}: len={len(new_trace)}"
             prior_trace = new_trace
 
         # After 30 iterations, trace should be exactly 16.
@@ -717,7 +720,8 @@ class TestRouteTraceBoundedness:
 
     @pytest.mark.asyncio
     async def test_event_metadata_trace_bounded(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """Events delivered through the runtime have bounded route_trace."""
         await soak.start()
@@ -739,7 +743,8 @@ class TestNoLingeringWork:
 
     @pytest.mark.asyncio
     async def test_no_lingering_tasks_after_8_cycles(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """8 start/deliver/stop cycles — no task accumulation."""
         baseline = _count_asyncio_tasks()
@@ -751,13 +756,14 @@ class TestNoLingeringWork:
             await soak.stop()
 
         after = _count_asyncio_tasks()
-        assert after <= baseline + 2, (
-            f"Lingering tasks: baseline={baseline}, after={after}"
-        )
+        assert (
+            after <= baseline + 2
+        ), f"Lingering tasks: baseline={baseline}, after={after}"
 
     @pytest.mark.asyncio
     async def test_capacity_released_after_stop(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """Capacity must be fully released after stop."""
         for _ in range(5):
@@ -769,9 +775,7 @@ class TestNoLingeringWork:
             # After stop, the capacity controller should reflect 0 current.
             if soak.app._capacity_controller is not None:
                 snap = soak.app._capacity_controller.snapshot()
-                assert snap.get("delivery_current", 0) == 0, (
-                    f"Capacity leaked: {snap}"
-                )
+                assert snap.get("delivery_current", 0) == 0, f"Capacity leaked: {snap}"
 
 
 # ===================================================================
@@ -784,7 +788,8 @@ class TestBoundedCounters:
 
     @pytest.mark.asyncio
     async def test_fake_adapter_history_bounded(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """Fake adapter history lists must stay <= _MAX_FAKE_HISTORY."""
         await soak.start()
@@ -792,7 +797,7 @@ class TestBoundedCounters:
 
         # Deliver more events than _MAX_FAKE_HISTORY.
         # (soak.deliver_events loops, each adapter may append.)
-        for burst in range(20):
+        for _burst in range(20):
             await soak.deliver_events(count=10)
 
         for adapter_id, adapter in soak.app.adapters.items():
@@ -827,15 +832,15 @@ class TestBoundedCounters:
 
         snap = metrics.snapshot()
         # Must have exactly 10 routes in by_route.
-        assert len(snap["by_route"]) == 10, (
-            f"Expected 10 routes, got {len(snap['by_route'])}"
-        )
+        assert (
+            len(snap["by_route"]) == 10
+        ), f"Expected 10 routes, got {len(snap['by_route'])}"
 
         # No route should have more than 50 events_processed.
         for route_id, counters in snap["by_route"].items():
-            assert counters["events_processed"] == 50, (
-                f"{route_id}: expected 50, got {counters['events_processed']}"
-            )
+            assert (
+                counters["events_processed"] == 50
+            ), f"{route_id}: expected 50, got {counters['events_processed']}"
 
 
 # ===================================================================
@@ -848,14 +853,15 @@ class TestNoSnapshotGrowth:
 
     @pytest.mark.asyncio
     async def test_snapshot_json_size_stable(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """Snapshot JSON size must not grow monotonically across 10 captures."""
         await soak.start()
         assert soak.app is not None
 
         sizes: list[int] = []
-        for i in range(10):
+        for _i in range(10):
             raw = build_runtime_snapshot(soak.app)
             serialized = json.dumps(raw, sort_keys=True, default=str)
             sizes.append(len(serialized))
@@ -867,13 +873,13 @@ class TestNoSnapshotGrowth:
         min_size = min(sizes)
         max_size = max(sizes)
         assert max_size - min_size <= min_size * 0.1 + 50, (
-            f"Snapshot size drifted: min={min_size}, max={max_size}, "
-            f"sizes={sizes}"
+            f"Snapshot size drifted: min={min_size}, max={max_size}, " f"sizes={sizes}"
         )
 
     @pytest.mark.asyncio
     async def test_snapshot_key_count_stable(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """Snapshot top-level key count must be constant."""
         await soak.start()
@@ -886,13 +892,12 @@ class TestNoSnapshotGrowth:
 
         await soak.stop()
 
-        assert len(set(key_counts)) == 1, (
-            f"Snapshot key counts varied: {key_counts}"
-        )
+        assert len(set(key_counts)) == 1, f"Snapshot key counts varied: {key_counts}"
 
     @pytest.mark.asyncio
     async def test_no_adapter_snapshot_growth(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """Adapter count in snapshots must stay constant at 4."""
         await soak.start()
@@ -901,9 +906,9 @@ class TestNoSnapshotGrowth:
         for i in range(10):
             raw = build_runtime_snapshot(soak.app)
             adapters = raw.get("adapters", [])
-            assert len(adapters) == 4, (
-                f"Adapter count changed at iteration {i}: {len(adapters)}"
-            )
+            assert (
+                len(adapters) == 4
+            ), f"Adapter count changed at iteration {i}: {len(adapters)}"
 
         await soak.stop()
 
@@ -950,9 +955,9 @@ class TestReplayMetricsChurn:
         for val in [100, 200, 50, 300, 0]:
             metrics.set_backlog_estimate(val)
             snap = metrics.snapshot()
-            assert snap["global"]["backlog_estimate"] == val, (
-                f"Expected {val}, got {snap['global']['backlog_estimate']}"
-            )
+            assert (
+                snap["global"]["backlog_estimate"] == val
+            ), f"Expected {val}, got {snap['global']['backlog_estimate']}"
 
 
 # ===================================================================
@@ -972,7 +977,7 @@ class TestCapacitySnapshotChurn:
         )
         cc = CapacityController(limits)
 
-        for cycle in range(20):
+        for _cycle in range(20):
             # Acquire some delivery slots.
             d_acquired = 0
             for _ in range(3):

@@ -25,7 +25,6 @@ from typing import Protocol, runtime_checkable
 
 from medre.core.events.canonical import CanonicalEvent
 
-
 # ---------------------------------------------------------------------------
 # Logger
 # ---------------------------------------------------------------------------
@@ -311,9 +310,7 @@ class EventBus:
         ]
 
         if not handlers:
-            _logger.debug(
-                "No subscribers for event_kind=%r", event.event_kind
-            )
+            _logger.debug("No subscribers for event_kind=%r", event.event_kind)
             return
 
         coros = [self._invoke_handler(h, event) for h in handlers]

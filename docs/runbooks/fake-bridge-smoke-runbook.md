@@ -14,16 +14,15 @@ For day-to-day investigation after any run, use the inspect-first product path
 (`medre inspect event`, `medre inspect receipts`) instead. See the
 [Alpha Walkthrough](alpha-walkthrough.md) for the preferred product path.
 
-
 ## 0. Provenance Summary
 
-| Tier | Status | What is proven |
-|------|--------|---------------|
-| **Fake bridge** | Proven | Full pipeline routing with fake adapters (this runbook) |
-| **Adapter-wrapper** | Proven | Per-transport adapter internals with mocked transport |
-| **Docker SDK-boundary** | Proven | Real SDK code paths against containerized Synapse/meshtasticd (see `integration-testing.md`) |
-| **Docker SDK-boundary bridge smoke** | Proven | Real Matrix SDK codec + pipeline routing + storage + accounting with genuine Synapse event_ids (see `integration-testing.md`) |
-| **Live network** | **Not claimed** | No cross-transport bridge test against real endpoints has been executed |
+| Tier                                 | Status          | What is proven                                                                                                                |
+| ------------------------------------ | --------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| **Fake bridge**                      | Proven          | Full pipeline routing with fake adapters (this runbook)                                                                       |
+| **Adapter-wrapper**                  | Proven          | Per-transport adapter internals with mocked transport                                                                         |
+| **Docker SDK-boundary**              | Proven          | Real SDK code paths against containerized Synapse/meshtasticd (see `integration-testing.md`)                                  |
+| **Docker SDK-boundary bridge smoke** | Proven          | Real Matrix SDK codec + pipeline routing + storage + accounting with genuine Synapse event_ids (see `integration-testing.md`) |
+| **Live network**                     | **Not claimed** | No cross-transport bridge test against real endpoints has been executed                                                       |
 
 Fake bridge and Docker SDK-boundary are complementary. Fake bridge proves the
 pipeline routing logic is correct. Docker SDK-boundary proves the real SDK
@@ -31,7 +30,6 @@ boundary works (config loading, dependency resolution, adapter lifecycle).
 Docker SDK-boundary bridge smoke proves the real SDK's inbound path integrates
 with the pipeline, storage, and accounting — but routes to a fake outbound
 target. None proves live network behavior.
-
 
 ## 1. What "Fake Bridge Proven" Means
 
@@ -51,6 +49,7 @@ adapters. The pipeline runs the same routing, rendering, delivery, and receipt
 code. The only difference is the transport layer is simulated.
 
 **What this proves:**
+
 - The runtime pipeline correctly routes events between adapters.
 - DeliveryReceipts are persisted for every outbound delivery attempt.
 - NativeMessageRefs are persisted when adapters return native IDs.
@@ -60,11 +59,11 @@ code. The only difference is the transport layer is simulated.
 - Reply relations survive the full pipeline.
 
 **What this does NOT prove:**
+
 - Real transport connectivity (no network involved).
 - Real adapter codec correctness for live packet formats.
 - Real adapter session lifecycle (reconnection, retry against live endpoints).
 - Delivery confirmation beyond local adapter acceptance.
-
 
 ## 2. Running the Tests
 
@@ -81,27 +80,26 @@ PYTHONPATH=src pytest tests/test_fake_runtime_smoke.py tests/test_fake_bridge_sm
 
 All tests should pass in under 30 seconds total.
 
-
 ## 3. Test Coverage Matrix
 
-| Test Class | Flow | Key Assertions |
-|------------|------|----------------|
-| `TestMatrixToMeshtastic` | Matrix -> Meshtastic | Event stored, receipt sent, native ref, accounting, route stats, no duplicate |
-| `TestMeshtasticToMatrix` | Meshtastic -> Matrix | Event stored, receipt sent, inbound native ref, outbound native ref, accounting |
-| `TestBidirectionalBridge` | Matrix <-> Meshtastic | Both directions deliver, no cross-contamination, two receipts |
-| `TestFanoutDelivery` | Matrix -> Meshtastic + MeshCore | Both targets receive delivery, two receipts, two native refs, error isolation |
-| `TestLoopPrevention` | Self-loop | Delivery skipped, loop_prevented counter incremented, no receipt |
-| `TestReplyRelationPreservation` | Reply event bridge | Relations preserved in storage, fallback text rendered correctly |
-| `TestRenderingContract` | Various | RenderingResult shape, empty payload handling, unsupported kind = failure, truncation |
-| `TestSnapshotReflectsBridgeFlow` | After delivery | Accounting counters, route stats, JSON-safe snapshot |
-| `TestRouteConfigThroughRuntime` | Config -> Routes | Config route registers, bidirectional expands, policy filters, disabled skipped |
-
+| Test Class                       | Flow                            | Key Assertions                                                                        |
+| -------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------- |
+| `TestMatrixToMeshtastic`         | Matrix -> Meshtastic            | Event stored, receipt sent, native ref, accounting, route stats, no duplicate         |
+| `TestMeshtasticToMatrix`         | Meshtastic -> Matrix            | Event stored, receipt sent, inbound native ref, outbound native ref, accounting       |
+| `TestBidirectionalBridge`        | Matrix <-> Meshtastic           | Both directions deliver, no cross-contamination, two receipts                         |
+| `TestFanoutDelivery`             | Matrix -> Meshtastic + MeshCore | Both targets receive delivery, two receipts, two native refs, error isolation         |
+| `TestLoopPrevention`             | Self-loop                       | Delivery skipped, loop_prevented counter incremented, no receipt                      |
+| `TestReplyRelationPreservation`  | Reply event bridge              | Relations preserved in storage, fallback text rendered correctly                      |
+| `TestRenderingContract`          | Various                         | RenderingResult shape, empty payload handling, unsupported kind = failure, truncation |
+| `TestSnapshotReflectsBridgeFlow` | After delivery                  | Accounting counters, route stats, JSON-safe snapshot                                  |
+| `TestRouteConfigThroughRuntime`  | Config -> Routes                | Config route registers, bidirectional expands, policy filters, disabled skipped       |
 
 ## 4. Step-by-Step: Proving a New Bridge Flow
 
 To add a new fake bridge test:
 
 1. **Build the config** using `RuntimeConfig` with fake adapters:
+
    ```python
    config = RuntimeConfig(
        runtime=RuntimeOptions(name="test-name"),
@@ -116,6 +114,7 @@ To add a new fake bridge test:
 2. **Register routes** either via `RouteConfigSet` (config-based) or `app.router.add_route()` (manual).
 
 3. **Build and start** the runtime:
+
    ```python
    app = await _build_and_start(config, tmp_paths)
    ```
@@ -132,7 +131,6 @@ To add a new fake bridge test:
 
 6. **Clean stop**: `await _clean_stop(app)`
 
-
 ## 5. Rendering Note
 
 The `TextRenderer` reads `event.payload.get("text", "")`. Fake adapters store
@@ -146,7 +144,6 @@ event = adapter.make_event("hello", text="hello")  # extra_payload: text="hello"
 This is a known gap between the fake adapter convention (`"body"`) and the
 renderer expectation (`"text"`). The rendering contract tests document this
 behavior honestly.
-
 
 ## 6. Loop Prevention: What Is Proven
 
@@ -165,7 +162,6 @@ What is NOT tested at the integration level: multi-hop cycles (A -> B -> C -> A)
 through the runtime. The route engine's `check_route_loops()` detects these
 statically at startup, but exercising them through the full pipeline requires
 three or more adapters with cyclic routes.
-
 
 ## 7. Commands Reference
 
@@ -246,13 +242,13 @@ pytest -m "" -v
 
 ### Failure interpretation
 
-| Symptom | Likely cause | Action |
-|---------|-------------|--------|
-| Docker tests skip with "Docker not available" | Docker daemon not running | Start Docker: `docker info` |
-| Docker tests skip with "mtjk not installed" | Meshtastic SDK not installed | `pip install -e ".[meshtastic]"` |
-| Docker tests skip with "mindroom-nio not installed" | Matrix SDK not installed | `pip install -e ".[matrix]"` |
-| Config validation exits 2 | TOML syntax or credential error | `medre config check --config <path>` |
-| Routes validate exits 2 | Unknown adapter ref in route | Check adapter IDs in routes match adapters section |
+| Symptom                                             | Likely cause                    | Action                                             |
+| --------------------------------------------------- | ------------------------------- | -------------------------------------------------- |
+| Docker tests skip with "Docker not available"       | Docker daemon not running       | Start Docker: `docker info`                        |
+| Docker tests skip with "mtjk not installed"         | Meshtastic SDK not installed    | `pip install -e ".[meshtastic]"`                   |
+| Docker tests skip with "mindroom-nio not installed" | Matrix SDK not installed        | `pip install -e ".[matrix]"`                       |
+| Config validation exits 2                           | TOML syntax or credential error | `medre config check --config <path>`               |
+| Routes validate exits 2                             | Unknown adapter ref in route    | Check adapter IDs in routes match adapters section |
 
 ### ResourceWarning (optional, CI hardening)
 
@@ -261,10 +257,9 @@ pytest -m "" -v
 PYTHONPATH=src pytest -W error::ResourceWarning -q
 ```
 
-
 ## 7.5 Operator Smoke Command
 
-The ``medre smoke`` command provides a single-command Docker-free bridge
+The `medre smoke` command provides a single-command Docker-free bridge
 validation. It is optional local validation tooling, not a daily operation
 command. Use it to confirm the pipeline works with fake adapters before
 committing to a live run, or to seed a database for inspect-based
@@ -289,7 +284,7 @@ PYTHONPATH=src medre smoke --json; echo "exit: $?"
 
 **Scenario flag:**
 
-The ``--scenario`` flag selects a named scenario configuration for the smoke
+The `--scenario` flag selects a named scenario configuration for the smoke
 run. Scenarios define pre-wired adapter topologies and message patterns
 without requiring a custom config file:
 
@@ -304,38 +299,38 @@ PYTHONPATH=src medre smoke --scenario <name> --json
 PYTHONPATH=src medre smoke --scenario <name> --config my-bridge.toml --json
 ```
 
-When ``--scenario`` is provided, the report includes ``scenario_category``
-set to ``"smoke"`` and ``simulated`` set to ``true``.
+When `--scenario` is provided, the report includes `scenario_category`
+set to `"smoke"` and `simulated` set to `true`.
 
 **Report fields:**
 
-| Field | Type | Description |
-|-------|------|-------------|
-| ``status`` | ``passed`` / ``failed`` | Overall result (lowercase) |
-| ``evidence_level`` | ``fake_bridge`` | What the report proves |
-| ``scenario_category`` | ``"smoke"`` | Report category for classification |
-| ``command`` | ``str`` | CLI subcommand that produced this report (e.g. ``"smoke"``) |
-| ``simulated`` | ``bool`` | ``true`` for fake-adapter runs |
-| ``commands_argv`` | ``list[str]`` | Full argv of the invocation |
-| ``commands_text`` | ``str`` | Human-readable command string |
-| ``source_adapter`` | str | Adapter that sourced the test event |
-| ``target_adapters`` | list[str] | Adapters that received delivery |
-| ``event_id`` | str | Canonical event ID |
-| ``route_ids`` | list[str] | Routes that matched the event |
-| ``delivery_receipts`` | list[dict] | Per-target receipt summaries |
-| ``native_refs`` | list[dict] | Native message ref mappings |
-| ``accounting`` | dict | RuntimeAccounting counters |
-| ``route_stats`` | dict | Per-route delivery statistics |
-| ``snapshot`` | dict | Abbreviated runtime snapshot |
-| ``limitations`` | list[str] | What this does NOT prove |
-| ``preflight`` | dict | Config/route validation summary |
+| Field               | Type                | Description                                               |
+| ------------------- | ------------------- | --------------------------------------------------------- |
+| `status`            | `passed` / `failed` | Overall result (lowercase)                                |
+| `evidence_level`    | `fake_bridge`       | What the report proves                                    |
+| `scenario_category` | `"smoke"`           | Report category for classification                        |
+| `command`           | `str`               | CLI subcommand that produced this report (e.g. `"smoke"`) |
+| `simulated`         | `bool`              | `true` for fake-adapter runs                              |
+| `commands_argv`     | `list[str]`         | Full argv of the invocation                               |
+| `commands_text`     | `str`               | Human-readable command string                             |
+| `source_adapter`    | str                 | Adapter that sourced the test event                       |
+| `target_adapters`   | list[str]           | Adapters that received delivery                           |
+| `event_id`          | str                 | Canonical event ID                                        |
+| `route_ids`         | list[str]           | Routes that matched the event                             |
+| `delivery_receipts` | list[dict]          | Per-target receipt summaries                              |
+| `native_refs`       | list[dict]          | Native message ref mappings                               |
+| `accounting`        | dict                | RuntimeAccounting counters                                |
+| `route_stats`       | dict                | Per-route delivery statistics                             |
+| `snapshot`          | dict                | Abbreviated runtime snapshot                              |
+| `limitations`       | list[str]           | What this does NOT prove                                  |
+| `preflight`         | dict                | Config/route validation summary                           |
 
 **PASSED criteria (all must be true):**
 
-1. Event stored in storage (``storage.get(event_id)`` returns non-None).
-2. At least one ``DeliveryOutcome`` with ``status == "success"``.
-3. At least one ``DeliveryReceipt`` with ``status == "sent"``.
-4. ``accounting.outbound_delivered >= 1``.
+1. Event stored in storage (`storage.get(event_id)` returns non-None).
+2. At least one `DeliveryOutcome` with `status == "success"`.
+3. At least one `DeliveryReceipt` with `status == "sent"`.
+4. `accounting.outbound_delivered >= 1`.
 
 **What this proves:**
 
@@ -352,11 +347,11 @@ set to ``"smoke"`` and ``simulated`` set to ``true``.
 - Real adapter codec correctness for live packet formats.
 - Delivery confirmation beyond local adapter acceptance.
 - Persistence or crash recovery (in-memory storage). The JSON report is the
-  only surviving artifact. ``medre inspect`` requires SQLite storage; use
-  ``medre run`` with ``[storage] backend = "sqlite"`` for durable inspection.
+  only surviving artifact. `medre inspect` requires SQLite storage; use
+  `medre run` with `[storage] backend = "sqlite"` for durable inspection.
 
-The underlying function ``run_fake_bridge_smoke()`` in
-``medre.runtime.smoke`` can also be called programmatically:
+The underlying function `run_fake_bridge_smoke()` in
+`medre.runtime.smoke` can also be called programmatically:
 
 ```python
 from medre.runtime.smoke import run_fake_bridge_smoke
@@ -364,33 +359,32 @@ report = await run_fake_bridge_smoke("path/to/config.toml")
 assert report["status"] == "passed"
 ```
 
-**Note:** ``run_fake_bridge_smoke()`` also uses in-memory storage by default.
+**Note:** `run_fake_bridge_smoke()` also uses in-memory storage by default.
 The returned report dict is the only surviving artifact. For durable inspection
-of stored evidence, run the full runtime with ``[storage] backend = "sqlite"``
+of stored evidence, run the full runtime with `[storage] backend = "sqlite"`
 instead.
-
 
 ### Smoke persistence caveat
 
-``medre smoke`` uses in-memory storage by default. When the smoke process exits,
+`medre smoke` uses in-memory storage by default. When the smoke process exits,
 all stored evidence — events, receipts, native refs, accounting counters — is
 released. The JSON report (or human-readable output) printed to stdout is the
 only surviving record.
 
-Pass ``--storage-path <path>`` to persist evidence to a SQLite database instead.
-When ``--storage-path`` is supplied, events, receipts, and native refs are
-written to the specified database file and can be inspected with ``medre inspect``
+Pass `--storage-path <path>` to persist evidence to a SQLite database instead.
+When `--storage-path` is supplied, events, receipts, and native refs are
+written to the specified database file and can be inspected with `medre inspect`
 after the process exits.
 
-``medre inspect`` subcommands require persistent storage. Running
-``medre inspect`` against a config with ``[storage] backend = "memory"``
+`medre inspect` subcommands require persistent storage. Running
+`medre inspect` against a config with `[storage] backend = "memory"`
 produces:
 
 ```
 Error: storage backend is 'memory' — no persistent data to inspect.
 ```
 
-To inspect stored evidence after a run, use ``medre run`` with SQLite storage:
+To inspect stored evidence after a run, use `medre run` with SQLite storage:
 
 ```toml
 [storage]
@@ -408,14 +402,13 @@ PYTHONPATH=src medre inspect native-ref --adapter <name> --message <native_id> -
 PYTHONPATH=src medre inspect receipts --replay-run <run_id> --config my-bridge.toml
 ```
 
-All ``medre inspect`` commands are read-only. They open the SQLite database,
+All `medre inspect` commands are read-only. They open the SQLite database,
 query the requested data, print it, and close. They do not modify state.
 
 See [Runtime Operation > Persistence](runtime-operation.md#persistence-and-crash-semantics)
 for what survives process termination, and
 [Bridge Operation > Persistence of Bridge State](bridge-operation.md#12-persistence-of-bridge-state)
 for bridge-specific persistence details.
-
 
 ### Evidence bundle workflow
 
@@ -489,22 +482,21 @@ stats = app.route_stats.snapshot()
 assert stats["per_route"]["route-id"]["delivered"] >= 1
 ```
 
-
 ## 8. What Remains Unproven
 
-| Capability | Status | Notes |
-|-----------|--------|-------|
-| Live external Matrix (beyond Docker localhost) | Not proven | Docker tests use loopback Synapse only |
-| Real radio hardware (Meshtastic/MeshCore/LXMF) | Not proven | No live hardware smoke test recorded |
-| Final delivery ACK / remote receipt | Not proven | Radio is fire-and-forget; Matrix is server-level only |
-| Replay deduplication | Not proven | Replay produces duplicates by design. See [Replay Operation](replay-operation.md). |
-| Active restart / supervision | Not proven | No per-adapter restart, no auto-remediation. See [Bridge Recovery](bridge-recovery.md). |
-| Background health polling | Not proven | Manual `--refresh-health` only; no scheduler |
-| Sustained throughput | Not proven | All tests are smoke tests, not load tests |
-| Network resilience / reconnection | Not proven | No live failure/reconnect test |
-| Cross-instance loop prevention | Not proven | Loop prevention is local-process only |
-| Third-party Matrix inbound | Not proven | Bridge smoke uses HTTP API sender, not a second Matrix client |
-| Full cross-transport relay | Not proven | Bridge smoke routes real Matrix to fake outbound, not to a second real adapter |
+| Capability                                     | Status     | Notes                                                                                   |
+| ---------------------------------------------- | ---------- | --------------------------------------------------------------------------------------- |
+| Live external Matrix (beyond Docker localhost) | Not proven | Docker tests use loopback Synapse only                                                  |
+| Real radio hardware (Meshtastic/MeshCore/LXMF) | Not proven | No live hardware smoke test recorded                                                    |
+| Final delivery ACK / remote receipt            | Not proven | Radio is fire-and-forget; Matrix is server-level only                                   |
+| Replay deduplication                           | Not proven | Replay produces duplicates by design. See [Replay Operation](replay-operation.md).      |
+| Active restart / supervision                   | Not proven | No per-adapter restart, no auto-remediation. See [Bridge Recovery](bridge-recovery.md). |
+| Background health polling                      | Not proven | Manual `--refresh-health` only; no scheduler                                            |
+| Sustained throughput                           | Not proven | All tests are smoke tests, not load tests                                               |
+| Network resilience / reconnection              | Not proven | No live failure/reconnect test                                                          |
+| Cross-instance loop prevention                 | Not proven | Loop prevention is local-process only                                                   |
+| Third-party Matrix inbound                     | Not proven | Bridge smoke uses HTTP API sender, not a second Matrix client                           |
+| Full cross-transport relay                     | Not proven | Bridge smoke routes real Matrix to fake outbound, not to a second real adapter          |
 
 For event tracing after test runs, see
 [Event Tracing](event-tracing.md). For replay workflows, see

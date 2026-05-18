@@ -6,7 +6,6 @@ with trace/evidence available as deeper tools.
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import pytest
@@ -85,8 +84,10 @@ class TestAlphaWalkthroughInspectSurface:
         text = _read(RUNBOOKS_DIR / "alpha-walkthrough.md")
         # Find inspect command lines.
         inspect_lines = [
-            line for line in text.splitlines()
-            if "medre inspect" in line and "--storage-path" not in line
+            line
+            for line in text.splitlines()
+            if "medre inspect" in line
+            and "--storage-path" not in line
             and line.strip().startswith("medre inspect")
         ]
         # Allow non-CLI-context mentions (table rows, prose).
@@ -273,9 +274,9 @@ class TestTraceNotFirstStepInPrimaryWorkflows:
         # In Phase 2, inspect must appear before any trace command
         inspect_pos = section.find("medre inspect")
         trace_pos = section.find("medre trace")
-        assert inspect_pos >= 0, (
-            "alpha-walkthrough.md Phase 2 must include 'medre inspect'."
-        )
+        assert (
+            inspect_pos >= 0
+        ), "alpha-walkthrough.md Phase 2 must include 'medre inspect'."
         if trace_pos >= 0:
             assert inspect_pos < trace_pos, (
                 "alpha-walkthrough.md Phase 2 must present 'medre inspect' "
@@ -305,9 +306,9 @@ class TestTraceNotFirstStepInPrimaryWorkflows:
         step2_text = s0[step2:step3]
         inspect_pos = step2_text.find("medre inspect event")
         trace_pos = step2_text.find("medre trace event")
-        assert inspect_pos >= 0, (
-            "bridge-recovery.md Step 2 must include 'medre inspect event'."
-        )
+        assert (
+            inspect_pos >= 0
+        ), "bridge-recovery.md Step 2 must include 'medre inspect event'."
         if trace_pos >= 0:
             assert inspect_pos < trace_pos, (
                 "bridge-recovery.md Step 2 must present 'medre inspect event' "

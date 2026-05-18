@@ -17,7 +17,6 @@ This is a governance document. It does not add CLA tooling, DCO enforcement,
 CI checks, or legal automation. It records decisions and expectations so they
 exist before they are needed.
 
-
 ## 1. Current State
 
 medre is a single-author project. All code to date was written by the project
@@ -30,7 +29,6 @@ The project is licensed GPL-3.0-or-later, as declared in `pyproject.toml`. A
 top-level `LICENSE` file with the standard FSF GPLv3 text is present (added
 2026-05-12). The license was changed from MIT to GPL-3.0-or-later to align with
 the dependency reality (see contracts 40, 41).
-
 
 ## 2. Inbound Contribution Expectations
 
@@ -75,7 +73,6 @@ The test suite is the baseline. Contributions that break the test suite will
 not be merged. New functionality should include tests. Bug fixes should include
 regression tests.
 
-
 ## 3. No CLA, No DCO
 
 The project does not use a CLA or DCO at this time. This is a deliberate
@@ -89,7 +86,6 @@ contributors.
 
 If the project grows a contributor base, a DCO or CLA may become necessary.
 Section 5 describes the relicensing constraints that exist without one.
-
 
 ## 4. Copyright Ownership
 
@@ -111,7 +107,6 @@ No corporation, foundation, or legal entity owns medre. It is a personal
 project. If this changes, this section will be updated to reflect the new
 ownership structure, and a CLA or DCO will almost certainly be needed at that
 point.
-
 
 ## 5. Relicensing
 
@@ -172,7 +167,6 @@ from someone who is not the maintainer, and the maintainer intends to merge
 it. At that point, this document should be updated and a formal policy
 adopted before the merge.
 
-
 ## 6. Governance While Single-Author
 
 ### 6.1 Decision making
@@ -202,20 +196,18 @@ governance include:
 
 None of these have happened yet. When they do, this document gets updated.
 
-
 ## 7. Summary
 
-| Topic | Current posture |
-|-------|----------------|
-| CLA | None. Not needed yet. |
-| DCO | None. Not needed yet. |
-| License | GPL-3.0-or-later (declared in pyproject.toml, LICENSE file present). |
-| Copyright | Retained by each author. No assignment. |
-| Relicensing | Maintainer can relicense own code. External contributions add constraints. |
-| Contributor process | None formal. Expectation recorded in section 2. |
-| Decision authority | Maintainer. Single-author project. |
-| When to revisit | When the first external PR arrives. |
-
+| Topic               | Current posture                                                            |
+| ------------------- | -------------------------------------------------------------------------- |
+| CLA                 | None. Not needed yet.                                                      |
+| DCO                 | None. Not needed yet.                                                      |
+| License             | GPL-3.0-or-later (declared in pyproject.toml, LICENSE file present).       |
+| Copyright           | Retained by each author. No assignment.                                    |
+| Relicensing         | Maintainer can relicense own code. External contributions add constraints. |
+| Contributor process | None formal. Expectation recorded in section 2.                            |
+| Decision authority  | Maintainer. Single-author project.                                         |
+| When to revisit     | When the first external PR arrives.                                        |
 
 ## 8. Actions Before First External Merge
 

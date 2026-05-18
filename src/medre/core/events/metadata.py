@@ -17,10 +17,10 @@ Two enums control how metadata is serialised and what is retained:
 
 from __future__ import annotations
 
-import msgspec
 from enum import Enum
-from msgspec.structs import force_setattr
 
+import msgspec
+from msgspec.structs import force_setattr
 
 # ---------------------------------------------------------------------------
 # Internal immutable dict helper

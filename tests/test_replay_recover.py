@@ -4,16 +4,14 @@ from __future__ import annotations
 
 import io
 import json
-from contextlib import redirect_stdout, redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from medre.cli import EXIT_BUILD, EXIT_CONFIG, EXIT_NOT_FOUND, main
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -154,13 +152,21 @@ class TestReplayParser:
         """Parser accepts --event, --json, --target-adapters, --route-ids, --limit."""
         with pytest.raises(SystemExit) as exc_info:
             _run_cli(
-                "replay", "--mode", "strict",
-                "--event", "evt-1",
+                "replay",
+                "--mode",
+                "strict",
+                "--event",
+                "evt-1",
                 "--json",
-                "--target-adapters", "a1", "a2",
-                "--route-ids", "r1",
-                "--limit", "50",
-                "--config", "/nonexistent",
+                "--target-adapters",
+                "a1",
+                "a2",
+                "--route-ids",
+                "r1",
+                "--limit",
+                "50",
+                "--config",
+                "/nonexistent",
             )
         assert exc_info.value.code in (EXIT_CONFIG, EXIT_BUILD)
 
@@ -178,12 +184,15 @@ class TestRecoverParser:
         with pytest.raises(SystemExit) as exc_info:
             _run_cli(
                 "recover",
-                "--event", "evt-1",
+                "--event",
+                "evt-1",
                 "--failed-only",
-                "--since", "2026-01-01",
+                "--since",
+                "2026-01-01",
                 "--dry-run",
                 "--json",
-                "--config", "/nonexistent",
+                "--config",
+                "/nonexistent",
             )
         assert exc_info.value.code in (EXIT_CONFIG, EXIT_BUILD)
 
@@ -219,10 +228,15 @@ class TestReplayDispatch:
         mock_builder = MagicMock()
         mock_builder.build.return_value = mock_app
 
-        with patch("medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder), \
-             patch("medre.cli.replay_commands.load_config") as mock_load, \
-             patch("medre.cli.replay_commands.apply_env_overrides", side_effect=lambda c, p: c), \
-             patch("medre.cli.replay_commands.collect_replay_summary", new_callable=AsyncMock, return_value=summary):
+        with patch(
+            "medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder
+        ), patch("medre.cli.replay_commands.load_config") as mock_load, patch(
+            "medre.cli.replay_commands.apply_env_overrides", side_effect=lambda c, p: c
+        ), patch(
+            "medre.cli.replay_commands.collect_replay_summary",
+            new_callable=AsyncMock,
+            return_value=summary,
+        ):
             mock_load.return_value = (MagicMock(), MagicMock(), MagicMock())
             output = _run_cli("replay", "--mode", "strict", "--json")
             parsed = json.loads(output)
@@ -248,13 +262,20 @@ class TestReplayDispatch:
         mock_builder = MagicMock()
         mock_builder.build.return_value = mock_app
 
-        with patch("medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder), \
-             patch("medre.cli.replay_commands.load_config") as mock_load, \
-             patch("medre.cli.replay_commands.apply_env_overrides", side_effect=lambda c, p: c), \
-             patch("medre.cli.replay_commands.collect_replay_summary", new_callable=AsyncMock, return_value=summary):
+        with patch(
+            "medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder
+        ), patch("medre.cli.replay_commands.load_config") as mock_load, patch(
+            "medre.cli.replay_commands.apply_env_overrides", side_effect=lambda c, p: c
+        ), patch(
+            "medre.cli.replay_commands.collect_replay_summary",
+            new_callable=AsyncMock,
+            return_value=summary,
+        ):
             mock_load.return_value = (MagicMock(), MagicMock(), MagicMock())
             _stdout, stderr = _run_cli_both(
-                "replay", "--mode", "best_effort",
+                "replay",
+                "--mode",
+                "best_effort",
             )
             assert "WARNING" in stderr or "duplicate" in stderr.lower()
 
@@ -266,9 +287,11 @@ class TestReplayDispatch:
         mock_builder = MagicMock()
         mock_builder.build.return_value = mock_app
 
-        with patch("medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder), \
-             patch("medre.cli.replay_commands.load_config") as mock_load, \
-             patch("medre.cli.replay_commands.apply_env_overrides", side_effect=lambda c, p: c):
+        with patch(
+            "medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder
+        ), patch("medre.cli.replay_commands.load_config") as mock_load, patch(
+            "medre.cli.replay_commands.apply_env_overrides", side_effect=lambda c, p: c
+        ):
             mock_load.return_value = (MagicMock(), MagicMock(), MagicMock())
             with pytest.raises(SystemExit) as exc_info:
                 _run_cli("replay", "--mode", "strict", "--json")
@@ -295,10 +318,15 @@ class TestReplayDispatch:
         mock_builder = MagicMock()
         mock_builder.build.return_value = mock_app
 
-        with patch("medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder), \
-             patch("medre.cli.replay_commands.load_config") as mock_load, \
-             patch("medre.cli.replay_commands.apply_env_overrides", side_effect=lambda c, p: c), \
-             patch("medre.cli.replay_commands.collect_replay_summary", new_callable=AsyncMock, return_value=summary):
+        with patch(
+            "medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder
+        ), patch("medre.cli.replay_commands.load_config") as mock_load, patch(
+            "medre.cli.replay_commands.apply_env_overrides", side_effect=lambda c, p: c
+        ), patch(
+            "medre.cli.replay_commands.collect_replay_summary",
+            new_callable=AsyncMock,
+            return_value=summary,
+        ):
             mock_load.return_value = (MagicMock(), MagicMock(), MagicMock())
             output = _run_cli("replay", "--mode", "strict")
             assert "Replay: strict" in output
@@ -327,10 +355,15 @@ class TestReplayDispatch:
         mock_builder = MagicMock()
         mock_builder.build.return_value = mock_app
 
-        with patch("medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder), \
-             patch("medre.cli.replay_commands.load_config") as mock_load, \
-             patch("medre.cli.replay_commands.apply_env_overrides", side_effect=lambda c, p: c), \
-             patch("medre.cli.replay_commands.collect_replay_summary", new_callable=AsyncMock, return_value=summary):
+        with patch(
+            "medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder
+        ), patch("medre.cli.replay_commands.load_config") as mock_load, patch(
+            "medre.cli.replay_commands.apply_env_overrides", side_effect=lambda c, p: c
+        ), patch(
+            "medre.cli.replay_commands.collect_replay_summary",
+            new_callable=AsyncMock,
+            return_value=summary,
+        ):
             mock_load.return_value = (MagicMock(), MagicMock(), MagicMock())
             output = _run_cli("replay", "--mode", "strict", "--json")
             parsed = json.loads(output)
@@ -342,9 +375,11 @@ class TestReplayDispatch:
         mock_builder = MagicMock()
         mock_builder.build.side_effect = RuntimeError("build broke")
 
-        with patch("medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder), \
-             patch("medre.cli.replay_commands.load_config") as mock_load, \
-             patch("medre.cli.replay_commands.apply_env_overrides", side_effect=lambda c, p: c):
+        with patch(
+            "medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder
+        ), patch("medre.cli.replay_commands.load_config") as mock_load, patch(
+            "medre.cli.replay_commands.apply_env_overrides", side_effect=lambda c, p: c
+        ):
             mock_load.return_value = (MagicMock(), MagicMock(), MagicMock())
             with pytest.raises(SystemExit) as exc_info:
                 _run_cli("replay", "--mode", "strict", "--json")
@@ -363,8 +398,10 @@ class TestRecoverDispatch:
         """Broad scan (no --event) returns JSON with scope=scan."""
         mock_storage = AsyncMock()
 
-        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage), \
-             patch("medre.cli.recover_commands._recover") as mock_recover:
+        with patch(
+            "medre.cli.recover_commands._open_readonly_storage",
+            return_value=mock_storage,
+        ), patch("medre.cli.recover_commands._recover"):
             # We'll test through the handler directly for more control.
             pass
 
@@ -374,11 +411,18 @@ class TestRecoverDispatch:
         mock_storage.get = AsyncMock(return_value=None)
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
+        with patch(
+            "medre.cli.recover_commands._open_readonly_storage",
+            return_value=mock_storage,
+        ):
             with pytest.raises(SystemExit) as exc_info:
                 _run_cli(
-                    "recover", "--event", "nonexistent",
-                    "--json", "--config", "/nonexistent",
+                    "recover",
+                    "--event",
+                    "nonexistent",
+                    "--json",
+                    "--config",
+                    "/nonexistent",
                 )
             assert exc_info.value.code == EXIT_NOT_FOUND
 
@@ -393,10 +437,17 @@ class TestRecoverDispatch:
         mock_storage.list_relations = AsyncMock(return_value=[])
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
+        with patch(
+            "medre.cli.recover_commands._open_readonly_storage",
+            return_value=mock_storage,
+        ):
             output = _run_cli(
-                "recover", "--event", "evt-1",
-                "--json", "--config", "/nonexistent",
+                "recover",
+                "--event",
+                "evt-1",
+                "--json",
+                "--config",
+                "/nonexistent",
             )
             parsed = json.loads(output)
             assert parsed["scope"] == "event"
@@ -410,7 +461,9 @@ class TestRecoverDispatch:
         event = _FakeEvent()
         failed_receipt = _FakeReceipt(status="failed", target_adapter="broken_adapter")
         ok_receipt = _FakeReceipt(status="sent", target_adapter="ok_adapter")
-        dead_receipt = _FakeReceipt(status="dead_lettered", target_adapter="dead_adapter")
+        dead_receipt = _FakeReceipt(
+            status="dead_lettered", target_adapter="dead_adapter"
+        )
 
         mock_storage = AsyncMock()
         mock_storage.get = AsyncMock(return_value=event)
@@ -421,10 +474,17 @@ class TestRecoverDispatch:
         mock_storage.list_relations = AsyncMock(return_value=[])
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
+        with patch(
+            "medre.cli.recover_commands._open_readonly_storage",
+            return_value=mock_storage,
+        ):
             output = _run_cli(
-                "recover", "--event", "evt-1",
-                "--json", "--config", "/nonexistent",
+                "recover",
+                "--event",
+                "evt-1",
+                "--json",
+                "--config",
+                "/nonexistent",
             )
             parsed = json.loads(output)
             failed_names = [t["target_adapter"] for t in parsed["failed_targets"]]
@@ -444,15 +504,24 @@ class TestRecoverDispatch:
         mock_storage.list_relations = AsyncMock(return_value=[])
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
+        with patch(
+            "medre.cli.recover_commands._open_readonly_storage",
+            return_value=mock_storage,
+        ):
             output = _run_cli(
-                "recover", "--event", "evt-1",
-                "--json", "--config", "/nonexistent",
+                "recover",
+                "--event",
+                "evt-1",
+                "--json",
+                "--config",
+                "/nonexistent",
             )
             parsed = json.loads(output)
             assert len(parsed["warnings"]) > 0
             warning_text = " ".join(parsed["warnings"])
-            assert "radio" in warning_text.lower() or "duplicate" in warning_text.lower()
+            assert (
+                "radio" in warning_text.lower() or "duplicate" in warning_text.lower()
+            )
 
     def test_recover_dry_run_no_side_effects(self) -> None:
         """Dry run does not call storage.write methods."""
@@ -464,10 +533,18 @@ class TestRecoverDispatch:
         mock_storage.list_relations = AsyncMock(return_value=[])
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
+        with patch(
+            "medre.cli.recover_commands._open_readonly_storage",
+            return_value=mock_storage,
+        ):
             output = _run_cli(
-                "recover", "--event", "evt-1",
-                "--dry-run", "--json", "--config", "/nonexistent",
+                "recover",
+                "--event",
+                "evt-1",
+                "--dry-run",
+                "--json",
+                "--config",
+                "/nonexistent",
             )
             parsed = json.loads(output)
             assert "dry_run" in parsed
@@ -489,10 +566,16 @@ class TestRecoverDispatch:
         mock_storage.list_relations = AsyncMock(return_value=[])
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
+        with patch(
+            "medre.cli.recover_commands._open_readonly_storage",
+            return_value=mock_storage,
+        ):
             output = _run_cli(
-                "recover", "--event", "evt-1",
-                "--config", "/nonexistent",
+                "recover",
+                "--event",
+                "evt-1",
+                "--config",
+                "/nonexistent",
             )
             assert "Recovery runbook: evt-1" in output
             assert "message.created" in output
@@ -503,9 +586,14 @@ class TestRecoverDispatch:
         mock_storage = AsyncMock()
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
+        with patch(
+            "medre.cli.recover_commands._open_readonly_storage",
+            return_value=mock_storage,
+        ):
             output = _run_cli(
-                "recover", "--config", "/nonexistent",
+                "recover",
+                "--config",
+                "/nonexistent",
             )
             assert "Recovery scan" in output
 
@@ -514,9 +602,15 @@ class TestRecoverDispatch:
         mock_storage = AsyncMock()
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
+        with patch(
+            "medre.cli.recover_commands._open_readonly_storage",
+            return_value=mock_storage,
+        ):
             output = _run_cli(
-                "recover", "--json", "--config", "/nonexistent",
+                "recover",
+                "--json",
+                "--config",
+                "/nonexistent",
             )
             parsed = json.loads(output)
             assert parsed["scope"] == "scan"
@@ -533,10 +627,17 @@ class TestRecoverDispatch:
         mock_storage.list_relations = AsyncMock(return_value=[])
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
+        with patch(
+            "medre.cli.recover_commands._open_readonly_storage",
+            return_value=mock_storage,
+        ):
             output = _run_cli(
-                "recover", "--event", "evt-1",
-                "--json", "--config", "/nonexistent",
+                "recover",
+                "--event",
+                "evt-1",
+                "--json",
+                "--config",
+                "/nonexistent",
             )
             parsed = json.loads(output)
             keys = list(parsed.keys())
@@ -569,10 +670,15 @@ class TestReplayWithEvent:
         mock_builder = MagicMock()
         mock_builder.build.return_value = mock_app
 
-        with patch("medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder), \
-             patch("medre.cli.replay_commands.load_config") as mock_load, \
-             patch("medre.cli.replay_commands.apply_env_overrides", side_effect=lambda c, p: c), \
-             patch("medre.cli.replay_commands.collect_replay_summary", new_callable=AsyncMock, return_value=summary) as mock_collect:
+        with patch(
+            "medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder
+        ), patch("medre.cli.replay_commands.load_config") as mock_load, patch(
+            "medre.cli.replay_commands.apply_env_overrides", side_effect=lambda c, p: c
+        ), patch(
+            "medre.cli.replay_commands.collect_replay_summary",
+            new_callable=AsyncMock,
+            return_value=summary,
+        ) as mock_collect:
 
             mock_load.return_value = (MagicMock(), MagicMock(), MagicMock())
             _run_cli("replay", "--mode", "dry_run", "--event", "evt-42", "--json")
@@ -599,17 +705,28 @@ class TestReplayWithEvent:
         mock_builder = MagicMock()
         mock_builder.build.return_value = mock_app
 
-        with patch("medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder), \
-             patch("medre.cli.replay_commands.load_config") as mock_load, \
-             patch("medre.cli.replay_commands.apply_env_overrides", side_effect=lambda c, p: c), \
-             patch("medre.cli.replay_commands.collect_replay_summary", new_callable=AsyncMock, return_value=summary):
+        with patch(
+            "medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder
+        ), patch("medre.cli.replay_commands.load_config") as mock_load, patch(
+            "medre.cli.replay_commands.apply_env_overrides", side_effect=lambda c, p: c
+        ), patch(
+            "medre.cli.replay_commands.collect_replay_summary",
+            new_callable=AsyncMock,
+            return_value=summary,
+        ):
 
             mock_load.return_value = (MagicMock(), MagicMock(), MagicMock())
             output = _run_cli(
-                "replay", "--mode", "dry_run",
-                "--target-adapters", "a1", "a2",
-                "--route-ids", "r1",
-                "--limit", "10",
+                "replay",
+                "--mode",
+                "dry_run",
+                "--target-adapters",
+                "a1",
+                "a2",
+                "--route-ids",
+                "r1",
+                "--limit",
+                "10",
                 "--json",
             )
             parsed = json.loads(output)
@@ -626,69 +743,105 @@ class TestFailureKindClassification:
 
     def test_infer_adapter_transient_from_timeout_error(self) -> None:
         from medre.observability.classification import infer_failure_kind
-        assert infer_failure_kind("TimeoutError: connection timed out", "failed") == "adapter_transient"
+
+        assert (
+            infer_failure_kind("TimeoutError: connection timed out", "failed")
+            == "adapter_transient"
+        )
 
     def test_infer_adapter_transient_from_connection_reset(self) -> None:
         from medre.observability.classification import infer_failure_kind
-        assert infer_failure_kind("ConnectionResetError: connection reset", "failed") == "adapter_transient"
+
+        assert (
+            infer_failure_kind("ConnectionResetError: connection reset", "failed")
+            == "adapter_transient"
+        )
 
     def test_infer_adapter_transient_from_dead_lettered(self) -> None:
         """dead_lettered status implies transient (retries exhausted)."""
         from medre.observability.classification import infer_failure_kind
+
         assert infer_failure_kind("some error", "dead_lettered") == "adapter_transient"
 
     def test_infer_adapter_permanent_from_generic_error(self) -> None:
         from medre.observability.classification import infer_failure_kind
+
         assert infer_failure_kind("permission denied", "failed") == "adapter_permanent"
 
     def test_infer_renderer_failure(self) -> None:
         from medre.observability.classification import infer_failure_kind
-        assert infer_failure_kind("no renderer registered for event_kind", "failed") == "renderer_failure"
+
+        assert (
+            infer_failure_kind("no renderer registered for event_kind", "failed")
+            == "renderer_failure"
+        )
 
     def test_infer_adapter_missing(self) -> None:
         from medre.observability.classification import infer_failure_kind
-        assert infer_failure_kind("adapter_missing: adapter 'x' not registered", "failed") == "adapter_missing"
+
+        assert (
+            infer_failure_kind("adapter_missing: adapter 'x' not registered", "failed")
+            == "adapter_missing"
+        )
 
     def test_infer_capacity_rejection(self) -> None:
         from medre.observability.classification import infer_failure_kind
-        assert infer_failure_kind("delivery_capacity_exceeded", "failed") == "capacity_rejection"
+
+        assert (
+            infer_failure_kind("delivery_capacity_exceeded", "failed")
+            == "capacity_rejection"
+        )
 
     def test_infer_shutdown_rejection(self) -> None:
         from medre.observability.classification import infer_failure_kind
-        assert infer_failure_kind("delivery_rejected_shutdown", "failed") == "shutdown_rejection"
+
+        assert (
+            infer_failure_kind("delivery_rejected_shutdown", "failed")
+            == "shutdown_rejection"
+        )
 
     def test_infer_deadline_exceeded(self) -> None:
         from medre.observability.classification import infer_failure_kind
-        assert infer_failure_kind("deadline_exceeded: plan deadline passed", "failed") == "deadline_exceeded"
+
+        assert (
+            infer_failure_kind("deadline_exceeded: plan deadline passed", "failed")
+            == "deadline_exceeded"
+        )
 
     def test_infer_unknown_no_error(self) -> None:
         from medre.observability.classification import infer_failure_kind
+
         assert infer_failure_kind(None, "failed") == "unknown"
 
     def test_failure_category_retryable(self) -> None:
         from medre.observability.classification import failure_category
+
         assert failure_category("adapter_transient") == "retryable"
 
     def test_failure_category_permanent(self) -> None:
         from medre.observability.classification import failure_category
+
         assert failure_category("adapter_permanent") == "permanent"
         assert failure_category("adapter_missing") == "permanent"
         assert failure_category("renderer_failure") == "permanent"
 
     def test_failure_category_operational(self) -> None:
         from medre.observability.classification import failure_category
+
         assert failure_category("capacity_rejection") == "operational"
         assert failure_category("shutdown_rejection") == "operational"
         assert failure_category("deadline_exceeded") == "operational"
 
     def test_failure_category_unknown(self) -> None:
         from medre.observability.classification import failure_category
+
         assert failure_category("unknown") == "unknown"
         assert failure_category("something_else") == "unknown"
 
     def test_backward_compat_import_from_recover_commands(self) -> None:
         """Classification helpers are imported from the canonical observability module."""
-        from medre.cli.recover_commands import _infer_failure_kind, _failure_category
+        from medre.cli.recover_commands import _failure_category, _infer_failure_kind
+
         assert _infer_failure_kind("timeout", "failed") == "adapter_transient"
         assert _failure_category("adapter_transient") == "retryable"
 
@@ -723,10 +876,17 @@ class TestRecoverClassification:
         mock_storage.list_relations = AsyncMock(return_value=[])
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
+        with patch(
+            "medre.cli.recover_commands._open_readonly_storage",
+            return_value=mock_storage,
+        ):
             output = _run_cli(
-                "recover", "--event", "evt-1",
-                "--json", "--config", "/nonexistent",
+                "recover",
+                "--event",
+                "evt-1",
+                "--json",
+                "--config",
+                "/nonexistent",
             )
             parsed = json.loads(output)
             fc = parsed["failure_classification"]
@@ -757,10 +917,17 @@ class TestRecoverClassification:
         mock_storage.list_relations = AsyncMock(return_value=[])
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
+        with patch(
+            "medre.cli.recover_commands._open_readonly_storage",
+            return_value=mock_storage,
+        ):
             output = _run_cli(
-                "recover", "--event", "evt-1",
-                "--json", "--config", "/nonexistent",
+                "recover",
+                "--event",
+                "evt-1",
+                "--json",
+                "--config",
+                "/nonexistent",
             )
             parsed = json.loads(output)
             fc = parsed["failure_classification"]
@@ -785,10 +952,17 @@ class TestRecoverClassification:
         mock_storage.list_relations = AsyncMock(return_value=[])
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
+        with patch(
+            "medre.cli.recover_commands._open_readonly_storage",
+            return_value=mock_storage,
+        ):
             output = _run_cli(
-                "recover", "--event", "evt-1",
-                "--json", "--config", "/nonexistent",
+                "recover",
+                "--event",
+                "evt-1",
+                "--json",
+                "--config",
+                "/nonexistent",
             )
             parsed = json.loads(output)
             fc = parsed["failure_classification"]
@@ -811,10 +985,17 @@ class TestRecoverClassification:
         mock_storage.list_relations = AsyncMock(return_value=[])
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
+        with patch(
+            "medre.cli.recover_commands._open_readonly_storage",
+            return_value=mock_storage,
+        ):
             output = _run_cli(
-                "recover", "--event", "evt-1",
-                "--json", "--config", "/nonexistent",
+                "recover",
+                "--event",
+                "evt-1",
+                "--json",
+                "--config",
+                "/nonexistent",
             )
             parsed = json.loads(output)
             cmds = parsed["recommended_commands"]
@@ -838,10 +1019,17 @@ class TestRecoverClassification:
         mock_storage.list_relations = AsyncMock(return_value=[])
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
+        with patch(
+            "medre.cli.recover_commands._open_readonly_storage",
+            return_value=mock_storage,
+        ):
             output = _run_cli(
-                "recover", "--event", "evt-1",
-                "--json", "--config", "/nonexistent",
+                "recover",
+                "--event",
+                "evt-1",
+                "--json",
+                "--config",
+                "/nonexistent",
             )
             parsed = json.loads(output)
             cmds = parsed["recommended_commands"]
@@ -865,10 +1053,17 @@ class TestRecoverClassification:
         mock_storage.list_relations = AsyncMock(return_value=[])
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
+        with patch(
+            "medre.cli.recover_commands._open_readonly_storage",
+            return_value=mock_storage,
+        ):
             output = _run_cli(
-                "recover", "--event", "evt-1",
-                "--json", "--config", "/nonexistent",
+                "recover",
+                "--event",
+                "evt-1",
+                "--json",
+                "--config",
+                "/nonexistent",
             )
             parsed = json.loads(output)
             cmds = parsed["recommended_commands"]
@@ -892,10 +1087,17 @@ class TestRecoverClassification:
         mock_storage.list_relations = AsyncMock(return_value=[])
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
+        with patch(
+            "medre.cli.recover_commands._open_readonly_storage",
+            return_value=mock_storage,
+        ):
             output = _run_cli(
-                "recover", "--event", "evt-1",
-                "--json", "--config", "/nonexistent",
+                "recover",
+                "--event",
+                "evt-1",
+                "--json",
+                "--config",
+                "/nonexistent",
             )
             parsed = json.loads(output)
             warnings = parsed.get("warnings", [])
@@ -919,10 +1121,17 @@ class TestRecoverClassification:
         mock_storage.list_relations = AsyncMock(return_value=[])
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
+        with patch(
+            "medre.cli.recover_commands._open_readonly_storage",
+            return_value=mock_storage,
+        ):
             output = _run_cli(
-                "recover", "--event", "evt-1",
-                "--json", "--config", "/nonexistent",
+                "recover",
+                "--event",
+                "evt-1",
+                "--json",
+                "--config",
+                "/nonexistent",
             )
             parsed = json.loads(output)
             warnings = parsed.get("warnings", [])
@@ -947,10 +1156,17 @@ class TestRecoverClassification:
         mock_storage.list_relations = AsyncMock(return_value=[])
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
+        with patch(
+            "medre.cli.recover_commands._open_readonly_storage",
+            return_value=mock_storage,
+        ):
             output = _run_cli(
-                "recover", "--event", "evt-1",
-                "--json", "--config", "/nonexistent",
+                "recover",
+                "--event",
+                "evt-1",
+                "--json",
+                "--config",
+                "/nonexistent",
             )
             parsed = json.loads(output)
             assert "replay_context" in parsed
@@ -972,10 +1188,17 @@ class TestRecoverClassification:
         mock_storage.list_relations = AsyncMock(return_value=[])
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
+        with patch(
+            "medre.cli.recover_commands._open_readonly_storage",
+            return_value=mock_storage,
+        ):
             output = _run_cli(
-                "recover", "--event", "evt-1",
-                "--json", "--config", "/nonexistent",
+                "recover",
+                "--event",
+                "evt-1",
+                "--json",
+                "--config",
+                "/nonexistent",
             )
             parsed = json.loads(output)
             # Verify advisory output structure.
@@ -1007,10 +1230,17 @@ class TestRecoverClassification:
         mock_storage.list_relations = AsyncMock(return_value=[])
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
+        with patch(
+            "medre.cli.recover_commands._open_readonly_storage",
+            return_value=mock_storage,
+        ):
             output = _run_cli(
-                "recover", "--event", "evt-1",
-                "--json", "--config", "/nonexistent",
+                "recover",
+                "--event",
+                "evt-1",
+                "--json",
+                "--config",
+                "/nonexistent",
             )
             parsed = json.loads(output)
             ft = parsed["failed_targets"][0]
@@ -1033,10 +1263,16 @@ class TestRecoverClassification:
         mock_storage.list_relations = AsyncMock(return_value=[])
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
+        with patch(
+            "medre.cli.recover_commands._open_readonly_storage",
+            return_value=mock_storage,
+        ):
             output = _run_cli(
-                "recover", "--event", "evt-1",
-                "--config", "/nonexistent",
+                "recover",
+                "--event",
+                "evt-1",
+                "--config",
+                "/nonexistent",
             )
             assert "adapter_transient" in output
             assert "retryable" in output
@@ -1058,10 +1294,17 @@ class TestRecoverClassification:
         mock_storage.list_relations = AsyncMock(return_value=[])
         mock_storage.close = AsyncMock()
 
-        with patch("medre.cli.recover_commands._open_readonly_storage", return_value=mock_storage):
+        with patch(
+            "medre.cli.recover_commands._open_readonly_storage",
+            return_value=mock_storage,
+        ):
             output = _run_cli(
-                "recover", "--event", "evt-1",
-                "--json", "--config", "/nonexistent",
+                "recover",
+                "--event",
+                "evt-1",
+                "--json",
+                "--config",
+                "/nonexistent",
             )
             parsed = json.loads(output)
             cmds = parsed["commands"]
@@ -1072,21 +1315,20 @@ class TestRecoverClassification:
 
             # Primary commands are inspect-first (no trace/evidence/recover).
             for cmd in cmds["primary"]:
-                assert not cmd.startswith("medre trace "), (
-                    f"Primary should not start with 'medre trace': {cmd}"
-                )
-                assert not cmd.startswith("medre evidence "), (
-                    f"Primary should not start with 'medre evidence': {cmd}"
-                )
-                assert not cmd.startswith("medre recover "), (
-                    f"Primary should not start with 'medre recover': {cmd}"
-                )
+                assert not cmd.startswith(
+                    "medre trace "
+                ), f"Primary should not start with 'medre trace': {cmd}"
+                assert not cmd.startswith(
+                    "medre evidence "
+                ), f"Primary should not start with 'medre evidence': {cmd}"
+                assert not cmd.startswith(
+                    "medre recover "
+                ), f"Primary should not start with 'medre recover': {cmd}"
 
             # Specialized includes the recover command.
             recover_cmds = [
-                c for c in cmds["specialized"]
-                if c.startswith("medre recover ")
+                c for c in cmds["specialized"] if c.startswith("medre recover ")
             ]
-            assert len(recover_cmds) > 0, (
-                f"Expected 'medre recover' in specialized: {cmds['specialized']}"
-            )
+            assert (
+                len(recover_cmds) > 0
+            ), f"Expected 'medre recover' in specialized: {cmds['specialized']}"

@@ -106,12 +106,8 @@ class CanonicalActor:
     verification_status: VerificationStatus = VerificationStatus.UNVERIFIED
     linked_identities: list[NativeIdentity] = field(default_factory=list)
     metadata: dict[str, object] = field(default_factory=dict)
-    created_at: datetime = field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
-    updated_at: datetime = field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def touch(self) -> None:
         """Update ``updated_at`` to the current UTC time."""

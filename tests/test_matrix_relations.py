@@ -61,11 +61,7 @@ class TestMatrixRelationHandler:
     def test_handler_extract_reply_target(self) -> None:
         handler = MatrixRelationHandler()
         source = {
-            "content": {
-                "m.relates_to": {
-                    "m.in_reply_to": {"event_id": "$evt-1"}
-                }
-            }
+            "content": {"m.relates_to": {"m.in_reply_to": {"event_id": "$evt-1"}}}
         }
         assert handler.extract_reply_target(source) == "$evt-1"
 

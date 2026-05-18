@@ -17,12 +17,10 @@ from medre.core.engine.pipeline import PipelineRunner
 from medre.core.events import CanonicalEvent, EventMetadata, NativeRef
 from medre.core.events.bus import EventBus
 from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.routing.stats import RouteStats
 from medre.core.storage import SQLiteStorage
-
 from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -406,9 +404,7 @@ class TestRenderBeforeDeliverBoundary:
         runner = PipelineRunner(config)
         await runner.start()
 
-        event = make_event(
-            event_id="no-render-001", source_adapter="src"
-        )
+        event = make_event(event_id="no-render-001", source_adapter="src")
 
         try:
             outcomes = await runner.handle_ingress(event)
@@ -507,7 +503,7 @@ class TestReceiptLineageInPipeline:
         try:
             await runner.handle_ingress(event)
 
-            receipts = await temp_storage.list_receipts_for_plan(
+            await temp_storage.list_receipts_for_plan(
                 "attempt-route__target__0", "target"
             )
             # May not match due to plan_id format; query all receipts.
@@ -720,7 +716,10 @@ class TestRelationResolutionInPipeline:
             assert len(stored.relations) == 1
             assert stored.relations[0].target_event_id is None
             assert stored.relations[0].target_native_ref is not None
-            assert stored.relations[0].target_native_ref.native_message_id == "$unknown-msg"
+            assert (
+                stored.relations[0].target_native_ref.native_message_id
+                == "$unknown-msg"
+            )
         finally:
             await runner.stop()
 

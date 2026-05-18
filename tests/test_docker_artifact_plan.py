@@ -8,17 +8,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from medre.runtime.docker_bridge_artifacts import (
     ARTIFACT_PLAN,
     SUPPORTED_SCENARIOS,
-    get_artifact_plan,
     _collect_artifact_manifest,
+    get_artifact_plan,
 )
-
-from tests.helpers.docker_artifacts import _fixed_now
-
 
 # ---------------------------------------------------------------------------
 # ARTIFACT_PLAN structure
@@ -84,9 +79,9 @@ class TestGetArtifactPlan:
         for scenario in SUPPORTED_SCENARIOS:
             plan = get_artifact_plan(scenario)
             for name in ("summary.json", "run-metadata.json", "config.toml"):
-                assert name in plan["required"], (
-                    f"{scenario} missing base required: {name}"
-                )
+                assert (
+                    name in plan["required"]
+                ), f"{scenario} missing base required: {name}"
 
     def test_best_effort_identical_across_scenarios(self) -> None:
         plans = {s: get_artifact_plan(s) for s in SUPPORTED_SCENARIOS}
@@ -138,9 +133,7 @@ class TestCollectArtifactManifest:
         run_dir.mkdir()
         manifest = _collect_artifact_manifest(run_dir)
         # summary.json is always assumed present (written by collector).
-        expected_missing = [
-            n for n in ARTIFACT_PLAN["required"] if n != "summary.json"
-        ]
+        expected_missing = [n for n in ARTIFACT_PLAN["required"] if n != "summary.json"]
         assert manifest["missing"]["required"] == expected_missing
         assert set(manifest["missing"]["best_effort"]) == set(
             ARTIFACT_PLAN["best_effort"]
@@ -196,7 +189,9 @@ class TestCollectArtifactManifestScenarioAware:
         # meshtasticd.log IS required for matrix scenario (cross-adapter evidence).
         assert "meshtasticd.log" in manifest["missing"]["required"]
 
-    def test_meshtastic_scenario_missing_synapse_not_reported(self, tmp_path: Path) -> None:
+    def test_meshtastic_scenario_missing_synapse_not_reported(
+        self, tmp_path: Path
+    ) -> None:
         run_dir = tmp_path / "meshtastic_run"
         run_dir.mkdir()
         # Only meshtasticd.log present (not synapse.log).

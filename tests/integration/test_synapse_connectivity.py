@@ -22,15 +22,14 @@ import asyncio
 import logging
 import time
 from datetime import datetime, timezone
-from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
 
-from medre.core.contracts.adapter import AdapterContext
 from medre.adapters.matrix.adapter import MatrixAdapter
-from medre.config.adapters.matrix import MatrixConfig
 from medre.adapters.matrix.compat import HAS_NIO
+from medre.config.adapters.matrix import MatrixConfig
+from medre.core.contracts.adapter import AdapterContext
 
 from .conftest import SynapseEnvironment
 
@@ -42,7 +41,9 @@ pytestmark = pytest.mark.docker
 if not HAS_NIO:
     pytestmark = [
         pytest.mark.docker,
-        pytest.mark.skip(reason="mindroom-nio not installed; run: pip install '.[matrix]'"),
+        pytest.mark.skip(
+            reason="mindroom-nio not installed; run: pip install '.[matrix]'"
+        ),
     ]
 
 
@@ -95,9 +96,9 @@ class TestSynapseConnectivity:
         await adapter.start(ctx)
         try:
             info = await adapter.health_check()
-            assert info.health == "healthy", (
-                f"Expected healthy after start, got {info.health!r}"
-            )
+            assert (
+                info.health == "healthy"
+            ), f"Expected healthy after start, got {info.health!r}"
             assert info.platform == "matrix"
         finally:
             await adapter.stop()
@@ -114,9 +115,7 @@ class TestSynapseConnectivity:
         await adapter.start(ctx)
         try:
             info = await adapter.health_check()
-            assert info.health == "healthy", (
-                f"Expected healthy, got {info.health!r}"
-            )
+            assert info.health == "healthy", f"Expected healthy, got {info.health!r}"
         finally:
             await adapter.stop()
 
@@ -129,9 +128,9 @@ class TestSynapseConnectivity:
         adapter = MatrixAdapter(config)
 
         info = await adapter.health_check()
-        assert info.health == "unknown", (
-            f"Expected unknown before start, got {info.health!r}"
-        )
+        assert (
+            info.health == "unknown"
+        ), f"Expected unknown before start, got {info.health!r}"
 
     @pytest.mark.asyncio
     async def test_send_text_message_to_synapse_room(
@@ -159,9 +158,9 @@ class TestSynapseConnectivity:
             )
             delivery = await adapter.deliver(result)
             assert delivery is not None, "deliver() returned None"
-            assert delivery.native_message_id is not None, (
-                "native_message_id is None — homeserver did not return event_id"
-            )
+            assert (
+                delivery.native_message_id is not None
+            ), "native_message_id is None — homeserver did not return event_id"
             assert delivery.native_message_id.startswith("$"), (
                 f"Matrix event_id should start with '$', "
                 f"got {delivery.native_message_id!r}"
@@ -170,9 +169,7 @@ class TestSynapseConnectivity:
             await adapter.stop()
 
     @pytest.mark.asyncio
-    async def test_start_stop_idempotent(
-        self, synapse_env: SynapseEnvironment
-    ) -> None:
+    async def test_start_stop_idempotent(self, synapse_env: SynapseEnvironment) -> None:
         """start/stop can be called multiple times without error."""
         config = _make_matrix_config(synapse_env)
         ctx = _make_context()

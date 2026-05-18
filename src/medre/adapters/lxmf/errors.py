@@ -12,6 +12,7 @@ Hierarchy::
     ├── LxmfCodecError      — encode / decode failures
     └── LxmfPacketError     — malformed or unparseable packets
 """
+
 from __future__ import annotations
 
 

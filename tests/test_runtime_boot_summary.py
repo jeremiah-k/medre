@@ -11,11 +11,10 @@ Covers:
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
 
 import pytest
 
-from medre.runtime.boot_summary import BootSummary, build_boot_summary
+from medre.runtime.boot_summary import build_boot_summary
 
 
 class TestBootSummaryConstruction:
@@ -155,7 +154,9 @@ class TestBootSummaryToDict:
         )
         bs1 = build_boot_summary(**kwargs)
         bs2 = build_boot_summary(**kwargs)
-        assert json.dumps(bs1.to_dict(), sort_keys=True) == json.dumps(bs2.to_dict(), sort_keys=True)
+        assert json.dumps(bs1.to_dict(), sort_keys=True) == json.dumps(
+            bs2.to_dict(), sort_keys=True
+        )
 
     def test_none_fields_serialise(self) -> None:
         """None fields serialise as null in JSON."""

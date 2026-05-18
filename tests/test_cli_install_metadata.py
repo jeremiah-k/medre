@@ -9,6 +9,7 @@ Covers:
 - Install metadata checks — pyproject.toml structure, entry points
 - Secret redaction — ``sanitize_error`` redacts tokens and passwords
 """
+
 from __future__ import annotations
 
 import importlib
@@ -19,11 +20,7 @@ import pytest
 
 from tests.test_cli_config_workflows import (
     _run_cli,
-    _run_cli_raw,
-    config_fake_multi,
-    tmp_home,
 )
-
 
 # ===================================================================
 # 5. Paths workflow
@@ -186,7 +183,11 @@ class TestDockerEnvWorkflow:
         repo_root = Path(__file__).resolve().parent.parent
         env_example = repo_root / "examples" / "env" / "docker.env.example"
         content = env_example.read_text()
-        assert "syt_" not in content or "secret" in content.lower() or "here" in content.lower()
+        assert (
+            "syt_" not in content
+            or "secret" in content.lower()
+            or "here" in content.lower()
+        )
 
 
 # ===================================================================
@@ -255,7 +256,6 @@ class TestInstallMetadataWorkflow:
 
     def test_python_module_entry_point(self) -> None:
         """python -m medre.cli works as documented."""
-        from medre.cli import __name__ as module_name
 
         mod = importlib.import_module("medre.cli")
         assert hasattr(mod, "main")
@@ -291,7 +291,7 @@ class TestRedactionSanitizeError:
 
     def test_sanitize_error_regex_matches_access_token_pattern(self) -> None:
         """The _TOKEN_RE regex matches access_token= patterns."""
-        import re
+
         from medre.observability.sanitization import _TOKEN_RE
 
         patterns_that_should_match = [
@@ -303,9 +303,7 @@ class TestRedactionSanitizeError:
             "syt_AbCdEf123456",
         ]
         for pattern in patterns_that_should_match:
-            assert _TOKEN_RE.search(pattern), (
-                f"_TOKEN_RE should match: {pattern!r}"
-            )
+            assert _TOKEN_RE.search(pattern), f"_TOKEN_RE should match: {pattern!r}"
 
     def test_secret_config_path_does_not_leak_in_sanitized_error(self) -> None:
         """A config path containing 'access_token' in its filename does not leak

@@ -11,7 +11,6 @@ No Docker, no live transports, no SDK dependencies required.
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from datetime import datetime, timezone
 
@@ -23,14 +22,12 @@ from medre.core.events import CanonicalEvent, EventMetadata, NativeRef
 from medre.core.events.kinds import EventKind
 from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage.sqlite import SQLiteStorage
-
 from tests.helpers.bridge import (
     make_adapter_context,
     make_pipeline_config,
-    make_text_packet,
 )
 
 
@@ -42,9 +39,7 @@ class TestSelfMessagePrevention:
         self, temp_storage: SQLiteStorage
     ) -> None:
         """Inject event with native ref already in storage -> no second event."""
-        fake_target = FakeMeshtasticAdapter(
-            MeshtasticConfig(adapter_id="dedup-target")
-        )
+        fake_target = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="dedup-target"))
 
         route = Route(
             id="dedup-route",
@@ -142,7 +137,9 @@ class TestSelfMessagePrevention:
 
         # Accounting: inbound_accepted still 1, loop_prevented incremented
         snap = accounting.snapshot()
-        assert snap["inbound_accepted"] == 1, "Duplicate should not increment inbound_accepted"
+        assert (
+            snap["inbound_accepted"] == 1
+        ), "Duplicate should not increment inbound_accepted"
         assert snap["loop_prevented"] == 1, "Duplicate should increment loop_prevented"
 
         await runner.stop()
@@ -151,9 +148,7 @@ class TestSelfMessagePrevention:
         self, temp_storage: SQLiteStorage
     ) -> None:
         """Events without source_native_ref are never deduplicated."""
-        fake_target = FakeMeshtasticAdapter(
-            MeshtasticConfig(adapter_id="nodup-target")
-        )
+        fake_target = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="nodup-target"))
 
         route = Route(
             id="nodup-route",
@@ -380,9 +375,7 @@ class TestLoopPreventionExistingRef:
     ) -> None:
         """Outbound delivery creates native ref. Same ref inbound -> suppressed."""
         fake_matrix = FakeMatrixAdapter("echo-mx", channel="!echo:fake")
-        fake_mesh = FakeMeshtasticAdapter(
-            MeshtasticConfig(adapter_id="echo-mesh")
-        )
+        fake_mesh = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="echo-mesh"))
 
         route_a = Route(
             id="echo-mx-mesh",

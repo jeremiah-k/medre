@@ -4,15 +4,14 @@ envelope extraction, and edge cases.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 import pytest
 
-from datetime import datetime, timezone
-
 from medre.adapters.matrix.codec import MatrixCodec
-from medre.config.adapters.matrix import MatrixConfig
 from medre.adapters.matrix.errors import MatrixCodecError
+from medre.config.adapters.matrix import MatrixConfig
 from medre.core.events.kinds import EventKind
 
 
@@ -187,7 +186,9 @@ class TestMatrixCodec:
                 "m.in_reply_to": {"event_id": "$original-msg-001"},
             },
         }
-        native = _make_native_event(body="a reply", event_id="$reply-001", content=content)
+        native = _make_native_event(
+            body="a reply", event_id="$reply-001", content=content
+        )
         event = codec.decode(native, room_id="!room:server")
 
         assert len(event.relations) == 1
@@ -229,7 +230,9 @@ class TestMatrixCodec:
                 "m.in_reply_to": {"event_id": "$orig-001"},
             },
         }
-        native = _make_native_event(body="reply with ref", event_id="$reply-002", content=content)
+        native = _make_native_event(
+            body="reply with ref", event_id="$reply-002", content=content
+        )
         event = codec.decode(native, room_id="!room:server")
 
         assert event.source_native_ref is not None

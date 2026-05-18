@@ -54,30 +54,29 @@ echo ""
 
 # Validate scenario.
 case "${SCENARIO}" in
-    matrix_to_meshtastic|meshtastic_to_matrix|bidirectional)
-        ;;
-    *)
-        echo "ERROR: Unknown scenario '${SCENARIO}'." >&2
-        echo "Valid: matrix_to_meshtastic, meshtastic_to_matrix, bidirectional" >&2
-        exit 1
-        ;;
+matrix_to_meshtastic | meshtastic_to_matrix | bidirectional) ;;
+*)
+	echo "ERROR: Unknown scenario '${SCENARIO}'." >&2
+	echo "Valid: matrix_to_meshtastic, meshtastic_to_matrix, bidirectional" >&2
+	exit 1
+	;;
 esac
 
 # Verify Docker is available.
 if ! command -v docker >/dev/null 2>&1; then
-    echo "ERROR: docker is not installed or not in PATH." >&2
-    exit 1
+	echo "ERROR: docker is not installed or not in PATH." >&2
+	exit 1
 fi
 
 if ! docker info >/dev/null 2>&1; then
-    echo "ERROR: Docker daemon is not running." >&2
-    exit 1
+	echo "ERROR: Docker daemon is not running." >&2
+	exit 1
 fi
 
 # Verify Python is available.
 if ! command -v "${PYTHON}" >/dev/null 2>&1; then
-    echo "ERROR: Python runtime '${PYTHON}' is required." >&2
-    exit 1
+	echo "ERROR: Python runtime '${PYTHON}' is required." >&2
+	exit 1
 fi
 
 # Fail-fast prerequisite checks for optional imports.
@@ -85,34 +84,34 @@ fi
 echo "Checking prerequisites for scenario: ${SCENARIO}..."
 
 check_import() {
-    local label="$1"
-    local import_stmt="$2"
-    if ! "${PYTHON}" -c "${import_stmt}" 2>/dev/null; then
-        echo "ERROR: ${label} is not installed." >&2
-        echo "" >&2
-        echo "Install the required extras:" >&2
-        echo "  pip install -e \".[matrix,meshtastic,dev]\"" >&2
-        echo "" >&2
-        echo "Then re-run this script." >&2
-        exit 1
-    fi
+	local label="$1"
+	local import_stmt="$2"
+	if ! "${PYTHON}" -c "${import_stmt}" 2>/dev/null; then
+		echo "ERROR: ${label} is not installed." >&2
+		echo "" >&2
+		echo "Install the required extras:" >&2
+		echo '  pip install -e ".[matrix,meshtastic,dev]"' >&2
+		echo "" >&2
+		echo "Then re-run this script." >&2
+		exit 1
+	fi
 }
 
 case "${SCENARIO}" in
-    matrix_to_meshtastic|bidirectional)
-        check_import "Matrix SDK (mindroom-nio exposes 'nio')" "import nio"
-        ;;&
-    matrix_to_meshtastic)
-        check_import "Meshtastic SDK (meshtastic)" "import meshtastic"
-        check_import "Meshtastic pubsub (pubsub.pub)" "from pubsub import pub"
-        ;;&
-    meshtastic_to_matrix|bidirectional)
-        check_import "Meshtastic SDK (meshtastic)" "import meshtastic"
-        check_import "Meshtastic pubsub (pubsub.pub)" "from pubsub import pub"
-        ;;&
-    meshtastic_to_matrix)
-        check_import "Matrix SDK (mindroom-nio exposes 'nio')" "import nio"
-        ;;
+matrix_to_meshtastic | bidirectional)
+	check_import "Matrix SDK (mindroom-nio exposes 'nio')" "import nio"
+	;;&
+matrix_to_meshtastic)
+	check_import "Meshtastic SDK (meshtastic)" "import meshtastic"
+	check_import "Meshtastic pubsub (pubsub.pub)" "from pubsub import pub"
+	;;&
+meshtastic_to_matrix | bidirectional)
+	check_import "Meshtastic SDK (meshtastic)" "import meshtastic"
+	check_import "Meshtastic pubsub (pubsub.pub)" "from pubsub import pub"
+	;;&
+meshtastic_to_matrix)
+	check_import "Matrix SDK (mindroom-nio exposes 'nio')" "import nio"
+	;;
 esac
 
 echo "All prerequisites satisfied."
@@ -124,7 +123,7 @@ echo ""
 # Run via the Python helper, which handles everything.
 set +e
 timeout --foreground "${TIMEOUT_MINUTES}m" \
-    "${PYTHON}" -c "
+	"${PYTHON}" -c "
 import sys
 import json
 from medre.runtime.docker_bridge_artifacts import collect_docker_bridge_artifacts
@@ -150,10 +149,10 @@ set -e
 
 echo ""
 if [[ ${EXIT_CODE} -eq 0 ]]; then
-    echo "Docker bridge artifact collection completed: PASSED"
+	echo "Docker bridge artifact collection completed: PASSED"
 else
-    echo "Docker bridge artifact collection completed: FAILED/PARTIAL (exit ${EXIT_CODE})"
-    echo "Check summary.json in the run directory for details."
+	echo "Docker bridge artifact collection completed: FAILED/PARTIAL (exit ${EXIT_CODE})"
+	echo "Check summary.json in the run directory for details."
 fi
 
-exit ${EXIT_CODE}
+exit "${EXIT_CODE}"

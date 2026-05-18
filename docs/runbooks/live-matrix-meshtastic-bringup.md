@@ -8,7 +8,6 @@ This runbook walks through bringing up a live bridge between a real Matrix
 room and a real Meshtastic radio channel. The operator watches logs and
 verifies results manually. This is a smoke test, not a production deployment.
 
-
 ## 1. What This Does
 
 This procedure bridges a **real Matrix room** to a **real Meshtastic radio
@@ -31,24 +30,22 @@ Key points:
   a non-critical Meshtastic channel. Test messages are visible to all
   participants on both sides.
 
-
 ## 2. Prerequisites
 
-| Requirement | How to verify |
-|-------------|---------------|
-| Python 3.11+ | `python3 --version` |
-| medre installed with both transports | `pip install -e ".[matrix,meshtastic,dev]"` |
-| Matrix account with access token | Obtain via Element → Settings → Help & About, or `/_matrix/client/v3/login` endpoint |
-| Meshtastic radio node accessible | Serial (`/dev/ttyACM0` or `/dev/ttyUSB0`) or TCP (`meshtastic.local:4403`) |
-| Throwaway Matrix room created | Bot user invited and joined |
-| Non-critical Meshtastic channel selected | Not used for emergency or critical communications |
+| Requirement                              | How to verify                                                                        |
+| ---------------------------------------- | ------------------------------------------------------------------------------------ |
+| Python 3.11+                             | `python3 --version`                                                                  |
+| medre installed with both transports     | `pip install -e ".[matrix,meshtastic,dev]"`                                          |
+| Matrix account with access token         | Obtain via Element → Settings → Help & About, or `/_matrix/client/v3/login` endpoint |
+| Meshtastic radio node accessible         | Serial (`/dev/ttyACM0` or `/dev/ttyUSB0`) or TCP (`meshtastic.local:4403`)           |
+| Throwaway Matrix room created            | Bot user invited and joined                                                          |
+| Non-critical Meshtastic channel selected | Not used for emergency or critical communications                                    |
 
 Optional but recommended:
 
 - A second Meshtastic node or the Meshtastic phone app (for testing
   Meshtastic → Matrix direction).
 - A separate terminal for running diagnostic commands.
-
 
 ## 3. Edit Config
 
@@ -147,8 +144,8 @@ already populated by `medre adapter matrix auth login`):
 > After running `medre adapter matrix auth login`, the `homeserver`, `user_id`, and
 > `access_token` fields are already populated. Edit only the fields below.
 
-| Field | Set to |
-|-------|--------|
+| Field            | Set to                                                            |
+| ---------------- | ----------------------------------------------------------------- |
 | `room_allowlist` | List with your throwaway room ID (e.g. `["!abc123:example.com"]`) |
 
 ### Routes (targeting fields)
@@ -156,31 +153,30 @@ already populated by `medre adapter matrix auth login`):
 Each route declares explicit targeting fields that select which Matrix room and
 Meshtastic channel to use as source and destination:
 
-| Field | Route | Set to |
-|-------|-------|--------|
-| `source_room` | `matrix_to_radio` | Matrix room ID to listen on (e.g. `"!abc123:example.com"`) |
-| `dest_channel` | `matrix_to_radio` | Meshtastic channel index as string (e.g. `"0"`) |
-| `source_channel` | `radio_to_matrix` | Meshtastic channel index to listen on (e.g. `"0"`) |
-| `dest_room` | `radio_to_matrix` | Matrix room ID to deliver to (e.g. `"!abc123:example.com"`) |
+| Field            | Route             | Set to                                                      |
+| ---------------- | ----------------- | ----------------------------------------------------------- |
+| `source_room`    | `matrix_to_radio` | Matrix room ID to listen on (e.g. `"!abc123:example.com"`)  |
+| `dest_channel`   | `matrix_to_radio` | Meshtastic channel index as string (e.g. `"0"`)             |
+| `source_channel` | `radio_to_matrix` | Meshtastic channel index to listen on (e.g. `"0"`)          |
+| `dest_room`      | `radio_to_matrix` | Matrix room ID to deliver to (e.g. `"!abc123:example.com"`) |
 
 ### [adapters.meshtastic.radio]
 
 **Serial connection** (default):
 
-| Field | Set to |
-|-------|--------|
-| `connection_type` | `"serial"` |
-| `serial_port` | Device path (e.g. `/dev/ttyACM0`) |
+| Field             | Set to                            |
+| ----------------- | --------------------------------- |
+| `connection_type` | `"serial"`                        |
+| `serial_port`     | Device path (e.g. `/dev/ttyACM0`) |
 
 **TCP connection** (alternative):
 
-| Field | Set to |
-|-------|--------|
-| `connection_type` | `"tcp"` |
-| `host` | Node hostname or IP (e.g. `meshtastic.local`) |
-| `port` | TCP port (default `4403`) |
-| `serial_port` | Remove or comment out |
-
+| Field             | Set to                                        |
+| ----------------- | --------------------------------------------- |
+| `connection_type` | `"tcp"`                                       |
+| `host`            | Node hostname or IP (e.g. `meshtastic.local`) |
+| `port`            | TCP port (default `4403`)                     |
+| `serial_port`     | Remove or comment out                         |
 
 ## 4. Validate Config
 
@@ -204,7 +200,6 @@ path, or switch to TCP by setting `connection_type = "tcp"` and providing
 # Also verify routes are declared correctly
 medre routes validate --config /tmp/medre-live.toml
 ```
-
 
 ## 5. Matrix → Meshtastic
 
@@ -282,7 +277,6 @@ path works end-to-end. Radio transmission to remote nodes is fire-and-forget —
 `success=True` means the local radio accepted the packet, not that a remote
 node received it. See `docs/contracts/36-radio-limitations.md`.
 
-
 ## 6. Meshtastic → Matrix
 
 > **⚠️ Higher risk section.** Meshtastic inbound callback reliability is a
@@ -327,7 +321,6 @@ Record:
 - Whether any log lines appeared for the inbound packet.
 - Whether the packet appeared in diagnostics counters.
 - The radio firmware version and connection type used.
-
 
 ## 7. Shutdown & Artifacts
 
@@ -384,31 +377,29 @@ output suitable for archival or comparison.
 
 ### Artifacts summary
 
-| Artifact | Location |
-|----------|----------|
-| SQLite database | `/tmp/medre-live.sqlite` |
+| Artifact          | Location                                                           |
+| ----------------- | ------------------------------------------------------------------ |
+| SQLite database   | `/tmp/medre-live.sqlite`                                           |
 | Shutdown snapshot | `/tmp/medre-live-snapshot.json` (if `--snapshot-on-shutdown` used) |
-| Inspect output | stdout (redirect to file) |
-| Config file | `/tmp/medre-live.toml` |
-
+| Inspect output    | stdout (redirect to file)                                          |
+| Config file       | `/tmp/medre-live.toml`                                             |
 
 ## 8. Troubleshooting
 
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| `"access_token must be non-empty"` | Empty access token in config | Run `medre adapter matrix auth login --config /tmp/medre-live.toml --adapter-id matrix --homeserver ... --user ...` to populate the token, or fill in `access_token` manually. |
-| `"serial_port required"` | No serial device path configured | Check USB connection. Run `ls /dev/ttyACM* /dev/ttyUSB*` to find the device. Set `serial_port` in config. |
-| Permission denied on serial port | User not in `dialout` group | `sudo usermod -aG dialout $USER` then log out and back in. |
-| `"host is required"` | TCP connection type without host | Set `host` in `[adapters.meshtastic.radio]`, or switch `connection_type` to `"serial"`. |
-| Matrix adapter not healthy | Invalid or expired access token | Re-run `medre adapter matrix auth login` to obtain a fresh token, or verify token via Element. |
-| Radio not responding | Connection issue or firmware problem | Check USB cable, verify firmware version, try the Meshtastic CLI tool (`meshtastic --info`). |
-| No messages arriving | Room allowlist mismatch | Ensure `room_allowlist` contains the actual room ID (format: `!opaque:server`). |
-| Matrix adapter starts but radio fails | Radio SDK not installed | Run `pip install -e ".[meshtastic]"`. Verify with `medre adapters`. |
-| Radio adapter starts but Matrix fails | Matrix SDK not installed | Run `pip install -e ".[matrix]"`. Verify with `medre adapters`. |
-| Inbound Meshtastic packets not processed | Known gap — callback reliability | Document observation. Try restarting the runtime. Check firmware version. |
-| Duplicate messages on radio | Retry policy producing duplicates | Expected behavior with retry (up to 3 attempts). See `docs/contracts/36-radio-limitations.md`. |
-| Health stays `degraded` | Reconnect cycle in progress | Wait for reconnect or check transport availability. |
-
+| Symptom                                  | Cause                                | Fix                                                                                                                                                                            |
+| ---------------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `"access_token must be non-empty"`       | Empty access token in config         | Run `medre adapter matrix auth login --config /tmp/medre-live.toml --adapter-id matrix --homeserver ... --user ...` to populate the token, or fill in `access_token` manually. |
+| `"serial_port required"`                 | No serial device path configured     | Check USB connection. Run `ls /dev/ttyACM* /dev/ttyUSB*` to find the device. Set `serial_port` in config.                                                                      |
+| Permission denied on serial port         | User not in `dialout` group          | `sudo usermod -aG dialout $USER` then log out and back in.                                                                                                                     |
+| `"host is required"`                     | TCP connection type without host     | Set `host` in `[adapters.meshtastic.radio]`, or switch `connection_type` to `"serial"`.                                                                                        |
+| Matrix adapter not healthy               | Invalid or expired access token      | Re-run `medre adapter matrix auth login` to obtain a fresh token, or verify token via Element.                                                                                 |
+| Radio not responding                     | Connection issue or firmware problem | Check USB cable, verify firmware version, try the Meshtastic CLI tool (`meshtastic --info`).                                                                                   |
+| No messages arriving                     | Room allowlist mismatch              | Ensure `room_allowlist` contains the actual room ID (format: `!opaque:server`).                                                                                                |
+| Matrix adapter starts but radio fails    | Radio SDK not installed              | Run `pip install -e ".[meshtastic]"`. Verify with `medre adapters`.                                                                                                            |
+| Radio adapter starts but Matrix fails    | Matrix SDK not installed             | Run `pip install -e ".[matrix]"`. Verify with `medre adapters`.                                                                                                                |
+| Inbound Meshtastic packets not processed | Known gap — callback reliability     | Document observation. Try restarting the runtime. Check firmware version.                                                                                                      |
+| Duplicate messages on radio              | Retry policy producing duplicates    | Expected behavior with retry (up to 3 attempts). See `docs/contracts/36-radio-limitations.md`.                                                                                 |
+| Health stays `degraded`                  | Reconnect cycle in progress          | Wait for reconnect or check transport availability.                                                                                                                            |
 
 ## Scope and Exclusions
 
@@ -432,25 +423,24 @@ See `docs/runbooks/matrix-live-smoke.md` and
 `docs/runbooks/meshtastic-live-smoke.md` for per-transport live smoke
 procedures that validate each adapter independently.
 
-
 ## 9. Execution Checklist
 
 Use this checklist to track progress through a bring-up session. Each step
 must pass before proceeding to the next.
 
 - [ ] **Install.** `pip install -e ".[matrix,meshtastic,dev]"` — verify with
-  `medre adapters` showing both SDKs available.
+      `medre adapters` showing both SDKs available.
 - [ ] **Config check.** `medre config check --config /tmp/medre-live.toml`
-  reports `Config valid`.
+      reports `Config valid`.
 - [ ] **Auth.** `medre adapter matrix auth login --config /tmp/medre-live.toml
-  --adapter-id matrix --homeserver ... --user ...` — confirm `access_token`
-  is populated in the config file.
+--adapter-id matrix --homeserver ... --user ...` — confirm `access_token`
+      is populated in the config file.
 - [ ] **Run.** `medre run --config /tmp/medre-live.toml` — both adapters
-  report `started` in logs.
+      report `started` in logs.
 - [ ] **Test messages.** Send a Matrix message and verify delivery on the
-  radio. Optionally test Meshtastic → Matrix direction.
+      radio. Optionally test Meshtastic → Matrix direction.
 - [ ] **Shutdown.** `Ctrl+C` — wait for graceful drain. Optionally use
-  `--snapshot-on-shutdown`.
+      `--snapshot-on-shutdown`.
 - [ ] **Inspect artifacts.** `medre inspect receipts --storage-path
-  /tmp/medre-live.sqlite` — verify delivery receipts are present. Drill into
-  specific events with `medre inspect event <event_id> --timeline`.
+/tmp/medre-live.sqlite` — verify delivery receipts are present. Drill into
+      specific events with `medre inspect event <event_id> --timeline`.

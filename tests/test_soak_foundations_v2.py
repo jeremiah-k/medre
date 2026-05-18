@@ -25,30 +25,26 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Any
 
 import pytest
 
 from medre.config.model import (
     AdapterConfigSet,
-    LxmfRuntimeConfig,
     LoggingConfig,
     MatrixRuntimeConfig,
-    MeshCoreRuntimeConfig,
     MeshtasticRuntimeConfig,
     RuntimeConfig,
     RuntimeLimits,
     RuntimeOptions,
     StorageConfig,
 )
-from medre.config.paths import MedrePaths, resolve
+from medre.config.paths import resolve
 from medre.core.routing.stats import RouteStats
-from medre.runtime.app import MedreApp, RuntimeState
+from medre.runtime.app import RuntimeState
 from medre.runtime.builder import RuntimeBuilder
 
 # Reuse SoakRuntime and DiagnosticsSnapshot from existing harness.
 from tests.test_soak_harness import DiagnosticsSnapshot, SoakRuntime
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -97,7 +93,8 @@ class TestRepeatedRuntimeCyclesV2:
 
     @pytest.mark.asyncio
     async def test_8_cycles_with_delivery_and_diagnostics(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """8 cycles: start → deliver 3 events → capture diagnostics → stop.
 
@@ -128,7 +125,8 @@ class TestRepeatedRuntimeCyclesV2:
 
     @pytest.mark.asyncio
     async def test_5_cycles_incremental_events(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """5 cycles with increasing event counts (1, 2, 3, 4, 5)."""
         for cycle in range(5):
@@ -156,7 +154,8 @@ class TestRepeatedReplayCyclesV2:
 
     @pytest.mark.asyncio
     async def test_5_replay_cycles_deterministic(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """5 identical replay cycles must produce consistent diagnostics."""
         adapter_counts: list[int] = []
@@ -175,12 +174,12 @@ class TestRepeatedReplayCyclesV2:
 
             await soak.stop()
 
-        assert all(c == 4 for c in adapter_counts), (
-            f"Adapter counts drifted: {adapter_counts}"
-        )
-        assert all(s == "running" for s in states), (
-            f"Runtime states inconsistent: {states}"
-        )
+        assert all(
+            c == 4 for c in adapter_counts
+        ), f"Adapter counts drifted: {adapter_counts}"
+        assert all(
+            s == "running" for s in states
+        ), f"Runtime states inconsistent: {states}"
 
 
 # ===================================================================
@@ -193,7 +192,8 @@ class TestDiagnosticsGenerationStability:
 
     @pytest.mark.asyncio
     async def test_10_consecutive_snapshots_identical_structure(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """10 consecutive diagnostic snapshots must have consistent structure."""
         await soak.start()
@@ -201,7 +201,7 @@ class TestDiagnosticsGenerationStability:
 
         structures: list[set[str]] = []
         for i in range(10):
-            snap = soak.capture_diagnostics(iteration=i)
+            soak.capture_diagnostics(iteration=i)
             # Collect the keys of the diagnostic dict.
             raw_snap = soak.app.diagnostic_snapshot()
             structures.append(set(raw_snap.keys()))
@@ -227,7 +227,8 @@ class TestCapacityChurn:
 
     @pytest.mark.asyncio
     async def test_capacity_churn_under_repeated_load(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """Repeated event delivery bursts must not exhaust capacity slots."""
         await soak.start()
@@ -245,7 +246,8 @@ class TestCapacityChurn:
 
     @pytest.mark.asyncio
     async def test_capacity_snapshots_bounded(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """Capacity snapshot values must stay within declared limits."""
         await soak.start()
@@ -277,7 +279,9 @@ class TestDegradedAdapterChurn:
 
     @pytest.mark.asyncio
     async def test_degraded_runtime_with_fewer_adapters(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Runtime with only 2 adapters (instead of 4) stays stable."""
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
@@ -321,20 +325,18 @@ class TestDegradedAdapterChurn:
         # matching the SoakRuntime.deliver_events pattern.
         for i in range(5):
             delivered = 0
-            for adapter_id, adapter in app.adapters.items():
+            for _adapter_id, adapter in app.adapters.items():
                 try:
                     if hasattr(adapter, "simulate_inbound"):
                         if hasattr(adapter, "make_text_event"):
-                            event = getattr(adapter, "make_text_event")(
+                            event = adapter.make_text_event(
                                 f"degraded-{i}", channel="ch"
                             )
                         elif hasattr(adapter, "make_event"):
-                            event = getattr(adapter, "make_event")(
-                                f"degraded-{i}", channel="ch"
-                            )
+                            event = adapter.make_event(f"degraded-{i}", channel="ch")
                         else:
                             continue
-                        await getattr(adapter, "simulate_inbound")(event)
+                        await adapter.simulate_inbound(event)
                         delivered += 1
                 except Exception:
                     pass
@@ -344,7 +346,9 @@ class TestDegradedAdapterChurn:
 
     @pytest.mark.asyncio
     async def test_degraded_runtime_3_cycles(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """3 start/stop cycles with 2-adapter degraded runtime."""
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
@@ -399,7 +403,8 @@ class TestRouteExpansionStability:
 
     @pytest.mark.asyncio
     async def test_route_stats_stable_across_deliveries(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """RouteStats counters remain consistent across many deliveries."""
         await soak.start()
@@ -408,7 +413,7 @@ class TestRouteExpansionStability:
         stats = RouteStats()
 
         # Record some deliveries.
-        for i in range(10):
+        for _i in range(10):
             stats.record_delivered("route-a")
             stats.record_delivered("route-b")
 
@@ -422,7 +427,8 @@ class TestRouteExpansionStability:
 
     @pytest.mark.asyncio
     async def test_many_routes_snapshot_deterministic(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """RouteStats snapshot with many routes is deterministic."""
         stats = RouteStats()
@@ -447,7 +453,9 @@ class TestStartupFailureRecovery:
 
     @pytest.mark.asyncio
     async def test_failed_build_then_successful_build(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """A build failure followed by a correct build must succeed."""
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
@@ -506,7 +514,8 @@ class TestNoTaskLeaks:
 
     @pytest.mark.asyncio
     async def test_no_dangling_tasks_after_stop(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """After start/stop, no new non-done tasks should remain."""
         baseline = _count_asyncio_tasks()
@@ -518,13 +527,14 @@ class TestNoTaskLeaks:
 
         after = _count_asyncio_tasks()
         # Allow for up to 2 transient tasks (event loop internals).
-        assert after <= baseline + 2, (
-            f"Task leak detected: baseline={baseline}, after={after}"
-        )
+        assert (
+            after <= baseline + 2
+        ), f"Task leak detected: baseline={baseline}, after={after}"
 
     @pytest.mark.asyncio
     async def test_no_task_accumulation_over_cycles(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """5 start/stop cycles must not accumulate tasks."""
         task_counts: list[int] = []
@@ -539,9 +549,9 @@ class TestNoTaskLeaks:
         # Task counts should not grow monotonically.
         max_count = max(task_counts)
         min_count = min(task_counts)
-        assert max_count - min_count <= 2, (
-            f"Task count drifted over cycles: {task_counts}"
-        )
+        assert (
+            max_count - min_count <= 2
+        ), f"Task count drifted over cycles: {task_counts}"
 
 
 # ===================================================================
@@ -554,7 +564,8 @@ class TestNoUnboundedGrowth:
 
     @pytest.mark.asyncio
     async def test_adapter_lists_bounded_over_50_iterations(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """Fake adapter history lists must stay bounded over 50 iterations."""
         await soak.start()
@@ -582,7 +593,8 @@ class TestNoUnboundedGrowth:
 
     @pytest.mark.asyncio
     async def test_started_adapter_ids_stable_across_fresh_cycles(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """started_adapter_ids must contain exactly 4 adapters after start.
 
@@ -609,24 +621,27 @@ class TestStableRouteStats:
 
     @pytest.mark.asyncio
     async def test_route_stats_no_ghost_routes(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """RouteStats snapshot must not accumulate ghost routes."""
         stats = RouteStats()
 
         # Record for a fixed set of routes.
-        for i in range(5):
+        for _i in range(5):
             stats.record_delivered("alpha")
             stats.record_delivered("beta")
 
         snap = stats.snapshot()
-        assert set(snap.keys()) == {"alpha", "beta"}, (
-            f"Unexpected routes in snapshot: {set(snap.keys())}"
-        )
+        assert set(snap.keys()) == {
+            "alpha",
+            "beta",
+        }, f"Unexpected routes in snapshot: {set(snap.keys())}"
 
     @pytest.mark.asyncio
     async def test_route_stats_counters_monotonic(
-        self, soak: SoakRuntime,
+        self,
+        soak: SoakRuntime,
     ) -> None:
         """RouteStats delivered counters must be monotonically non-decreasing."""
         stats = RouteStats()
@@ -637,8 +652,7 @@ class TestStableRouteStats:
             snap = stats.snapshot()
             current = snap["stable-route"]["delivered"]
             assert current >= prev_total, (
-                f"Counter went backwards at iteration {i}: "
-                f"{current} < {prev_total}"
+                f"Counter went backwards at iteration {i}: " f"{current} < {prev_total}"
             )
             prev_total = current
 

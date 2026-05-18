@@ -1,4 +1,5 @@
 """Trace CLI commands: chronological timeline assembly for events and replay runs."""
+
 from __future__ import annotations
 
 import sys

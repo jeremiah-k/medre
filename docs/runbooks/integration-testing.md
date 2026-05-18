@@ -4,16 +4,16 @@
 
 MEDRE supports Docker-based integration tests that exercise real adapters
 against containerized services (Synapse for Matrix, meshtasticd for
-Meshtastic).  These tests are **opt-in by default** — they are excluded
+Meshtastic). These tests are **opt-in by default** — they are excluded
 from the normal `pytest` run to keep the test suite fast and portable.
 
 ## Test Tiers
 
-| Tier | Marker | When it runs | Requirements |
-|---|---|---|---|
-| Unit/fake | *(default)* | Every `pytest` run | None |
-| Docker integration | `docker` | Explicit opt-in | Docker daemon |
-| Live hardware | `live` | Explicit opt-in | Real devices/credentials |
+| Tier               | Marker      | When it runs       | Requirements             |
+| ------------------ | ----------- | ------------------ | ------------------------ |
+| Unit/fake          | _(default)_ | Every `pytest` run | None                     |
+| Docker integration | `docker`    | Explicit opt-in    | Docker daemon            |
+| Live hardware      | `live`      | Explicit opt-in    | Real devices/credentials |
 
 ## Quick Start
 
@@ -74,16 +74,16 @@ and runs the full integration suite with a 13-minute timeout.
 
 ## Environment Variables
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `MEDRE_SKIP_DOCKER` | *(unset)* | Set to `1`/`true` to skip all Docker tests |
-| `MEDRE_SYNAPSE_IMAGE` | `matrixdotorg/synapse:v1.149.0` | Synapse Docker image |
-| `MEDRE_MESHTASTICD_IMAGE` | `meshtastic/meshtasticd:2.7.15` | meshtasticd Docker image |
-| `MEDRE_SYNAPSE_PORT` | `8008` | Host port for Synapse |
-| `MEDRE_MESHTASTICD_PORT` | `4403` | Host port for meshtasticd |
-| `MEDRE_MESHTASTICD_HWID` | `11` | meshtasticd hardware ID |
-| `MEDRE_DOCKER_READY_TIMEOUT` | `120` | Seconds to wait per service |
-| `MEDRE_CI_ARTIFACT_DIR` | `.ci-artifacts/docker-integration` | Log/config output directory |
+| Variable                     | Default                            | Purpose                                    |
+| ---------------------------- | ---------------------------------- | ------------------------------------------ |
+| `MEDRE_SKIP_DOCKER`          | _(unset)_                          | Set to `1`/`true` to skip all Docker tests |
+| `MEDRE_SYNAPSE_IMAGE`        | `matrixdotorg/synapse:v1.149.0`    | Synapse Docker image                       |
+| `MEDRE_MESHTASTICD_IMAGE`    | `meshtastic/meshtasticd:2.7.15`    | meshtasticd Docker image                   |
+| `MEDRE_SYNAPSE_PORT`         | `8008`                             | Host port for Synapse                      |
+| `MEDRE_MESHTASTICD_PORT`     | `4403`                             | Host port for meshtasticd                  |
+| `MEDRE_MESHTASTICD_HWID`     | `11`                               | meshtasticd hardware ID                    |
+| `MEDRE_DOCKER_READY_TIMEOUT` | `120`                              | Seconds to wait per service                |
+| `MEDRE_CI_ARTIFACT_DIR`      | `.ci-artifacts/docker-integration` | Log/config output directory                |
 
 ## What Tests Exist
 
@@ -131,7 +131,7 @@ Docker daemon running.
 ## CI Workflow
 
 The `.github/workflows/docker-integration.yml` workflow runs on push/PR
-to main/develop.  Key features:
+to main/develop. Key features:
 
 - **Pinned images** for deterministic behavior.
 - **Docker image caching** via GitHub Actions cache (avoids re-pulling ~500MB).
@@ -154,7 +154,6 @@ bridge smoke tests now exercise Matrix → fake-Matrix through the real
 SDK (see Synapse Bridge Smoke below). A full cross-transport relay
 through two real adapters would require both Synapse and meshtasticd
 containers running simultaneously with a real pipeline route between them.
-
 
 ## Docker SDK-Boundary Bridge Tests
 
@@ -184,13 +183,13 @@ SDK code and the MEDRE pipeline. They prove:
 
 ### Provenance Levels
 
-| Tier | Environment | What it proves | Status |
-|------|-------------|----------------|--------|
-| Fake bridge | In-memory, fake adapters | Pipeline routing, rendering, receipts, accounting | **Proven** |
-| Adapter-wrapper | Unit test, mocked transport | Adapter codec, renderer, session logic | **Proven** |
-| Docker SDK-boundary connectivity | Container, real deps, loopback | Real SDK lifecycle, config, dependency resolution | **Proven** |
-| Docker SDK-boundary bridge smoke | Container, real Matrix SDK, fake outbound | Real SDK codec + pipeline routing + storage + accounting with genuine Synapse event_ids | **Proven** |
-| Live network | Real endpoints | Actual connectivity, protocol compliance | **Not claimed** |
+| Tier                             | Environment                               | What it proves                                                                          | Status          |
+| -------------------------------- | ----------------------------------------- | --------------------------------------------------------------------------------------- | --------------- |
+| Fake bridge                      | In-memory, fake adapters                  | Pipeline routing, rendering, receipts, accounting                                       | **Proven**      |
+| Adapter-wrapper                  | Unit test, mocked transport               | Adapter codec, renderer, session logic                                                  | **Proven**      |
+| Docker SDK-boundary connectivity | Container, real deps, loopback            | Real SDK lifecycle, config, dependency resolution                                       | **Proven**      |
+| Docker SDK-boundary bridge smoke | Container, real Matrix SDK, fake outbound | Real SDK codec + pipeline routing + storage + accounting with genuine Synapse event_ids | **Proven**      |
+| Live network                     | Real endpoints                            | Actual connectivity, protocol compliance                                                | **Not claimed** |
 
 ### Docker Bridge Example Config
 
@@ -241,22 +240,21 @@ FROM native_message_refs
 WHERE adapter = 'synapse-bridge-bot' AND direction = 'inbound';
 ```
 
-
 ### What Remains Unproven
 
-| Capability | Status | Notes |
-|-----------|--------|-------|
-| Live external Matrix (beyond Docker localhost) | Not proven | Docker tests use loopback Synapse only |
-| Real radio hardware (Meshtastic/MeshCore/LXMF) | Not proven | No live hardware smoke test recorded |
-| Final delivery ACK / remote receipt | Not proven | Radio is fire-and-forget; Matrix is server-level only |
-| Replay deduplication | Not proven | Replay produces duplicates by design. See [Replay Operation](replay-operation.md). |
-| Active restart / supervision | Not proven | No per-adapter restart, no auto-remediation. See [Bridge Recovery](bridge-recovery.md). |
-| Background health polling | Not proven | Manual `--refresh-health` only; no scheduler |
-| Sustained throughput | Not proven | All tests are smoke tests, not load tests |
-| Network resilience / reconnection | Not proven | No live failure/reconnect test |
-| Cross-instance loop prevention | Not proven | Loop prevention is local-process only |
-| Third-party Matrix inbound | Not proven | Bridge smoke uses HTTP API sender, not a second Matrix client |
-| Full cross-transport relay | Not proven | Bridge smoke routes real Matrix to fake outbound, not to a second real adapter |
+| Capability                                     | Status     | Notes                                                                                   |
+| ---------------------------------------------- | ---------- | --------------------------------------------------------------------------------------- |
+| Live external Matrix (beyond Docker localhost) | Not proven | Docker tests use loopback Synapse only                                                  |
+| Real radio hardware (Meshtastic/MeshCore/LXMF) | Not proven | No live hardware smoke test recorded                                                    |
+| Final delivery ACK / remote receipt            | Not proven | Radio is fire-and-forget; Matrix is server-level only                                   |
+| Replay deduplication                           | Not proven | Replay produces duplicates by design. See [Replay Operation](replay-operation.md).      |
+| Active restart / supervision                   | Not proven | No per-adapter restart, no auto-remediation. See [Bridge Recovery](bridge-recovery.md). |
+| Background health polling                      | Not proven | Manual `--refresh-health` only; no scheduler                                            |
+| Sustained throughput                           | Not proven | All tests are smoke tests, not load tests                                               |
+| Network resilience / reconnection              | Not proven | No live failure/reconnect test                                                          |
+| Cross-instance loop prevention                 | Not proven | Loop prevention is local-process only                                                   |
+| Third-party Matrix inbound                     | Not proven | Bridge smoke uses HTTP API sender, not a second Matrix client                           |
+| Full cross-transport relay                     | Not proven | Bridge smoke routes real Matrix to fake outbound, not to a second real adapter          |
 
 For event tracing after integration test runs, see
 [Event Tracing](event-tracing.md). For crash recovery procedures and orphan

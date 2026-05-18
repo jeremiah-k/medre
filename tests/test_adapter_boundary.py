@@ -18,7 +18,6 @@ import inspect
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -26,15 +25,14 @@ import pytest
 from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
+    AdapterContract,
     AdapterDeliveryResult,
     AdapterInfo,
     AdapterPermanentError,
     AdapterRole,
     AdapterSendError,
-    AdapterContract,
 )
 from medre.core.rendering.renderer import RenderingResult
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -271,6 +269,7 @@ class TestClassifyFailureWithAdapterSendError:
             DeliveryFailureKind,
             RetryExecutor,
         )
+
         exc = AdapterSendError("timeout", transient=True)
         kind = RetryExecutor.classify_failure(exc, adapter_registered=True)
         assert kind == DeliveryFailureKind.ADAPTER_TRANSIENT
@@ -280,6 +279,7 @@ class TestClassifyFailureWithAdapterSendError:
             DeliveryFailureKind,
             RetryExecutor,
         )
+
         exc = AdapterPermanentError("bad payload")
         kind = RetryExecutor.classify_failure(exc, adapter_registered=True)
         assert kind == DeliveryFailureKind.ADAPTER_PERMANENT
@@ -289,6 +289,7 @@ class TestClassifyFailureWithAdapterSendError:
             DeliveryFailureKind,
             RetryExecutor,
         )
+
         exc = AdapterSendError("retries exhausted", transient=False)
         kind = RetryExecutor.classify_failure(exc, adapter_registered=True)
         assert kind == DeliveryFailureKind.ADAPTER_PERMANENT
@@ -298,6 +299,7 @@ class TestClassifyFailureWithAdapterSendError:
             DeliveryFailureKind,
             RetryExecutor,
         )
+
         # TimeoutError is a standard transient type
         kind = RetryExecutor.classify_failure(
             TimeoutError("connection timed out"), adapter_registered=True
@@ -309,6 +311,7 @@ class TestClassifyFailureWithAdapterSendError:
             DeliveryFailureKind,
             RetryExecutor,
         )
+
         kind = RetryExecutor.classify_failure(
             ValueError("bad value"), adapter_registered=True
         )
@@ -391,7 +394,9 @@ class TestCancelledErrorPropagation:
         """CancelledError raised inside deliver() is not swallowed."""
 
         class _CancellingAdapter(_StubAdapter):
-            async def deliver(self, result: RenderingResult) -> AdapterDeliveryResult | None:
+            async def deliver(
+                self, result: RenderingResult
+            ) -> AdapterDeliveryResult | None:
                 raise asyncio.CancelledError()
 
         adapter = _CancellingAdapter()
@@ -420,7 +425,9 @@ class TestFakeAdapterFieldShapes:
     @pytest.mark.asyncio
     async def test_adapter_with_delivery_note(self) -> None:
         class _QueueAdapter(_StubAdapter):
-            async def deliver(self, result: RenderingResult) -> AdapterDeliveryResult | None:
+            async def deliver(
+                self, result: RenderingResult
+            ) -> AdapterDeliveryResult | None:
                 return AdapterDeliveryResult(
                     native_message_id=None,
                     native_channel_id="1",
@@ -523,7 +530,12 @@ class TestPerAdapterErrorClassification:
         from medre.adapters.matrix.adapter import MatrixAdapter
         from medre.config.adapters.matrix import MatrixConfig
 
-        config = MatrixConfig(adapter_id="test", user_id="@test:server", homeserver="https://server", access_token="tok")
+        config = MatrixConfig(
+            adapter_id="test",
+            user_id="@test:server",
+            homeserver="https://server",
+            access_token="tok",
+        )
         adapter = MatrixAdapter(config)
         adapter._client = None
 
@@ -537,7 +549,12 @@ class TestPerAdapterErrorClassification:
         from medre.adapters.matrix.adapter import MatrixAdapter
         from medre.config.adapters.matrix import MatrixConfig
 
-        config = MatrixConfig(adapter_id="test", user_id="@test:server", homeserver="https://server", access_token="tok")
+        config = MatrixConfig(
+            adapter_id="test",
+            user_id="@test:server",
+            homeserver="https://server",
+            access_token="tok",
+        )
         adapter = MatrixAdapter(config)
         adapter._client = MagicMock()
 
@@ -554,10 +571,15 @@ class TestPerAdapterErrorClassification:
     async def test_matrix_send_error_converted_to_transient(self) -> None:
         """MatrixAdapter converts MatrixSendError to AdapterSendError(transient=True)."""
         from medre.adapters.matrix.adapter import MatrixAdapter
-        from medre.config.adapters.matrix import MatrixConfig
         from medre.adapters.matrix.errors import MatrixSendError
+        from medre.config.adapters.matrix import MatrixConfig
 
-        config = MatrixConfig(adapter_id="test", user_id="@test:server", homeserver="https://server", access_token="tok")
+        config = MatrixConfig(
+            adapter_id="test",
+            user_id="@test:server",
+            homeserver="https://server",
+            access_token="tok",
+        )
         adapter = MatrixAdapter(config)
 
         mock_client = MagicMock()
@@ -652,15 +674,17 @@ class TestPerAdapterErrorClassification:
     async def test_lxmf_send_error_transient(self) -> None:
         """LxmfAdapter raises AdapterSendError(transient=True) for LxmfSendError."""
         from medre.adapters.lxmf.adapter import LxmfAdapter
-        from medre.config.adapters.lxmf import LxmfConfig
         from medre.adapters.lxmf.errors import LxmfSendError
+        from medre.config.adapters.lxmf import LxmfConfig
 
         config = LxmfConfig(adapter_id="test")
         adapter = LxmfAdapter(config)
         adapter._started = True
 
         mock_session = MagicMock()
-        mock_session.send_text = AsyncMock(side_effect=LxmfSendError("propagation failed"))
+        mock_session.send_text = AsyncMock(
+            side_effect=LxmfSendError("propagation failed")
+        )
         adapter._session = mock_session
 
         result = _make_rendering_result()
@@ -676,7 +700,9 @@ class TestPerAdapterErrorClassification:
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
         from medre.config.adapters.meshtastic import MeshtasticConfig
 
-        config = MeshtasticConfig(adapter_id="test", connection_type="tcp", host="localhost", port=4403)
+        config = MeshtasticConfig(
+            adapter_id="test", connection_type="tcp", host="localhost", port=4403
+        )
         adapter = MeshtasticAdapter(config)
         # _started is False by default, tcp mode requires start
 
@@ -689,15 +715,17 @@ class TestPerAdapterErrorClassification:
     async def test_meshtastic_send_error_converted_to_transient(self) -> None:
         """MeshtasticAdapter converts MeshtasticSendError to AdapterSendError(transient=True)."""
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
-        from medre.config.adapters.meshtastic import MeshtasticConfig
         from medre.adapters.meshtastic.errors import MeshtasticSendError
+        from medre.config.adapters.meshtastic import MeshtasticConfig
 
         config = MeshtasticConfig(adapter_id="test")
         adapter = MeshtasticAdapter(config)
         adapter._started = True
 
         adapter._queue = MagicMock()
-        adapter._queue.enqueue = AsyncMock(side_effect=MeshtasticSendError("send failed"))
+        adapter._queue.enqueue = AsyncMock(
+            side_effect=MeshtasticSendError("send failed")
+        )
 
         result = _make_rendering_result()
         result.payload["channel_index"] = 0
@@ -725,8 +753,8 @@ class TestPerAdapterErrorClassification:
     async def test_meshcore_send_error_converted_to_transient(self) -> None:
         """MeshCoreAdapter converts MeshCoreSendError to AdapterSendError(transient=True)."""
         from medre.adapters.meshcore.adapter import MeshCoreAdapter
-        from medre.config.adapters.meshcore import MeshCoreConfig
         from medre.adapters.meshcore.errors import MeshCoreSendError
+        from medre.config.adapters.meshcore import MeshCoreConfig
 
         config = MeshCoreConfig(adapter_id="test")
         adapter = MeshCoreAdapter(config)
@@ -775,21 +803,26 @@ class TestErrorClassificationPipeline:
 
     def test_transport_send_errors_not_in_classify(self) -> None:
         """Transport-specific *SendError classes are NOT AdapterSendError subclasses."""
+        from medre.adapters.lxmf.errors import LxmfSendError
         from medre.adapters.matrix.errors import MatrixSendError
         from medre.adapters.meshcore.errors import MeshCoreSendError
         from medre.adapters.meshtastic.errors import MeshtasticSendError
-        from medre.adapters.lxmf.errors import LxmfSendError
 
-        for error_cls in (MatrixSendError, MeshCoreSendError, MeshtasticSendError, LxmfSendError):
-            assert not issubclass(error_cls, AdapterSendError), (
-                f"{error_cls.__name__} must NOT inherit from AdapterSendError"
-            )
+        for error_cls in (
+            MatrixSendError,
+            MeshCoreSendError,
+            MeshtasticSendError,
+            LxmfSendError,
+        ):
+            assert not issubclass(
+                error_cls, AdapterSendError
+            ), f"{error_cls.__name__} must NOT inherit from AdapterSendError"
 
     def test_transport_send_errors_classify_as_permanent_fallback(self) -> None:
         """If a raw transport *SendError escaped to classify_failure,
         it would fall through to ADAPTER_PERMANENT (default)."""
-        from medre.core.planning.delivery_plan import DeliveryFailureKind, RetryExecutor
         from medre.adapters.matrix.errors import MatrixSendError
+        from medre.core.planning.delivery_plan import DeliveryFailureKind, RetryExecutor
 
         error = MatrixSendError("leaked")
         kind = RetryExecutor.classify_failure(error)
@@ -798,4 +831,5 @@ class TestErrorClassificationPipeline:
     def test_cancelled_error_not_adapter_error(self) -> None:
         """CancelledError is not an AdapterSendError and does not match."""
         import asyncio
+
         assert not isinstance(asyncio.CancelledError(), AdapterSendError)

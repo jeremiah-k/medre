@@ -1,4 +1,5 @@
 """Route-related CLI commands: validate, topology, list."""
+
 from __future__ import annotations
 
 import sys
@@ -20,7 +21,6 @@ def _routes_validate(config_path: str | None) -> None:
     routes: RouteConfigSet = config.routes
     route_list = routes.routes
     errors: list[str] = []
-    warnings: list[str] = []
 
     if not route_list:
         print("No routes configured.")
@@ -28,7 +28,7 @@ def _routes_validate(config_path: str | None) -> None:
 
     # Collect adapter IDs from config for reference validation.
     known_adapter_ids: set[str] = set()
-    for _transport, adapter_id, rtc in config.adapters.all_configs():
+    for _transport, adapter_id, _rtc in config.adapters.all_configs():
         known_adapter_ids.add(adapter_id)
 
     # Group issues by route for clearer per-route reporting.
@@ -37,7 +37,6 @@ def _routes_validate(config_path: str | None) -> None:
 
     for route in route_list:
         rid = route.route_id
-        section = f"routes.{rid}"
         rw: list[str] = []
         re_list: list[str] = []
 
@@ -85,10 +84,9 @@ def _routes_validate(config_path: str | None) -> None:
             route_errors[rid] = re_list
 
     # Validate route expansion and expanded ID uniqueness (matches startup).
-    from medre.runtime.route_engine import (
-        build_runtime_routes as _build_runtime_routes,
-        RouteValidationError as _RVE,
-    )
+    from medre.runtime.route_engine import RouteValidationError as _RVE
+    from medre.runtime.route_engine import build_runtime_routes as _build_runtime_routes
+
     try:
         _build_runtime_routes(routes)
     except _RVE as exc:
@@ -161,7 +159,7 @@ def _routes_topology(config_path: str | None) -> None:
 
     # Build adapter inventory for context
     adapter_map: dict[str, str] = {}  # adapter_id → transport
-    for transport, adapter_id, rtc in config.adapters.all_configs():
+    for transport, adapter_id, _rtc in config.adapters.all_configs():
         adapter_map[adapter_id] = transport
 
     print("Route topology:")
@@ -220,13 +218,19 @@ def _routes_topology(config_path: str | None) -> None:
         ):
             policy_parts: list[str] = []
             if route.policy.allowed_event_types:
-                policy_parts.append(f"events={','.join(route.policy.allowed_event_types)}")
+                policy_parts.append(
+                    f"events={','.join(route.policy.allowed_event_types)}"
+                )
             if route.policy.sender_allowlist:
-                policy_parts.append(f"senders={','.join(route.policy.sender_allowlist)}")
+                policy_parts.append(
+                    f"senders={','.join(route.policy.sender_allowlist)}"
+                )
             if route.policy.room_allowlist:
                 policy_parts.append(f"rooms={','.join(route.policy.room_allowlist)}")
             if route.policy.channel_allowlist:
-                policy_parts.append(f"channels={','.join(route.policy.channel_allowlist)}")
+                policy_parts.append(
+                    f"channels={','.join(route.policy.channel_allowlist)}"
+                )
             print(f"    policy: {', '.join(policy_parts)}")
 
         # Filter hooks
@@ -256,7 +260,7 @@ def _routes_list(config_path: str | None) -> None:
 
     # Build adapter inventory for cross-reference
     adapter_map: dict[str, str] = {}
-    for transport, adapter_id, rtc in config.adapters.all_configs():
+    for transport, adapter_id, _rtc in config.adapters.all_configs():
         adapter_map[adapter_id] = transport
 
     print("Configured routes:")
@@ -285,16 +289,26 @@ def _routes_list(config_path: str | None) -> None:
             print(f"    filter_hooks:  [{', '.join(route.filter_hooks)}]")
 
         if route.policy:
-            print(f"    policy:")
+            print("    policy:")
             if route.policy.allowed_event_types:
-                print(f"      event_types:  [{', '.join(route.policy.allowed_event_types)}]")
+                print(
+                    f"      event_types:  [{', '.join(route.policy.allowed_event_types)}]"
+                )
             if route.policy.allowed_source_adapters:
-                print(f"      src_adapters: [{', '.join(route.policy.allowed_source_adapters)}]")
+                print(
+                    f"      src_adapters: [{', '.join(route.policy.allowed_source_adapters)}]"
+                )
             if route.policy.allowed_dest_adapters:
-                print(f"      dst_adapters: [{', '.join(route.policy.allowed_dest_adapters)}]")
+                print(
+                    f"      dst_adapters: [{', '.join(route.policy.allowed_dest_adapters)}]"
+                )
             if route.policy.room_allowlist:
                 print(f"      rooms:        [{', '.join(route.policy.room_allowlist)}]")
             if route.policy.channel_allowlist:
-                print(f"      channels:     [{', '.join(route.policy.channel_allowlist)}]")
+                print(
+                    f"      channels:     [{', '.join(route.policy.channel_allowlist)}]"
+                )
             if route.policy.sender_allowlist:
-                print(f"      senders:      [{', '.join(route.policy.sender_allowlist)}]")
+                print(
+                    f"      senders:      [{', '.join(route.policy.sender_allowlist)}]"
+                )

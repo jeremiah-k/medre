@@ -21,10 +21,8 @@ from medre.core.events import (
     NativeMessageRef,
 )
 from medre.core.storage.backend import StorageBackend
-from medre.runtime.trace import (
-    assemble_event_timeline as _assemble_event_entries,
-    assemble_replay_timeline as _assemble_replay_entries,
-)
+from medre.runtime.trace import assemble_event_timeline as _assemble_event_entries
+from medre.runtime.trace import assemble_replay_timeline as _assemble_replay_entries
 
 __all__ = [
     "assemble_event_timeline",
@@ -103,8 +101,8 @@ async def assemble_event_timeline(
     receipts: list[DeliveryReceipt] = await storage.list_receipts_for_event(
         event_id,
     )
-    native_refs: list[NativeMessageRef] = (
-        await storage.list_native_refs_for_event(event_id)
+    native_refs: list[NativeMessageRef] = await storage.list_native_refs_for_event(
+        event_id
     )
     relations = await storage.list_relations(event_id)
 
@@ -135,7 +133,10 @@ async def assemble_event_timeline(
 
     # -- Delegate timeline construction --
     timeline_entries = _assemble_event_entries(
-        event, receipts, native_refs, relations,
+        event,
+        receipts,
+        native_refs,
+        relations,
     )
 
     return {
@@ -173,8 +174,8 @@ async def assemble_replay_timeline(
     - **timeline_entries**: flat list built by
       :func:`medre.runtime.trace.assemble_replay_timeline`.
     """
-    receipts: list[DeliveryReceipt] = (
-        await storage.list_receipts_by_replay_run(replay_run_id)
+    receipts: list[DeliveryReceipt] = await storage.list_receipts_by_replay_run(
+        replay_run_id
     )
     if not receipts:
         return None
@@ -188,7 +189,9 @@ async def assemble_replay_timeline(
             event_cache[eid] = ev
 
     timeline_entries = _assemble_replay_entries(
-        replay_run_id, receipts, event_cache,
+        replay_run_id,
+        receipts,
+        event_cache,
     )
 
     return {

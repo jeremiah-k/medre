@@ -31,7 +31,6 @@ from typing import Protocol, runtime_checkable
 
 from medre.core.events import CanonicalEvent
 
-
 # ---------------------------------------------------------------------------
 # Rendering result
 # ---------------------------------------------------------------------------
@@ -269,7 +268,11 @@ class RenderingPipeline:
             If no registered renderer can handle the event.
         """
         # Resolve platform from explicit param or internal registry.
-        platform = target_platform if target_platform is not None else self._adapter_platforms.get(target_adapter)
+        platform = (
+            target_platform
+            if target_platform is not None
+            else self._adapter_platforms.get(target_adapter)
+        )
 
         for _pri, _seq, renderer in self._renderers:
             if renderer.can_render(event, target_adapter, platform):

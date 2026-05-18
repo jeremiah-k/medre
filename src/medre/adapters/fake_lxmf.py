@@ -24,6 +24,7 @@ Usage
 >>> delivery = await adapter.deliver(result)
 >>> assert adapter.delivered_payloads
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -31,6 +32,9 @@ import logging
 from types import MappingProxyType
 from typing import Any
 
+from medre.adapters.lxmf.codec import LxmfCodec
+from medre.adapters.lxmf.packet_classifier import LxmfPacketClassifier
+from medre.config.adapters.lxmf import LxmfConfig
 from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
@@ -41,9 +45,6 @@ from medre.core.contracts.adapter import (
     AdapterRole,
     AdapterSendError,
 )
-from medre.adapters.lxmf.codec import LxmfCodec
-from medre.config.adapters.lxmf import LxmfConfig
-from medre.adapters.lxmf.packet_classifier import LxmfPacketClassifier
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.rendering.renderer import RenderingResult
 
@@ -61,7 +62,8 @@ def _trim(lst: list[Any], maxsize: int = _MAX_FAKE_HISTORY) -> None:
         del lst[:excess]
         _logger.warning(
             "Fake adapter history trimmed %d oldest entries (cap=%d)",
-            excess, maxsize,
+            excess,
+            maxsize,
         )
 
 
@@ -117,14 +119,16 @@ class FakeLxmfClient:
         raw = f"lxmf-fake-{counter}".encode()
         message_id = hashlib.sha256(raw).hexdigest()
 
-        self.sent_messages.append({
-            "text": text,
-            "title": title,
-            "fields": fields,
-            "destination_hash": destination_hash,
-            "message_id": message_id,
-            "counter": counter,
-        })
+        self.sent_messages.append(
+            {
+                "text": text,
+                "title": title,
+                "fields": fields,
+                "destination_hash": destination_hash,
+                "message_id": message_id,
+                "counter": counter,
+            }
+        )
         _trim(self.sent_messages)
         self.sent_count += 1
         return {"message_id": message_id}
@@ -231,9 +235,7 @@ class FakeLxmfAdapter(AdapterContract):
         """Mark the adapter as stopped."""
         self._started = False
         if self.ctx is not None:
-            self.ctx.logger.info(
-                "FakeLxmfAdapter %s stopped", self.adapter_id
-            )
+            self.ctx.logger.info("FakeLxmfAdapter %s stopped", self.adapter_id)
 
     async def health_check(self) -> AdapterInfo:
         """Return a healthy :class:`AdapterInfo` snapshot."""
@@ -301,7 +303,9 @@ class FakeLxmfAdapter(AdapterContract):
             )
 
         if self._deliver_failure:
-            raise AdapterSendError("FakeLxmfAdapter: simulated send failure", transient=True)
+            raise AdapterSendError(
+                "FakeLxmfAdapter: simulated send failure", transient=True
+            )
 
         self.delivered_payloads.append(result)
         _trim(self.delivered_payloads)
@@ -326,12 +330,14 @@ class FakeLxmfAdapter(AdapterContract):
         return AdapterDeliveryResult(
             native_message_id=message_id,
             native_channel_id=None,
-            metadata=MappingProxyType({
-                "lxmf": {
-                    "delivery_state": "outbound",
-                    "delivery_method": delivery_method,
-                },
-            }),
+            metadata=MappingProxyType(
+                {
+                    "lxmf": {
+                        "delivery_state": "outbound",
+                        "delivery_method": delivery_method,
+                    },
+                }
+            ),
         )
 
     # -- Inbound simulation -------------------------------------------------

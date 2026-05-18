@@ -7,19 +7,17 @@
 
 **Non-guarantees (explicit):** MEDRE remains best-effort. The runtime provides no replay deduplication, no exactly-once delivery guarantee, no transactional delivery guarantees, no persistent queue, no per-adapter restart, and no distributed coordination. Radio transports remain probabilistic. No persistent in-flight recovery. No replay resume after shutdown. These are all deferred or out of scope.
 
-
 ## 1. Shutdown Phases
 
 Shutdown proceeds through five ordered phases. Each phase must complete (or time out) before the next begins.
 
-| Phase | Name | Description |
-|-------|------|-------------|
-| 1 | **Signal** | `shutdown_event.set()` — notifies all waiters that shutdown has begun. New event ingestion stops. |
-| 2 | **Stop accepting** | Adapters stop ingesting new events from their transports. In-flight receives are cancelled. |
-| 3 | **Drain** | Pending deliveries in the pipeline are completed or abandoned per per-phase timeout. Controlled by `shutdown_drain_timeout_seconds` in `[runtime.limits]`. |
-| 4 | **Persist** | Receipts, counters, and diagnostic state are flushed to durable storage. |
-| 5 | **Release** | Transport connections, SDK clients, and file handles are released. |
-
+| Phase | Name               | Description                                                                                                                                                |
+| ----- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | **Signal**         | `shutdown_event.set()` — notifies all waiters that shutdown has begun. New event ingestion stops.                                                          |
+| 2     | **Stop accepting** | Adapters stop ingesting new events from their transports. In-flight receives are cancelled.                                                                |
+| 3     | **Drain**          | Pending deliveries in the pipeline are completed or abandoned per per-phase timeout. Controlled by `shutdown_drain_timeout_seconds` in `[runtime.limits]`. |
+| 4     | **Persist**        | Receipts, counters, and diagnostic state are flushed to durable storage.                                                                                   |
+| 5     | **Release**        | Transport connections, SDK clients, and file handles are released.                                                                                         |
 
 ## 2. Adapter Stop Order
 
@@ -37,7 +35,6 @@ This ensures that downstream adapters (which may depend on upstream ones for ack
 
 Individual adapter stop failures are logged but do not prevent other adapters from shutting down.
 
-
 ## 3. Session Stop
 
 Each adapter manages a transport session. On shutdown:
@@ -49,41 +46,38 @@ Each adapter manages a transport session. On shutdown:
 
 Sessions are stopped as part of their adapter's `stop()` method; there is no separate session shutdown phase.
 
-
 ## 4. In-Flight Delivery Handling
 
 When shutdown begins, the following categories of in-flight work exist:
 
-| Category | v1 Behavior | Notes |
-|----------|-------------|-------|
-| Events being received by adapters | Cancelled (task cancellation) | Receipt not written |
-| Events being routed by pipeline | Completed or cancelled within drain timeout | Bounded by `shutdown_drain_timeout_seconds` |
+| Category                           | v1 Behavior                                                                                                               | Notes                                           |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| Events being received by adapters  | Cancelled (task cancellation)                                                                                             | Receipt not written                             |
+| Events being routed by pipeline    | Completed or cancelled within drain timeout                                                                               | Bounded by `shutdown_drain_timeout_seconds`     |
 | Events being delivered to adapters | **Drained** — `PipelineRunner` awaits in-flight deliveries up to `shutdown_drain_timeout_seconds`, then cancels remaining | Delivery semaphore slots are released on cancel |
-| Replay events in progress | Cancelled; receipts preserved for completed deliveries | Replay semaphore released on cancel |
+| Replay events in progress          | Cancelled; receipts preserved for completed deliveries                                                                    | Replay semaphore released on cancel             |
 
 **What is drained vs abandoned:**
 
 - **Drained:** In-flight adapter deliveries. The `PipelineRunner.stop()` method awaits all in-flight delivery tasks for up to `shutdown_drain_timeout_seconds` before cancelling them. Deliveries that complete within the drain window produce normal receipts and outcomes.
 - **Abandoned after timeout:** Deliveries that do not complete within the drain window are cancelled. No retry is attempted for cancelled deliveries. The delivery outcome is recorded as a failure in diagnostics.
 
-
 ## 5. Timeout Behavior
 
 ### Per-phase max time
 
-| Phase | Timeout | Status |
-|-------|---------|--------|
-| Adapter stop | `shutdown_timeout_seconds` (default from config) | Implemented |
-| Pipeline runner stop | Same global timeout | Implemented |
-| Delivery drain | `shutdown_drain_timeout_seconds` (from `[runtime.limits]`, default 5.0s) | Implemented |
-| Storage close | Same global timeout | Implemented |
+| Phase                | Timeout                                                                  | Status      |
+| -------------------- | ------------------------------------------------------------------------ | ----------- |
+| Adapter stop         | `shutdown_timeout_seconds` (default from config)                         | Implemented |
+| Pipeline runner stop | Same global timeout                                                      | Implemented |
+| Delivery drain       | `shutdown_drain_timeout_seconds` (from `[runtime.limits]`, default 5.0s) | Implemented |
+| Storage close        | Same global timeout                                                      | Implemented |
 
 ### Overall shutdown budget
 
 The overall shutdown budget is `shutdown_timeout_seconds` from `RuntimeConfig`. This timeout applies to the entire `stop()` call. Individual adapter stops use the same timeout value.
 
 If the overall budget is exceeded, `RuntimeShutdownError` is raised with a summary of which subsystems failed. The runtime does not force-kill; it relies on the process exit to clean up.
-
 
 ## 6. Replay In-Progress
 
@@ -93,7 +87,6 @@ When shutdown occurs during an active replay:
 - **Receipts are preserved.** Any receipts written to storage before shutdown remain durable. Partially-completed replay runs do not corrupt existing receipt data.
 - **No replay-specific drain.** Replay does not have its own shutdown hook. The replay engine is not stopped explicitly during shutdown — it relies on the pipeline and storage being torn down.
 
-
 ## 7. Route Execution In-Progress
 
 When shutdown occurs during route execution (pipeline processing an event):
@@ -102,22 +95,20 @@ When shutdown occurs during route execution (pipeline processing an event):
 - **No retry on shutdown.** If a delivery fails due to shutdown, it is not retried. The delivery outcome is recorded as a failure in diagnostics.
 - **No deduplication concern.** Since shutdown is a terminal state, there is no risk of duplicate delivery on restart (the runtime does not support hot restart).
 
-
 ## 8. What Must Persist
 
 The following data must be durable across shutdown:
 
-| Data | Storage | Persisted on shutdown? |
-|------|---------|----------------------|
-| Delivery receipts | SQLite / memory | Yes — written on every successful delivery |
-| Event store (canonical events) | SQLite / memory | Yes — written on append |
-| Route statistics | In-memory (RouteStats) | **No** — lost on shutdown |
-| Diagnostic counters | In-memory (Diagnostician) | **No** — lost on shutdown |
-| Adapter state (sync tokens, positions) | Per-adapter (SDK-managed) | Depends on adapter |
-| Replay run results | Ephemeral (streamed) | No — replay results are not persisted |
+| Data                                   | Storage                   | Persisted on shutdown?                     |
+| -------------------------------------- | ------------------------- | ------------------------------------------ |
+| Delivery receipts                      | SQLite / memory           | Yes — written on every successful delivery |
+| Event store (canonical events)         | SQLite / memory           | Yes — written on append                    |
+| Route statistics                       | In-memory (RouteStats)    | **No** — lost on shutdown                  |
+| Diagnostic counters                    | In-memory (Diagnostician) | **No** — lost on shutdown                  |
+| Adapter state (sync tokens, positions) | Per-adapter (SDK-managed) | Depends on adapter                         |
+| Replay run results                     | Ephemeral (streamed)      | No — replay results are not persisted      |
 
 Critical state (events, receipts) is written synchronously during normal operation, so shutdown does not need a separate flush step for these. In-memory counters and statistics are intentionally ephemeral.
-
 
 ## 9. Future Per-Adapter Restart
 
@@ -131,7 +122,6 @@ A future enhancement may support per-adapter restart without shutting down the e
 - Adapter restart preserves its configured routes and delivery plans.
 
 This is not implemented in the current tranche. The current runtime only supports full start/stop cycles.
-
 
 ## 10. v1 Implementation
 
@@ -155,12 +145,12 @@ RUNNING → STOPPING → STOPPED
                    ↘ FAILED  (if errors during shutdown)
 ```
 
-| State | Description |
-|-------|-------------|
-| `RUNNING` | Normal operation. All adapters active. |
+| State      | Description                                                                                                                                                                          |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `RUNNING`  | Normal operation. All adapters active.                                                                                                                                               |
 | `STOPPING` | `stop()` has been called. Capacity controller stops accepting work, in-flight work is drained, adapters are stopped in reverse order, pipeline runner is stopped, storage is closed. |
-| `STOPPED` | Shutdown completed without errors. |
-| `FAILED` | Shutdown completed with one or more subsystem errors. `RuntimeShutdownError` is raised. |
+| `STOPPED`  | Shutdown completed without errors.                                                                                                                                                   |
+| `FAILED`   | Shutdown completed with one or more subsystem errors. `RuntimeShutdownError` is raised.                                                                                              |
 
 The `RuntimeState` enum does **not** have substates for individual shutdown phases (e.g., there is no `SHUTDOWN_SIGNALLED`, `ADAPTERS_STOPPING`, `PIPELINE_STOPPING`, or `STORAGE_CLOSING` state). The runtime transitions directly from `RUNNING` to `STOPPING` when `stop()` is called, and from `STOPPING` to either `STOPPED` or `FAILED` when `stop()` completes. Phase-level progress is observable through structured logging (see §10.3), not through state transitions.
 
@@ -205,7 +195,6 @@ During shutdown, the following is logged:
 
 See Contract 59 (Runtime Durability) for crash recovery expectations and Contract 60 (Runtime Cancellation) for detailed cancellation semantics.
 
-
 ## 11. Explicit Non-Goals
 
 The following are explicitly out of scope for the current implementation:
@@ -214,7 +203,6 @@ The following are explicitly out of scope for the current implementation:
 - **Complex graceful drain.** There is no mechanism to wait for in-flight deliveries to complete with per-delivery timeouts, backoff, or partial completion tracking.
 - **Hot restart / zero-downtime restart.** The runtime is a single-process application with no restart coordination.
 - **State migration on shutdown.** In-memory state (route stats, diagnostic counters) is intentionally not persisted.
-
 
 ## 12. v2: Queue + Replay Coordination
 
@@ -253,16 +241,16 @@ Replay work that completes within the drain window produces normal results. Repl
 
 The shutdown sequence in v2 is:
 
-| Step | Action | Detail |
-|------|--------|--------|
-| 1 | Stop accepting work | `capacity_controller.stop_accepting()` — blocks new delivery and replay |
-| 2 | Drain in-flight work | Poll `capacity_controller.snapshot()` until both `delivery_current` and `replay_current` reach 0, or timeout |
-| 3 | Signal shutdown | `shutdown_event.set()` — notifies adapters and waiters |
-| 4 | Stop adapters | Reverse start order, each with `shutdown_timeout_seconds` |
-| 5 | Stop pipeline runner | Remove middleware, release resources |
-| 6 | Close storage | Flush and release SQLite resources |
+| Step | Action               | Detail                                                                                                       |
+| ---- | -------------------- | ------------------------------------------------------------------------------------------------------------ |
+| 1    | Stop accepting work  | `capacity_controller.stop_accepting()` — blocks new delivery and replay                                      |
+| 2    | Drain in-flight work | Poll `capacity_controller.snapshot()` until both `delivery_current` and `replay_current` reach 0, or timeout |
+| 3    | Signal shutdown      | `shutdown_event.set()` — notifies adapters and waiters                                                       |
+| 4    | Stop adapters        | Reverse start order, each with `shutdown_timeout_seconds`                                                    |
+| 5    | Stop pipeline runner | Remove middleware, release resources                                                                         |
+| 6    | Close storage        | Flush and release SQLite resources                                                                           |
 
-**Key change from v1:** In v1, the pipeline runner's `stop()` awaited in-flight deliveries independently. In v2, the drain happens at the `CapacityController` level *before* adapters are stopped. This ensures that:
+**Key change from v1:** In v1, the pipeline runner's `stop()` awaited in-flight deliveries independently. In v2, the drain happens at the `CapacityController` level _before_ adapters are stopped. This ensures that:
 
 - Delivery capacity slots are released before adapters tear down their transport connections.
 - Replay capacity slots are included in the drain check.
@@ -305,13 +293,12 @@ In-flight deliveries and replay events that are abandoned at shutdown are **not*
 - Replay may be re-triggered manually by the operator, but it processes from storage (not from the abandoned in-flight set).
 - Receipts written before shutdown are preserved in storage. Partially-completed deliveries are not retried.
 
-
 ## 13. Cross-References
 
-| Topic | Contract |
-|-------|----------|
-| CapacityController, delivery/replay capacity bounds, exhaustion behavior | Contract 53 (Resource Control) |
-| Runtime assembly, `RuntimeState` lifecycle, startup classification | Contract 47 (Runtime Assembly) |
-| Durability semantics, what survives crash, process-local vs persisted | Contract 59 (Runtime Durability) |
+| Topic                                                                         | Contract                           |
+| ----------------------------------------------------------------------------- | ---------------------------------- |
+| CapacityController, delivery/replay capacity bounds, exhaustion behavior      | Contract 53 (Resource Control)     |
+| Runtime assembly, `RuntimeState` lifecycle, startup classification            | Contract 47 (Runtime Assembly)     |
+| Durability semantics, what survives crash, process-local vs persisted         | Contract 59 (Runtime Durability)   |
 | Cancellation semantics, CapacityController stop behavior, stop-during-startup | Contract 60 (Runtime Cancellation) |
-| Persistence timing, WAL consistency, receipt durability | Contract 55 (Runtime Persistence) |
+| Persistence timing, WAL consistency, receipt durability                       | Contract 55 (Runtime Persistence)  |

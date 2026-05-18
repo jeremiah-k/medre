@@ -23,15 +23,14 @@ from datetime import datetime, timezone
 
 import pytest
 
-from medre.core.contracts.adapter import AdapterPermanentError, AdapterSendError
 from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
-from medre.config.adapters.meshtastic import MeshtasticConfig
-from medre.adapters.meshtastic.codec import MeshtasticCodec
-from medre.adapters.meshtastic.renderer import MeshtasticRenderer
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+from medre.adapters.meshtastic.codec import MeshtasticCodec
 from medre.adapters.meshtastic.errors import MeshtasticSendError
-from medre.adapters.meshtastic.packet_classifier import MeshtasticPacketClassifier
 from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
+from medre.adapters.meshtastic.renderer import MeshtasticRenderer
+from medre.config.adapters.meshtastic import MeshtasticConfig
+from medre.core.contracts.adapter import AdapterPermanentError, AdapterSendError
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.rendering.renderer import RenderingResult
 
@@ -53,33 +52,36 @@ class TestCoreMeshtasticIsolation:
     def test_core_events_does_not_import_meshtastic(self) -> None:
         """medre.core.events has no meshtastic references."""
         import medre.core.events as events_mod
+
         source = _read_module_source(events_mod)
         assert "meshtastic" not in source.lower()
 
     def test_core_rendering_does_not_import_meshtastic(self) -> None:
         """medre.core.rendering.renderer has no meshtastic references."""
         import medre.core.rendering.renderer as renderer_mod
+
         source = _read_module_source(renderer_mod)
         assert "meshtastic" not in source.lower()
 
     def test_core_engine_does_not_import_meshtastic(self) -> None:
         """medre.core.engine.pipeline has no meshtastic references."""
         import medre.core.engine.pipeline as pipeline_mod
+
         source = _read_module_source(pipeline_mod)
         assert "meshtastic" not in source.lower()
 
     def test_core_import_does_not_load_meshtastic_modules(self) -> None:
         """Importing medre.core does not bring Meshtastic modules into sys.modules."""
-        import medre.core
         meshtastic_modules = [
-            k for k in sys.modules
-            if "meshtastic" in k.lower() and "medre" in k.lower()
+            k for k in sys.modules if "meshtastic" in k.lower() and "medre" in k.lower()
         ]
         # Filter out modules that were already imported by this test file
-        assert not any(
-            m.startswith("medre.adapters.meshtastic")
-            for m in meshtastic_modules
-        ) or True  # This test is advisory — the import boundary is enforced
+        assert (
+            not any(
+                m.startswith("medre.adapters.meshtastic") for m in meshtastic_modules
+            )
+            or True
+        )  # This test is advisory — the import boundary is enforced
 
 
 # ===================================================================
@@ -92,65 +94,75 @@ class TestMeshtasticMatrixIsolation:
 
     def test_meshtastic_adapter_does_not_import_matrix(self) -> None:
         import medre.adapters.meshtastic.adapter as mod
+
         source = _read_module_source(mod)
         # Check for any import of medre.adapters.matrix or matrix submodules
         # Exclude the word "matrix" appearing in unrelated contexts
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "matrix" not in line.lower(), (
-                f"Meshtastic adapter must not import Matrix code; found: {line!r}"
-            )
+            assert (
+                "matrix" not in line.lower()
+            ), f"Meshtastic adapter must not import Matrix code; found: {line!r}"
 
     def test_meshtastic_codec_does_not_import_matrix(self) -> None:
         import medre.adapters.meshtastic.codec as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "matrix" not in line.lower(), (
-                f"Meshtastic codec must not import Matrix code; found: {line!r}"
-            )
+            assert (
+                "matrix" not in line.lower()
+            ), f"Meshtastic codec must not import Matrix code; found: {line!r}"
 
     def test_meshtastic_renderer_does_not_import_matrix(self) -> None:
         import medre.adapters.meshtastic.renderer as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "matrix" not in line.lower(), (
-                f"Meshtastic renderer must not import Matrix code; found: {line!r}"
-            )
+            assert (
+                "matrix" not in line.lower()
+            ), f"Meshtastic renderer must not import Matrix code; found: {line!r}"
 
     def test_meshtastic_packet_classifier_does_not_import_matrix(self) -> None:
         import medre.adapters.meshtastic.packet_classifier as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "matrix" not in line.lower(), (
-                f"Packet classifier must not import Matrix code; found: {line!r}"
-            )
+            assert (
+                "matrix" not in line.lower()
+            ), f"Packet classifier must not import Matrix code; found: {line!r}"
 
     def test_meshtastic_queue_does_not_import_matrix(self) -> None:
         import medre.adapters.meshtastic.queue as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "matrix" not in line.lower(), (
-                f"Meshtastic queue must not import Matrix code; found: {line!r}"
-            )
+            assert (
+                "matrix" not in line.lower()
+            ), f"Meshtastic queue must not import Matrix code; found: {line!r}"
 
 
 # ===================================================================
@@ -181,6 +193,7 @@ class TestMeshtasticCodecIsolation:
 
     def test_codec_does_not_import_routing(self) -> None:
         import medre.adapters.meshtastic.codec as mod
+
         source = _read_module_source(mod)
         assert "routing" not in source
         assert "Router" not in source
@@ -189,6 +202,7 @@ class TestMeshtasticCodecIsolation:
 
     def test_codec_source_has_no_route_or_deliver_definitions(self) -> None:
         import medre.adapters.meshtastic.codec as mod
+
         source = _read_module_source(mod)
         # Pattern check for method definitions
         method_defs = re.findall(r"def\s+(\w+)", source)
@@ -217,15 +231,17 @@ class TestMeshtasticRendererIsolation:
 
     def test_renderer_source_does_not_import_deliver(self) -> None:
         import medre.adapters.meshtastic.renderer as mod
+
         source = _read_module_source(mod)
         import_lines = [
-            line.strip() for line in source.splitlines()
+            line.strip()
+            for line in source.splitlines()
             if line.strip().startswith(("import ", "from "))
         ]
         for line in import_lines:
-            assert "deliver" not in line.lower(), (
-                f"Renderer must not import delivery code; found: {line!r}"
-            )
+            assert (
+                "deliver" not in line.lower()
+            ), f"Renderer must not import delivery code; found: {line!r}"
 
     async def test_renderer_returns_rendering_result_not_delivery(self) -> None:
         renderer = MeshtasticRenderer()
@@ -316,7 +332,9 @@ class TestMeshtasticAdapterDeliveryBoundary:
             payload={"body": "hello"},
             metadata=EventMetadata(),
         )
-        with pytest.raises((TypeError, AdapterPermanentError), match="RenderingResult only"):
+        with pytest.raises(
+            (TypeError, AdapterPermanentError), match="RenderingResult only"
+        ):
             await adapter.deliver(event)
 
 
@@ -503,6 +521,7 @@ class TestMeshtasticAdapterLifecycleBoundaries:
     async def test_queue_owns_pacing_not_pipeline(self) -> None:
         """Queue owns pacing; process_one without send_fn does not sleep."""
         import time
+
         queue = MeshtasticOutboundQueue(delay_between_messages=5.0)
         await queue.enqueue({"text": "test"}, 0)
 
@@ -515,6 +534,7 @@ class TestMeshtasticAdapterLifecycleBoundaries:
     async def test_queue_pacing_applies_only_with_send_fn(self) -> None:
         """Pacing delay only applies when send_fn is provided."""
         import time
+
         queue = MeshtasticOutboundQueue(delay_between_messages=0.05)
         await queue.enqueue({"text": "test1"}, 0)
 
@@ -535,9 +555,7 @@ class TestMeshtasticAdapterLifecycleBoundaries:
         assert elapsed_first < 0.05
         assert elapsed_second >= 0.03  # Should have some delay
 
-    async def test_idempotent_start_preserves_state(
-        self, make_adapter_context
-    ) -> None:
+    async def test_idempotent_start_preserves_state(self, make_adapter_context) -> None:
         """Double start does not create a new client or reset state."""
         config = MeshtasticConfig(adapter_id="mesh-1")
         adapter = MeshtasticAdapter(config)
@@ -547,9 +565,7 @@ class TestMeshtasticAdapterLifecycleBoundaries:
         await adapter.start(ctx)
         assert adapter._started == state_after_first
 
-    async def test_idempotent_stop_clears_state(
-        self, make_adapter_context
-    ) -> None:
+    async def test_idempotent_stop_clears_state(self, make_adapter_context) -> None:
         """Double stop does not raise and state remains cleared."""
         config = MeshtasticConfig(adapter_id="mesh-1")
         adapter = MeshtasticAdapter(config)
@@ -593,9 +609,7 @@ class TestMeshtasticCallbackBoundary:
         assert len(inbound_collector.events) == 1
         assert inbound_collector.events[0].payload["body"] == "via callback"
 
-    async def test_background_tasks_drained_on_stop(
-        self, make_adapter_context
-    ) -> None:
+    async def test_background_tasks_drained_on_stop(self, make_adapter_context) -> None:
         """All background tasks are drained when stop() is called."""
         config = MeshtasticConfig(adapter_id="mesh-drain")
         adapter = MeshtasticAdapter(config)

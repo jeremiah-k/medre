@@ -43,9 +43,9 @@ import pytest
 
 from tests.helpers.live_config import (
     all_live_env_set,
+    build_live_bridge_runtime_config,
     matrix_env_set,
     meshtastic_env_set,
-    build_live_bridge_runtime_config,
     write_live_bridge_toml,
 )
 
@@ -61,9 +61,7 @@ pytestmark = pytest.mark.live
 # ---------------------------------------------------------------------------
 require_live = pytest.mark.skipif(
     not all_live_env_set(),
-    reason=(
-        "Set all MATRIX_* and MESHTASTIC_* env vars to run live bridge tests"
-    ),
+    reason=("Set all MATRIX_* and MESHTASTIC_* env vars to run live bridge tests"),
 )
 
 require_matrix = pytest.mark.skipif(
@@ -86,6 +84,7 @@ require_meshtastic = pytest.mark.skipif(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_matrix_context():
     """Build an AdapterContext for the Matrix side of the live bridge."""
@@ -141,6 +140,7 @@ class TestLiveBridgeConfig:
     def test_config_toml_round_trip(self, tmp_path: Path) -> None:
         """Write TOML via write_live_bridge_toml → load_config → valid RuntimeConfig."""
         import tomllib
+
         from medre.config.loader import load_config
 
         toml_path = write_live_bridge_toml(tmp_path)
@@ -165,50 +165,57 @@ class TestLiveBridgeConfig:
         """Parse examples/configs/live-matrix-meshtastic.toml and verify routes exist."""
         import tomllib
 
-        examples_path = Path(__file__).resolve().parent.parent / "examples" / "configs" / "live-matrix-meshtastic.toml"
+        examples_path = (
+            Path(__file__).resolve().parent.parent
+            / "examples"
+            / "configs"
+            / "live-matrix-meshtastic.toml"
+        )
         raw = examples_path.read_text(encoding="utf-8")
         data = tomllib.loads(raw)
 
-        assert "routes" in data, "live-matrix-meshtastic.toml must have a [routes] section"
+        assert (
+            "routes" in data
+        ), "live-matrix-meshtastic.toml must have a [routes] section"
         routes = data["routes"]
         assert len(routes) >= 1, "Expected at least one route"
 
         # Verify each route has required fields.
         for route_id, route_table in routes.items():
-            assert "source_adapters" in route_table, (
-                f"Route {route_id!r} missing source_adapters"
-            )
-            assert "dest_adapters" in route_table, (
-                f"Route {route_id!r} missing dest_adapters"
-            )
+            assert (
+                "source_adapters" in route_table
+            ), f"Route {route_id!r} missing source_adapters"
+            assert (
+                "dest_adapters" in route_table
+            ), f"Route {route_id!r} missing dest_adapters"
 
         # Verify targeting fields on specific routes.
         assert "matrix_to_radio" in routes, "Expected 'matrix_to_radio' route"
         m2r = routes["matrix_to_radio"]
-        assert "source_room" in m2r, (
-            "Route 'matrix_to_radio' missing source_room targeting field"
-        )
-        assert "dest_channel" in m2r, (
-            "Route 'matrix_to_radio' missing dest_channel targeting field"
-        )
+        assert (
+            "source_room" in m2r
+        ), "Route 'matrix_to_radio' missing source_room targeting field"
+        assert (
+            "dest_channel" in m2r
+        ), "Route 'matrix_to_radio' missing dest_channel targeting field"
 
         assert "radio_to_matrix" in routes, "Expected 'radio_to_matrix' route"
         r2m = routes["radio_to_matrix"]
-        assert "source_channel" in r2m, (
-            "Route 'radio_to_matrix' missing source_channel targeting field"
-        )
-        assert "dest_room" in r2m, (
-            "Route 'radio_to_matrix' missing dest_room targeting field"
-        )
+        assert (
+            "source_channel" in r2m
+        ), "Route 'radio_to_matrix' missing source_channel targeting field"
+        assert (
+            "dest_room" in r2m
+        ), "Route 'radio_to_matrix' missing dest_room targeting field"
 
         # Verify Matrix adapter has room_allowlist.
         adapters = data.get("adapters", {})
         matrix_adapters = adapters.get("matrix", {})
         assert "matrix" in matrix_adapters, "Expected [adapters.matrix.matrix] section"
         matrix_cfg = matrix_adapters["matrix"]
-        assert "room_allowlist" in matrix_cfg, (
-            "Matrix adapter config missing room_allowlist"
-        )
+        assert (
+            "room_allowlist" in matrix_cfg
+        ), "Matrix adapter config missing room_allowlist"
 
 
 # ===========================================================================
@@ -238,9 +245,7 @@ class TestLiveBridgeDiagnostics:
         await adapter.start(ctx)
         try:
             info = await adapter.health_check()
-            assert info.health == "healthy", (
-                f"Expected healthy, got {info.health!r}"
-            )
+            assert info.health == "healthy", f"Expected healthy, got {info.health!r}"
             assert info.platform == "matrix"
         finally:
             await adapter.stop()
@@ -260,9 +265,10 @@ class TestLiveBridgeDiagnostics:
             info = await adapter.health_check()
             # Meshtastic may report "healthy" or "unknown" depending on
             # connection establishment timing.
-            assert info.health in ("healthy", "unknown"), (
-                f"Expected healthy or unknown, got {info.health!r}"
-            )
+            assert info.health in (
+                "healthy",
+                "unknown",
+            ), f"Expected healthy or unknown, got {info.health!r}"
             assert info.platform == "meshtastic"
         finally:
             await adapter.stop()
@@ -341,8 +347,7 @@ class TestMatrixToMeshtasticSmoke:
                 payload={
                     "msgtype": "m.text",
                     "body": (
-                        f"MEDRE live bridge smoke test (ts={ts}) "
-                        f"— safe to ignore"
+                        f"MEDRE live bridge smoke test (ts={ts}) " f"— safe to ignore"
                     ),
                 },
                 metadata={
@@ -352,9 +357,9 @@ class TestMatrixToMeshtasticSmoke:
             )
             delivery = await adapter.deliver(result)
             assert delivery is not None, "deliver() returned None"
-            assert delivery.native_message_id is not None, (
-                "native_message_id is None — homeserver did not return event_id"
-            )
+            assert (
+                delivery.native_message_id is not None
+            ), "native_message_id is None — homeserver did not return event_id"
             assert delivery.native_message_id.startswith("$"), (
                 f"Matrix event_id should start with '$', "
                 f"got {delivery.native_message_id!r}"
@@ -368,9 +373,7 @@ class TestMatrixToMeshtasticSmoke:
 # ===========================================================================
 
 
-@pytest.mark.skip(
-    reason="Meshtastic → Matrix automated inbound not yet reliable"
-)
+@pytest.mark.skip(reason="Meshtastic → Matrix automated inbound not yet reliable")
 class TestMeshtasticToMatrix:
     """Placeholder for Meshtastic→Matrix inbound tests.
 

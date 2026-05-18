@@ -14,20 +14,18 @@ from typing import Any
 import pytest
 
 from medre.runtime.docker_bridge_artifacts import (
+    _LIMITATIONS,
     ARTIFACT_PLAN,
     SUPPORTED_SCENARIOS,
+    _parse_pytest_output,
+    _scenario_test_selectors,
     build_summary,
     collect_docker_bridge_artifacts,
     create_run_directory,
     redact_config_snapshot,
     write_summary,
-    _parse_pytest_output,
-    _scenario_test_selectors,
-    _LIMITATIONS,
 )
-
-from tests.helpers.docker_artifacts import _fixed_now, tmp_base
-
+from tests.helpers.docker_artifacts import _fixed_now
 
 # ---------------------------------------------------------------------------
 # create_run_directory
@@ -384,8 +382,7 @@ class TestCollectDockerBridgeArtifacts:
 
     def test_passed_run_writes_summary(self, tmp_base: Path) -> None:
         stdout = (
-            "test_synapse_connectivity.py::test_connect PASSED\n"
-            "1 passed in 10.5s\n"
+            "test_synapse_connectivity.py::test_connect PASSED\n" "1 passed in 10.5s\n"
         )
         mock_runner, _ = self._make_mock_runner(stdout=stdout)
 
@@ -445,7 +442,8 @@ class TestCollectDockerBridgeArtifacts:
 
     def test_captures_log_artifacts(self, tmp_base: Path) -> None:
         mock_runner, _ = self._make_mock_runner(
-            stdout="stdout content", stderr="stderr content",
+            stdout="stdout content",
+            stderr="stderr content",
         )
 
         summary = collect_docker_bridge_artifacts(
@@ -463,6 +461,7 @@ class TestCollectDockerBridgeArtifacts:
 
     def test_timeout_produces_failed_summary(self, tmp_base: Path) -> None:
         """When pytest times out, summary should have failed status."""
+
         def _timeout_runner(cmd, env, timeout, cwd):
             raise TimeoutError("subprocess timed out")
 
@@ -497,10 +496,7 @@ class TestCollectDockerBridgeArtifacts:
         assert summary["matrix"]["room"] is not None
 
     def test_extracts_fallback_ingress_path(self, tmp_base: Path) -> None:
-        stdout = (
-            "direct _on_room_message fallback\n"
-            "1 passed in 10.0s\n"
-        )
+        stdout = "direct _on_room_message fallback\n" "1 passed in 10.0s\n"
         mock_runner, _ = self._make_mock_runner(stdout=stdout)
 
         summary = collect_docker_bridge_artifacts(
@@ -513,11 +509,7 @@ class TestCollectDockerBridgeArtifacts:
         assert summary["matrix"]["ingress_path"] == "direct_on_room_message_fallback"
 
     def test_extracts_meshtastic_outbound(self, tmp_base: Path) -> None:
-        stdout = (
-            "packet_id=42\n"
-            "packet_id: 99\n"
-            "1 passed in 10.0s\n"
-        )
+        stdout = "packet_id=42\n" "packet_id: 99\n" "1 passed in 10.0s\n"
         mock_runner, _ = self._make_mock_runner(stdout=stdout)
 
         summary = collect_docker_bridge_artifacts(
@@ -580,6 +572,7 @@ class TestCollectDockerBridgeArtifacts:
 
     def test_file_not_found_produces_failed(self, tmp_base: Path) -> None:
         """When pytest binary is missing, summary should still be written."""
+
         def _missing_runner(cmd, env, timeout, cwd):
             raise FileNotFoundError("python not found")
 

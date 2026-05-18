@@ -6,35 +6,32 @@
 
 Every agent or document that references MEDRE storage paths must defer to this contract. If another document contradicts this contract, this contract wins.
 
-
 ## 1. XDG Path Model
 
 When `MEDRE_HOME` is not set, MEDRE follows the XDG Base Directory Specification. Each category resolves independently:
 
-| Category | Default Path | XDG Override |
-|----------|-------------|--------------|
-| Config | `~/.config/medre/` | `$XDG_CONFIG_HOME/medre/` |
-| State | `~/.local/state/medre/` | `$XDG_STATE_HOME/medre/` |
-| Data | `~/.local/share/medre/` | `$XDG_DATA_HOME/medre/` |
-| Cache | `~/.cache/medre/` | `$XDG_CACHE_HOME/medre/` |
+| Category | Default Path            | XDG Override              |
+| -------- | ----------------------- | ------------------------- |
+| Config   | `~/.config/medre/`      | `$XDG_CONFIG_HOME/medre/` |
+| State    | `~/.local/state/medre/` | `$XDG_STATE_HOME/medre/`  |
+| Data     | `~/.local/share/medre/` | `$XDG_DATA_HOME/medre/`   |
+| Cache    | `~/.cache/medre/`       | `$XDG_CACHE_HOME/medre/`  |
 
 Throughout this document, `{state}` means the resolved state directory (XDG or MEDRE_HOME).
-
 
 ## 2. MEDRE_HOME (Single-Directory Override)
 
 When `MEDRE_HOME` is set, all categories resolve under one root:
 
-| Category | Path |
-|----------|------|
-| Config | `$MEDRE_HOME/config.toml` |
-| State | `$MEDRE_HOME/state/` |
-| Data | `$MEDRE_HOME/data/` |
-| Cache | `$MEDRE_HOME/cache/` |
-| Logs | `$MEDRE_HOME/logs/` |
+| Category | Path                      |
+| -------- | ------------------------- |
+| Config   | `$MEDRE_HOME/config.toml` |
+| State    | `$MEDRE_HOME/state/`      |
+| Data     | `$MEDRE_HOME/data/`       |
+| Cache    | `$MEDRE_HOME/cache/`      |
+| Logs     | `$MEDRE_HOME/logs/`       |
 
 Use this mode for Docker, Kubernetes, and portable deployments.
-
 
 ## 3. Global Runtime Storage
 
@@ -59,7 +56,6 @@ Global log file: `{state}/logs/medre.log`
 
 Per-adapter log files are a future capability; they do not exist today.
 
-
 ## 4. Per-Adapter State Root
 
 Every adapter receives a state root:
@@ -69,7 +65,6 @@ Every adapter receives a state root:
 ```
 
 This directory is created at runtime startup by `MedreApp._ensure_dirs()` for every enabled adapter. It may contain transport-specific subdirectories but never a database.
-
 
 ## 5. Transport-Specific State Directories
 
@@ -115,7 +110,6 @@ Not yet created at runtime. Reserved for MeshCore transport state.
 
 Not yet created at runtime. Reserved for LXMF transport state (e.g., Reticulum identity files).
 
-
 ## 6. Path Resolution Helpers
 
 ### 6.1 MedrePaths
@@ -137,7 +131,6 @@ Path resolution is a pure computation. No filesystem I/O occurs during config lo
 
 - Store path: `adapter_transport_state_dir(adapter_id, "matrix") / "store"` when `MatrixConfig.store_path` is `None`.
 
-
 ## 7. Runtime Directory Creation
 
 `MedreApp._ensure_dirs()` creates the following at runtime startup:
@@ -150,7 +143,6 @@ Path resolution is a pure computation. No filesystem I/O occurs during config lo
 6. Per-adapter roots (`{state}/adapters/{adapter_id}/`) for all enabled adapters
 7. Matrix store dirs (`{state}/adapters/{adapter_id}/matrix/store/`) for enabled Matrix adapters with non-plaintext encryption mode
 
-
 ## 8. Explicit Overrides
 
 ### 8.1 MatrixConfig.store_path
@@ -161,13 +153,11 @@ When set explicitly (non-`None`), the provided path is used unchanged. This is p
 
 Environment variables like `MEDRE_MATRIX_STORE_PATH` and `MEDRE_MATRIX_DEVICE_ID` are reserved for internal/testing use only. They are not operator-facing configuration.
 
-
 ## 9. Matrix E2EE Identity
 
 - `device_id` is discovered via the Matrix `whoami()` endpoint after session start, not operator-configured.
 - `encryption_mode` is the operator-facing policy control: `plaintext` (default), `e2ee_required`, `e2ee_optional`.
 - `ignore_unverified_devices` is an internal nio policy setting, not operator configuration.
-
 
 ## 10. Summary Table
 

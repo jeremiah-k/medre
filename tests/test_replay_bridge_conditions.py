@@ -19,7 +19,6 @@ Tests
 
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -42,7 +41,6 @@ from medre.core.storage.replay import (
 )
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.routes import RouteConfig, RouteConfigSet
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -163,7 +161,9 @@ async def bridge_env(tmp_path: Path):
     env.replay = replay
     env.pipeline = pipeline
 
-    async def seed_live(event: CanonicalEvent | None = None) -> tuple[CanonicalEvent, list[Any]]:
+    async def seed_live(
+        event: CanonicalEvent | None = None,
+    ) -> tuple[CanonicalEvent, list[Any]]:
         """Inject event via handle_ingress (live path), return (event, outcomes)."""
         if event is None:
             event = _make_event()
@@ -230,9 +230,9 @@ async def test_replay_after_fake_bridge(bridge_env) -> None:
         "SELECT * FROM delivery_receipts WHERE event_id = ?",
         (event_id,),
     )
-    assert len(all_rows) >= 2, (
-        f"Expected at least 2 receipts (1 live + 1 replay), got {len(all_rows)}"
-    )
+    assert (
+        len(all_rows) >= 2
+    ), f"Expected at least 2 receipts (1 live + 1 replay), got {len(all_rows)}"
 
     # Sources are distinct.
     sources = {row["source"] for row in all_rows}
@@ -290,9 +290,9 @@ async def test_replay_receipt_distinguishable(bridge_env) -> None:
     # different sequence numbers).
     alpha_seqs = {row["sequence"] for row in alpha_rows}
     beta_seqs = {row["sequence"] for row in beta_rows}
-    assert alpha_seqs.isdisjoint(beta_seqs), (
-        "Receipt sequences from different replay runs must not overlap"
-    )
+    assert alpha_seqs.isdisjoint(
+        beta_seqs
+    ), "Receipt sequences from different replay runs must not overlap"
 
 
 # ===================================================================
@@ -363,6 +363,6 @@ async def test_duplicate_send_caveat_reflected(bridge_env) -> None:
     # Live receipts remain untouched (source='live', no replay_run_id).
     live_after = [r for r in all_rows if r["source"] == "live"]
     for row in live_after:
-        assert row["replay_run_id"] is None, (
-            "Live receipts should not have replay_run_id set"
-        )
+        assert (
+            row["replay_run_id"] is None
+        ), "Live receipts should not have replay_run_id set"

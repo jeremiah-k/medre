@@ -6,6 +6,7 @@ Uses mocked nio SDK — no live Matrix connection required.
 
 No Docker, no live transports, no SDK dependencies required.
 """
+
 # ruff: noqa: F811
 
 from __future__ import annotations
@@ -18,11 +19,15 @@ from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
 from medre.core.rendering.text import TextRenderer
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite import SQLiteStorage
-
 from tests.helpers.bridge import make_adapter_context, make_pipeline_config
-from tests.helpers.matrix import make_nio_event, make_nio_room, make_matrix_config, mock_nio  # noqa: F401
+from tests.helpers.matrix import (  # noqa: F401
+    make_matrix_config,
+    make_nio_event,
+    make_nio_room,
+    mock_nio,
+)
 
 
 class TestMatrixWrapperCallbackPath:
@@ -34,9 +39,7 @@ class TestMatrixWrapperCallbackPath:
     ) -> None:
         """_on_room_message decodes nio event, publishes through pipeline,
         and delivers to fake target."""
-        matrix_adapter = MatrixAdapter(
-            make_matrix_config(adapter_id="matrix-cb")
-        )
+        matrix_adapter = MatrixAdapter(make_matrix_config(adapter_id="matrix-cb"))
         fake_target = FakeMeshtasticAdapter(
             MeshtasticConfig(adapter_id="fake-cb-target")
         )
@@ -100,9 +103,7 @@ class TestMatrixWrapperCallbackPath:
         self, mock_nio, temp_storage: SQLiteStorage
     ) -> None:
         """Historical Matrix sync events must not be stored, deduped, or routed."""
-        matrix_adapter = MatrixAdapter(
-            make_matrix_config(adapter_id="matrix-stale-cb")
-        )
+        matrix_adapter = MatrixAdapter(make_matrix_config(adapter_id="matrix-stale-cb"))
         fake_target = FakeMeshtasticAdapter(
             MeshtasticConfig(adapter_id="fake-stale-target")
         )
@@ -124,7 +125,10 @@ class TestMatrixWrapperCallbackPath:
         config = make_pipeline_config(
             temp_storage,
             router,
-            adapters={"matrix-stale-cb": matrix_adapter, "fake-stale-target": fake_target},
+            adapters={
+                "matrix-stale-cb": matrix_adapter,
+                "fake-stale-target": fake_target,
+            },
             rendering_pipeline=rp,
         )
         runner = PipelineRunner(config)
@@ -159,9 +163,7 @@ class TestMatrixWrapperCallbackPath:
     ) -> None:
         """room_id and event_id from nio event map to native_channel_id
         and native_message_id on the canonical event."""
-        matrix_adapter = MatrixAdapter(
-            make_matrix_config(adapter_id="matrix-nref-cb")
-        )
+        matrix_adapter = MatrixAdapter(make_matrix_config(adapter_id="matrix-nref-cb"))
 
         route = Route(
             id="nref-cb-route",
@@ -208,7 +210,9 @@ class TestMatrixWrapperCallbackPath:
             assert stored.source_channel_id == "!nref_room:example.com"
             assert stored.source_native_ref is not None
             assert stored.source_native_ref.native_message_id == "$nref-cb-evt-001"
-            assert stored.source_native_ref.native_channel_id == "!nref_room:example.com"
+            assert (
+                stored.source_native_ref.native_channel_id == "!nref_room:example.com"
+            )
         finally:
             await matrix_adapter.stop()
             await runner.stop()
@@ -218,9 +222,7 @@ class TestMatrixWrapperCallbackPath:
     ) -> None:
         """Full bridge: Matrix _on_room_message → pipeline → fake
         Meshtastic adapter delivery."""
-        matrix_adapter = MatrixAdapter(
-            make_matrix_config(adapter_id="mx-bridge-src")
-        )
+        matrix_adapter = MatrixAdapter(make_matrix_config(adapter_id="mx-bridge-src"))
         fake_mesh = FakeMeshtasticAdapter(
             MeshtasticConfig(adapter_id="mesh-bridge-dst")
         )

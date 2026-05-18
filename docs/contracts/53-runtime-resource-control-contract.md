@@ -11,7 +11,6 @@ Every agent or document that references MEDRE capacity limits, backpressure sema
 
 **Terminology note:** The v2 implementation uses semaphore-based **capacity limiting** (in-flight bounds), not a queue staging system. The `CapacityController` bounds the number of concurrently executing delivery/replay operations. It does not buffer, enqueue, or reorder work. The word "queue" in this document refers either to (a) the design reference for future per-adapter bounded structures, (b) adapter-local bounded structures like the Meshtastic deque, or (c) the conceptual pipeline stages in §2. "Capacity" and "in-flight bounds" refer to the semaphore-based limiter implemented in v1/v2.
 
-
 ## 1. Scope
 
 > **Note:** Sections 1–13 are design reference — some decisions deferred to v2. See Section 14 for what v1 actually implements.
@@ -24,7 +23,6 @@ This is a **design contract**. It describes the intended architecture for resour
 - Distinguish what must ship before beta from what can wait.
 
 No implementation work is authorized under this contract in the current tranche.
-
 
 ## 2. Queue Types
 
@@ -45,7 +43,6 @@ Each route has a logical queue that buffers events matched by the router before 
 Replay events (historical message replay from a transport's store-and-forward) produce a burst of events that enter the pipeline through the same ingress path as real-time events. A dedicated replay queue or rate limiter prevents replay from starving real-time traffic.
 
 Current state: none of these queues exist as explicit data structures. The pipeline processes events inline. This contract defines the design for when explicit queues are introduced.
-
 
 ## 3. Backpressure Options
 
@@ -72,7 +69,6 @@ Return an error to the caller immediately. The pipeline records the failure via 
 
 Tradeoff: the caller must handle the error. This is the cleanest option for the pipeline runner because it preserves forward progress, but it requires the caller (or retry logic) to decide what to do next.
 
-
 ## 4. Per-Adapter vs Global Limits
 
 ### 4.1 Per-Adapter Limits
@@ -80,11 +76,13 @@ Tradeoff: the caller must handle the error. This is the cleanest option for the 
 Each adapter's outbound queue has its own depth limit. A slow Meshtastic radio filling its queue does not affect a fast Matrix adapter's delivery.
 
 Advantages:
+
 - Isolation: one slow transport cannot starve others.
 - Transport-specific tuning: radio queues can be shallow (messages are expensive to send), Matrix queues can be deeper (HTTP is fast).
 - Predictable: each adapter's resource usage is bounded independently.
 
 Disadvantages:
+
 - More configuration surface.
 - Requires per-adapter monitoring.
 - Total memory usage is `sum(per_adapter_limits)`, which may be large with many adapters.
@@ -94,10 +92,12 @@ Disadvantages:
 A single limit on the total number of in-flight deliveries across all adapters. When the global limit is reached, new deliveries are rejected.
 
 Advantages:
+
 - Simple: one number to configure and monitor.
 - Bounded total memory regardless of adapter count.
 
 Disadvantages:
+
 - One slow adapter can consume the entire global budget, starving fast adapters.
 - No transport-specific tuning.
 - Difficult to set a single number that works for both radio (slow, small queues) and Matrix (fast, large queues).
@@ -105,7 +105,6 @@ Disadvantages:
 ### 4.3 Recommendation
 
 **Per-adapter limits with a global ceiling.** Each adapter gets its own queue depth limit (defaulting by transport type). A global limit acts as a safety net to prevent unbounded memory growth if the operator configures many adapters with large per-adapter limits.
-
 
 ## 5. Delivery Retry Interaction
 
@@ -116,7 +115,6 @@ The pipeline has retry semantics for failed deliveries (see Contract 31, session
 - **Fail policy:** the delivery fails immediately. Retry behavior is unchanged — the retry executor treats it the same as any other delivery failure.
 
 Under sustained backpressure, retries can make the problem worse by re-enqueuing messages that the queue cannot drain. A recommended mitigation: **do not retry deliveries that fail due to backpressure.** Distinguish "transport error, retry may help" from "queue full, retry will not help" in the `DeliveryOutcome` discriminant.
-
 
 ## 6. Replay Behavior Under Pressure
 
@@ -129,7 +127,6 @@ Replay produces a burst of historical events. Under backpressure:
 3. **Replay diagnostics.** Every replay event dropped due to backpressure should be recorded via `Diagnostician.record_replay_skip()` with reason `"backpressure"`.
 
 4. **Replay does not retry.** If a replay event is dropped due to backpressure, it is not retried. Replay is best-effort for historical completeness. The operator can re-trigger replay later if needed.
-
 
 ## 7. Radio Transport Caveats
 
@@ -157,7 +154,6 @@ Default backpressure policy for radio adapters:
 - Policy: **drop oldest** — keep the freshest data, discard stale commands.
 - No retry on backpressure drops.
 - Log every drop as a diagnostic event.
-
 
 ## 8. Matrix/LXMF Async Caveats
 
@@ -187,22 +183,20 @@ Default backpressure policy for Matrix/LXMF:
 - Matrix: respect homeserver rate limits; block until the rate limit resets (bounded by timeout).
 - LXMF: fail fast; LXMF's fire-and-forget semantics make backpressure unlikely.
 
-
 ## 9. Default Policy Recommendation
 
 Before beta, the recommended default backpressure configuration:
 
-| Transport | Queue Depth | Policy | Retry on BP | Rationale |
-|-----------|-------------|--------|-------------|-----------|
-| Meshtastic | 10 | Drop oldest | No | Slow radio, serial writes block |
-| MeshCore | 10 | Drop oldest | No | Slow radio, no flow control |
-| Matrix | 100 | Block (5s timeout) | No | Fast async SDK, rate-limited by server |
-| LXMF | 50 | Fail | No | Fire-and-forget, fast |
+| Transport  | Queue Depth | Policy             | Retry on BP | Rationale                              |
+| ---------- | ----------- | ------------------ | ----------- | -------------------------------------- |
+| Meshtastic | 10          | Drop oldest        | No          | Slow radio, serial writes block        |
+| MeshCore   | 10          | Drop oldest        | No          | Slow radio, no flow control            |
+| Matrix     | 100         | Block (5s timeout) | No          | Fast async SDK, rate-limited by server |
+| LXMF       | 50          | Fail               | No          | Fire-and-forget, fast                  |
 
 Global ceiling: 500 total in-flight deliveries across all adapters.
 
 These defaults prioritize runtime stability over delivery completeness. Under sustained pressure, the runtime drops messages rather than exhausting memory or stalling.
-
 
 ## 10. Operator Configuration Shape
 
@@ -238,27 +232,26 @@ block_timeout_seconds = 5
 
 This configuration is optional. If absent, the defaults from §9 apply.
 
-
 ## 11. Metrics Required
 
 The following metrics must be observable when resource control is implemented:
 
 ### 11.1 Per-Adapter Queue Metrics
 
-| Metric | Type | Description |
-|--------|------|-------------|
-| `queue_depth` | Gauge | Current number of items in the adapter's outbound queue |
-| `queue_high_water_mark` | Gauge | Maximum depth reached since last reset |
-| `queue_drops_total` | Counter | Total messages dropped due to backpressure |
-| `queue_block_time_ms` | Histogram | Time spent blocked waiting for queue space |
-| `queue_time_ms` | Histogram | Time from enqueue to dequeue (latency through queue) |
+| Metric                  | Type      | Description                                             |
+| ----------------------- | --------- | ------------------------------------------------------- |
+| `queue_depth`           | Gauge     | Current number of items in the adapter's outbound queue |
+| `queue_high_water_mark` | Gauge     | Maximum depth reached since last reset                  |
+| `queue_drops_total`     | Counter   | Total messages dropped due to backpressure              |
+| `queue_block_time_ms`   | Histogram | Time spent blocked waiting for queue space              |
+| `queue_time_ms`         | Histogram | Time from enqueue to dequeue (latency through queue)    |
 
 ### 11.2 Global Metrics
 
-| Metric | Type | Description |
-|--------|------|-------------|
-| `in_flight_deliveries` | Gauge | Current total in-flight deliveries across all adapters |
-| `global_limit_reached_total` | Counter | Times the global delivery limit was reached |
+| Metric                       | Type    | Description                                            |
+| ---------------------------- | ------- | ------------------------------------------------------ |
+| `in_flight_deliveries`       | Gauge   | Current total in-flight deliveries across all adapters |
+| `global_limit_reached_total` | Counter | Times the global delivery limit was reached            |
 
 ### 11.3 Diagnostic Events
 
@@ -269,12 +262,13 @@ Every backpressure event (drop, block timeout, global limit) must be recorded vi
 ### 11.4 Logging
 
 At WARNING level:
+
 - "Queue full, applying {policy} for adapter {adapter_id}" — when backpressure activates.
 - "Global delivery limit reached ({current}/{limit})" — when the global ceiling is hit.
 
 At INFO level:
-- "Queue depth: {depth}/{limit} for adapter {adapter_id}" — periodic snapshot logging (not per-message).
 
+- "Queue depth: {depth}/{limit} for adapter {adapter_id}" — periodic snapshot logging (not per-message).
 
 ## 12. What Blocks Beta vs What Can Wait
 
@@ -300,7 +294,6 @@ At INFO level:
 2. Priority queues (real-time vs replay within a single adapter's queue).
 3. Cross-adapter backpressure signaling (one adapter's queue affecting another's ingress).
 
-
 ## 13. What Should Never Be Generalized
 
 Some resource control behavior is inherently transport-specific and should not be abstracted into a "one policy fits all" model:
@@ -315,7 +308,6 @@ Some resource control behavior is inherently transport-specific and should not b
 
 The queue/backpressure system must provide **policy hooks** (drop/block/fail) and **transport-specific defaults**, but must never attempt to abstract away the physical and protocol-level constraints that differ fundamentally between transports.
 
-
 ## 14. v1 Implementation
 
 v1 implements a **global concurrency limit** model (not per-adapter queues). The implementation uses semaphores and timeouts to bound in-flight work and prevent unbounded resource growth.
@@ -324,12 +316,12 @@ v1 implements a **global concurrency limit** model (not per-adapter queues). The
 
 The `[runtime.limits]` TOML section controls concurrency:
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `max_inflight_deliveries` | `int` | `100` | Maximum concurrent delivery coroutines across all adapters. Enforced by a `Semaphore` in `PipelineRunner`. Each target in a fan-out independently acquires a slot. |
-| `max_inflight_replay_events` | `int` | `100` | Maximum concurrent replay event **delivery-phase** operations. Enforced by a `Semaphore` in `ReplayEngine`. Re-routing, re-rendering, and dry-run modes do not consume replay capacity. |
-| `shutdown_drain_timeout_seconds` | `float` | `10` | Seconds to wait for in-flight deliveries to complete during shutdown before cancelling. |
-| `delivery_acquire_timeout_seconds` | `float` | `1.0` | Maximum seconds a delivery attempt will wait to acquire a concurrency slot before failing with a timeout error. |
+| Field                              | Type    | Default | Description                                                                                                                                                                             |
+| ---------------------------------- | ------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `max_inflight_deliveries`          | `int`   | `100`   | Maximum concurrent delivery coroutines across all adapters. Enforced by a `Semaphore` in `PipelineRunner`. Each target in a fan-out independently acquires a slot.                      |
+| `max_inflight_replay_events`       | `int`   | `100`   | Maximum concurrent replay event **delivery-phase** operations. Enforced by a `Semaphore` in `ReplayEngine`. Re-routing, re-rendering, and dry-run modes do not consume replay capacity. |
+| `shutdown_drain_timeout_seconds`   | `float` | `10`    | Seconds to wait for in-flight deliveries to complete during shutdown before cancelling.                                                                                                 |
+| `delivery_acquire_timeout_seconds` | `float` | `1.0`   | Maximum seconds a delivery attempt will wait to acquire a concurrency slot before failing with a timeout error.                                                                         |
 
 If `[runtime.limits]` is absent from TOML, all fields use their defaults.
 
@@ -375,16 +367,16 @@ When a delivery cannot acquire a semaphore slot within `delivery_acquire_timeout
 
 The `CapacityController` exposes runtime capacity counters via its `snapshot()` method. These are **CapacityController internal gauges** — they track semaphore-level acquire/reject/timeout events inside the controller itself. They are distinct from `RuntimeAccounting` operator counters (`capacity_rejections`, `outbound_failed`, `outbound_delivered`, `loop_prevented`, `inbound_accepted`), which track delivery outcomes at the accounting layer.
 
-| Snapshot field | Type | Description |
-|----------------|------|-------------|
-| `delivery_current` | gauge | Currently acquired delivery semaphore slots. |
-| `delivery_limit` | gauge | Configured `max_inflight_deliveries` bound. |
+| Snapshot field        | Type    | Description                                                              |
+| --------------------- | ------- | ------------------------------------------------------------------------ |
+| `delivery_current`    | gauge   | Currently acquired delivery semaphore slots.                             |
+| `delivery_limit`      | gauge   | Configured `max_inflight_deliveries` bound.                              |
 | `delivery_rejections` | counter | Delivery acquire attempts that failed (shutdown or immediate rejection). |
-| `delivery_timeouts` | counter | Delivery acquire attempts that timed out waiting for a slot. |
-| `replay_current` | gauge | Currently acquired replay semaphore slots. |
-| `replay_limit` | gauge | Configured `max_inflight_replay_events` bound. |
-| `replay_rejections` | counter | Replay acquire attempts that failed (shutdown or immediate rejection). |
-| `replay_timeouts` | counter | Replay acquire attempts that timed out waiting for a slot. |
+| `delivery_timeouts`   | counter | Delivery acquire attempts that timed out waiting for a slot.             |
+| `replay_current`      | gauge   | Currently acquired replay semaphore slots.                               |
+| `replay_limit`        | gauge   | Configured `max_inflight_replay_events` bound.                           |
+| `replay_rejections`   | counter | Replay acquire attempts that failed (shutdown or immediate rejection).   |
+| `replay_timeouts`     | counter | Replay acquire attempts that timed out waiting for a slot.               |
 
 ### 14.6 What v1 Does NOT Implement
 
@@ -404,7 +396,6 @@ The following from the design sections (2–13) are **deferred to v2**:
 - **Per-adapter restart.** Only full runtime stop/start is supported.
 - **Distributed coordination.** Limits and state are local to the process.
 
-
 ## 15. v2 Implementation — CapacityController and Capacity Bounds
 
 v2 introduces `CapacityController` as a centralized capacity manager, wires `ReplayEngine` into `RuntimeBuilder` with capacity and shutdown participation, and adds bounded adapter-level queues where applicable. The design sections (2–13) described per-adapter outbound queues with backpressure policies; v2 delivers this through a combination of the global `CapacityController` (reject-with-diagnostics default) and adapter-level bounding (drop-oldest for Meshtastic).
@@ -417,10 +408,10 @@ v2 introduces `CapacityController` as a centralized capacity manager, wires `Rep
 
 The controller manages two independent semaphores:
 
-| Stream | Semaphore | Limit field |
-|--------|-----------|-------------|
-| Delivery | `_delivery_sem` | `max_inflight_deliveries` |
-| Replay | `_replay_sem` | `max_inflight_replay_events` |
+| Stream   | Semaphore       | Limit field                  |
+| -------- | --------------- | ---------------------------- |
+| Delivery | `_delivery_sem` | `max_inflight_deliveries`    |
+| Replay   | `_replay_sem`   | `max_inflight_replay_events` |
 
 Both use the same acquire-timeout (`delivery_acquire_timeout_seconds`) for timed waits.
 
@@ -501,12 +492,12 @@ Non-delivery replay modes (`RE_RENDER`, `RE_ROUTE`, `DRY_RUN`) do not acquire re
 
 When capacity is exhausted, the system applies one of three behaviors depending on the subsystem:
 
-| Subsystem | Default behavior | Alternative (documented) |
-|-----------|-----------------|--------------------------|
-| `PipelineRunner` delivery | **Reject** — return `permanent_failure` with `CAPACITY_REJECTION`/`SHUTDOWN_REJECTION`; increment diagnostics | N/A (reject is the only policy at this layer) |
-| `ReplayEngine` delivery | **Reject** — return `error` with `replay_capacity_exceeded`/`replay_rejected_shutdown`; increment diagnostics | N/A (reject is the only policy at this layer) |
-| Meshtastic outbound queue | **Drop-oldest** — `deque(maxlen)` silently discards oldest item; increment `total_dropped` | `max_queue_size=None` for unbounded (not recommended) |
-| Design reference (§3) | — | **Drop-newest** — preserves earliest queued items, loses newest arrivals. Appropriate for command-and-control where ordering matters. |
+| Subsystem                 | Default behavior                                                                                              | Alternative (documented)                                                                                                              |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `PipelineRunner` delivery | **Reject** — return `permanent_failure` with `CAPACITY_REJECTION`/`SHUTDOWN_REJECTION`; increment diagnostics | N/A (reject is the only policy at this layer)                                                                                         |
+| `ReplayEngine` delivery   | **Reject** — return `error` with `replay_capacity_exceeded`/`replay_rejected_shutdown`; increment diagnostics | N/A (reject is the only policy at this layer)                                                                                         |
+| Meshtastic outbound queue | **Drop-oldest** — `deque(maxlen)` silently discards oldest item; increment `total_dropped`                    | `max_queue_size=None` for unbounded (not recommended)                                                                                 |
+| Design reference (§3)     | —                                                                                                             | **Drop-newest** — preserves earliest queued items, loses newest arrivals. Appropriate for command-and-control where ordering matters. |
 
 **Default: reject with diagnostics increment.** The `CapacityController` rejects work when capacity is exhausted or when shutdown has been signaled. Each rejection increments a counter visible in `snapshot()`. The caller records the failure in its outcome (delivery or replay) and moves on. No retry is attempted — capacity rejection is a backpressure signal, not a transient error.
 
@@ -514,24 +505,24 @@ When capacity is exhausted, the system applies one of three behaviors depending 
 
 The `CapacityController` tracks the following **internal gauges**, all visible via `snapshot()`. These are CapacityController-internal names (acquire/timeout/reject at the semaphore level), not the operator-facing `RuntimeAccounting` counter names (`capacity_rejections`, `outbound_failed`, `outbound_delivered`, etc.).
 
-| Counter | Type | Description |
-|---------|------|-------------|
-| `delivery_current` | Gauge | Currently in-flight delivery slots |
-| `delivery_limit` | Constant | Maximum concurrent deliveries |
-| `delivery_rejections` | Counter | Deliveries rejected because `accepting_work == False` (shutdown) |
-| `delivery_timeouts` | Counter | Deliveries that timed out waiting for a slot |
-| `replay_current` | Gauge | Currently in-flight replay slots |
-| `replay_limit` | Constant | Maximum concurrent replay events |
-| `replay_rejections` | Counter | Replay events rejected because `accepting_work == False` (shutdown) |
-| `replay_timeouts` | Counter | Replay events that timed out waiting for a slot |
-| `accepting_work` | Flag | Whether the controller is still accepting new work |
+| Counter               | Type     | Description                                                         |
+| --------------------- | -------- | ------------------------------------------------------------------- |
+| `delivery_current`    | Gauge    | Currently in-flight delivery slots                                  |
+| `delivery_limit`      | Constant | Maximum concurrent deliveries                                       |
+| `delivery_rejections` | Counter  | Deliveries rejected because `accepting_work == False` (shutdown)    |
+| `delivery_timeouts`   | Counter  | Deliveries that timed out waiting for a slot                        |
+| `replay_current`      | Gauge    | Currently in-flight replay slots                                    |
+| `replay_limit`        | Constant | Maximum concurrent replay events                                    |
+| `replay_rejections`   | Counter  | Replay events rejected because `accepting_work == False` (shutdown) |
+| `replay_timeouts`     | Counter  | Replay events that timed out waiting for a slot                     |
+| `accepting_work`      | Flag     | Whether the controller is still accepting new work                  |
 
 Adapter-level queue metrics (Meshtastic):
 
-| Counter | Type | Description |
-|---------|------|-------------|
+| Counter         | Type    | Description                                                      |
+| --------------- | ------- | ---------------------------------------------------------------- |
 | `total_dropped` | Counter | Items dropped from the Meshtastic outbound queue due to overflow |
-| `queue_depth` | Gauge | Current number of items in the Meshtastic outbound queue |
+| `queue_depth`   | Gauge   | Current number of items in the Meshtastic outbound queue         |
 
 ### 15.8 What v2 Does NOT Implement
 
@@ -549,13 +540,12 @@ The following from the design sections (2–13) remain deferred:
 - **Per-adapter restart.** Only full runtime stop/start is supported.
 - **Distributed coordination.** Limits and state are local to the process.
 
-
 ## 16. Cross-References
 
-| Topic | Contract |
-|-------|----------|
-| Shutdown ordering, drain phases, in-flight work handling | Contract 54 (Runtime Shutdown) |
-| Durability semantics, what survives crash, process-local vs persisted | Contract 59 (Runtime Durability) |
+| Topic                                                                         | Contract                           |
+| ----------------------------------------------------------------------------- | ---------------------------------- |
+| Shutdown ordering, drain phases, in-flight work handling                      | Contract 54 (Runtime Shutdown)     |
+| Durability semantics, what survives crash, process-local vs persisted         | Contract 59 (Runtime Durability)   |
 | Cancellation semantics, CapacityController stop behavior, stop-during-startup | Contract 60 (Runtime Cancellation) |
-| Persistence timing, WAL consistency, receipt durability | Contract 55 (Runtime Persistence) |
-| Runtime assembly, lifecycle states, startup classification | Contract 47 (Runtime Assembly) |
+| Persistence timing, WAL consistency, receipt durability                       | Contract 55 (Runtime Persistence)  |
+| Runtime assembly, lifecycle states, startup classification                    | Contract 47 (Runtime Assembly)     |

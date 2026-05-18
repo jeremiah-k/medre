@@ -122,6 +122,7 @@ class DiagnosticsCollector:
         for the full structure specification.
         """
         return build_diagnostics_snapshot(
-            self._route_stats, self._replay_metrics,
+            self._route_stats,
+            self._replay_metrics,
             capacity_snapshot=self._capacity_snapshot,
         )

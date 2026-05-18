@@ -13,18 +13,18 @@ This module defines the central data structures that every other subsystem
 
 from __future__ import annotations
 
-import msgspec
 from datetime import datetime, timezone
 from enum import Enum
-from msgspec.structs import force_setattr
 from typing import Literal
+
+import msgspec
+from msgspec.structs import force_setattr
 
 from medre.core.events.metadata import EventMetadata, _FrozenDict
 
 # Re-export canonical constants from schema to avoid circular imports.
 # These are imported here for validation use only.
 from medre.core.events.schema import VALID_RELATION_TYPES
-
 
 # ---------------------------------------------------------------------------
 # Enum
@@ -162,7 +162,9 @@ class NativeMessageRef(msgspec.Struct, frozen=True):
     native_relation_id: str | None
     direction: Literal["inbound", "outbound"]
     metadata: dict[str, object] = msgspec.field(default_factory=dict)
-    created_at: datetime = msgspec.field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = msgspec.field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
 
     def __post_init__(self) -> None:
         if not isinstance(self.metadata, _FrozenDict):
@@ -241,7 +243,9 @@ class DeliveryReceipt(msgspec.Struct, frozen=True):
     retry_backoff_base: float | None = None
     retry_max_delay: float | None = None
     retry_jitter: bool | None = None
-    created_at: datetime = msgspec.field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = msgspec.field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
 
 
 # ---------------------------------------------------------------------------

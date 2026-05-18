@@ -46,6 +46,7 @@ The adapter delegates raw transport lifecycle to
 The session owns the raw client; the adapter owns semantic conversion
 (classification, codec, event publishing).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -56,6 +57,14 @@ import msgspec
 if TYPE_CHECKING:
     from medre.core.events.canonical import CanonicalEvent
 
+from medre.adapters.meshtastic.codec import MeshtasticCodec
+from medre.adapters.meshtastic.errors import (
+    MeshtasticSendError,
+)
+from medre.adapters.meshtastic.packet_classifier import MeshtasticPacketClassifier
+from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
+from medre.adapters.meshtastic.session import MeshtasticSession
+from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
@@ -66,16 +75,6 @@ from medre.core.contracts.adapter import (
     AdapterRole,
     AdapterSendError,
 )
-from medre.adapters.meshtastic.codec import MeshtasticCodec
-from medre.adapters.meshtastic.compat import HAS_MESHTASTIC
-from medre.config.adapters.meshtastic import MeshtasticConfig
-from medre.adapters.meshtastic.errors import (
-    MeshtasticConnectionError,
-    MeshtasticSendError,
-)
-from medre.adapters.meshtastic.packet_classifier import MeshtasticPacketClassifier
-from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
-from medre.adapters.meshtastic.session import MeshtasticSession
 from medre.core.rendering.renderer import RenderingResult
 
 # Capabilities for the Meshtastic transport adapter.
@@ -227,9 +226,7 @@ class MeshtasticAdapter(AdapterContract):
         self._session = None
         self._started = False
         if self.ctx is not None:
-            self.ctx.logger.info(
-                "MeshtasticAdapter %s stopped", self.adapter_id
-            )
+            self.ctx.logger.info("MeshtasticAdapter %s stopped", self.adapter_id)
 
     async def health_check(self) -> AdapterInfo:
         """Return a snapshot of the adapter's current health.
@@ -335,7 +332,9 @@ class MeshtasticAdapter(AdapterContract):
 
     # -- Inbound callback ---------------------------------------------------
 
-    def _on_receive_callback(self, packet: dict[str, Any], interface: Any = None) -> None:
+    def _on_receive_callback(
+        self, packet: dict[str, Any], interface: Any = None
+    ) -> None:
         """Pubsub callback matching the Meshtastic ``onReceive(packet, interface)`` signature.
 
         Delegates to :meth:`_on_packet` for classification and processing.
@@ -396,17 +395,22 @@ class MeshtasticAdapter(AdapterContract):
                                     ln = str(user_info.get("longName", "") or "")
                                     sn = str(user_info.get("shortName", "") or "")
                                     if ln or sn:
-                                        updated_data = dict(canonical.metadata.native.data)
+                                        updated_data = dict(
+                                            canonical.metadata.native.data
+                                        )
                                         updated_data["longname"] = ln
                                         updated_data["shortname"] = sn
                                         new_native = msgspec.structs.replace(
-                                            canonical.metadata.native, data=updated_data,
+                                            canonical.metadata.native,
+                                            data=updated_data,
                                         )
                                         new_metadata = msgspec.structs.replace(
-                                            canonical.metadata, native=new_native,
+                                            canonical.metadata,
+                                            native=new_native,
                                         )
                                         canonical = msgspec.structs.replace(
-                                            canonical, metadata=new_metadata,
+                                            canonical,
+                                            metadata=new_metadata,
                                         )
             except Exception:
                 pass  # Non-critical enrichment; names are best-effort
@@ -564,10 +568,12 @@ class MeshtasticAdapter(AdapterContract):
             payload = item.get("payload", {})
             channel_index = item.get("channel_index", 0)
             text = str(payload.get("text", ""))
-            return await session.send({
-                "text": text,
-                "channel_index": channel_index,
-            })
+            return await session.send(
+                {
+                    "text": text,
+                    "channel_index": channel_index,
+                }
+            )
 
         return await self._queue.process_one(send_fn=_send_fn)
 

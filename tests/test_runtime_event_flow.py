@@ -10,15 +10,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 
-from medre.core.contracts.adapter import AdapterContext, AdapterContract
 from medre.adapters.fake_matrix import FakeMatrixAdapter
 from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
 from medre.config.adapters.meshtastic import MeshtasticConfig
@@ -26,33 +22,24 @@ from medre.config.model import (
     AdapterConfigSet,
     LoggingConfig,
     MatrixRuntimeConfig,
-    MeshtasticRuntimeConfig,
     RuntimeConfig,
     RuntimeOptions,
     StorageConfig,
 )
 from medre.config.paths import MedrePaths, resolve
+from medre.core.contracts.adapter import AdapterContext
 from medre.core.events import (
     CanonicalEvent,
-    DeliveryReceipt,
     EventMetadata,
-    EventRelation,
-    NativeRef,
     RadioMetadata,
-    RoutingMetadata,
     TransportMetadata,
 )
 from medre.core.events.bus import EventBus
 from medre.core.events.kinds import EventKind
 from medre.core.observability.metrics import Diagnostician
-from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
-from medre.core.rendering.text import TextRenderer
+from medre.core.rendering.renderer import RenderingResult
 from medre.core.routing.models import Route, RouteSource, RouteTarget
-from medre.core.routing.router import Router
-from medre.core.storage.sqlite import SQLiteStorage
-from medre.runtime.app import MedreApp
 from medre.runtime.builder import RuntimeBuilder
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -61,8 +48,13 @@ from medre.runtime.builder import RuntimeBuilder
 
 @pytest.fixture(autouse=True)
 def _clean_path_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for var in ("MEDRE_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME",
-                "XDG_DATA_HOME", "XDG_CACHE_HOME"):
+    for var in (
+        "MEDRE_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_STATE_HOME",
+        "XDG_DATA_HOME",
+        "XDG_CACHE_HOME",
+    ):
         monkeypatch.delenv(var, raising=False)
 
 
@@ -152,7 +144,8 @@ class TestInboundEventReachesEventBus:
     """Inbound events from adapters appear on the EventBus."""
 
     async def test_inbound_event_published_to_bus(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Simulated inbound event flows through the pipeline pipeline."""
         config = _make_runtime_with_one_matrix("mx_main")
@@ -166,7 +159,9 @@ class TestInboundEventReachesEventBus:
             # Simulate inbound — the event goes through the pipeline's
             # ingress handler (store → route → deliver).  With no routes
             # configured, the event is stored but not delivered.
-            event = adapter.make_event("Hello from Matrix!", event_kind=EventKind.MESSAGE_TEXT)
+            event = adapter.make_event(
+                "Hello from Matrix!", event_kind=EventKind.MESSAGE_TEXT
+            )
             await adapter.simulate_inbound(event)
 
             # Verify the event was received by the adapter
@@ -182,7 +177,8 @@ class TestInboundEventReachesEventBus:
             await app.stop()
 
     async def test_renderer_selection_pipeline(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Events flowing through pipeline trigger codec → renderer pipeline."""
         config = _make_runtime_with_one_matrix("mx_main")
@@ -193,7 +189,7 @@ class TestInboundEventReachesEventBus:
             # Verify the rendering pipeline is wired
             assert app.rendering_pipeline is not None
             # Verify a TextRenderer is registered
-            adapter = app.adapters["mx_main"]
+            app.adapters["mx_main"]
             event = _make_event(
                 event_id="evt-render-test",
                 source_adapter="mx_main",
@@ -217,7 +213,8 @@ class TestOutboundDeliveryReachesCorrectAdapter:
     """Outbound events routed to a specific adapter only hit that adapter."""
 
     async def test_targeted_delivery(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Route outbound event to one of two adapters — only target receives."""
         config = _make_runtime_with_two_matrix("mx_alpha", "mx_beta")
@@ -247,7 +244,8 @@ class TestOutboundDeliveryReachesCorrectAdapter:
             await app.stop()
 
     async def test_pipeline_routes_to_specific_adapter(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Full pipeline routes event only to the targeted adapter."""
         config = _make_runtime_with_two_matrix("mx_alpha", "mx_beta")
@@ -293,9 +291,9 @@ class TestOutboundDeliveryReachesCorrectAdapter:
             await asyncio.sleep(0.1)
 
             # Beta should have received the delivery
-            assert len(beta.delivered_payloads) >= 1, (
-                f"Expected beta to receive delivery, got {len(beta.delivered_payloads)} payloads"
-            )
+            assert (
+                len(beta.delivered_payloads) >= 1
+            ), f"Expected beta to receive delivery, got {len(beta.delivered_payloads)} payloads"
         finally:
             await app.stop()
 
@@ -309,7 +307,8 @@ class TestReplayIntegration:
     """Replayable events can be re-delivered without duplication errors."""
 
     async def test_event_re_deliverable(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """The same event can be delivered to the same adapter twice."""
         config = _make_runtime_with_one_matrix("mx_main")
@@ -336,7 +335,8 @@ class TestReplayIntegration:
             await app.stop()
 
     async def test_replay_no_cross_adapter_delivery(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Replaying an event does not cause delivery to the wrong adapter."""
         config = _make_runtime_with_two_matrix("mx_alpha", "mx_beta")
@@ -373,7 +373,8 @@ class TestAdapterSpecificMetadataPreserved:
     """Transport-specific metadata is preserved without leaking raw SDK objects."""
 
     def test_matrix_event_metadata(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Matrix event contains Matrix-specific metadata (room_id, event_id)."""
         adapter = FakeMatrixAdapter("test_mx", channel="!room123:matrix.org")
@@ -387,7 +388,8 @@ class TestAdapterSpecificMetadataPreserved:
         assert event.payload.get("body") == "Hello"
 
     async def test_matrix_delivery_preserves_native_ids(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Matrix adapter returns native Matrix event_id and channel."""
         adapter = FakeMatrixAdapter("test_mx")
@@ -424,19 +426,21 @@ class TestAdapterSpecificMetadataPreserved:
         assert adapter.platform == "meshtastic"
 
     def test_canonical_event_no_raw_sdk_objects(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Canonical events contain no raw nio or protobuf objects."""
         adapter = FakeMatrixAdapter("test_mx")
         event = adapter.make_event("test")
         # Verify all values in payload are standard Python types
         for key, value in event.payload.items():
-            assert isinstance(value, (str, int, float, bool, type(None))), (
-                f"Payload key {key!r} has non-standard type: {type(value)}"
-            )
+            assert isinstance(
+                value, (str, int, float, bool, type(None))
+            ), f"Payload key {key!r} has non-standard type: {type(value)}"
 
     async def test_metadata_transport_radio_isolation(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Radio metadata and transport metadata are properly typed."""
         event = _make_event(
@@ -466,7 +470,8 @@ class TestDiagnosticsSnapshots:
     """After events flow, diagnostics reflect correct counters."""
 
     async def test_adapter_counters_after_delivery(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Adapter delivery increments diagnostics counters."""
         config = _make_runtime_with_one_matrix("mx_main")
@@ -491,7 +496,8 @@ class TestDiagnosticsSnapshots:
             await app.stop()
 
     async def test_cross_adapter_diagnostics_isolation(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Adapter failure counters are isolated per adapter."""
         diag = Diagnostician()
@@ -506,7 +512,8 @@ class TestDiagnosticsSnapshots:
         assert "adapter_c" not in snap["adapter_failures"]
 
     async def test_event_bus_subscriber_receives_events(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Events published on bus reach all matching subscribers."""
         bus = EventBus()
@@ -533,7 +540,8 @@ class TestDiagnosticsSnapshots:
         await sub_b.unsubscribe()
 
     async def test_diagnostics_snapshot_structure(
-        self, tmp_paths: MedrePaths,
+        self,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Diagnostician snapshot has expected keys."""
         diag = Diagnostician()

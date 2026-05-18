@@ -18,15 +18,11 @@ Tests
 
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
-from unittest.mock import AsyncMock
 
 import pytest
 
-from medre.core.contracts.adapter import AdapterPermanentError, AdapterSendError
 from medre.config.model import (
     AdapterConfigSet,
     MatrixRuntimeConfig,
@@ -35,6 +31,7 @@ from medre.config.model import (
     StorageConfig,
 )
 from medre.config.paths import MedrePaths
+from medre.core.contracts.adapter import AdapterPermanentError, AdapterSendError
 from medre.core.events.canonical import CanonicalEvent, EventMetadata
 from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage.replay import (
@@ -46,7 +43,6 @@ from medre.core.storage.replay import (
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.capacity import CapacityController
 from medre.runtime.routes import RouteConfig, RouteConfigSet
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -212,7 +208,10 @@ async def test_replay_render_failure(replay_env) -> None:
     )
     for row in receipt_rows:
         assert row["status"] in (
-            "permanent_failure", "failed", "error", "sent",
+            "permanent_failure",
+            "failed",
+            "error",
+            "sent",
         ), (
             f"Receipt for bad-kind event should show failure or sent, "
             f"got status={row['status']}"
@@ -266,9 +265,7 @@ async def test_replay_adapter_permanent_failure(replay_env) -> None:
 
         # The replay should not have aborted — BEST_EFFORT swallows errors.
         # Check that an error was recorded in results or diagnostics.
-        any_error = any(
-            r.status in ("error", "failed") for r in deliver_results
-        )
+        any(r.status in ("error", "failed") for r in deliver_results)
         # Either the delivery produced an error result or it passed but
         # the adapter result indicates failure — both are acceptable.
         assert deliver_results[0].status in ("passed", "error"), (
@@ -277,16 +274,14 @@ async def test_replay_adapter_permanent_failure(replay_env) -> None:
         )
 
         # A receipt should exist (pipeline records adapter failures).
-        receipt_rows = await env.storage._read_all(
+        await env.storage._read_all(
             "SELECT * FROM delivery_receipts WHERE event_id = ? AND source = 'replay'",
             (event.event_id,),
         )
         # The pipeline may or may not persist a receipt for adapter errors,
         # depending on how far the delivery got before the error.  The key
         # guarantee is that replay did not crash.
-        assert len(results) >= 3, (
-            "Expected at least store + route + deliver results"
-        )
+        assert len(results) >= 3, "Expected at least store + route + deliver results"
     finally:
         secondary.deliver = original_deliver
 
@@ -304,7 +299,7 @@ async def test_replay_adapter_transient_failure(replay_env) -> None:
     engine does not retry — it captures the error and moves on.
     """
     env = replay_env
-    event = await env.seed(_make_event(event_id="evt-transient"))
+    await env.seed(_make_event(event_id="evt-transient"))
 
     secondary = env.app.adapters.get("secondary")
     assert secondary is not None
@@ -329,7 +324,9 @@ async def test_replay_adapter_transient_failure(replay_env) -> None:
         results: list = []
         async for r in env.replay.replay(request):
             results.append(r)
-        store_passed = [r for r in results if r.stage == "store" and r.status == "passed"]
+        store_passed = [
+            r for r in results if r.stage == "store" and r.status == "passed"
+        ]
         assert len(store_passed) >= 1, "Store stage should pass for normal event"
     finally:
         secondary.deliver = original_deliver
@@ -349,7 +346,7 @@ async def test_replay_capacity_rejection(replay_env) -> None:
     No delivery receipt is created.
     """
     env = replay_env
-    event = await env.seed(_make_event(event_id="evt-cap"))
+    await env.seed(_make_event(event_id="evt-cap"))
 
     # Create a CapacityController with 1 replay slot, and pre-acquire it.
     limits = RuntimeLimits(
@@ -401,7 +398,7 @@ async def test_replay_shutdown_rejection(replay_env) -> None:
     False immediately.
     """
     env = replay_env
-    event = await env.seed(_make_event(event_id="evt-shutdown"))
+    await env.seed(_make_event(event_id="evt-shutdown"))
 
     limits = RuntimeLimits(
         max_inflight_deliveries=10,

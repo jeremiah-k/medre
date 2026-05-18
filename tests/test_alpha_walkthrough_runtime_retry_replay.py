@@ -17,7 +17,6 @@ import pytest
 
 from medre.runtime.builder import RuntimeBuilder
 
-
 # ===========================================================================
 # Test 6: Retry scenario
 # ===========================================================================
@@ -29,7 +28,6 @@ class TestAlphaRetryScenario:
 
     @pytest.mark.asyncio
     async def test_retry_walkthrough(self, tmp_path: Path) -> None:
-        from medre.core.contracts.adapter import AdapterDeliveryResult
         from medre.adapters.fake_matrix import FakeMatrixAdapter
         from medre.config.model import (
             AdapterConfigSet,
@@ -39,6 +37,7 @@ class TestAlphaRetryScenario:
             StorageConfig,
         )
         from medre.config.paths import MedrePaths
+        from medre.core.contracts.adapter import AdapterDeliveryResult
         from medre.core.events.canonical import CanonicalEvent, EventMetadata
 
         # -- Transient-failing adapter: fails first deliver(), succeeds after --
@@ -224,9 +223,13 @@ class TestAlphaReplayScenario:
                     ),
                 },
             ),
-            routes=__import__("medre.runtime.routes", fromlist=["RouteConfigSet"]).RouteConfigSet(
+            routes=__import__(
+                "medre.runtime.routes", fromlist=["RouteConfigSet"]
+            ).RouteConfigSet(
                 routes=(
-                    __import__("medre.runtime.routes", fromlist=["RouteConfig"]).RouteConfig(
+                    __import__(
+                        "medre.runtime.routes", fromlist=["RouteConfig"]
+                    ).RouteConfig(
                         route_id="walkthrough_route",
                         source_adapters=("main",),
                         dest_adapters=("secondary",),

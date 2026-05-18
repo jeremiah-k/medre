@@ -96,19 +96,19 @@ def sanitize_for_log(data: Mapping[str, Any] | dict[str, Any]) -> dict[str, Any]
 # removed; the trade-off is that uniform-character strings 40+ chars long
 # may be redacted unnecessarily — a safe default for a secret-filter.
 _TOKEN_RE: re.Pattern[str] = re.compile(
-    r'(syt_[A-Za-z0-9]+)'
-    r'|(MDAx[A-Za-z0-9+/=]{20,})'
-    r'|([A-Za-z0-9+/=]{40,})'
-    r'|(sk-[A-Za-z0-9]{20,})'
-    r'|(api[_-]?key[=:]\s*\S+)'
-    r'|(access_token[=:]\s*\S+)'
-    r'|(token[=:]\s*\S+)'
-    r'|(password[=:]\s*\S+)'
-    r'|(secret[=:]\s*\S+)'
-    r'|(credential[=:]\s*\S+)'
+    r"(syt_[A-Za-z0-9]+)"
+    r"|(MDAx[A-Za-z0-9+/=]{20,})"
+    r"|([A-Za-z0-9+/=]{40,})"
+    r"|(sk-[A-Za-z0-9]{20,})"
+    r"|(api[_-]?key[=:]\s*\S+)"
+    r"|(access_token[=:]\s*\S+)"
+    r"|(token[=:]\s*\S+)"
+    r"|(password[=:]\s*\S+)"
+    r"|(secret[=:]\s*\S+)"
+    r"|(credential[=:]\s*\S+)"
 )
 
-_SDK_RE: re.Pattern[str] = re.compile(r'<[\w.]+ object at 0x[0-9a-fA-F]+>')
+_SDK_RE: re.Pattern[str] = re.compile(r"<[\w.]+ object at 0x[0-9a-fA-F]+>")
 
 
 def sanitize_error(error: str) -> str:
@@ -122,8 +122,8 @@ def sanitize_error(error: str) -> str:
     :data:`_MAX_ERROR_DETAIL_LEN` by up to 3 characters.
     """
     needs_truncation = len(error) > _MAX_ERROR_DETAIL_LEN
-    sanitized = _TOKEN_RE.sub('[REDACTED]', error)
-    sanitized = _SDK_RE.sub('[OBJECT_REPR]', sanitized)
+    sanitized = _TOKEN_RE.sub("[REDACTED]", error)
+    sanitized = _SDK_RE.sub("[OBJECT_REPR]", sanitized)
     if len(sanitized) > _MAX_ERROR_DETAIL_LEN:
         sanitized = sanitized[: _MAX_ERROR_DETAIL_LEN - 3] + "..."
     elif needs_truncation:

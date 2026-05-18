@@ -6,13 +6,11 @@
 
 This document is an operational gap audit, not a design proposal. It records what the MEDRE runtime actually provides for tracing event ancestry, walking derivation chains, and diagnosing pipeline failures. Every section distinguishes implemented behavior from known gaps. No new runtime features are introduced here.
 
-
 ## 1. Core Invariant: Storage Is Authoritative
 
 Storage is the single source of truth for event history, derivation ancestry, and cross-adapter correlation. Metadata embedded in external platforms (Matrix custom content fields, Discord embeds, LXMF field envelopes) is secondary and diagnostic. It may be lost due to redaction, pruning, or API changes. Any feature that needs reliable lineage must read from the `canonical_events` and `event_relations` tables.
 
 This invariant is stated in Contract 07 (Section 1) and Contract 03 (Section 1) and is not negotiable.
-
 
 ## 2. Lineage Mechanisms in the Canonical Event Model
 
@@ -21,11 +19,13 @@ This invariant is stated in Contract 07 (Section 1) and Contract 03 (Section 1) 
 Every `CanonicalEvent` carries an optional `parent_event_id: str | None`. When a pipeline stage (enrichment, transform, policy) produces a derived event, the new event's `parent_event_id` points back to the event it was derived from. Source events (those created directly by adapter codecs) have `parent_event_id = None`.
 
 **Implemented behavior:**
+
 - The field is persisted in `canonical_events.parent_event_id`.
 - An index (`idx_events_parent`) exists on this column.
 - `RelationResolver.create_relation_event()` sets `parent_event_id = source_event.event_id` when creating relation events.
 
 **Gap:**
+
 - No referential integrity constraint enforces that `parent_event_id` references an existing row. The field is not validated at construction time (Contract 01, Section 5: "No referential integrity check").
 - No API exists to walk the parent chain. A consumer must manually query `get(parent_event_id)` in a loop.
 
@@ -34,12 +34,14 @@ Every `CanonicalEvent` carries an optional `parent_event_id: str | None`. When a
 The `lineage: tuple[str, ...]` field carries the full chain of event IDs from the origin event to the current event. It is an immutable tuple of non-empty strings.
 
 **Implemented behavior:**
+
 - Stored as a JSON array in `canonical_events.lineage`.
 - Validated at construction: every element must be a non-empty string (Contract 01, Section 1).
 - `RelationResolver.create_relation_event()` appends the source event's ID: `lineage = (*source_event.lineage, source_event.event_id)`.
 - Replay preserves lineage: every `ReplayResult` carries the source event's lineage tuple (Contract 07, Section 3.3).
 
 **Gap:**
+
 - `lineage` ordering is not validated. Items are checked for validity but not for chronological ordering (phase-1-limitations.md, Section 5).
 - `parent_event_id` and `lineage` consistency is not enforced. `parent_event_id` may or may not appear as the last element of `lineage` (phase-1-limitations.md, Section 5).
 - No index exists on `lineage` for ancestry queries. The column is stored as a JSON array, which SQLite cannot index element-by-element without a virtual table or generated column.
@@ -49,11 +51,13 @@ The `lineage: tuple[str, ...]` field carries the full chain of event IDs from th
 The `depth: int` field tracks derivation depth. Source events have `depth = 0`. Each derivation increments by 1.
 
 **Implemented behavior:**
+
 - Stored in `canonical_events.depth` with `DEFAULT 0`.
 - Validated at construction: `depth >= 0`.
 - `RelationResolver.create_relation_event()` sets `depth = source_event.depth + 1`.
 
 **Gap:**
+
 - No validation that depth equals `len(lineage)`. The two fields are set independently and could diverge.
 
 ### 2.4 `trace_id`
@@ -61,14 +65,15 @@ The `depth: int` field tracks derivation depth. Source events have `depth = 0`. 
 The `trace_id: str | None` field is an optional distributed tracing correlation ID.
 
 **Implemented behavior:**
+
 - Stored in `canonical_events.trace_id`.
 - Survives JSON and msgpack round-trips (phase-1-limitations.md, Section 2.4).
 - `RelationResolver.create_relation_event()` propagates `trace_id` from the source event.
 
 **Gap:**
+
 - `trace_id` is never populated by the pipeline itself. No adapter or pipeline stage currently sets it. It is reserved for future use (Contract 01, Section 12). In Phase 1, all events have `trace_id = None` unless an adapter explicitly sets it. No adapter does.
 - There is no index on `trace_id`, so queries filtering by correlation ID require a full table scan unless `correlation_ids` on `ReplayRequest` is used (which fetches by `event_id`, not `trace_id`).
-
 
 ## 3. Native Reference Correlation
 
@@ -79,12 +84,14 @@ The `trace_id: str | None` field is an optional distributed tracing correlation 
 The `native_message_refs` table provides the mapping from native IDs to canonical `event_id`. A `UNIQUE(adapter, native_channel_id, native_message_id)` constraint ensures idempotent correlation. When `native_channel_id` is `NULL`, SQLite's UNIQUE cannot dedupe (`NULL != NULL`), so `store_native_ref` performs an explicit resolve-before-insert check to ensure NULL-channel refs are also idempotent.
 
 **Implemented behavior:**
+
 - `StorageBackend.resolve_native_ref(adapter, native_channel_id, native_message_id)` queries this table and returns the canonical `event_id` or `None`.
 - `RelationResolver.resolve_event_relations()` calls this for every unresolved relation on an event.
 - `RelationResolver.resolve_relation()` calls this for a single relation.
 - Unresolved native refs are preserved. The relation retains `target_native_ref` and delivery falls back to `fallback_text` (Contract 04, Section 8.3).
 
 **Gap:**
+
 - No background re-resolution. If a native ref cannot be resolved at ingress time (the target event hasn't arrived yet), it stays unresolved permanently unless the event is replayed. No scheduled or triggered re-resolution mechanism exists.
 
 ### 3.2 `source_native_ref`
@@ -92,9 +99,9 @@ The `native_message_refs` table provides the mapping from native IDs to canonica
 The `CanonicalEvent.source_native_ref` field carries the inbound native message reference from the adapter codec. The pipeline persists this as an inbound `NativeMessageRef` after canonical event storage (Contract 01, Section 1, Field Notes).
 
 **Implemented behavior:**
+
 - Persisted as four split columns: `source_native_adapter`, `source_native_channel_id`, `source_native_message_id`, `source_native_thread_id`.
 - All four are `NULL` for outbound events or internally created events.
-
 
 ## 4. Relation Resolution
 
@@ -107,11 +114,13 @@ The resolver lives at `core/planning/relation_resolution.py`. It accepts a stora
 - `create_relation_event(source_event, relation_type, target_native_ref, key)`: creates a new canonical event representing a relation, with correct `parent_event_id`, `lineage`, `depth`, and `trace_id` propagation.
 
 **Implemented behavior:**
+
 - Resolution happens during ingress, after decode and before storage (Contract 01, Section 10).
 - If resolution succeeds, the relation is updated: `target_event_id` is set.
 - If resolution fails, the native ref is preserved. Routing and rendering continue without error.
 
 **Gap:**
+
 - Adapters do not resolve relations. The resolver is a core pipeline concern. Adapters provide `target_native_ref` on relations; the pipeline resolves them (Contract 04, Section 8).
 - No re-resolution of failed relations after the initial pass. Replay can re-trigger resolution for specific events via `BEST_EFFORT` mode, but this is manual.
 
@@ -119,19 +128,18 @@ The resolver lives at `core/planning/relation_resolution.py`. It accepts a stora
 
 The `event_relations` table uses split nullable columns to store unresolved native references:
 
-| Column | Purpose |
-|--------|---------|
-| `target_event_id TEXT` | Canonical event ID of the target, once resolved |
-| `target_native_adapter TEXT` | NativeRef.adapter when canonical ID not yet known |
-| `target_native_channel_id TEXT` | NativeRef.native_channel_id |
-| `target_native_message_id TEXT` | NativeRef.native_message_id |
-| `target_native_thread_id TEXT` | NativeRef.native_thread_id |
-| `metadata TEXT NOT NULL DEFAULT '{}'` | Relation metadata |
+| Column                                | Purpose                                           |
+| ------------------------------------- | ------------------------------------------------- |
+| `target_event_id TEXT`                | Canonical event ID of the target, once resolved   |
+| `target_native_adapter TEXT`          | NativeRef.adapter when canonical ID not yet known |
+| `target_native_channel_id TEXT`       | NativeRef.native_channel_id                       |
+| `target_native_message_id TEXT`       | NativeRef.native_message_id                       |
+| `target_native_thread_id TEXT`        | NativeRef.native_thread_id                        |
+| `metadata TEXT NOT NULL DEFAULT '{}'` | Relation metadata                                 |
 
 When a relation is unresolved, `target_event_id` is `NULL` and the four `target_native_*` columns carry the native reference. The relation resolution stage resolves these to `target_event_id` by calling `resolve_native_ref` against `native_message_refs`. At load time, `_row_to_relation` reconstructs the in-memory `EventRelation.target_native_ref` from the split columns. `CanonicalEvent.relations` are reconstructed from `event_relations` on every `get` and `query` call.
 
 > **Historical note (resolved):** Earlier contract drafts documented a single `target_native_ref TEXT` column (JSON blob). Contracts 01 and 03 have been updated to match the split-column implementation. No runtime code ever used the JSON-blob format.
-
 
 ## 5. Replay as a Lineage/Debugging Tool
 
@@ -139,13 +147,13 @@ The replay engine (`core/storage/replay.py`, Contract 07) is the primary debuggi
 
 ### 5.1 What Replay Provides for Debugging
 
-| Mode | Debugging Value |
-|------|----------------|
-| `STRICT` | Verifies event existence and kind registration. No side effects. Useful for integrity checks. |
-| `RE_RENDER` | Re-runs rendering without side effects. Captures output in `ReplayResult`. Useful for testing renderers. |
-| `RE_ROUTE` | Re-runs routing with current configuration. No side effects. Useful for testing route changes. |
+| Mode          | Debugging Value                                                                                                |
+| ------------- | -------------------------------------------------------------------------------------------------------------- |
+| `STRICT`      | Verifies event existence and kind registration. No side effects. Useful for integrity checks.                  |
+| `RE_RENDER`   | Re-runs rendering without side effects. Captures output in `ReplayResult`. Useful for testing renderers.       |
+| `RE_ROUTE`    | Re-runs routing with current configuration. No side effects. Useful for testing route changes.                 |
 | `BEST_EFFORT` | Full re-processing including delivery. The only mode with side effects. Useful for retrying failed deliveries. |
-| `DRY_RUN` | All stages through rendering, delivery skipped. Useful for previewing what BEST_EFFORT would do. |
+| `DRY_RUN`     | All stages through rendering, delivery skipped. Useful for previewing what BEST_EFFORT would do.               |
 
 ### 5.2 Lineage Preservation in Replay
 
@@ -161,22 +169,21 @@ Replay never mutates historical events. All modes pass events read-only through 
 - **No progress tracking or resumption.** Replay runs to completion or failure without checkpoints.
 - **No file or stream source.** Replay reads from storage only.
 
-
 ## 6. Diagnostician
 
 The `Diagnostician` class (`core/observability/metrics.py`) records structured diagnostic events during pipeline execution and replay.
 
 ### 6.1 What It Records
 
-| Method | Category | Records |
-|--------|----------|---------|
-| `record_planner_failure(event_id, error)` | `planner_failures` | Routing or planning failures |
-| `record_renderer_failure(event_id, target, error)` | `renderer_failures` | Rendering failures per target adapter |
-| `record_storage_failure(event_id, operation, error)` | `storage_failures` | Storage operation failures |
-| `record_adapter_failure(event_id, adapter, error)` | `adapter_failures` | Adapter delivery failures |
-| `record_replay_skip(event_id, reason)` | `replay_skips` | Events skipped during replay |
-| `record_replay_downgrade(event_id, original, fallback)` | `replay_downgrades` | Mode downgrades during replay |
-| `record_correlation_miss(event_id, native_ref)` | `correlation_misses` | Native refs that failed to resolve |
+| Method                                                  | Category             | Records                               |
+| ------------------------------------------------------- | -------------------- | ------------------------------------- |
+| `record_planner_failure(event_id, error)`               | `planner_failures`   | Routing or planning failures          |
+| `record_renderer_failure(event_id, target, error)`      | `renderer_failures`  | Rendering failures per target adapter |
+| `record_storage_failure(event_id, operation, error)`    | `storage_failures`   | Storage operation failures            |
+| `record_adapter_failure(event_id, adapter, error)`      | `adapter_failures`   | Adapter delivery failures             |
+| `record_replay_skip(event_id, reason)`                  | `replay_skips`       | Events skipped during replay          |
+| `record_replay_downgrade(event_id, original, fallback)` | `replay_downgrades`  | Mode downgrades during replay         |
+| `record_correlation_miss(event_id, native_ref)`         | `correlation_misses` | Native refs that failed to resolve    |
 
 Each method emits a structured log entry and increments an internal counter. The `snapshot()` method returns all counters as a plain dict.
 
@@ -188,7 +195,6 @@ Each method emits a structured log entry and increments an internal counter. The
 - **No alerting.** The Diagnostician records and logs; it does not trigger alerts, notifications, or escalation.
 - **In-memory only.** State is lost on restart. There is no persistence of diagnostic counters.
 
-
 ## 7. Known Gaps Summary
 
 ### 7.1 Absent Lineage Walking APIs
@@ -196,6 +202,7 @@ Each method emits a structured log entry and increments an internal counter. The
 No API exists to traverse the derivation tree. Walking the parent chain requires manual `get(parent_event_id)` loops. Walking descendants requires a full table scan or application-level bookkeeping. The `lineage` tuple provides the full ancestry chain on each event, but there is no query interface that accepts an event ID and returns the full derivation tree.
 
 Specific missing operations:
+
 - "Give me all events derived from event X."
 - "Give me the full ancestor chain for event X."
 - "Give me all events in the derivation tree of event X."
@@ -206,6 +213,7 @@ The `idx_events_parent` index supports "find events whose parent is X" via a dir
 ### 7.2 Orphan Detection
 
 No mechanism detects orphaned events: events whose `parent_event_id` references a canonical event that does not exist in storage. This can happen if:
+
 - An event was stored but its parent was not (storage write failure mid-transaction).
 - Events were manually deleted from the database.
 - A derived event was stored before the source event arrived (ordering issue).
@@ -232,23 +240,21 @@ Section 4.2 previously documented a schema inconsistency between contracts. Cont
 
 No API supports "find all events related to event X" across all relation types. The `idx_relations_event` index supports "find relations where event_id = X" (outgoing relations), and `idx_relations_target` supports "find relations where target_event_id = X" (incoming relations). But these require raw SQL. They are not exposed as `StorageBackend` methods.
 
-
 ## 8. What Works Today
 
 Despite the gaps, the current system provides solid lineage foundations:
 
-| Capability | Mechanism | Status |
-|-----------|-----------|--------|
-| Derivation chain recording | `parent_event_id` + `lineage` tuple | Working, persisted, indexed |
-| Depth tracking | `depth` field | Working, persisted |
-| Native-to-canonical correlation | `native_message_refs` + `resolve_native_ref` | Working, idempotent, indexed |
-| Relation resolution at ingress | `RelationResolver` | Working, graceful fallback on miss |
-| Full re-processing via replay | `ReplayEngine` with 5 modes | Working, deterministic |
-| Failure recording | `Diagnostician` with 7 categories | Working, structured logging |
-| Native ref preservation on miss | Split `target_native_*` columns on unresolved relations | Working |
-| Fallback text delivery | `fallback_text` on `EventRelation` | Working |
-| Receipt lineage for delivery | `attempt_number` + `parent_receipt_id` | Working, ordered, queryable |
-
+| Capability                      | Mechanism                                               | Status                             |
+| ------------------------------- | ------------------------------------------------------- | ---------------------------------- |
+| Derivation chain recording      | `parent_event_id` + `lineage` tuple                     | Working, persisted, indexed        |
+| Depth tracking                  | `depth` field                                           | Working, persisted                 |
+| Native-to-canonical correlation | `native_message_refs` + `resolve_native_ref`            | Working, idempotent, indexed       |
+| Relation resolution at ingress  | `RelationResolver`                                      | Working, graceful fallback on miss |
+| Full re-processing via replay   | `ReplayEngine` with 5 modes                             | Working, deterministic             |
+| Failure recording               | `Diagnostician` with 7 categories                       | Working, structured logging        |
+| Native ref preservation on miss | Split `target_native_*` columns on unresolved relations | Working                            |
+| Fallback text delivery          | `fallback_text` on `EventRelation`                      | Working                            |
+| Receipt lineage for delivery    | `attempt_number` + `parent_receipt_id`                  | Working, ordered, queryable        |
 
 ## 9. No-Feature-Expansion Statement
 
@@ -263,7 +269,6 @@ This document describes the current state. It does not introduce, propose, or im
 - No native ref cleanup or pruning mechanism
 
 Any future work in these areas belongs in separate tracks with their own contracts.
-
 
 ## 10. References
 
