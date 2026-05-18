@@ -11,7 +11,7 @@ Quick-start imports::
 
 Re-exported symbols
 -------------------
-* From :mod:`~medre.adapters.base`:
+* From :mod:`~medre.core.ports` and :mod:`~medre.core.adapter_base`:
   ``AdapterCapabilities``, ``AdapterCodec``, ``AdapterContext``,
   ``AdapterInfo``, ``AdapterRole``, ``BaseAdapter``.
 * From :mod:`~medre.adapters.fake_transport`:
@@ -28,7 +28,8 @@ Re-exported symbols
   ``FakeLxmfAdapter``.
 """
 
-from medre.adapters.base import (
+from medre.core.adapter_base import BaseAdapter
+from medre.core.ports import (
     AdapterCapabilities,
     AdapterCodec,
     AdapterContext,
@@ -37,7 +38,6 @@ from medre.adapters.base import (
     AdapterPermanentError,
     AdapterRole,
     AdapterSendError,
-    BaseAdapter,
 )
 from medre.adapters.fake_lxmf import FakeLxmfAdapter
 from medre.adapters.fake_matrix import FakeMatrixAdapter

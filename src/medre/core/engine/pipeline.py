@@ -31,11 +31,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Callable, Awaitable, Literal
 
-from medre.adapters.base import (
+from medre.core.adapter_base import BaseAdapter
+from medre.core.ports import (
     AdapterCapabilities,
     AdapterDeliveryResult,
     AdapterSendError,
-    BaseAdapter,
 )
 from medre.core.events.canonical import (
     CanonicalEvent,

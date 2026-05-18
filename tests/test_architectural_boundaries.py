@@ -295,3 +295,35 @@ class TestReplayTestPurity:
             f"Replay test files contain live transport imports:\n"
             + "\n".join(violations)
         )
+
+
+# ===================================================================
+# G) Core → adapters import boundary
+# ===================================================================
+
+
+class TestCoreDoesNotImportAdapters:
+    """Core modules must not have runtime imports from medre.adapters.
+
+    Added in Tranche 1 — enforces the dependency inversion fix:
+    adapter contract types live in core/ports.py and core/adapter_base.py,
+    not in medre.adapters.base.
+    """
+
+    def test_no_runtime_core_to_adapters_imports(self) -> None:
+        """Scan all core .py files for medre.adapters imports."""
+        tests_dir = Path(__file__).parent
+        core_dir = (tests_dir / ".." / ".." / "src" / "medre" / "core").resolve()
+
+        violations: list[str] = []
+        for py_file in sorted(core_dir.rglob("*.py")):
+            text = py_file.read_text()
+            for i, line in enumerate(text.splitlines(), 1):
+                stripped = line.strip()
+                if stripped.startswith("from medre.adapters") or stripped.startswith("import medre.adapters"):
+                    violations.append(f"{py_file.relative_to(tests_dir.parent.parent)}:{i}: {stripped}")
+
+        assert violations == [], (
+            f"Core modules must not import from medre.adapters:\n"
+            + "\n".join(violations)
+        )

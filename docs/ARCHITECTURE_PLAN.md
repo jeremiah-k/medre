@@ -99,6 +99,8 @@ Four `core/` files import from `adapters/base.py`, creating a `core -> adapters`
 | `core/runtime/health.py` | `AdapterInfo` |
 | `core/planning/delivery_plan.py` | `AdapterSendError` |
 
+**Tranche 1 fix applied**: `core` modules now import from `core/ports.py` and `core/adapter_base.py` instead of `adapters/base.py`. The `adapters/base.py` module is a re-export shim that preserves all existing import paths.
+
 The dependency is already bidirectional: `adapters/base.py` imports `CanonicalEvent` from `core.events.canonical` and `RenderingResult` from `core.rendering.renderer` (line 32-33). So `core -> adapters` and `adapters -> core` both exist at the same module. This circular coupling works at runtime (Python resolves it) but blocks future extraction of core as a standalone package and complicates testing.
 
 ### 2.2 Dual Observability
@@ -128,7 +130,7 @@ Three locations for observability-adjacent code:
 
 ### 2.6 Fake Adapters in Production Package
 
-7 `fake_*.py` files live alongside real adapters in `adapters/`. They are test doubles used by `runtime/drill.py` and `runtime/smoke.py`. Having them loose in the adapter package clutters the import surface. `adapters/__init__.py` re-exports all of them (lines 274-289 of `test_packaging_and_install_contract.py` test this directly).
+6 `fake_*.py` files (plus `FaultyPresentationAdapter`) live alongside real adapters in `adapters/`. They are test doubles used by `runtime/drill.py` and `runtime/smoke.py`. Having them loose in the adapter package clutters the import surface. `adapters/__init__.py` re-exports all of them (lines 274-289 of `test_packaging_and_install_contract.py` test this directly).
 
 ### 2.7 Config to Adapter Config Dependency
 
@@ -405,6 +407,8 @@ grep -r "from medre\.adapters\.fake_" tests/ | grep -v fakes
 **Objective**: Break the `core -> adapters` dependency inversion. Extract adapter interface types into core, splitting pure value types from the behavioral `BaseAdapter` ABC.
 
 **Estimated effort**: ~2 hours. This is the single most important change.
+
+**Status: IMPLEMENTED in PR (branch maint-517-2).**
 
 **Background**: The current dependency is bidirectional. `adapters/base.py` imports `CanonicalEvent` from `core.events.canonical` and `RenderingResult` from `core.rendering.renderer` (line 32-33), while four core files import types from `adapters.base`. The split extraction (Decision 6) breaks both directions of the coupling.
 

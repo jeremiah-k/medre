@@ -22,7 +22,7 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import TYPE_CHECKING, Literal
 
-from medre.adapters.base import AdapterSendError
+from medre.core.ports import AdapterSendError
 from medre.core.events.canonical import DeliveryReceipt
 
 if TYPE_CHECKING:
