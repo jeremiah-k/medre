@@ -66,3 +66,6 @@ markers = [
   "docker: tests requiring Docker services like Synapse or meshtasticd (skipped by default)",
 ]
 addopts = "-m 'not live and not docker'"
+
+[tool.bandit]
+exclude_dirs = ["tests"]
