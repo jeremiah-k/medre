@@ -29,11 +29,8 @@ from medre.core.contracts.adapter import AdapterContext, AdapterPermanentError, 
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.compat import HAS_E2EE, HAS_NIO
 from medre.config.adapters.matrix import MatrixConfig
-from medre.adapters.matrix.errors import (
-    MatrixConfigError,
-    MatrixConnectionError,
-    MatrixSendError,
-)
+from medre.config.adapters.errors import MatrixConfigError
+from medre.adapters.matrix.errors import MatrixConnectionError, MatrixSendError
 from medre.adapters.matrix.session import MatrixSession, MatrixSessionDiagnostics
 
 

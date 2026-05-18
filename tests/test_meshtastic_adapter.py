@@ -13,8 +13,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from medre.adapters import AdapterRole, FakeMeshtasticAdapter
-from medre.core.contracts.adapter import AdapterContext, AdapterDeliveryResult, AdapterPermanentError, AdapterSendError
+from medre.adapters import FakeMeshtasticAdapter
+from medre.core.contracts.adapter import AdapterContext, AdapterDeliveryResult, AdapterPermanentError, AdapterRole, AdapterSendError
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.adapters.meshtastic.session import MeshtasticSession

@@ -10,8 +10,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from medre.adapters import AdapterRole, FakeMeshCoreAdapter
-from medre.core.contracts.adapter import AdapterContext, AdapterDeliveryResult, AdapterPermanentError, AdapterSendError
+from medre.adapters import FakeMeshCoreAdapter
+from medre.core.contracts.adapter import AdapterContext, AdapterDeliveryResult, AdapterPermanentError, AdapterRole, AdapterSendError
 from medre.adapters.meshcore.adapter import MeshCoreAdapter
 from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.adapters.meshcore.errors import MeshCoreConnectionError, MeshCoreSendError

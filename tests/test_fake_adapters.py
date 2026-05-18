@@ -7,14 +7,8 @@ from __future__ import annotations
 
 import pytest
 
-from medre.adapters import (
-    AdapterCapabilities,
-    AdapterInfo,
-    AdapterRole,
-    FakePresentationAdapter,
-    FakeTransportAdapter,
-)
-from medre.core.contracts.adapter import AdapterContext, AdapterPermanentError
+from medre.adapters import FakePresentationAdapter, FakeTransportAdapter
+from medre.core.contracts.adapter import AdapterCapabilities, AdapterContext, AdapterInfo, AdapterPermanentError, AdapterRole
 from medre.core.events import CanonicalEvent, EventMetadata, EventRelation, NativeRef
 from medre.core.events.kinds import EventKind
 from medre.core.rendering.renderer import RenderingResult
