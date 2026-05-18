@@ -18,7 +18,9 @@ from typing import Any
 import asyncio
 
 import pytest
+from unittest.mock import AsyncMock, MagicMock
 
+from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.codec import MatrixCodec
 from medre.adapters.matrix.renderer import MatrixRenderer
 from medre.config.adapters.matrix import MatrixConfig
@@ -573,62 +575,70 @@ class TestRendererReplyWithReplyId:
 # ===========================================================================
 
 
-class TestAdapterEventTypePopping:
-    """MatrixAdapter pops _matrix_event_type and uses it as message_type."""
+class TestMatrixAdapterEventType:
+    """MatrixAdapter.deliver correctly handles _matrix_event_type."""
 
-    def _make_adapter(self) -> Any:
-        from medre.adapters.matrix.adapter import MatrixAdapter
-
-        return MatrixAdapter(_make_config())
+    async def _make_adapter(self) -> MatrixAdapter:
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="https://matrix.example.com",
+            user_id="@bot:example.com",
+            access_token="tok",
+        )
+        adapter = MatrixAdapter(config)
+        return adapter
 
     @pytest.mark.asyncio
     async def test_default_message_type_is_m_room_message(self) -> None:
-        """Without _matrix_event_type, deliver uses m.room.message."""
-        adapter = self._make_adapter()
+        adapter = await self._make_adapter()
+        mock_client = MagicMock()
+        mock_client.room_send = AsyncMock(
+            return_value=type("Resp", (), {"event_id": "$evt-1"})()
+        )
+        adapter._client = mock_client
 
-        # We can't call deliver without a real client, so we test the
-        # content preparation logic indirectly by checking the pop behavior.
-        content = {"msgtype": "m.text", "body": "hello"}
         result = RenderingResult(
             event_id="evt-1",
             target_adapter="matrix-1",
             target_channel="!room:server",
-            payload=content,
+            payload={"msgtype": "m.text", "body": "hello"},
         )
-        # Simulate what deliver does
-        clean = dict(result.payload)
-        clean.pop("room_id", None)
-        message_type = clean.pop("_matrix_event_type", "m.room.message")
+        await adapter.deliver(result)
 
-        assert message_type == "m.room.message"
-        assert "_matrix_event_type" not in clean
+        actual_message_type = mock_client.room_send.call_args.kwargs.get("message_type")
+        actual_content = mock_client.room_send.call_args.kwargs.get("content", {})
+        assert actual_message_type == "m.room.message", f"expected m.room.message, got {actual_message_type}"
+        assert "_matrix_event_type" not in actual_content
 
     @pytest.mark.asyncio
     async def test_reaction_event_type_popped_from_content(self) -> None:
-        """With _matrix_event_type=m.reaction, deliver uses that type."""
-        content = {
-            "msgtype": "m.text",
-            "body": "👍",
-            "m.relates_to": {
-                "rel_type": "m.annotation",
-                "event_id": "$msg-1",
-                "key": "👍",
-            },
-            "_matrix_event_type": "m.reaction",
-        }
+        adapter = await self._make_adapter()
+        mock_client = MagicMock()
+        mock_client.room_send = AsyncMock(
+            return_value=type("Resp", (), {"event_id": "$evt-2"})()
+        )
+        adapter._client = mock_client
+
         result = RenderingResult(
-            event_id="evt-1",
+            event_id="evt-2",
             target_adapter="matrix-1",
             target_channel="!room:server",
-            payload=content,
+            payload={
+                "_matrix_event_type": "m.reaction",
+                "m.relates_to": {
+                    "rel_type": "m.annotation",
+                    "event_id": "$target",
+                    "key": "👍",
+                },
+            },
         )
-        # Simulate what deliver does
-        clean = dict(result.payload)
-        clean.pop("room_id", None)
-        message_type = clean.pop("_matrix_event_type", "m.room.message")
+        await adapter.deliver(result)
 
-        assert message_type == "m.reaction"
-        assert "_matrix_event_type" not in clean
+        actual_message_type = mock_client.room_send.call_args.kwargs.get("message_type")
+        actual_content = mock_client.room_send.call_args.kwargs.get("content", {})
+        assert actual_message_type == "m.reaction", f"expected m.reaction, got {actual_message_type}"
+        assert "_matrix_event_type" not in actual_content
+        assert actual_content.get("m.relates_to", {}).get("key") == "👍"
 
     def test_adapter_reactions_capability_is_native(self) -> None:
         from medre.adapters.matrix.adapter import _MATRIX_CAPABILITIES

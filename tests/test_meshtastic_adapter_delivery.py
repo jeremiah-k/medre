@@ -17,6 +17,7 @@ from medre.adapters.meshtastic.errors import (
     MeshtasticSendError,
 )
 from medre.adapters.meshtastic.session import MeshtasticSession
+from medre.core.rendering.renderer import RenderingResult
 
 from tests.helpers.meshtastic import (
     make_meshtastic_config,
@@ -739,3 +740,80 @@ class TestQueueMetadataSnapshot:
         assert result is not None
         assert result.native_message_id == "55"
         assert result.metadata["packet_id"] == 55
+
+
+# ===================================================================
+# Adapter deliver -> send_one passthrough
+# ===================================================================
+
+
+class TestAdapterDeliverPassthrough:
+    """Adapter deliver path preserves structured fields through send_one."""
+
+    async def test_reply_id_passthrough_deliver(self) -> None:
+        """deliver -> send_one passes reply_id."""
+        config = make_meshtastic_config()
+        adapter = MeshtasticAdapter(config)
+
+        # Wire a fake session that captures send calls
+        send_calls: list[dict[str, Any]] = []
+
+        class FakeSession:
+            _started = True
+
+            @property
+            def client(self):
+                return object()  # non-None so send_one proceeds
+
+            async def send(self, d):
+                send_calls.append(d)
+                return {"id": 77}
+
+        adapter._session = FakeSession()  # type: ignore[assignment]
+        adapter._started = True
+
+        await adapter.deliver(RenderingResult(
+            event_id="evt-1",
+            target_adapter="mesh-1",
+            target_channel="0",
+            payload={"text": "hi", "channel_index": 0, "reply_id": 99},
+            metadata={},
+        ))
+        result = await adapter.send_one()
+        assert result is not None
+        assert len(send_calls) == 1
+        assert send_calls[0].get("reply_id") == 99
+
+    async def test_emoji_passthrough_deliver(self) -> None:
+        """deliver -> send_one passes emoji."""
+        config = make_meshtastic_config()
+        adapter = MeshtasticAdapter(config)
+
+        send_calls: list[dict[str, Any]] = []
+
+        class FakeSession:
+            _started = True
+
+            @property
+            def client(self):
+                return object()
+
+            async def send(self, d):
+                send_calls.append(d)
+                return {"id": 88}
+
+        adapter._session = FakeSession()  # type: ignore[assignment]
+        adapter._started = True
+
+        await adapter.deliver(RenderingResult(
+            event_id="evt-2",
+            target_adapter="mesh-1",
+            target_channel="0",
+            payload={"text": "🔥", "channel_index": 0, "reply_id": 10, "emoji": 1},
+            metadata={},
+        ))
+        result = await adapter.send_one()
+        assert result is not None
+        assert len(send_calls) == 1
+        assert send_calls[0].get("reply_id") == 10
+        assert send_calls[0].get("emoji") == 1

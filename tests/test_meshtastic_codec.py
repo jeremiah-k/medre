@@ -421,11 +421,16 @@ class TestMeshtasticCodecReactionMetadata:
         assert rel.metadata.get("meshtastic_reply_id") == "42"
         assert rel.metadata.get("meshtastic_emoji") == 1
 
-    def test_reply_id_zero_not_mistaken_as_present(self) -> None:
-        """replyId=0 should not create a relation."""
+    def test_reply_id_zero_creates_relation(self) -> None:
+        """replyId=0 creates a reply relation (address is 0, not absent)."""
         config = MeshtasticConfig(adapter_id="mesh-1")
         codec = MeshtasticCodec("mesh-1", config)
         packet = _make_text_packet(text="zero replyId", packet_id=400)
         packet["decoded"]["replyId"] = 0
         event = codec.decode(packet)
-        assert len(event.relations) == 0
+        assert len(event.relations) == 1
+        rel = event.relations[0]
+        assert rel.relation_type == "reply"
+        assert rel.target_native_ref is not None
+        assert rel.target_native_ref.native_message_id == "0"
+        assert rel.metadata.get("meshtastic_reply_id") == "0"

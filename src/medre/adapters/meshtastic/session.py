@@ -479,13 +479,19 @@ class MeshtasticSession:
         data.payload = text.encode("utf-8")
         try:
             data.reply_id = reply_id_int
-        except AttributeError:
-            pass
+        except AttributeError as exc:
+            raise MeshtasticSendError(
+                "structured Meshtastic send requires Data.reply_id support",
+                transient=False,
+            ) from exc
         if emoji:
             try:
                 data.emoji = 1
-            except AttributeError:
-                pass
+            except AttributeError as exc:
+                raise MeshtasticSendError(
+                    "structured Meshtastic reaction requires Data.emoji support",
+                    transient=False,
+                ) from exc
 
         mesh_packet = mesh_pb2.MeshPacket()
         mesh_packet.decoded.CopyFrom(data)

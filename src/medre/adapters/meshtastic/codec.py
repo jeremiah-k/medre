@@ -134,7 +134,7 @@ class MeshtasticCodec:
         relations: list[EventRelation] = []
         reply_id = classification["reply_id"]
         emoji_flag = classification["emoji_flag"]
-        if reply_id is not None and reply_id != 0:
+        if reply_id is not None:
             relation_metadata: dict[str, object] = {
                 "meshtastic_reply_id": str(reply_id),
             }
@@ -201,7 +201,7 @@ class MeshtasticCodec:
                 "emoji": emoji_raw,
                 "emoji_flag": emoji_flag,
                 "packet": snapshot_packet(packet),
-                "decoded": snapshot_decoded(decoded) if isinstance(decoded, dict) else snapshot_decoded({}),
+                "decoded": snapshot_decoded(decoded),
                 "classification": {
                     "category": classification["category"],
                     "is_reply": is_reply,

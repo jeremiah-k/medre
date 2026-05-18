@@ -238,13 +238,18 @@ class MeshtasticPacketClassifier:
         reaction_key: str | None = None
         if emoji_flag and isinstance(decoded, dict):
             raw_text = decoded.get("text", "")
-            stripped = (raw_text or "").strip()
+            if isinstance(raw_text, str):
+                stripped = raw_text.strip()
+            elif raw_text is not None:
+                stripped = str(raw_text).strip()
+            else:
+                stripped = ""
             reaction_key = stripped if stripped else "?"
 
         # is_reply / is_reaction only for non-ACK text messages
         is_reply = False
         is_reaction = False
-        if not is_ack and category == "text" and reply_id:
+        if not is_ack and category == "text" and reply_id is not None:
             if emoji_flag:
                 is_reaction = True
             else:

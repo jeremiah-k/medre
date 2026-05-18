@@ -21,7 +21,7 @@ from typing import Any
 
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
 from medre.adapters.matrix.relations import build_reply_body
-from medre.core.events import CanonicalEvent
+from medre.core.events import CanonicalEvent, EventRelation
 from medre.core.rendering.renderer import RenderingResult
 from medre.interop.mmrelay import (
     KEY_EMOJI,
@@ -178,7 +178,7 @@ class MatrixRenderer:
                     content[KEY_REPLY_ID] = str(mx_reply_id)
 
             elif rel.relation_type == "reaction":
-                self._render_reaction(event, rel, body, content, target_adapter)
+                self._render_reaction(rel, body, content, target_adapter)
 
         # Embed metadata envelope
         envelope = MatrixMetadataEnvelope(
@@ -236,8 +236,7 @@ class MatrixRenderer:
 
     def _render_reaction(
         self,
-        event: CanonicalEvent,
-        rel: Any,
+        rel: EventRelation,
         body: str,
         content: dict[str, object],
         target_adapter: str,

@@ -7,8 +7,8 @@ intended solely for use in unit and integration tests.
 
 Capabilities
 ------------
-* text messaging only
-* no replies, reactions, edits, deletes, attachments, or delivery receipts
+* text, reply, and reaction messaging
+* no edits, deletes, attachments, or delivery receipts
 * packet classification and codec decoding (via real classifier + codec)
 
 Usage

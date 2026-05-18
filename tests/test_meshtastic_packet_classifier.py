@@ -508,3 +508,47 @@ class TestPortnumNormalization:
         }
         result = cls.classify(packet)
         assert result["category"] == category
+
+
+class TestClassifierReplyIdZero:
+    """Classifier handles replyId=0 deterministically."""
+
+    def test_reply_id_zero_without_emoji(self) -> None:
+        """replyId=0 without emoji: is_reply True, is_reaction False."""
+        packet = _make_text_packet(text="hello")
+        packet["decoded"]["replyId"] = 0
+        result = MeshtasticPacketClassifier().classify(packet)
+        assert result["reply_id"] == 0
+        assert result["is_reply"] is True
+        assert result["is_reaction"] is False
+
+    def test_reply_id_zero_with_emoji(self) -> None:
+        """replyId=0 with emoji=1: is_reaction True, is_reply False."""
+        packet = _make_text_packet(text="👍")
+        packet["decoded"]["replyId"] = 0
+        packet["decoded"]["emoji"] = 1
+        result = MeshtasticPacketClassifier().classify(packet)
+        assert result["reply_id"] == 0
+        assert result["emoji_flag"] is True
+        assert result["is_reaction"] is True
+        assert result["is_reply"] is False
+        assert result["reaction_key"] == "👍"
+
+    def test_reply_id_zero_with_emoji_empty_text(self) -> None:
+        """replyId=0 + emoji=1 with empty text: reaction_key is '?'."""
+        packet = _make_text_packet(text="")
+        packet["decoded"]["replyId"] = 0
+        packet["decoded"]["emoji"] = 1
+        result = MeshtasticPacketClassifier().classify(packet)
+        assert result["reaction_key"] == "?"
+        assert result["is_reaction"] is True
+
+    def test_non_string_text_does_not_throw(self) -> None:
+        """Non-string decoded text with emoji does not raise."""
+        packet = _make_text_packet(text="irrelevant")
+        packet["decoded"]["text"] = 42
+        packet["decoded"]["replyId"] = 5
+        packet["decoded"]["emoji"] = 1
+        result = MeshtasticPacketClassifier().classify(packet)
+        # Should not throw. reaction_key should be str(42)
+        assert result["reaction_key"] is not None

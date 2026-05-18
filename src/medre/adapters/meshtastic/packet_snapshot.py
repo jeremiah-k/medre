@@ -41,27 +41,24 @@ def json_safe(value: object) -> Any:
     return repr(value)
 
 
-def snapshot_decoded(decoded: dict[str, Any]) -> dict[str, Any]:
-    """Return a JSON-safe snapshot of a Meshtastic ``decoded`` sub-dict.
+def snapshot_decoded(decoded: Any) -> Any:
+    """Return a JSON-safe snapshot of a Meshtastic ``decoded`` value.
 
     Parameters
     ----------
     decoded:
         The ``decoded`` value from a raw Meshtastic packet.
+        May be a dict, ``None``, or any other type.
     """
-    if not isinstance(decoded, dict):
-        return json_safe(decoded)
     return json_safe(decoded)
 
 
-def snapshot_packet(packet: dict[str, Any]) -> dict[str, Any]:
-    """Return a JSON-safe snapshot of a full Meshtastic packet dict.
+def snapshot_packet(packet: Any) -> Any:
+    """Return a JSON-safe snapshot of a full Meshtastic packet.
 
     Parameters
     ----------
     packet:
-        Raw Meshtastic packet dict.
+        Raw Meshtastic packet.  May be a dict or any other type.
     """
-    if not isinstance(packet, dict):
-        return json_safe(packet)
     return json_safe(packet)

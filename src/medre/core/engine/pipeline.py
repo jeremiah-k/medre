@@ -534,6 +534,14 @@ class PipelineRunner:
                 )
                 refs = await list_native_refs(rel.target_event_id)
             except Exception:
+                self._log.debug(
+                    "Failed to enrich relation native ref for "
+                    "target_event_id=%s target_adapter=%s relation_type=%s",
+                    getattr(rel, "target_event_id", "?"),
+                    target_adapter,
+                    getattr(rel, "relation_type", "?"),
+                    exc_info=True,
+                )
                 new_relations.append(rel)
                 continue
 
