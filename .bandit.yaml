@@ -13,7 +13,7 @@
 # B603  subprocess call — intentional in test infrastructure scripts.
 # B607  partial executable path — intentional in test conftest.
 #
-# The remaining active tests (B310 urlopen, B608 SQL injection) carry explicit
+# B310 (urlopen) and B608 (SQL injection) carry explicit
 # # nosec annotations in src/ with per-site rationale and are NOT skipped here.
 skips:
   - B101
