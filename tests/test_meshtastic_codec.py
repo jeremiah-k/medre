@@ -382,3 +382,50 @@ class TestMeshtasticCodecExtendedMetadata:
         assert data["reply_id"] is None
         assert data["emoji"] is None
         assert data["emoji_flag"] is False
+
+
+class TestMeshtasticCodecReactionMetadata:
+    """MeshtasticCodec reaction payload and relation metadata."""
+
+    def test_reaction_payload_has_key(self) -> None:
+        """Reaction event payload includes 'key' field."""
+        config = MeshtasticConfig(adapter_id="mesh-1")
+        codec = MeshtasticCodec("mesh-1", config)
+        packet = _make_text_packet(text="👍", packet_id=300)
+        packet["decoded"]["replyId"] = 42
+        packet["decoded"]["emoji"] = 1
+        event = codec.decode(packet)
+        assert event.payload.get("key") == "👍"
+
+    def test_reply_relation_metadata(self) -> None:
+        """Reply relation metadata includes meshtastic_reply_id."""
+        config = MeshtasticConfig(adapter_id="mesh-1")
+        codec = MeshtasticCodec("mesh-1", config)
+        packet = _make_text_packet(text="hello")
+        packet["decoded"]["replyId"] = 55
+        event = codec.decode(packet)
+        rel = event.relations[0]
+        assert rel.relation_type == "reply"
+        assert rel.metadata.get("meshtastic_reply_id") == "55"
+
+    def test_reaction_relation_metadata(self) -> None:
+        """Reaction relation metadata includes meshtastic_reply_id and meshtastic_emoji."""
+        config = MeshtasticConfig(adapter_id="mesh-1")
+        codec = MeshtasticCodec("mesh-1", config)
+        packet = _make_text_packet(text="👍", packet_id=300)
+        packet["decoded"]["replyId"] = 42
+        packet["decoded"]["emoji"] = 1
+        event = codec.decode(packet)
+        rel = event.relations[0]
+        assert rel.relation_type == "reaction"
+        assert rel.metadata.get("meshtastic_reply_id") == "42"
+        assert rel.metadata.get("meshtastic_emoji") == 1
+
+    def test_reply_id_zero_not_mistaken_as_present(self) -> None:
+        """replyId=0 should not create a relation."""
+        config = MeshtasticConfig(adapter_id="mesh-1")
+        codec = MeshtasticCodec("mesh-1", config)
+        packet = _make_text_packet(text="zero replyId", packet_id=400)
+        packet["decoded"]["replyId"] = 0
+        event = codec.decode(packet)
+        assert len(event.relations) == 0

@@ -44,11 +44,12 @@ def _make_relation(
     native_message_id: str | None = "42",
     key: str | None = None,
     fallback_text: str | None = None,
+    adapter_id: str = "mesh-1",
 ) -> EventRelation:
     native_ref = None
     if native_message_id is not None:
         native_ref = NativeRef(
-            adapter="mesh-1",
+            adapter=adapter_id,
             native_channel_id="0",
             native_message_id=native_message_id,
         )
@@ -176,32 +177,51 @@ class TestMeshtasticRenderer:
 
 
 # ===================================================================
-# _native_reply_id_from_relation
+# _meshtastic_reply_id_from_relation
 # ===================================================================
 
 
 class TestNativeReplyIdFromRelation:
-    """Tests for MeshtasticRenderer._native_reply_id_from_relation."""
+    """Tests for MeshtasticRenderer._meshtastic_reply_id_from_relation."""
 
     def test_numeric_native_message_id_returns_int(self) -> None:
         rel = _make_relation(native_message_id="42")
-        assert MeshtasticRenderer._native_reply_id_from_relation(rel) == 42
+        assert MeshtasticRenderer._meshtastic_reply_id_from_relation(rel, "mesh-1") == 42
 
     def test_large_numeric_id(self) -> None:
         rel = _make_relation(native_message_id="8589934592")
-        assert MeshtasticRenderer._native_reply_id_from_relation(rel) == 8589934592
+        assert MeshtasticRenderer._meshtastic_reply_id_from_relation(rel, "mesh-1") == 8589934592
 
     def test_non_numeric_returns_none(self) -> None:
         rel = _make_relation(native_message_id="$event:room.xyz")
-        assert MeshtasticRenderer._native_reply_id_from_relation(rel) is None
+        assert MeshtasticRenderer._meshtastic_reply_id_from_relation(rel, "mesh-1") is None
 
     def test_no_native_ref_returns_none(self) -> None:
         rel = _make_relation(native_message_id=None)
-        assert MeshtasticRenderer._native_reply_id_from_relation(rel) is None
+        assert MeshtasticRenderer._meshtastic_reply_id_from_relation(rel, "mesh-1") is None
 
     def test_empty_string_returns_none(self) -> None:
         rel = _make_relation(native_message_id="")
-        assert MeshtasticRenderer._native_reply_id_from_relation(rel) is None
+        assert MeshtasticRenderer._meshtastic_reply_id_from_relation(rel, "mesh-1") is None
+
+    def test_foreign_adapter_ignored_but_mmrelay_fallback(self) -> None:
+        """Native ref from foreign adapter returns None (no fallback metadata)."""
+        foreign_ref = NativeRef(adapter="matrix-1", native_channel_id="!r", native_message_id="123")
+        rel = EventRelation(
+            relation_type="reply", target_event_id="evt-1",
+            target_native_ref=foreign_ref, key=None, fallback_text="original",
+        )
+        assert MeshtasticRenderer._meshtastic_reply_id_from_relation(rel, "mesh-1") is None
+
+    def test_mmrelay_metadata_fallback_works(self) -> None:
+        """MMRelay meshtastic_reply_id in metadata provides fallback reply ID."""
+        foreign_ref = NativeRef(adapter="matrix-1", native_channel_id="!r", native_message_id="abc")
+        rel = EventRelation(
+            relation_type="reply", target_event_id="evt-1",
+            target_native_ref=foreign_ref, key=None, fallback_text="original",
+            metadata={"meshtastic_reply_id": "77"},
+        )
+        assert MeshtasticRenderer._meshtastic_reply_id_from_relation(rel, "mesh-1") == 77
 
 
 # ===================================================================
@@ -224,7 +244,7 @@ class TestRendererStructuredReply:
             payload={"body": "my reply"},
             relations=(rel,),
         )
-        result = await renderer.render(event, "mesh-out")
+        result = await renderer.render(event, "mesh-1")
         assert result.payload["reply_id"] == 99
         assert result.payload["text"] == "my reply"
         # No fallback prefix when native ref available
@@ -245,7 +265,7 @@ class TestRendererStructuredReply:
             payload={"body": "my reply"},
             relations=(rel,),
         )
-        result = await renderer.render(event, "mesh-out")
+        result = await renderer.render(event, "mesh-1")
         assert "reply_id" not in result.payload
         assert "[replying to: original msg]" in result.payload["text"]
         assert "my reply" in result.payload["text"]
@@ -262,7 +282,7 @@ class TestRendererStructuredReply:
             payload={"body": "my reply"},
             relations=(rel,),
         )
-        result = await renderer.render(event, "mesh-out")
+        result = await renderer.render(event, "mesh-1")
         assert "reply_id" not in result.payload
         assert "[replying to: non-mesh msg]" in result.payload["text"]
 
@@ -277,7 +297,7 @@ class TestRendererStructuredReply:
             payload={"body": "reply msg"},
             relations=(rel,),
         )
-        result = await renderer.render(event, "mesh-out", target_channel="2")
+        result = await renderer.render(event, "mesh-1", target_channel="2")
         assert result.payload["reply_id"] == 10
         assert result.payload["channel_index"] == 2
 
@@ -302,7 +322,7 @@ class TestRendererStructuredReaction:
             payload={"body": "👍"},
             relations=(rel,),
         )
-        result = await renderer.render(event, "mesh-out")
+        result = await renderer.render(event, "mesh-1")
         assert result.payload["reply_id"] == 55
         assert result.payload["emoji"] == 1
         assert result.payload["text"] == "👍"
@@ -319,7 +339,7 @@ class TestRendererStructuredReaction:
             payload={"body": "unused"},
             relations=(rel,),
         )
-        result = await renderer.render(event, "mesh-out")
+        result = await renderer.render(event, "mesh-1")
         assert result.payload["text"] == "❤️"
 
     async def test_reaction_falls_back_to_payload_key(self) -> None:
@@ -334,7 +354,7 @@ class TestRendererStructuredReaction:
             payload={"key": "🎉"},
             relations=(rel,),
         )
-        result = await renderer.render(event, "mesh-out")
+        result = await renderer.render(event, "mesh-1")
         assert result.payload["text"] == "🎉"
 
     async def test_reaction_without_native_ref_readable_fallback(self) -> None:
@@ -349,7 +369,7 @@ class TestRendererStructuredReaction:
             payload={"body": "unused"},
             relations=(rel,),
         )
-        result = await renderer.render(event, "mesh-out")
+        result = await renderer.render(event, "mesh-1")
         assert "reply_id" not in result.payload
         assert "emoji" not in result.payload
         assert "[reacted: 👍]" in result.payload["text"]
@@ -366,6 +386,75 @@ class TestRendererStructuredReaction:
             payload={"body": "😀"},
             relations=(rel,),
         )
-        result = await renderer.render(event, "mesh-out", target_channel="4")
+        result = await renderer.render(event, "mesh-1", target_channel="4")
         assert result.payload["channel_index"] == 4
         assert "meshnet_name" in result.payload
+
+
+class TestMeshtasticRendererForeignRefs:
+    """MeshtasticRenderer must not use native refs from other adapters."""
+
+    async def test_foreign_native_ref_not_used_for_reply(self) -> None:
+        """Matrix native ref must not produce reply_id when rendering to Meshtastic."""
+        renderer = MeshtasticRenderer()
+        foreign_ref = NativeRef(adapter="matrix-1", native_channel_id="!r", native_message_id="123")
+        rel = EventRelation(
+            relation_type="reply", target_event_id=None,
+            target_native_ref=foreign_ref, key=None, fallback_text="orig msg",
+        )
+        event = _make_event(payload={"body": "hello"}, relations=(rel,))
+        result = await renderer.render(event, "mesh-1")
+        assert "reply_id" not in result.payload
+        assert "[replying to: orig msg]" in result.payload["text"]
+
+    async def test_foreign_native_ref_not_used_for_reaction(self) -> None:
+        """Matrix native ref must not produce reply_id + emoji when rendering reaction to Meshtastic."""
+        renderer = MeshtasticRenderer()
+        foreign_ref = NativeRef(adapter="matrix-1", native_channel_id="!r", native_message_id="123")
+        rel = EventRelation(
+            relation_type="reaction", target_event_id=None,
+            target_native_ref=foreign_ref, key="👍", fallback_text=None,
+        )
+        event = _make_event(payload={"body": "unused"}, relations=(rel,))
+        result = await renderer.render(event, "mesh-1")
+        assert "reply_id" not in result.payload
+        assert "emoji" not in result.payload
+        assert "[reacted: 👍]" in result.payload["text"]
+
+    async def test_mmrelay_metadata_fallback_for_reply(self) -> None:
+        """Relation with metadata meshtastic_reply_id renders reply_id=id even without native ref."""
+        renderer = MeshtasticRenderer()
+        rel = EventRelation(
+            relation_type="reply", target_event_id=None,
+            target_native_ref=None, key=None, fallback_text="orig msg",
+            metadata={"meshtastic_reply_id": "42"},
+        )
+        event = _make_event(payload={"body": "reply text"}, relations=(rel,))
+        result = await renderer.render(event, "mesh-1")
+        assert result.payload["reply_id"] == 42
+
+    async def test_mmrelay_metadata_fallback_for_reaction(self) -> None:
+        """Relation with metadata meshtastic_reply_id renders reply_id + emoji=1."""
+        renderer = MeshtasticRenderer()
+        rel = EventRelation(
+            relation_type="reaction", target_event_id=None,
+            target_native_ref=None, key="🔥", fallback_text=None,
+            metadata={"meshtastic_reply_id": "77"},
+        )
+        event = _make_event(payload={"body": "🔥"}, relations=(rel,))
+        result = await renderer.render(event, "mesh-1")
+        assert result.payload["reply_id"] == 77
+        assert result.payload["emoji"] == 1
+
+    async def test_non_numeric_mmrelay_id_falls_back(self) -> None:
+        """Non-numeric meshtastic_reply_id in metadata falls back to readable text."""
+        renderer = MeshtasticRenderer()
+        rel = EventRelation(
+            relation_type="reaction", target_event_id=None,
+            target_native_ref=None, key="🔥", fallback_text=None,
+            metadata={"meshtastic_reply_id": "not-a-number"},
+        )
+        event = _make_event(payload={"body": "🔥"}, relations=(rel,))
+        result = await renderer.render(event, "mesh-1")
+        assert "reply_id" not in result.payload
+        assert "emoji" not in result.payload

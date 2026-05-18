@@ -1,6 +1,6 @@
 # Meshtastic Relations and MMRelay Metadata
 
-> Contract version: 1  
+> Contract version: 1
 > Last updated: 2026-05-18
 
 ## Meshtastic relation mapping

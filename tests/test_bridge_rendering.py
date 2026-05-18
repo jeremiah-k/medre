@@ -309,9 +309,9 @@ class TestReplyThreadContext:
     async def test_matrix_reply_includes_relates_to(self) -> None:
         """Matrix renderer adds m.relates_to when event has a reply relation."""
         native_ref = NativeRef(
-            adapter="mesh-src",
-            native_channel_id="0",
-            native_message_id="mesh-msg-42",
+            adapter="matrix-target",
+            native_channel_id="!room:server",
+            native_message_id="$orig-matrix-event",
         )
         relation = EventRelation(
             relation_type="reply",
@@ -332,14 +332,19 @@ class TestReplyThreadContext:
         payload = result.payload
         assert "m.relates_to" in payload
         reply_ref = payload["m.relates_to"]["m.in_reply_to"]
-        assert reply_ref["event_id"] == "mesh-msg-42"
+        assert reply_ref["event_id"] == "$orig-matrix-event"
         # Body should contain quoted fallback text
-        assert "> <mesh-src> original message text" in payload["body"]
+        assert "> <matrix-target> original message text" in payload["body"]
         assert "this is a reply" in payload["body"]
 
     @pytest.mark.asyncio
     async def test_matrix_reply_no_native_ref(self) -> None:
-        """Matrix reply with no native_ref falls back to target_event_id."""
+        """Matrix reply with no native_ref does not produce m.relates_to.
+
+        Without a target-owned native ref, the Matrix renderer has no
+        valid Matrix event ID to use for m.in_reply_to.  The canonical
+        target_event_id is never used as a Matrix event ID.
+        """
         relation = EventRelation(
             relation_type="reply",
             target_event_id="evt-orig-002",
@@ -356,8 +361,7 @@ class TestReplyThreadContext:
         pipeline = _make_pipeline()
         result = await _render(pipeline, event, "matrix-target", "matrix")
 
-        reply_ref = result.payload["m.relates_to"]["m.in_reply_to"]
-        assert reply_ref["event_id"] == "evt-orig-002"
+        assert "m.relates_to" not in result.payload
 
     @pytest.mark.asyncio
     async def test_meshtastic_reply_no_special_handling(self) -> None:

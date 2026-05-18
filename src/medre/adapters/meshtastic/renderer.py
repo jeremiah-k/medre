@@ -23,8 +23,8 @@ Selection is via the rendering pipeline's platform registry: when the
 pipeline populates the adapter's platform as ``"meshtastic"``, the renderer
 matches on that platform string directly.
 
-**Tranche 1 scope**: text messages only.  No truncation is applied — the
-full message text is passed through unchanged, matching mmrelay behaviour.
+Text messages, replies, and reactions are supported.  No truncation is applied — the
+full message text is passed through unchanged.
 """
 
 from __future__ import annotations
@@ -230,7 +230,7 @@ class MeshtasticRenderer:
         is_structured_reaction = False
         if event.relations:
             rel = event.relations[0]
-            reply_id = self._native_reply_id_from_relation(rel)
+            reply_id = self._meshtastic_reply_id_from_relation(rel, target_adapter)
 
             if rel.relation_type == "reply" and reply_id is not None:
                 # Native structured reply — plain text, numeric reply_id
@@ -301,24 +301,42 @@ class MeshtasticRenderer:
         return str(event.payload.get("body", event.payload.get("text", "")))
 
     @staticmethod
-    def _native_reply_id_from_relation(relation: object) -> int | None:
-        """Extract a numeric reply ID from a relation's target native ref.
+    def _meshtastic_reply_id_from_relation(
+        relation: object, target_adapter: str
+    ) -> int | None:
+        """Extract a numeric Meshtastic reply ID from a relation.
 
-        Returns the ``native_message_id`` parsed as ``int`` when the
-        relation carries a :class:`~medre.core.events.canonical.NativeRef`
-        whose ``native_message_id`` is a numeric string, otherwise
-        ``None``.
+        Precedence:
+
+        1. ``target_native_ref`` owned by *target_adapter* with a
+           numeric ``native_message_id``.
+        2. Relation ``metadata["meshtastic_reply_id"]`` (set by
+           MatrixCodec for MMRelay-style emote reactions).
+        3. ``None`` — no usable Meshtastic reply ID.
+
+        Never uses a native ref from a different adapter.
         """
         ref = getattr(relation, "target_native_ref", None)
-        if ref is None:
-            return None
-        mid = getattr(ref, "native_message_id", None)
-        if mid is None:
-            return None
-        try:
-            return int(mid)
-        except (ValueError, TypeError):
-            return None
+        if ref is not None:
+            adapter = getattr(ref, "adapter", None)
+            if adapter == target_adapter:
+                mid = getattr(ref, "native_message_id", None)
+                if mid is not None:
+                    try:
+                        return int(mid)
+                    except (ValueError, TypeError):
+                        pass
+
+        # Fallback: MMRelay meshtastic_reply_id from relation metadata
+        metadata = getattr(relation, "metadata", None) or {}
+        mmrelay_id = metadata.get("meshtastic_reply_id")
+        if mmrelay_id is not None:
+            try:
+                return int(str(mmrelay_id))
+            except (ValueError, TypeError):
+                pass
+
+        return None
 
     @staticmethod
     def _plain_text(event: CanonicalEvent) -> str:

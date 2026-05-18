@@ -99,7 +99,7 @@ class TestMatrixRenderer:
             payload={"body": "my reply"},
             relations=(relation,),
         )
-        result = await renderer.render(event, "matrix_instance")
+        result = await renderer.render(event, "matrix-1")
         assert "m.relates_to" in result.payload
         relates = result.payload["m.relates_to"]
         assert "m.in_reply_to" in relates
@@ -123,7 +123,7 @@ class TestMatrixRenderer:
             payload={"body": "👍"},
             relations=(relation,),
         )
-        result = await renderer.render(event, "matrix_instance")
+        result = await renderer.render(event, "matrix-1")
         assert result.payload["_matrix_event_type"] == "m.reaction"
         assert result.payload["m.relates_to"] == {
             "rel_type": "m.annotation",
@@ -154,3 +154,46 @@ class TestMatrixRenderer:
         assert isinstance(result, RenderingResult)
         assert result.event_id == "evt-1"
         assert result.target_adapter == "matrix_instance"
+
+
+class TestMatrixRendererForeignRefs:
+    """MatrixRenderer must not use native refs from other adapters."""
+
+    async def test_foreign_native_ref_not_used_for_reply(self) -> None:
+        """Meshtastic native ref must not produce m.in_reply_to when rendering to Matrix."""
+        renderer = MatrixRenderer()
+        foreign_ref = NativeRef(adapter="mesh-1", native_channel_id="0", native_message_id="123")
+        rel = EventRelation(
+            relation_type="reply", target_event_id=None,
+            target_native_ref=foreign_ref, key=None, fallback_text="original",
+        )
+        event = _make_event(payload={"body": "hello"}, relations=(rel,))
+        result = await renderer.render(event, "matrix_instance")
+        assert "m.relates_to" not in result.payload
+
+    async def test_foreign_native_ref_not_used_for_reaction(self) -> None:
+        """Meshtastic native ref must not produce true m.reaction."""
+        renderer = MatrixRenderer()
+        foreign_ref = NativeRef(adapter="mesh-1", native_channel_id="0", native_message_id="123")
+        rel = EventRelation(
+            relation_type="reaction", target_event_id=None,
+            target_native_ref=foreign_ref, key="👍", fallback_text=None,
+        )
+        event = _make_event(payload={"body": "👍"}, relations=(rel,))
+        result = await renderer.render(event, "matrix_instance")
+        assert "_matrix_event_type" not in result.payload
+        assert result.payload.get("msgtype") == "m.emote"
+
+    async def test_mmrelay_reply_id_preserved_in_fallback(self) -> None:
+        """MMRelay meshtastic_replyId from relation metadata preserves KEY_REPLY_ID in fallback."""
+        renderer = MatrixRenderer()
+        foreign_ref = NativeRef(adapter="mesh-1", native_channel_id="0", native_message_id="99")
+        rel = EventRelation(
+            relation_type="reply", target_event_id=None,
+            target_native_ref=foreign_ref, key=None, fallback_text="orig",
+            metadata={"meshtastic_reply_id": "42"},
+        )
+        event = _make_event(payload={"body": "hello"}, relations=(rel,))
+        result = await renderer.render(event, "matrix_instance")
+        assert "meshtastic_replyId" in result.payload
+        assert result.payload["meshtastic_replyId"] == "42"

@@ -98,7 +98,7 @@ def normalize_portnum(value: object) -> str | None:
 
 
 def _is_routing_ack(decoded: dict[str, Any]) -> bool:
-    """Return True for the narrow ROUTING_APP ACK shape used in tranche 1."""
+    """Return True for the narrow ROUTING_APP ACK shape (ACK detection)."""
     routing = decoded.get("routing")
     if not isinstance(routing, dict):
         return False
@@ -118,7 +118,7 @@ class MeshtasticPacketClassifier:
     ----------
     config:
         Optional :class:`~medre.config.adapters.meshtastic.MeshtasticConfig`
-        for channel mapping lookups (unused in tranche 1).
+        for channel mapping lookups.
     """
 
     def __init__(self, config: Any = None) -> None:

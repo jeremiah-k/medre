@@ -21,7 +21,7 @@ def json_safe(value: object) -> Any:
     Conversion rules:
 
     * ``bytes`` / ``bytearray`` → ``{"encoding": "base64", "data": "..."}``
-    * ``dict`` → recursive conversion of values (keys kept as-is).
+    * ``dict`` → recursive conversion of both keys (to ``str``) and values.
     * ``list`` / ``tuple`` → recursive conversion of items (as ``list``).
     * ``str``, ``int``, ``float``, ``bool``, ``None`` → passed through.
     * Everything else → ``repr(value)``.
@@ -35,7 +35,7 @@ def json_safe(value: object) -> Any:
     if isinstance(value, (bytes, bytearray)):
         return {"encoding": "base64", "data": base64.b64encode(value).decode("ascii")}
     if isinstance(value, dict):
-        return {k: json_safe(v) for k, v in value.items()}
+        return {str(k): json_safe(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
         return [json_safe(item) for item in value]
     return repr(value)

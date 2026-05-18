@@ -41,7 +41,7 @@ class MatrixRenderer:
     """Renderer for Matrix presentation targets.
 
     Produces ``m.room.message`` content dicts with ``m.text`` msgtype,
-    a body string, optional relation metadata (replies only in tranche 1),
+    a body string, optional relation metadata (replies and reactions),
     and a MEDRE provenance envelope.
 
     Selection is via the pipeline's platform registry.
@@ -150,35 +150,35 @@ class MatrixRenderer:
             rel = event.relations[0]
 
             if rel.relation_type == "reply":
-                native_ref = rel.target_native_ref
-                target_event_id = (
-                    native_ref.native_message_id
-                    if native_ref
-                    else (rel.target_event_id or "")
-                )
-                # Inject KEY_REPLY_ID from native metadata when available
-                reply_id = target_event_id
+                mx_event_id = self._matrix_target_event_id(rel, target_adapter)
                 native_data: dict[str, object] = {}
                 if event.metadata and event.metadata.native:
                     native_data = dict(event.metadata.native.data)
-                # Prefer relation metadata meshtastic_reply_id or native ref
-                mx_reply_id = (
-                    native_data.get(KEY_REPLY_ID) or target_event_id
-                )
-                # Build reply body with fallback quote
-                original_text = rel.fallback_text or ""
-                sender = native_ref.adapter if native_ref else ""
-                content["body"] = build_reply_body(body, sender, original_text)
-                content["m.relates_to"] = {
-                    "m.in_reply_to": {
-                        "event_id": target_event_id,
+                # Extract MMRelay meshtastic_replyId from relation metadata
+                rel_meta = getattr(rel, "metadata", {}) or {}
+                mmrelay_id = rel_meta.get("meshtastic_reply_id") or native_data.get(KEY_REPLY_ID)
+                if mx_event_id:
+                    # Matrix-native reply — render m.in_reply_to with Matrix event ID
+                    original_text = rel.fallback_text or ""
+                    sender = getattr(rel.target_native_ref, "adapter", "") if rel.target_native_ref else ""
+                    content["body"] = build_reply_body(body, sender, original_text)
+                    content["m.relates_to"] = {
+                        "m.in_reply_to": {
+                            "event_id": mx_event_id,
+                        }
                     }
-                }
+                # Always inject KEY_REPLY_ID when a Matrix-native target or MMRelay metadata is present
+                # (used by MMRelay-compatible Matrix consumers)
+                mx_reply_id = (
+                    mmrelay_id
+                    if mmrelay_id
+                    else (mx_event_id if mx_event_id else None)
+                )
                 if mx_reply_id:
                     content[KEY_REPLY_ID] = str(mx_reply_id)
 
             elif rel.relation_type == "reaction":
-                self._render_reaction(event, rel, body, content)
+                self._render_reaction(event, rel, body, content, target_adapter)
 
         # Embed metadata envelope
         envelope = MatrixMetadataEnvelope(
@@ -206,6 +206,31 @@ class MatrixRenderer:
         )
 
     # ------------------------------------------------------------------
+    # Target ID ownership
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _matrix_target_event_id(rel: Any, target_adapter: str) -> str | None:
+        """Return a Matrix-native target event ID from a relation, or ``None``.
+
+        A Matrix-native target ID is valid only when the relation's
+        ``target_native_ref`` belongs to *target_adapter* and has a
+        non-empty ``native_message_id``.
+
+        The canonical ``rel.target_event_id`` is **never** used as a Matrix
+        event ID — it is an internal MEDRE canonical ID, not a Matrix
+        event ID.
+        """
+        ref = getattr(rel, "target_native_ref", None)
+        if ref is None:
+            return None
+        adapter = getattr(ref, "adapter", None)
+        if adapter != target_adapter:
+            return None
+        mid = getattr(ref, "native_message_id", None)
+        return str(mid) if mid else None
+
+    # ------------------------------------------------------------------
     # Reaction rendering
     # ------------------------------------------------------------------
 
@@ -215,45 +240,53 @@ class MatrixRenderer:
         rel: Any,
         body: str,
         content: dict[str, object],
+        target_adapter: str,
     ) -> None:
         """Render a reaction relation into the Matrix content dict.
 
-        When a target event/native Matrix ID is available and mmrelay_compat
-        is false, produces a true ``m.reaction`` via an internal
-        ``_matrix_event_type`` key (consumed by the adapter).
+        When a Matrix-native target ID (owned by *target_adapter*) is
+        available and mmrelay_compat is false, produces a true
+        ``m.reaction`` via an internal ``_matrix_event_type`` key
+        (consumed by the adapter).
 
-        When mmrelay_compat is true or the target is missing, falls back to
-        an ``m.emote`` with MMRelay fields.
+        When mmrelay_compat is true or no Matrix-native target exists,
+        falls back to an ``m.emote`` with MMRelay fields.
+
+        The canonical ``rel.target_event_id`` is **never** used as a
+        Matrix event ID — it is an internal MEDRE canonical ID.
         """
-        native_ref = rel.target_native_ref
-        target_event_id = (
-            native_ref.native_message_id
-            if native_ref
-            else (rel.target_event_id or "")
-        )
+        mx_event_id = self._matrix_target_event_id(rel, target_adapter)
         emoji = rel.key or body
 
-        # Determine if we can emit a true m.reaction
-        has_target = bool(target_event_id)
+        # Extract MMRelay reply ID from relation metadata for fallback
+        rel_meta = getattr(rel, "metadata", {}) or {}
 
-        if has_target and not self._mmrelay_compat:
+        if mx_event_id is not None and not self._mmrelay_compat:
             # True Matrix reaction — adapter will use _matrix_event_type
-            content["msgtype"] = "m.text"
-            content["body"] = emoji
             content["m.relates_to"] = {
                 "rel_type": "m.annotation",
-                "event_id": target_event_id,
+                "event_id": mx_event_id,
                 "key": emoji,
             }
             # Internal key consumed by adapter; never leaks to homeserver
             content["_matrix_event_type"] = "m.reaction"
+            # Keep msgtype and body for backward compat, though m.reaction
+            # events technically only need m.relates_to
+            content["msgtype"] = "m.text"
+            content["body"] = emoji
         else:
-            # mmrelay_compat or missing target → m.emote fallback
+            # mmrelay_compat or missing Matrix-native target → m.emote fallback
             content["msgtype"] = "m.emote"
             content["body"] = body
-            content[KEY_REPLY_ID] = target_event_id
             content[KEY_TEXT] = body
             content[KEY_EMOJI] = EMOJI_FLAG_VALUE
+            # Inject KEY_REPLY_ID: prefer meshtastic_reply_id from metadata,
+            # fall back to the Matrix-native target event ID when available.
+            mmrelay_reply_id = rel_meta.get("meshtastic_reply_id")
+            if mmrelay_reply_id is not None:
+                content[KEY_REPLY_ID] = str(mmrelay_reply_id)
+            elif mx_event_id is not None:
+                content[KEY_REPLY_ID] = str(mx_event_id)
 
     # ------------------------------------------------------------------
     # Relay prefix

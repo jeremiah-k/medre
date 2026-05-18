@@ -411,3 +411,54 @@ class TestFakeMeshtasticAdapterMakeTextEvent:
         adapter = FakeMeshtasticAdapter()
         event = adapter.make_text_event(channel=3)
         assert event.source_channel_id == "3"
+
+
+class TestFakeMeshtasticStructuredDelivery:
+    """FakeMeshtasticAdapter structured reply/reaction delivery."""
+
+    async def test_deliver_preserves_reply_id(self) -> None:
+        """Fake delivery preserves reply_id in sent packets and metadata."""
+        adapter = FakeMeshtasticAdapter()
+        result = RenderingResult(
+            event_id="evt-r1",
+            target_adapter="fake_mesh",
+            target_channel="0",
+            payload={"text": "reply", "channel_index": 0, "reply_id": 99},
+        )
+        delivery = await adapter.deliver(result)
+        assert delivery is not None
+        packet = adapter.fake_client.sent_packets[-1]
+        assert packet.get("reply_id") == 99
+        assert delivery.metadata.get("reply_id") == 99
+
+    async def test_deliver_preserves_emoji(self) -> None:
+        """Fake delivery preserves emoji=1 in sent packets and metadata."""
+        adapter = FakeMeshtasticAdapter()
+        result = RenderingResult(
+            event_id="evt-r2",
+            target_adapter="fake_mesh",
+            target_channel="0",
+            payload={"text": "🔥", "channel_index": 0, "reply_id": 10, "emoji": 1},
+        )
+        delivery = await adapter.deliver(result)
+        assert delivery is not None
+        packet = adapter.fake_client.sent_packets[-1]
+        assert packet.get("reply_id") == 10
+        assert packet.get("emoji") == 1
+        assert delivery.metadata.get("reply_id") == 10
+        assert delivery.metadata.get("emoji") == 1
+
+    async def test_plain_deliver_unchanged(self) -> None:
+        """Plain text delivery without reply_id/emoji remains unchanged."""
+        adapter = FakeMeshtasticAdapter()
+        result = RenderingResult(
+            event_id="evt-r3",
+            target_adapter="fake_mesh",
+            target_channel="0",
+            payload={"text": "plain hello", "channel_index": 0},
+        )
+        delivery = await adapter.deliver(result)
+        assert delivery is not None
+        packet = adapter.fake_client.sent_packets[-1]
+        assert "reply_id" not in packet
+        assert "emoji" not in packet

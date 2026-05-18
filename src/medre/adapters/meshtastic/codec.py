@@ -117,6 +117,9 @@ class MeshtasticCodec:
         payload: dict[str, object] = {"body": text}
         if portnum:
             payload["portnum"] = portnum
+        if is_reaction:
+            reaction_key = classification["reaction_key"] or "?"
+            payload["key"] = reaction_key
 
         # Source native ref from packet ID
         source_native_ref: NativeRef | None = None
@@ -130,7 +133,13 @@ class MeshtasticCodec:
         # Relations: reaction or reply from replyId / emoji
         relations: list[EventRelation] = []
         reply_id = classification["reply_id"]
-        if reply_id:
+        emoji_flag = classification["emoji_flag"]
+        if reply_id is not None and reply_id != 0:
+            relation_metadata: dict[str, object] = {
+                "meshtastic_reply_id": str(reply_id),
+            }
+            if emoji_flag:
+                relation_metadata["meshtastic_emoji"] = 1
             if is_reaction:
                 reaction_key = classification["reaction_key"] or "?"
                 relations.append(
@@ -146,6 +155,7 @@ class MeshtasticCodec:
                         ),
                         key=reaction_key,
                         fallback_text=None,
+                        metadata=relation_metadata,
                     )
                 )
             elif is_reply:
@@ -162,6 +172,7 @@ class MeshtasticCodec:
                         ),
                         key=None,
                         fallback_text=None,
+                        metadata=relation_metadata,
                     )
                 )
 
@@ -175,7 +186,6 @@ class MeshtasticCodec:
 
         # Emoji raw value from decoded
         emoji_raw = decoded.get("emoji") if isinstance(decoded, dict) else None
-        emoji_flag = classification["emoji_flag"]
 
         native_meta = NativeMetadata(
             data={

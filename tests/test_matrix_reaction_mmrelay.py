@@ -523,8 +523,8 @@ class TestRendererMMRelayEmoteFallback:
         result = await renderer.render(event, "matrix-1")
 
         assert result.payload["msgtype"] == "m.emote"
-        assert KEY_REPLY_ID in result.payload
         assert KEY_EMOJI in result.payload
+        assert KEY_REPLY_ID not in result.payload  # no target or metadata to populate it
         assert "_matrix_event_type" not in result.payload
 
 

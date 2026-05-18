@@ -366,7 +366,7 @@ class MeshtasticAdapter(AdapterContract):
 
         try:
             classification = self._classifier.classify(packet)
-            # Only process text packets in tranche 1
+            # Only text packets are currently decoded
             if classification["category"] != "text":
                 return
             if classification["is_ack"]:

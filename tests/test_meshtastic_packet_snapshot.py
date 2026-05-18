@@ -167,3 +167,29 @@ class TestSnapshotPacket:
         result = snapshot_packet(packet)
         encoded = msgspec.json.encode(result)
         assert isinstance(encoded, bytes)
+
+    def test_json_safe_stringifies_dict_keys(self) -> None:
+        """Int dict keys become string keys after json_safe."""
+        result = json_safe({1: "a", 2: "b"})
+        assert result == {"1": "a", "2": "b"}
+
+    def test_json_safe_bytes_under_non_string_key(self) -> None:
+        """Bytes value under a non-string (int) key: key stringified, bytes → base64."""
+        result = json_safe({42: b"\x00\xff"})
+        assert "42" in result
+        assert isinstance(result["42"], dict)
+        assert result["42"]["encoding"] == "base64"
+
+    def test_json_safe_nested_non_string_keys(self) -> None:
+        """Nested non-string keys are also stringified."""
+        result = json_safe({"outer": {1: [2, 3], 4: b"\x00"}})
+        assert result["outer"]["1"] == [2, 3]
+        assert result["outer"]["4"]["encoding"] == "base64"
+
+    def test_json_dumps_snapshot(self) -> None:
+        """Snapshot can be encoded with stdlib json.dumps."""
+        packet = {"id": 1, "decoded": {"text": "hello", "payload": b"\x01\x02"}}
+        result = snapshot_packet(packet)
+        encoded = json.dumps(result)
+        assert isinstance(encoded, str)
+        assert '"encoding": "base64"' in encoded
