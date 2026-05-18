@@ -281,6 +281,7 @@ class TestConfigSubsystemNoSdk:
                 line.startswith("from medre.adapters.")
                 and ".config " in line
             )
+            and not line.startswith("from medre.config.adapters.")
         ]
         banned = _banned_imports(non_config_lines, _SDK_PACKAGES)
         assert banned == [], (

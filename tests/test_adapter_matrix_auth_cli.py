@@ -500,7 +500,7 @@ class TestAdapterMatrixAuthStatus:
         missing = tmp_path / "missing.json"
         stdout_buf = io.StringIO()
         with (
-            patch("medre.adapters.matrix.auth.get_credentials_path", return_value=missing),
+            patch("medre.config.adapters.matrix_credentials.get_credentials_path", return_value=missing),
             patch("sys.stdout", stdout_buf),
         ):
             await _adapter_matrix_auth_status()
@@ -523,7 +523,7 @@ class TestAdapterMatrixAuthStatus:
 
         stdout_buf = io.StringIO()
         with (
-            patch("medre.adapters.matrix.auth.get_credentials_path", return_value=cred_file),
+            patch("medre.config.adapters.matrix_credentials.get_credentials_path", return_value=cred_file),
             patch("sys.stdout", stdout_buf),
         ):
             await _adapter_matrix_auth_status()
@@ -548,7 +548,7 @@ class TestAdapterMatrixAuthStatus:
 
         stdout_buf = io.StringIO()
         with (
-            patch("medre.adapters.matrix.auth.get_credentials_path", return_value=cred_file),
+            patch("medre.config.adapters.matrix_credentials.get_credentials_path", return_value=cred_file),
             patch("sys.stdout", stdout_buf),
         ):
             await _adapter_matrix_auth_status()
@@ -567,7 +567,7 @@ class TestAdapterMatrixAuthStatus:
 
         stdout_buf = io.StringIO()
         with (
-            patch("medre.adapters.matrix.auth.get_credentials_path", return_value=cred_file),
+            patch("medre.config.adapters.matrix_credentials.get_credentials_path", return_value=cred_file),
             patch("sys.stdout", stdout_buf),
         ):
             await _adapter_matrix_auth_status()

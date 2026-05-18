@@ -635,7 +635,7 @@ class TestMeshCoreCompatIsolation:
             assert "compat" not in line, (
                 f"config must not import compat; found: {line!r}"
             )
-            assert "meshcore" not in line.lower() or "medre.adapters.meshcore.errors" in line, (
+            assert "meshcore" not in line.lower() or "medre.adapters.meshcore.errors" in line or "medre.config.adapters.errors" in line, (
                 f"config must not import meshcore SDK; found: {line!r}"
             )
 

@@ -881,7 +881,7 @@ class TestSaveCredentialsJson:
     def test_writes_correct_json(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         dest = tmp_path / "matrix.json"
         monkeypatch.setattr(
-            "medre.adapters.matrix.auth.get_credentials_path",
+            "medre.config.adapters.matrix_credentials.get_credentials_path",
             lambda: dest,
         )
 
@@ -904,7 +904,7 @@ class TestSaveCredentialsJson:
     def test_creates_directory(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         dest = tmp_path / "subdir" / "credentials" / "matrix.json"
         monkeypatch.setattr(
-            "medre.adapters.matrix.auth.get_credentials_path",
+            "medre.config.adapters.matrix_credentials.get_credentials_path",
             lambda: dest,
         )
 
@@ -929,7 +929,7 @@ class TestLoadCredentialsJson:
     def test_missing_file_returns_none(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         dest = tmp_path / "missing.json"
         monkeypatch.setattr(
-            "medre.adapters.matrix.auth.get_credentials_path",
+            "medre.config.adapters.matrix_credentials.get_credentials_path",
             lambda: dest,
         )
 
@@ -944,7 +944,7 @@ class TestLoadCredentialsJson:
             "device_id": "D",
         }), encoding="utf-8")
         monkeypatch.setattr(
-            "medre.adapters.matrix.auth.get_credentials_path",
+            "medre.config.adapters.matrix_credentials.get_credentials_path",
             lambda: dest,
         )
 
@@ -957,7 +957,7 @@ class TestLoadCredentialsJson:
         dest = tmp_path / "bad.json"
         dest.write_text("not json", encoding="utf-8")
         monkeypatch.setattr(
-            "medre.adapters.matrix.auth.get_credentials_path",
+            "medre.config.adapters.matrix_credentials.get_credentials_path",
             lambda: dest,
         )
 
