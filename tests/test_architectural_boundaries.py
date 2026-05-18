@@ -865,9 +865,10 @@ class TestConfigErrorCanonicalImports:
 class TestNoActiveStaleDocsReferences:
     """No active documentation should reference removed modules as if current.
 
-    Historical documents (explicitly marked as pre-refactor) are exempt.
+    Audit documents that describe findings from before the current architecture
+    was finalized are exempt when they contain explicit framing statements.
     docs/ARCHITECTURE_PLAN.md may mention removed modules only in
-    "removed/merged" historical context.
+    "removed/merged" factual context.
     """
 
     _STALE_PATTERNS = (
@@ -917,8 +918,8 @@ class TestNoActiveStaleDocsReferences:
         for md_file in sorted(docs_dir.rglob("*.md")):
             text = md_file.read_text(encoding="utf-8")
 
-            # Exempt explicitly historical documents
-            if md_file.name == "66-release-hygiene-audit.md" and "pre-refactor architecture" in text:
+            # Exempt audit documents with explicit framing statements
+            if md_file.name == "66-release-hygiene-audit.md" and "before the current architecture was finalized" in text:
                 continue
 
             for i, line in enumerate(text.splitlines(), 1):
@@ -926,7 +927,7 @@ class TestNoActiveStaleDocsReferences:
                 if not any(pattern in stripped for pattern in self._STALE_PATTERNS):
                     continue
 
-                # Allow lines with historical-context markers (e.g. "removed",
+                # Allow lines with factual-context markers (e.g. "removed",
                 # "merged", "replaced", "historical", "tranche", etc.)
                 lowered = stripped.lower()
                 if any(word in lowered for word in self._HISTORICAL_CONTEXT_WORDS):
@@ -936,5 +937,98 @@ class TestNoActiveStaleDocsReferences:
 
         assert not violations, (
             "Active stale architecture references found in docs:\n"
+            + "\n".join(f"{f}:{l}: {s}" for f, l, s in violations)
+        )
+
+
+# ===================================================================
+# S) No stale transitional wording in documentation
+# ===================================================================
+
+
+class TestNoStaleWordingInDocs:
+    """Scan docs/**/*.md for discouraged transitional/historical phrases.
+
+    This test catches phrasing that frames the current architecture as
+    transitional, legacy, or historical — rather than as the intended
+    architecture from the start.
+
+    Allowed exceptions:
+    - Lines containing precise removal statements (e.g. "was replaced by",
+      "was removed", "does not exist").
+    - The file ``66-release-hygiene-audit.md`` which is explicitly an audit
+      document with framing about pre-finalization findings.
+    - The file ``ARCHITECTURE_PLAN.md`` section 5 which records factual
+      architectural history with neutral labels.
+    """
+
+    _FORBIDDEN_PHRASES = (
+        "legacy adapter framework",
+        "legacy adapter layer",
+        "historical architecture",
+        "compatibility shim",
+        "compatibility layer",
+        "pre-refactor architecture",
+        "transitional import path",
+        "migration-era",
+        "old adapter framework",
+        "old architecture",
+        "backward compatibility layer",
+    )
+
+    # Lines containing any of these words are exempt — they are factual
+    # removal/merge statements, not transitional framing.
+    _EXEMPTION_WORDS = (
+        "replaced",
+        "removed",
+        "does not exist",
+        "was deleted",
+        "must not be imported",
+        "was merged",
+        "renamed",
+        "canonical",
+        # Negation context — "no compatibility shims", "not a compatibility layer"
+        "no ",
+        "no.",
+        "not ",
+        "not.",
+        "without",
+        # Module description context — compat.py file tree comments
+        "compat.py",
+    )
+
+    # These files are fully exempt from the wording check.
+    _EXEMPT_FILES = frozenset({
+        "66-release-hygiene-audit.md",  # audit document with explicit framing
+    })
+
+    def test_no_stale_wording_in_docs(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        docs_dir = repo_root / "docs"
+        assert docs_dir.exists()
+
+        violations: list[tuple[str, int, str]] = []
+
+        for md_file in sorted(docs_dir.rglob("*.md")):
+            if md_file.name in self._EXEMPT_FILES:
+                continue
+
+            text = md_file.read_text(encoding="utf-8")
+
+            for i, line in enumerate(text.splitlines(), 1):
+                stripped = line.strip()
+                lowered = stripped.lower()
+
+                if not any(phrase in lowered for phrase in self._FORBIDDEN_PHRASES):
+                    continue
+
+                # Exempt lines that are factual removal/merge statements
+                if any(word in lowered for word in self._EXEMPTION_WORDS):
+                    continue
+
+                violations.append((str(md_file.relative_to(repo_root)), i, stripped))
+
+        assert not violations, (
+            "Stale transitional wording found in docs:\n"
             + "\n".join(f"{f}:{l}: {s}" for f, l, s in violations)
         )

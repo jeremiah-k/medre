@@ -82,7 +82,7 @@ class TestMatrixCodec:
         )
 
     def test_decode_defaults_missing_msgtype_to_text(self) -> None:
-        """Malformed/legacy Matrix content should not produce schema-noisy payloads."""
+        """Malformed Matrix content should not produce schema-noisy payloads."""
         codec = MatrixCodec("matrix-1", _make_config())
         native = _make_native_event(body="hello", content={"body": "hello"})
 

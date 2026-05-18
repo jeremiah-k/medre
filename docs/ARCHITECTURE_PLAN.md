@@ -1,13 +1,13 @@
 # MEDRE Architecture
 
-> **Status**: Current architecture record (post-Tranche 3 canonicalization).
+> **Status**: Current architecture record.
 
 ## 0. Canonical Layout
 
 ### 0.1 Core Adapter Contracts — `medre.core.contracts.adapter`
 
 Exports:
-- `AdapterContract` (replaces old `BaseAdapter`)
+- `AdapterContract` (protocol for all adapter implementations)
 - `AdapterRole`
 - `AdapterCodec`
 - `AdapterContext`
@@ -158,7 +158,7 @@ medre/
 
 ## 3. Implemented Decisions
 
-- MEDRE is pre-release; old imports were intentionally removed without compatibility shims
+- MEDRE is pre-release; removed imports were not preserved with shims
 - `BaseAdapter` → `AdapterContract`
 - `medre.core.ports` merged into `medre.core.contracts.adapter`
 - `medre.core.adapter_base` merged into `medre.core.contracts.adapter`
@@ -172,16 +172,16 @@ medre/
 
 - Rename `core/runtime/` → `core/supervision/` to eliminate naming collision with top-level `runtime/`
 - Move fake adapters to `medre.adapters.fakes/` subdirectory
-- Decide disposition of remaining contract/docs documents (historical vs current)
+- Decide disposition of remaining contract/docs documents (audit records vs current specifications)
 - Evaluate merging `core/diagnostics/` into `core/observability/`
 - Deduplicate `_SECRET_KEY_PATTERNS` between `core/runtime/diagnostic_contract.py` and `observability/sanitization.py`
 - Delete empty packages `core/policies/` and `core/transforms/`
 
-## 5. Historical Notes
+## 5. Architectural History
 
 ### Tranche 1 (Port Extraction)
 
-**Historical**: Extracted adapter interface types from `adapters/base.py` into core, splitting pure value types into `core/ports.py` and the behavioral `BaseAdapter` ABC into `core/adapter_base.py`. This broke the core→adapters dependency inversion (later superseded by Tranche 3).
+Extracted adapter interface types from `adapters/base.py` into core, splitting pure value types into `core/ports.py` and the behavioral `BaseAdapter` ABC into `core/adapter_base.py`. This introduced the core→adapters dependency inversion (later resolved by Tranche 3).
 
 ### Tranche 2 (Config Decoupling)
 
@@ -189,7 +189,7 @@ Moved adapter config dataclasses from `medre.adapters.*.config` to `medre.config
 
 ### Tranche 3 (Canonicalization)
 
-Merged `core/ports.py` and `core/adapter_base.py` into a single canonical module `core/contracts/adapter.py`. Renamed `BaseAdapter` to `AdapterContract`. Deleted old files (`core/ports.py`, `core/adapter_base.py`, `adapters/base.py`, `adapters/*/config.py`). Centralized config validation errors in `config/adapters/errors.py`. Moved Matrix credential sidecar helpers to `config/adapters/matrix_credentials.py`. All source and test imports updated to use canonical paths. No compatibility shims retained because the project is pre-release.
+Merged `core/ports.py` and `core/adapter_base.py` into a single canonical module `core/contracts/adapter.py`. Renamed `BaseAdapter` to `AdapterContract`. Deleted removed files (`core/ports.py`, `core/adapter_base.py`, `adapters/base.py`, `adapters/*/config.py`). Centralized config validation errors in `config/adapters/errors.py`. Moved Matrix credential sidecar helpers to `config/adapters/matrix_credentials.py`. All source and test imports updated to use canonical paths. No shims retained because the project is pre-release.
 
 ### Tranche 4 (Plugin Foundation Audit)
 

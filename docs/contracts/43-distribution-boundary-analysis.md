@@ -45,7 +45,6 @@ src/medre/
     cli.py               (CLI entry point: medre run, config check, config sample)
     adapters/
         __init__.py      (re-exports base types + all fake adapters)
-        base.py          (BaseAdapter — historical; now medre.core.contracts.adapter)
         fake_*.py        (6 fake adapters for testing)
         matrix/          (9 files: adapter, codec, compat, errors,
                          metadata, relations, renderer, session)

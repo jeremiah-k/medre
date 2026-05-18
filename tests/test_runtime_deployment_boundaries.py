@@ -261,7 +261,7 @@ class TestRuntimeCoreModuleGuard:
     Note: This test checks only the SDKs that must be strictly isolated
     from the runtime per the adapter-architecture contract: ``meshcore``,
     ``lxmf``/``LXMF``, and ``RNS``.  The ``nio`` (Matrix) SDK may be
-    loaded transitively through legacy adapter config imports — that is
+    loaded transitively through adapter config imports — that is
     tracked separately and is out of scope for the operational boundary
     enforcement on MeshCore/LXMF axes.
     """
