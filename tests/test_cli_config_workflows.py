@@ -121,34 +121,6 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
             monkeypatch.delenv(key, raising=False)
 
 
-@pytest.fixture()
-def config_fake_multi(tmp_path: Path) -> Path:
-    p = tmp_path / "config.toml"
-    p.write_text(CONFIG_FAKE_MULTI)
-    return p
-
-
-@pytest.fixture()
-def config_minimal(tmp_path: Path) -> Path:
-    p = tmp_path / "config.toml"
-    p.write_text(CONFIG_MINIMAL_MEMORY)
-    return p
-
-
-@pytest.fixture()
-def config_single(tmp_path: Path) -> Path:
-    p = tmp_path / "config.toml"
-    p.write_text(CONFIG_SINGLE_ADAPTER)
-    return p
-
-
-@pytest.fixture()
-def tmp_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Set MEDRE_HOME to a temp dir and return it."""
-    monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
-    return tmp_path
-
-
 # ---------------------------------------------------------------------------
 # CLI helper functions
 # ---------------------------------------------------------------------------

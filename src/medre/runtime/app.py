@@ -48,6 +48,7 @@ from medre.runtime.errors import (
     RuntimeStartupError,
 )
 from medre.runtime.events import EventBuffer, RuntimeEventType
+from medre.runtime.retry import RetryWorkerState
 
 if TYPE_CHECKING:
     from medre.config.model import RuntimeConfig
@@ -65,7 +66,7 @@ if TYPE_CHECKING:
     from medre.core.storage.sqlite import SQLiteStorage
     from medre.runtime.builder import AdapterBuildFailure
     from medre.runtime.capacity import CapacityController
-    from medre.runtime.retry import RetryWorker, RetryWorkerState
+    from medre.runtime.retry import RetryWorker
     from medre.runtime.route_engine import RouteEligibility, RouteStartupReadiness
 
 __all__ = ["MedreApp", "RuntimeState"]
