@@ -9,10 +9,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, AsyncGenerator
+from unittest.mock import patch
 
 import pytest
 
@@ -26,8 +28,10 @@ from medre.core.events import (
     RoutingMetadata,
     TransportMetadata,
 )
+from medre.core.rendering import RenderingPipeline, TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite import SQLiteStorage
+from tests.helpers.matrix import build_mock_nio_module
 
 # ---------------------------------------------------------------------------
 # Event fixtures
@@ -337,3 +341,41 @@ def tmp_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def tmp_base(tmp_path: Path) -> Path:
     """Provide a temporary base directory for artifact runs."""
     return tmp_path / "bridge-runs"
+
+
+# ---------------------------------------------------------------------------
+# Replay engine fixtures (shared across test_replay_* modules)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def rendering_pipeline() -> RenderingPipeline:
+    """RenderingPipeline with TextRenderer registered."""
+    pipeline = RenderingPipeline()
+    pipeline.register(TextRenderer(), priority=100)
+    return pipeline
+
+
+# ---------------------------------------------------------------------------
+# Matrix mock fixtures (shared across test_wrapper_multi_callback.py)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def mock_nio() -> Any:
+    """Inject a mock nio module into sys.modules and patch HAS_NIO."""
+    mock = build_mock_nio_module()
+    saved_nio = sys.modules.get("nio")
+    saved_nio_events = sys.modules.get("nio.events")
+    sys.modules["nio"] = mock
+    sys.modules["nio.events"] = mock.events
+    with patch("medre.adapters.matrix.adapter.HAS_NIO", True):
+        yield mock
+    if saved_nio is None:
+        sys.modules.pop("nio", None)
+    else:
+        sys.modules["nio"] = saved_nio
+    if saved_nio_events is None:
+        sys.modules.pop("nio.events", None)
+    else:
+        sys.modules["nio.events"] = saved_nio_events
