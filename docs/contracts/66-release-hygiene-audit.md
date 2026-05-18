@@ -4,6 +4,8 @@
 > Track: Beta Release Hygiene (Track 7)
 > Status: Audit report with findings and actions taken. Updated with packaging/reproducibility audit findings.
 
+> **Note**: This document describes the pre-refactor architecture. It is superseded by the current canonical layout (see `docs/ARCHITECTURE_PLAN.md`). References to `BaseAdapter`, `medre.adapters.base`, `medre.core.ports`, and `medre.core.adapter_base` refer to code that has since been renamed or removed.
+
 This document records the release hygiene audit performed on MEDRE at head
 `7046ecc` (2026-05-10). It covers pyproject metadata, README accuracy, stale
 artifacts, contradictory operational claims, SDK leakage in public APIs,

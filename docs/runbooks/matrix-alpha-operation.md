@@ -960,7 +960,7 @@ import asyncio
 import os
 
 from medre.adapters.matrix import MatrixAdapter, MatrixConfig
-from medre.adapters.base import AdapterContext
+from medre.core.contracts.adapter import AdapterContext
 
 async def main():
     raw_allowlist = os.environ.get("MATRIX_ROOM_ALLOWLIST", "")

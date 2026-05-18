@@ -213,7 +213,7 @@ The adapter never touches the SDK client directly. The session never touches the
 
 ### 7.2 Why this matters for distribution
 
-If medre ever splits into separate packages, the adapter/session boundary is the natural extraction seam. A hypothetical `medre-matrix` package would contain `medre.adapters.matrix.session`, `medre.adapters.matrix.compat`, and `medre.adapters.matrix.config`. The adapter itself would stay in core medre (or move to a thin adapter wrapper) because it depends on `BaseAdapter`, `CanonicalEvent`, and `RenderingResult`, which are core types.
+If medre ever splits into separate packages, the adapter/session boundary is the natural extraction seam. A hypothetical `medre-matrix` package would contain `medre.adapters.matrix.session`, `medre.adapters.matrix.compat`, and `medre.config.adapters.matrix`. The adapter itself would stay in core medre (or move to a thin adapter wrapper) because it depends on `BaseAdapter`, `CanonicalEvent`, and `RenderingResult`, which are core types.
 
 The session has no dependency on core medre types. It takes a `MatrixConfig` (its own), a `message_callback` (a plain callable), and returns raw transport data to that callback. This is by design, not by accident.
 

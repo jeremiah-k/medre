@@ -107,7 +107,7 @@ class MatrixAdapter(AdapterContract):
     Parameters
     ----------
     config:
-        Validated :class:`~medre.adapters.matrix.config.MatrixConfig`.
+        Validated :class:`~medre.config.adapters.matrix.MatrixConfig`.
     """
 
     __slots__ = (

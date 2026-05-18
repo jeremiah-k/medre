@@ -12,7 +12,7 @@ on :meth:`start` when using non-fake connection types.
 Connection modes
 ----------------
 The adapter supports connection types configured via
-:class:`~medre.adapters.lxmf.config.LxmfConfig`:
+:class:`~medre.config.adapters.lxmf.LxmfConfig`:
 
 ``"fake"``
     No real client.  Used for testing without hardware.  Inbound
@@ -101,7 +101,7 @@ class LxmfAdapter(AdapterContract):
     Parameters
     ----------
     config:
-        Validated :class:`~medre.adapters.lxmf.config.LxmfConfig`.
+        Validated :class:`~medre.config.adapters.lxmf.LxmfConfig`.
     """
 
     adapter_id: str

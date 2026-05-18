@@ -32,7 +32,7 @@ class LxmfCodec:
     adapter_id:
         Identifier of the owning adapter (used for ``source_adapter``).
     config:
-        The :class:`~medre.adapters.lxmf.config.LxmfConfig`.
+        The :class:`~medre.config.adapters.lxmf.LxmfConfig`.
     """
 
     def __init__(self, adapter_id: str, config: Any) -> None:

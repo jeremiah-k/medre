@@ -70,10 +70,10 @@ Owns TOML loading, model classes, environment overrides, and path resolution.
 | From | May import | Must not import |
 |------|-----------|-----------------|
 | `cli/` commands | `config.*`, `observability`, `runtime.builder` | Adapter implementations, `core.*` internals |
-| `runtime/builder` | `adapters.base`, `config.model`, `core.*` | Specific adapter SDK modules |
+| `runtime/builder` | `core.contracts.adapter`, `config.model`, `core.*` | Specific adapter SDK modules |
 | `runtime/observability` | `core.diagnostics`, `core.routing.stats` | Adapter code |
 | `core/*` | Other `core/*` sub-packages | `adapters.*`, `runtime.*`, `cli.*` |
-| `adapters/<transport>/` | `adapters.base`, `core.events`, `core.rendering` | Other adapter packages, `runtime.*` |
+| `adapters/<transport>/` | `core.contracts.adapter`, `core.events`, `core.rendering` | Other adapter packages, `runtime.*` |
 | `config/` | `pathlib`, stdlib only | `core.*`, `adapters.*`, `runtime.*` |
 
 Key invariants:

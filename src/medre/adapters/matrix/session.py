@@ -87,7 +87,7 @@ class MatrixSession:
     Parameters
     ----------
     config:
-        Validated :class:`~medre.adapters.matrix.config.MatrixConfig`.
+        Validated :class:`~medre.config.adapters.matrix.MatrixConfig`.
     message_callback:
         Callback for inbound decrypted text events.
     logger:

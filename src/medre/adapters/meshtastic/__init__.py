@@ -22,7 +22,6 @@ Public symbols
 * Exception hierarchy: :class:`~medre.adapters.meshtastic.errors.MeshtasticError`,
   :class:`~medre.adapters.meshtastic.errors.MeshtasticConnectionError`,
   :class:`~medre.adapters.meshtastic.errors.MeshtasticSendError`,
-  :class:`~medre.adapters.meshtastic.errors.MeshtasticConfigError`,
   :class:`~medre.adapters.meshtastic.errors.MeshtasticCodecError`,
   :class:`~medre.adapters.meshtastic.errors.MeshtasticPacketError`.
 """

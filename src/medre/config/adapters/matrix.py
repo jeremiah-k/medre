@@ -11,6 +11,8 @@ from typing import Literal, Self
 
 from medre.config.adapters.errors import MatrixConfigError
 
+__all__ = ["MatrixConfig"]
+
 
 EncryptionMode = Literal["plaintext", "e2ee_required", "e2ee_optional"]
 _VALID_ENCRYPTION_MODES: frozenset[str] = frozenset(

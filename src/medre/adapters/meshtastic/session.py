@@ -66,7 +66,7 @@ class MeshtasticSession:
     Parameters
     ----------
     config:
-        Validated :class:`~medre.adapters.meshtastic.config.MeshtasticConfig`.
+        Validated :class:`~medre.config.adapters.meshtastic.MeshtasticConfig`.
     adapter_id:
         The adapter identifier (for logging).
     platform:

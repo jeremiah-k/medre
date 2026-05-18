@@ -29,6 +29,8 @@ from typing import Literal, Self
 
 from medre.config.adapters.errors import LxmfConfigError
 
+__all__ = ["LxmfConfig"]
+
 
 # Allowed connection_type values.
 _ALLOWED_CONNECTION_TYPES: frozenset[str] = frozenset({"fake", "reticulum"})

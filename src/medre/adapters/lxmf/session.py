@@ -368,7 +368,7 @@ class LxmfSession:
     Parameters
     ----------
     config:
-        Validated :class:`~medre.adapters.lxmf.config.LxmfConfig`.
+        Validated :class:`~medre.config.adapters.lxmf.LxmfConfig`.
     adapter_id:
         Identifier of the owning adapter (for logging).
     platform:

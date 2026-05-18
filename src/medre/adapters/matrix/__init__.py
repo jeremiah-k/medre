@@ -21,7 +21,6 @@ Public symbols
 * Exception hierarchy: :class:`~medre.adapters.matrix.errors.MatrixError`,
   :class:`~medre.adapters.matrix.errors.MatrixConnectionError`,
   :class:`~medre.adapters.matrix.errors.MatrixSendError`,
-  :class:`~medre.adapters.matrix.errors.MatrixConfigError`,
   :class:`~medre.adapters.matrix.errors.MatrixCodecError`.
 """
 

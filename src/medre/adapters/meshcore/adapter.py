@@ -12,7 +12,7 @@ on :meth:`start` when using non-fake connection types.
 Connection modes
 ----------------
 The adapter supports four connection types configured via
-:class:`~medre.adapters.meshcore.config.MeshCoreConfig`:
+:class:`~medre.config.adapters.meshcore.MeshCoreConfig`:
 
 ``"fake"``
     No real client.  Used for testing without hardware.  Inbound
@@ -106,7 +106,7 @@ class MeshCoreAdapter(AdapterContract):
     Parameters
     ----------
     config:
-        Validated :class:`~medre.adapters.meshcore.config.MeshCoreConfig`.
+        Validated :class:`~medre.config.adapters.meshcore.MeshCoreConfig`.
     """
 
     adapter_id: str

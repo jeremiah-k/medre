@@ -35,7 +35,7 @@ class MatrixCodec(AdapterCodec):
     adapter_id:
         Identifier of the owning adapter (used for ``source_adapter``).
     config:
-        The :class:`~medre.adapters.matrix.config.MatrixConfig` instance.
+        The :class:`~medre.config.adapters.matrix.MatrixConfig` instance.
     """
 
     def __init__(self, adapter_id: str, config: Any) -> None:

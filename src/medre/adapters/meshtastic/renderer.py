@@ -4,7 +4,7 @@ The :class:`MeshtasticRenderer` converts canonical events into
 Meshtastic-ready content payloads (dicts with ``text``, ``channel_index``,
 and optional ``meshnet_name``).
 
-When initialised with a :class:`~medre.adapters.meshtastic.config.MeshtasticConfig`
+When initialised with a :class:`~medre.config.adapters.meshtastic.MeshtasticConfig`
 that contains a non-empty ``radio_relay_prefix``, the renderer prepends a formatted
 prefix to the message text.  The prefix template uses Python ``str.format()``
 syntax with the following variables:

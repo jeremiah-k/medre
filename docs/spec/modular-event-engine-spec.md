@@ -1590,7 +1590,7 @@ src/medre/
 │
 ├── adapters/                     # Adapter implementations
 │   ├── __init__.py
-│   ├── base.py                   # BaseAdapter protocol, AdapterContext, lifecycle ABC
+│   ├── base.py                   # (moved to core/contracts/adapter.py) AdapterContract protocol, AdapterContext, lifecycle ABC
 │   ├── fake_transport.py         # Fake transport adapter (testing/dev)
 │   ├── fake_presentation.py      # Fake presentation adapter (testing/dev)
 │   ├── fake_matrix.py            # Fake Matrix adapter

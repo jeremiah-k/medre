@@ -18,7 +18,6 @@ Public symbols
 * Exception hierarchy: :class:`~medre.adapters.lxmf.errors.LxmfError`,
   :class:`~medre.adapters.lxmf.errors.LxmfConnectionError`,
   :class:`~medre.adapters.lxmf.errors.LxmfSendError`,
-  :class:`~medre.adapters.lxmf.errors.LxmfConfigError`,
   :class:`~medre.adapters.lxmf.errors.LxmfCodecError`,
   :class:`~medre.adapters.lxmf.errors.LxmfPacketError`.
 """

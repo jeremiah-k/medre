@@ -32,10 +32,10 @@ from medre.config.model import (
     MeshCoreRuntimeConfig,
     LxmfRuntimeConfig,
 )
-from medre.adapters.matrix.config import MatrixConfig
-from medre.adapters.meshtastic.config import MeshtasticConfig
-from medre.adapters.meshcore.config import MeshCoreConfig
-from medre.adapters.lxmf.config import LxmfConfig
+from medre.config.adapters.matrix import MatrixConfig
+from medre.config.adapters.meshtastic import MeshtasticConfig
+from medre.config.adapters.meshcore import MeshCoreConfig
+from medre.config.adapters.lxmf import LxmfConfig
 ```
 
 The adapter config classes (`MatrixConfig`, `MeshtasticConfig`, etc.) are frozen dataclasses that hold transport-specific settings. Each `XxxRuntimeConfig` wraps one adapter config and adds runtime-level fields (`enabled`, `adapter_id`, `adapter_kind`).

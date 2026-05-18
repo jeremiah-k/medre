@@ -19,13 +19,13 @@ This is an audit, not a redesign. The goal is to document what exists and where 
 The `adapter_id` is a string that names a specific adapter instance. It comes from configuration. Examples: `"local-radio"`, `"meshcore-out"`, `"matrix_home"`. It's how the rest of the system refers to this particular adapter at runtime.
 
 ```python
-# AdapterInfo (src/medre/adapters/base.py)
+# AdapterInfo (src/medre/core/contracts/adapter.py)
 adapter_id: str
 
-# AdapterContext (src/medre/adapters/base.py)
+# AdapterContext (src/medre/core/contracts/adapter.py)
 adapter_id: str
 
-# BaseAdapter (src/medre/adapters/base.py)
+# AdapterContract (src/medre/core/contracts/adapter.py)
 adapter_id: str
 ```
 
@@ -36,7 +36,7 @@ The adapter_id is **transport-local**. It names an instance within a running MED
 The `platform` string identifies which protocol the adapter speaks: `"meshtastic"`, `"meshcore"`, `"matrix"`. It's a human-readable label that groups adapters by protocol family.
 
 ```python
-# AdapterInfo (src/medre/adapters/base.py)
+# AdapterInfo (src/medre/core/contracts/adapter.py)
 platform: str  # e.g. "meshtastic", "meshcore", "matrix"
 ```
 

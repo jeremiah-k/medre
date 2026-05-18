@@ -19,7 +19,6 @@ Public symbols
 * Exception hierarchy: :class:`~medre.adapters.meshcore.errors.MeshCoreError`,
   :class:`~medre.adapters.meshcore.errors.MeshCoreConnectionError`,
   :class:`~medre.adapters.meshcore.errors.MeshCoreSendError`,
-  :class:`~medre.adapters.meshcore.errors.MeshCoreConfigError`,
   :class:`~medre.adapters.meshcore.errors.MeshCoreCodecError`,
   :class:`~medre.adapters.meshcore.errors.MeshCorePacketError`.
 """

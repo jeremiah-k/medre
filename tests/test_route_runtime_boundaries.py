@@ -664,10 +664,10 @@ class TestAttributionLeakageBoundary:
         # Only check import lines — the word may appear in docstrings.
         for line in _import_lines(source):
             assert "route_trace" not in line, (
-                f"adapters.base references route_trace in: {line!r}"
+                f"core.contracts.adapter references route_trace in: {line!r}"
             )
             assert "route_attribution" not in line, (
-                f"adapters.base references route_attribution in: {line!r}"
+                f"core.contracts.adapter references route_attribution in: {line!r}"
             )
 
     def test_adapter_delivery_result_does_not_carry_route_id(

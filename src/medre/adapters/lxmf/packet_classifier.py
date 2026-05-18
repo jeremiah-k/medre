@@ -77,7 +77,7 @@ class LxmfPacketClassifier:
     Parameters
     ----------
     config:
-        Optional :class:`~medre.adapters.lxmf.config.LxmfConfig`
+        Optional :class:`~medre.config.adapters.lxmf.LxmfConfig`
         for future use.
     """
 

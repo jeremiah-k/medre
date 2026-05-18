@@ -131,7 +131,7 @@ The adapter supports four connection types via `MeshCoreConfig.connection_type`:
 No real client. Used for development and testing without hardware.
 
 ```python
-from medre.adapters.meshcore.config import MeshCoreConfig
+from medre.config.adapters.meshcore import MeshCoreConfig
 
 config = MeshCoreConfig(
     adapter_id="meshcore-alpha",
@@ -252,8 +252,8 @@ import asyncio
 import logging
 
 from medre.adapters.meshcore.adapter import MeshCoreAdapter
-from medre.adapters.meshcore.config import MeshCoreConfig
-from medre.adapters.base import AdapterContext
+from medre.config.adapters.meshcore import MeshCoreConfig
+from medre.core.contracts.adapter import AdapterContext
 from medre.core.events.event_bus import EventBus
 
 logging.basicConfig(level=logging.INFO)

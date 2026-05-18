@@ -792,3 +792,56 @@ class TestMatrixCredentialSidecar:
         ):
             result = load_credentials_json()
             assert result is None
+
+
+# ===================================================================
+# Q) ConfigError import from canonical locations
+# ===================================================================
+
+
+class TestConfigErrorCanonicalImports:
+    """ConfigError classes must be imported from medre.config.adapters.errors."""
+
+    # These are allowed paths for importing ConfigError classes.
+    _ALLOWED_ERROR_PATHS = (
+        "from medre.config.adapters.errors import ",
+    )
+
+    # These are FORBIDDEN — ConfigError classes must not be imported
+    # from config dataclass modules.
+    _FORBIDDEN_ERROR_IMPORTS = (
+        "from medre.config.adapters.matrix import MatrixConfigError",
+        "from medre.config.adapters.meshtastic import MeshtasticConfigError",
+        "from medre.config.adapters.meshcore import MeshCoreConfigError",
+        "from medre.config.adapters.lxmf import LxmfConfigError",
+    )
+
+    def test_config_errors_not_imported_from_dataclass_modules(self) -> None:
+        """No source or test file should import ConfigError from dataclass modules."""
+        repo_root = Path(__file__).resolve().parents[1]
+        violations: list[str] = []
+        for py_file in sorted((repo_root / "src").rglob("*.py")):
+            for i, line in enumerate(py_file.read_text().splitlines(), 1):
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#"):
+                    continue
+                if any(stripped.startswith(p) for p in self._FORBIDDEN_ERROR_IMPORTS):
+                    violations.append(f"{py_file.relative_to(repo_root)}:{i}: {stripped}")
+
+        assert violations == [], (
+            "ConfigError imports from dataclass modules found (must use medre.config.adapters.errors):\n"
+            + "\n".join(violations)
+        )
+
+    def test_package_re_exports_config_errors(self) -> None:
+        """Package-level re-exports of ConfigError classes are valid from medre.config.adapters."""
+        from medre.config.adapters.errors import MatrixConfigError
+        from medre.config.adapters.errors import LxmfConfigError
+        from medre.config.adapters.errors import MeshtasticConfigError
+        from medre.config.adapters.errors import MeshCoreConfigError
+        _ = MatrixConfigError, LxmfConfigError, MeshtasticConfigError, MeshCoreConfigError
+        import medre.config.adapters as mod
+        assert hasattr(mod, "MatrixConfigError")
+        assert hasattr(mod, "LxmfConfigError")
+        assert hasattr(mod, "MeshtasticConfigError")
+        assert hasattr(mod, "MeshCoreConfigError")

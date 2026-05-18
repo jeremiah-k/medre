@@ -12,6 +12,8 @@ from typing import Literal, Self
 
 from medre.config.adapters.errors import MeshtasticConfigError
 
+__all__ = ["MeshtasticConfig"]
+
 
 @dataclass(frozen=True)
 class MeshtasticConfig:

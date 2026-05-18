@@ -1,8 +1,8 @@
-"""Adapter framework for the medre.
+"""Concrete and fake adapter implementations.
 
-This package defines the adapter abstraction layer that bridges the
-framework's canonical event model with external transports and
-presentation platforms.
+This package contains concrete transport/presentation adapter implementations
+and simulated test doubles (fake adapters).  The adapter abstraction layer
+(contract types) lives in ``medre.core.contracts.adapter``.
 
 Quick-start imports::
 
