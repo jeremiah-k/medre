@@ -20,8 +20,7 @@ import pytest
 
 TESTS_DIR = Path(__file__).resolve().parent
 
-# All test files must be <= MAX_LINES. No exemptions.
-OVERSIZED_TEST_ALLOWLIST: dict[str, int] = {}
+# No oversized-test allowlist. Every test_*.py file must be <= MAX_LINES.
 
 MAX_LINES = 1_500
 

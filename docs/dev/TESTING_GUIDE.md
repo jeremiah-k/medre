@@ -19,24 +19,22 @@ Split files by behavioral domain, not by "coverage" or "misc". When a domain
 file approaches the target, split it by subdomain following the procedure in
 the [Next Modernization Wave](#next-modernization-wave) section below.
 
-### Allowlisted files (existing large files, above 1,500 lines)
+### Size enforcement
 
-These files predate the size policy and have not yet been split. Each must
-carry a TODO comment in the structure test explaining why it has not been
-split.
+There is **no oversized-test allowlist**. Every `test_*.py` file must stay at
+or below **1,500 lines** (`MAX_LINES`). The target remains below 1,200 lines.
+If a file approaches the hard cap, split it by behavioral domain following the
+procedure in [Splitting procedure](#splitting-procedure). Completed splits are
+listed in the [Completed Splits](#completed-splits) table as historical record,
+not as active allowlist entries.
 
-| File                           | Lines | Status                     |
-| ------------------------------ | ----- | -------------------------- |
-| `tests/test_matrix_session.py` | 460   | Split; see Completed Splits |
-| `tests/test_replay_routing.py` | 422   | Split; see Completed Splits |
-| `tests/test_storage.py` | 231   | Split; see Completed Splits |
-| `tests/test_canonical_events.py` | 577   | Split; see Completed Splits |
-| `tests/test_meshtastic_fake_bridge.py` | 938   | Split; see Completed Splits |
-| `tests/test_fake_runtime_smoke.py` | 931   | Split; see Completed Splits |
+#### Next-PR candidates near the cap
 
-No new test files may exceed 1,500 lines. Files in the allowlist above should
-be split according to the schedule in
-[Next Modernization Wave](#next-modernization-wave).
+These files are approaching the 1,500-line hard cap and should be split
+opportunistically by behavioral domain:
+
+- `test_runtime_snapshot.py` (1,462 lines) — highest priority
+- Any other 1,000+ line file should be split when convenient
 
 ### Splitting procedure
 
@@ -492,5 +490,5 @@ These files have been split by behavioral domain following the procedure above.
 ## CLI split — completed
 
 `test_cli.py` has been split into domain files (all under 1,500 lines). The
-monolith has been deleted. `test_cli` is listed in `DELETED_MONOLITHS` and
-removed from `LEGACY_ALLOWLIST` in `test_test_suite_structure.py`.
+monolith has been deleted. `test_cli` is listed in `DELETED_MONOLITHS` in
+`test_test_suite_structure.py`.
