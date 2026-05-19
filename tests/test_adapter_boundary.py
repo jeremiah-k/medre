@@ -876,3 +876,59 @@ class TestOutboundNativeRefRecordMetadataFrozen:
         )
         original["packet_id"] = 999
         assert record.metadata["packet_id"] == 1
+
+
+# ===================================================================
+# 15. OutboundNativeRefRecord.native_message_id validation
+# ===================================================================
+
+
+class TestOutboundNativeRefRecordMessageIdValidation:
+    """OutboundNativeRefRecord.native_message_id must be non-empty string."""
+
+    def test_empty_string_rejected(self) -> None:
+        with pytest.raises(ValueError, match="non-empty string"):
+            OutboundNativeRefRecord(
+                event_id="evt-1",
+                adapter="mesh-1",
+                native_channel_id="0",
+                native_message_id="",
+            )
+
+    def test_whitespace_only_rejected(self) -> None:
+        with pytest.raises(ValueError, match="non-empty string"):
+            OutboundNativeRefRecord(
+                event_id="evt-1",
+                adapter="mesh-1",
+                native_channel_id="0",
+                native_message_id="   ",
+            )
+
+    def test_none_rejected(self) -> None:
+        with pytest.raises(ValueError, match="non-empty string"):
+            OutboundNativeRefRecord(
+                event_id="evt-1",
+                adapter="mesh-1",
+                native_channel_id="0",
+                native_message_id=None,  # type: ignore[arg-type]
+            )
+
+    def test_valid_string_accepted(self) -> None:
+        record = OutboundNativeRefRecord(
+            event_id="evt-1",
+            adapter="mesh-1",
+            native_channel_id="0",
+            native_message_id="42",
+        )
+        assert record.native_message_id == "42"
+
+    def test_metadata_still_frozen_after_valid_id(self) -> None:
+        record = OutboundNativeRefRecord(
+            event_id="evt-1",
+            adapter="mesh-1",
+            native_channel_id="0",
+            native_message_id="42",
+            metadata={"packet_id": 1},
+        )
+        with pytest.raises(TypeError):
+            record.metadata["x"] = "y"  # type: ignore[index]

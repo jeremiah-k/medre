@@ -1371,3 +1371,22 @@ class TestDelayedOutboundNativeRef:
         assert ref.metadata["channel_name"] == "ch2"
         # Delivery snapshot keys are merged too.
         assert ref.metadata["packet_id"] == 555
+
+
+# ===================================================================
+# Boolean reply_id rejection
+# ===================================================================
+
+
+class TestBooleanReplyIdRejected:
+    """bool reply_id values must be rejected before int() conversion."""
+
+    async def test_boolean_reply_id_raises_error(self) -> None:
+        session = MeshtasticSession.__new__(MeshtasticSession)
+        with pytest.raises(MeshtasticSendError):
+            await session._send_structured(
+                text="test",
+                channel_index=0,
+                reply_id=True,  # type: ignore[arg-type]
+                emoji=0,
+            )

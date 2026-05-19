@@ -8,6 +8,7 @@ The database runs in WAL mode for safe concurrent reads.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import sqlite3
 import threading
@@ -38,6 +39,8 @@ try:
 except ImportError:
     aiosqlite = None  # type: ignore[assignment]
     _HAS_AIOSQLITE = False
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -620,7 +623,13 @@ class SQLiteStorage:
             # index creation references missing columns.
             await self._create_indexes()
         except BaseException:
-            await self.close()
+            try:
+                await self.close()
+            except BaseException:
+                logger.debug(
+                    "error while closing SQLite storage after initialization failure",
+                    exc_info=True,
+                )
             raise
 
     async def _verify_schema_version(self) -> None:
@@ -754,7 +763,13 @@ class SQLiteStorage:
             await instance._verify_schema_version_readonly()
             await instance._validate_schema_shape()
         except BaseException:
-            await instance.close()
+            try:
+                await instance.close()
+            except BaseException:
+                logger.debug(
+                    "error while closing read-only SQLite connection after initialization failure",
+                    exc_info=True,
+                )
             raise
 
         return instance

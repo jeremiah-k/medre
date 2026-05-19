@@ -26,13 +26,13 @@ from tests.helpers.cli import (
 
 
 async def _trigger_shutdown_after_startup(
-    run_mod, stdout: io.StringIO, timeout: float = 2.0
+    run_mod, stdout: io.StringIO, wait_timeout: float = 2.0
 ) -> None:
     """Wait for startup completion marker, then trigger shutdown."""
     marker = "Run `medre diagnostics --refresh-health` for live adapter health"
-    ok = await wait_until(lambda: marker in stdout.getvalue(), timeout=timeout)
+    ok = await wait_until(lambda: marker in stdout.getvalue(), timeout=wait_timeout)
     assert ok, (
-        f"runtime did not reach post-startup marker within {timeout}s; "
+        f"runtime did not reach post-startup marker within {wait_timeout}s; "
         f"output was:\n{stdout.getvalue()}"
     )
     run_mod.shutdown_requested = True

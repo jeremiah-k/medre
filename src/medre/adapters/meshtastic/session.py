@@ -465,6 +465,12 @@ class MeshtasticSession:
             With ``transient=False`` when protobuf modules or
             ``_sendPacket`` are unavailable.
         """
+        if isinstance(reply_id, bool):
+            raise MeshtasticSendError(
+                f"invalid Meshtastic reply_id for structured send: {reply_id!r}",
+                transient=False,
+            )
+
         try:
             from meshtastic.protobuf import mesh_pb2, portnums_pb2
         except ImportError as exc:

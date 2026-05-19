@@ -198,7 +198,7 @@ class MatrixRenderer:
                     content[KEY_REPLY_ID] = str(mx_reply_id)
 
             elif rel.relation_type == "reaction":
-                self._render_reaction(rel, body, content, target_adapter, event)
+                self._render_reaction(rel, content, target_adapter, event)
 
         # Embed metadata envelope
         envelope = MatrixMetadataEnvelope(
@@ -354,7 +354,6 @@ class MatrixRenderer:
     def _render_reaction(
         self,
         rel: EventRelation,
-        body: str,
         content: dict[str, object],
         target_adapter: str,
         event: CanonicalEvent,

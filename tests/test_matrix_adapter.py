@@ -1126,7 +1126,7 @@ class TestDisplayNameEnrichment:
         )
         room = SimpleNamespace(
             room_id="!room:server",
-            user_name=lambda uid: "Alice Display",
+            user_name=lambda _uid: "Alice Display",
             users={},
         )
 

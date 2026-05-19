@@ -164,7 +164,8 @@ class TestMatrixToMeshtasticOutboundNativeRef:
 
             # Metadata includes useful delivery context (packet_id, channel).
             meta = json.loads(ref["metadata"])
-            assert "packet_id" in meta or "channel" in meta
+            assert "packet_id" in meta
+            assert "channel" in meta
 
             # -- Verify inbound ref also persisted -------------------------
             inbound_resolved = await temp_storage.resolve_native_ref(
