@@ -22,14 +22,11 @@ from medre.core.contracts.adapter import (
     AdapterPermanentError,
 )
 from medre.core.events import CanonicalEvent, EventMetadata
-from medre.core.rendering.renderer import RenderingResult
-
 from tests.helpers.meshtastic import (
     make_meshtastic_config,
     make_meshtastic_rendering_result,
     make_meshtastic_text_packet,
 )
-
 
 # ===================================================================
 # Real MeshtasticAdapter tests
@@ -677,7 +674,9 @@ class TestMeshtasticAdapterQueueOwnership:
     """Adapter owns queue/pacing; runtime pipeline and renderer do not sleep."""
 
     async def test_adapter_owns_queue(self) -> None:
-        config = make_meshtastic_config(connection_type="fake", message_delay_seconds=0.25)
+        config = make_meshtastic_config(
+            connection_type="fake", message_delay_seconds=0.25
+        )
         adapter = MeshtasticAdapter(config)
         assert adapter.queue is adapter._queue
         assert adapter.queue.delay_between_messages == 0.25
@@ -747,8 +746,8 @@ class TestMeshtasticAdapterQueueOwnership:
         # send_one processes the queue item
         result = await adapter.send_one()
         assert result is not None
-        assert result.native_message_id == "77"
-        assert result.native_channel_id == "0"
+        assert result.delivery_result.native_message_id == "77"
+        assert result.delivery_result.native_channel_id == "0"
         assert adapter.queue.pending_count == 0
         assert len(fake_client.sent) == 1
 

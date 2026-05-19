@@ -7,8 +7,8 @@ intended solely for use in unit and integration tests.
 
 Capabilities
 ------------
-* text messaging only
-* no replies, reactions, edits, deletes, attachments, or delivery receipts
+* text, reply, and reaction messaging
+* no edits, deletes, attachments, or delivery receipts
 * packet classification and codec decoding (via real classifier + codec)
 
 Usage
@@ -88,6 +88,8 @@ class FakeMeshtasticClient:
         channel_index: int,
         meshnet_name: str = "",
         dest_id: str | None = None,
+        reply_id: int | None = None,
+        emoji: int | None = None,
     ) -> dict[str, Any]:
         """Send a text message and return a deterministic packet ID.
 
@@ -101,6 +103,10 @@ class FakeMeshtasticClient:
             Optional meshnet name (unused by fake).
         dest_id:
             Optional destination node ID for DMs.
+        reply_id:
+            Optional native reply/tapback target packet ID.
+        emoji:
+            Optional emoji flag (1 for tapback reactions).
 
         Returns
         -------
@@ -109,30 +115,38 @@ class FakeMeshtasticClient:
         """
         packet_id = self._next_id
         self._next_id += 1
-        self.sent_packets.append(
-            {
-                "text": text,
-                "channel_index": channel_index,
-                "meshnet_name": meshnet_name,
-                "dest_id": dest_id,
-                "packet_id": packet_id,
-            }
-        )
+        record: dict[str, Any] = {
+            "text": text,
+            "channel_index": channel_index,
+            "meshnet_name": meshnet_name,
+            "dest_id": dest_id,
+            "packet_id": packet_id,
+        }
+        if reply_id is not None:
+            record["reply_id"] = reply_id
+        if emoji is not None:
+            record["emoji"] = emoji
+        self.sent_packets.append(record)
         _trim(self.sent_packets)
         self.sent_count += 1
-        return {"packet_id": packet_id}
+        return {
+            "packet_id": packet_id,
+            "channel": channel_index,
+            "reply_id": reply_id,
+            "emoji": emoji,
+        }
 
 
 # Default capabilities for the fake Meshtastic adapter.
 _FAKE_MESHTASTIC_CAPABILITIES = AdapterCapabilities(
     text=True,
     title=False,
-    replies="unsupported",
-    reactions="unsupported",
+    replies="native",
+    reactions="native",
     edits="unsupported",
     deletes="unsupported",
     attachments=False,
-    metadata_fields=False,
+    metadata_fields=True,
     delivery_receipts=False,
     store_and_forward=False,
     direct_messages=False,
@@ -300,17 +314,36 @@ class FakeMeshtasticAdapter(AdapterContract):
         if not isinstance(channel_index, int):
             channel_index = 0
         meshnet_name = str(result.payload.get("meshnet_name", ""))
+        reply_id = result.payload.get("reply_id")
+        if isinstance(reply_id, int):
+            reply_id_val: int | None = reply_id
+        else:
+            reply_id_val = None
+        emoji_val = result.payload.get("emoji")
+        if not isinstance(emoji_val, int):
+            emoji_val = None
 
         send_result = await self._fake_client.send_text(
             text=text,
             channel_index=channel_index,
             meshnet_name=meshnet_name,
+            reply_id=reply_id_val,
+            emoji=emoji_val,
         )
         packet_id = send_result["packet_id"]
+
+        result_metadata: dict[str, object] = {}
+        if reply_id_val is not None:
+            result_metadata["reply_id"] = reply_id_val
+        if emoji_val is not None:
+            result_metadata["emoji"] = emoji_val
+        result_metadata["packet_id"] = packet_id
+        result_metadata["channel"] = channel_index
 
         return AdapterDeliveryResult(
             native_message_id=str(packet_id),
             native_channel_id=str(channel_index),
+            metadata=result_metadata,
         )
 
     # -- Inbound simulation -------------------------------------------------

@@ -109,7 +109,8 @@ def _count_lines(path: Path) -> int:
     """Return the number of lines in *path* (0 if missing)."""
     if not path.exists():
         return 0
-    return sum(1 for _ in path.open(encoding="utf-8", errors="replace"))
+    with path.open(encoding="utf-8", errors="replace") as f:
+        return sum(1 for _ in f)
 
 
 def _has_fixed_sleep(source: str) -> bool:
@@ -159,9 +160,9 @@ def test_no_file_exceeds_1500_lines() -> None:
         if lines > MAX_LINES:
             failures.append(f"  {name}: {lines} lines (limit {MAX_LINES})")
 
-    assert (
-        not failures
-    ), "Test files exceed the 1 500-line limit:\n" + "\n".join(failures)
+    assert not failures, "Test files exceed the 1 500-line limit:\n" + "\n".join(
+        failures
+    )
 
 
 # ===================================================================
@@ -328,10 +329,13 @@ def test_no_test_imports_other_test_modules() -> None:
             elif s.startswith("from tests import test_"):
                 bad.append((rel, i, s))
             # Allow from tests.helpers and from tests.conftest
-            elif s.startswith("from tests.helpers") or s.startswith("import tests.helpers"):
+            elif s.startswith("from tests.helpers") or s.startswith(
+                "import tests.helpers"
+            ):
                 continue
 
-    assert not bad, (
-        "Test modules must not import from other test modules:\n"
-        + "\n".join(f"  {f}:{ln}: {l}" for f, ln, l in bad)
+    assert (
+        not bad
+    ), "Test modules must not import from other test modules:\n" + "\n".join(
+        f"  {f}:{ln}: {line}" for f, ln, line in bad
     )

@@ -12,23 +12,21 @@ No test requires mindroom-nio[e2e].
 from __future__ import annotations
 
 import asyncio
+import importlib
 import logging
 import sys
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.errors import MatrixConnectionError
 from medre.adapters.matrix.session import MatrixSession, MatrixSessionDiagnostics
-from medre.config.adapters.matrix import MatrixConfig
-
 from tests.helpers.matrix_session import (
     make_matrix_config,
     make_matrix_context,
-    mock_nio,  # noqa: F401
 )
-
+from tests.helpers.matrix_session import mock_nio as _mock_nio  # noqa: F401
 
 # ===================================================================
 # TestMatrixSessionLifecycle
@@ -83,8 +81,9 @@ class TestMatrixSessionLifecycle:
         session = MatrixSession(config, message_callback=cb)
         try:
             await session.start()
-            # Three callbacks: message types + MegolmEvent + RoomEncryptionEvent
-            assert mock_nio.AsyncClient.return_value.add_event_callback.call_count == 3
+            # Four callbacks: message types + ReactionEvent +
+            # MegolmEvent + RoomEncryptionEvent
+            assert mock_nio.AsyncClient.return_value.add_event_callback.call_count == 4
         finally:
             await session.stop()
 
@@ -458,3 +457,296 @@ class TestAdapterDelegatesToSession:
         await adapter.stop()
         await adapter.stop()
         assert adapter._session is None
+
+
+# ===================================================================
+# Reaction callback registration
+# ===================================================================
+
+
+class TestReactionCallbackRegistration:
+    """Verify ReactionEvent is registered as an event callback."""
+
+    async def test_reaction_callback_registered(self, mock_nio) -> None:
+        """MatrixSession registers a callback for nio.ReactionEvent."""
+        cb = MagicMock()
+        config = make_matrix_config()
+        session = MatrixSession(config, message_callback=cb)
+        try:
+            await session.start()
+            calls = mock_nio.AsyncClient.return_value.add_event_callback.call_args_list
+            # Check that one of the calls includes ReactionEvent
+            reaction_registered = any(
+                mock_nio.ReactionEvent in call[0][1]
+                for call in calls
+                if len(call[0]) >= 2
+            )
+            assert (
+                reaction_registered
+            ), "ReactionEvent not found in any add_event_callback call"
+        finally:
+            await session.stop()
+
+    async def test_reaction_callback_graceful_without_reaction_event(
+        self, mock_nio
+    ) -> None:
+        """If nio lacks ReactionEvent, start still succeeds (no crash)."""
+        del mock_nio.ReactionEvent
+        cb = MagicMock()
+        config = make_matrix_config()
+        session = MatrixSession(config, message_callback=cb)
+        try:
+            await session.start()
+            # Should not raise; reaction callback simply skipped
+            assert session.connected is True
+        finally:
+            await session.stop()
+
+    async def test_reaction_callback_uses_same_handler(self, mock_nio) -> None:
+        """The reaction callback is the same function as message callback."""
+        cb = MagicMock()
+        config = make_matrix_config()
+        session = MatrixSession(config, message_callback=cb)
+        try:
+            await session.start()
+            calls = mock_nio.AsyncClient.return_value.add_event_callback.call_args_list
+            # Find the call that includes ReactionEvent
+            for call in calls:
+                if len(call[0]) >= 2 and mock_nio.ReactionEvent in call[0][1]:
+                    assert call[0][0] is cb
+                    break
+            else:
+                pytest.fail("No ReactionEvent callback found")
+        finally:
+            await session.stop()
+
+
+# ===================================================================
+# _reaction_event_classes helper
+# ===================================================================
+
+
+def _no_reaction_importlib():
+    """Patch importlib.import_module so importlib fallback returns nothing.
+
+    Prevents the importlib fallback in _reaction_event_classes from
+    hitting the real installed nio package during unit tests.
+    """
+    _empty_mod = MagicMock(name="empty_importlib_mod")
+    del _empty_mod.ReactionEvent
+
+    def _fake_import(name, *a, **kw):
+        if name in ("nio.events", "nio.events.room_events"):
+            return _empty_mod
+        return importlib.import_module(name, *a, **kw)
+
+    return patch("medre.adapters.matrix.session.importlib.import_module", side_effect=_fake_import)
+
+
+class TestReactionEventClassesHelper:
+    """Tests for the module-level _reaction_event_classes helper."""
+
+    def test_finds_top_level_reaction_event(self) -> None:
+        """Finds ReactionEvent at nio top level."""
+        from medre.adapters.matrix.session import _reaction_event_classes
+
+        nio_mod = MagicMock(name="nio")
+        cls = type("ReactionEvent", (), {})
+        nio_mod.ReactionEvent = cls
+        events = MagicMock(name="nio.events")
+        del events.ReactionEvent
+        room_events = MagicMock(name="nio.events.room_events")
+        del room_events.ReactionEvent
+        events.room_events = room_events
+        nio_mod.events = events
+
+        with _no_reaction_importlib():
+            result = _reaction_event_classes(nio_mod)
+        assert result == (cls,)
+
+    def test_finds_events_reaction_event_when_top_level_absent(self) -> None:
+        """Falls back to nio.events.ReactionEvent when top-level missing."""
+        from medre.adapters.matrix.session import _reaction_event_classes
+
+        nio_mod = MagicMock(name="nio")
+        # No top-level ReactionEvent
+        del nio_mod.ReactionEvent
+        events = MagicMock(name="nio.events")
+        cls = type("ReactionEvent", (), {})
+        events.ReactionEvent = cls
+        room_events = MagicMock(name="nio.events.room_events")
+        del room_events.ReactionEvent
+        events.room_events = room_events
+        nio_mod.events = events
+
+        with _no_reaction_importlib():
+            result = _reaction_event_classes(nio_mod)
+        assert result == (cls,)
+
+    def test_finds_room_events_reaction_event(self) -> None:
+        """Falls back to nio.events.room_events.ReactionEvent."""
+        from medre.adapters.matrix.session import _reaction_event_classes
+
+        nio_mod = MagicMock(name="nio")
+        del nio_mod.ReactionEvent
+        events = MagicMock(name="nio.events")
+        del events.ReactionEvent
+        room_events = MagicMock(name="nio.events.room_events")
+        cls = type("ReactionEvent", (), {})
+        room_events.ReactionEvent = cls
+        events.room_events = room_events
+        nio_mod.events = events
+
+        with _no_reaction_importlib():
+            result = _reaction_event_classes(nio_mod)
+        assert result == (cls,)
+
+    def test_returns_empty_tuple_when_no_class(self) -> None:
+        """Returns empty tuple when no ReactionEvent exists anywhere."""
+        from medre.adapters.matrix.session import _reaction_event_classes
+
+        nio_mod = MagicMock(name="nio")
+        del nio_mod.ReactionEvent
+        events = MagicMock(name="nio.events")
+        del events.ReactionEvent
+        room_events = MagicMock(name="nio.events.room_events")
+        del room_events.ReactionEvent
+        events.room_events = room_events
+        nio_mod.events = events
+
+        with _no_reaction_importlib():
+            result = _reaction_event_classes(nio_mod)
+        assert result == ()
+
+    def test_deduplicates_while_preserving_order(self) -> None:
+        """De-duplicates classes that appear in multiple locations."""
+        from medre.adapters.matrix.session import _reaction_event_classes
+
+        nio_mod = MagicMock(name="nio")
+        cls = type("ReactionEvent", (), {})
+        nio_mod.ReactionEvent = cls
+        events = MagicMock(name="nio.events")
+        events.ReactionEvent = cls  # Same class object
+        room_events = MagicMock(name="nio.events.room_events")
+        room_events.ReactionEvent = cls  # Same class again
+        events.room_events = room_events
+        nio_mod.events = events
+
+        with _no_reaction_importlib():
+            result = _reaction_event_classes(nio_mod)
+        assert result == (cls,)  # Only one instance
+
+    def test_no_events_module_returns_top_level_only(self) -> None:
+        """Gracefully handles nio without events submodule."""
+        from medre.adapters.matrix.session import _reaction_event_classes
+
+        nio_mod = MagicMock(name="nio")
+        cls = type("ReactionEvent", (), {})
+        nio_mod.ReactionEvent = cls
+        # Make getattr(nio_mod, "events", None) return None
+        del nio_mod.events
+
+        with _no_reaction_importlib():
+            result = _reaction_event_classes(nio_mod)
+        assert result == (cls,)
+
+    def test_importlib_fallback_finds_reaction_event(self) -> None:
+        """importlib fallback discovers ReactionEvent when getattr paths miss.
+
+        Monkeypatch nio so ReactionEvent is absent from top-level and from
+        events/room_events attributes, but importlib.import_module("nio.events")
+        returns a module with ReactionEvent.
+        """
+        import types
+
+        from medre.adapters.matrix.session import _reaction_event_classes
+
+        cls = type("ReactionEvent", (), {})
+
+        # Build an nio.events module that carries ReactionEvent
+        events_mod = types.ModuleType("nio.events")
+        events_mod.ReactionEvent = cls  # type: ignore[attr-defined]
+
+        # nio.events.room_events without ReactionEvent
+        room_events_mod = types.ModuleType("nio.events.room_events")
+
+        # Build the fake nio module: no ReactionEvent anywhere via getattr
+        nio_mod = MagicMock(name="nio")
+        del nio_mod.ReactionEvent
+        # events attribute returns a module WITHOUT ReactionEvent
+        fake_events = MagicMock(name="nio.events")
+        del fake_events.ReactionEvent
+        fake_room_events = MagicMock(name="nio.events.room_events")
+        del fake_room_events.ReactionEvent
+        fake_events.room_events = fake_room_events
+        nio_mod.events = fake_events
+
+        # Inject the real modules into sys.modules so importlib finds them
+        saved_nio = sys.modules.get("nio")
+        saved_nio_events = sys.modules.get("nio.events")
+        saved_nio_room = sys.modules.get("nio.events.room_events")
+        try:
+            sys.modules["nio.events"] = events_mod
+            sys.modules["nio.events.room_events"] = room_events_mod
+
+            result = _reaction_event_classes(nio_mod)
+            assert result == (cls,), (
+                f"Expected importlib fallback to find ReactionEvent, got {result}"
+            )
+        finally:
+            # Restore sys.modules
+            if saved_nio is None:
+                sys.modules.pop("nio", None)
+            else:
+                sys.modules["nio"] = saved_nio
+            if saved_nio_events is None:
+                sys.modules.pop("nio.events", None)
+            else:
+                sys.modules["nio.events"] = saved_nio_events
+            if saved_nio_room is None:
+                sys.modules.pop("nio.events.room_events", None)
+            else:
+                sys.modules["nio.events.room_events"] = saved_nio_room
+
+
+class TestReactionCallbackMultiClass:
+    """Verify callback registration for each discovered reaction class."""
+
+    async def test_callback_registered_for_each_discovered_class(
+        self, mock_nio
+    ) -> None:
+        """When multiple locations expose the same class, only one registration."""
+        cb = MagicMock()
+        config = make_matrix_config()
+        session = MatrixSession(config, message_callback=cb)
+        try:
+            await session.start()
+            calls = mock_nio.AsyncClient.return_value.add_event_callback.call_args_list
+            # Find the call that includes ReactionEvent
+            reaction_calls = [
+                call
+                for call in calls
+                if len(call[0]) >= 2 and mock_nio.ReactionEvent in call[0][1]
+            ]
+            assert len(reaction_calls) == 1, (
+                f"Expected exactly 1 ReactionEvent callback registration, "
+                f"got {len(reaction_calls)}"
+            )
+        finally:
+            await session.stop()
+
+    async def test_no_reaction_event_logs_debug(self, mock_nio) -> None:
+        """When no ReactionEvent found, start succeeds with debug log."""
+        del mock_nio.ReactionEvent
+        # Also ensure nio.events doesn't have it
+        del mock_nio.events.ReactionEvent
+
+        cb = MagicMock()
+        config = make_matrix_config()
+        logger = logging.getLogger("test.no_reaction")
+        session = MatrixSession(config, message_callback=cb, logger=logger)
+        try:
+            await session.start()
+            assert session.connected is True
+        finally:
+            await session.stop()

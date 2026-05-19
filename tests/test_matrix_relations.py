@@ -9,6 +9,7 @@ from medre.adapters.matrix.relations import (
     build_reply_body,
     extract_reaction,
     extract_reply_target,
+    strip_reply_fallback_body,
 )
 
 
@@ -82,3 +83,37 @@ class TestMatrixRelationHandler:
         handler = MatrixRelationHandler()
         result = handler.build_reply_body("reply", "@bob:server", "orig")
         assert result == "> <@bob:server> orig\n\nreply"
+
+
+class TestStripReplyFallbackBody:
+    """strip_reply_fallback_body removes the Matrix reply fallback prefix."""
+
+    def test_single_line_fallback(self) -> None:
+        body = "> <@alice:server> hi\n\nHello"
+        assert strip_reply_fallback_body(body) == "Hello"
+
+    def test_multiline_fallback(self) -> None:
+        body = "> <@alice:server> line1\n> <@alice:server> line2\n\nReply text"
+        assert strip_reply_fallback_body(body) == "Reply text"
+
+    def test_no_fallback_returns_unchanged(self) -> None:
+        body = "Just a regular message"
+        assert strip_reply_fallback_body(body) == "Just a regular message"
+
+    def test_quote_later_in_body_not_stripped(self) -> None:
+        """Ordinary messages with > quotes later in the body are preserved."""
+        body = "I agree\n> some quote"
+        assert strip_reply_fallback_body(body) == "I agree\n> some quote"
+
+    def test_crlf_line_endings(self) -> None:
+        body = "> <@alice:server> hi\r\n\r\nHello"
+        assert strip_reply_fallback_body(body) == "Hello"
+
+    def test_empty_reply_text(self) -> None:
+        body = "> <@alice:server> hi\n\n"
+        assert strip_reply_fallback_body(body) == ""
+
+    def test_handler_delegation(self) -> None:
+        handler = MatrixRelationHandler()
+        body = "> <@alice:s> hi\n\nReply"
+        assert handler.strip_reply_fallback_body(body) == "Reply"

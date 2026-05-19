@@ -28,7 +28,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Callable, Literal
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Literal, cast
 
 import msgspec
 
@@ -36,13 +36,17 @@ from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContract,
     AdapterDeliveryResult,
+    OutboundNativeRefRecord,
 )
 from medre.core.events.bus import EventBus
 from medre.core.events.canonical import (
     CanonicalEvent,
     DeliveryReceipt,
+    EventRelation,
     NativeMessageRef,
+    NativeRef,
 )
+from medre.core.events.kinds import EventKind
 from medre.core.observability.metrics import Diagnostician
 from medre.core.planning.delivery_plan import (
     DeliveryFailureKind,
@@ -191,6 +195,19 @@ def _default_rendering_pipeline() -> RenderingPipeline:
     pipeline = RenderingPipeline()
     pipeline.register(TextRenderer(), priority=100)
     return pipeline
+
+
+def _native_metadata_for_ref(event: CanonicalEvent) -> dict[str, object]:
+    """Extract native metadata dict from *event* without mutation.
+
+    Returns ``dict(event.metadata.native.data)`` when native metadata is
+    present, otherwise an empty dict.  The returned dict is a plain
+    mutable copy suitable for passing to :class:`NativeMessageRef`.
+    """
+    native = event.metadata.native
+    if native is not None and native.data:
+        return dict(native.data)
+    return {}
 
 
 # ---------------------------------------------------------------------------
@@ -377,6 +394,14 @@ class PipelineRunner:
         # Stage 4 – persist inbound native ref
         await self._persist_inbound_native_ref(event)
 
+        # Stage 4.5 – suppress reaction-to-reaction
+        if await self._is_reaction_to_reaction(event):
+            self._log.info(
+                "Reaction-to-reaction suppressed: event_id=%s targets another reaction",
+                event.event_id,
+            )
+            return []
+
         # Stages 5-6 – route, plan, deliver
         try:
             event, deliveries = await self.route_event(event)
@@ -470,6 +495,276 @@ class PipelineRunner:
         """
         return await self._config.relation_resolver.resolve_event_relations(event)
 
+    async def _enrich_relations_for_target(
+        self,
+        event: CanonicalEvent,
+        target_adapter: str,
+        target_channel: str | None = None,
+    ) -> CanonicalEvent:
+        """Enrich relations with target-adapter native refs for rendering.
+
+        For each relation that has a ``target_event_id`` but whose
+        ``target_native_ref`` is either missing or not for *target_adapter*,
+        look up stored native refs for the target event and attach the
+        best matching one.  When *target_channel* is provided, an exact
+        channel match is preferred over a bare adapter-only match.  This
+        enables structured replies / reactions in target-adapter native ID
+        space.
+
+        Args:
+            event: The canonical event whose relations may be enriched.
+            target_adapter: Adapter ID to match native refs against.
+            target_channel: Optional native channel ID — when given, prefer
+                refs whose ``native_channel_id`` equals this value.
+
+        Returns a new event when any relation is enriched; returns the
+        original event unchanged otherwise.  **Never mutates** the stored
+        original event.
+        """
+        if not event.relations:
+            return event
+
+        storage = self._config.storage
+        list_fn = getattr(storage, "list_native_refs_for_event", None)
+        get_fn = getattr(storage, "get", None)
+
+        changed = False
+        new_relations: list[EventRelation] = []
+
+        for rel in event.relations:
+            if not rel.target_event_id:
+                new_relations.append(rel)
+                continue
+
+            current_rel = rel
+
+            # -- Phase 1: Native-ref enrichment --------------------------------
+            # Only when list_fn is available; otherwise skip native-ref lookup.
+            native_ref_changed = False
+            if callable(list_fn):
+                # Check if already has a native ref for the target adapter.
+                skip_native = False
+                if (
+                    current_rel.target_native_ref is not None
+                    and current_rel.target_native_ref.adapter == target_adapter
+                ):
+                    existing_channel = current_rel.target_native_ref.native_channel_id
+                    if target_channel is None:
+                        # No target channel specified — adapter match + any
+                        # channel (including None) is fine.
+                        skip_native = True
+                    elif existing_channel == target_channel:
+                        # Exact channel match — compatible.
+                        skip_native = True
+                    # else: existing_channel is None or differs from
+                    # target_channel — fall through to lookup.
+
+                if not skip_native:
+                    # Look up stored native refs for the target event.
+                    try:
+                        list_native_refs = cast(
+                            Callable[[str], Awaitable[list[NativeMessageRef]]],
+                            list_fn,
+                        )
+                        refs = await list_native_refs(current_rel.target_event_id)
+                    except Exception:
+                        self._log.debug(
+                            "Failed to enrich relation native ref for "
+                            "target_event_id=%s target_adapter=%s "
+                            "relation_type=%s",
+                            getattr(current_rel, "target_event_id", "?"),
+                            target_adapter,
+                            getattr(current_rel, "relation_type", "?"),
+                            exc_info=True,
+                        )
+                        refs = []
+
+                    # Find ref matching target adapter.
+                    if target_channel is not None:
+                        # When target_channel is specified, only accept
+                        # exact channel match — no adapter-only fallback.
+                        matching = None
+                        for nref in refs:
+                            if (
+                                nref.adapter == target_adapter
+                                and nref.native_channel_id == target_channel
+                            ):
+                                matching = nref
+                                break
+                    else:
+                        # Without target_channel, fall back to adapter-only.
+                        matching = None
+                        for nref in refs:
+                            if nref.adapter == target_adapter:
+                                matching = nref
+                                break
+
+                    if matching is not None:
+                        enriched_native_ref = NativeRef(
+                            adapter=matching.adapter,
+                            native_channel_id=matching.native_channel_id,
+                            native_message_id=matching.native_message_id,
+                            native_thread_id=matching.native_thread_id,
+                        )
+                        current_rel = EventRelation(
+                            relation_type=current_rel.relation_type,
+                            target_event_id=current_rel.target_event_id,
+                            target_native_ref=enriched_native_ref,
+                            key=current_rel.key,
+                            fallback_text=current_rel.fallback_text,
+                            metadata=(
+                                dict(current_rel.metadata)
+                                if current_rel.metadata
+                                else {}
+                            ),
+                        )
+                        native_ref_changed = True
+
+                    # No exact match found — strip incompatible ref if it
+                    # belongs to the right adapter but wrong/unknown channel.
+                    if matching is None and target_channel is not None:
+                        existing_ref = current_rel.target_native_ref
+                        if (
+                            existing_ref is not None
+                            and existing_ref.adapter == target_adapter
+                            and existing_ref.native_channel_id != target_channel
+                        ):
+                            current_rel = EventRelation(
+                                relation_type=current_rel.relation_type,
+                                target_event_id=current_rel.target_event_id,
+                                target_native_ref=None,
+                                key=current_rel.key,
+                                fallback_text=current_rel.fallback_text,
+                                metadata=(
+                                    dict(current_rel.metadata)
+                                    if current_rel.metadata
+                                    else {}
+                                ),
+                            )
+                            native_ref_changed = True
+
+            # -- Phase 2: Text enrichment --------------------------------------
+            # Extract original text from the target event to populate
+            # fallback_text and metadata["original_text"] when missing.
+            # This runs regardless of whether native-ref enrichment succeeded.
+            text_changed = False
+            _cur_meta = current_rel.metadata or {}
+            if callable(get_fn) and (
+                not current_rel.fallback_text
+                or not _cur_meta.get("original_text")
+                or not _cur_meta.get("original_sender_displayname")
+                or not _cur_meta.get("original_sender")
+            ):
+                try:
+                    target_event = await cast(
+                        Callable[[str], Awaitable[object]],
+                        get_fn,
+                    )(current_rel.target_event_id)
+                    if target_event is not None:
+                        target_payload = getattr(target_event, "payload", None)
+                        extracted_text: str | None = None
+                        if isinstance(target_payload, dict):
+                            raw = target_payload.get("body", target_payload.get("text"))
+                            if raw is not None:
+                                extracted_text = (
+                                    str(raw) if not isinstance(raw, str) else raw
+                                )
+                        if extracted_text:
+                            new_fallback = (
+                                current_rel.fallback_text
+                                if current_rel.fallback_text
+                                else extracted_text
+                            )
+                            new_meta = (
+                                dict(current_rel.metadata)
+                                if current_rel.metadata
+                                else {}
+                            )
+                            if "original_text" not in new_meta:
+                                new_meta["original_text"] = extracted_text
+                            current_rel = EventRelation(
+                                relation_type=current_rel.relation_type,
+                                target_event_id=current_rel.target_event_id,
+                                target_native_ref=current_rel.target_native_ref,
+                                key=current_rel.key,
+                                fallback_text=new_fallback,
+                                metadata=new_meta,
+                            )
+                            text_changed = True
+
+                        # -- Sender info enrichment ---------------------------------
+                        # Extract original sender display info from the target
+                        # event's native metadata into the relation metadata
+                        # so the renderer can use it for reply fallback sender.
+                        sender_meta = (
+                            dict(current_rel.metadata) if current_rel.metadata else {}
+                        )
+                        sender_changed = False
+
+                        if "original_sender_displayname" not in sender_meta:
+                            _dn = None
+                            target_native = getattr(target_event, "metadata", None)
+                            if target_native is not None:
+                                target_native = getattr(target_native, "native", None)
+                            if target_native is not None:
+                                target_data = getattr(target_native, "data", None)
+                                if isinstance(target_data, dict):
+                                    _dn = target_data.get(
+                                        "displayname"
+                                    ) or target_data.get("longname")
+                            if _dn:
+                                sender_meta["original_sender_displayname"] = str(_dn)
+                                sender_changed = True
+
+                        if "original_sender" not in sender_meta:
+                            _snd = None
+                            target_native = getattr(target_event, "metadata", None)
+                            if target_native is not None:
+                                target_native = getattr(target_native, "native", None)
+                            if target_native is not None:
+                                target_data = getattr(target_native, "data", None)
+                                if isinstance(target_data, dict):
+                                    _snd = target_data.get("sender")
+                            if not _snd:
+                                _snd = getattr(
+                                    target_event,
+                                    "source_transport_id",
+                                    None,
+                                )
+                            if _snd:
+                                sender_meta["original_sender"] = str(_snd)
+                                sender_changed = True
+
+                        if sender_changed:
+                            current_rel = EventRelation(
+                                relation_type=current_rel.relation_type,
+                                target_event_id=current_rel.target_event_id,
+                                target_native_ref=current_rel.target_native_ref,
+                                key=current_rel.key,
+                                fallback_text=current_rel.fallback_text,
+                                metadata=sender_meta,
+                            )
+                            text_changed = True
+                except Exception:
+                    self._log.debug(
+                        "Failed to enrich relation text for "
+                        "target_event_id=%s target_adapter=%s "
+                        "relation_type=%s",
+                        getattr(current_rel, "target_event_id", "?"),
+                        target_adapter,
+                        getattr(current_rel, "relation_type", "?"),
+                        exc_info=True,
+                    )
+
+            new_relations.append(current_rel)
+            if native_ref_changed or text_changed:
+                changed = True
+
+        if not changed:
+            return event
+
+        return msgspec.structs.replace(event, relations=tuple(new_relations))
+
     # -- Stage 4: Inbound native ref persistence -------------------------
 
     async def _persist_inbound_native_ref(self, event: CanonicalEvent) -> None:
@@ -495,9 +790,107 @@ class PipelineRunner:
             native_thread_id=snr.native_thread_id,
             native_relation_id=None,
             direction="inbound",
+            metadata=_native_metadata_for_ref(event),
             created_at=now,
         )
         await self._config.storage.store_native_ref(inbound_ref)
+
+    async def _is_reaction_to_reaction(self, event: CanonicalEvent) -> bool:
+        """Return ``True`` when *event* is a reaction whose target is itself a reaction.
+
+        Checks each relation with ``relation_type == "reaction"`` for a
+        ``target_event_id``.  If the target event exists in storage and is
+        either a ``MESSAGE_REACTED`` event or carries a ``"reaction"``
+        relation itself, the inbound event is considered a
+        *reaction-to-reaction* and should be suppressed from routing.
+
+        Failures to fetch the target event are logged and silently skipped
+        so that storage errors never prevent delivery.
+        """
+        if event.event_kind != EventKind.MESSAGE_REACTED:
+            return False
+        if not event.relations:
+            return False
+        get_fn = getattr(self._config.storage, "get", None)
+        if not callable(get_fn):
+            return False
+        for rel in event.relations:
+            if rel.relation_type != "reaction":
+                continue
+            target_id = rel.target_event_id
+            if not target_id:
+                continue
+            try:
+                target_event = await cast(Callable[[str], Awaitable[object]], get_fn)(
+                    target_id
+                )
+            except Exception:
+                self._log.debug(
+                    "Failed to fetch target event for reaction-to-reaction check: %s",
+                    target_id,
+                    exc_info=True,
+                )
+                continue
+            if target_event is None:
+                continue
+            # Target is itself a reaction event.
+            if getattr(target_event, "event_kind", None) == EventKind.MESSAGE_REACTED:
+                return True
+            # Target has a reaction relation.
+            target_rels = getattr(target_event, "relations", None)
+            if target_rels:
+                for target_rel in target_rels:
+                    if getattr(target_rel, "relation_type", None) == "reaction":
+                        return True
+        return False
+
+    async def _record_outbound_native_ref(
+        self, record: OutboundNativeRefRecord
+    ) -> None:
+        """Persist a delayed outbound :class:`NativeMessageRef`.
+
+        Called by queue-based adapters after a queued send returns a real
+        native message ID.  This is the callback wired into
+        :class:`AdapterContext.record_outbound_native_ref`.
+
+        The guard against empty ``native_message_id`` is a defensive check
+        for legacy or manually-constructed records; note that
+        :class:`OutboundNativeRefRecord` now rejects empty values at
+        construction.  Catches and logs all exceptions with
+        ``exc_info=True`` so that callback failures never crash the
+        adapter's queue drain.
+
+        Parameters
+        ----------
+        record:
+            The outbound native reference record from the adapter.
+        """
+        if not record.native_message_id:
+            return
+
+        try:
+            now = datetime.now(tz=timezone.utc)
+            outbound_ref = NativeMessageRef(
+                id=f"nref-outbound-{uuid.uuid4()}",
+                event_id=record.event_id,
+                adapter=record.adapter,
+                native_channel_id=record.native_channel_id,
+                native_message_id=record.native_message_id,
+                native_thread_id=record.native_thread_id,
+                native_relation_id=record.native_relation_id,
+                direction="outbound",
+                metadata=dict(record.metadata),
+                created_at=now,
+            )
+            await self._config.storage.store_native_ref(outbound_ref)
+        except Exception:
+            self._log.exception(
+                "Failed to record delayed outbound native ref: "
+                "event_id=%s adapter=%s native_message_id=%s",
+                record.event_id,
+                record.adapter,
+                record.native_message_id,
+            )
 
     # -- Stage 3-4: Routing + Planning -------------------------------------
 
@@ -1053,6 +1446,13 @@ class PipelineRunner:
         # Render the event into a RenderingResult before adapter delivery.
         # Pass the adapter's platform so renderers can match on platform
         # identity instead of adapter-name heuristics.
+        # Enrich relations with target-adapter native refs so that the
+        # renderer (and downstream adapter) receive native IDs for
+        # structured replies / reactions.  This enrichment is per-target
+        # and does not mutate the stored original event.
+        render_event = await self._enrich_relations_for_target(
+            event, adapter_id or "", target.channel
+        )
         target_platform = getattr(adapter, "platform", None)
         if isinstance(target_platform, str):
             platform_param: str | None = target_platform
@@ -1060,7 +1460,7 @@ class PipelineRunner:
             platform_param = None
         try:
             rendering_result = await self._rendering_pipeline.render(
-                event,
+                render_event,
                 adapter_id or "",
                 target.channel,
                 target_platform=platform_param,
@@ -1261,6 +1661,11 @@ class PipelineRunner:
             and adapter_result is not None
             and adapter_result.native_message_id is not None
         ):
+            # Extract metadata from adapter result, converting
+            # MappingProxyType to a plain dict for storage.
+            outbound_meta: dict[str, object] = (
+                dict(adapter_result.metadata) if adapter_result.metadata else {}
+            )
             native_ref = NativeMessageRef(
                 id=f"nref-{uuid.uuid4()}",
                 event_id=event.event_id,
@@ -1270,6 +1675,7 @@ class PipelineRunner:
                 native_thread_id=adapter_result.native_thread_id,
                 native_relation_id=adapter_result.native_relation_id,
                 direction="outbound",
+                metadata=outbound_meta,
                 created_at=now,
             )
             await self._config.storage.store_native_ref(native_ref)

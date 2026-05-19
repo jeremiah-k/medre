@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -265,6 +266,76 @@ class AdapterInfo:
     health: str = "unknown"
 
 
+@dataclass(frozen=True)
+class OutboundNativeRefRecord:
+    """Immutable record describing a delayed outbound native reference.
+
+    Queue-based adapters (e.g. Meshtastic) cannot return a native message ID
+    synchronously from :meth:`AdapterContract.deliver`.  When the queue later
+    obtains a real native ID, the adapter constructs an
+    :class:`OutboundNativeRefRecord` and passes it to the
+    ``record_outbound_native_ref`` callback supplied by
+    :class:`AdapterContext`.  The pipeline runner persists the mapping as a
+    :class:`~medre.core.events.canonical.NativeMessageRef` with
+    ``direction="outbound"``.
+
+    Adapters must **not** fabricate IDs — only record IDs returned by the
+    external platform.
+
+    .. note::
+
+       When the adapter is shut down before the queue drain records the native
+       ref, the mapping is permanently lost.  The queue does not flush or retry
+       on shutdown.
+
+    Attributes
+    ----------
+    event_id:
+        The canonical event ID that originated the outbound send.
+    adapter:
+        The adapter ID that owns the native namespace.
+    native_channel_id:
+        Channel / conversation ID in the adapter's native format.
+    native_message_id:
+        Message ID in the adapter's native format.  Must be a real ID
+        from the external platform — never empty or fabricated.
+    native_thread_id:
+        Thread ID in the adapter's native format, if applicable.
+    native_relation_id:
+        ID of the related native entity, if applicable.
+    metadata:
+        Adapter-specific metadata about this mapping.  Must contain only
+        JSON-safe, simple values.
+    """
+
+    event_id: str
+    adapter: str
+    native_channel_id: str | None
+    native_message_id: str
+    native_thread_id: str | None = None
+    native_relation_id: str | None = None
+    metadata: Mapping[str, object] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.native_message_id, str)
+            or not self.native_message_id.strip()
+        ):
+            raise ValueError(
+                "OutboundNativeRefRecord.native_message_id must be a non-empty string"
+            )
+        frozen = dict(self.metadata)
+        try:
+            import json
+
+            json.dumps(frozen)
+        except (TypeError, ValueError) as exc:
+            raise TypeError(
+                "OutboundNativeRefRecord.metadata must contain only JSON-safe values"
+            ) from exc
+        object.__setattr__(self, "metadata", MappingProxyType(frozen))
+
+
 @dataclass
 class AdapterContext:
     """Runtime context injected into an adapter on start-up.
@@ -293,6 +364,12 @@ class AdapterContext:
     shutdown_event:
         An :class:`asyncio.Event` that the framework sets when a
         graceful shutdown is requested.
+    record_outbound_native_ref:
+        Optional async callback that records a delayed outbound
+        :class:`OutboundNativeRefRecord`.  Queue-based adapters call
+        this after a queued send returns a real native message ID.  When
+        ``None``, the adapter has no callback wired and delayed refs are
+        silently discarded (e.g. in test or standalone mode).
     """
 
     adapter_id: str
@@ -301,6 +378,9 @@ class AdapterContext:
     logger: logging.Logger
     clock: Callable[[], datetime]
     shutdown_event: Any  # asyncio.Event – avoided import to prevent hard dep
+    record_outbound_native_ref: (
+        Callable[[OutboundNativeRefRecord], Awaitable[None]] | None
+    ) = None
 
 
 # ---------------------------------------------------------------------------
@@ -577,4 +657,5 @@ __all__ = [
     "AdapterPermanentError",
     "AdapterRole",
     "AdapterSendError",
+    "OutboundNativeRefRecord",
 ]

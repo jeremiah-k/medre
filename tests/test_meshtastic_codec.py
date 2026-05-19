@@ -250,3 +250,253 @@ class TestMeshtasticCodecReplyRelation:
         assert event.source_native_ref is not None
         assert event.source_native_ref.native_message_id == "200"
         assert len(event.relations) == 1
+
+    def test_decode_reply_has_message_created_kind(self) -> None:
+        codec = MeshtasticCodec("mesh-1", _make_config())
+        packet = _make_text_packet(packet_id=200)
+        packet["decoded"]["replyId"] = 100
+        event = codec.decode(packet)
+        assert event.event_kind == EventKind.MESSAGE_CREATED
+
+
+class TestMeshtasticCodecReactionRelation:
+    """replyId + emoji flag => MESSAGE_REACTED with reaction relation."""
+
+    def test_decode_reaction_creates_reaction_relation(self) -> None:
+        codec = MeshtasticCodec("mesh-1", _make_config())
+        packet = _make_text_packet(text="👍", packet_id=300)
+        packet["decoded"]["replyId"] = 200
+        packet["decoded"]["emoji"] = 1
+        event = codec.decode(packet)
+
+        assert event.event_kind == EventKind.MESSAGE_REACTED
+        assert len(event.relations) == 1
+        rel = event.relations[0]
+        assert rel.relation_type == "reaction"
+        assert rel.key == "👍"
+        assert rel.target_native_ref is not None
+        assert rel.target_native_ref.native_message_id == "200"
+
+    def test_decode_reaction_empty_text_key_is_question_mark(self) -> None:
+        codec = MeshtasticCodec("mesh-1", _make_config())
+        packet = _make_text_packet(text="", packet_id=300)
+        packet["decoded"]["replyId"] = 200
+        packet["decoded"]["emoji"] = 1
+        event = codec.decode(packet)
+
+        rel = event.relations[0]
+        assert rel.relation_type == "reaction"
+        assert rel.key == "?"
+
+    def test_decode_reaction_whitespace_text_key_is_question_mark(self) -> None:
+        codec = MeshtasticCodec("mesh-1", _make_config())
+        packet = _make_text_packet(text="   ", packet_id=300)
+        packet["decoded"]["replyId"] = 200
+        packet["decoded"]["emoji"] = 1
+        event = codec.decode(packet)
+
+        rel = event.relations[0]
+        assert rel.key == "?"
+
+    def test_decode_emoji_without_reply_id_no_relation(self) -> None:
+        codec = MeshtasticCodec("mesh-1", _make_config())
+        packet = _make_text_packet(text="👍")
+        packet["decoded"]["emoji"] = 1
+        event = codec.decode(packet)
+
+        assert event.event_kind == EventKind.MESSAGE_CREATED
+        assert len(event.relations) == 0
+
+    def test_decode_reaction_still_rejected_ack(self) -> None:
+        codec = MeshtasticCodec("mesh-1", _make_config())
+        packet = {
+            "fromId": "!node1",
+            "id": 1,
+            "decoded": {
+                "portnum": "text_message_ack",
+                "replyId": 100,
+                "emoji": 1,
+                "text": "👍",
+            },
+        }
+        with pytest.raises(MeshtasticCodecError, match="ACK"):
+            codec.decode(packet)
+
+
+class TestMeshtasticCodecExtendedMetadata:
+    """Full metadata.native.data with classification, emoji, reply_id, snapshots."""
+
+    def test_metadata_includes_reply_id(self) -> None:
+        codec = MeshtasticCodec("mesh-1", _make_config())
+        packet = _make_text_packet(packet_id=200)
+        packet["decoded"]["replyId"] = 100
+        event = codec.decode(packet)
+        data = event.metadata.native.data
+        assert data["reply_id"] == 100
+
+    def test_metadata_includes_emoji_fields(self) -> None:
+        codec = MeshtasticCodec("mesh-1", _make_config())
+        packet = _make_text_packet(text="👍", packet_id=300)
+        packet["decoded"]["replyId"] = 200
+        packet["decoded"]["emoji"] = 1
+        event = codec.decode(packet)
+        data = event.metadata.native.data
+        assert data["emoji"] == 1
+        assert data["emoji_flag"] is True
+
+    def test_metadata_includes_classification(self) -> None:
+        codec = MeshtasticCodec("mesh-1", _make_config())
+        packet = _make_text_packet(text="👍", packet_id=300)
+        packet["decoded"]["replyId"] = 200
+        packet["decoded"]["emoji"] = 1
+        event = codec.decode(packet)
+        data = event.metadata.native.data
+        cls_data = data["classification"]
+        assert cls_data["category"] == "text"
+        assert cls_data["is_reaction"] is True
+        assert cls_data["is_reply"] is False
+        assert cls_data["emoji_flag"] is True
+        assert cls_data["reaction_key"] == "👍"
+
+    def test_metadata_includes_packet_snapshot(self) -> None:
+        codec = MeshtasticCodec("mesh-1", _make_config())
+        packet = _make_text_packet()
+        event = codec.decode(packet)
+        data = event.metadata.native.data
+        assert isinstance(data["packet"], dict)
+        assert data["packet"]["fromId"] == "!node1"
+
+    def test_metadata_includes_decoded_snapshot(self) -> None:
+        codec = MeshtasticCodec("mesh-1", _make_config())
+        packet = _make_text_packet(text="hello")
+        event = codec.decode(packet)
+        data = event.metadata.native.data
+        assert isinstance(data["decoded"], dict)
+        assert data["decoded"]["text"] == "hello"
+
+    def test_metadata_no_reply_id(self) -> None:
+        codec = MeshtasticCodec("mesh-1", _make_config())
+        packet = _make_text_packet()
+        event = codec.decode(packet)
+        data = event.metadata.native.data
+        assert data["reply_id"] is None
+        assert data["emoji"] is None
+        assert data["emoji_flag"] is False
+
+
+class TestMeshtasticCodecReactionMetadata:
+    """MeshtasticCodec reaction payload and relation metadata."""
+
+    def test_reaction_payload_has_key(self) -> None:
+        """Reaction event payload includes 'key' field."""
+        config = MeshtasticConfig(adapter_id="mesh-1")
+        codec = MeshtasticCodec("mesh-1", config)
+        packet = _make_text_packet(text="👍", packet_id=300)
+        packet["decoded"]["replyId"] = 42
+        packet["decoded"]["emoji"] = 1
+        event = codec.decode(packet)
+        assert event.payload.get("key") == "👍"
+
+    def test_reply_relation_metadata(self) -> None:
+        """Reply relation metadata includes meshtastic_reply_id."""
+        config = MeshtasticConfig(adapter_id="mesh-1")
+        codec = MeshtasticCodec("mesh-1", config)
+        packet = _make_text_packet(text="hello")
+        packet["decoded"]["replyId"] = 55
+        event = codec.decode(packet)
+        rel = event.relations[0]
+        assert rel.relation_type == "reply"
+        assert rel.metadata.get("meshtastic_reply_id") == "55"
+
+    def test_reaction_relation_metadata(self) -> None:
+        """Reaction relation metadata includes meshtastic_reply_id and meshtastic_emoji."""
+        config = MeshtasticConfig(adapter_id="mesh-1")
+        codec = MeshtasticCodec("mesh-1", config)
+        packet = _make_text_packet(text="👍", packet_id=300)
+        packet["decoded"]["replyId"] = 42
+        packet["decoded"]["emoji"] = 1
+        event = codec.decode(packet)
+        rel = event.relations[0]
+        assert rel.relation_type == "reaction"
+        assert rel.metadata.get("meshtastic_reply_id") == "42"
+        assert rel.metadata.get("meshtastic_emoji") == 1
+
+    def test_reply_id_zero_creates_relation(self) -> None:
+        """replyId=0 creates a reply relation (address is 0, not absent)."""
+        config = MeshtasticConfig(adapter_id="mesh-1")
+        codec = MeshtasticCodec("mesh-1", config)
+        packet = _make_text_packet(text="zero replyId", packet_id=400)
+        packet["decoded"]["replyId"] = 0
+        event = codec.decode(packet)
+        assert len(event.relations) == 1
+        rel = event.relations[0]
+        assert rel.relation_type == "reply"
+        assert rel.target_native_ref is not None
+        assert rel.target_native_ref.native_message_id == "0"
+        assert rel.metadata.get("meshtastic_reply_id") == "0"
+
+
+class TestMeshtasticCodecTapbackSnapshot:
+    """Native Meshtastic tapback decoding: decoded snapshot stores raw fields.
+
+    Verifies: decoded.replyId + decoded.emoji == 1 decodes to canonical
+    reaction with relation_type='reaction', key from decoded text or '?'
+    fallback, and the snapshot preserves the raw decoded.emoji/replyId.
+    """
+
+    def test_tapback_snapshot_stores_raw_emoji_and_reply_id(self) -> None:
+        """decoded snapshot preserves raw emoji and replyId values."""
+        config = MeshtasticConfig(adapter_id="mesh-1")
+        codec = MeshtasticCodec("mesh-1", config)
+        packet = _make_text_packet(text="👍", packet_id=300)
+        packet["decoded"]["replyId"] = 200
+        packet["decoded"]["emoji"] = 1
+        event = codec.decode(packet)
+
+        # Canonical kind
+        assert event.event_kind == EventKind.MESSAGE_REACTED
+
+        # Reaction relation with correct type and key
+        assert len(event.relations) == 1
+        rel = event.relations[0]
+        assert rel.relation_type == "reaction"
+        assert rel.key == "👍"
+
+        # Target native ref points to the replied-to packet
+        assert rel.target_native_ref is not None
+        assert rel.target_native_ref.native_message_id == "200"
+
+        # Relation metadata stores meshtastic_reply_id and meshtastic_emoji
+        assert rel.metadata.get("meshtastic_reply_id") == "200"
+        assert rel.metadata.get("meshtastic_emoji") == 1
+
+        # Snapshot stores raw decoded.emoji and decoded.replyId
+        data = event.metadata.native.data
+        snapshot = data["decoded"]
+        assert isinstance(snapshot, dict)
+        assert snapshot.get("emoji") == 1
+        assert snapshot.get("replyId") == 200
+
+        # Emoji flag in metadata
+        assert data["emoji"] == 1
+        assert data["emoji_flag"] is True
+        assert data["reply_id"] == 200
+
+    def test_tapback_empty_text_key_is_question_mark_snapshot(self) -> None:
+        """Empty text tapback: key='?', snapshot still stores raw fields."""
+        config = MeshtasticConfig(adapter_id="mesh-1")
+        codec = MeshtasticCodec("mesh-1", config)
+        packet = _make_text_packet(text="", packet_id=301)
+        packet["decoded"]["replyId"] = 150
+        packet["decoded"]["emoji"] = 1
+        event = codec.decode(packet)
+
+        assert event.event_kind == EventKind.MESSAGE_REACTED
+        rel = event.relations[0]
+        assert rel.relation_type == "reaction"
+        assert rel.key == "?"
+
+        # Snapshot preserves raw replyId even with empty text
+        snapshot = event.metadata.native.data["decoded"]
+        assert snapshot.get("replyId") == 150
+        assert snapshot.get("emoji") == 1

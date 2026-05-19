@@ -362,6 +362,110 @@ class TestPacketClassifierNumericFields:
         assert result["is_direct_message"] is True
 
 
+class TestPacketClassifierReplyReaction:
+    """reply_id, emoji_flag, reaction_key, is_reply, is_reaction classification."""
+
+    def test_text_with_reply_id_is_reply(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        packet["decoded"]["replyId"] = 100
+        result = cls.classify(packet)
+        assert result["reply_id"] == 100
+        assert result["emoji_flag"] is False
+        assert result["reaction_key"] is None
+        assert result["is_reply"] is True
+        assert result["is_reaction"] is False
+
+    def test_text_with_reply_id_and_emoji_is_reaction(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet(text="👍")
+        packet["decoded"]["replyId"] = 100
+        packet["decoded"]["emoji"] = 1
+        result = cls.classify(packet)
+        assert result["reply_id"] == 100
+        assert result["emoji_flag"] is True
+        assert result["reaction_key"] == "👍"
+        assert result["is_reply"] is False
+        assert result["is_reaction"] is True
+
+    def test_reaction_key_empty_text_becomes_question_mark(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet(text="")
+        packet["decoded"]["replyId"] = 100
+        packet["decoded"]["emoji"] = 1
+        result = cls.classify(packet)
+        assert result["reaction_key"] == "?"
+
+    def test_reaction_key_whitespace_text_becomes_question_mark(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet(text="   ")
+        packet["decoded"]["replyId"] = 100
+        packet["decoded"]["emoji"] = 1
+        result = cls.classify(packet)
+        assert result["reaction_key"] == "?"
+
+    def test_text_without_reply_id_no_flags(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        result = cls.classify(packet)
+        assert result["reply_id"] is None
+        assert result["emoji_flag"] is False
+        assert result["reaction_key"] is None
+        assert result["is_reply"] is False
+        assert result["is_reaction"] is False
+
+    def test_emoji_without_reply_id_not_reaction(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet(text="👍")
+        packet["decoded"]["emoji"] = 1
+        result = cls.classify(packet)
+        assert result["emoji_flag"] is True
+        assert result["reply_id"] is None
+        assert result["is_reaction"] is False
+        assert result["is_reply"] is False
+
+    def test_ack_with_reply_id_not_reply_not_reaction(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = {
+            "fromId": "!node1",
+            "id": 1,
+            "decoded": {
+                "portnum": "text_message_ack",
+                "replyId": 100,
+                "emoji": 1,
+            },
+        }
+        result = cls.classify(packet)
+        assert result["is_ack"] is True
+        assert result["is_reply"] is False
+        assert result["is_reaction"] is False
+
+    def test_non_text_category_not_reply_not_reaction(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = {
+            "fromId": "!node1",
+            "id": 1,
+            "decoded": {
+                "portnum": "telemetry",
+                "replyId": 100,
+                "emoji": 1,
+            },
+        }
+        result = cls.classify(packet)
+        assert result["is_reply"] is False
+        assert result["is_reaction"] is False
+
+    def test_emoji_value_not_one_not_flag(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        packet["decoded"]["replyId"] = 100
+        packet["decoded"]["emoji"] = 2
+        result = cls.classify(packet)
+        assert result["emoji_flag"] is False
+        assert result["is_reply"] is True
+        assert result["is_reaction"] is False
+
+
 class TestPortnumNormalization:
     """Real symbolic Meshtastic portnum normalization."""
 
@@ -404,3 +508,47 @@ class TestPortnumNormalization:
         }
         result = cls.classify(packet)
         assert result["category"] == category
+
+
+class TestClassifierReplyIdZero:
+    """Classifier handles replyId=0 deterministically."""
+
+    def test_reply_id_zero_without_emoji(self) -> None:
+        """replyId=0 without emoji: is_reply True, is_reaction False."""
+        packet = _make_text_packet(text="hello")
+        packet["decoded"]["replyId"] = 0
+        result = MeshtasticPacketClassifier().classify(packet)
+        assert result["reply_id"] == 0
+        assert result["is_reply"] is True
+        assert result["is_reaction"] is False
+
+    def test_reply_id_zero_with_emoji(self) -> None:
+        """replyId=0 with emoji=1: is_reaction True, is_reply False."""
+        packet = _make_text_packet(text="👍")
+        packet["decoded"]["replyId"] = 0
+        packet["decoded"]["emoji"] = 1
+        result = MeshtasticPacketClassifier().classify(packet)
+        assert result["reply_id"] == 0
+        assert result["emoji_flag"] is True
+        assert result["is_reaction"] is True
+        assert result["is_reply"] is False
+        assert result["reaction_key"] == "👍"
+
+    def test_reply_id_zero_with_emoji_empty_text(self) -> None:
+        """replyId=0 + emoji=1 with empty text: reaction_key is '?'."""
+        packet = _make_text_packet(text="")
+        packet["decoded"]["replyId"] = 0
+        packet["decoded"]["emoji"] = 1
+        result = MeshtasticPacketClassifier().classify(packet)
+        assert result["reaction_key"] == "?"
+        assert result["is_reaction"] is True
+
+    def test_non_string_text_does_not_throw(self) -> None:
+        """Non-string decoded text with emoji does not raise."""
+        packet = _make_text_packet(text="irrelevant")
+        packet["decoded"]["text"] = 42
+        packet["decoded"]["replyId"] = 5
+        packet["decoded"]["emoji"] = 1
+        result = MeshtasticPacketClassifier().classify(packet)
+        # Should not throw. reaction_key should be str(42)
+        assert result["reaction_key"] == "42"

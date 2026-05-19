@@ -8,6 +8,15 @@ Outbound rendering is handled by
 :class:`~medre.adapters.matrix.renderer.MatrixRenderer`; this codec
 provides decode-only (native → canonical) conversion.
 
+The codec handles three event categories:
+
+1. **True Matrix reactions** (``m.annotation``) → ``MESSAGE_REACTED``
+   with a ``reaction`` relation targeting the annotated event.
+2. **MMRelay emote reactions** (``m.emote`` with ``meshtastic_replyId``
+   and ``meshtastic_emoji == 1``) → ``MESSAGE_REACTED`` with a canonical
+   reaction relation carrying MMRelay metadata.
+3. **Regular messages** (including replies) → ``MESSAGE_CREATED``.
+
 The codec is deliberately **nio-agnostic**: it expects the native event
 object to carry ``.sender``, ``.body``, ``.event_id``, and ``.source``
 attributes but does not import ``nio`` directly.  This keeps the codec
@@ -21,11 +30,27 @@ from datetime import datetime, timezone
 from typing import Any
 
 from medre.adapters.matrix.errors import MatrixCodecError
-from medre.adapters.matrix.relations import extract_reply_target
+from medre.adapters.matrix.relations import (
+    extract_reaction,
+    extract_reply_target,
+    strip_reply_fallback_body,
+)
 from medre.core.contracts.adapter import AdapterCodec
 from medre.core.events.canonical import CanonicalEvent, EventRelation, NativeRef
 from medre.core.events.kinds import EventKind
 from medre.core.events.metadata import EventMetadata, NativeMetadata
+from medre.interop.mmrelay import (
+    EMOJI_FLAG_VALUE,
+    KEY_EMOJI,
+    KEY_ID,
+    KEY_LONGNAME,
+    KEY_MESHNET,
+    KEY_PORTNUM,
+    KEY_REACTION_KEY,
+    KEY_REPLY_ID,
+    KEY_SHORTNAME,
+    KEY_TEXT,
+)
 
 
 class MatrixCodec(AdapterCodec):
@@ -53,6 +78,17 @@ class MatrixCodec(AdapterCodec):
         The *native_event* is expected to have ``.sender``, ``.body``,
         ``.event_id``, and ``.source`` attributes (matching nio's
         ``RoomMessage*`` event objects).
+
+        Handles three event categories:
+
+        1. **True Matrix reactions** (``m.annotation`` in ``m.relates_to``)
+           decode to ``MESSAGE_REACTED`` with a ``reaction`` relation
+           targeting the annotated event.
+        2. **MMRelay emote reactions** (``m.emote`` with ``meshtastic_replyId``
+           and ``meshtastic_emoji == 1``) decode to ``MESSAGE_REACTED`` with
+           a canonical reaction relation carrying MMRelay metadata.
+        3. **Regular messages** (including replies) decode to
+           ``MESSAGE_CREATED``.
 
         Parameters
         ----------
@@ -82,22 +118,169 @@ class MatrixCodec(AdapterCodec):
         if not body:
             body = ""
 
-        # Build payload from body + msgtype. Matrix message events should always
-        # carry msgtype, but older/fake events can omit it; keep canonical
-        # Matrix-originated messages schema-compatible instead of emitting a
-        # noisy validation warning downstream.
         content = source.get("content", {})
         msgtype = content.get("msgtype") or getattr(native_event, "msgtype", None)
-        payload: dict[str, object] = {
+        effective_msgtype = (
+            msgtype if isinstance(msgtype, str) and msgtype else "m.text"
+        )
+
+        # -- Detect true Matrix reaction (m.annotation) -----------------------
+        reaction_info = extract_reaction(source)
+        if reaction_info is not None:
+            target_mx_id, emoji_key = reaction_info
+            payload: dict[str, object] = {
+                "body": body,
+                "msgtype": effective_msgtype,
+                "key": emoji_key,
+            }
+            native_data: dict[str, object] = {
+                "room_id": room_id,
+                "event_id": event_id,
+                "sender": sender,
+            }
+            # Capture MMRelay fields from content into native data
+            self._capture_mmrelay_fields(content, native_data)
+
+            relations: list[EventRelation] = [
+                EventRelation(
+                    relation_type="reaction",
+                    target_event_id=None,
+                    target_native_ref=NativeRef(
+                        adapter=self._adapter_id,
+                        native_channel_id=room_id,
+                        native_message_id=target_mx_id,
+                    ),
+                    key=emoji_key,
+                    fallback_text=None,
+                ),
+            ]
+
+            return CanonicalEvent(
+                event_id=str(uuid.uuid4()),
+                event_kind=EventKind.MESSAGE_REACTED,
+                schema_version=1,
+                timestamp=self._event_timestamp(native_event, source),
+                source_adapter=self._adapter_id,
+                source_transport_id=sender,
+                source_channel_id=room_id,
+                parent_event_id=None,
+                lineage=(),
+                relations=tuple(relations),
+                payload=payload,
+                metadata=EventMetadata(native=NativeMetadata(data=native_data)),
+                source_native_ref=(
+                    NativeRef(
+                        adapter=self._adapter_id,
+                        native_channel_id=room_id,
+                        native_message_id=event_id,
+                    )
+                    if event_id
+                    else None
+                ),
+            )
+
+        # -- Detect MMRelay-style emote reaction ------------------------------
+        # An m.emote with meshtastic_replyId and meshtastic_emoji == 1
+        # is an MMRelay-encoded reaction from a Meshtastic node.
+        mmrelay_reply_id = content.get(KEY_REPLY_ID)
+        mmrelay_emoji = content.get(KEY_EMOJI)
+        has_mmrelay_reply_id = mmrelay_reply_id not in (None, "")
+        if (
+            effective_msgtype == "m.emote"
+            and has_mmrelay_reply_id
+            and mmrelay_emoji == EMOJI_FLAG_VALUE
+        ):
+            payload = {
+                "body": body,
+                "msgtype": effective_msgtype,
+            }
+            native_data = {
+                "room_id": room_id,
+                "event_id": event_id,
+                "sender": sender,
+                "meshtastic_reply_id": str(mmrelay_reply_id),
+                "meshtastic_emoji": mmrelay_emoji,
+            }
+            self._capture_mmrelay_fields(content, native_data)
+
+            # Resolve the reaction key: prefer the structured MEDRE extension
+            # key (meshtastic_reaction_key) when present, fall back to body.
+            raw_rk = content.get(KEY_REACTION_KEY)
+            reaction_key_value: str
+            has_structured_key = raw_rk is not None and str(raw_rk).strip()
+            if has_structured_key:
+                reaction_key_value = str(raw_rk).strip()
+                # Propagate the structured key into payload unconditionally.
+                payload["key"] = reaction_key_value
+            else:
+                reaction_key_value = body
+
+            # Build relation metadata: include the structured key when present.
+            rel_metadata: dict[str, object] = {
+                "meshtastic_reply_id": str(mmrelay_reply_id),
+                "meshtastic_emoji": mmrelay_emoji,
+            }
+            if has_structured_key:
+                rel_metadata["meshtastic_reaction_key"] = str(raw_rk).strip()
+
+            # Build a canonical reaction relation.  The target is identified
+            # by the MMRelay reply ID but we do NOT fabricate an adapter ID.
+            relations = [
+                EventRelation(
+                    relation_type="reaction",
+                    target_event_id=None,
+                    target_native_ref=None,
+                    key=reaction_key_value,
+                    fallback_text=None,
+                    metadata=rel_metadata,
+                ),
+            ]
+
+            return CanonicalEvent(
+                event_id=str(uuid.uuid4()),
+                event_kind=EventKind.MESSAGE_REACTED,
+                schema_version=1,
+                timestamp=self._event_timestamp(native_event, source),
+                source_adapter=self._adapter_id,
+                source_transport_id=sender,
+                source_channel_id=room_id,
+                parent_event_id=None,
+                lineage=(),
+                relations=tuple(relations),
+                payload=payload,
+                metadata=EventMetadata(native=NativeMetadata(data=native_data)),
+                source_native_ref=(
+                    NativeRef(
+                        adapter=self._adapter_id,
+                        native_channel_id=room_id,
+                        native_message_id=event_id,
+                    )
+                    if event_id
+                    else None
+                ),
+            )
+
+        # -- Regular message (text / reply) -----------------------------------
+
+        # Strip Matrix reply fallback prefix when this is a reply.
+        reply_event_id = extract_reply_target(source)
+        if reply_event_id is not None:
+            body = strip_reply_fallback_body(body)
+
+        payload = {
             "body": body,
-            "msgtype": msgtype if isinstance(msgtype, str) and msgtype else "m.text",
+            "msgtype": effective_msgtype,
         }
 
-        # Native metadata
-        native_meta = self._make_native_metadata(room_id, event_id, sender)
+        native_data = {
+            "room_id": room_id,
+            "event_id": event_id,
+            "sender": sender,
+        }
+        self._capture_mmrelay_fields(content, native_data)
 
         # Build event metadata
-        metadata = EventMetadata(native=native_meta)
+        metadata = EventMetadata(native=NativeMetadata(data=native_data))
 
         # Populate source_native_ref when Matrix event_id is non-empty.
         source_native_ref: NativeRef | None = None
@@ -109,10 +292,9 @@ class MatrixCodec(AdapterCodec):
             )
 
         # Resolve relations from envelope if present
-        relations: list[EventRelation] = []
+        relations = []
 
-        # Extract Matrix reply relation without storage lookup.
-        reply_event_id = extract_reply_target(source)
+        # Build reply relation (reply_event_id already extracted above).
         if reply_event_id:
             relations.append(
                 EventRelation(
@@ -215,3 +397,31 @@ class MatrixCodec(AdapterCodec):
                 "sender": sender,
             }
         )
+
+    @staticmethod
+    def _capture_mmrelay_fields(
+        content: dict[str, Any],
+        native_data: dict[str, object],
+    ) -> None:
+        """Capture MMRelay wire-format fields from *content* into *native_data*.
+
+        Copies any present MMRelay keys (``meshtastic_id``,
+        ``meshtastic_replyId``, ``meshtastic_text``, ``meshtastic_emoji``,
+        ``meshtastic_meshnet``, ``meshtastic_portnum``,
+        ``meshtastic_longname``, ``meshtastic_shortname``,
+        ``meshtastic_reaction_key``) from the Matrix
+        event content into the native metadata dict.
+        """
+        for key in (
+            KEY_ID,
+            KEY_REPLY_ID,
+            KEY_TEXT,
+            KEY_EMOJI,
+            KEY_MESHNET,
+            KEY_PORTNUM,
+            KEY_LONGNAME,
+            KEY_SHORTNAME,
+            KEY_REACTION_KEY,
+        ):
+            if key in content:
+                native_data[key] = content[key]

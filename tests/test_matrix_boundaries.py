@@ -58,12 +58,25 @@ class TestMatrixBoundaries:
         import medre.adapters.matrix.renderer as renderer_mod
         import medre.config.adapters.matrix as config_mod
 
+        forbidden_prefixes = (
+            "from medre.adapters.meshtastic",
+            "import medre.adapters.meshtastic",
+            "from medre.adapters.meshcore",
+            "import medre.adapters.meshcore",
+            "from medre.adapters.lxmf",
+            "import medre.adapters.lxmf",
+        )
+
         for mod in (adapter_mod, codec_mod, renderer_mod, config_mod):
             assert mod.__file__ is not None
-            source = open(mod.__file__).read()
-            assert (
-                "meshtastic" not in source.lower()
-            ), f"{mod.__name__} references meshtastic"
+            with open(mod.__file__) as fh:
+                for i, line in enumerate(fh, 1):
+                    stripped = line.strip()
+                    if not stripped or stripped.startswith("#"):
+                        continue
+                    assert not any(
+                        stripped.startswith(p) for p in forbidden_prefixes
+                    ), f"{mod.__name__}:{i} imports another adapter: {stripped}"
 
     def test_matrix_adapter_does_not_route(self) -> None:
         """FakeMatrixAdapter has no route matching or routing methods."""
@@ -376,19 +389,26 @@ class TestMatrixBoundaryCrossImports:
         return mod.__file__
 
     def test_no_meshtastic_import(self, matrix_module_file: str) -> None:
-        source = open(matrix_module_file).read()
-        assert (
-            "meshtastic" not in source.lower()
-        ), f"{matrix_module_file} references meshtastic"
+        with open(matrix_module_file) as fh:
+            for i, line in enumerate(fh, 1):
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#"):
+                    continue
+                assert not (
+                    stripped.startswith("from medre.adapters.meshtastic")
+                    or stripped.startswith("import medre.adapters.meshtastic")
+                ), f"{matrix_module_file}:{i} imports meshtastic: {stripped}"
 
     def test_no_meshcore_import(self, matrix_module_file: str) -> None:
-        source = open(matrix_module_file).read()
+        with open(matrix_module_file) as fh:
+            source = fh.read()
         assert (
             "meshcore" not in source.lower()
         ), f"{matrix_module_file} references meshcore"
 
     def test_no_lxmf_import(self, matrix_module_file: str) -> None:
-        source = open(matrix_module_file).read()
+        with open(matrix_module_file) as fh:
+            source = fh.read()
         assert "lxmf" not in source.lower(), f"{matrix_module_file} references lxmf"
 
 

@@ -239,3 +239,132 @@ class TestMatrixCodec:
         assert event.source_native_ref.native_message_id == "$reply-002"
         assert len(event.relations) == 1
         assert event.relations[0].target_native_ref.native_message_id == "$orig-001"
+
+    # -- reply fallback stripping -------------------------------------------
+
+    def test_decode_reply_strips_fallback_body(self) -> None:
+        """decode strips the Matrix reply fallback prefix from the body."""
+        codec = MatrixCodec("matrix-1", _make_config())
+        content = {
+            "msgtype": "m.text",
+            "body": "> <@alice:server> hi\n\nHi",
+            "m.relates_to": {
+                "m.in_reply_to": {"event_id": "$orig-001"},
+            },
+        }
+        native = _make_native_event(
+            body="> <@alice:server> hi\n\nHi",
+            event_id="$reply-001",
+            content=content,
+        )
+        event = codec.decode(native, room_id="!room:server")
+
+        assert event.payload["body"] == "Hi"
+        assert len(event.relations) == 1
+        assert event.relations[0].relation_type == "reply"
+
+    def test_decode_reply_multiline_fallback_stripped(self) -> None:
+        """decode strips a multiline quoted fallback block."""
+        codec = MatrixCodec("matrix-1", _make_config())
+        fallback_body = "> <@a:b> line1\n> <@a:b> line2\n\nMy reply"
+        content = {
+            "msgtype": "m.text",
+            "body": fallback_body,
+            "m.relates_to": {
+                "m.in_reply_to": {"event_id": "$orig-001"},
+            },
+        }
+        native = _make_native_event(
+            body=fallback_body, event_id="$reply-002", content=content
+        )
+        event = codec.decode(native, room_id="!room:server")
+
+        assert event.payload["body"] == "My reply"
+
+    def test_decode_non_reply_body_not_stripped(self) -> None:
+        """decode does not strip body from non-reply messages."""
+        codec = MatrixCodec("matrix-1", _make_config())
+        native = _make_native_event(body="> some quote in a normal msg")
+        event = codec.decode(native, room_id="!room:server")
+
+        assert event.payload["body"] == "> some quote in a normal msg"
+
+    def test_decode_reply_relation_has_target_native_ref(self) -> None:
+        """decode reply relation target_native_ref points to Matrix event ID."""
+        codec = MatrixCodec("matrix-1", _make_config())
+        content = {
+            "msgtype": "m.text",
+            "body": "reply",
+            "m.relates_to": {
+                "m.in_reply_to": {"event_id": "$mx-event-42"},
+            },
+        }
+        native = _make_native_event(
+            body="reply", event_id="$reply-003", content=content
+        )
+        event = codec.decode(native, room_id="!room:server")
+
+        assert len(event.relations) == 1
+        rel = event.relations[0]
+        assert rel.relation_type == "reply"
+        assert rel.target_native_ref is not None
+        assert rel.target_native_ref.native_message_id == "$mx-event-42"
+
+    # -- true Matrix reaction (m.annotation) --------------------------------
+
+    def test_decode_true_reaction_creates_reacted_event(self) -> None:
+        """A true Matrix reaction (m.annotation) decodes to MESSAGE_REACTED."""
+        codec = MatrixCodec("matrix-1", _make_config())
+        content = {
+            "msgtype": "m.reaction",
+            "body": "👍",
+            "m.relates_to": {
+                "rel_type": "m.annotation",
+                "event_id": "$original-msg-001",
+                "key": "👍",
+            },
+        }
+        native = _make_native_event(
+            body="👍",
+            event_id="$reaction-001",
+            sender="@alice:example.com",
+            content=content,
+        )
+        native.source["type"] = "m.reaction"
+
+        event = codec.decode(native, room_id="!room:server")
+
+        assert event.event_kind == EventKind.MESSAGE_REACTED
+        assert len(event.relations) == 1
+        rel = event.relations[0]
+        assert rel.relation_type == "reaction"
+        assert rel.key == "👍"
+        assert rel.target_native_ref is not None
+        assert rel.target_native_ref.native_message_id == "$original-msg-001"
+        assert event.payload["key"] == "👍"
+
+    def test_decode_true_reaction_populates_native_metadata(self) -> None:
+        """True Matrix reaction populates native metadata with room/event/sender."""
+        codec = MatrixCodec("matrix-1", _make_config())
+        content = {
+            "msgtype": "m.reaction",
+            "body": "❤️",
+            "m.relates_to": {
+                "rel_type": "m.annotation",
+                "event_id": "$target-001",
+                "key": "❤️",
+            },
+        }
+        native = _make_native_event(
+            body="❤️",
+            event_id="$react-002",
+            sender="@bob:example.com",
+            content=content,
+        )
+
+        event = codec.decode(native, room_id="!room:server")
+
+        data = event.metadata.native.data
+        assert data["room_id"] == "!room:server"
+        assert data["event_id"] == "$react-002"
+        assert data["sender"] == "@bob:example.com"

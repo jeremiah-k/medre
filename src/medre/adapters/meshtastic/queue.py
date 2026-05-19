@@ -11,7 +11,8 @@ Meshtastic-specific sleeping.
 
 * **No ``send_fn``**: dequeues one item and returns ``None`` (scaffold mode).
 * **With ``send_fn``**: dequeues, applies pacing delay, calls the async
-  *send_fn*, and returns an :class:`AdapterDeliveryResult` with the
+  *send_fn*, and returns a :class:`QueueDeliveryResult` with the
+  dequeued item and the :class:`AdapterDeliveryResult` containing the
   native packet ID if available.
 
 Failure semantics
@@ -20,7 +21,7 @@ When *send_fn* raises an exception during ``process_one``, the dequeued
 item is **permanently dropped** — it is NOT requeued or retried.  The
 queue increments ``total_failed`` and re-raises the exception to the
 caller.  Production-grade retry / requeue logic is explicitly deferred
-to a future tranche.  This is a scaffold design choice, not a bug.
+to future work.  This is a scaffold design choice, not a bug.
 
 Queue bounds
 ------------
@@ -29,6 +30,11 @@ When the queue is full, the **oldest** item is silently dropped to make
 room for the new enqueue.  This prevents unbounded memory growth in
 long-duration runs where outbound throughput exceeds send capacity.
 The ``total_dropped`` counter tracks how many items were shed.
+
+.. note::
+
+   Shutdown cancels the drain task without flushing.  In-flight items that have
+   not yet been processed lose their native-ref mapping permanently.
 """
 
 from __future__ import annotations
@@ -37,14 +43,41 @@ import asyncio
 import logging
 import time
 from collections import deque
+from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any, Awaitable, Callable
 
+from medre.adapters.meshtastic.packet_snapshot import json_safe
 from medre.core.contracts.adapter import AdapterDeliveryResult
 
 _logger = logging.getLogger(__name__)
 
 # Default maximum queue size.  When full, oldest items are dropped.
 _DEFAULT_MAX_QUEUE_SIZE: int = 1024
+
+
+@dataclass(frozen=True)
+class QueueDeliveryResult:
+    """Immutable result of processing one queued item through send.
+
+    Bundles the dequeued item (carrying ``event_id`` and other metadata
+    outside the radio payload) with the :class:`AdapterDeliveryResult`
+    returned by the send function.  This allows callers (e.g.
+    :class:`MeshtasticAdapter._process_queue`) to correlate the canonical
+    event ID with the native message ID obtained from the platform.
+
+    Attributes
+    ----------
+    item:
+        The dequeued item dict with ``payload``, ``channel_index``, and
+        optionally ``event_id`` keys.
+    delivery_result:
+        The adapter delivery result populated with the native packet ID
+        and metadata.
+    """
+
+    item: dict[str, Any]
+    delivery_result: AdapterDeliveryResult
 
 
 class MeshtasticOutboundQueue:
@@ -95,7 +128,13 @@ class MeshtasticOutboundQueue:
         """Number of items dropped due to queue overflow."""
         return self._total_dropped
 
-    async def enqueue(self, payload: dict[str, Any], channel_index: int) -> None:
+    async def enqueue(
+        self,
+        payload: dict[str, Any],
+        channel_index: int,
+        *,
+        event_id: str | None = None,
+    ) -> None:
         """Enqueue a payload for delivery.
 
         When the queue is at capacity, the oldest item is silently
@@ -104,9 +143,15 @@ class MeshtasticOutboundQueue:
         Parameters
         ----------
         payload:
-            The rendered payload dict to deliver.
+            The rendered payload dict to deliver.  ``event_id`` is NOT
+            included in this dict — it is stored separately alongside
+            the payload so that the radio-facing data never contains
+            framework-internal identifiers.
         channel_index:
             The target radio channel index.
+        event_id:
+            Optional canonical event ID that originated this send.
+            Stored outside the payload so it is never sent to the radio.
         """
         # Detect overflow: deque with maxlen silently drops from the
         # left (oldest) when append would exceed capacity.
@@ -116,13 +161,15 @@ class MeshtasticOutboundQueue:
         ):
             self._total_dropped += 1
             _logger.warning(
-                "MeshtasticOutboundQueue full (%d items); dropping oldest",
+                "MeshtasticOutboundQueue full (%d items); dropping oldest (event_id=%s)",
                 self._max_queue_size,
+                self._queue[0].get("event_id", "?"),
             )
         self._queue.append(
             {
-                "payload": payload,
+                "payload": dict(payload),
                 "channel_index": channel_index,
+                "event_id": event_id,
             }
         )
 
@@ -142,7 +189,7 @@ class MeshtasticOutboundQueue:
     async def process_one(
         self,
         send_fn: Callable[[dict[str, Any]], Awaitable[Any]] | None = None,
-    ) -> AdapterDeliveryResult | None:
+    ) -> QueueDeliveryResult | None:
         """Process one queued item.
 
         When *send_fn* is ``None`` (scaffold mode), this method dequeues
@@ -151,8 +198,10 @@ class MeshtasticOutboundQueue:
 
         When *send_fn* is provided, the method dequeues one item, applies
         the configured pacing delay, calls *send_fn* with the dequeued
-        item, and returns an :class:`AdapterDeliveryResult` populated
-        with the native packet ID (if the send result exposes one).
+        item, and returns a :class:`QueueDeliveryResult` containing both
+        the dequeued item and an :class:`AdapterDeliveryResult`
+        populated with the native packet ID (if the send result exposes
+        one).
 
         Parameters
         ----------
@@ -165,9 +214,9 @@ class MeshtasticOutboundQueue:
 
         Returns
         -------
-        AdapterDeliveryResult | None
+        QueueDeliveryResult | None
             ``None`` in scaffold mode or when the queue is empty.
-            An :class:`AdapterDeliveryResult` when a send was attempted.
+            A :class:`QueueDeliveryResult` when a send was attempted.
         """
         item = await self.dequeue()
         if item is None:
@@ -197,10 +246,17 @@ class MeshtasticOutboundQueue:
         native_id = _extract_packet_id(send_result)
         channel_index = item.get("channel_index", 0)
 
-        return AdapterDeliveryResult(
+        # Build packet snapshot metadata when result is packet-like.
+        snapshot = _packet_snapshot(send_result)
+        metadata = MappingProxyType(snapshot) if snapshot else MappingProxyType({})
+
+        delivery_result = AdapterDeliveryResult(
             native_message_id=native_id,
             native_channel_id=str(channel_index),
+            metadata=metadata,
         )
+
+        return QueueDeliveryResult(item=item, delivery_result=delivery_result)
 
     @property
     def pending_count(self) -> int:
@@ -241,7 +297,13 @@ def _extract_packet_id(result: Any) -> str | None:
 
     The Meshtastic ``sendText`` API returns the sent packet object with
     a populated ``id`` field.  The fake client returns a dict with
-    ``"packet_id"``.  This helper handles both cases.
+    ``"packet_id"``.  Object results may carry ``.packet_id`` instead
+    of ``.id``.  When no top-level ID is found, the ``decoded``
+    sub-object (dict or attribute) is inspected for ``packet_id``
+    then ``id``.
+
+    Fields such as ``channel``, ``reply_id``, ``emoji``,
+    ``reaction_id``, and ``reaction_key`` are never used as IDs.
 
     Parameters
     ----------
@@ -255,10 +317,135 @@ def _extract_packet_id(result: Any) -> str | None:
     """
     if result is None:
         return None
-    # Dict with "packet_id" key (fake client pattern).
+    # --- Top-level ID ---------------------------------------------------
     if isinstance(result, dict):
         pid = result.get("packet_id") or result.get("id")
-        return str(pid) if pid is not None else None
-    # Object with .id attribute (real meshtastic client pattern).
-    pid = getattr(result, "id", None)
-    return str(pid) if pid is not None else None
+        if pid is not None:
+            return str(pid)
+    else:
+        pid = getattr(result, "id", None)
+        if pid is not None:
+            return str(pid)
+        pid = getattr(result, "packet_id", None)
+        if pid is not None:
+            return str(pid)
+    # --- Decoded sub-object fallback ------------------------------------
+    decoded: Any = None
+    if isinstance(result, dict):
+        decoded = result.get("decoded")
+    else:
+        decoded = getattr(result, "decoded", None)
+    if decoded is None:
+        return None
+    if isinstance(decoded, dict):
+        pid = decoded.get("packet_id")
+        if pid is not None:
+            return str(pid)
+        pid = decoded.get("id")
+        if pid is not None:
+            return str(pid)
+    else:
+        pid = getattr(decoded, "packet_id", None)
+        if pid is not None:
+            return str(pid)
+        pid = getattr(decoded, "id", None)
+        if pid is not None:
+            return str(pid)
+    return None
+
+
+def _packet_snapshot(result: Any) -> dict[str, object]:
+    """Extract a safe metadata snapshot from a packet-like send result.
+
+    Returns a dict with available keys (``id``, ``packet_id``,
+    ``channel``, ``reply_id``, ``to``, ``emoji``, ``reaction_id``,
+    ``reaction_key``) when the result looks like a packet.  Returns an
+    empty dict for ``None`` or non-packet results.
+
+    Top-level fields (dict keys or object attributes) are captured
+    first.  Then, if the result has a ``decoded`` sub-object (dict or
+    object), additional fields are extracted to fill gaps — top-level
+    values are never overwritten.
+
+    For dict ``decoded``, ``packet_id`` and ``reaction_id`` are
+    captured in addition to ``reply_id``, ``replyId``, ``emoji``,
+    ``to``, ``channel``, and ``reaction_key``.  ``decoded["id"]``
+    maps to ``snapshot["packet_id"]`` when ``snapshot["packet_id"]``
+    is absent; top-level ``snapshot["id"]`` is never overwritten.
+
+    For object ``decoded``, attributes ``to``, ``packet_id``, ``id``
+    (mapped to ``"packet_id"``), and ``reaction_id`` are captured
+    alongside the existing ``reply_id``, ``replyId``, ``emoji``,
+    ``channel``, and ``reaction_key``.
+
+    Parameters
+    ----------
+    result:
+        The value returned by the send function.
+
+    Returns
+    -------
+    dict
+        Safe key-value pairs suitable for
+        :class:`AdapterDeliveryResult` metadata.
+    """
+    if result is None:
+        return {}
+    snapshot: dict[str, object] = {}
+    if isinstance(result, dict):
+        for key in ("id", "packet_id", "channel", "reply_id", "to"):
+            val = result.get(key)
+            if val is not None:
+                snapshot[key] = json_safe(val)
+        decoded = result.get("decoded")
+    else:
+        for attr in ("id", "packet_id", "channel", "reply_id", "to"):
+            val = getattr(result, attr, None)
+            if val is not None:
+                snapshot[attr] = json_safe(val)
+        decoded = getattr(result, "decoded", None)
+
+    # Capture fields from the decoded protobuf sub-object when they fill
+    # gaps in the top-level snapshot.  Never overwrite a top-level value.
+    if decoded is not None:
+        if isinstance(decoded, dict):
+            for src_key, dst_key in (
+                ("reply_id", "reply_id"),
+                ("replyId", "reply_id"),
+                ("emoji", "emoji"),
+                ("to", "to"),
+                ("channel", "channel"),
+                ("reaction_key", "reaction_key"),
+                ("packet_id", "packet_id"),
+                ("reaction_id", "reaction_id"),
+            ):
+                if src_key not in decoded:
+                    continue
+                val = decoded[src_key]
+                if val is not None and dst_key not in snapshot:
+                    snapshot[dst_key] = json_safe(val)
+            # decoded.id maps to snapshot["packet_id"] when snapshot["packet_id"]
+            # is absent; top-level snapshot["id"] is never overwritten.
+            if "packet_id" not in snapshot:
+                id_val = decoded.get("id")
+                if id_val is not None:
+                    snapshot["packet_id"] = json_safe(id_val)
+        else:
+            for src_attr, dst_key in (
+                ("reply_id", "reply_id"),
+                ("replyId", "reply_id"),
+                ("emoji", "emoji"),
+                ("packet_id", "packet_id"),
+                ("id", "packet_id"),
+                ("to", "to"),
+                ("channel", "channel"),
+                ("reaction_id", "reaction_id"),
+                ("reaction_key", "reaction_key"),
+            ):
+                if dst_key in snapshot:
+                    continue
+                val = getattr(decoded, src_attr, None)
+                if val is not None:
+                    snapshot[dst_key] = json_safe(val)
+
+    return snapshot

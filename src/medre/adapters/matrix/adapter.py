@@ -16,6 +16,8 @@ import logging
 import random
 from typing import Any
 
+import msgspec
+
 from medre.adapters.matrix.codec import MatrixCodec
 from medre.adapters.matrix.compat import HAS_NIO
 from medre.adapters.matrix.errors import MatrixConnectionError, MatrixSendError
@@ -33,6 +35,7 @@ from medre.core.contracts.adapter import (
     AdapterRole,
     AdapterSendError,
 )
+from medre.core.events.metadata import NativeMetadata
 from medre.core.rendering.renderer import RenderingResult
 
 _logger = logging.getLogger(__name__)
@@ -42,7 +45,7 @@ _MATRIX_CAPABILITIES = AdapterCapabilities(
     text=True,
     title=False,
     replies="native",
-    reactions="unsupported",
+    reactions="native",
     edits="unsupported",
     deletes="unsupported",
     attachments=False,
@@ -94,6 +97,55 @@ def _is_transient_error(exc: BaseException) -> bool:
         return True
 
     return False
+
+
+def _matrix_display_name(room: Any, sender: str) -> str:
+    """Resolve the display name for *sender* from a nio Room object.
+
+    Preference order:
+    1. ``room.user_name(sender)`` when callable and returns non-empty.
+    2. ``room.users[sender]`` dict fields: ``display_name``, ``displayname``, ``name``.
+    3. ``room.users[sender]`` object attributes: ``.display_name``, ``.displayname``, ``.name``.
+    4. *sender* MXID as final fallback.
+
+    ``None`` and blank / whitespace-only values are treated as missing.
+    """
+    # 1. room.user_name(sender)
+    user_name_fn = getattr(room, "user_name", None)
+    if callable(user_name_fn):
+        try:
+            val = str(user_name_fn(sender) or "").strip()
+            if val:
+                return val
+        except Exception:
+            pass
+
+    # 2 & 3. room.users[sender] — dict fields then object attributes.
+    users = getattr(room, "users", None)
+    if users is None:
+        return sender
+    user_info = users.get(sender) if isinstance(users, dict) else None
+    if user_info is None:
+        return sender
+
+    # Dict path
+    if isinstance(user_info, dict):
+        for key in ("display_name", "displayname", "name"):
+            raw = user_info.get(key)
+            if raw is not None:
+                val = str(raw).strip()
+                if val:
+                    return val
+    else:
+        # Object path
+        for attr in ("display_name", "displayname", "name"):
+            raw = getattr(user_info, attr, None)
+            if raw is not None:
+                val = str(raw).strip()
+                if val:
+                    return val
+
+    return sender
 
 
 class MatrixAdapter(AdapterContract):
@@ -414,13 +466,18 @@ class MatrixAdapter(AdapterContract):
         content = dict(result.payload)
         content.pop("room_id", None)
 
+        # Pop the internal _matrix_event_type key that the renderer uses
+        # to signal non-default event types (e.g. m.reaction).  The key
+        # must never leak into the homeserver content.
+        message_type = content.pop("_matrix_event_type", "m.room.message")
+
         # Track 5 — bounded retry for transient errors
         last_exc: BaseException | None = None
         for attempt in range(_MAX_DELIVERY_RETRIES):
             try:
                 response = await client.room_send(
                     room_id=room_id,
-                    message_type="m.room.message",
+                    message_type=message_type,
                     content=content,
                     ignore_unverified_devices=self._should_ignore_unverified_devices(),
                 )
@@ -485,12 +542,13 @@ class MatrixAdapter(AdapterContract):
     # -- Inbound callback ---------------------------------------------------
 
     async def _on_room_message(self, room: Any, event: Any) -> None:
-        """nio callback for inbound room messages.
+        """nio callback for inbound room events.
 
-        Decodes the native event into a canonical event and publishes
-        it into the framework's inbound stream.  Self-messages (where
-        the sender matches ``config.user_id``) are suppressed to prevent
-        echo loops.  Events carrying a MEDRE metadata envelope whose
+        Decodes the native event (messages, reactions, etc.) into a
+        canonical event and publishes it into the framework's inbound
+        stream.  Self-messages (where the sender matches
+        ``config.user_id``) are suppressed to prevent echo loops.
+        Events carrying a MEDRE metadata envelope whose
         ``source_adapter`` equals this adapter's ID are also suppressed
         as loop-origin hints.
 
@@ -499,7 +557,8 @@ class MatrixAdapter(AdapterContract):
         room:
             The nio ``Room`` object.
         event:
-            The nio ``RoomMessage*`` event object.
+            The nio event object (``RoomMessage*``, ``ReactionEvent``,
+            etc.).
         """
         if self.ctx is None:
             return
@@ -544,6 +603,48 @@ class MatrixAdapter(AdapterContract):
                     self.adapter_id,
                 )
                 return
+
+            # -- Enrich native metadata with Matrix display name -----------
+            # When the event has no existing MMRelay longname/shortname
+            # (populated by the codec from meshtastic_longname /
+            # meshtastic_shortname content keys), fill them from the
+            # Matrix room member display name so that downstream
+            # renderers (e.g. Meshtastic radio_relay_prefix {longname})
+            # show a human-readable name instead of a bare MXID.
+            # CanonicalEvent and its metadata are frozen (msgspec.Struct
+            # frozen=True), so we build replacement structs via
+            # msgspec.structs.replace instead of mutating in place.
+            if canonical.metadata and canonical.metadata.native:
+                ndata = canonical.metadata.native.data
+                existing_longname = ndata.get("longname") or ndata.get(
+                    "meshtastic_longname"
+                )
+                existing_shortname = ndata.get("shortname") or ndata.get(
+                    "meshtastic_shortname"
+                )
+                if not existing_longname and not existing_shortname:
+                    display_name = _matrix_display_name(room, sender)
+
+                    # shortname: first 5 chars of display name, or
+                    # localpart of MXID if display_name is just the MXID.
+                    if display_name != sender:
+                        shortname = display_name[:5]
+                    else:
+                        localpart = sender.lstrip("@").split(":")[0]
+                        shortname = localpart[:5]
+
+                    enriched = dict(ndata)
+                    enriched["displayname"] = display_name
+                    enriched["longname"] = display_name
+                    enriched["shortname"] = shortname
+
+                    new_native = NativeMetadata(data=enriched)
+                    new_metadata = msgspec.structs.replace(
+                        canonical.metadata, native=new_native
+                    )
+                    canonical = msgspec.structs.replace(
+                        canonical, metadata=new_metadata
+                    )
 
             await self.publish_inbound(canonical)
             self._inbound_published += 1

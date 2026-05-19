@@ -68,7 +68,6 @@ from unittest.mock import AsyncMock
 import pytest
 
 from tests.helpers.soak import (
-    _MESHTASTIC_CONNECTION_TYPE,
     _make_meshtastic_config,
     _validate_meshtastic_soak_env,
 )
@@ -436,11 +435,15 @@ class TestMeshtasticSoak:
                         # deliver() enqueues; send_one() flushes the queue
                         await adapter.deliver(result)
                         send_result = await adapter.send_one()
-                        if send_result and send_result.native_message_id:
+                        if (
+                            send_result
+                            and send_result.delivery_result
+                            and send_result.delivery_result.native_message_id
+                        ):
                             success_count += 1
                             print(
                                 f"[soak-send #{send_count}] ok "
-                                f"native_id={send_result.native_message_id}"
+                                f"native_id={send_result.delivery_result.native_message_id}"
                             )
                         else:
                             fail_count += 1

@@ -916,11 +916,11 @@ class TestReplyRelationPreservation:
             await _clean_stop(app)
 
     @pytest.mark.asyncio
-    async def test_reply_with_fallback_text_renders_prefix(
+    async def test_reply_without_native_ref_uses_plain_text(
         self,
         tmp_paths: MedrePaths,
     ) -> None:
-        """Reply with fallback_text renders '[replying to: ...]' prefix."""
+        """Reply without native ref uses plain text, no '[replying to: ...]' prefix."""
         config = _mx_mesh_config()
         route = _route_mx_to_mesh()
         app = await _build_and_start(config, tmp_paths)
@@ -970,8 +970,7 @@ class TestReplyRelationPreservation:
             assert len(mesh.delivered_payloads) == 1
             rendered = mesh.delivered_payloads[0]
             rendered_text = str(rendered.payload.get("text", ""))
-            assert "[replying to: Original message]" in rendered_text
-            assert "My reply" in rendered_text
+            assert rendered_text == "My reply"
         finally:
             await _clean_stop(app)
 

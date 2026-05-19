@@ -454,6 +454,29 @@ PYTHONPATH=src medre smoke
 PYTHONPATH=src medre smoke --json
 ```
 
+### Identifying hanging tests
+
+When the full suite hangs, use this per-file timeout loop to isolate which test
+file is blocking:
+
+```bash
+# Run from the repository root
+set -o pipefail
+find tests -type f -name 'test_*.py' | sort | while read -r f; do
+  echo -n "$(basename "$f"): "
+  out="$(PYTHONPATH=src timeout 90 python -m pytest -q "$f" 2>&1)"
+  status=$?
+  printf '%s\n' "$out" | head -3
+  if [ "$status" -eq 124 ]; then
+    echo "TIMEOUT (124)"
+  fi
+done
+```
+
+Each file gets a 90-second timeout. Files that hang will report timeout exit code
+`124`. Note that ordering/pollution across files can mask the real hang — always
+re-run suspect files in isolation to confirm.
+
 ### Failure interpretation
 
 | Symptom                                             | Likely cause                          | Action                                                                        |
@@ -469,23 +492,23 @@ PYTHONPATH=src medre smoke --json
 
 These files have been split by behavioral domain following the procedure above.
 
-| Original file                           | Result | Domain files                                                                                                                                                                                                                                                                                                        |
-| --------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tests/test_adapter_callback_bridge.py` | Split  | 6 domain files                                                                                                                                                                                                                                                                                                      |
-| `tests/test_longrun_callback_bridge.py` | Split  | 4 domain files                                                                                                                                                                                                                                                                                                      |
-| `tests/test_operator_workflows.py`      | Split  | 7 domain files                                                                                                                                                                                                                                                                                                      |
-| `tests/test_pipeline.py`                | Split  | 5 domain files (delivery, failure taxonomy, fanout, native refs, capacity)                                                                                                                                                                                                                                          |
-| `tests/test_replay.py`                  | Split  | 5 domain files (engine, policy, accounting, capacity, traceability)                                                                                                                                                                                                                                                 |
-| `tests/test_cli.py`                     | Split  | 9 domain files: `test_cli_command_help_hints`, `test_cli_config_workflows`, `test_cli_diagnostics_workflows`, `test_cli_install_metadata`, `test_cli_replay_surface`, `test_cli_route_workflows`, `test_cli_run_workflows`, `test_cli_scenario_crosscheck`, `test_cli_smoke_run_session`. Helper: `helpers/cli.py`. |
-| `tests/test_alpha_walkthrough_cli.py`   | Split  | 4 domain files: `test_alpha_cli_config_and_smoke`, `test_alpha_cli_inspect_flow`, `test_alpha_cli_replay_flow`, `test_alpha_cli_error_paths`. Helper: `helpers/alpha_cli.py`.                                                                                                                                       |
-| `tests/test_docker_bridge_artifacts.py` | Split  | 4 domain files: `test_docker_artifact_core`, `test_docker_artifact_plan`, `test_docker_artifact_metadata`, `test_docker_artifact_honesty`. Helper: `helpers/docker_artifacts.py`.                                                                                                                                   |
+| Original file                           | Result | Domain files                                                                                                                                                                                                                                                                                                                 |
+| --------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tests/test_adapter_callback_bridge.py` | Split  | 6 domain files                                                                                                                                                                                                                                                                                                               |
+| `tests/test_longrun_callback_bridge.py` | Split  | 4 domain files                                                                                                                                                                                                                                                                                                               |
+| `tests/test_operator_workflows.py`      | Split  | 7 domain files                                                                                                                                                                                                                                                                                                               |
+| `tests/test_pipeline.py`                | Split  | 5 domain files (delivery, failure taxonomy, fanout, native refs, capacity)                                                                                                                                                                                                                                                   |
+| `tests/test_replay.py`                  | Split  | 5 domain files (engine, policy, accounting, capacity, traceability)                                                                                                                                                                                                                                                          |
+| `tests/test_cli.py`                     | Split  | 9 domain files: `test_cli_command_help_hints`, `test_cli_config_workflows`, `test_cli_diagnostics_workflows`, `test_cli_install_metadata`, `test_cli_replay_surface`, `test_cli_route_workflows`, `test_cli_run_workflows`, `test_cli_scenario_crosscheck`, `test_cli_smoke_run_session`. Helper: `helpers/cli.py`.          |
+| `tests/test_alpha_walkthrough_cli.py`   | Split  | 4 domain files: `test_alpha_cli_config_and_smoke`, `test_alpha_cli_inspect_flow`, `test_alpha_cli_replay_flow`, `test_alpha_cli_error_paths`. Helper: `helpers/alpha_cli.py`.                                                                                                                                                |
+| `tests/test_docker_bridge_artifacts.py` | Split  | 4 domain files: `test_docker_artifact_core`, `test_docker_artifact_plan`, `test_docker_artifact_metadata`, `test_docker_artifact_honesty`. Helper: `helpers/docker_artifacts.py`.                                                                                                                                            |
 | `tests/test_matrix_session.py`          | Split  | 3 domain files: `test_matrix_session_config` (encryption config), `test_matrix_session_e2ee` (Megolm, encrypted rooms, E2EE diagnostics), `test_matrix_session_recovery` (sync failure, reconnect, crypto store continuity, sync state resilience). Original retained at 460 lines (lifecycle, diagnostics, start behavior). |
-| `tests/test_storage.py`                 | Split  | 7 domain files: `test_storage_durability`, `test_storage_integrity`, `test_storage_invariants`, `test_storage_native_refs`, `test_storage_path_cli`, `test_storage_path_validation`, `test_storage_receipts`. Original retained at 231 lines. |
-| `tests/test_replay_routing.py`          | Split  | 3 domain files: `test_replay_routing_controls`, `test_replay_routing_durability`, `test_replay_routing_isolation`. Original retained at 422 lines. |
-| `tests/test_runtime_builder.py`         | Split  | 3 domain files: `test_runtime_builder_ordering` (build ordering, adapter ID propagation), `test_runtime_builder_paths` (Matrix store path derivation, ensure-dirs), `test_runtime_builder_routes` (degraded route validation). Original retained at 520 lines (construction, config, fakes). |
-| `tests/test_meshtastic_adapter.py`      | Split  | 1 domain file: `test_meshtastic_adapter_delivery` (send semantics, session boundary, session unit). Original retained at 755 lines (connection modes, queue ownership, lifecycle). |
-| `tests/test_meshtastic_fake_bridge.py`  | Split  | 2 domain files: `test_meshtastic_fake_bridge_errors`, `test_meshtastic_fake_bridge_session`. Original retained at 938 lines. |
-| `tests/test_fake_runtime_smoke.py`      | Split  | 2 domain files: `test_fake_runtime_soak` (diagnostics snapshots, replay delivery, happy path), `test_fake_runtime_startup_snapshot` (startup/shutdown integration, snapshot integration). Original retained at 931 lines. |
+| `tests/test_storage.py`                 | Split  | 7 domain files: `test_storage_durability`, `test_storage_integrity`, `test_storage_invariants`, `test_storage_native_refs`, `test_storage_path_cli`, `test_storage_path_validation`, `test_storage_receipts`. Original retained at 231 lines.                                                                                |
+| `tests/test_replay_routing.py`          | Split  | 3 domain files: `test_replay_routing_controls`, `test_replay_routing_durability`, `test_replay_routing_isolation`. Original retained at 422 lines.                                                                                                                                                                           |
+| `tests/test_runtime_builder.py`         | Split  | 3 domain files: `test_runtime_builder_ordering` (build ordering, adapter ID propagation), `test_runtime_builder_paths` (Matrix store path derivation, ensure-dirs), `test_runtime_builder_routes` (degraded route validation). Original retained at 520 lines (construction, config, fakes).                                 |
+| `tests/test_meshtastic_adapter.py`      | Split  | 1 domain file: `test_meshtastic_adapter_delivery` (send semantics, session boundary, session unit). Original retained at 755 lines (connection modes, queue ownership, lifecycle).                                                                                                                                           |
+| `tests/test_meshtastic_fake_bridge.py`  | Split  | 2 domain files: `test_meshtastic_fake_bridge_errors`, `test_meshtastic_fake_bridge_session`. Original retained at 938 lines.                                                                                                                                                                                                 |
+| `tests/test_fake_runtime_smoke.py`      | Split  | 2 domain files: `test_fake_runtime_soak` (diagnostics snapshots, replay delivery, happy path), `test_fake_runtime_startup_snapshot` (startup/shutdown integration, snapshot integration). Original retained at 931 lines.                                                                                                    |
 
 ## CLI split — completed
 

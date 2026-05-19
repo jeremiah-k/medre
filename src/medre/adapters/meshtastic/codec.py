@@ -17,6 +17,7 @@ from typing import Any
 
 from medre.adapters.meshtastic.errors import MeshtasticCodecError
 from medre.adapters.meshtastic.packet_classifier import MeshtasticPacketClassifier
+from medre.adapters.meshtastic.packet_snapshot import snapshot_decoded, snapshot_packet
 from medre.core.events.canonical import CanonicalEvent, EventRelation, NativeRef
 from medre.core.events.kinds import EventKind
 from medre.core.events.metadata import EventMetadata, NativeMetadata
@@ -105,12 +106,20 @@ class MeshtasticCodec:
         pkt_id = classification["packet_id"]
         portnum = classification["portnum"]
 
+        # Determine event kind: reaction vs plain message
+        is_reaction = classification["is_reaction"]
+        is_reply = classification["is_reply"]
         event_kind = EventKind.MESSAGE_CREATED
+        if is_reaction:
+            event_kind = EventKind.MESSAGE_REACTED
 
         # Build payload
         payload: dict[str, object] = {"body": text}
         if portnum:
             payload["portnum"] = portnum
+        if is_reaction:
+            reaction_key = classification["reaction_key"] or "?"
+            payload["key"] = reaction_key
 
         # Source native ref from packet ID
         source_native_ref: NativeRef | None = None
@@ -121,25 +130,51 @@ class MeshtasticCodec:
                 native_message_id=str(pkt_id),
             )
 
-        # Reply relation from replyId
+        # Relations: reaction or reply from replyId / emoji
         relations: list[EventRelation] = []
-        reply_id = decoded.get("replyId") if isinstance(decoded, dict) else None
-        if reply_id:
-            relations.append(
-                EventRelation(
-                    relation_type="reply",
-                    target_event_id=None,
-                    target_native_ref=NativeRef(
-                        adapter=self._adapter_id,
-                        native_channel_id=(
-                            str(pkt_channel) if pkt_channel is not None else None
+        reply_id = classification["reply_id"]
+        emoji_flag = classification["emoji_flag"]
+        if reply_id is not None:
+            relation_metadata: dict[str, object] = {
+                "meshtastic_reply_id": str(reply_id),
+            }
+            if emoji_flag:
+                relation_metadata["meshtastic_emoji"] = 1
+            if is_reaction:
+                reaction_key = classification["reaction_key"] or "?"
+                relations.append(
+                    EventRelation(
+                        relation_type="reaction",
+                        target_event_id=None,
+                        target_native_ref=NativeRef(
+                            adapter=self._adapter_id,
+                            native_channel_id=(
+                                str(pkt_channel) if pkt_channel is not None else None
+                            ),
+                            native_message_id=str(reply_id),
                         ),
-                        native_message_id=str(reply_id),
-                    ),
-                    key=None,
-                    fallback_text=None,
+                        key=reaction_key,
+                        fallback_text=None,
+                        metadata=relation_metadata,
+                    )
                 )
-            )
+            elif is_reply:
+                relations.append(
+                    EventRelation(
+                        relation_type="reply",
+                        target_event_id=None,
+                        target_native_ref=NativeRef(
+                            adapter=self._adapter_id,
+                            native_channel_id=(
+                                str(pkt_channel) if pkt_channel is not None else None
+                            ),
+                            native_message_id=str(reply_id),
+                        ),
+                        key=None,
+                        fallback_text=None,
+                        metadata=relation_metadata,
+                    )
+                )
 
         to_id = packet.get("toId", "") or ""
 
@@ -148,6 +183,9 @@ class MeshtasticCodec:
         # carry user info (that comes from separate NODEINFO_APP packets).
         longname = ""
         shortname = ""
+
+        # Emoji raw value from decoded
+        emoji_raw = decoded.get("emoji") if isinstance(decoded, dict) else None
 
         native_meta = NativeMetadata(
             data={
@@ -159,6 +197,18 @@ class MeshtasticCodec:
                 "is_direct_message": classification["is_direct_message"],
                 "longname": longname,
                 "shortname": shortname,
+                "reply_id": reply_id,
+                "emoji": emoji_raw,
+                "emoji_flag": emoji_flag,
+                "packet": snapshot_packet(packet),
+                "decoded": snapshot_decoded(decoded),
+                "classification": {
+                    "category": classification["category"],
+                    "is_reply": is_reply,
+                    "is_reaction": is_reaction,
+                    "emoji_flag": emoji_flag,
+                    "reaction_key": classification["reaction_key"],
+                },
             }
         )
 

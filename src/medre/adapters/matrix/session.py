@@ -18,6 +18,7 @@ events are counted and logged but not forwarded.
 from __future__ import annotations
 
 import asyncio
+import importlib
 import logging
 import random
 import time
@@ -46,6 +47,56 @@ _BACKOFF_JITTER_FRACTION: float = 0.25
 # Prevents unbounded growth if a compromised or misconfigured
 # homeserver exposes an extreme number of rooms.
 _MAX_ROOM_STATES: int = 10_000
+
+
+def _reaction_event_classes(nio_module: Any) -> tuple[type, ...]:
+    """Discover ReactionEvent class(es) across nio versions.
+
+    Different nio versions expose ``ReactionEvent`` at different module
+    locations (top-level, ``nio.events``, or ``nio.events.room_events``).
+    This helper probes each location and returns a de-duplicated tuple
+    of discovered classes.
+
+    Returns an empty tuple when no ``ReactionEvent`` class is found
+    anywhere.
+    """
+    candidates: list[type] = []
+    # 1. Top-level nio.ReactionEvent
+    cls = getattr(nio_module, "ReactionEvent", None)
+    if cls is not None:
+        candidates.append(cls)
+    # 2. nio.events.ReactionEvent
+    try:
+        events_mod = getattr(nio_module, "events", None)
+        if events_mod is not None:
+            cls = getattr(events_mod, "ReactionEvent", None)
+            if cls is not None:
+                candidates.append(cls)
+    except (ImportError, AttributeError):
+        pass
+    # 3. nio.events.room_events.ReactionEvent
+    try:
+        events_mod = getattr(nio_module, "events", None)
+        if events_mod is not None:
+            room_events_mod = getattr(events_mod, "room_events", None)
+            if room_events_mod is not None:
+                cls = getattr(room_events_mod, "ReactionEvent", None)
+                if cls is not None:
+                    candidates.append(cls)
+    except (ImportError, AttributeError):
+        pass
+    # 4. importlib fallback — probe submodules that may not be
+    #    populated via top-level getattr traversal.
+    for import_path in ("nio.events", "nio.events.room_events"):
+        try:
+            mod = importlib.import_module(import_path)
+        except Exception:
+            continue
+        cls = getattr(mod, "ReactionEvent", None)
+        if cls is not None:
+            candidates.append(cls)
+    # De-duplicate while preserving order
+    return tuple(dict.fromkeys(candidates))
 
 
 @dataclass(frozen=True)
@@ -488,6 +539,25 @@ class MatrixSession:
                 self._message_callback,
                 (nio.RoomMessageText, nio.RoomMessageNotice, nio.RoomMessageEmote),
             )
+
+            # Register reaction event callback so that Matrix reactions
+            # (m.annotation) reach the same inbound handler.  Wrapped in
+            # try/except so that older nio versions without ReactionEvent
+            # degrade gracefully.
+            try:
+                reaction_classes = _reaction_event_classes(nio)
+                if reaction_classes:
+                    self._client.add_event_callback(
+                        self._message_callback,
+                        reaction_classes,
+                    )
+                else:
+                    self._logger.debug(
+                        "No ReactionEvent class found in nio; "
+                        "reaction callback not registered"
+                    )
+            except (AttributeError, ImportError):
+                pass
 
         # Register MegolmEvent callback for undecryptable encrypted events.
         self._register_megolm_callback()

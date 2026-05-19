@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from medre.interop.mmrelay import EMOJI_FLAG_VALUE
+
 # **FIxTURE-SCAFFOLD ONLY** — This numeric map is NOT derived from the real
 # Meshtastic protobuf PortNum enum.  It is a MEDRE test fixture approximation
 # that does not claim enum accuracy.  The real protobuf PortNum values differ
@@ -96,7 +98,7 @@ def normalize_portnum(value: object) -> str | None:
 
 
 def _is_routing_ack(decoded: dict[str, Any]) -> bool:
-    """Return True for the narrow ROUTING_APP ACK shape used in tranche 1."""
+    """Return True for the narrow ROUTING_APP ACK shape (ACK detection)."""
     routing = decoded.get("routing")
     if not isinstance(routing, dict):
         return False
@@ -116,7 +118,7 @@ class MeshtasticPacketClassifier:
     ----------
     config:
         Optional :class:`~medre.config.adapters.meshtastic.MeshtasticConfig`
-        for channel mapping lookups (unused in tranche 1).
+        for channel mapping lookups.
     """
 
     def __init__(self, config: Any = None) -> None:
@@ -171,6 +173,12 @@ class MeshtasticPacketClassifier:
             * ``sender_id`` – sender node ID, or ``None``.
             * ``portnum`` – decoded portnum string, or ``None``.
             * ``is_ack`` – whether this is an acknowledgement.
+            * ``reply_id`` – ``decoded.replyId`` integer, or ``None``.
+            * ``emoji_flag`` – ``True`` when ``decoded.emoji == 1``.
+            * ``reaction_key`` – stripped text when ``emoji_flag`` is set
+              (``"?"`` if empty), else ``None``.
+            * ``is_reply`` – text packet with ``replyId`` but no emoji flag.
+            * ``is_reaction`` – text packet with ``replyId`` and emoji flag.
         """
         raw_decoded = packet.get("decoded", {})
         decoded = raw_decoded if isinstance(raw_decoded, dict) else {}
@@ -222,6 +230,35 @@ class MeshtasticPacketClassifier:
         else:
             category = "unknown"
 
+        # Reply / reaction semantics from decoded.replyId and decoded.emoji
+        reply_id = None
+        if isinstance(decoded, dict):
+            reply_id = decoded.get("replyId")
+            if reply_id is None:
+                reply_id = decoded.get("reply_id")
+        emoji_raw = decoded.get("emoji") if isinstance(decoded, dict) else None
+        emoji_flag = emoji_raw == EMOJI_FLAG_VALUE
+
+        reaction_key: str | None = None
+        if emoji_flag and isinstance(decoded, dict):
+            raw_text = decoded.get("text", "")
+            if isinstance(raw_text, str):
+                stripped = raw_text.strip()
+            elif raw_text is not None:
+                stripped = str(raw_text).strip()
+            else:
+                stripped = ""
+            reaction_key = stripped if stripped else "?"
+
+        # is_reply / is_reaction only for non-ACK text messages
+        is_reply = False
+        is_reaction = False
+        if not is_ack and category == "text" and reply_id is not None:
+            if emoji_flag:
+                is_reaction = True
+            else:
+                is_reply = True
+
         return {
             "category": category,
             "is_direct_message": is_direct,
@@ -230,4 +267,9 @@ class MeshtasticPacketClassifier:
             "sender_id": sender_id,
             "portnum": portnum,
             "is_ack": is_ack,
+            "reply_id": reply_id,
+            "emoji_flag": emoji_flag,
+            "reaction_key": reaction_key,
+            "is_reply": is_reply,
+            "is_reaction": is_reaction,
         }
