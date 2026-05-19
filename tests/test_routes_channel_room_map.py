@@ -65,6 +65,12 @@ class TestChannelRoomMapConfig:
         r = RouteConfig.from_toml_dict("crm_route", data)
         assert r.channel_room_map == {"3": "!room3:example.com"}
 
+    def test_string_channel_key_accepted(self) -> None:
+        """String channel key like "3" is accepted as-is (lines 520-523)."""
+        data = self._base(channel_room_map={"3": "!room:example.com"})
+        r = RouteConfig.from_toml_dict("str_key_route", data)
+        assert r.channel_room_map == {"3": "!room:example.com"}
+
     def test_all_channels_0_through_7(self) -> None:
         crm = {str(i): f"!room{i}:example.com" for i in range(8)}
         data = self._base(channel_room_map=crm)
@@ -609,3 +615,81 @@ class TestChannelRoomMapExpansion:
         routes = build_runtime_routes(rcs, self._platforms())
         assert len(routes) == 2
         assert all("matrix_to_meshtastic" in r.id for r in routes)
+
+    # --- Tests A, B, C: targeted line coverage ---
+
+    def test_dest_adapter_missing_from_adapter_platforms_raises(self) -> None:
+        """Dest adapter not in adapter_platforms raises RouteValidationError
+        with 'cannot determine platform for dest adapter' (lines 491-492)."""
+        from medre.runtime.route_engine import RouteValidationError, build_runtime_routes
+
+        rc = RouteConfig(
+            route_id="dest_missing",
+            source_adapters=("matrix_adapter",),
+            dest_adapters=("unknown_adapter",),
+            channel_room_map={"0": "!room0:example.com"},
+        )
+        rcs = RouteConfigSet(routes=(rc,))
+        with pytest.raises(
+            RouteValidationError,
+            match=r"cannot determine platform for dest adapter.*unknown_adapter",
+        ):
+            # Source platform is found, but dest is missing → hits lines 491-492
+            build_runtime_routes(
+                rcs, {"matrix_adapter": "matrix"}
+            )
+
+    def test_reversed_platform_order_expands_correctly(self) -> None:
+        """Meshtastic source, Matrix dest (reversed order) with bidirectional
+        produces both legs in the correct direction (lines 512-519)."""
+        from medre.runtime.route_engine import build_runtime_routes
+
+        rc = RouteConfig(
+            route_id="rev_bidir",
+            source_adapters=("mesh_adapter",),
+            dest_adapters=("matrix_adapter",),
+            directionality=RouteDirectionality.BIDIRECTIONAL,
+            channel_room_map={"0": "!room0:example.com"},
+        )
+        rcs = RouteConfigSet(routes=(rc,))
+        platforms = {"mesh_adapter": "meshtastic", "matrix_adapter": "matrix"}
+        routes = build_runtime_routes(rcs, platforms)
+
+        assert len(routes) == 2
+
+        fwd = [r for r in routes if "meshtastic_to_matrix" in r.id]
+        rev = [r for r in routes if "matrix_to_meshtastic" in r.id]
+        assert len(fwd) == 1
+        assert len(rev) == 1
+
+        # Forward (source→dest = meshtastic→matrix): mesh source, matrix target
+        assert fwd[0].source.adapter == "mesh_adapter"
+        assert fwd[0].targets[0].adapter == "matrix_adapter"
+        assert fwd[0].source.channel == "0"
+        assert fwd[0].targets[0].channel == "!room0:example.com"
+
+        # Reverse (matrix→meshtastic): matrix source, mesh target
+        assert rev[0].source.adapter == "matrix_adapter"
+        assert rev[0].targets[0].adapter == "mesh_adapter"
+        assert rev[0].source.channel == "!room0:example.com"
+        assert rev[0].targets[0].channel == "0"
+
+    def test_policy_allowed_event_types_sets_event_kinds(self) -> None:
+        """channel_room_map route with policy.allowed_event_types=["message"]
+        produces routes with event_kinds=("message",) (lines 526-527)."""
+        from medre.runtime.route_engine import build_runtime_routes
+        from medre.runtime.routes import BridgePolicy
+
+        policy = BridgePolicy(allowed_event_types=("message",))
+        rc = RouteConfig(
+            route_id="policy_crm",
+            source_adapters=("matrix_adapter",),
+            dest_adapters=("mesh_adapter",),
+            directionality=RouteDirectionality.SOURCE_TO_DEST,
+            channel_room_map={"0": "!room0:example.com"},
+            policy=policy,
+        )
+        rcs = RouteConfigSet(routes=(rc,))
+        routes = build_runtime_routes(rcs, self._platforms())
+        assert len(routes) == 1
+        assert routes[0].source.event_kinds == ("message",)

@@ -972,3 +972,51 @@ class TestChannelRoomMapBuilderIntegration:
         result = builder._derive_matrix_auto_join_rooms(adapter_platforms)
         assert "!room0:test.org" in result["fm"]
         assert "!room3:test.org" in result["fm"]
+
+    def test_disabled_route_skipped_in_auto_join(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """A route with enabled=False is skipped during auto-join room
+        derivation — its rooms do not appear in the auto-join set (lines 572-573)."""
+        rt_matrix = MatrixRuntimeConfig(
+            adapter_id="fm",
+            enabled=True,
+            adapter_kind="fake",
+            config=make_fake_matrix_config(),
+        )
+        rt_mesh = MeshtasticRuntimeConfig(
+            adapter_id="ft",
+            enabled=True,
+            adapter_kind="fake",
+            config=make_fake_meshtastic_config(),
+        )
+        enabled_route = RouteConfig(
+            route_id="active",
+            source_adapters=("fm",),
+            dest_adapters=("ft",),
+            source_channel="!active_room:test.org",
+            enabled=True,
+        )
+        disabled_route = RouteConfig(
+            route_id="inactive",
+            source_adapters=("fm",),
+            dest_adapters=("ft",),
+            source_channel="!disabled_room:test.org",
+            enabled=False,
+        )
+        config = RuntimeConfig(
+            storage=StorageConfig(backend="memory"),
+            adapters=AdapterConfigSet(
+                matrix={"fm": rt_matrix},
+                meshtastic={"ft": rt_mesh},
+            ),
+            routes=RouteConfigSet(routes=(enabled_route, disabled_route)),
+        )
+        builder = RuntimeBuilder(config, tmp_paths)
+        result = builder._derive_matrix_auto_join_rooms(
+            {"fm": "matrix", "ft": "meshtastic"}
+        )
+        # The enabled route's room should appear
+        assert "!active_room:test.org" in result["fm"]
+        # The disabled route's room must NOT appear (line 572-573: if not route.enabled: continue)
+        assert "!disabled_room:test.org" not in result["fm"]
