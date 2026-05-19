@@ -972,3 +972,196 @@ class TestChannelRoomMapBuilderIntegration:
         result = builder._derive_matrix_auto_join_rooms(adapter_platforms)
         assert "!room0:test.org" in result["fm"]
         assert "!room3:test.org" in result["fm"]
+
+
+# ---------------------------------------------------------------------------
+# Matrix room alias resolution in builder
+# ---------------------------------------------------------------------------
+
+
+class TestBuilderAliasResolution:
+    """RuntimeBuilder._resolve_route_room_aliases resolves # aliases to
+    canonical !room IDs before route expansion."""
+
+    def _make_builder(
+        self,
+        tmp_paths: MedrePaths,
+        *,
+        route: RouteConfig,
+        matrix_config: MatrixConfig | None = None,
+    ) -> RuntimeBuilder:
+        """Create a RuntimeBuilder with one Matrix and one Meshtastic adapter."""
+        if matrix_config is None:
+            matrix_config = _make_matrix_config("fm")
+        rt_matrix = MatrixRuntimeConfig(
+            adapter_id="fm",
+            enabled=True,
+            adapter_kind="fake",
+            config=matrix_config,
+        )
+        rt_mesh = MeshtasticRuntimeConfig(
+            adapter_id="ft",
+            enabled=True,
+            adapter_kind="fake",
+            config=make_fake_meshtastic_config(),
+        )
+        config = RuntimeConfig(
+            storage=StorageConfig(backend="memory"),
+            adapters=AdapterConfigSet(
+                matrix={"fm": rt_matrix},
+                meshtastic={"ft": rt_mesh},
+            ),
+            routes=RouteConfigSet(routes=(route,)),
+        )
+        return RuntimeBuilder(config, tmp_paths)
+
+    def test_channel_room_map_alias_resolved(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """Alias in channel_room_map is resolved to canonical room ID."""
+        route = RouteConfig(
+            route_id="bridge",
+            source_adapters=("fm",),
+            dest_adapters=("ft",),
+            directionality=RouteDirectionality.BIDIRECTIONAL,
+            channel_room_map={
+                "0": "#alias0:test.org",
+                "1": "!already-canonical:test.org",
+            },
+        )
+        builder = self._make_builder(tmp_paths, route=route)
+
+        # Mock the alias resolution.
+        from medre.adapters.matrix import alias_resolver
+
+        async def _fake_resolve(
+            homeserver: str, access_token: str, alias: str
+        ) -> str | None:
+            if alias == "#alias0:test.org":
+                return "!resolved0:test.org"
+            return None
+
+        with patch.object(
+            alias_resolver, "resolve_room_alias", side_effect=_fake_resolve
+        ):
+            builder._resolve_route_room_aliases()
+
+        # Verify the route config was updated.
+        routes = builder._config.routes.routes
+        assert len(routes) == 1
+        crm = routes[0].channel_room_map
+        assert crm is not None
+        assert crm["0"] == "!resolved0:test.org"
+        assert crm["1"] == "!already-canonical:test.org"
+
+    def test_source_channel_alias_resolved(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """Alias in source_channel is resolved to canonical room ID."""
+        route = RouteConfig(
+            route_id="r1",
+            source_adapters=("fm",),
+            dest_adapters=("ft",),
+            source_channel="#alias-src:test.org",
+        )
+        builder = self._make_builder(tmp_paths, route=route)
+
+        from medre.adapters.matrix import alias_resolver
+
+        async def _fake_resolve(
+            homeserver: str, access_token: str, alias: str
+        ) -> str | None:
+            if alias == "#alias-src:test.org":
+                return "!resolved-src:test.org"
+            return None
+
+        with patch.object(
+            alias_resolver, "resolve_room_alias", side_effect=_fake_resolve
+        ):
+            builder._resolve_route_room_aliases()
+
+        routes = builder._config.routes.routes
+        assert routes[0].source_channel == "!resolved-src:test.org"
+
+    def test_no_aliases_no_change(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """Routes without aliases are left unchanged."""
+        route = RouteConfig(
+            route_id="r1",
+            source_adapters=("fm",),
+            dest_adapters=("ft",),
+            source_channel="!room:test.org",
+        )
+        builder = self._make_builder(tmp_paths, route=route)
+        original_route = builder._config.routes.routes[0]
+        builder._resolve_route_room_aliases()
+        # Same object — no replacement needed.
+        assert builder._config.routes.routes[0] is original_route
+
+    def test_full_build_resolves_alias_before_expansion(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """Full builder.build() resolves aliases so expanded routes use
+        canonical room IDs."""
+        route = RouteConfig(
+            route_id="alias_bridge",
+            source_adapters=("fm",),
+            dest_adapters=("ft",),
+            directionality=RouteDirectionality.BIDIRECTIONAL,
+            channel_room_map={
+                "0": "#myroom:test.org",
+            },
+        )
+        builder = self._make_builder(tmp_paths, route=route)
+
+        from medre.adapters.matrix import alias_resolver
+
+        async def _fake_resolve(
+            homeserver: str, access_token: str, alias: str
+        ) -> str | None:
+            if alias == "#myroom:test.org":
+                return "!resolved:test.org"
+            return None
+
+        with patch.object(
+            alias_resolver, "resolve_room_alias", side_effect=_fake_resolve
+        ):
+            app = builder.build()
+
+        # 1 channel × bidirectional = 2 routes
+        route_ids = list(app.router._routes.keys())
+        assert len(route_ids) == 2
+        assert "alias_bridge__ch0__matrix_to_meshtastic" in route_ids
+        assert "alias_bridge__ch0__meshtastic_to_matrix" in route_ids
+
+        # Verify the resolved room ID appears in auto-join rooms.
+        assert builder._matrix_auto_join["fm"] == ("!resolved:test.org",)
+
+    def test_unresolvable_alias_left_unchanged(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """An alias that fails to resolve is left as-is (logged as warning)."""
+        route = RouteConfig(
+            route_id="r1",
+            source_adapters=("fm",),
+            dest_adapters=("ft",),
+            source_channel="#bad-alias:test.org",
+        )
+        builder = self._make_builder(tmp_paths, route=route)
+
+        from medre.adapters.matrix import alias_resolver
+
+        async def _fake_resolve(
+            homeserver: str, access_token: str, alias: str
+        ) -> str | None:
+            return None  # Resolution fails.
+
+        with patch.object(
+            alias_resolver, "resolve_room_alias", side_effect=_fake_resolve
+        ):
+            builder._resolve_route_room_aliases()
+
+        # Alias left unchanged.
+        routes = builder._config.routes.routes
+        assert routes[0].source_channel == "#bad-alias:test.org"

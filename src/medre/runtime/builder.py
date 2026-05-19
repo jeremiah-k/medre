@@ -369,6 +369,10 @@ class RuntimeBuilder:
         for transport, adapter_id, _rtc in self._config.adapters.all_configs():
             adapter_platforms[adapter_id] = transport
 
+        # 10.0b Resolve Matrix room aliases (#alias:server → !roomid:server)
+        #      in route configs before expansion or adapter construction.
+        self._resolve_route_room_aliases()
+
         # 10.1 Derive Matrix auto-join rooms from route configuration
         #      before constructing adapters.
         self._matrix_auto_join = self._derive_matrix_auto_join_rooms(adapter_platforms)
@@ -436,6 +440,173 @@ class RuntimeBuilder:
         app._route_provenance = route_result.provenance
         app._registered_routes = route_result.registered_routes
         return app
+
+    # -- Alias resolution -------------------------------------------------------
+
+    def _resolve_route_room_aliases(self) -> None:
+        """Resolve Matrix room aliases in route configs to canonical room IDs.
+
+        Scans all route configs and Matrix adapter configs for room values
+        starting with ``#`` (aliases), resolves them via the Matrix SDK, and
+        replaces the route config set with canonical ``!roomid:server`` IDs.
+
+        Resolution failures are logged as warnings and the alias is left
+        unchanged — the route will likely fail at runtime with an unresolved
+        alias, which produces a clearer error than silently dropping it.
+        """
+        from medre.adapters.matrix.alias_resolver import resolve_room_alias
+        from medre.runtime.routes import RouteConfig, RouteConfigSet
+
+        # Collect all alias room IDs from routes.
+        aliases: set[str] = set()
+        for rc in self._config.routes.routes:
+            if rc.channel_room_map:
+                for room_id in rc.channel_room_map.values():
+                    if isinstance(room_id, str) and room_id.startswith("#"):
+                        aliases.add(room_id)
+            for field in (
+                rc.source_room,
+                rc.dest_room,
+                rc.source_channel,
+                rc.dest_channel,
+            ):
+                if isinstance(field, str) and field.startswith("#"):
+                    aliases.add(field)
+
+        # Also check auto_join_rooms from Matrix configs.
+        for _transport, _adapter_id, rtc in self._config.adapters.all_configs():
+            if _transport == "matrix" and rtc.config is not None:
+                for room_id in getattr(rtc.config, "auto_join_rooms", ()):
+                    if isinstance(room_id, str) and room_id.startswith("#"):
+                        aliases.add(room_id)
+
+        if not aliases:
+            return
+
+        # Gather Matrix adapter configs for resolution credentials.
+        matrix_configs: list[Any] = []
+        for _transport, _adapter_id, rtc in self._config.adapters.all_configs():
+            if _transport == "matrix" and rtc.enabled and rtc.config is not None:
+                matrix_configs.append(rtc.config)
+
+        if not matrix_configs:
+            _logger.warning(
+                "Found %d room alias(es) in routes but no Matrix adapters "
+                "configured to resolve them: %s",
+                len(aliases),
+                sorted(aliases),
+            )
+            return
+
+        # Resolve each alias using the first available Matrix adapter.
+        async def _resolve_all() -> dict[str, str]:
+            alias_map: dict[str, str] = {}
+            for alias in sorted(aliases):
+                for mc in matrix_configs:
+                    canonical = await resolve_room_alias(
+                        mc.homeserver,
+                        mc.access_token,
+                        alias,
+                    )
+                    if canonical:
+                        alias_map[alias] = canonical
+                        _logger.info(
+                            "Resolved room alias %r → %r", alias, canonical
+                        )
+                        break
+                else:
+                    _logger.warning(
+                        "Failed to resolve room alias %r via any "
+                        "configured Matrix adapter",
+                        alias,
+                    )
+            return alias_map
+
+        try:
+            alias_map = asyncio.run(_resolve_all())
+        except RuntimeError:
+            # asyncio.run() fails if an event loop is already running.
+            # Fall back to creating a new loop explicitly.
+            try:
+                loop = asyncio.new_event_loop()
+                try:
+                    alias_map = loop.run_until_complete(_resolve_all())
+                finally:
+                    loop.close()
+            except Exception:
+                _logger.warning(
+                    "Failed to run alias resolution; aliases will remain "
+                    "unresolved",
+                    exc_info=True,
+                )
+                return
+
+        if not alias_map:
+            return
+
+        # Build replacement route configs with canonical room IDs.
+        new_routes: list[RouteConfig] = []
+        for rc in self._config.routes.routes:
+            new_crm: dict[str, str] | None = None
+            if rc.channel_room_map:
+                new_crm = {}
+                for ch, room_id in rc.channel_room_map.items():
+                    new_crm[ch] = alias_map.get(room_id, room_id)
+
+            new_src_room = (
+                alias_map.get(rc.source_room)
+                if rc.source_room and rc.source_room.startswith("#")
+                else rc.source_room
+            )
+            new_dst_room = (
+                alias_map.get(rc.dest_room)
+                if rc.dest_room and rc.dest_room.startswith("#")
+                else rc.dest_room
+            )
+            new_src_ch = (
+                alias_map.get(rc.source_channel)
+                if rc.source_channel and rc.source_channel.startswith("#")
+                else rc.source_channel
+            )
+            new_dst_ch = (
+                alias_map.get(rc.dest_channel)
+                if rc.dest_channel and rc.dest_channel.startswith("#")
+                else rc.dest_channel
+            )
+
+            changed = (
+                new_crm is not None
+                and new_crm != rc.channel_room_map
+                or new_src_room != rc.source_room
+                or new_dst_room != rc.dest_room
+                or new_src_ch != rc.source_channel
+                or new_dst_ch != rc.dest_channel
+            )
+
+            if changed:
+                new_routes.append(
+                    RouteConfig(
+                        route_id=rc.route_id,
+                        source_adapters=rc.source_adapters,
+                        dest_adapters=rc.dest_adapters,
+                        directionality=rc.directionality,
+                        enabled=rc.enabled,
+                        filter_hooks=rc.filter_hooks,
+                        source_channel=new_src_ch,
+                        dest_channel=new_dst_ch,
+                        source_room=new_src_room,
+                        dest_room=new_dst_room,
+                        channel_room_map=(
+                            new_crm if new_crm is not None else rc.channel_room_map
+                        ),
+                        policy=rc.policy,
+                        retry=rc.retry,
+                    )
+                )
+            else:
+                new_routes.append(rc)
+
+        self._config = replace(self._config, routes=RouteConfigSet(routes=tuple(new_routes)))
 
     # -- Storage construction ----------------------------------------------------
 

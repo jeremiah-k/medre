@@ -558,14 +558,9 @@ class RouteConfig:
                         section_path=section_path,
                     )
                 room_value = raw_value.strip()
-                if room_value.startswith("#"):
-                    raise ConfigValidationError(
-                        f"Route {route_id!r}: channel_room_map room "
-                        f"{room_value!r} for channel {ch_normalized!r} "
-                        f"is an alias — aliases are not supported yet; "
-                        f"use a canonical room ID starting with '!'",
-                        section_path=section_path,
-                    )
+                # Room aliases (starting with "#") are accepted here and
+                # resolved to canonical room IDs at runtime by the builder
+                # (see RuntimeBuilder._resolve_route_room_aliases).
                 if room_value in seen_rooms:
                     raise ConfigValidationError(
                         f"Route {route_id!r}: channel_room_map has duplicate "

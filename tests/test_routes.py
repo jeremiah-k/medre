@@ -1181,12 +1181,14 @@ class TestChannelRoomMapConfig:
                 self._base(channel_room_map={"0": ""}),
             )
 
-    def test_reject_alias_room(self) -> None:
-        with pytest.raises(ConfigValidationError, match="alias.*not supported"):
-            RouteConfig.from_toml_dict(
-                "bad",
-                self._base(channel_room_map={"0": "#room:example.com"}),
-            )
+    def test_accepts_alias_room(self) -> None:
+        """Room aliases starting with '#' are accepted at config time.
+        They are resolved to canonical IDs at runtime by the builder."""
+        r = RouteConfig.from_toml_dict(
+            "alias_ok",
+            self._base(channel_room_map={"0": "#room:example.com"}),
+        )
+        assert r.channel_room_map == {"0": "#room:example.com"}
 
     # --- rejection: duplicate normalized channel ---
 
