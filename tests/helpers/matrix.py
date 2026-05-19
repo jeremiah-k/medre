@@ -77,6 +77,12 @@ def build_mock_nio_module() -> MagicMock:
 
     client.room_send = AsyncMock(side_effect=_room_send)
 
+    async def _join(room_id: str) -> MagicMock:
+        join_resp = MagicMock(name="join_response")
+        join_resp.room_id = room_id
+        return join_resp
+    client.join = AsyncMock(side_effect=_join)
+
     whoami_resp = MagicMock(name="whoami_response")
     whoami_resp.device_id = "BRIDGE_MOCK_DEVICE"
     client.whoami = AsyncMock(return_value=whoami_resp)
@@ -86,10 +92,13 @@ def build_mock_nio_module() -> MagicMock:
     mock.RoomMessageText = MagicMock(name="RoomMessageText")
     mock.RoomMessageNotice = MagicMock(name="RoomMessageNotice")
     mock.RoomMessageEmote = MagicMock(name="RoomMessageEmote")
+    mock.ReactionEvent = MagicMock(name="ReactionEvent")
+    mock.InviteMemberEvent = MagicMock(name="InviteMemberEvent")
 
     mock_events = MagicMock(name="nio.events")
     mock_events.MegolmEvent = MagicMock(name="MegolmEvent")
     mock_events.RoomEncryptionEvent = MagicMock(name="RoomEncryptionEvent")
+    mock_events.InviteMemberEvent = MagicMock(name="InviteMemberEvent")
     mock.events = mock_events
 
     return mock

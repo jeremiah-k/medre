@@ -37,6 +37,7 @@ REQUIRED_TOML_CONFIGS = [
     "docker-matrix-bridge.toml",
     "docker-meshtastic-bridge.toml",
     "live-matrix-meshtastic.toml",
+    "live-matrix-meshtastic-channel-map.toml",
 ]
 
 # Configs with placeholder credentials that cannot be fully loaded.

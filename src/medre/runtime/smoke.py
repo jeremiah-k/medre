@@ -177,8 +177,11 @@ def _run_preflight(config: Any) -> dict[str, Any]:
         route_list = routes.routes
         route_count = len(route_list)
         route_enabled = sum(1 for r in route_list if r.enabled)
+        adapter_platforms: dict[str, str] = {}
+        for _transport, _adapter_id, _rtc in config.adapters.all_configs():
+            adapter_platforms[_adapter_id] = _transport
         try:
-            build_runtime_routes(routes)
+            build_runtime_routes(routes, adapter_platforms)
         except RouteValidationError as exc:
             route_errors.append(str(exc))
 

@@ -24,7 +24,7 @@ import random
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Literal
+from typing import Any, Callable, Iterable, Literal
 
 from medre.adapters.matrix import compat as _compat_mod
 from medre.adapters.matrix.errors import MatrixConnectionError
@@ -169,6 +169,9 @@ class MatrixSession:
         "_crypto_store_loaded",
         # Track 4 — room-state tracking
         "_room_states",
+        # Part D — auto-join
+        "_auto_join_rooms",
+        "_joining_rooms",
     )
 
     def __init__(
@@ -176,6 +179,7 @@ class MatrixSession:
         config: MatrixConfig,
         message_callback: Callable[..., Any] | None = None,
         logger: logging.Logger | None = None,
+        auto_join_rooms: tuple[str, ...] = (),
     ) -> None:
         self._config = config
         self._client: Any = None
@@ -198,6 +202,9 @@ class MatrixSession:
         self._crypto_store_loaded: bool = False
         # Track 4
         self._room_states: dict[str, RoomEncryptionState] = {}
+        # Part D — auto-join
+        self._auto_join_rooms = auto_join_rooms
+        self._joining_rooms: dict[str, asyncio.Task[bool]] = {}
 
     # -- Properties -----------------------------------------------------------
 
@@ -562,6 +569,9 @@ class MatrixSession:
         # Register MegolmEvent callback for undecryptable encrypted events.
         self._register_megolm_callback()
 
+        # Part D — register invite callback for auto-join.
+        self._register_invite_callback()
+
         sync_coro = self._run_sync()
         try:
             self._sync_task = asyncio.create_task(sync_coro)
@@ -610,6 +620,132 @@ class MatrixSession:
             )
         except ImportError:
             pass
+
+    # Part D — invite callback registration
+    def _register_invite_callback(self) -> None:
+        """Register an InviteMemberEvent callback for auto-join.
+
+        Discovers ``InviteMemberEvent`` from nio and registers
+        ``self._on_invite`` as the handler.  Wrapped in try/except for
+        older nio versions that may not expose this class.
+        """
+        if self._client is None:
+            return
+
+        try:
+            import nio
+
+            invite_cls = getattr(nio, "InviteMemberEvent", None)
+            if invite_cls is None:
+                invite_cls = getattr(nio.events, "InviteMemberEvent", None)
+            if invite_cls is not None:
+                self._client.add_event_callback(
+                    self._on_invite,
+                    (invite_cls,),
+                )
+        except (ImportError, AttributeError):
+            pass
+
+    # Part D — ensure_joined helper
+    async def ensure_joined(self, room_id: str) -> bool:
+        """Ensure the session has joined the given room.
+
+        Returns ``True`` if already joined or join succeeds, ``False``
+        on failure.  Does **not** raise on join failure — callers that
+        need hard failures should check the return value.
+
+        Uses ``_joining_rooms`` (``dict[str, asyncio.Task[bool]]``) to
+        avoid duplicate concurrent joins for the same room.  Concurrent
+        callers await the leader's task via ``asyncio.shield`` so that
+        cancelling a waiter does **not** cancel the underlying join.
+        """
+        if self._stop_requested or self._closed:
+            self._logger.debug(
+                "ensure_joined: session stopping/closed, skipping join for %s",
+                room_id,
+            )
+            return False
+
+        if not isinstance(room_id, str) or not room_id:
+            self._logger.warning("ensure_joined: invalid room_id %r", room_id)
+            return False
+
+        if self._client is None:
+            self._logger.warning(
+                "ensure_joined: client is None, cannot join %s", room_id
+            )
+            return False
+
+        # Already joined — check client.rooms.
+        rooms = getattr(self._client, "rooms", None)
+        if rooms is not None and isinstance(rooms, dict) and room_id in rooms:
+            return True
+
+        # Deduplicate concurrent joins using a Task per room.
+        # Waiters await the leader's task via shield so their
+        # cancellation cannot propagate to the join itself.
+        if room_id in self._joining_rooms:
+            return await asyncio.shield(self._joining_rooms[room_id])
+
+        async def _join_once() -> bool:
+            try:
+                response = await self._client.join(room_id)
+                if hasattr(response, "room_id"):
+                    self._logger.info("Joined room %s", room_id)
+                    return True
+                else:
+                    self._logger.warning(
+                        "Failed to join room %s: %s", room_id, str(response)
+                    )
+                    return False
+            except Exception as exc:
+                self._logger.warning(
+                    "Exception joining room %s: %s", room_id, exc
+                )
+                return False
+            finally:
+                if self._joining_rooms.get(room_id) is task:
+                    self._joining_rooms.pop(room_id, None)
+
+        task = asyncio.create_task(_join_once())
+        self._joining_rooms[room_id] = task
+        return await asyncio.shield(task)
+
+    # Part D — ensure_joined_rooms batch helper
+    async def ensure_joined_rooms(self, room_ids: Iterable[str]) -> dict[str, bool]:
+        """Join multiple rooms, returning a mapping of room_id → success.
+
+        Deduplicates while preserving deterministic order.  Failure to
+        join one room does not prevent attempts for others.
+        """
+        unique = dict.fromkeys(room_ids)
+        results: dict[str, bool] = {}
+        for rid in unique:
+            results[rid] = await self.ensure_joined(rid)
+        return results
+
+    # Part D — invite handler
+    async def _on_invite(self, room: Any, event: Any) -> None:
+        """Handle an InviteMemberEvent.
+
+        Accepts invitations for rooms listed in ``_auto_join_rooms``.
+        Unconfigured invitations are logged at debug level and ignored.
+        """
+        room_id = getattr(event, "room_id", None) or (
+            getattr(room, "room_id", None) if room else None
+        )
+        if not room_id:
+            return
+
+        if room_id in self._auto_join_rooms:
+            self._logger.info(
+                "Accepting invitation to configured room %s", room_id
+            )
+            await self.ensure_joined(room_id)
+        else:
+            self._logger.debug(
+                "Ignoring invitation to unconfigured room %s", room_id
+            )
 
     async def _on_megolm_event(self, room: Any, event: Any) -> None:
         """Handle an undecryptable MegolmEvent.
@@ -794,6 +930,19 @@ class MatrixSession:
         """Stop syncing, close the client.  Idempotent."""
         # Track 3 — signal stop to prevent reconnect loops
         self._stop_requested = True
+
+        # Cancel outstanding join tasks before closing the client.
+        join_tasks = list(self._joining_rooms.values())
+        if join_tasks:
+            for t in join_tasks:
+                t.cancel()
+            self._joining_rooms.clear()
+            for t in join_tasks:
+                try:
+                    await t
+                except asyncio.CancelledError:
+                    pass
+            self._logger.debug("Cancelled %d outstanding join task(s)", len(join_tasks))
 
         if self._sync_task is not None:
             if not self._sync_task.done():

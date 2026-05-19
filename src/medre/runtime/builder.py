@@ -285,6 +285,7 @@ class RuntimeBuilder:
     def __init__(self, config: RuntimeConfig, paths: MedrePaths) -> None:
         self._config = config
         self._paths = paths
+        self._matrix_auto_join: dict[str, tuple[str, ...]] = {}
 
     def build(self) -> MedreApp:
         """Build and return a :class:`MedreApp`, ready for :meth:`MedreApp.start`.
@@ -363,6 +364,14 @@ class RuntimeBuilder:
         )
 
         # 10. Construct adapters from RuntimeConfig
+        # 10.0 Build adapter_id → transport mapping for route expansion.
+        adapter_platforms: dict[str, str] = {}
+        for transport, adapter_id, _rtc in self._config.adapters.all_configs():
+            adapter_platforms[adapter_id] = transport
+
+        # 10.1 Derive Matrix auto-join rooms from route configuration
+        #      before constructing adapters.
+        self._matrix_auto_join = self._derive_matrix_auto_join_rooms(adapter_platforms)
         build_failures = self._build_adapters(adapters)
 
         if build_failures:
@@ -388,6 +397,7 @@ class RuntimeBuilder:
             self._config.routes,
             configured_enabled_ids,
             built_adapter_ids,
+            adapter_platforms=adapter_platforms,
         )
 
         # 10.6. Build route-level retry policies mapping.
@@ -508,6 +518,115 @@ class RuntimeBuilder:
 
         return result
 
+    # -- Matrix auto-join room derivation ----------------------------------------
+
+    def _derive_matrix_auto_join_rooms(
+        self,
+        adapter_platforms: dict[str, str],
+    ) -> dict[str, tuple[str, ...]]:
+        """Derive Matrix auto-join rooms from route configuration.
+
+        For each Matrix adapter, collect canonical room IDs from:
+
+        1. Route sources where the source adapter is a Matrix adapter
+           and the source channel is a non-empty string starting with ``!``.
+        2. Route targets where the target adapter is a Matrix adapter
+           and the target channel is a non-empty string starting with ``!``.
+        3. Explicit ``MatrixConfig.auto_join_rooms`` set by the operator.
+
+        Also validates that if ``room_allowlist`` is explicitly set on a
+        Matrix config, it must include every source-derived room for that
+        adapter.
+
+        Returns
+        -------
+        dict[str, tuple[str, ...]]
+            Mapping from Matrix adapter ID to the merged tuple of room IDs
+            to auto-join.
+
+        Raises
+        ------
+        RuntimeConfigError
+            If ``room_allowlist`` is explicitly set but omits a route-derived
+            source room.
+        """
+        from medre.runtime.route_engine import build_runtime_routes
+
+        # Build adapter_id → transport mapping for Matrix adapters.
+        matrix_adapter_ids: set[str] = set()
+        for transport, adapter_id, _rtc in self._config.adapters.all_configs():
+            if transport == "matrix":
+                matrix_adapter_ids.add(adapter_id)
+
+        if not matrix_adapter_ids:
+            return {}
+
+        # Expand routes to get Route objects with channels.
+        expanded_routes = build_runtime_routes(self._config.routes, adapter_platforms)
+
+        # Collect rooms per adapter, tracking source vs all.
+        source_rooms: dict[str, set[str]] = {aid: set() for aid in matrix_adapter_ids}
+        all_rooms: dict[str, set[str]] = {aid: set() for aid in matrix_adapter_ids}
+
+        for route in expanded_routes:
+            if not route.enabled:
+                continue
+
+            # Source channel rooms.
+            src = route.source.adapter
+            src_channel = route.source.channel
+            if (
+                src is not None
+                and src in matrix_adapter_ids
+                and isinstance(src_channel, str)
+                and src_channel.startswith("!")
+            ):
+                source_rooms[src].add(src_channel)
+                all_rooms[src].add(src_channel)
+
+            # Target channel rooms.
+            for target in route.targets:
+                tgt = target.adapter
+                tgt_channel = target.channel
+                if (
+                    tgt is not None
+                    and tgt in matrix_adapter_ids
+                    and isinstance(tgt_channel, str)
+                    and tgt_channel.startswith("!")
+                ):
+                    all_rooms[tgt].add(tgt_channel)
+
+        # Merge with explicit auto_join_rooms from operator config.
+        for transport, adapter_id, rtc in self._config.adapters.all_configs():
+            if transport != "matrix" or rtc.config is None:
+                continue
+            explicit = getattr(rtc.config, "auto_join_rooms", ())
+            if explicit:
+                all_rooms[adapter_id].update(explicit)
+
+        # Validate room_allowlist covers source rooms.
+        for transport, adapter_id, rtc in self._config.adapters.all_configs():
+            if transport != "matrix" or rtc.config is None:
+                continue
+            allowlist = getattr(rtc.config, "room_allowlist", None)
+            if allowlist is not None:
+                missing = source_rooms.get(adapter_id, set()) - allowlist
+                if missing:
+                    raise RuntimeConfigError(
+                        f"Matrix adapter {adapter_id!r} has room_allowlist "
+                        f"that omits source rooms from routes: "
+                        f"{sorted(missing)}. Either add these rooms to "
+                        f"room_allowlist or set room_allowlist to None to "
+                        f"accept all rooms."
+                    )
+
+        # Build result: adapter_id → sorted tuple of merged rooms.
+        return {
+            aid: tuple(sorted(rooms))
+            for aid, rooms in all_rooms.items()
+            if rooms  # only include adapters that have rooms to join
+        }
+
     # -- Adapter construction ----------------------------------------------------
 
     def _build_adapters(
@@ -608,6 +727,14 @@ class RuntimeBuilder:
                 self._paths.adapter_transport_state_dir(adapter_id, "matrix") / "store"
             )
             config = replace(config, store_path=str(derived_store))
+
+        # Inject auto-join rooms derived from route configuration.
+        if transport == "matrix":
+            extra_rooms = self._matrix_auto_join.get(adapter_id, ())
+            if extra_rooms:
+                existing = getattr(config, "auto_join_rooms", ())
+                merged = tuple(sorted(set(existing) | set(extra_rooms)))
+                config = replace(config, auto_join_rooms=merged)
 
         try:
             adapter = factory.build(config)

@@ -87,8 +87,12 @@ def _routes_validate(config_path: str | None) -> None:
     from medre.runtime.route_engine import RouteValidationError as _RVE
     from medre.runtime.route_engine import build_runtime_routes as _build_runtime_routes
 
+    adapter_platforms: dict[str, str] = {}
+    for _transport, _adapter_id, _rtc in config.adapters.all_configs():
+        adapter_platforms[_adapter_id] = _transport
+
     try:
-        _build_runtime_routes(routes)
+        _build_runtime_routes(routes, adapter_platforms)
     except _RVE as exc:
         errors.append(str(exc))
 
