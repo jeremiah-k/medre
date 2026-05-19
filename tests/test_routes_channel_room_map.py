@@ -128,13 +128,13 @@ class TestChannelRoomMapConfig:
                 self._base(channel_room_map={"0": ""}),
             )
 
-    def test_accepts_alias_room(self) -> None:
-        """Room aliases starting with '#' are accepted and resolved at runtime."""
-        r = RouteConfig.from_toml_dict(
-            "alias_ok",
-            self._base(channel_room_map={"0": "#room:example.com"}),
-        )
-        assert r.channel_room_map == {"0": "#room:example.com"}
+    def test_reject_alias_room(self) -> None:
+        """Room aliases starting with '#' are rejected at config time."""
+        with pytest.raises(ConfigValidationError):
+            RouteConfig.from_toml_dict(
+                "bad_alias",
+                self._base(channel_room_map={"0": "#room:example.com"}),
+            )
 
     def test_reject_non_canonical_general(self) -> None:
         """Plain names without sigils are not valid room IDs."""

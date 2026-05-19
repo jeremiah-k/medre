@@ -558,12 +558,19 @@ class RouteConfig:
                         section_path=section_path,
                     )
                 room_value = raw_value.strip()
-                if not room_value.startswith(("!", "#")):
+                if room_value.startswith("#"):
+                    raise ConfigValidationError(
+                        f"Route {route_id!r}: channel_room_map room for "
+                        f"channel {ch_normalized!r} is a room alias "
+                        f"({room_value!r}); aliases are not supported yet — "
+                        f"use canonical room IDs starting with '!'",
+                        section_path=section_path,
+                    )
+                if not room_value.startswith("!"):
                     raise ConfigValidationError(
                         f"Route {route_id!r}: channel_room_map value "
                         f"{room_value!r} for channel {ch_normalized!r} must "
-                        f"be a canonical Matrix room ID starting with '!' "
-                        f"or a room alias starting with '#'",
+                        f"be a canonical Matrix room ID starting with '!'",
                         section_path=section_path,
                     )
                 if room_value in seen_rooms:
