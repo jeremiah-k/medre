@@ -46,6 +46,7 @@ from medre.core.events.canonical import (
     NativeMessageRef,
     NativeRef,
 )
+from medre.core.events.kinds import EventKind
 from medre.core.observability.metrics import Diagnostician
 from medre.core.planning.delivery_plan import (
     DeliveryFailureKind,
@@ -392,6 +393,14 @@ class PipelineRunner:
 
         # Stage 4 – persist inbound native ref
         await self._persist_inbound_native_ref(event)
+
+        # Stage 4.5 – suppress reaction-to-reaction
+        if await self._is_reaction_to_reaction(event):
+            self._log.info(
+                "Reaction-to-reaction suppressed: event_id=%s targets another reaction",
+                event.event_id,
+            )
+            return []
 
         # Stages 5-6 – route, plan, deliver
         try:
@@ -802,6 +811,55 @@ class PipelineRunner:
             created_at=now,
         )
         await self._config.storage.store_native_ref(inbound_ref)
+
+    async def _is_reaction_to_reaction(self, event: CanonicalEvent) -> bool:
+        """Return ``True`` when *event* is a reaction whose target is itself a reaction.
+
+        Checks each relation with ``relation_type == "reaction"`` for a
+        ``target_event_id``.  If the target event exists in storage and is
+        either a ``MESSAGE_REACTED`` event or carries a ``"reaction"``
+        relation itself, the inbound event is considered a
+        *reaction-to-reaction* and should be suppressed from routing.
+
+        Failures to fetch the target event are logged and silently skipped
+        so that storage errors never prevent delivery.
+        """
+        if event.event_kind != EventKind.MESSAGE_REACTED:
+            return False
+        if not event.relations:
+            return False
+        get_fn = getattr(self._config.storage, "get", None)
+        if not callable(get_fn):
+            return False
+        for rel in event.relations:
+            if rel.relation_type != "reaction":
+                continue
+            target_id = rel.target_event_id
+            if not target_id:
+                continue
+            try:
+                target_event = await cast(
+                    Callable[[str], Awaitable[object]], get_fn
+                )(target_id)
+            except Exception:
+                self._log.debug(
+                    "Failed to fetch target event for reaction-to-reaction check: %s",
+                    target_id,
+                    exc_info=True,
+                )
+                continue
+            if target_event is None:
+                continue
+            # Target is itself a reaction event.
+            if getattr(target_event, "event_kind", None) == EventKind.MESSAGE_REACTED:
+                return True
+            # Target has a reaction relation.
+            target_rels = getattr(target_event, "relations", None)
+            if target_rels:
+                for target_rel in target_rels:
+                    if getattr(target_rel, "relation_type", None) == "reaction":
+                        return True
+        return False
 
     async def _record_outbound_native_ref(
         self, record: OutboundNativeRefRecord

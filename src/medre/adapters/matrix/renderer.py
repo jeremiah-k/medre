@@ -20,7 +20,6 @@ from __future__ import annotations
 from typing import Any
 
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
-from medre.adapters.matrix.relations import build_reply_body
 from medre.core.events import CanonicalEvent, EventRelation
 from medre.core.rendering.renderer import RenderingResult
 from medre.interop.mmrelay import (
@@ -161,29 +160,10 @@ class MatrixRenderer:
                 if mmrelay_id in (None, ""):
                     mmrelay_id = native_data.get(KEY_REPLY_ID)
                 if mx_event_id:
-                    # Matrix-native reply — render m.in_reply_to with Matrix event ID
-                    original_text = rel.fallback_text or ""
-                    # Resolve a human-readable sender for the fallback body.
-                    # The adapter ID (e.g. "matrix") is meaningless in a
-                    # reply fallback, so try pipeline-enriched target sender
-                    # info first, then relation metadata, then event metadata.
-                    sender = (
-                        str(rel_meta.get("original_sender_displayname") or "")
-                        or str(rel_meta.get("original_sender") or "")
-                        or str(rel_meta.get("displayname") or "")
-                        or str(rel_meta.get("sender") or "")
-                        or ""
-                    )
-                    if not sender and event.metadata and event.metadata.native:
-                        nd = event.metadata.native.data
-                        sender = (
-                            str(nd.get("displayname") or "")
-                            or str(nd.get("sender") or "")
-                            or ""
-                        )
-                    if not sender:
-                        sender = "original message"
-                    content["body"] = build_reply_body(body, sender, original_text)
+                    # Matrix-native reply — render m.in_reply_to with Matrix event ID.
+                    # No manual fallback quoting: Matrix clients handle display
+                    # via m.relates_to.m.in_reply_to natively.
+                    content["body"] = body
                     content["m.relates_to"] = {
                         "m.in_reply_to": {
                             "event_id": mx_event_id,

@@ -333,9 +333,9 @@ class TestReplyThreadContext:
         assert "m.relates_to" in payload
         reply_ref = payload["m.relates_to"]["m.in_reply_to"]
         assert reply_ref["event_id"] == "$orig-matrix-event"
-        # Body should contain quoted fallback text
-        assert "> <original message> original message text" in payload["body"]
-        assert "this is a reply" in payload["body"]
+        # Body is just the relayed body — no manual fallback quoting
+        assert payload["body"] == "this is a reply"
+        assert "> <" not in payload["body"]
 
     @pytest.mark.asyncio
     async def test_matrix_reply_no_native_ref(self) -> None:

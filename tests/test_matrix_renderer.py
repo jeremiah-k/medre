@@ -104,6 +104,9 @@ class TestMatrixRenderer:
         relates = result.payload["m.relates_to"]
         assert "m.in_reply_to" in relates
         assert relates["m.in_reply_to"]["event_id"] == "$orig-native"
+        # Body is just the relayed body, no manual fallback quoting
+        assert result.payload["body"] == "my reply"
+        assert "> <" not in result.payload["body"]
 
     async def test_render_with_reaction_relation(self) -> None:
         """Reaction relations render as native Matrix m.reaction payloads."""
@@ -216,10 +219,35 @@ class TestMatrixRendererForeignRefs:
 
 
 class TestMatrixRendererReplySender:
-    """Reply fallback body must use a human-readable sender, not adapter ID."""
+    """Matrix-native reply body must NOT contain manual fallback quoting.
 
-    async def test_reply_fallback_does_not_use_adapter_id(self) -> None:
-        """Sender in reply fallback must not be the adapter name like 'matrix'."""
+    Matrix handles reply display via m.relates_to.m.in_reply_to natively,
+    so the body is just the relayed message text (with any relay prefix).
+    """
+
+    async def test_reply_body_equals_relay_body(self) -> None:
+        """Matrix-native reply body equals the relayed body exactly."""
+        renderer = MatrixRenderer()
+        relation = EventRelation(
+            relation_type="reply",
+            target_event_id="orig-001",
+            target_native_ref=NativeRef(
+                adapter="matrix-1",
+                native_channel_id="!room:server",
+                native_message_id="$orig-native",
+            ),
+            key=None,
+            fallback_text="original text",
+        )
+        event = _make_event(
+            payload={"body": "my reply"},
+            relations=(relation,),
+        )
+        result = await renderer.render(event, "matrix-1")
+        assert result.payload["body"] == "my reply"
+
+    async def test_reply_body_no_fallback_quote(self) -> None:
+        """No Matrix reply body contains '> <' fallback quoting."""
         renderer = MatrixRenderer()
         relation = EventRelation(
             relation_type="reply",
@@ -238,12 +266,13 @@ class TestMatrixRendererReplySender:
         )
         result = await renderer.render(event, "matrix-1")
         body = result.payload["body"]
-        assert "> <matrix>" not in body
-        assert "> <matrix-1>" not in body
+        assert "> <" not in body
 
-    async def test_reply_fallback_uses_sender_from_native_metadata(self) -> None:
-        """When event native metadata has 'sender', it is used in fallback."""
-        renderer = MatrixRenderer()
+    async def test_reply_body_with_relay_prefix(self) -> None:
+        """Reply body includes relay prefix when configured."""
+        renderer = MatrixRenderer(
+            matrix_relay_prefix="[{longname}] ",
+        )
         relation = EventRelation(
             relation_type="reply",
             target_event_id="orig-001",
@@ -269,39 +298,17 @@ class TestMatrixRendererReplySender:
             payload={"body": "my reply"},
             metadata=EventMetadata(
                 native=NativeMetadata(
-                    data={"sender": "@alice:server", "room_id": "!room:server"}
+                    data={"longname": "TadChilly"}
                 )
             ),
         )
         result = await renderer.render(event, "matrix-1")
         body = result.payload["body"]
-        assert "@alice:server" in body
+        assert body == "[TadChilly] my reply"
+        assert "> <" not in body
 
-    async def test_reply_fallback_uses_displayname_from_relation_metadata(self) -> None:
-        """When relation metadata has 'displayname', it takes priority."""
-        renderer = MatrixRenderer()
-        relation = EventRelation(
-            relation_type="reply",
-            target_event_id="orig-001",
-            target_native_ref=NativeRef(
-                adapter="matrix-1",
-                native_channel_id="!room:server",
-                native_message_id="$orig-native",
-            ),
-            key=None,
-            fallback_text="original text",
-            metadata={"displayname": "Alice"},
-        )
-        event = _make_event(
-            payload={"body": "my reply"},
-            relations=(relation,),
-        )
-        result = await renderer.render(event, "matrix-1")
-        body = result.payload["body"]
-        assert "Alice" in body
-
-    async def test_reply_fallback_uses_original_message_when_no_sender(self) -> None:
-        """When no sender info is available, fallback uses 'original message'."""
+    async def test_reply_has_relates_to_with_event_id(self) -> None:
+        """Matrix-native reply payload has m.relates_to.m.in_reply_to.event_id."""
         renderer = MatrixRenderer()
         relation = EventRelation(
             relation_type="reply",
@@ -319,13 +326,10 @@ class TestMatrixRendererReplySender:
             relations=(relation,),
         )
         result = await renderer.render(event, "matrix-1")
-        body = result.payload["body"]
-        assert "original message" in body
+        assert result.payload["m.relates_to"]["m.in_reply_to"]["event_id"] == "$orig-native"
 
-    async def test_reply_fallback_uses_original_sender_displayname_from_metadata(
-        self,
-    ) -> None:
-        """Pipeline-enriched original_sender_displayname takes priority as fallback sender."""
+    async def test_reply_with_mmrelay_id_includes_key_reply_id(self) -> None:
+        """Meshtastic->Matrix reply payload still includes KEY_REPLY_ID."""
         renderer = MatrixRenderer()
         relation = EventRelation(
             relation_type="reply",
@@ -337,25 +341,19 @@ class TestMatrixRendererReplySender:
             ),
             key=None,
             fallback_text="original text",
-            metadata={
-                "original_sender_displayname": "Charlie",
-                "original_sender": "@charlie:server",
-            },
+            metadata={"meshtastic_reply_id": "42"},
         )
         event = _make_event(
             payload={"body": "my reply"},
             relations=(relation,),
         )
         result = await renderer.render(event, "matrix-1")
-        body = result.payload["body"]
-        assert "Charlie" in body
-        # Should NOT contain the raw sender ID since displayname was available
-        assert "> <@charlie:server>" not in body
+        assert "meshtastic_replyId" in result.payload
+        assert result.payload["meshtastic_replyId"] == "42"
 
-    async def test_reply_fallback_uses_original_sender_when_no_displayname(
-        self,
-    ) -> None:
-        """When original_sender_displayname is absent, original_sender is used."""
+    async def test_no_fallback_quote_any_sender_style(self) -> None:
+        """No Matrix reply body contains '> <matrix>', '> <matrix-1>', or
+        '> <Tad Chilly>' style fallback."""
         renderer = MatrixRenderer()
         relation = EventRelation(
             relation_type="reply",
@@ -367,29 +365,7 @@ class TestMatrixRendererReplySender:
             ),
             key=None,
             fallback_text="original text",
-            metadata={"original_sender": "@dave:server"},
-        )
-        event = _make_event(
-            payload={"body": "my reply"},
-            relations=(relation,),
-        )
-        result = await renderer.render(event, "matrix-1")
-        body = result.payload["body"]
-        assert "@dave:server" in body
-
-    async def test_reply_fallback_never_uses_matrix_as_sender(self) -> None:
-        """No Matrix reply fallback body contains '> <matrix> ...' as sender."""
-        renderer = MatrixRenderer()
-        relation = EventRelation(
-            relation_type="reply",
-            target_event_id="orig-001",
-            target_native_ref=NativeRef(
-                adapter="matrix-1",
-                native_channel_id="!room:server",
-                native_message_id="$orig-native",
-            ),
-            key=None,
-            fallback_text="original text",
+            metadata={"displayname": "Tad Chilly"},
         )
         event = _make_event(
             payload={"body": "my reply"},
@@ -399,3 +375,4 @@ class TestMatrixRendererReplySender:
         body = result.payload["body"]
         assert "> <matrix>" not in body
         assert "> <matrix-1>" not in body
+        assert "> <Tad Chilly>" not in body
