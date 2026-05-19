@@ -36,13 +36,13 @@ from medre.core.events.canonical import CanonicalEvent, EventRelation, NativeRef
 from medre.core.events.kinds import EventKind
 from medre.core.events.metadata import EventMetadata, NativeMetadata
 from medre.interop.mmrelay import (
+    EMOJI_FLAG_VALUE,
     KEY_EMOJI,
     KEY_ID,
     KEY_MESHNET,
     KEY_PORTNUM,
     KEY_REPLY_ID,
     KEY_TEXT,
-    EMOJI_FLAG_VALUE,
 )
 
 
@@ -113,7 +113,9 @@ class MatrixCodec(AdapterCodec):
 
         content = source.get("content", {})
         msgtype = content.get("msgtype") or getattr(native_event, "msgtype", None)
-        effective_msgtype = msgtype if isinstance(msgtype, str) and msgtype else "m.text"
+        effective_msgtype = (
+            msgtype if isinstance(msgtype, str) and msgtype else "m.text"
+        )
 
         # -- Detect true Matrix reaction (m.annotation) -----------------------
         reaction_info = extract_reaction(source)

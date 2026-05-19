@@ -15,10 +15,9 @@ Tests cover:
 from __future__ import annotations
 
 from typing import Any
-import asyncio
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
 
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.codec import MatrixCodec
@@ -29,16 +28,15 @@ from medre.core.events.kinds import EventKind
 from medre.core.events.metadata import EventMetadata, NativeMetadata
 from medre.core.rendering.renderer import RenderingResult
 from medre.interop.mmrelay import (
+    EMOJI_FLAG_VALUE,
     KEY_EMOJI,
     KEY_ID,
     KEY_MESHNET,
     KEY_PORTNUM,
     KEY_REPLY_ID,
     KEY_TEXT,
-    EMOJI_FLAG_VALUE,
     PORTNUM_TEXT,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -353,9 +351,7 @@ class TestCodecMMRelayEmoteReaction:
 
     def test_emote_reaction_creates_reaction_relation(self) -> None:
         codec = MatrixCodec("matrix-1", _make_config())
-        native = _make_mmrelay_emote_reaction(
-            body="reacted", reply_id="!abc123"
-        )
+        native = _make_mmrelay_emote_reaction(body="reacted", reply_id="!abc123")
         event = codec.decode(native, room_id="!room:server")
 
         assert len(event.relations) == 1
@@ -369,9 +365,7 @@ class TestCodecMMRelayEmoteReaction:
 
     def test_emote_reaction_metadata_has_mmrelay_fields(self) -> None:
         codec = MatrixCodec("matrix-1", _make_config())
-        native = _make_mmrelay_emote_reaction(
-            body="reacted", reply_id="!abc123"
-        )
+        native = _make_mmrelay_emote_reaction(body="reacted", reply_id="!abc123")
         event = codec.decode(native, room_id="!room:server")
 
         data = event.metadata.native.data
@@ -380,9 +374,7 @@ class TestCodecMMRelayEmoteReaction:
 
     def test_emote_reaction_relation_metadata(self) -> None:
         codec = MatrixCodec("matrix-1", _make_config())
-        native = _make_mmrelay_emote_reaction(
-            body="reacted", reply_id="!abc123"
-        )
+        native = _make_mmrelay_emote_reaction(body="reacted", reply_id="!abc123")
         event = codec.decode(native, room_id="!room:server")
 
         rel = event.relations[0]
@@ -412,9 +404,7 @@ class TestCodecMMRelayEmoteReaction:
 
     def test_mmrelay_emote_captures_full_mmrelay_fields(self) -> None:
         codec = MatrixCodec("matrix-1", _make_config())
-        native = _make_mmrelay_emote_reaction(
-            body="reacted", reply_id="!abc123"
-        )
+        native = _make_mmrelay_emote_reaction(body="reacted", reply_id="!abc123")
         event = codec.decode(native, room_id="!room:server")
 
         data = event.metadata.native.data
@@ -426,9 +416,7 @@ class TestCodecMMRelayEmoteReaction:
     def test_mmrelay_emote_with_reply_id_zero_decodes_to_reaction(self) -> None:
         """MMRelay emote with meshtastic_replyId=0 decodes to reaction relation."""
         codec = MatrixCodec("matrix-1", _make_config())
-        native = _make_mmrelay_emote_reaction(
-            body="reacted", reply_id="0"
-        )
+        native = _make_mmrelay_emote_reaction(body="reacted", reply_id="0")
         event = codec.decode(native, room_id="!room:server")
 
         assert event.event_kind == EventKind.MESSAGE_REACTED
@@ -452,18 +440,14 @@ class TestRendererTrueReaction:
     @pytest.mark.asyncio
     async def test_true_reaction_has_matrix_event_type(self) -> None:
         renderer = MatrixRenderer()
-        event = _make_canonical_reaction(
-            key="👍", target_event_id="$msg-1"
-        )
+        event = _make_canonical_reaction(key="👍", target_event_id="$msg-1")
         result = await renderer.render(event, "matrix-1")
         assert result.payload["_matrix_event_type"] == "m.reaction"
 
     @pytest.mark.asyncio
     async def test_true_reaction_has_annotation_relates_to(self) -> None:
         renderer = MatrixRenderer()
-        event = _make_canonical_reaction(
-            key="❤️", target_event_id="$msg-2"
-        )
+        event = _make_canonical_reaction(key="❤️", target_event_id="$msg-2")
         result = await renderer.render(event, "matrix-1")
 
         relates = result.payload["m.relates_to"]
@@ -474,9 +458,7 @@ class TestRendererTrueReaction:
     @pytest.mark.asyncio
     async def test_true_reaction_has_no_msgtype_or_body(self) -> None:
         renderer = MatrixRenderer()
-        event = _make_canonical_reaction(
-            key="🔥", target_event_id="$msg-3"
-        )
+        event = _make_canonical_reaction(key="🔥", target_event_id="$msg-3")
         result = await renderer.render(event, "matrix-1")
         assert "_matrix_event_type" in result.payload
         assert result.payload["_matrix_event_type"] == "m.reaction"
@@ -490,9 +472,7 @@ class TestRendererMMRelayEmoteFallback:
     @pytest.mark.asyncio
     async def test_mmrelay_compat_reaction_is_emote(self) -> None:
         renderer = MatrixRenderer(mmrelay_compat=True)
-        event = _make_canonical_reaction(
-            key="👍", target_event_id="$msg-1"
-        )
+        event = _make_canonical_reaction(key="👍", target_event_id="$msg-1")
         result = await renderer.render(event, "matrix-1")
 
         assert result.payload["msgtype"] == "m.emote"
@@ -500,9 +480,7 @@ class TestRendererMMRelayEmoteFallback:
     @pytest.mark.asyncio
     async def test_mmrelay_compat_reaction_has_reply_id(self) -> None:
         renderer = MatrixRenderer(mmrelay_compat=True)
-        event = _make_canonical_reaction(
-            key="👍", target_event_id="$msg-1"
-        )
+        event = _make_canonical_reaction(key="👍", target_event_id="$msg-1")
         result = await renderer.render(event, "matrix-1")
 
         assert result.payload[KEY_REPLY_ID] == "$msg-1"
@@ -510,9 +488,7 @@ class TestRendererMMRelayEmoteFallback:
     @pytest.mark.asyncio
     async def test_mmrelay_compat_reaction_has_emoji_flag(self) -> None:
         renderer = MatrixRenderer(mmrelay_compat=True)
-        event = _make_canonical_reaction(
-            key="👍", target_event_id="$msg-1"
-        )
+        event = _make_canonical_reaction(key="👍", target_event_id="$msg-1")
         result = await renderer.render(event, "matrix-1")
 
         assert result.payload[KEY_EMOJI] == EMOJI_FLAG_VALUE
@@ -530,9 +506,7 @@ class TestRendererMMRelayEmoteFallback:
     @pytest.mark.asyncio
     async def test_mmrelay_compat_no_matrix_event_type(self) -> None:
         renderer = MatrixRenderer(mmrelay_compat=True)
-        event = _make_canonical_reaction(
-            key="👍", target_event_id="$msg-1"
-        )
+        event = _make_canonical_reaction(key="👍", target_event_id="$msg-1")
         result = await renderer.render(event, "matrix-1")
 
         assert "_matrix_event_type" not in result.payload
@@ -542,6 +516,7 @@ class TestRendererMMRelayEmoteFallback:
         """Reaction with metadata meshtastic_reply_id=0 emits KEY_REPLY_ID='0'."""
         renderer = MatrixRenderer()
         from datetime import datetime, timezone
+
         rel = EventRelation(
             relation_type="reaction",
             target_event_id=None,
@@ -579,7 +554,9 @@ class TestRendererMMRelayEmoteFallback:
 
         assert result.payload["msgtype"] == "m.emote"
         assert KEY_EMOJI in result.payload
-        assert KEY_REPLY_ID not in result.payload  # no target or metadata to populate it
+        assert (
+            KEY_REPLY_ID not in result.payload
+        )  # no target or metadata to populate it
         assert "_matrix_event_type" not in result.payload
 
 
@@ -660,7 +637,9 @@ class TestMatrixAdapterEventType:
 
         actual_message_type = mock_client.room_send.call_args.kwargs.get("message_type")
         actual_content = mock_client.room_send.call_args.kwargs.get("content", {})
-        assert actual_message_type == "m.room.message", f"expected m.room.message, got {actual_message_type}"
+        assert (
+            actual_message_type == "m.room.message"
+        ), f"expected m.room.message, got {actual_message_type}"
         assert "_matrix_event_type" not in actual_content
 
     @pytest.mark.asyncio
@@ -689,7 +668,9 @@ class TestMatrixAdapterEventType:
 
         actual_message_type = mock_client.room_send.call_args.kwargs.get("message_type")
         actual_content = mock_client.room_send.call_args.kwargs.get("content", {})
-        assert actual_message_type == "m.reaction", f"expected m.reaction, got {actual_message_type}"
+        assert (
+            actual_message_type == "m.reaction"
+        ), f"expected m.reaction, got {actual_message_type}"
         assert "_matrix_event_type" not in actual_content
         assert actual_content.get("m.relates_to", {}).get("key") == "👍"
 

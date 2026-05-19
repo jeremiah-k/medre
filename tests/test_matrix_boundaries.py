@@ -76,9 +76,7 @@ class TestMatrixBoundaries:
                         continue
                     assert not any(
                         stripped.startswith(p) for p in forbidden_prefixes
-                    ), (
-                        f"{mod.__name__}:{i} imports another adapter: {stripped}"
-                    )
+                    ), f"{mod.__name__}:{i} imports another adapter: {stripped}"
 
     def test_matrix_adapter_does_not_route(self) -> None:
         """FakeMatrixAdapter has no route matching or routing methods."""

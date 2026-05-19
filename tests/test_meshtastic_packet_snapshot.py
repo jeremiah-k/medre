@@ -40,6 +40,7 @@ class TestJsonSafe:
         assert isinstance(result["data"], str)
         # Verify round-trip
         import base64
+
         assert base64.b64decode(result["data"]) == raw
 
     def test_bytearray_to_base64(self) -> None:
@@ -72,6 +73,7 @@ class TestJsonSafe:
         class Custom:
             def __repr__(self) -> str:
                 return "CustomObj()"
+
         result = json_safe(Custom())
         assert isinstance(result, str)
         assert result == "CustomObj()"

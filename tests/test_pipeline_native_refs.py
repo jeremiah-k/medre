@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from types import MappingProxyType
-from typing import Any
 
 import pytest
 
@@ -17,6 +16,7 @@ from medre.adapters.fake_presentation import FakePresentationAdapter
 from medre.adapters.fake_transport import FakeTransportAdapter
 from medre.core.contracts.adapter import AdapterDeliveryResult
 from medre.core.engine.pipeline import (
+    PipelineConfig,
     PipelineRunner,
     _native_metadata_for_ref,
 )
@@ -27,7 +27,9 @@ from medre.core.events import (
     NativeMessageRef,
     NativeRef,
 )
+from medre.core.events.bus import EventBus
 from medre.core.events.metadata import NativeMetadata
+from medre.core.planning import FallbackResolver, RelationResolver
 from medre.core.rendering.renderer import RenderingResult
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage import SQLiteStorage
@@ -878,9 +880,7 @@ class TestEnrichRelationsForTarget:
                 event, "target_adapter"
             )
             assert enriched.relations[0].target_native_ref is not None
-            assert (
-                enriched.relations[0].target_native_ref.adapter == "target_adapter"
-            )
+            assert enriched.relations[0].target_native_ref.adapter == "target_adapter"
             assert (
                 enriched.relations[0].target_native_ref.native_message_id
                 == "$target-msg-001"
@@ -1160,9 +1160,7 @@ class TestRendererReceivesEnrichedRelation:
             assert len(rendered_events) == 1
             rendered = rendered_events[0]
             assert rendered.relations[0].target_native_ref is not None
-            assert (
-                rendered.relations[0].target_native_ref.adapter == "render_target"
-            )
+            assert rendered.relations[0].target_native_ref.adapter == "render_target"
             assert (
                 rendered.relations[0].target_native_ref.native_message_id
                 == "$render-msg-001"
@@ -1171,10 +1169,220 @@ class TestRendererReceivesEnrichedRelation:
                 rendered.relations[0].target_native_ref.native_channel_id
                 == "!render:server"
             )
-            assert rendered.relations[0].target_native_ref.native_thread_id == "thread-1"
+            assert (
+                rendered.relations[0].target_native_ref.native_thread_id == "thread-1"
+            )
             # Preserved relation fields.
             assert rendered.relations[0].target_event_id == "prior-render-001"
             assert rendered.relations[0].key is None
             assert rendered.relations[0].fallback_text == "original"
         finally:
             await runner.stop()
+
+
+# ===================================================================
+# Helpers for channel-aware enrichment tests
+# ===================================================================
+
+
+def _event_with_relation(
+    target_event_id: str = "evt-target",
+    adapter: str = "other-adapter",
+) -> CanonicalEvent:
+    rel = EventRelation(
+        relation_type="reply",
+        target_event_id=target_event_id,
+        target_native_ref=NativeRef(
+            adapter=adapter, native_channel_id="ch", native_message_id="other-msg"
+        ),
+        key=None,
+        fallback_text=None,
+    )
+    return CanonicalEvent(
+        event_id="evt-source",
+        event_kind="message.created",
+        schema_version=1,
+        timestamp=datetime.now(timezone.utc),
+        source_adapter="src",
+        source_transport_id="",
+        source_channel_id=None,
+        parent_event_id=None,
+        lineage=(),
+        relations=(rel,),
+        payload={"body": "hi"},
+        metadata=EventMetadata(),
+    )
+
+
+async def _make_enrichment(storage, event, target_adapter, target_channel=None):
+    config = PipelineConfig(
+        storage=storage,
+        router=Router(routes=[]),
+        fallback_resolver=FallbackResolver(),
+        relation_resolver=RelationResolver(storage=storage),
+        adapters={},
+        event_bus=EventBus(),
+    )
+    runner = PipelineRunner(config)
+    return await runner._enrich_relations_for_target(
+        event, target_adapter, target_channel
+    )
+
+
+# ===================================================================
+# Channel-aware enrichment tests
+# ===================================================================
+
+
+class TestEnrichRelationsChannelAware:
+    """_enrich_relations_for_target disambiguates by target channel."""
+
+    async def test_exact_channel_match_wins(self, temp_storage) -> None:
+        """When multiple refs exist, exact channel match wins."""
+        event = _event_with_relation(target_event_id="evt-target")
+        await temp_storage.store_native_ref(
+            NativeMessageRef(
+                id="nref-wrong",
+                event_id="evt-target",
+                adapter="mesh-1",
+                native_channel_id="1",
+                native_message_id="wrong",
+                native_thread_id=None,
+                native_relation_id=None,
+                direction="inbound",
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+        await temp_storage.store_native_ref(
+            NativeMessageRef(
+                id="nref-right",
+                event_id="evt-target",
+                adapter="mesh-1",
+                native_channel_id="0",
+                native_message_id="right",
+                native_thread_id=None,
+                native_relation_id=None,
+                direction="inbound",
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+        result = await _make_enrichment(
+            temp_storage, event, "mesh-1", target_channel="0"
+        )
+        rel = result.relations[0]
+        assert rel.target_native_ref is not None
+        assert rel.target_native_ref.native_message_id == "right"
+
+    async def test_adapter_only_fallback_when_no_channel_match(
+        self, temp_storage
+    ) -> None:
+        """When no exact channel match, falls back to adapter-only."""
+        event = _event_with_relation(target_event_id="evt-target")
+        await temp_storage.store_native_ref(
+            NativeMessageRef(
+                id="nref-c1",
+                event_id="evt-target",
+                adapter="mesh-1",
+                native_channel_id="1",
+                native_message_id="c1-msg",
+                native_thread_id=None,
+                native_relation_id=None,
+                direction="inbound",
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+        result = await _make_enrichment(
+            temp_storage, event, "mesh-1", target_channel="0"
+        )
+        rel = result.relations[0]
+        assert rel.target_native_ref is not None
+        assert rel.target_native_ref.native_message_id == "c1-msg"
+
+    async def test_existing_correct_channel_ref_not_replaced(self) -> None:
+        """Existing ref matching target adapter and channel is kept."""
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-target",
+            target_native_ref=NativeRef(
+                adapter="mesh-1", native_channel_id="0", native_message_id="existing"
+            ),
+            key=None,
+            fallback_text=None,
+        )
+        event = CanonicalEvent(
+            event_id="evt-source",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="src",
+            source_transport_id="",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"body": "hi"},
+            metadata=EventMetadata(),
+        )
+        # No storage needed — ref already correct
+        storage = object()
+        result = await _make_enrichment(storage, event, "mesh-1", target_channel="0")
+        rel2 = result.relations[0]
+        assert rel2.target_native_ref is not None
+        assert rel2.target_native_ref.native_message_id == "existing"
+
+    async def test_different_channel_ref_replaced_when_exact_match_exists(
+        self, temp_storage
+    ) -> None:
+        """Existing ref with wrong channel is replaced when exact channel match exists."""
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-target",
+            target_native_ref=NativeRef(
+                adapter="mesh-1", native_channel_id="9", native_message_id="stale"
+            ),
+            key=None,
+            fallback_text=None,
+        )
+        event = CanonicalEvent(
+            event_id="evt-source",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="src",
+            source_transport_id="",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"body": "hi"},
+            metadata=EventMetadata(),
+        )
+        await temp_storage.store_native_ref(
+            NativeMessageRef(
+                id="nref-right",
+                event_id="evt-target",
+                adapter="mesh-1",
+                native_channel_id="0",
+                native_message_id="replacement",
+                native_thread_id=None,
+                native_relation_id=None,
+                direction="inbound",
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+        result = await _make_enrichment(
+            temp_storage, event, "mesh-1", target_channel="0"
+        )
+        rel2 = result.relations[0]
+        assert rel2.target_native_ref is not None
+        assert rel2.target_native_ref.native_message_id == "replacement"
+
+    async def test_lookup_failure_logs_and_leaves_unchanged(self, temp_storage) -> None:
+        """Exception during lookup is logged, relation unchanged."""
+        event = _event_with_relation(target_event_id="boom")
+        # Use storage without list_native_refs_for_event method
+        bad_storage = object()
+        result = await _make_enrichment(
+            bad_storage, event, "mesh-1", target_channel="0"
+        )
+        assert result.relations[0].target_event_id == "boom"

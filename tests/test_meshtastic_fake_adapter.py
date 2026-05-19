@@ -20,13 +20,11 @@ from medre.core.contracts.adapter import (
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.events.kinds import EventKind
 from medre.core.rendering.renderer import RenderingResult
-
 from tests.helpers.meshtastic import (
     make_meshtastic_config,
     make_meshtastic_rendering_result,
     make_meshtastic_text_packet,
 )
-
 
 # ===================================================================
 # Capabilities

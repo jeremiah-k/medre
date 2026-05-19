@@ -39,6 +39,32 @@ _BACKOFF_JITTER_FRACTION: float = 0.25
 _MAX_SEND_RETRIES: int = 3
 
 
+def _normalize_emoji_flag(emoji: object) -> int | None:
+    """Validate and normalize an emoji flag for Meshtastic structured send.
+
+    Returns ``1``, ``None``, or raises ``MeshtasticSendError``.
+    """
+    if emoji is None:
+        return None
+    if isinstance(emoji, bool):
+        return 1 if emoji else None
+    if isinstance(emoji, int):
+        if emoji in (0, 1):
+            return 1 if emoji == 1 else None
+        raise MeshtasticSendError(
+            f"invalid Meshtastic emoji flag for structured send: {emoji!r}",
+            transient=False,
+        )
+    if isinstance(emoji, str):
+        stripped = emoji.strip()
+        if stripped in ("0", "1"):
+            return 1 if stripped == "1" else None
+    raise MeshtasticSendError(
+        f"invalid Meshtastic emoji flag for structured send: {emoji!r}",
+        transient=False,
+    )
+
+
 @dataclass(frozen=True)
 class MeshtasticSessionDiagnostics:
     """Read-only snapshot of session operational state.
@@ -355,8 +381,7 @@ class MeshtasticSession:
                 self._transient_delivery_failures += 1
                 self._last_error = f"Transient send failure (attempt {attempt}): {exc}"
                 self._logger.warning(
-                    "MeshtasticSession %s send failure "
-                    "(attempt %d/%d): %s",
+                    "MeshtasticSession %s send failure " "(attempt %d/%d): %s",
                     self._adapter_id,
                     attempt,
                     _MAX_SEND_RETRIES,
@@ -441,8 +466,7 @@ class MeshtasticSession:
             ``_sendPacket`` are unavailable.
         """
         try:
-            from meshtastic.protobuf import mesh_pb2
-            from meshtastic.protobuf import portnums_pb2
+            from meshtastic.protobuf import mesh_pb2, portnums_pb2
         except ImportError as exc:
             raise MeshtasticSendError(
                 f"meshtastic protobuf modules not available: {exc}",
@@ -484,7 +508,8 @@ class MeshtasticSession:
                 "structured Meshtastic send requires Data.reply_id support",
                 transient=False,
             ) from exc
-        if emoji:
+        emoji_flag = _normalize_emoji_flag(emoji)
+        if emoji_flag == 1:
             try:
                 data.emoji = 1
             except AttributeError as exc:
@@ -499,7 +524,7 @@ class MeshtasticSession:
         generate_packet_id = getattr(self._client, "_generatePacketId", None)
         if callable(generate_packet_id):
             try:
-                setattr(mesh_packet, "id", generate_packet_id())
+                mesh_packet.id = generate_packet_id()
             except Exception:
                 pass
 
@@ -509,12 +534,9 @@ class MeshtasticSession:
 
             broadcast_addr = getattr(meshtastic, "BROADCAST_ADDR", None)
             signature = inspect.signature(_send_packet)
-            accepts_destination = (
-                "destinationId" in signature.parameters
-                or any(
-                    param.kind is inspect.Parameter.VAR_KEYWORD
-                    for param in signature.parameters.values()
-                )
+            accepts_destination = "destinationId" in signature.parameters or any(
+                param.kind is inspect.Parameter.VAR_KEYWORD
+                for param in signature.parameters.values()
             )
             if broadcast_addr is not None and accepts_destination:
                 send_kwargs["destinationId"] = broadcast_addr

@@ -489,14 +489,23 @@ class PipelineRunner:
         self,
         event: CanonicalEvent,
         target_adapter: str,
+        target_channel: str | None = None,
     ) -> CanonicalEvent:
         """Enrich relations with target-adapter native refs for rendering.
 
         For each relation that has a ``target_event_id`` but whose
         ``target_native_ref`` is either missing or not for *target_adapter*,
         look up stored native refs for the target event and attach the
-        first matching one.  This enables structured replies / reactions
-        in target-adapter native ID space.
+        best matching one.  When *target_channel* is provided, an exact
+        channel match is preferred over a bare adapter-only match.  This
+        enables structured replies / reactions in target-adapter native ID
+        space.
+
+        Args:
+            event: The canonical event whose relations may be enriched.
+            target_adapter: Adapter ID to match native refs against.
+            target_channel: Optional native channel ID — when given, prefer
+                refs whose ``native_channel_id`` equals this value.
 
         Returns a new event when any relation is enriched; returns the
         original event unchanged otherwise.  **Never mutates** the stored
@@ -523,8 +532,14 @@ class PipelineRunner:
                 rel.target_native_ref is not None
                 and rel.target_native_ref.adapter == target_adapter
             ):
-                new_relations.append(rel)
-                continue
+                existing_channel = rel.target_native_ref.native_channel_id
+                # Keep if no target channel specified, or existing channel matches,
+                # or existing channel is None (unknown).
+                if target_channel is None or existing_channel in (None, target_channel):
+                    new_relations.append(rel)
+                    continue
+                # Existing channel differs from target channel — may need replacement.
+                # Fall through to lookup an exact match.
 
             # Look up stored native refs for the target event.
             try:
@@ -545,12 +560,21 @@ class PipelineRunner:
                 new_relations.append(rel)
                 continue
 
-            # Find first ref matching the target adapter.
+            # Find ref matching the target adapter, preferring exact channel match.
             matching: NativeMessageRef | None = None
+            exact_match: NativeMessageRef | None = None
             for nref in refs:
                 if nref.adapter == target_adapter:
-                    matching = nref
-                    break
+                    if (
+                        target_channel is not None
+                        and nref.native_channel_id == target_channel
+                    ):
+                        exact_match = nref
+                        break
+                    if matching is None:
+                        matching = nref
+            # Prefer exact channel match over adapter-only fallback.
+            matching = exact_match or matching
 
             if matching is None:
                 new_relations.append(rel)
@@ -1169,7 +1193,9 @@ class PipelineRunner:
         # renderer (and downstream adapter) receive native IDs for
         # structured replies / reactions.  This enrichment is per-target
         # and does not mutate the stored original event.
-        render_event = await self._enrich_relations_for_target(event, adapter_id or "")
+        render_event = await self._enrich_relations_for_target(
+            event, adapter_id or "", target.channel
+        )
         target_platform = getattr(adapter, "platform", None)
         if isinstance(target_platform, str):
             platform_param: str | None = target_platform

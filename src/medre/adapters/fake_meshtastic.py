@@ -129,7 +129,12 @@ class FakeMeshtasticClient:
         self.sent_packets.append(record)
         _trim(self.sent_packets)
         self.sent_count += 1
-        return {"packet_id": packet_id, "channel": channel_index, "reply_id": reply_id, "emoji": emoji}
+        return {
+            "packet_id": packet_id,
+            "channel": channel_index,
+            "reply_id": reply_id,
+            "emoji": emoji,
+        }
 
 
 # Default capabilities for the fake Meshtastic adapter.

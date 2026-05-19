@@ -24,6 +24,7 @@ from medre.adapters.matrix.relations import build_reply_body
 from medre.core.events import CanonicalEvent, EventRelation
 from medre.core.rendering.renderer import RenderingResult
 from medre.interop.mmrelay import (
+    EMOJI_FLAG_VALUE,
     KEY_EMOJI,
     KEY_ID,
     KEY_LONGNAME,
@@ -32,7 +33,6 @@ from medre.interop.mmrelay import (
     KEY_REPLY_ID,
     KEY_SHORTNAME,
     KEY_TEXT,
-    EMOJI_FLAG_VALUE,
     PORTNUM_TEXT,
 )
 
@@ -162,7 +162,11 @@ class MatrixRenderer:
                 if mx_event_id:
                     # Matrix-native reply — render m.in_reply_to with Matrix event ID
                     original_text = rel.fallback_text or ""
-                    sender = getattr(rel.target_native_ref, "adapter", "") if rel.target_native_ref else ""
+                    sender = (
+                        getattr(rel.target_native_ref, "adapter", "")
+                        if rel.target_native_ref
+                        else ""
+                    )
                     content["body"] = build_reply_body(body, sender, original_text)
                     content["m.relates_to"] = {
                         "m.in_reply_to": {
@@ -171,7 +175,9 @@ class MatrixRenderer:
                     }
                 # Always inject KEY_REPLY_ID when a Matrix-native target or MMRelay metadata is present
                 # (used by MMRelay-compatible Matrix consumers)
-                mx_reply_id = mmrelay_id if mmrelay_id not in (None, "") else mx_event_id
+                mx_reply_id = (
+                    mmrelay_id if mmrelay_id not in (None, "") else mx_event_id
+                )
                 if mx_reply_id not in (None, ""):
                     content[KEY_REPLY_ID] = str(mx_reply_id)
 

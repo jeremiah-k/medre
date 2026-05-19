@@ -8,7 +8,6 @@ from __future__ import annotations
 import sys
 from types import ModuleType
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -18,12 +17,10 @@ from medre.adapters.meshtastic.errors import (
 )
 from medre.adapters.meshtastic.session import MeshtasticSession
 from medre.core.rendering.renderer import RenderingResult
-
 from tests.helpers.meshtastic import (
     make_meshtastic_config,
     make_meshtastic_rendering_result,
 )
-
 
 # ===================================================================
 # Send semantics audit
@@ -396,17 +393,21 @@ def _install_fake_protobuf(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
 
     monkeypatch.setitem(sys.modules, "meshtastic.protobuf", fake_proto)
     monkeypatch.setitem(sys.modules, "meshtastic.protobuf.mesh_pb2", fake_mesh_pb2)
-    monkeypatch.setitem(sys.modules, "meshtastic.protobuf.portnums_pb2", fake_portnums_pb2)
+    monkeypatch.setitem(
+        sys.modules, "meshtastic.protobuf.portnums_pb2", fake_portnums_pb2
+    )
 
-    return {"call_log": call_log, "FakeData": FakeData, "FakeMeshPacket": FakeMeshPacket}
+    return {
+        "call_log": call_log,
+        "FakeData": FakeData,
+        "FakeMeshPacket": FakeMeshPacket,
+    }
 
 
 class TestSessionStructuredSend:
     """MeshtasticSession._send_structured via fake protobuf and _sendPacket."""
 
-    async def test_send_with_reply_id_calls_send_structured(
-        self, monkeypatch
-    ) -> None:
+    async def test_send_with_reply_id_calls_send_structured(self, monkeypatch) -> None:
         """send() with reply_id routes to _send_structured path."""
         config = make_meshtastic_config(connection_type="tcp", host="1.2.3.4")
         session = MeshtasticSession(
@@ -419,9 +420,7 @@ class TestSessionStructuredSend:
 
         class FakeClient:
             def _sendPacket(self, mesh_packet, wantAck=True):
-                send_packet_calls.append(
-                    {"packet": mesh_packet, "wantAck": wantAck}
-                )
+                send_packet_calls.append({"packet": mesh_packet, "wantAck": wantAck})
                 return type("Result", (), {"id": 77})()
 
         session._client = FakeClient()
@@ -436,9 +435,7 @@ class TestSessionStructuredSend:
         assert pkt.channel == 2
         assert send_packet_calls[0]["wantAck"] is False
 
-    async def test_send_structured_sets_emoji_when_truthy(
-        self, monkeypatch
-    ) -> None:
+    async def test_send_structured_sets_emoji_when_truthy(self, monkeypatch) -> None:
         """_send_structured sets emoji=1 on Data when emoji is truthy."""
         config = make_meshtastic_config(connection_type="tcp", host="1.2.3.4")
         session = MeshtasticSession(
@@ -448,11 +445,11 @@ class TestSessionStructuredSend:
         _install_fake_protobuf(monkeypatch)
 
         captured_data: list[Any] = []
-        orig_data_cls = sys.modules[
-            "meshtastic.protobuf.mesh_pb2"
-        ].Data
+        orig_data_cls = sys.modules["meshtastic.protobuf.mesh_pb2"].Data
 
-        class CapturingData(orig_data_cls.__bases__[0] if orig_data_cls.__bases__ else object):
+        class CapturingData(
+            orig_data_cls.__bases__[0] if orig_data_cls.__bases__ else object
+        ):
             def __init__(self) -> None:
                 super().__init__()
                 self.portnum: Any = None
@@ -474,9 +471,7 @@ class TestSessionStructuredSend:
         assert len(captured_data) == 1
         assert captured_data[0].emoji == 1
 
-    async def test_send_structured_no_emoji_when_falsy(
-        self, monkeypatch
-    ) -> None:
+    async def test_send_structured_no_emoji_when_falsy(self, monkeypatch) -> None:
         """_send_structured does not set emoji when emoji is None/0."""
         config = make_meshtastic_config(connection_type="tcp", host="1.2.3.4")
         session = MeshtasticSession(
@@ -494,9 +489,7 @@ class TestSessionStructuredSend:
 
         session._client = FakeClient()
 
-        await session.send(
-            {"text": "reply text", "channel_index": 0, "reply_id": 5}
-        )
+        await session.send({"text": "reply text", "channel_index": 0, "reply_id": 5})
         assert len(captured_data) == 1
         assert captured_data[0].emoji == 0
 
@@ -526,9 +519,7 @@ class TestSessionStructuredSend:
         monkeypatch.setattr(builtins, "__import__", mock_import)
 
         with pytest.raises(MeshtasticSendError, match="protobuf") as exc_info:
-            await session.send(
-                {"text": "hello", "channel_index": 0, "reply_id": 1}
-            )
+            await session.send({"text": "hello", "channel_index": 0, "reply_id": 1})
         assert exc_info.value.transient is False
 
     async def test_send_structured_missing_send_packet_raises_permanent(
@@ -549,9 +540,7 @@ class TestSessionStructuredSend:
         session._client = FakeClient()
 
         with pytest.raises(MeshtasticSendError, match="_sendPacket") as exc_info:
-            await session.send(
-                {"text": "hello", "channel_index": 0, "reply_id": 1}
-            )
+            await session.send({"text": "hello", "channel_index": 0, "reply_id": 1})
         assert exc_info.value.transient is False
 
     async def test_send_without_reply_id_uses_sendtext(self) -> None:
@@ -565,20 +554,155 @@ class TestSessionStructuredSend:
 
         class FakeClient:
             def sendText(self, text, channelIndex=0):
-                send_text_calls.append(
-                    {"text": text, "channelIndex": channelIndex}
-                )
+                send_text_calls.append({"text": text, "channelIndex": channelIndex})
                 return type("Packet", (), {"id": 33})()
 
         session._client = FakeClient()
 
-        result = await session.send(
-            {"text": "plain msg", "channel_index": 1}
-        )
+        result = await session.send({"text": "plain msg", "channel_index": 1})
         assert result is not None
         assert len(send_text_calls) == 1
         assert send_text_calls[0]["text"] == "plain msg"
         assert send_text_calls[0]["channelIndex"] == 1
+
+    async def test_emoji_none_skips_emoji(self, monkeypatch) -> None:
+        """emoji=None does not set data.emoji."""
+        config = make_meshtastic_config(connection_type="tcp", host="1.2.3.4")
+        session = MeshtasticSession(
+            config=config, adapter_id="mesh-1", platform="meshtastic"
+        )
+        _install_fake_protobuf(monkeypatch)
+        captured: list[Any] = []
+
+        class FakeClient:
+            def _sendPacket(self, pkt, wantAck=True):
+                captured.append(pkt)
+                return type("R", (), {"id": 1})()
+
+        session._client = FakeClient()
+        await session.send({"text": "hi", "channel_index": 0, "reply_id": 5})
+        assert len(captured) == 1
+        assert captured[0].decoded.emoji == 0
+
+    async def test_emoji_zero_skips_emoji(self, monkeypatch) -> None:
+        """emoji=0 does not set data.emoji."""
+        config = make_meshtastic_config(connection_type="tcp", host="1.2.3.4")
+        session = MeshtasticSession(
+            config=config, adapter_id="mesh-1", platform="meshtastic"
+        )
+        _install_fake_protobuf(monkeypatch)
+        captured: list[Any] = []
+
+        class FakeClient:
+            def _sendPacket(self, pkt, wantAck=True):
+                captured.append(pkt)
+                return type("R", (), {"id": 1})()
+
+        session._client = FakeClient()
+        await session.send(
+            {"text": "hi", "channel_index": 0, "reply_id": 5, "emoji": 0}
+        )
+        assert len(captured) == 1
+        assert captured[0].decoded.emoji == 0
+
+    async def test_emoji_one_sets_flag(self, monkeypatch) -> None:
+        """emoji=1 sets data.emoji=1."""
+        config = make_meshtastic_config(connection_type="tcp", host="1.2.3.4")
+        session = MeshtasticSession(
+            config=config, adapter_id="mesh-1", platform="meshtastic"
+        )
+        _install_fake_protobuf(monkeypatch)
+        captured: list[Any] = []
+
+        class FakeClient:
+            def _sendPacket(self, pkt, wantAck=True):
+                captured.append(pkt)
+                return type("R", (), {"id": 1})()
+
+        session._client = FakeClient()
+        await session.send(
+            {"text": "👍", "channel_index": 0, "reply_id": 5, "emoji": 1}
+        )
+        assert len(captured) == 1
+        assert captured[0].decoded.emoji == 1
+
+    async def test_emoji_two_raises(self, monkeypatch) -> None:
+        """emoji=2 raises MeshtasticSendError."""
+        config = make_meshtastic_config(connection_type="tcp", host="1.2.3.4")
+        session = MeshtasticSession(
+            config=config, adapter_id="mesh-1", platform="meshtastic"
+        )
+        _install_fake_protobuf(monkeypatch)
+
+        class FakeClient:
+            def _sendPacket(self, pkt, wantAck=True):
+                return type("R", (), {"id": 1})()
+
+        session._client = FakeClient()
+        with pytest.raises(MeshtasticSendError):
+            await session.send(
+                {"text": "hi", "channel_index": 0, "reply_id": 5, "emoji": 2}
+            )
+
+    async def test_emoji_invalid_string_raises(self, monkeypatch) -> None:
+        """emoji='yes' raises MeshtasticSendError."""
+        config = make_meshtastic_config(connection_type="tcp", host="1.2.3.4")
+        session = MeshtasticSession(
+            config=config, adapter_id="mesh-1", platform="meshtastic"
+        )
+        _install_fake_protobuf(monkeypatch)
+
+        class FakeClient:
+            def _sendPacket(self, pkt, wantAck=True):
+                return type("R", (), {"id": 1})()
+
+        session._client = FakeClient()
+        with pytest.raises(MeshtasticSendError):
+            await session.send(
+                {"text": "hi", "channel_index": 0, "reply_id": 5, "emoji": "yes"}
+            )
+
+    async def test_emoji_string_one_sets_flag(self, monkeypatch) -> None:
+        """emoji='1' sets data.emoji=1."""
+        config = make_meshtastic_config(connection_type="tcp", host="1.2.3.4")
+        session = MeshtasticSession(
+            config=config, adapter_id="mesh-1", platform="meshtastic"
+        )
+        _install_fake_protobuf(monkeypatch)
+        captured: list[Any] = []
+
+        class FakeClient:
+            def _sendPacket(self, pkt, wantAck=True):
+                captured.append(pkt)
+                return type("R", (), {"id": 1})()
+
+        session._client = FakeClient()
+        await session.send(
+            {"text": "👍", "channel_index": 0, "reply_id": 5, "emoji": "1"}
+        )
+        assert len(captured) == 1
+        assert captured[0].decoded.emoji == 1
+
+    async def test_emoji_string_zero_skips_emoji(self, monkeypatch) -> None:
+        """emoji='0' does not set data.emoji."""
+        config = make_meshtastic_config(connection_type="tcp", host="1.2.3.4")
+        session = MeshtasticSession(
+            config=config, adapter_id="mesh-1", platform="meshtastic"
+        )
+        _install_fake_protobuf(monkeypatch)
+        captured: list[Any] = []
+
+        class FakeClient:
+            def _sendPacket(self, pkt, wantAck=True):
+                captured.append(pkt)
+                return type("R", (), {"id": 1})()
+
+        session._client = FakeClient()
+        await session.send(
+            {"text": "hi", "channel_index": 0, "reply_id": 5, "emoji": "0"}
+        )
+        assert len(captured) == 1
+        assert captured[0].decoded.emoji == 0
 
 
 # ===================================================================
@@ -715,13 +839,15 @@ class TestAdapterDeliverPassthrough:
         adapter._session = FakeSession()  # type: ignore[assignment]
         adapter._started = True
 
-        await adapter.deliver(RenderingResult(
-            event_id="evt-1",
-            target_adapter="mesh-1",
-            target_channel="0",
-            payload={"text": "hi", "channel_index": 0, "reply_id": 99},
-            metadata={},
-        ))
+        await adapter.deliver(
+            RenderingResult(
+                event_id="evt-1",
+                target_adapter="mesh-1",
+                target_channel="0",
+                payload={"text": "hi", "channel_index": 0, "reply_id": 99},
+                metadata={},
+            )
+        )
         result = await adapter.send_one()
         assert result is not None
         assert len(send_calls) == 1
@@ -748,13 +874,15 @@ class TestAdapterDeliverPassthrough:
         adapter._session = FakeSession()  # type: ignore[assignment]
         adapter._started = True
 
-        await adapter.deliver(RenderingResult(
-            event_id="evt-2",
-            target_adapter="mesh-1",
-            target_channel="0",
-            payload={"text": "🔥", "channel_index": 0, "reply_id": 10, "emoji": 1},
-            metadata={},
-        ))
+        await adapter.deliver(
+            RenderingResult(
+                event_id="evt-2",
+                target_adapter="mesh-1",
+                target_channel="0",
+                payload={"text": "🔥", "channel_index": 0, "reply_id": 10, "emoji": 1},
+                metadata={},
+            )
+        )
         result = await adapter.send_one()
         assert result is not None
         assert len(send_calls) == 1
