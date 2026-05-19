@@ -12,6 +12,7 @@ No test requires mindroom-nio[e2e].
 from __future__ import annotations
 
 import asyncio
+import importlib
 import logging
 import sys
 from unittest.mock import MagicMock, patch
@@ -525,6 +526,23 @@ class TestReactionCallbackRegistration:
 # ===================================================================
 
 
+def _no_reaction_importlib():
+    """Patch importlib.import_module so importlib fallback returns nothing.
+
+    Prevents the importlib fallback in _reaction_event_classes from
+    hitting the real installed nio package during unit tests.
+    """
+    _empty_mod = MagicMock(name="empty_importlib_mod")
+    del _empty_mod.ReactionEvent
+
+    def _fake_import(name, *a, **kw):
+        if name in ("nio.events", "nio.events.room_events"):
+            return _empty_mod
+        return importlib.import_module(name, *a, **kw)
+
+    return patch("medre.adapters.matrix.session.importlib.import_module", side_effect=_fake_import)
+
+
 class TestReactionEventClassesHelper:
     """Tests for the module-level _reaction_event_classes helper."""
 
@@ -542,7 +560,8 @@ class TestReactionEventClassesHelper:
         events.room_events = room_events
         nio_mod.events = events
 
-        result = _reaction_event_classes(nio_mod)
+        with _no_reaction_importlib():
+            result = _reaction_event_classes(nio_mod)
         assert result == (cls,)
 
     def test_finds_events_reaction_event_when_top_level_absent(self) -> None:
@@ -560,7 +579,8 @@ class TestReactionEventClassesHelper:
         events.room_events = room_events
         nio_mod.events = events
 
-        result = _reaction_event_classes(nio_mod)
+        with _no_reaction_importlib():
+            result = _reaction_event_classes(nio_mod)
         assert result == (cls,)
 
     def test_finds_room_events_reaction_event(self) -> None:
@@ -577,7 +597,8 @@ class TestReactionEventClassesHelper:
         events.room_events = room_events
         nio_mod.events = events
 
-        result = _reaction_event_classes(nio_mod)
+        with _no_reaction_importlib():
+            result = _reaction_event_classes(nio_mod)
         assert result == (cls,)
 
     def test_returns_empty_tuple_when_no_class(self) -> None:
@@ -593,7 +614,8 @@ class TestReactionEventClassesHelper:
         events.room_events = room_events
         nio_mod.events = events
 
-        result = _reaction_event_classes(nio_mod)
+        with _no_reaction_importlib():
+            result = _reaction_event_classes(nio_mod)
         assert result == ()
 
     def test_deduplicates_while_preserving_order(self) -> None:
@@ -610,7 +632,8 @@ class TestReactionEventClassesHelper:
         events.room_events = room_events
         nio_mod.events = events
 
-        result = _reaction_event_classes(nio_mod)
+        with _no_reaction_importlib():
+            result = _reaction_event_classes(nio_mod)
         assert result == (cls,)  # Only one instance
 
     def test_no_events_module_returns_top_level_only(self) -> None:
@@ -623,8 +646,67 @@ class TestReactionEventClassesHelper:
         # Make getattr(nio_mod, "events", None) return None
         del nio_mod.events
 
-        result = _reaction_event_classes(nio_mod)
+        with _no_reaction_importlib():
+            result = _reaction_event_classes(nio_mod)
         assert result == (cls,)
+
+    def test_importlib_fallback_finds_reaction_event(self) -> None:
+        """importlib fallback discovers ReactionEvent when getattr paths miss.
+
+        Monkeypatch nio so ReactionEvent is absent from top-level and from
+        events/room_events attributes, but importlib.import_module("nio.events")
+        returns a module with ReactionEvent.
+        """
+        import types
+
+        from medre.adapters.matrix.session import _reaction_event_classes
+
+        cls = type("ReactionEvent", (), {})
+
+        # Build an nio.events module that carries ReactionEvent
+        events_mod = types.ModuleType("nio.events")
+        events_mod.ReactionEvent = cls  # type: ignore[attr-defined]
+
+        # nio.events.room_events without ReactionEvent
+        room_events_mod = types.ModuleType("nio.events.room_events")
+
+        # Build the fake nio module: no ReactionEvent anywhere via getattr
+        nio_mod = MagicMock(name="nio")
+        del nio_mod.ReactionEvent
+        # events attribute returns a module WITHOUT ReactionEvent
+        fake_events = MagicMock(name="nio.events")
+        del fake_events.ReactionEvent
+        fake_room_events = MagicMock(name="nio.events.room_events")
+        del fake_room_events.ReactionEvent
+        fake_events.room_events = fake_room_events
+        nio_mod.events = fake_events
+
+        # Inject the real modules into sys.modules so importlib finds them
+        saved_nio = sys.modules.get("nio")
+        saved_nio_events = sys.modules.get("nio.events")
+        saved_nio_room = sys.modules.get("nio.events.room_events")
+        try:
+            sys.modules["nio.events"] = events_mod
+            sys.modules["nio.events.room_events"] = room_events_mod
+
+            result = _reaction_event_classes(nio_mod)
+            assert result == (cls,), (
+                f"Expected importlib fallback to find ReactionEvent, got {result}"
+            )
+        finally:
+            # Restore sys.modules
+            if saved_nio is None:
+                sys.modules.pop("nio", None)
+            else:
+                sys.modules["nio"] = saved_nio
+            if saved_nio_events is None:
+                sys.modules.pop("nio.events", None)
+            else:
+                sys.modules["nio.events"] = saved_nio_events
+            if saved_nio_room is None:
+                sys.modules.pop("nio.events.room_events", None)
+            else:
+                sys.modules["nio.events.room_events"] = saved_nio_room
 
 
 class TestReactionCallbackMultiClass:

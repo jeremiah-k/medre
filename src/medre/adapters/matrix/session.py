@@ -18,6 +18,7 @@ events are counted and logged but not forwarded.
 from __future__ import annotations
 
 import asyncio
+import importlib
 import logging
 import random
 import time
@@ -84,6 +85,16 @@ def _reaction_event_classes(nio_module: Any) -> tuple[type, ...]:
                     candidates.append(cls)
     except (ImportError, AttributeError):
         pass
+    # 4. importlib fallback — probe submodules that may not be
+    #    populated via top-level getattr traversal.
+    for import_path in ("nio.events", "nio.events.room_events"):
+        try:
+            mod = importlib.import_module(import_path)
+        except Exception:
+            continue
+        cls = getattr(mod, "ReactionEvent", None)
+        if cls is not None:
+            candidates.append(cls)
     # De-duplicate while preserving order
     return tuple(dict.fromkeys(candidates))
 

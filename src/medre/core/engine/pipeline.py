@@ -853,9 +853,12 @@ class PipelineRunner:
         native message ID.  This is the callback wired into
         :class:`AdapterContext.record_outbound_native_ref`.
 
-        Returns early when *record.native_message_id* is empty.  Catches
-        and logs all exceptions with ``exc_info=True`` so that callback
-        failures never crash the adapter's queue drain.
+        The guard against empty ``native_message_id`` is a defensive check
+        for legacy or manually-constructed records; note that
+        :class:`OutboundNativeRefRecord` now rejects empty values at
+        construction.  Catches and logs all exceptions with
+        ``exc_info=True`` so that callback failures never crash the
+        adapter's queue drain.
 
         Parameters
         ----------
