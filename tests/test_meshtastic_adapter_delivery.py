@@ -15,7 +15,13 @@ from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.adapters.meshtastic.errors import (
     MeshtasticSendError,
 )
+from medre.adapters.meshtastic.queue import QueueDeliveryResult
 from medre.adapters.meshtastic.session import MeshtasticSession
+from medre.core.contracts.adapter import (
+    AdapterContext,
+    AdapterDeliveryResult,
+    OutboundNativeRefRecord,
+)
 from medre.core.rendering.renderer import RenderingResult
 from tests.helpers.meshtastic import (
     make_meshtastic_config,
@@ -888,3 +894,195 @@ class TestAdapterDeliverPassthrough:
         assert len(send_calls) == 1
         assert send_calls[0].get("reply_id") == 10
         assert send_calls[0].get("emoji") == 1
+
+
+# ===================================================================
+# Delayed outbound native ref recording (real adapter callback path)
+# ===================================================================
+
+
+class TestDelayedOutboundNativeRef:
+    """Exercises the real MeshtasticAdapter _record_delayed_outbound_ref
+    path: event_id → queue item → late record callback.
+
+    This closes the gap left by FakeMeshtasticAdapter's immediate
+    native_message_id path.  We call _record_delayed_outbound_ref
+    directly with a QueueDeliveryResult to avoid the unbounded
+    _process_queue loop.
+    """
+
+    async def test_event_id_flows_to_outbound_native_ref_record(self) -> None:
+        """event_id enqueued via deliver flows through queue drain/send
+        result to AdapterContext.record_outbound_native_ref as an
+        OutboundNativeRefRecord with correct fields."""
+        import logging
+        from types import MappingProxyType
+
+        from medre.core.events.canonical import CanonicalEvent
+
+        config = make_meshtastic_config()
+        adapter = MeshtasticAdapter(config)
+
+        # Capture records from the callback.
+        recorded: list[OutboundNativeRefRecord] = []
+
+        async def on_outbound_ref(record: OutboundNativeRefRecord) -> None:
+            recorded.append(record)
+
+        async def noop_publish(event: CanonicalEvent) -> None:
+            pass
+
+        # Wire a minimal AdapterContext with the outbound ref callback.
+        adapter.ctx = AdapterContext(
+            adapter_id="mesh-1",
+            event_bus=None,
+            publish_inbound=noop_publish,
+            logger=logging.getLogger("test.mesh-1"),
+            clock=lambda: __import__("datetime").datetime.now(
+                __import__("datetime").timezone.utc
+            ),
+            shutdown_event=__import__("asyncio").Event(),
+            record_outbound_native_ref=on_outbound_ref,
+        )
+
+        # Build a QueueDeliveryResult simulating what process_one returns
+        # after a real send: the queued item carries the event_id and the
+        # delivery has a real native_message_id.
+        event_id = "$evt-delayed-001"
+        payload = {
+            "text": "hello mesh",
+            "channel_index": 0,
+        }
+        item: dict[str, Any] = {
+            "payload": payload,
+            "channel_index": 0,
+            "event_id": event_id,
+        }
+        delivery = AdapterDeliveryResult(
+            native_message_id="987654321",
+            native_channel_id="0",
+            metadata=MappingProxyType(
+                {"packet_id": 987654321, "channel": 0}
+            ),
+        )
+        result = QueueDeliveryResult(item=item, delivery_result=delivery)
+
+        # Call the real adapter's delayed ref recording method.
+        await adapter._record_delayed_outbound_ref(result, event_id, delivery)
+
+        # Verify the callback was invoked exactly once.
+        assert len(recorded) == 1
+        ref = recorded[0]
+
+        # Core identity fields.
+        assert ref.event_id == "$evt-delayed-001"
+        assert ref.adapter == "mesh-1"
+        assert ref.native_channel_id == "0"
+        assert ref.native_message_id == "987654321"
+
+        # Metadata includes the merged delivery snapshot + payload context.
+        assert ref.metadata["packet_id"] == 987654321
+        assert ref.metadata["channel"] == 0
+        assert ref.metadata["text"] == "hello mesh"
+
+    async def test_no_callback_means_no_error(self) -> None:
+        """_record_delayed_outbound_ref is safe when ctx has no callback."""
+        import logging
+        from types import MappingProxyType
+
+        from medre.core.events.canonical import CanonicalEvent
+
+        config = make_meshtastic_config()
+        adapter = MeshtasticAdapter(config)
+
+        async def noop_publish(event: CanonicalEvent) -> None:
+            pass
+
+        # Context without record_outbound_native_ref (defaults to None).
+        adapter.ctx = AdapterContext(
+            adapter_id="mesh-1",
+            event_bus=None,
+            publish_inbound=noop_publish,
+            logger=logging.getLogger("test.mesh-1"),
+            clock=lambda: __import__("datetime").datetime.now(
+                __import__("datetime").timezone.utc
+            ),
+            shutdown_event=__import__("asyncio").Event(),
+        )
+
+        item: dict[str, Any] = {
+            "payload": {"text": "test"},
+            "channel_index": 0,
+            "event_id": "$evt-no-cb",
+        }
+        delivery = AdapterDeliveryResult(
+            native_message_id="111",
+            native_channel_id="0",
+            metadata=MappingProxyType({}),
+        )
+        result = QueueDeliveryResult(item=item, delivery_result=delivery)
+
+        # Should not raise despite no callback.
+        await adapter._record_delayed_outbound_ref(result, "$evt-no-cb", delivery)
+
+    async def test_payload_fields_in_metadata(self) -> None:
+        """_record_delayed_outbound_ref includes reply_id, emoji,
+        meshnet_name, and channel_name from the queued payload."""
+        import logging
+        from types import MappingProxyType
+
+        from medre.core.events.canonical import CanonicalEvent
+
+        config = make_meshtastic_config()
+        adapter = MeshtasticAdapter(config)
+
+        recorded: list[OutboundNativeRefRecord] = []
+
+        async def on_ref(record: OutboundNativeRefRecord) -> None:
+            recorded.append(record)
+
+        async def noop_publish(event: CanonicalEvent) -> None:
+            pass
+
+        adapter.ctx = AdapterContext(
+            adapter_id="mesh-1",
+            event_bus=None,
+            publish_inbound=noop_publish,
+            logger=logging.getLogger("test.mesh-1"),
+            clock=lambda: __import__("datetime").datetime.now(
+                __import__("datetime").timezone.utc
+            ),
+            shutdown_event=__import__("asyncio").Event(),
+            record_outbound_native_ref=on_ref,
+        )
+
+        item: dict[str, Any] = {
+            "payload": {
+                "text": "reaction text",
+                "channel_index": 2,
+                "reply_id": 42,
+                "emoji": 1,
+                "meshnet_name": "TestMesh",
+                "channel_name": "ch2",
+            },
+            "channel_index": 2,
+            "event_id": "$evt-full-meta",
+        }
+        delivery = AdapterDeliveryResult(
+            native_message_id="555",
+            native_channel_id="2",
+            metadata=MappingProxyType({"packet_id": 555, "channel": 2, "reply_id": 42}),
+        )
+        result = QueueDeliveryResult(item=item, delivery_result=delivery)
+
+        await adapter._record_delayed_outbound_ref(result, "$evt-full-meta", delivery)
+
+        assert len(recorded) == 1
+        ref = recorded[0]
+        assert ref.metadata["text"] == "reaction text"
+        assert ref.metadata["reply_id"] == 42
+        assert ref.metadata["emoji"] == 1
+        assert ref.metadata["meshnet_name"] == "TestMesh"
+        assert ref.metadata["channel_name"] == "ch2"
+        # Delivery snapshot keys are merged too.
+        assert ref.metadata["packet_id"] == 555

@@ -519,7 +519,7 @@ def _make_matrix_event(
     native_data: dict[str, object] = {
         "longname": display_name,
         "shortname": display_name.split()[0] if display_name else "",
-        "from_id": "@tad:example.com",
+        "from_id": "@user:example.com",
     }
     return CanonicalEvent(
         event_id=event_id,
@@ -527,7 +527,7 @@ def _make_matrix_event(
         schema_version=1,
         timestamp=datetime.now(timezone.utc),
         source_adapter=source_adapter,
-        source_transport_id="@tad:example.com",
+        source_transport_id="@user:example.com",
         source_channel_id="!room:example.com",
         parent_event_id=None,
         lineage=(),
@@ -811,6 +811,165 @@ class TestCrossPlatformReactionDescriptive:
         result = await renderer.render(event, "mesh-1")
         assert result.payload["reply_id"] == 88
         assert "emoji" not in result.payload
+
+
+# ===================================================================
+# Test D: Matrix→Meshtastic comprehensive reaction rendering
+# ===================================================================
+
+
+class TestMatrixToMeshtasticReactionComprehensive:
+    """Test D: Matrix→Meshtastic reaction with generic display name.
+
+    Verifies: compact prefix with space before 'reacted', casing preserved,
+    display-name spaces removed, reply_id == 2728143522 when mapping exists,
+    no emoji=1 field.
+    """
+
+    async def test_comprehensive_descriptive_reaction(self) -> None:
+        """All Test D requirements in one test: spaces, casing, reply_id, no emoji."""
+        from unittest.mock import MagicMock
+
+        config = MagicMock()
+        config.radio_relay_prefix = "[{longname}] "
+        config.meshnet_name = "mynet"
+        renderer = MeshtasticRenderer(config=config)
+
+        rel = _make_cross_platform_relation(
+            key="👍",
+            fallback_text="original mesh message text",
+            meshtastic_reply_id="2728143522",
+        )
+        event = _make_matrix_event(
+            display_name="Alpha Bravo",
+            relations=(rel,),
+        )
+        result = await renderer.render(event, "mesh-1")
+        payload = result.payload
+        text = payload["text"]
+
+        # Display-name spaces removed: "Alpha Bravo" → "AlphaBravo"
+        assert "[AlphaBravo]" in text
+        assert "[Alpha Bravo]" not in text
+
+        # Casing preserved (not lowercased)
+        assert "[AlphaBravo]" in text  # exact casing match
+        assert "[alphabravo]" not in text  # would appear if lowercased
+
+        # Space after compact prefix before 'reacted'
+        assert "AlphaBravo] reacted" in text
+        assert "AlphaBravo]reacted" not in text
+
+        # Descriptive reaction pattern
+        assert 'reacted 👍 to "original mesh message text"' in text
+
+        # reply_id == 2728143522 when mapping exists
+        assert payload["reply_id"] == 2728143522
+
+        # No emoji=1 field (descriptive, not native tapback)
+        assert "emoji" not in payload
+
+    async def test_no_prefix_space_before_reacted(self) -> None:
+        """Without a prefix template, text starts with 'reacted'."""
+        renderer = MeshtasticRenderer()
+        rel = _make_cross_platform_relation(
+            key="👍",
+            fallback_text="test",
+        )
+        event = _make_matrix_event(
+            display_name="Some User",
+            relations=(rel,),
+        )
+        result = await renderer.render(event, "mesh-1")
+        text = result.payload["text"]
+        # No prefix → text starts directly with "reacted"
+        assert text.startswith("reacted 👍 to")
+
+    async def test_compact_prefix_no_trailing_space_adds_separator(self) -> None:
+        """Prefix without trailing space gets separator space before 'reacted'."""
+        from unittest.mock import MagicMock
+
+        config = MagicMock()
+        config.radio_relay_prefix = "[{longname}]"
+        config.meshnet_name = ""
+        renderer = MeshtasticRenderer(config=config)
+
+        rel = _make_cross_platform_relation(
+            key="👍",
+            fallback_text="hi",
+        )
+        event = _make_matrix_event(
+            display_name="Test User",
+            relations=(rel,),
+        )
+        result = await renderer.render(event, "mesh-1")
+        text = result.payload["text"]
+        # "[TestUser]" (no trailing space) + separator " " + "reacted"
+        assert "[TestUser] reacted" in text
+        assert "[TestUser]reacted" not in text
+
+
+# ===================================================================
+# Matrix→Meshtastic no-mapping fallback
+# ===================================================================
+
+
+class TestMatrixToMeshtasticNoMapping:
+    """Missing mapping fallback: Matrix→Meshtastic reaction with no mapping.
+
+    Sends descriptive text with no reply_id. No crash.
+    """
+
+    async def test_no_mapping_descriptive_text_no_reply_id(self) -> None:
+        """Matrix reaction with no Meshtastic mapping → descriptive text, no reply_id."""
+        renderer = MeshtasticRenderer()
+        # No native ref, no meshtastic_reply_id
+        rel = EventRelation(
+            relation_type="reaction",
+            target_event_id=None,
+            target_native_ref=None,
+            key="👍",
+            fallback_text="a message from Matrix",
+        )
+        event = _make_matrix_event(
+            display_name="Generic User",
+            relations=(rel,),
+        )
+        result = await renderer.render(event, "mesh-1")
+
+        assert "reply_id" not in result.payload
+        assert "emoji" not in result.payload
+        text = result.payload["text"]
+        assert "reacted 👍 to" in text
+        assert "a message from Matrix" in text
+
+    async def test_no_mapping_minimal_metadata_no_crash(self) -> None:
+        """Matrix reaction with minimal metadata still renders without crash."""
+        renderer = MeshtasticRenderer()
+        rel = EventRelation(
+            relation_type="reaction",
+            target_event_id=None,
+            target_native_ref=None,
+            key="🔥",
+            fallback_text=None,
+        )
+        event = CanonicalEvent(
+            event_id="evt-minimal",
+            event_kind="message.reacted",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="matrix-1",
+            source_transport_id="@user:example.com",
+            source_channel_id="!room:server",
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"body": "🔥"},
+            metadata=EventMetadata(native=NativeMetadata(data={})),
+        )
+        result = await renderer.render(event, "mesh-1")
+        assert "reacted" in result.payload["text"]
+        assert "reply_id" not in result.payload
 
 
 # ===================================================================
