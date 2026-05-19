@@ -454,6 +454,23 @@ PYTHONPATH=src medre smoke
 PYTHONPATH=src medre smoke --json
 ```
 
+### Identifying hanging tests
+
+When the full suite hangs, use this per-file timeout loop to isolate which test
+file is blocking:
+
+```bash
+cd /home/jeremiah/dev/medre && for f in tests/test_*.py; do
+  echo -n "$(basename $f): "
+  PYTHONPATH=src timeout 90 python -m pytest -q "$f" 2>&1 | head -3
+done
+```
+
+Each file gets a 90-second timeout. Files that hang will show a timeout exit code
+(124) instead of a pass/fail summary. The last file printed before the loop hangs
+is the culprit. Note that test ordering or pollution across files can mask the
+real hang — run the suspect file in isolation to confirm.
+
 ### Failure interpretation
 
 | Symptom                                             | Likely cause                          | Action                                                                        |
