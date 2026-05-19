@@ -96,6 +96,55 @@ def _is_transient_error(exc: BaseException) -> bool:
     return False
 
 
+def _matrix_display_name(room: Any, sender: str) -> str:
+    """Resolve the display name for *sender* from a nio Room object.
+
+    Preference order:
+    1. ``room.user_name(sender)`` when callable and returns non-empty.
+    2. ``room.users[sender]`` dict fields: ``display_name``, ``displayname``, ``name``.
+    3. ``room.users[sender]`` object attributes: ``.display_name``, ``.displayname``, ``.name``.
+    4. *sender* MXID as final fallback.
+
+    ``None`` and blank / whitespace-only values are treated as missing.
+    """
+    # 1. room.user_name(sender)
+    user_name_fn = getattr(room, "user_name", None)
+    if callable(user_name_fn):
+        try:
+            val = str(user_name_fn(sender) or "").strip()
+            if val:
+                return val
+        except Exception:
+            pass
+
+    # 2 & 3. room.users[sender] — dict fields then object attributes.
+    users = getattr(room, "users", None)
+    if users is None:
+        return sender
+    user_info = users.get(sender) if isinstance(users, dict) else None
+    if user_info is None:
+        return sender
+
+    # Dict path
+    if isinstance(user_info, dict):
+        for key in ("display_name", "displayname", "name"):
+            raw = user_info.get(key)
+            if raw is not None:
+                val = str(raw).strip()
+                if val:
+                    return val
+    else:
+        # Object path
+        for attr in ("display_name", "displayname", "name"):
+            raw = getattr(user_info, attr, None)
+            if raw is not None:
+                val = str(raw).strip()
+                if val:
+                    return val
+
+    return sender
+
+
 class MatrixAdapter(AdapterContract):
     """Presentation adapter for Matrix chat rooms.
 
@@ -559,9 +608,9 @@ class MatrixAdapter(AdapterContract):
             # Matrix room member display name so that downstream
             # renderers (e.g. Meshtastic radio_relay_prefix {longname})
             # show a human-readable name instead of a bare MXID.
-            # Because CanonicalEvent and its metadata are frozen
-            # (msgspec.Struct), we rebuild the data dict and use
-            # force_setattr to patch the immutable structures.
+            # CanonicalEvent and its metadata are frozen (msgspec.Struct
+            # frozen=True), so we build replacement structs via
+            # msgspec.structs.replace instead of mutating in place.
             if canonical.metadata and canonical.metadata.native:
                 ndata = canonical.metadata.native.data
                 existing_longname = ndata.get("longname") or ndata.get(
@@ -571,25 +620,7 @@ class MatrixAdapter(AdapterContract):
                     "meshtastic_shortname"
                 )
                 if not existing_longname and not existing_shortname:
-                    # Resolve display name from the nio Room object.
-                    display_name: str = ""
-                    user_name_fn = getattr(room, "user_name", None)
-                    if callable(user_name_fn):
-                        try:
-                            display_name = str(user_name_fn(sender) or "")
-                        except Exception:
-                            display_name = ""
-                    if not display_name:
-                        users = getattr(room, "users", {})
-                        user_info = users.get(sender, {}) if isinstance(users, dict) else {}
-                        raw_dn = (
-                            user_info.get("display_name")
-                            if isinstance(user_info, dict)
-                            else ""
-                        ) or ""
-                        display_name = str(raw_dn) if raw_dn else ""
-                    if not display_name:
-                        display_name = sender
+                    display_name = _matrix_display_name(room, sender)
 
                     # shortname: first 5 chars of display name, or
                     # localpart of MXID if display_name is just the MXID.
@@ -604,10 +635,15 @@ class MatrixAdapter(AdapterContract):
                     enriched["longname"] = display_name
                     enriched["shortname"] = shortname
 
-                    from msgspec.structs import force_setattr
+                    import msgspec
+                    from medre.core.events.metadata import NativeMetadata
 
-                    force_setattr(
-                        canonical.metadata.native, "data", enriched
+                    new_native = NativeMetadata(data=enriched)
+                    new_metadata = msgspec.structs.replace(
+                        canonical.metadata, native=new_native
+                    )
+                    canonical = msgspec.structs.replace(
+                        canonical, metadata=new_metadata
                     )
 
             await self.publish_inbound(canonical)

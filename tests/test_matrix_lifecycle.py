@@ -162,7 +162,7 @@ class TestMatrixAdapterStart:
         adapter = MatrixAdapter(config)
         try:
             await adapter.start(_make_context())
-            assert mock_nio.AsyncClient.return_value.add_event_callback.call_count == 3
+            assert mock_nio.AsyncClient.return_value.add_event_callback.call_count == 4
         finally:
             await adapter.stop()
 

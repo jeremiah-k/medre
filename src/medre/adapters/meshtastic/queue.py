@@ -424,8 +424,8 @@ def _packet_snapshot(result: Any) -> dict[str, object]:
                 val = decoded[src_key]
                 if val is not None and dst_key not in snapshot:
                     snapshot[dst_key] = json_safe(val)
-            # decoded["id"] → "packet_id" only when both "packet_id"
-            # and "id" are absent from the snapshot (top-level priority).
+            # decoded.id maps to snapshot["packet_id"] when snapshot["packet_id"]
+            # is absent; top-level snapshot["id"] is never overwritten.
             if "packet_id" not in snapshot:
                 id_val = decoded.get("id")
                 if id_val is not None:

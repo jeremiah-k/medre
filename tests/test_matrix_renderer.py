@@ -321,3 +321,81 @@ class TestMatrixRendererReplySender:
         result = await renderer.render(event, "matrix-1")
         body = result.payload["body"]
         assert "original message" in body
+
+    async def test_reply_fallback_uses_original_sender_displayname_from_metadata(
+        self,
+    ) -> None:
+        """Pipeline-enriched original_sender_displayname takes priority as fallback sender."""
+        renderer = MatrixRenderer()
+        relation = EventRelation(
+            relation_type="reply",
+            target_event_id="orig-001",
+            target_native_ref=NativeRef(
+                adapter="matrix-1",
+                native_channel_id="!room:server",
+                native_message_id="$orig-native",
+            ),
+            key=None,
+            fallback_text="original text",
+            metadata={
+                "original_sender_displayname": "Charlie",
+                "original_sender": "@charlie:server",
+            },
+        )
+        event = _make_event(
+            payload={"body": "my reply"},
+            relations=(relation,),
+        )
+        result = await renderer.render(event, "matrix-1")
+        body = result.payload["body"]
+        assert "Charlie" in body
+        # Should NOT contain the raw sender ID since displayname was available
+        assert "> <@charlie:server>" not in body
+
+    async def test_reply_fallback_uses_original_sender_when_no_displayname(
+        self,
+    ) -> None:
+        """When original_sender_displayname is absent, original_sender is used."""
+        renderer = MatrixRenderer()
+        relation = EventRelation(
+            relation_type="reply",
+            target_event_id="orig-001",
+            target_native_ref=NativeRef(
+                adapter="matrix-1",
+                native_channel_id="!room:server",
+                native_message_id="$orig-native",
+            ),
+            key=None,
+            fallback_text="original text",
+            metadata={"original_sender": "@dave:server"},
+        )
+        event = _make_event(
+            payload={"body": "my reply"},
+            relations=(relation,),
+        )
+        result = await renderer.render(event, "matrix-1")
+        body = result.payload["body"]
+        assert "@dave:server" in body
+
+    async def test_reply_fallback_never_uses_matrix_as_sender(self) -> None:
+        """No Matrix reply fallback body contains '> <matrix> ...' as sender."""
+        renderer = MatrixRenderer()
+        relation = EventRelation(
+            relation_type="reply",
+            target_event_id="orig-001",
+            target_native_ref=NativeRef(
+                adapter="matrix-1",
+                native_channel_id="!room:server",
+                native_message_id="$orig-native",
+            ),
+            key=None,
+            fallback_text="original text",
+        )
+        event = _make_event(
+            payload={"body": "my reply"},
+            relations=(relation,),
+        )
+        result = await renderer.render(event, "matrix-1")
+        body = result.payload["body"]
+        assert "> <matrix>" not in body
+        assert "> <matrix-1>" not in body

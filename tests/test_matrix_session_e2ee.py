@@ -381,8 +381,8 @@ class TestBlocker4RoomEncryptionEvent:
         try:
             await session.start()
             client_mock = mock_nio.AsyncClient.return_value
-            # Should have 3 callbacks: message + megolm + room_encryption
-            assert client_mock.add_event_callback.call_count == 3
+            # Should have 4 callbacks: message + megolm + room_encryption + reaction
+            assert client_mock.add_event_callback.call_count == 4
             # Check that one of the calls used RoomEncryptionEvent
             call_args_list = client_mock.add_event_callback.call_args_list
             event_types_used = []

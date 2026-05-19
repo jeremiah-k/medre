@@ -102,6 +102,11 @@ def build_mock_nio_module() -> MagicMock:
     mock_events = MagicMock(name="nio.events")
     mock_events.MegolmEvent = MagicMock(name="MegolmEvent")
     mock_events.RoomEncryptionEvent = MagicMock(name="RoomEncryptionEvent")
+    # Explicitly provide room_events submodule WITHOUT ReactionEvent
+    # so auto-created MagicMock doesn't create a false match.
+    mock_room_events = MagicMock(name="nio.events.room_events")
+    del mock_room_events.ReactionEvent
+    mock_events.room_events = mock_room_events
     mock.events = mock_events
     return mock
 

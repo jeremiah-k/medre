@@ -48,6 +48,46 @@ _BACKOFF_JITTER_FRACTION: float = 0.25
 _MAX_ROOM_STATES: int = 10_000
 
 
+def _reaction_event_classes(nio_module: Any) -> tuple[type, ...]:
+    """Discover ReactionEvent class(es) across nio versions.
+
+    Different nio versions expose ``ReactionEvent`` at different module
+    locations (top-level, ``nio.events``, or ``nio.events.room_events``).
+    This helper probes each location and returns a de-duplicated tuple
+    of discovered classes.
+
+    Returns an empty tuple when no ``ReactionEvent`` class is found
+    anywhere.
+    """
+    candidates: list[type] = []
+    # 1. Top-level nio.ReactionEvent
+    cls = getattr(nio_module, "ReactionEvent", None)
+    if cls is not None:
+        candidates.append(cls)
+    # 2. nio.events.ReactionEvent
+    try:
+        events_mod = getattr(nio_module, "events", None)
+        if events_mod is not None:
+            cls = getattr(events_mod, "ReactionEvent", None)
+            if cls is not None:
+                candidates.append(cls)
+    except (ImportError, AttributeError):
+        pass
+    # 3. nio.events.room_events.ReactionEvent
+    try:
+        events_mod = getattr(nio_module, "events", None)
+        if events_mod is not None:
+            room_events_mod = getattr(events_mod, "room_events", None)
+            if room_events_mod is not None:
+                cls = getattr(room_events_mod, "ReactionEvent", None)
+                if cls is not None:
+                    candidates.append(cls)
+    except (ImportError, AttributeError):
+        pass
+    # De-duplicate while preserving order
+    return tuple(dict.fromkeys(candidates))
+
+
 @dataclass(frozen=True)
 class MatrixSessionDiagnostics:
     """Read-only snapshot of session operational state.
@@ -494,11 +534,18 @@ class MatrixSession:
             # try/except so that older nio versions without ReactionEvent
             # degrade gracefully.
             try:
-                self._client.add_event_callback(
-                    self._message_callback,
-                    (nio.ReactionEvent,),
-                )
-            except AttributeError:
+                reaction_classes = _reaction_event_classes(nio)
+                if reaction_classes:
+                    self._client.add_event_callback(
+                        self._message_callback,
+                        reaction_classes,
+                    )
+                else:
+                    self._logger.debug(
+                        "No ReactionEvent class found in nio; "
+                        "reaction callback not registered"
+                    )
+            except (AttributeError, ImportError):
                 pass
 
         # Register MegolmEvent callback for undecryptable encrypted events.

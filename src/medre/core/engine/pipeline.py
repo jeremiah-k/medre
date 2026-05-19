@@ -639,9 +639,12 @@ class PipelineRunner:
             # fallback_text and metadata["original_text"] when missing.
             # This runs regardless of whether native-ref enrichment succeeded.
             text_changed = False
+            _cur_meta = current_rel.metadata or {}
             if callable(get_fn) and (
                 not current_rel.fallback_text
-                or not (current_rel.metadata or {}).get("original_text")
+                or not _cur_meta.get("original_text")
+                or not _cur_meta.get("original_sender_displayname")
+                or not _cur_meta.get("original_sender")
             ):
                 try:
                     target_event = await cast(
@@ -677,6 +680,77 @@ class PipelineRunner:
                                 key=current_rel.key,
                                 fallback_text=new_fallback,
                                 metadata=new_meta,
+                            )
+                            text_changed = True
+
+                        # -- Sender info enrichment ---------------------------------
+                        # Extract original sender display info from the target
+                        # event's native metadata into the relation metadata
+                        # so the renderer can use it for reply fallback sender.
+                        sender_meta = (
+                            dict(current_rel.metadata)
+                            if current_rel.metadata
+                            else {}
+                        )
+                        sender_changed = False
+
+                        if "original_sender_displayname" not in sender_meta:
+                            _dn = None
+                            target_native = getattr(
+                                target_event, "metadata", None
+                            )
+                            if target_native is not None:
+                                target_native = getattr(
+                                    target_native, "native", None
+                                )
+                            if target_native is not None:
+                                target_data = getattr(
+                                    target_native, "data", None
+                                )
+                                if isinstance(target_data, dict):
+                                    _dn = (
+                                        target_data.get("displayname")
+                                        or target_data.get("longname")
+                                    )
+                            if _dn:
+                                sender_meta[
+                                    "original_sender_displayname"
+                                ] = str(_dn)
+                                sender_changed = True
+
+                        if "original_sender" not in sender_meta:
+                            _snd = None
+                            target_native = getattr(
+                                target_event, "metadata", None
+                            )
+                            if target_native is not None:
+                                target_native = getattr(
+                                    target_native, "native", None
+                                )
+                            if target_native is not None:
+                                target_data = getattr(
+                                    target_native, "data", None
+                                )
+                                if isinstance(target_data, dict):
+                                    _snd = target_data.get("sender")
+                            if not _snd:
+                                _snd = getattr(
+                                    target_event,
+                                    "source_transport_id",
+                                    None,
+                                )
+                            if _snd:
+                                sender_meta["original_sender"] = str(_snd)
+                                sender_changed = True
+
+                        if sender_changed:
+                            current_rel = EventRelation(
+                                relation_type=current_rel.relation_type,
+                                target_event_id=current_rel.target_event_id,
+                                target_native_ref=current_rel.target_native_ref,
+                                key=current_rel.key,
+                                fallback_text=current_rel.fallback_text,
+                                metadata=sender_meta,
                             )
                             text_changed = True
                 except Exception:

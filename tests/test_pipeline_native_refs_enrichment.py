@@ -17,6 +17,7 @@ from medre.core.events import (
     CanonicalEvent,
     EventMetadata,
     EventRelation,
+    NativeMetadata,
     NativeMessageRef,
     NativeRef,
 )
@@ -1017,3 +1018,212 @@ class TestStrictChannelStripsIncompatibleRef:
         assert enriched_rel.target_native_ref is not existing_nref
         assert enriched_rel.target_native_ref.native_channel_id == "0"
         assert enriched_rel.target_native_ref.native_message_id == "exact-msg"
+
+
+# ===================================================================
+# Fix 4: sender info enrichment
+# ===================================================================
+
+
+class TestSenderInfoEnrichment:
+    """Pipeline _enrich_relations_for_target populates
+    original_sender_displayname and original_sender from the target
+    event's native metadata."""
+
+    async def test_sender_displayname_enriched_from_target(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Relation gets original_sender_displayname from target event native metadata."""
+        ts = datetime.now(timezone.utc)
+        prior_event = CanonicalEvent(
+            event_id="prior-sender-001",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=ts,
+            source_adapter="src",
+            source_transport_id="node-1",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"body": "Hello"},
+            metadata=EventMetadata(
+                native=NativeMetadata(
+                    data={"displayname": "Alice", "sender": "@alice:server"}
+                )
+            ),
+        )
+        await temp_storage.append(prior_event)
+
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="prior-sender-001",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event = CanonicalEvent(
+            event_id="enrich-sender-001",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="src",
+            source_transport_id="node-2",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"body": "reply"},
+            metadata=EventMetadata(),
+        )
+
+        config = PipelineConfig(
+            storage=temp_storage,
+            router=Router(routes=[]),
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters={},
+            event_bus=EventBus(),
+        )
+        runner = PipelineRunner(config)
+
+        result = await runner._enrich_relations_for_target(event, "target_adapter")
+        enriched_rel = result.relations[0]
+
+        assert enriched_rel.metadata.get("original_sender_displayname") == "Alice"
+        assert enriched_rel.metadata.get("original_sender") == "@alice:server"
+        # Text enrichment should also have run.
+        assert enriched_rel.fallback_text == "Hello"
+        assert enriched_rel.metadata.get("original_text") == "Hello"
+
+    async def test_sender_uses_longname_when_no_displayname(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """original_sender_displayname falls back to 'longname' from native data."""
+        ts = datetime.now(timezone.utc)
+        prior_event = CanonicalEvent(
+            event_id="prior-longname-001",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=ts,
+            source_adapter="src",
+            source_transport_id="node-42",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"body": "Msg"},
+            metadata=EventMetadata(
+                native=NativeMetadata(data={"longname": "BobNode"})
+            ),
+        )
+        await temp_storage.append(prior_event)
+
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="prior-longname-001",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event = CanonicalEvent(
+            event_id="enrich-longname-001",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="src",
+            source_transport_id="node-2",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"body": "reply"},
+            metadata=EventMetadata(),
+        )
+
+        config = PipelineConfig(
+            storage=temp_storage,
+            router=Router(routes=[]),
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters={},
+            event_bus=EventBus(),
+        )
+        runner = PipelineRunner(config)
+
+        result = await runner._enrich_relations_for_target(event, "target_adapter")
+        enriched_rel = result.relations[0]
+
+        assert enriched_rel.metadata.get("original_sender_displayname") == "BobNode"
+        # sender falls back to source_transport_id
+        assert enriched_rel.metadata.get("original_sender") == "node-42"
+
+    async def test_sender_not_overwritten_when_already_present(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Existing original_sender_displayname/original_sender are preserved."""
+        ts = datetime.now(timezone.utc)
+        prior_event = CanonicalEvent(
+            event_id="prior-exist-001",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=ts,
+            source_adapter="src",
+            source_transport_id="node-1",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"body": "Msg"},
+            metadata=EventMetadata(
+                native=NativeMetadata(
+                    data={"displayname": "ShouldNotUse", "sender": "@no:server"}
+                )
+            ),
+        )
+        await temp_storage.append(prior_event)
+
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="prior-exist-001",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+            metadata={
+                "original_sender_displayname": "PreExisting",
+                "original_sender": "@pre:existing",
+            },
+        )
+        event = CanonicalEvent(
+            event_id="enrich-exist-001",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="src",
+            source_transport_id="node-2",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"body": "reply"},
+            metadata=EventMetadata(),
+        )
+
+        config = PipelineConfig(
+            storage=temp_storage,
+            router=Router(routes=[]),
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters={},
+            event_bus=EventBus(),
+        )
+        runner = PipelineRunner(config)
+
+        result = await runner._enrich_relations_for_target(event, "target_adapter")
+        enriched_rel = result.relations[0]
+
+        assert enriched_rel.metadata.get("original_sender_displayname") == "PreExisting"
+        assert enriched_rel.metadata.get("original_sender") == "@pre:existing"

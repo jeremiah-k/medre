@@ -165,9 +165,12 @@ class MatrixRenderer:
                     original_text = rel.fallback_text or ""
                     # Resolve a human-readable sender for the fallback body.
                     # The adapter ID (e.g. "matrix") is meaningless in a
-                    # reply fallback, so try metadata sources first.
+                    # reply fallback, so try pipeline-enriched target sender
+                    # info first, then relation metadata, then event metadata.
                     sender = (
-                        str(rel_meta.get("displayname") or "")
+                        str(rel_meta.get("original_sender_displayname") or "")
+                        or str(rel_meta.get("original_sender") or "")
+                        or str(rel_meta.get("displayname") or "")
                         or str(rel_meta.get("sender") or "")
                         or ""
                     )

@@ -1157,3 +1157,198 @@ class TestDisplayNameEnrichment:
         assert len(published) == 1
         ndata = published[0].metadata.native.data
         assert ndata["longname"] == "Bob Display"
+
+    # --- FIX 1: _matrix_display_name handles nio user objects -----------
+
+    async def test_display_name_from_user_object_display_name(self) -> None:
+        """room.users[sender] object with display_name attr enriches longname."""
+        config = _make_matrix_config(user_id="@bot:example.com")
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        UserObj = type("User", (), {"display_name": "Tad Chilly"})
+        event = _make_fake_nio_event(sender="@tad:example.com")
+        room = SimpleNamespace(
+            room_id="!room:server",
+            users={"@tad:example.com": UserObj()},
+        )
+
+        await adapter._on_room_message(room, event)
+        assert len(published) == 1
+        ndata = published[0].metadata.native.data
+        assert ndata["longname"] == "Tad Chilly"
+
+    async def test_display_name_from_user_object_displayname(self) -> None:
+        """room.users[sender] object with displayname attr works."""
+        config = _make_matrix_config(user_id="@bot:example.com")
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        UserObj = type("User", (), {"displayname": "Tad Chilly"})
+        event = _make_fake_nio_event(sender="@tad:example.com")
+        room = SimpleNamespace(
+            room_id="!room:server",
+            users={"@tad:example.com": UserObj()},
+        )
+
+        await adapter._on_room_message(room, event)
+        assert len(published) == 1
+        ndata = published[0].metadata.native.data
+        assert ndata["longname"] == "Tad Chilly"
+
+    async def test_blank_display_name_falls_back_to_sender(self) -> None:
+        """Blank display_name on user object falls back to sender MXID."""
+        config = _make_matrix_config(user_id="@bot:example.com")
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        UserObj = type("User", (), {"display_name": "   "})
+        event = _make_fake_nio_event(sender="@tad:example.com")
+        room = SimpleNamespace(
+            room_id="!room:server",
+            users={"@tad:example.com": UserObj()},
+        )
+
+        await adapter._on_room_message(room, event)
+        assert len(published) == 1
+        ndata = published[0].metadata.native.data
+        assert ndata["longname"] == "@tad:example.com"
+
+    async def test_user_name_takes_precedence_over_users(self) -> None:
+        """room.user_name(sender) takes precedence over room.users lookup."""
+        config = _make_matrix_config(user_id="@bot:example.com")
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        UserObj = type("User", (), {"display_name": "User Object Name"})
+        event = _make_fake_nio_event(sender="@tad:example.com")
+        room = SimpleNamespace(
+            room_id="!room:server",
+            user_name=lambda uid: "From User Name Fn" if uid == "@tad:example.com" else uid,
+            users={"@tad:example.com": UserObj()},
+        )
+
+        await adapter._on_room_message(room, event)
+        assert len(published) == 1
+        ndata = published[0].metadata.native.data
+        assert ndata["longname"] == "From User Name Fn"
+
+    async def test_existing_mmrelay_longname_preserved_with_object_users(
+        self,
+    ) -> None:
+        """Existing MMRelay meshtastic_longname is preserved (object users)."""
+        config = _make_matrix_config(user_id="@bot:example.com")
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        content = {
+            "msgtype": "m.text",
+            "body": "hello",
+            "meshtastic_longname": "NodeLong",
+            "meshtastic_shortname": "NSh",
+        }
+        event = _make_fake_nio_event(
+            sender="@tad:example.com", content=content
+        )
+        UserObj = type("User", (), {"display_name": "Tad Chilly"})
+        room = SimpleNamespace(
+            room_id="!room:server",
+            users={"@tad:example.com": UserObj()},
+        )
+
+        await adapter._on_room_message(room, event)
+        assert len(published) == 1
+        ndata = published[0].metadata.native.data
+        assert ndata["meshtastic_longname"] == "NodeLong"
+        assert ndata["meshtastic_shortname"] == "NSh"
+        assert ndata.get("longname") != "Tad Chilly"
+
+    # --- FIX 2: frozen metadata immutability after enrichment -----------
+
+    async def test_enriched_metadata_is_frozen(self) -> None:
+        """After enrichment, metadata.native.data is frozen (raises TypeError)."""
+        config = _make_matrix_config(user_id="@bot:example.com")
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        event = _make_fake_nio_event(sender="@alice:example.com")
+        room = SimpleNamespace(
+            room_id="!room:server",
+            user_name=lambda uid: "Alice Display" if uid == "@alice:example.com" else uid,
+            users={},
+        )
+
+        await adapter._on_room_message(room, event)
+        assert len(published) == 1
+        with pytest.raises(TypeError):
+            published[0].metadata.native.data["longname"] = "tampered"
+
+    async def test_enrichment_preserves_other_metadata_namespaces(self) -> None:
+        """Existing metadata namespaces (transport, routing, etc.) preserved."""
+        from medre.core.events.metadata import (
+            EventMetadata,
+            NativeMetadata,
+            TransportMetadata,
+        )
+
+        config = _make_matrix_config(user_id="@bot:example.com")
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        # Build a canonical event with transport metadata so we can verify
+        # it survives the enrichment rebuild path.
+        event = _make_fake_nio_event(sender="@alice:example.com")
+        room = SimpleNamespace(
+            room_id="!room:server",
+            user_name=lambda uid: "Alice Display" if uid == "@alice:example.com" else uid,
+            users={},
+        )
+
+        await adapter._on_room_message(room, event)
+        assert len(published) == 1
+        # Native metadata was enriched
+        assert published[0].metadata.native is not None
+        assert published[0].metadata.native.data["longname"] == "Alice Display"
+
+    async def test_published_enriched_but_stored_not_mutated(self) -> None:
+        """Published event is enriched but original native data is not mutated."""
+        config = _make_matrix_config(user_id="@bot:example.com")
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        # Process the same sender twice — the second event must get its
+        # own independent enrichment, proving no shared mutable state.
+        event1 = _make_fake_nio_event(
+            sender="@alice:example.com", event_id="$evt-a"
+        )
+        event2 = _make_fake_nio_event(
+            sender="@bob:example.com", event_id="$evt-b"
+        )
+        room = SimpleNamespace(
+            room_id="!room:server",
+            user_name=lambda uid: {
+                "@alice:example.com": "Alice",
+                "@bob:example.com": "Bob",
+            }.get(uid, uid),
+            users={},
+        )
+
+        await adapter._on_room_message(room, event1)
+        await adapter._on_room_message(room, event2)
+
+        assert len(published) == 2
+        assert published[0].metadata.native.data["longname"] == "Alice"
+        assert published[1].metadata.native.data["longname"] == "Bob"
+        # Each event's data is independently frozen
+        with pytest.raises(TypeError):
+            published[0].metadata.native.data["longname"] = "x"
+        with pytest.raises(TypeError):
+            published[1].metadata.native.data["longname"] = "x"
