@@ -10,6 +10,7 @@ test_alpha_walkthrough_runtime_retry_replay.py.
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -38,10 +39,10 @@ CONFIG_PATH = str(_ROOT / "examples" / "configs" / "fake-bridge-smoke.toml")
 
 
 @pytest.fixture(scope="module")
-async def smoke_report(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
+def smoke_report(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
     """Run the smoke once for the whole module and return the report."""
     db_path = str(tmp_path_factory.mktemp("alpha") / "walkthrough.db")
-    report = await run_fake_bridge_smoke(CONFIG_PATH, storage_path=db_path)
+    report = asyncio.run(run_fake_bridge_smoke(CONFIG_PATH, storage_path=db_path))
     assert report["status"] == "passed", (
         f"Smoke must pass before walkthrough tests can proceed: "
         f"{report.get('fail_reasons', [])}"
