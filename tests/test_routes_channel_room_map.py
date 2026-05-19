@@ -72,6 +72,14 @@ class TestChannelRoomMapConfig:
         assert r.channel_room_map is not None
         assert len(r.channel_room_map) == 8
 
+    def test_reject_empty_channel_room_map(self) -> None:
+        """Empty channel_room_map dict is rejected."""
+        with pytest.raises(ConfigValidationError):
+            RouteConfig.from_toml_dict(
+                "empty",
+                self._base(channel_room_map={}),
+            )
+
     # --- rejection: non-dict ---
 
     def test_reject_non_dict(self) -> None:
