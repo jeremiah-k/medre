@@ -1129,3 +1129,126 @@ class TestInviteHandling:
             await session._on_invite(room, event)  # no crash
         finally:
             await session.stop()
+
+
+# ===================================================================
+# Cancellation safety for ensure_joined
+# ===================================================================
+
+
+class TestEnsureJoinedCancellationSafety:
+    """Cancellation-safe ensure_joined using asyncio.Task + asyncio.shield."""
+
+    async def test_waiter_cancel_does_not_affect_leader(self, mock_nio) -> None:
+        """Cancelling a waiter does not cancel the leader's join task."""
+        config = make_matrix_config()
+        session = MatrixSession(config)
+        try:
+            await session.start()
+            mock_client = mock_nio.AsyncClient.return_value
+            mock_client.rooms = {}
+
+            join_started = asyncio.Event()
+
+            async def _slow_join(rid: str) -> MagicMock:
+                join_started.set()
+                await asyncio.sleep(10)  # long enough to cancel waiter
+                resp = MagicMock(name="ok")
+                resp.room_id = rid
+                return resp
+
+            mock_client.join = AsyncMock(side_effect=_slow_join)
+
+            # Leader starts ensure_joined
+            leader_task = asyncio.create_task(
+                session.ensure_joined("!room:server")
+            )
+            await join_started.wait()
+
+            # Waiter starts ensure_joined — gets the in-flight task
+            waiter_task = asyncio.create_task(
+                session.ensure_joined("!room:server")
+            )
+            await asyncio.sleep(0)  # let waiter enter shield
+
+            # Cancel the waiter
+            waiter_task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await waiter_task
+
+            # Leader should still be running (not cancelled)
+            assert not leader_task.done()
+
+            # Clean up: cancel leader so test finishes
+            leader_task.cancel()
+            try:
+                await leader_task
+            except asyncio.CancelledError:
+                pass
+        finally:
+            await session.stop()
+
+    async def test_stop_cancels_outstanding_join_tasks(self, mock_nio) -> None:
+        """stop() cancels outstanding join tasks without leaking."""
+        config = make_matrix_config()
+        session = MatrixSession(config)
+        await session.start()
+        mock_client = mock_nio.AsyncClient.return_value
+        mock_client.rooms = {}
+
+        join_started = asyncio.Event()
+
+        async def _slow_join(rid: str) -> MagicMock:
+            join_started.set()
+            await asyncio.sleep(10)
+            resp = MagicMock(name="ok")
+            resp.room_id = rid
+            return resp
+
+        mock_client.join = AsyncMock(side_effect=_slow_join)
+
+        # Start a join
+        task = asyncio.create_task(session.ensure_joined("!room:server"))
+        await join_started.wait()
+
+        # Task is in-flight
+        assert "!room:server" in session._joining_rooms
+
+        # stop should cancel the join task
+        await session.stop()
+
+        # _joining_rooms should be cleared
+        assert len(session._joining_rooms) == 0
+
+        # The task should have been cancelled
+        assert task.cancelled() or task.done()
+
+    async def test_concurrent_failure_both_receive_false(self, mock_nio) -> None:
+        """Two concurrent callers call join exactly once and both get False on failure."""
+        config = make_matrix_config()
+        session = MatrixSession(config)
+        try:
+            await session.start()
+            mock_client = mock_nio.AsyncClient.return_value
+            mock_client.rooms = {}
+
+            join_count = 0
+
+            async def _failing_join(rid: str) -> MagicMock:
+                nonlocal join_count
+                join_count += 1
+                await asyncio.sleep(0)
+                err = MagicMock(name="error")
+                del err.room_id
+                return err
+
+            mock_client.join = AsyncMock(side_effect=_failing_join)
+
+            results = await asyncio.gather(
+                session.ensure_joined("!room:server"),
+                session.ensure_joined("!room:server"),
+            )
+            assert results == [False, False]
+            assert join_count == 1
+        finally:
+            await session.stop()

@@ -204,7 +204,7 @@ class MatrixSession:
         self._room_states: dict[str, RoomEncryptionState] = {}
         # Part D — auto-join
         self._auto_join_rooms = auto_join_rooms
-        self._joining_rooms: dict[str, asyncio.Future[bool]] = {}
+        self._joining_rooms: dict[str, asyncio.Task[bool]] = {}
 
     # -- Properties -----------------------------------------------------------
 
@@ -654,9 +654,10 @@ class MatrixSession:
         on failure.  Does **not** raise on join failure — callers that
         need hard failures should check the return value.
 
-        Uses ``_joining_rooms`` to avoid duplicate concurrent joins for
-        the same room.  Concurrent callers await the leader's
-        ``Future[bool]`` and receive the actual join result directly.
+        Uses ``_joining_rooms`` (``dict[str, asyncio.Task[bool]]``) to
+        avoid duplicate concurrent joins for the same room.  Concurrent
+        callers await the leader's task via ``asyncio.shield`` so that
+        cancelling a waiter does **not** cancel the underlying join.
         """
         if not isinstance(room_id, str) or not room_id:
             self._logger.warning("ensure_joined: invalid room_id %r", room_id)
@@ -673,37 +674,35 @@ class MatrixSession:
         if rooms is not None and isinstance(rooms, dict) and room_id in rooms:
             return True
 
-        # Deduplicate concurrent joins using a Future per room.
-        # Waiters await the leader's future and receive the actual result.
+        # Deduplicate concurrent joins using a Task per room.
+        # Waiters await the leader's task via shield so their
+        # cancellation cannot propagate to the join itself.
         if room_id in self._joining_rooms:
-            return await self._joining_rooms[room_id]
+            return await asyncio.shield(self._joining_rooms[room_id])
 
-        fut: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
-        self._joining_rooms[room_id] = fut
-        try:
-            response = await self._client.join(room_id)
-            # nio JoinResponse has room_id; error responses do not.
-            if hasattr(response, "room_id"):
-                self._logger.info("Joined room %s", room_id)
-                if not fut.done():
-                    fut.set_result(True)
-            else:
-                err_detail = str(response)
+        async def _join_once() -> bool:
+            try:
+                response = await self._client.join(room_id)
+                if hasattr(response, "room_id"):
+                    self._logger.info("Joined room %s", room_id)
+                    return True
+                else:
+                    self._logger.warning(
+                        "Failed to join room %s: %s", room_id, str(response)
+                    )
+                    return False
+            except Exception as exc:
                 self._logger.warning(
-                    "Failed to join room %s: %s", room_id, err_detail
+                    "Exception joining room %s: %s", room_id, exc
                 )
-                if not fut.done():
-                    fut.set_result(False)
-        except Exception as exc:
-            self._logger.warning(
-                "Exception joining room %s: %s", room_id, exc
-            )
-            if not fut.done():
-                fut.set_result(False)
-        finally:
-            self._joining_rooms.pop(room_id, None)
+                return False
+            finally:
+                if self._joining_rooms.get(room_id) is task:
+                    self._joining_rooms.pop(room_id, None)
 
-        return fut.result()
+        task = asyncio.create_task(_join_once())
+        self._joining_rooms[room_id] = task
+        return await asyncio.shield(task)
 
     # Part D — ensure_joined_rooms batch helper
     async def ensure_joined_rooms(self, room_ids: Iterable[str]) -> dict[str, bool]:
@@ -924,6 +923,19 @@ class MatrixSession:
         """Stop syncing, close the client.  Idempotent."""
         # Track 3 — signal stop to prevent reconnect loops
         self._stop_requested = True
+
+        # Cancel outstanding join tasks before closing the client.
+        join_tasks = list(self._joining_rooms.values())
+        if join_tasks:
+            for t in join_tasks:
+                t.cancel()
+            self._joining_rooms.clear()
+            for t in join_tasks:
+                try:
+                    await t
+                except asyncio.CancelledError:
+                    pass
+            self._logger.debug("Cancelled %d outstanding join task(s)", len(join_tasks))
 
         if self._sync_task is not None:
             if not self._sync_task.done():
