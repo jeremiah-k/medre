@@ -607,17 +607,21 @@ class SQLiteStorage:
         else:
             self._db = await asyncio.to_thread(self._sync_open)
 
-        # Verify schema version after DDL.
-        await self._verify_schema_version()
+        try:
+            # Verify schema version after DDL.
+            await self._verify_schema_version()
 
-        # Verify column shape — catches old pre-release DBs that claim
-        # schema_version=1 but predate current columns.
-        await self._validate_schema_shape()
+            # Verify column shape — catches old pre-release DBs that claim
+            # schema_version=1 but predate current columns.
+            await self._validate_schema_shape()
 
-        # Create targeted indexes AFTER shape validation so that old-shape
-        # databases fail with a clear StorageInitializationError before
-        # index creation references missing columns.
-        await self._create_indexes()
+            # Create targeted indexes AFTER shape validation so that old-shape
+            # databases fail with a clear StorageInitializationError before
+            # index creation references missing columns.
+            await self._create_indexes()
+        except BaseException:
+            await self.close()
+            raise
 
     async def _verify_schema_version(self) -> None:
         """Check that the stored schema version matches the expected version.
@@ -745,9 +749,13 @@ class SQLiteStorage:
         else:
             instance._db = await asyncio.to_thread(instance._sync_open_readonly)
 
-        # Validate metadata and shape without writing anything.
-        await instance._verify_schema_version_readonly()
-        await instance._validate_schema_shape()
+        try:
+            # Validate metadata and shape without writing anything.
+            await instance._verify_schema_version_readonly()
+            await instance._validate_schema_shape()
+        except BaseException:
+            await instance.close()
+            raise
 
         return instance
 
