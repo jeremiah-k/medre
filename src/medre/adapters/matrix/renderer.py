@@ -156,7 +156,9 @@ class MatrixRenderer:
                     native_data = dict(event.metadata.native.data)
                 # Extract MMRelay meshtastic_replyId from relation metadata
                 rel_meta = getattr(rel, "metadata", {}) or {}
-                mmrelay_id = rel_meta.get("meshtastic_reply_id") or native_data.get(KEY_REPLY_ID)
+                mmrelay_id = rel_meta.get("meshtastic_reply_id")
+                if mmrelay_id in (None, ""):
+                    mmrelay_id = native_data.get(KEY_REPLY_ID)
                 if mx_event_id:
                     # Matrix-native reply — render m.in_reply_to with Matrix event ID
                     original_text = rel.fallback_text or ""
@@ -169,12 +171,8 @@ class MatrixRenderer:
                     }
                 # Always inject KEY_REPLY_ID when a Matrix-native target or MMRelay metadata is present
                 # (used by MMRelay-compatible Matrix consumers)
-                mx_reply_id = (
-                    mmrelay_id
-                    if mmrelay_id
-                    else (mx_event_id if mx_event_id else None)
-                )
-                if mx_reply_id:
+                mx_reply_id = mmrelay_id if mmrelay_id not in (None, "") else mx_event_id
+                if mx_reply_id not in (None, ""):
                     content[KEY_REPLY_ID] = str(mx_reply_id)
 
             elif rel.relation_type == "reaction":

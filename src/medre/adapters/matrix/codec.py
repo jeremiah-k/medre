@@ -175,9 +175,10 @@ class MatrixCodec(AdapterCodec):
         # is an MMRelay-encoded reaction from a Meshtastic node.
         mmrelay_reply_id = content.get(KEY_REPLY_ID)
         mmrelay_emoji = content.get(KEY_EMOJI)
+        has_mmrelay_reply_id = mmrelay_reply_id not in (None, "")
         if (
             effective_msgtype == "m.emote"
-            and mmrelay_reply_id
+            and has_mmrelay_reply_id
             and mmrelay_emoji == EMOJI_FLAG_VALUE
         ):
             payload = {

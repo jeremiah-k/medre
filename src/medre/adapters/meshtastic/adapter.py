@@ -566,8 +566,10 @@ class MeshtasticAdapter(AdapterContract):
 
         async def _send_fn(item: dict[str, Any]) -> Any:
             payload = item.get("payload", {})
+            raw_text = payload.get("text", "")
+            text = raw_text if isinstance(raw_text, str) else ("" if raw_text is None else str(raw_text))
             send_dict: dict[str, Any] = {
-                "text": str(payload.get("text", "")),
+                "text": text,
                 "channel_index": item.get("channel_index", 0),
             }
             if "reply_id" in payload:
