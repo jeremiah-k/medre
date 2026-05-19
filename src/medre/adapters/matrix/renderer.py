@@ -182,7 +182,7 @@ class MatrixRenderer:
                     content[KEY_REPLY_ID] = str(mx_reply_id)
 
             elif rel.relation_type == "reaction":
-                self._render_reaction(rel, body, content, target_adapter)
+                self._render_reaction(rel, body, content, target_adapter, event)
 
         # Embed metadata envelope
         envelope = MatrixMetadataEnvelope(
@@ -193,8 +193,17 @@ class MatrixRenderer:
         )
         content.update(envelope.to_content())
 
-        # Inject mmrelay-compatible metadata when enabled
-        if self._mmrelay_compat:
+        # Determine if a reaction relation was rendered (emote fallback sets
+        # its own MMRelay metadata, so general injection must be skipped to
+        # avoid overwriting KEY_TEXT with the payload body).
+        _is_reaction = (
+            event.relations
+            and event.relations[0].relation_type == "reaction"
+        )
+
+        # Inject mmrelay-compatible metadata when enabled (skip for
+        # reactions — _render_reaction already handles all MMRelay keys).
+        if self._mmrelay_compat and not _is_reaction:
             self._inject_mmrelay_metadata(event, content)
 
         metadata: dict[str, object] = {
@@ -235,6 +244,92 @@ class MatrixRenderer:
         return str(mid) if mid else None
 
     # ------------------------------------------------------------------
+    # Reaction helpers
+    # ------------------------------------------------------------------
+
+    _REACTION_SYMBOL_FALLBACK = "\u26a0\ufe0f"  # ⚠️
+
+    @staticmethod
+    def _extract_reaction_symbol(rel: EventRelation, event: CanonicalEvent) -> str:
+        """Return the reaction emoji/symbol with a fallback chain.
+
+        Preference order: ``rel.key``, ``event.payload['key']``,
+        ``event.payload['body']``.  Leading/trailing whitespace is
+        stripped.  Falls back to ⚠️ when all sources are blank.
+        """
+        for source in (
+            rel.key,
+            event.payload.get("key"),
+            event.payload.get("body"),
+        ):
+            if source is not None:
+                stripped = str(source).strip()
+                if stripped:
+                    return stripped
+        return MatrixRenderer._REACTION_SYMBOL_FALLBACK
+
+    @staticmethod
+    def _extract_original_text(rel: EventRelation, event: CanonicalEvent) -> str:
+        """Return the original message text preview for a reaction.
+
+        Preference order:
+
+        1. ``rel.metadata['meshtastic_text']`` or ``rel.metadata['text']``
+        2. ``rel.fallback_text``
+        3. Event native metadata ``meshtastic_text`` or ``text``
+        4. Empty string
+        """
+        # 1. Relation metadata (set by pipeline enrichment / codec)
+        rel_meta = getattr(rel, "metadata", {}) or {}
+        text = rel_meta.get("meshtastic_text") or rel_meta.get("text")
+        if text:
+            return str(text)
+
+        # 2. Fallback text on the relation
+        if rel.fallback_text:
+            return str(rel.fallback_text)
+
+        # 3. Event native metadata fields
+        if event.metadata and event.metadata.native:
+            native_data = event.metadata.native.data
+            text = native_data.get("meshtastic_text") or native_data.get("text")
+            if text:
+                return str(text)
+
+        # 4. Empty string
+        return ""
+
+    @staticmethod
+    def _abbreviate_text(text: str, max_len: int = 40) -> str:
+        """Normalise newlines to spaces and truncate with ``...`` when long."""
+        normalized = text.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
+        # Collapse consecutive spaces from mixed line-ending replacement
+        while "  " in normalized:
+            normalized = normalized.replace("  ", " ")
+        if len(normalized) > max_len:
+            return normalized[:max_len] + "..."
+        return normalized
+
+    def _format_reaction_prefix(self, event: CanonicalEvent) -> str:
+        """Format the configured relay prefix for a reaction emote body.
+
+        Returns the formatted prefix string (may be empty when no prefix
+        template is configured).  Longname / shortname are preserved
+        exactly as received — no truncation or case folding.
+        """
+        if not self._matrix_relay_prefix:
+            return ""
+        native_data: dict[str, object] = {}
+        if event.metadata and event.metadata.native:
+            native_data = dict(event.metadata.native.data)
+        return self._matrix_relay_prefix.format(
+            longname=native_data.get("longname", ""),
+            shortname=native_data.get("shortname", ""),
+            meshnet_name=self._meshnet_name,
+            from_id=native_data.get("from_id", ""),
+        )
+
+    # ------------------------------------------------------------------
     # Reaction rendering
     # ------------------------------------------------------------------
 
@@ -244,6 +339,7 @@ class MatrixRenderer:
         body: str,
         content: dict[str, object],
         target_adapter: str,
+        event: CanonicalEvent,
     ) -> None:
         """Render a reaction relation into the Matrix content dict.
 
@@ -253,13 +349,13 @@ class MatrixRenderer:
         (consumed by the adapter).
 
         When mmrelay_compat is true or no Matrix-native target exists,
-        falls back to an ``m.emote`` with MMRelay fields.
+        falls back to an ``m.emote`` with MMRelay-compatible body and
+        full mesh metadata.
 
         The canonical ``rel.target_event_id`` is **never** used as a
         Matrix event ID — it is an internal MEDRE canonical ID.
         """
         mx_event_id = self._matrix_target_event_id(rel, target_adapter)
-        emoji = rel.key or body
 
         # Extract MMRelay reply ID from relation metadata for fallback
         rel_meta = getattr(rel, "metadata", {}) or {}
@@ -272,23 +368,45 @@ class MatrixRenderer:
             content["m.relates_to"] = {
                 "rel_type": "m.annotation",
                 "event_id": mx_event_id,
-                "key": emoji,
+                "key": rel.key or body,
             }
             # Internal key consumed by adapter; never leaks to homeserver
             content["_matrix_event_type"] = "m.reaction"
         else:
             # mmrelay_compat or missing Matrix-native target → m.emote fallback
+            symbol = self._extract_reaction_symbol(rel, event)
+            original_text = self._abbreviate_text(
+                self._extract_original_text(rel, event)
+            )
+            prefix = self._format_reaction_prefix(event)
+
+            emote_body = f'\n {prefix}reacted {symbol} to "{original_text}"'
+
             content["msgtype"] = "m.emote"
-            content["body"] = body
-            content[KEY_TEXT] = body
+            content["body"] = emote_body
             content[KEY_EMOJI] = EMOJI_FLAG_VALUE
-            # Inject KEY_REPLY_ID: prefer meshtastic_reply_id from metadata,
+
+            # KEY_TEXT: original text preview (not reaction emoji)
+            content[KEY_TEXT] = original_text
+
+            # KEY_REPLY_ID: prefer meshtastic_reply_id from metadata,
             # fall back to the Matrix-native target event ID when available.
             mmrelay_reply_id = rel_meta.get("meshtastic_reply_id")
             if mmrelay_reply_id is not None:
                 content[KEY_REPLY_ID] = str(mmrelay_reply_id)
             elif mx_event_id is not None:
                 content[KEY_REPLY_ID] = str(mx_event_id)
+
+            # Mesh provenance metadata
+            native_data: dict[str, object] = {}
+            if event.metadata and event.metadata.native:
+                native_data = dict(event.metadata.native.data)
+
+            content[KEY_ID] = str(native_data.get("packet_id", ""))
+            content[KEY_LONGNAME] = str(native_data.get("longname", ""))
+            content[KEY_SHORTNAME] = str(native_data.get("shortname", ""))
+            content[KEY_MESHNET] = self._meshnet_name
+            content[KEY_PORTNUM] = PORTNUM_TEXT
 
     # ------------------------------------------------------------------
     # Relay prefix

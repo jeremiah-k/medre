@@ -11,6 +11,7 @@ from medre.core.events import (
     CanonicalEvent,
     EventMetadata,
     EventRelation,
+    NativeMetadata,
     NativeRef,
 )
 from medre.core.rendering.renderer import RenderingResult
@@ -500,3 +501,375 @@ class TestMeshtasticRendererForeignRefs:
         result = await renderer.render(event, "mesh-1")
         assert "reply_id" not in result.payload
         assert "emoji" not in result.payload
+
+
+# ===================================================================
+# Helper factories for Matrix-originated events
+# ===================================================================
+
+
+def _make_matrix_event(
+    event_id: str = "mx-evt-1",
+    payload: dict | None = None,
+    relations: tuple | None = None,
+    source_adapter: str = "matrix-1",
+    display_name: str = "Display Name",
+) -> CanonicalEvent:
+    """Create a CanonicalEvent simulating Matrix origin."""
+    native_data: dict[str, object] = {
+        "longname": display_name,
+        "shortname": display_name.split()[0] if display_name else "",
+        "from_id": "@tad:example.com",
+    }
+    return CanonicalEvent(
+        event_id=event_id,
+        event_kind="message.reacted",
+        schema_version=1,
+        timestamp=datetime.now(timezone.utc),
+        source_adapter=source_adapter,
+        source_transport_id="@tad:example.com",
+        source_channel_id="!room:example.com",
+        parent_event_id=None,
+        lineage=(),
+        relations=relations or (),
+        payload=payload or {"body": "👍"},
+        metadata=EventMetadata(native=NativeMetadata(data=native_data)),
+    )
+
+
+def _make_cross_platform_relation(
+    key: str = "👍",
+    fallback_text: str | None = "original mesh message",
+    meshtastic_reply_id: str | None = None,
+    mesh_adapter: str = "mesh-1",
+) -> EventRelation:
+    """Create a reaction relation pointing at a Meshtastic message.
+
+    If *meshtastic_reply_id* is given, sets both the target_native_ref
+    (owned by *mesh_adapter*) and the mmrelay metadata fallback.
+    """
+    metadata: dict[str, object] = {}
+    native_ref = None
+    if meshtastic_reply_id is not None:
+        native_ref = NativeRef(
+            adapter=mesh_adapter,
+            native_channel_id="0",
+            native_message_id=meshtastic_reply_id,
+        )
+        metadata["meshtastic_reply_id"] = meshtastic_reply_id
+    return EventRelation(
+        relation_type="reaction",
+        target_event_id="mesh-evt-0",
+        target_native_ref=native_ref,
+        key=key,
+        fallback_text=fallback_text,
+        metadata=metadata,
+    )
+
+
+# ===================================================================
+# Cross-platform (Matrix→Meshtastic) MMRelay descriptive reactions
+# ===================================================================
+
+
+class TestCrossPlatformReactionDescriptive:
+    """Matrix-originated reactions render as MMRelay descriptive text."""
+
+    async def test_descriptive_text_with_reply_id(self) -> None:
+        """Matrix reaction with Meshtastic mapping → descriptive text + reply_id."""
+        renderer = MeshtasticRenderer()
+        rel = _make_cross_platform_relation(
+            key="👍",
+            fallback_text="hello from mesh",
+            meshtastic_reply_id="42",
+        )
+        event = _make_matrix_event(relations=(rel,))
+        result = await renderer.render(event, "mesh-1")
+
+        # reply_id is set (mapped Meshtastic packet ID)
+        assert result.payload["reply_id"] == 42
+        # NO emoji=1 — descriptive, not native tapback
+        assert "emoji" not in result.payload
+        # Descriptive text pattern
+        text = result.payload["text"]
+        assert "reacted 👍 to" in text
+        assert "hello from mesh" in text
+
+    async def test_descriptive_text_without_reply_id(self) -> None:
+        """Matrix reaction without Meshtastic mapping → descriptive text only."""
+        renderer = MeshtasticRenderer()
+        rel = _make_cross_platform_relation(
+            key="❤️",
+            fallback_text="some original",
+            meshtastic_reply_id=None,
+        )
+        event = _make_matrix_event(relations=(rel,))
+        result = await renderer.render(event, "mesh-1")
+
+        assert "reply_id" not in result.payload
+        assert "emoji" not in result.payload
+        text = result.payload["text"]
+        assert 'reacted ❤️ to "some original"' in text
+
+    async def test_no_emoji_field_set(self) -> None:
+        """Cross-platform reactions never set emoji=1."""
+        renderer = MeshtasticRenderer()
+        rel = _make_cross_platform_relation(
+            key="🔥",
+            fallback_text="msg",
+            meshtastic_reply_id="99",
+        )
+        event = _make_matrix_event(relations=(rel,))
+        result = await renderer.render(event, "mesh-1")
+        assert result.payload.get("emoji") is None
+
+    async def test_compact_prefix_strips_spaces_preserves_casing(self) -> None:
+        """Display name spaces are stripped in the prefix; casing preserved."""
+        from unittest.mock import MagicMock
+
+        config = MagicMock()
+        config.radio_relay_prefix = "[{longname}] "
+        config.meshnet_name = "testnet"
+        renderer = MeshtasticRenderer(config=config)
+
+        rel = _make_cross_platform_relation(
+            key="👍",
+            fallback_text="test msg",
+            meshtastic_reply_id="10",
+        )
+        # "Display Name" → "DisplayName" in prefix
+        event = _make_matrix_event(
+            display_name="Display Name",
+            relations=(rel,),
+        )
+        result = await renderer.render(event, "mesh-1")
+        text = result.payload["text"]
+        assert "[DisplayName] reacted" in text
+        # NOT lowercased
+        assert "[displayname]" not in str(text).lower().replace("displayname", "X")
+
+    async def test_compact_prefix_not_lowercased(self) -> None:
+        """Casing is preserved: 'MeshUser' stays 'MeshUser', not 'meshuser'."""
+        from unittest.mock import MagicMock
+
+        config = MagicMock()
+        config.radio_relay_prefix = "[{longname}] "
+        config.meshnet_name = ""
+        renderer = MeshtasticRenderer(config=config)
+
+        rel = _make_cross_platform_relation(key="👋", fallback_text="hi")
+        event = _make_matrix_event(
+            display_name="Mesh User",
+            relations=(rel,),
+        )
+        result = await renderer.render(event, "mesh-1")
+        text = result.payload["text"]
+        assert "[MeshUser] reacted" in text
+
+    async def test_abbreviated_preview_40_chars(self) -> None:
+        """Original text preview is abbreviated to 40 chars + '...'."""
+        renderer = MeshtasticRenderer()
+        long_text = "A" * 60
+        rel = _make_cross_platform_relation(
+            key="👍",
+            fallback_text=long_text,
+        )
+        event = _make_matrix_event(relations=(rel,))
+        result = await renderer.render(event, "mesh-1")
+        text = result.payload["text"]
+        # Should contain abbreviated text (40 chars + "...")
+        assert "A" * 40 + "...\"" in text
+        # Should NOT contain the full 60 chars
+        assert "A" * 60 not in text
+
+    async def test_abbreviated_preview_short_text_unchanged(self) -> None:
+        """Short original text is not truncated."""
+        renderer = MeshtasticRenderer()
+        rel = _make_cross_platform_relation(
+            key="👍",
+            fallback_text="short msg",
+        )
+        event = _make_matrix_event(relations=(rel,))
+        result = await renderer.render(event, "mesh-1")
+        text = result.payload["text"]
+        assert 'reacted 👍 to "short msg"' in text
+
+    async def test_newlines_normalised_to_spaces(self) -> None:
+        """Newlines in original text are replaced with spaces."""
+        renderer = MeshtasticRenderer()
+        rel = _make_cross_platform_relation(
+            key="👍",
+            fallback_text="line one\nline two\nline three",
+        )
+        event = _make_matrix_event(relations=(rel,))
+        result = await renderer.render(event, "mesh-1")
+        text = result.payload["text"]
+        assert "\n" not in text.split('to "')[1]
+        assert "line one line two line three" in text
+
+    async def test_quoted_reply_lines_stripped(self) -> None:
+        """Quoted reply lines (> ...) are stripped from preview."""
+        renderer = MeshtasticRenderer()
+        rel = _make_cross_platform_relation(
+            key="👍",
+            fallback_text="> quoted line\nactual message",
+        )
+        event = _make_matrix_event(relations=(rel,))
+        result = await renderer.render(event, "mesh-1")
+        text = result.payload["text"]
+        assert "> quoted" not in text
+        assert "actual message" in text
+
+    async def test_original_text_from_metadata_preferred(self) -> None:
+        """relation.metadata['original_text'] takes priority over fallback_text."""
+        renderer = MeshtasticRenderer()
+        rel = _make_cross_platform_relation(
+            key="👍",
+            fallback_text="fallback text",
+        )
+        # Inject original_text into metadata
+        meta = dict(rel.metadata)
+        meta["original_text"] = "metadata original"
+        rel2 = EventRelation(
+            relation_type=rel.relation_type,
+            target_event_id=rel.target_event_id,
+            target_native_ref=rel.target_native_ref,
+            key=rel.key,
+            fallback_text=rel.fallback_text,
+            metadata=meta,
+        )
+        event = _make_matrix_event(relations=(rel2,))
+        result = await renderer.render(event, "mesh-1")
+        text = result.payload["text"]
+        assert "metadata original" in text
+        assert "fallback text" not in text
+
+    async def test_falls_back_to_payload_body(self) -> None:
+        """When no fallback_text, uses event payload body/text."""
+        renderer = MeshtasticRenderer()
+        rel = _make_cross_platform_relation(
+            key="👍",
+            fallback_text=None,
+        )
+        event = _make_matrix_event(
+            payload={"body": "payload body text"},
+            relations=(rel,),
+        )
+        result = await renderer.render(event, "mesh-1")
+        text = result.payload["text"]
+        assert "payload body text" in text
+
+    async def test_preserves_channel_and_meshnet(self) -> None:
+        """Cross-platform reaction preserves channel_index and meshnet_name."""
+        renderer = MeshtasticRenderer()
+        rel = _make_cross_platform_relation(
+            key="😀",
+            fallback_text="hi",
+            meshtastic_reply_id="7",
+        )
+        event = _make_matrix_event(relations=(rel,))
+        result = await renderer.render(event, "mesh-1", target_channel="4")
+        assert result.payload["channel_index"] == 4
+        assert "meshnet_name" in result.payload
+
+    async def test_metadata_includes_descriptive_reaction_flag(self) -> None:
+        """Result metadata has descriptive_reaction=True for cross-platform."""
+        renderer = MeshtasticRenderer()
+        rel = _make_cross_platform_relation(
+            key="👍",
+            fallback_text="test",
+        )
+        event = _make_matrix_event(relations=(rel,))
+        result = await renderer.render(event, "mesh-1")
+        assert result.metadata.get("descriptive_reaction") is True
+
+    async def test_no_radio_relay_prefix_in_metadata_for_descriptive(self) -> None:
+        """Descriptive reactions embed their own prefix; no separate prefix metadata."""
+        renderer = MeshtasticRenderer()
+        rel = _make_cross_platform_relation(
+            key="👍",
+            fallback_text="test",
+        )
+        event = _make_matrix_event(relations=(rel,))
+        result = await renderer.render(event, "mesh-1")
+        assert "radio_relay_prefix" not in result.metadata
+
+    async def test_mmrelay_metadata_reply_id_still_works(self) -> None:
+        """Cross-platform reaction with mmrelay metadata gets reply_id."""
+        renderer = MeshtasticRenderer()
+        # No native ref (meshtastic_reply_id=None in helper means no native ref)
+        # but we add meshtastic_reply_id via metadata
+        rel = EventRelation(
+            relation_type="reaction",
+            target_event_id=None,
+            target_native_ref=None,
+            key="👍",
+            fallback_text="mesh msg",
+            metadata={"meshtastic_reply_id": "88"},
+        )
+        event = _make_matrix_event(relations=(rel,))
+        result = await renderer.render(event, "mesh-1")
+        assert result.payload["reply_id"] == 88
+        assert "emoji" not in result.payload
+
+
+# ===================================================================
+# Native Meshtastic reactions still work (regression guard)
+# ===================================================================
+
+
+class TestNativeReactionPreserved:
+    """Ensure native Meshtastic tapback behavior is unchanged."""
+
+    async def test_native_reaction_emoji_1(self) -> None:
+        """Native Meshtastic reaction still sets emoji=1."""
+        renderer = MeshtasticRenderer()
+        rel = _make_relation(
+            relation_type="reaction",
+            native_message_id="55",
+            key="👍",
+            adapter_id="mesh-1",
+        )
+        event = _make_event(
+            payload={"body": "👍"},
+            relations=(rel,),
+        )
+        result = await renderer.render(event, "mesh-1")
+        assert result.payload["emoji"] == 1
+        assert result.payload["reply_id"] == 55
+        assert result.payload["text"] == "👍"
+
+    async def test_native_reaction_no_reply_id_fallback(self) -> None:
+        """Native reaction without reply_id → readable fallback."""
+        renderer = MeshtasticRenderer()
+        rel = _make_relation(
+            relation_type="reaction",
+            native_message_id=None,
+            key="❤️",
+        )
+        event = _make_event(
+            payload={"body": "❤️"},
+            relations=(rel,),
+        )
+        result = await renderer.render(event, "mesh-1")
+        assert "emoji" not in result.payload
+        assert "[reacted: ❤️]" in result.payload["text"]
+
+    async def test_native_reaction_with_mmrelay_meta(self) -> None:
+        """Native reaction with mmrelay metadata still gets emoji=1."""
+        renderer = MeshtasticRenderer()
+        rel = EventRelation(
+            relation_type="reaction",
+            target_event_id=None,
+            target_native_ref=None,
+            key="🔥",
+            fallback_text=None,
+            metadata={"meshtastic_reply_id": "77"},
+        )
+        event = _make_event(
+            payload={"body": "🔥"},
+            relations=(rel,),
+        )
+        result = await renderer.render(event, "mesh-1")
+        assert result.payload["reply_id"] == 77
+        assert result.payload["emoji"] == 1

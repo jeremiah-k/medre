@@ -31,9 +31,11 @@ from medre.interop.mmrelay import (
     EMOJI_FLAG_VALUE,
     KEY_EMOJI,
     KEY_ID,
+    KEY_LONGNAME,
     KEY_MESHNET,
     KEY_PORTNUM,
     KEY_REPLY_ID,
+    KEY_SHORTNAME,
     KEY_TEXT,
     PORTNUM_TEXT,
 )
@@ -494,14 +496,20 @@ class TestRendererMMRelayEmoteFallback:
         assert result.payload[KEY_EMOJI] == EMOJI_FLAG_VALUE
 
     @pytest.mark.asyncio
-    async def test_mmrelay_compat_reaction_has_text(self) -> None:
+    async def test_mmrelay_compat_reaction_text_is_original_preview(self) -> None:
+        """KEY_TEXT is the original text preview, not the reaction body.
+
+        When no original text metadata/fallback is available, KEY_TEXT is
+        the empty string.
+        """
         renderer = MatrixRenderer(mmrelay_compat=True)
         event = _make_canonical_reaction(
             key="👍", target_event_id="$msg-1", body="thumbs up"
         )
         result = await renderer.render(event, "matrix-1")
 
-        assert result.payload[KEY_TEXT] == "thumbs up"
+        # No original text metadata or fallback_text → empty string
+        assert result.payload[KEY_TEXT] == ""
 
     @pytest.mark.asyncio
     async def test_mmrelay_compat_no_matrix_event_type(self) -> None:
@@ -711,3 +719,510 @@ class TestMMRelayConstants:
 
     def test_portnum_text_value(self) -> None:
         assert PORTNUM_TEXT == "TEXT_MESSAGE_APP"
+
+
+# ===========================================================================
+# Tranche 3: Meshtastic→Matrix reaction rendering (MMRelay emote)
+# ===========================================================================
+
+
+def _make_mesh_reaction(
+    key: str = "👍",
+    body: str = "👍",
+    fallback_text: str | None = None,
+    rel_metadata: dict | None = None,
+    native_data: dict | None = None,
+    longname: str = "TestNode",
+    shortname: str = "TN",
+    packet_id: str = "pkt-42",
+    source_adapter: str = "mesh-1",
+) -> CanonicalEvent:
+    """Build a canonical reaction originating from Meshtastic (no Matrix target ref)."""
+    rel = EventRelation(
+        relation_type="reaction",
+        target_event_id=None,
+        target_native_ref=None,
+        key=key,
+        fallback_text=fallback_text,
+        metadata=rel_metadata or {},
+    )
+    nd = (
+        native_data
+        if native_data is not None
+        else {
+            "room_id": "!room:server",
+            "longname": longname,
+            "shortname": shortname,
+            "packet_id": packet_id,
+            "from_id": "!abcdef01",
+        }
+    )
+    return CanonicalEvent(
+        event_id="evt-mesh-reaction-001",
+        event_kind=EventKind.MESSAGE_REACTED,
+        schema_version=1,
+        timestamp=__import__("datetime").datetime.now(
+            tz=__import__("datetime").timezone.utc
+        ),
+        source_adapter=source_adapter,
+        source_transport_id="!node-1",
+        source_channel_id="ch-0",
+        parent_event_id=None,
+        lineage=(),
+        relations=(rel,),
+        payload={"body": body, "msgtype": "m.text"},
+        metadata=EventMetadata(native=NativeMetadata(data=nd)),
+    )
+
+
+class TestMMRelayReactionBodyFormat:
+    """MMRelay emote body format for Meshtastic-originated reactions."""
+
+    @pytest.mark.asyncio
+    async def test_emote_body_has_leading_newline_and_prefix(self) -> None:
+        renderer = MatrixRenderer(
+            mmrelay_compat=True,
+            meshnet_name="mynet",
+            matrix_relay_prefix="[{longname}] ",
+        )
+        event = _make_mesh_reaction(
+            key="❤️", body="❤️", fallback_text="hello world"
+        )
+        result = await renderer.render(event, "matrix-1")
+
+        body = result.payload["body"]
+        assert body.startswith("\n ")
+        assert "[TestNode]" in body
+        assert "reacted ❤️" in body
+        assert 'to "hello world"' in body
+
+    @pytest.mark.asyncio
+    async def test_emote_body_without_prefix(self) -> None:
+        renderer = MatrixRenderer(mmrelay_compat=True)
+        event = _make_mesh_reaction(key="👍", fallback_text="original msg")
+        result = await renderer.render(event, "matrix-1")
+
+        body = result.payload["body"]
+        assert body == '\n reacted 👍 to "original msg"'
+
+    @pytest.mark.asyncio
+    async def test_emote_body_with_empty_original_text(self) -> None:
+        renderer = MatrixRenderer(mmrelay_compat=True)
+        event = _make_mesh_reaction(key="👍", body="👍")
+        result = await renderer.render(event, "matrix-1")
+
+        body = result.payload["body"]
+        assert body == '\n reacted 👍 to ""'
+
+    @pytest.mark.asyncio
+    async def test_emote_body_abbreviates_long_text(self) -> None:
+        renderer = MatrixRenderer(mmrelay_compat=True)
+        long_text = "A" * 50
+        event = _make_mesh_reaction(key="🔥", fallback_text=long_text)
+        result = await renderer.render(event, "matrix-1")
+
+        body = result.payload["body"]
+        # 40 chars + "..." inside quotes
+        assert 'to "' + "A" * 40 + '..."' in body
+        assert ("A" * 41 + "...") not in body
+
+    @pytest.mark.asyncio
+    async def test_emote_body_normalizes_newlines(self) -> None:
+        renderer = MatrixRenderer(mmrelay_compat=True)
+        event = _make_mesh_reaction(
+            key="👍", fallback_text="line1\nline2\r\nline3"
+        )
+        result = await renderer.render(event, "matrix-1")
+
+        body = result.payload["body"]
+        assert "\n" not in body.split('to "')[1].rstrip('"')
+        assert "line1 line2 line3" in body
+
+
+class TestReactionSymbolExtraction:
+    """Reaction symbol preference: rel.key → payload['key'] → payload['body'] → ⚠️."""
+
+    @pytest.mark.asyncio
+    async def test_symbol_from_rel_key(self) -> None:
+        event = _make_mesh_reaction(key="❤️", body="thumbs up")
+        symbol = MatrixRenderer._extract_reaction_symbol(
+            event.relations[0], event
+        )
+        assert symbol == "❤️"
+
+    @pytest.mark.asyncio
+    async def test_symbol_from_payload_key_when_rel_key_none(self) -> None:
+        from datetime import datetime, timezone
+
+        rel = EventRelation(
+            relation_type="reaction",
+            target_event_id=None,
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event = CanonicalEvent(
+            event_id="evt-sym",
+            event_kind=EventKind.MESSAGE_REACTED,
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="mesh-1",
+            source_transport_id="node",
+            source_channel_id="ch",
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"body": "thumbs up", "key": "🔥"},
+            metadata=EventMetadata(),
+        )
+        symbol = MatrixRenderer._extract_reaction_symbol(rel, event)
+        assert symbol == "🔥"
+
+    @pytest.mark.asyncio
+    async def test_symbol_from_payload_body_when_key_blank(self) -> None:
+        from datetime import datetime, timezone
+
+        rel = EventRelation(
+            relation_type="reaction",
+            target_event_id=None,
+            target_native_ref=None,
+            key="",
+            fallback_text=None,
+        )
+        event = CanonicalEvent(
+            event_id="evt-sym2",
+            event_kind=EventKind.MESSAGE_REACTED,
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="mesh-1",
+            source_transport_id="node",
+            source_channel_id="ch",
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"body": "  👍  ", "key": "  "},
+            metadata=EventMetadata(),
+        )
+        symbol = MatrixRenderer._extract_reaction_symbol(rel, event)
+        assert symbol == "👍"
+
+    @pytest.mark.asyncio
+    async def test_symbol_fallback_when_all_blank(self) -> None:
+        from datetime import datetime, timezone
+
+        rel = EventRelation(
+            relation_type="reaction",
+            target_event_id=None,
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event = CanonicalEvent(
+            event_id="evt-sym3",
+            event_kind=EventKind.MESSAGE_REACTED,
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="mesh-1",
+            source_transport_id="node",
+            source_channel_id="ch",
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"body": "  "},
+            metadata=EventMetadata(),
+        )
+        symbol = MatrixRenderer._extract_reaction_symbol(rel, event)
+        assert symbol == "⚠️"
+
+    @pytest.mark.asyncio
+    async def test_symbol_strips_whitespace(self) -> None:
+        event = _make_mesh_reaction(key="  ❤️  ")
+        symbol = MatrixRenderer._extract_reaction_symbol(
+            event.relations[0], event
+        )
+        assert symbol == "❤️"
+
+
+class TestOriginalTextExtraction:
+    """Original text preference: rel metadata → fallback_text → event metadata → empty."""
+
+    def test_from_relation_metadata_meshtastic_text(self) -> None:
+        event = _make_mesh_reaction(
+            key="👍",
+            rel_metadata={"meshtastic_text": "original from meta"},
+            fallback_text="fallback",
+        )
+        text = MatrixRenderer._extract_original_text(
+            event.relations[0], event
+        )
+        assert text == "original from meta"
+
+    def test_from_relation_metadata_text_key(self) -> None:
+        event = _make_mesh_reaction(
+            key="👍",
+            rel_metadata={"text": "from text key"},
+            fallback_text="fallback",
+        )
+        text = MatrixRenderer._extract_original_text(
+            event.relations[0], event
+        )
+        assert text == "from text key"
+
+    def test_from_fallback_text(self) -> None:
+        event = _make_mesh_reaction(key="👍", fallback_text="fallback text")
+        text = MatrixRenderer._extract_original_text(
+            event.relations[0], event
+        )
+        assert text == "fallback text"
+
+    def test_from_event_native_metadata(self) -> None:
+        event = _make_mesh_reaction(
+            key="👍",
+            native_data={
+                "longname": "Node",
+                "meshtastic_text": "from event meta",
+            },
+        )
+        text = MatrixRenderer._extract_original_text(
+            event.relations[0], event
+        )
+        assert text == "from event meta"
+
+    def test_empty_when_no_sources(self) -> None:
+        event = _make_mesh_reaction(key="👍")
+        text = MatrixRenderer._extract_original_text(
+            event.relations[0], event
+        )
+        assert text == ""
+
+
+class TestAbbreviateText:
+    """Text abbreviation: normalize newlines, truncate at 40 chars."""
+
+    def test_short_text_unchanged(self) -> None:
+        assert MatrixRenderer._abbreviate_text("hello") == "hello"
+
+    def test_exact_40_chars_unchanged(self) -> None:
+        text = "A" * 40
+        assert MatrixRenderer._abbreviate_text(text) == text
+
+    def test_41_chars_truncated_with_ellipsis(self) -> None:
+        text = "A" * 41
+        result = MatrixRenderer._abbreviate_text(text)
+        assert result == "A" * 40 + "..."
+        assert len(result) == 43
+
+    def test_newlines_normalized_to_spaces(self) -> None:
+        assert (
+            MatrixRenderer._abbreviate_text("line1\nline2") == "line1 line2"
+        )
+
+    def test_carriage_returns_normalized(self) -> None:
+        assert (
+            MatrixRenderer._abbreviate_text("a\r\nb") == "a b"
+        )
+
+
+class TestReactionMetadataCompleteness:
+    """Meshtastic-originated reaction metadata fields."""
+
+    @pytest.mark.asyncio
+    async def test_reaction_has_meshtastic_id(self) -> None:
+        renderer = MatrixRenderer(mmrelay_compat=True)
+        event = _make_mesh_reaction(packet_id="pkt-99")
+        result = await renderer.render(event, "matrix-1")
+        assert result.payload[KEY_ID] == "pkt-99"
+
+    @pytest.mark.asyncio
+    async def test_reaction_has_longname(self) -> None:
+        renderer = MatrixRenderer(mmrelay_compat=True)
+        event = _make_mesh_reaction(longname="My Node Name")
+        result = await renderer.render(event, "matrix-1")
+        assert result.payload[KEY_LONGNAME] == "My Node Name"
+
+    @pytest.mark.asyncio
+    async def test_reaction_has_shortname(self) -> None:
+        renderer = MatrixRenderer(mmrelay_compat=True)
+        event = _make_mesh_reaction(shortname="MNN")
+        result = await renderer.render(event, "matrix-1")
+        assert result.payload[KEY_SHORTNAME] == "MNN"
+
+    @pytest.mark.asyncio
+    async def test_reaction_has_meshnet(self) -> None:
+        renderer = MatrixRenderer(
+            mmrelay_compat=True, meshnet_name="testnet"
+        )
+        event = _make_mesh_reaction()
+        result = await renderer.render(event, "matrix-1")
+        assert result.payload[KEY_MESHNET] == "testnet"
+
+    @pytest.mark.asyncio
+    async def test_reaction_has_portnum(self) -> None:
+        renderer = MatrixRenderer(mmrelay_compat=True)
+        event = _make_mesh_reaction()
+        result = await renderer.render(event, "matrix-1")
+        assert result.payload[KEY_PORTNUM] == PORTNUM_TEXT
+
+    @pytest.mark.asyncio
+    async def test_reaction_has_emoji_flag(self) -> None:
+        renderer = MatrixRenderer(mmrelay_compat=True)
+        event = _make_mesh_reaction()
+        result = await renderer.render(event, "matrix-1")
+        assert result.payload[KEY_EMOJI] == EMOJI_FLAG_VALUE
+
+    @pytest.mark.asyncio
+    async def test_reaction_text_is_original_preview(self) -> None:
+        renderer = MatrixRenderer(mmrelay_compat=True)
+        event = _make_mesh_reaction(
+            key="❤️", fallback_text="the original message"
+        )
+        result = await renderer.render(event, "matrix-1")
+        assert result.payload[KEY_TEXT] == "the original message"
+
+    @pytest.mark.asyncio
+    async def test_reaction_reply_id_from_rel_metadata(self) -> None:
+        renderer = MatrixRenderer(mmrelay_compat=True)
+        event = _make_mesh_reaction(
+            key="👍",
+            rel_metadata={"meshtastic_reply_id": "12345"},
+        )
+        result = await renderer.render(event, "matrix-1")
+        assert result.payload[KEY_REPLY_ID] == "12345"
+
+    @pytest.mark.asyncio
+    async def test_reaction_no_reply_id_when_none_available(self) -> None:
+        renderer = MatrixRenderer(mmrelay_compat=True)
+        event = _make_mesh_reaction(key="👍")
+        result = await renderer.render(event, "matrix-1")
+        assert KEY_REPLY_ID not in result.payload
+
+
+class TestReactionPrefixPreservesLongname:
+    """Prefix preserves Meshtastic longname exactly: spaces, casing, emoji."""
+
+    @pytest.mark.asyncio
+    async def test_prefix_preserves_spaces_in_longname(self) -> None:
+        renderer = MatrixRenderer(
+            mmrelay_compat=True,
+            matrix_relay_prefix="[{longname}] ",
+        )
+        event = _make_mesh_reaction(longname="  Space Node  ")
+        result = await renderer.render(event, "matrix-1")
+        body = result.payload["body"]
+        assert "[  Space Node  ]" in body
+
+    @pytest.mark.asyncio
+    async def test_prefix_preserves_casing(self) -> None:
+        renderer = MatrixRenderer(
+            mmrelay_compat=True,
+            matrix_relay_prefix="[{longname}] ",
+        )
+        event = _make_mesh_reaction(longname="CamelCaseNode")
+        result = await renderer.render(event, "matrix-1")
+        body = result.payload["body"]
+        assert "[CamelCaseNode]" in body
+
+    @pytest.mark.asyncio
+    async def test_prefix_preserves_emoji_in_longname(self) -> None:
+        renderer = MatrixRenderer(
+            mmrelay_compat=True,
+            matrix_relay_prefix="[{longname}] ",
+        )
+        event = _make_mesh_reaction(longname="🚀RocketNode")
+        result = await renderer.render(event, "matrix-1")
+        body = result.payload["body"]
+        assert "[🚀RocketNode]" in body
+
+
+class TestReactionNoTargetNoCrash:
+    """Missing mapping fallback must not crash."""
+
+    @pytest.mark.asyncio
+    async def test_no_target_no_metadata_no_crash(self) -> None:
+        renderer = MatrixRenderer(mmrelay_compat=True)
+        event = _make_mesh_reaction(
+            key="👍",
+            body="👍",
+            native_data={},  # no native data at all
+        )
+        result = await renderer.render(event, "matrix-1")
+        assert result.payload["msgtype"] == "m.emote"
+        assert KEY_EMOJI in result.payload
+
+    @pytest.mark.asyncio
+    async def test_missing_fields_use_defaults(self) -> None:
+        renderer = MatrixRenderer(mmrelay_compat=True)
+        event = _make_mesh_reaction(native_data={})
+        result = await renderer.render(event, "matrix-1")
+        assert result.payload[KEY_ID] == ""
+        assert result.payload[KEY_LONGNAME] == ""
+        assert result.payload[KEY_SHORTNAME] == ""
+
+
+class TestReplyNoMatrixTargetNoInReplyTo:
+    """Unknown replyId: no m.in_reply_to, but still carry meshtastic_replyId."""
+
+    @pytest.mark.asyncio
+    async def test_no_matrix_native_target_no_in_reply_to(self) -> None:
+        renderer = MatrixRenderer()
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id=None,
+            target_native_ref=None,
+            key=None,
+            fallback_text="original",
+            metadata={"meshtastic_reply_id": "42"},
+        )
+        event = CanonicalEvent(
+            event_id="evt-reply-no-target",
+            event_kind=EventKind.MESSAGE_CREATED,
+            schema_version=1,
+            timestamp=__import__("datetime").datetime.now(
+                tz=__import__("datetime").timezone.utc
+            ),
+            source_adapter="mesh-1",
+            source_transport_id="node-1",
+            source_channel_id="ch-0",
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"body": "my reply"},
+            metadata=EventMetadata(),
+        )
+        result = await renderer.render(event, "matrix-1")
+        assert "m.relates_to" not in result.payload
+        assert result.payload.get(KEY_REPLY_ID) == "42"
+
+    @pytest.mark.asyncio
+    async def test_foreign_native_ref_reply_no_in_reply_to(self) -> None:
+        renderer = MatrixRenderer()
+        foreign_ref = NativeRef(
+            adapter="mesh-1", native_channel_id="0", native_message_id="99"
+        )
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id=None,
+            target_native_ref=foreign_ref,
+            key=None,
+            fallback_text="original",
+            metadata={"meshtastic_reply_id": "55"},
+        )
+        event = CanonicalEvent(
+            event_id="evt-foreign-reply",
+            event_kind=EventKind.MESSAGE_CREATED,
+            schema_version=1,
+            timestamp=__import__("datetime").datetime.now(
+                tz=__import__("datetime").timezone.utc
+            ),
+            source_adapter="mesh-1",
+            source_transport_id="node-1",
+            source_channel_id="ch-0",
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"body": "reply text"},
+            metadata=EventMetadata(),
+        )
+        result = await renderer.render(event, "matrix_instance")
+        assert "m.relates_to" not in result.payload
+        assert result.payload.get(KEY_REPLY_ID) == "55"
