@@ -282,6 +282,12 @@ class OutboundNativeRefRecord:
     Adapters must **not** fabricate IDs — only record IDs returned by the
     external platform.
 
+    .. note::
+
+       When the adapter is shut down before the queue drain records the native
+       ref, the mapping is permanently lost.  The queue does not flush or retry
+       on shutdown.
+
     Attributes
     ----------
     event_id:

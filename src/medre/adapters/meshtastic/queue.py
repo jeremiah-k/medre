@@ -30,6 +30,11 @@ When the queue is full, the **oldest** item is silently dropped to make
 room for the new enqueue.  This prevents unbounded memory growth in
 long-duration runs where outbound throughput exceeds send capacity.
 The ``total_dropped`` counter tracks how many items were shed.
+
+.. note::
+
+   Shutdown cancels the drain task without flushing.  In-flight items that have
+   not yet been processed lose their native-ref mapping permanently.
 """
 
 from __future__ import annotations
@@ -156,8 +161,9 @@ class MeshtasticOutboundQueue:
         ):
             self._total_dropped += 1
             _logger.warning(
-                "MeshtasticOutboundQueue full (%d items); dropping oldest",
+                "MeshtasticOutboundQueue full (%d items); dropping oldest (event_id=%s)",
                 self._max_queue_size,
+                self._queue[0].get("event_id", "?"),
             )
         self._queue.append(
             {
@@ -386,7 +392,7 @@ def _packet_snapshot(result: Any) -> dict[str, object]:
                     snapshot[dst_key] = json_safe(val)
             # decoded["id"] → "packet_id" only when both "packet_id"
             # and "id" are absent from the snapshot (top-level priority).
-            if "packet_id" not in snapshot and "id" not in snapshot:
+            if "packet_id" not in snapshot:
                 id_val = decoded.get("id")
                 if id_val is not None:
                     snapshot["packet_id"] = json_safe(id_val)

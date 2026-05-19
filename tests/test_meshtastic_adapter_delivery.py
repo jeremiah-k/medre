@@ -997,12 +997,12 @@ class TestPacketSnapshotDecodedSubobject:
         snap = self._call({"decoded": {"id": 5678}})
         assert snap["packet_id"] == 5678
 
-    def test_dict_decoded_id_not_used_when_top_level_id_present(self) -> None:
-        """Dict decoded id does NOT map to packet_id when top-level id
-        already exists in snapshot."""
+    def test_dict_decoded_id_maps_to_packet_id_even_with_top_level_id(self) -> None:
+        """Dict decoded id maps to packet_id even when top-level id exists
+        (symmetric with object path)."""
         snap = self._call({"id": 10, "decoded": {"id": 20}})
         assert snap["id"] == 10
-        assert "packet_id" not in snap
+        assert snap["packet_id"] == 20
 
     def test_dict_decoded_reaction_id(self) -> None:
         """Dict decoded with reaction_id captures reaction_id."""
@@ -1040,13 +1040,12 @@ class TestPacketSnapshotDecodedSubobject:
         assert snap["packet_id"] == 100
         assert snap["emoji"] == 1
 
-    def test_top_level_id_not_overwritten_by_decoded_id(self) -> None:
-        """Top-level id is preserved; decoded id does not overwrite."""
+    def test_top_level_id_preserved_and_decoded_id_maps_to_packet_id(self) -> None:
+        """Top-level id is preserved; decoded id maps to packet_id
+        (symmetric with object path)."""
         snap = self._call({"id": 5, "decoded": {"id": 50}})
         assert snap["id"] == 5
-        # decoded["id"] should NOT become packet_id because top-level
-        # "id" is already present in snapshot.
-        assert "packet_id" not in snap
+        assert snap["packet_id"] == 50
 
     def test_object_top_level_packet_id_captured(self) -> None:
         """Object top-level packet_id attribute is captured."""

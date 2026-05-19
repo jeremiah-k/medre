@@ -104,6 +104,7 @@ Supported Matrix content keys are:
 - `meshtastic_shortname`
 - `meshtastic_meshnet`
 - `meshtastic_portnum`
+- `meshtastic_reaction_key` *(MEDRE extension — not part of standard MMRelay; used for structured reaction symbol round-tripping)*
 
 `meshtastic_emoji == 1` is the MMRelay-compatible reaction flag.
 

@@ -549,7 +549,6 @@ class PipelineRunner:
                         skip_native = True
                     # else: existing_channel is None or differs from
                     # target_channel — fall through to lookup.
-                    # Existing channel differs — fall through to lookup.
 
                 if not skip_native:
                     # Look up stored native refs for the target event.
