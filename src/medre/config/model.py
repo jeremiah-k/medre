@@ -67,6 +67,9 @@ def _coerce_adapter_kwargs(
         # list → set coercion for set-typed fields (e.g. room_allowlist)
         if isinstance(value, list) and _is_set_annotation(hint):
             value = set(value)
+        # list → tuple coercion for tuple-typed fields (e.g. auto_join_rooms)
+        if isinstance(value, list) and _is_tuple_annotation(hint):
+            value = tuple(value)
         # TOML dicts have string keys; coerce to int if the annotation
         # expects int keys (e.g. channel_mapping: dict[int, str]).
         if isinstance(value, dict) and _is_int_keyed_dict(hint):
@@ -91,6 +94,22 @@ def _is_set_annotation(hint: Any) -> bool:
     args = getattr(hint, "__args__", None)
     if args is not None:
         return any(_is_set_annotation(a) for a in args)
+    return False
+
+
+def _is_tuple_annotation(hint: Any) -> bool:
+    """Return True if *hint* looks like ``tuple[...]``.
+
+    Handles bare types and ``X | None`` unions (both ``typing.Union``
+    and PEP-604 ``types.UnionType``).
+    """
+    origin = getattr(hint, "__origin__", None)
+    if origin is tuple:
+        return True
+    # Handle Union types — both typing.Union and types.UnionType (PEP 604).
+    args = getattr(hint, "__args__", None)
+    if args is not None:
+        return any(_is_tuple_annotation(a) for a in args)
     return False
 
 

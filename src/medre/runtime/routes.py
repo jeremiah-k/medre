@@ -314,6 +314,13 @@ class RouteConfig:
     retry:
         Optional per-route retry policy for transient delivery failures.
         ``None`` means no retry scheduling for this route.
+    channel_room_map:
+        Optional mapping of Meshtastic channel strings ("0"–"7") to
+        Matrix room IDs.  When present, the route is expanded at runtime
+        into per-channel legs instead of using ``source_channel`` /
+        ``dest_channel`` directly.  Mutually exclusive with
+        ``source_channel``, ``dest_channel``, ``source_room``, and
+        ``dest_room``.  Requires exactly one source and one dest adapter.
     """
 
     route_id: str
@@ -328,6 +335,7 @@ class RouteConfig:
     dest_room: str | None = None
     policy: BridgePolicy | None = None
     retry: RouteRetryConfig | None = None
+    channel_room_map: dict[str, str] | None = None
 
     @classmethod
     def from_toml_dict(cls, route_id: str, data: dict[str, Any]) -> Self:
@@ -457,6 +465,109 @@ class RouteConfig:
         if dest_channel is None and dest_room is not None:
             dest_channel = dest_room
 
+        # --- channel_room_map ---
+        raw_crm = data.pop("channel_room_map", None)
+        channel_room_map: dict[str, str] | None = None
+        if raw_crm is not None:
+            if not isinstance(raw_crm, dict):
+                raise ConfigValidationError(
+                    f"Route {route_id!r}: 'channel_room_map' must be a table "
+                    f"(dict), got {type(raw_crm).__name__}",
+                    section_path=section_path,
+                )
+            # Mutual exclusion with targeting fields.
+            _crm_exclusive = {
+                "source_channel": source_channel,
+                "dest_channel": dest_channel,
+                "source_room": source_room,
+                "dest_room": dest_room,
+            }
+            conflicting = [k for k, v in _crm_exclusive.items() if v is not None]
+            if conflicting:
+                raise ConfigValidationError(
+                    f"Route {route_id!r}: 'channel_room_map' is mutually "
+                    f"exclusive with {conflicting}. The map supplies those "
+                    f"fields during expansion.",
+                    section_path=section_path,
+                )
+            # Require exactly one source and one dest adapter.
+            if len(source_adapters) > 1:
+                raise ConfigValidationError(
+                    f"Route {route_id!r}: 'channel_room_map' requires exactly "
+                    f"one source adapter, got {len(source_adapters)}",
+                    section_path=section_path,
+                )
+            if len(dest_adapters) > 1:
+                raise ConfigValidationError(
+                    f"Route {route_id!r}: 'channel_room_map' requires exactly "
+                    f"one dest adapter, got {len(dest_adapters)}",
+                    section_path=section_path,
+                )
+            # Validate and normalize entries.
+            normalized: dict[str, str] = {}
+            seen_channels: set[str] = set()
+            for raw_key, raw_value in raw_crm.items():
+                # --- channel key validation ---
+                if isinstance(raw_key, bool):
+                    raise ConfigValidationError(
+                        f"Route {route_id!r}: channel_room_map channel key "
+                        f"{raw_key!r} is a boolean, expected an integer 0–7",
+                        section_path=section_path,
+                    )
+                if isinstance(raw_key, int):
+                    ch_str = str(raw_key)
+                elif isinstance(raw_key, str):
+                    ch_str = raw_key
+                else:
+                    raise ConfigValidationError(
+                        f"Route {route_id!r}: channel_room_map channel key "
+                        f"{raw_key!r} is not an integer or string",
+                        section_path=section_path,
+                    )
+                # Must be a valid integer 0–7.
+                try:
+                    ch_int = int(ch_str)
+                except (ValueError, TypeError):
+                    raise ConfigValidationError(
+                        f"Route {route_id!r}: channel_room_map channel key "
+                        f"{raw_key!r} is not a valid integer channel",
+                        section_path=section_path,
+                    ) from None
+                if ch_int < 0 or ch_int > 7:
+                    raise ConfigValidationError(
+                        f"Route {route_id!r}: channel_room_map channel "
+                        f"{ch_int!r} is out of range (must be 0–7)",
+                        section_path=section_path,
+                    )
+                ch_normalized = str(ch_int)
+                if ch_normalized in seen_channels:
+                    raise ConfigValidationError(
+                        f"Route {route_id!r}: channel_room_map has duplicate "
+                        f"channel {ch_normalized!r}",
+                        section_path=section_path,
+                    )
+                seen_channels.add(ch_normalized)
+
+                # --- room value validation ---
+                if not isinstance(raw_value, str) or not raw_value.strip():
+                    raise ConfigValidationError(
+                        f"Route {route_id!r}: channel_room_map room for "
+                        f"channel {ch_normalized!r} must be a non-empty "
+                        f"string, got {raw_value!r}",
+                        section_path=section_path,
+                    )
+                room_value = raw_value.strip()
+                if room_value.startswith("#"):
+                    raise ConfigValidationError(
+                        f"Route {route_id!r}: channel_room_map room "
+                        f"{room_value!r} for channel {ch_normalized!r} "
+                        f"is an alias — aliases are not supported yet; "
+                        f"use a canonical room ID starting with '!'",
+                        section_path=section_path,
+                    )
+                normalized[ch_normalized] = room_value
+            channel_room_map = normalized
+
         # --- policy ---
         raw_policy = data.pop("policy", None)
         policy: BridgePolicy | None = None
@@ -525,6 +636,7 @@ class RouteConfig:
             dest_room=dest_room,
             policy=policy,
             retry=retry,
+            channel_room_map=channel_room_map,
         )
 
 

@@ -275,3 +275,84 @@ class TestMatrixConfigEncryptionMode:
         )
         with pytest.raises(MatrixConfigError, match="encryption_mode"):
             config.validate()
+
+
+# ===================================================================
+# auto_join_rooms field
+# ===================================================================
+
+
+class TestMatrixConfigAutoJoinRooms:
+    """auto_join_rooms field defaults and validation."""
+
+    def test_default_is_empty_tuple(self) -> None:
+        """Default auto_join_rooms is an empty tuple."""
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="https://matrix.example.com",
+            user_id="@bot:example.com",
+            access_token="s3cret",
+        )
+        assert config.auto_join_rooms == ()
+
+    def test_valid_rooms_accepted(self) -> None:
+        """Valid canonical room IDs pass validation."""
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="https://matrix.example.com",
+            user_id="@bot:example.com",
+            access_token="s3cret",
+            auto_join_rooms=("!room1:example.com", "!room2:example.com"),
+        )
+        result = config.validate()
+        assert result.auto_join_rooms == ("!room1:example.com", "!room2:example.com")
+
+    def test_non_bang_id_rejected(self) -> None:
+        """auto_join_rooms entry not starting with '!' is rejected."""
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="https://matrix.example.com",
+            user_id="@bot:example.com",
+            access_token="s3cret",
+            auto_join_rooms=("#room:example.com",),
+        )
+        with pytest.raises(MatrixConfigError, match="auto_join_rooms"):
+            config.validate()
+
+    def test_empty_string_rejected(self) -> None:
+        """Empty string in auto_join_rooms is rejected."""
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="https://matrix.example.com",
+            user_id="@bot:example.com",
+            access_token="s3cret",
+            auto_join_rooms=("",),
+        )
+        with pytest.raises(MatrixConfigError, match="auto_join_rooms"):
+            config.validate()
+
+    def test_non_tuple_rejected(self) -> None:
+        """Non-tuple auto_join_rooms is rejected."""
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="https://matrix.example.com",
+            user_id="@bot:example.com",
+            access_token="s3cret",
+            auto_join_rooms=["!room:example.com"],  # type: ignore[arg-type]
+        )
+        with pytest.raises(MatrixConfigError, match="auto_join_rooms must be a tuple"):
+            config.validate()
+
+    def test_preserves_room_allowlist(self) -> None:
+        """Setting auto_join_rooms does not affect room_allowlist."""
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="https://matrix.example.com",
+            user_id="@bot:example.com",
+            access_token="s3cret",
+            room_allowlist={"!room1:example.com"},
+            auto_join_rooms=("!room2:example.com",),
+        )
+        result = config.validate()
+        assert result.room_allowlist == {"!room1:example.com"}
+        assert result.auto_join_rooms == ("!room2:example.com",)

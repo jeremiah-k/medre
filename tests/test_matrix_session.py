@@ -15,7 +15,7 @@ import asyncio
 import importlib
 import logging
 import sys
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -81,9 +81,9 @@ class TestMatrixSessionLifecycle:
         session = MatrixSession(config, message_callback=cb)
         try:
             await session.start()
-            # Four callbacks: message types + ReactionEvent +
-            # MegolmEvent + RoomEncryptionEvent
-            assert mock_nio.AsyncClient.return_value.add_event_callback.call_count == 4
+            # Five callbacks: message types + ReactionEvent +
+            # MegolmEvent + RoomEncryptionEvent + InviteMemberEvent
+            assert mock_nio.AsyncClient.return_value.add_event_callback.call_count == 5
         finally:
             await session.stop()
 
@@ -748,5 +748,295 @@ class TestReactionCallbackMultiClass:
         try:
             await session.start()
             assert session.connected is True
+        finally:
+            await session.stop()
+
+
+# ===================================================================
+# Part D — ensure_joined / ensure_joined_rooms / invite handling
+# ===================================================================
+
+
+class TestEnsureJoined:
+    """MatrixSession.ensure_joined behaviour."""
+
+    async def test_returns_true_when_already_joined(self, mock_nio) -> None:
+        """Room already in client.rooms → True without calling join."""
+        config = make_matrix_config()
+        session = MatrixSession(config)
+        try:
+            await session.start()
+            mock_client = mock_nio.AsyncClient.return_value
+            mock_client.rooms = {"!room:server": MagicMock()}
+            result = await session.ensure_joined("!room:server")
+            assert result is True
+            mock_client.join.assert_not_called()
+        finally:
+            await session.stop()
+
+    async def test_calls_join_when_not_joined(self, mock_nio) -> None:
+        """Room not in client.rooms → join called, True on success."""
+        config = make_matrix_config()
+        session = MatrixSession(config)
+        try:
+            await session.start()
+            mock_client = mock_nio.AsyncClient.return_value
+            mock_client.rooms = {}
+            result = await session.ensure_joined("!room:server")
+            assert result is True
+            mock_client.join.assert_called_once_with("!room:server")
+        finally:
+            await session.stop()
+
+    async def test_returns_false_on_join_failure(self, mock_nio) -> None:
+        """Join returns error response → False, no crash."""
+        config = make_matrix_config()
+        session = MatrixSession(config)
+        try:
+            await session.start()
+            mock_client = mock_nio.AsyncClient.return_value
+            mock_client.rooms = {}
+            # Return a response without room_id (error-like).
+            error_resp = MagicMock(name="join_error")
+            del error_resp.room_id
+            error_resp.__str__ = lambda self: "forbidden"
+            mock_client.join = AsyncMock(return_value=error_resp)
+            result = await session.ensure_joined("!room:server")
+            assert result is False
+        finally:
+            await session.stop()
+
+    async def test_returns_false_on_join_exception(self, mock_nio) -> None:
+        """Join raises exception → False, no crash."""
+        config = make_matrix_config()
+        session = MatrixSession(config)
+        try:
+            await session.start()
+            mock_client = mock_nio.AsyncClient.return_value
+            mock_client.rooms = {}
+            mock_client.join = AsyncMock(side_effect=RuntimeError("network"))
+            result = await session.ensure_joined("!room:server")
+            assert result is False
+        finally:
+            await session.stop()
+
+    async def test_returns_false_when_client_none(self) -> None:
+        """Client is None → warning logged, False returned."""
+        config = make_matrix_config()
+        session = MatrixSession(config)
+        result = await session.ensure_joined("!room:server")
+        assert result is False
+
+    async def test_returns_false_for_invalid_room_id(self, mock_nio) -> None:
+        """Non-string or empty room_id → False."""
+        config = make_matrix_config()
+        session = MatrixSession(config)
+        try:
+            await session.start()
+            assert await session.ensure_joined("") is False
+            assert await session.ensure_joined(123) is False  # type: ignore[arg-type]
+        finally:
+            await session.stop()
+
+
+class TestEnsureJoinedRooms:
+    """MatrixSession.ensure_joined_rooms batch behaviour."""
+
+    async def test_joins_multiple_rooms(self, mock_nio) -> None:
+        """Joins each room, returns dict of results."""
+        config = make_matrix_config()
+        session = MatrixSession(config)
+        try:
+            await session.start()
+            mock_client = mock_nio.AsyncClient.return_value
+            mock_client.rooms = {}
+            results = await session.ensure_joined_rooms(
+                ["!a:server", "!b:server"]
+            )
+            assert results == {"!a:server": True, "!b:server": True}
+            assert mock_client.join.call_count == 2
+        finally:
+            await session.stop()
+
+    async def test_deduplicates_rooms(self, mock_nio) -> None:
+        """Duplicate room IDs are joined only once."""
+        config = make_matrix_config()
+        session = MatrixSession(config)
+        try:
+            await session.start()
+            mock_client = mock_nio.AsyncClient.return_value
+            mock_client.rooms = {}
+            results = await session.ensure_joined_rooms(
+                ["!a:server", "!a:server", "!b:server"]
+            )
+            assert len(results) == 2
+            assert mock_client.join.call_count == 2
+        finally:
+            await session.stop()
+
+    async def test_failure_does_not_prevent_others(self, mock_nio) -> None:
+        """One join failure does not prevent other rooms from being attempted."""
+        config = make_matrix_config()
+        session = MatrixSession(config)
+        try:
+            await session.start()
+            mock_client = mock_nio.AsyncClient.return_value
+            mock_client.rooms = {}
+
+            call_count = 0
+
+            async def _conditional_join(rid: str) -> MagicMock:
+                nonlocal call_count
+                call_count += 1
+                if rid == "!bad:server":
+                    err = MagicMock(name="error")
+                    del err.room_id
+                    return err
+                resp = MagicMock(name="ok")
+                resp.room_id = rid
+                return resp
+
+            mock_client.join = AsyncMock(side_effect=_conditional_join)
+            results = await session.ensure_joined_rooms(
+                ["!bad:server", "!good:server"]
+            )
+            assert results["!bad:server"] is False
+            assert results["!good:server"] is True
+        finally:
+            await session.stop()
+
+    async def test_empty_list_returns_empty(self, mock_nio) -> None:
+        """Empty iterable returns empty dict."""
+        config = make_matrix_config()
+        session = MatrixSession(config)
+        try:
+            await session.start()
+            results = await session.ensure_joined_rooms([])
+            assert results == {}
+        finally:
+            await session.stop()
+
+
+class TestConcurrentJoinDeduplication:
+    """_joining_rooms set prevents duplicate concurrent joins."""
+
+    async def test_concurrent_join_dedup(self, mock_nio) -> None:
+        """Two concurrent ensure_joined calls for same room deduplicate."""
+        config = make_matrix_config()
+        session = MatrixSession(config)
+        try:
+            await session.start()
+            mock_client = mock_nio.AsyncClient.return_value
+            mock_client.rooms = {}
+
+            join_count = 0
+
+            async def _slow_join(rid: str) -> MagicMock:
+                nonlocal join_count
+                join_count += 1
+                await asyncio.sleep(0)  # yield to allow concurrency
+                resp = MagicMock(name="ok")
+                resp.room_id = rid
+                return resp
+
+            mock_client.join = AsyncMock(side_effect=_slow_join)
+
+            # Launch two concurrent joins for the same room.
+            results = await asyncio.gather(
+                session.ensure_joined("!room:server"),
+                session.ensure_joined("!room:server"),
+            )
+            # Both should return True (one from actual join, one from dedup)
+            assert all(results)
+            # join should only have been called once due to dedup
+            assert join_count == 1
+        finally:
+            await session.stop()
+
+
+class TestInviteHandling:
+    """_on_invite callback behaviour."""
+
+    async def test_invite_to_configured_room_accepted(self, mock_nio) -> None:
+        """Invite to a room in auto_join_rooms triggers ensure_joined."""
+        config = make_matrix_config()
+        session = MatrixSession(config, auto_join_rooms=("!target:server",))
+        try:
+            await session.start()
+            mock_client = mock_nio.AsyncClient.return_value
+            mock_client.rooms = {}
+
+            event = MagicMock(name="invite_event")
+            event.room_id = "!target:server"
+            room = MagicMock(name="room")
+
+            await session._on_invite(room, event)
+            mock_client.join.assert_called_once_with("!target:server")
+        finally:
+            await session.stop()
+
+    async def test_invite_to_unconfigured_room_ignored(self, mock_nio) -> None:
+        """Invite to room NOT in auto_join_rooms is ignored."""
+        config = make_matrix_config()
+        session = MatrixSession(config, auto_join_rooms=("!target:server",))
+        try:
+            await session.start()
+            mock_client = mock_nio.AsyncClient.return_value
+            mock_client.rooms = {}
+
+            event = MagicMock(name="invite_event")
+            event.room_id = "!other:server"
+            room = MagicMock(name="room")
+
+            await session._on_invite(room, event)
+            mock_client.join.assert_not_called()
+        finally:
+            await session.stop()
+
+    async def test_invite_callback_registered(self, mock_nio) -> None:
+        """InviteMemberEvent callback is registered in _finalize_start."""
+        config = make_matrix_config()
+        session = MatrixSession(config, auto_join_rooms=("!room:server",))
+        try:
+            await session.start()
+            calls = mock_nio.AsyncClient.return_value.add_event_callback.call_args_list
+            invite_registered = any(
+                mock_nio.InviteMemberEvent in call[0][1]
+                for call in calls
+                if len(call[0]) >= 2
+            )
+            assert invite_registered, (
+                "InviteMemberEvent not found in any add_event_callback call"
+            )
+        finally:
+            await session.stop()
+
+    async def test_invite_no_room_id_no_crash(self, mock_nio) -> None:
+        """Invite event without room_id does not crash."""
+        config = make_matrix_config()
+        session = MatrixSession(config, auto_join_rooms=("!room:server",))
+        try:
+            await session.start()
+            event = MagicMock(name="invite_event")
+            del event.room_id
+            await session._on_invite(None, event)  # no crash
+        finally:
+            await session.stop()
+
+    async def test_invite_join_failure_no_crash(self, mock_nio) -> None:
+        """Invite to configured room where join fails does not crash."""
+        config = make_matrix_config()
+        session = MatrixSession(config, auto_join_rooms=("!target:server",))
+        try:
+            await session.start()
+            mock_client = mock_nio.AsyncClient.return_value
+            mock_client.rooms = {}
+            mock_client.join = AsyncMock(side_effect=RuntimeError("fail"))
+
+            event = MagicMock(name="invite_event")
+            event.room_id = "!target:server"
+            room = MagicMock(name="room")
+
+            await session._on_invite(room, event)  # no crash
         finally:
             await session.stop()

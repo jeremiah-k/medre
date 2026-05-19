@@ -270,6 +270,7 @@ class MatrixAdapter(AdapterContract):
             config=self._config,
             message_callback=self._on_room_message,
             logger=session_logger,
+            auto_join_rooms=self._config.auto_join_rooms,
         )
         await self._session.start()
 
@@ -278,6 +279,20 @@ class MatrixAdapter(AdapterContract):
         self._sync_task = self._session._sync_task
 
         ctx.logger.info("MatrixAdapter %s started", self.adapter_id)
+
+        # Part D — auto-join configured rooms after startup.
+        if self._config.auto_join_rooms:
+            join_results = await self._session.ensure_joined_rooms(
+                self._config.auto_join_rooms
+            )
+            joined_count = sum(1 for v in join_results.values() if v)
+            failed_count = len(join_results) - joined_count
+            ctx.logger.info(
+                "Auto-join: %d configured, %d joined, %d failed",
+                len(self._config.auto_join_rooms),
+                joined_count,
+                failed_count,
+            )
 
     async def stop(self, timeout: float = 5.0) -> None:
         """Stop syncing and disconnect from the homeserver.
@@ -452,6 +467,23 @@ class MatrixAdapter(AdapterContract):
         )
         if not room_id:
             raise AdapterPermanentError("no room_id in result")
+
+        # Part D — auto-join configured target room if not already joined.
+        if (
+            self._config.auto_join_rooms
+            and room_id in self._config.auto_join_rooms
+            and self._session is not None
+        ):
+            rooms = getattr(client, "rooms", None)
+            already_joined = (
+                rooms is not None and isinstance(rooms, dict) and room_id in rooms
+            )
+            if not already_joined:
+                joined = await self._session.ensure_joined(room_id)
+                if not joined:
+                    raise AdapterPermanentError(
+                        f"Failed to auto-join configured room {room_id}"
+                    )
 
         try:
             self._check_encrypted_room_safety(room_id, client)

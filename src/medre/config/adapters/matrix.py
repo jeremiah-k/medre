@@ -59,6 +59,11 @@ class MatrixConfig:
     require_encrypted_rooms:
         When ``True``, the adapter should only operate in encrypted
         rooms.  Invalid with ``encryption_mode="plaintext"``.
+    auto_join_rooms:
+        Tuple of canonical Matrix room IDs (starting with ``"!"``)
+        that the adapter should automatically join on startup.
+        The runtime builder derives this from route configuration;
+        it can also be set explicitly by the operator.
     """
 
     adapter_id: str
@@ -72,6 +77,7 @@ class MatrixConfig:
     sync_timeout_ms: int = 30000
     encryption_mode: str = "plaintext"
     require_encrypted_rooms: bool = False
+    auto_join_rooms: tuple[str, ...] = ()
 
     def validate(self) -> MatrixConfig:
         """Validate the configuration and return it for chaining.
@@ -161,6 +167,20 @@ class MatrixConfig:
                         "room_allowlist entries must be non-empty strings"
                     )
 
+        # Validate auto_join_rooms entries.
+        if not isinstance(self.auto_join_rooms, tuple):
+            raise MatrixConfigError("auto_join_rooms must be a tuple")
+        for entry in self.auto_join_rooms:
+            if not isinstance(entry, str) or not entry.strip():
+                raise MatrixConfigError(
+                    "auto_join_rooms entries must be non-empty strings"
+                )
+            if not entry.startswith("!"):
+                raise MatrixConfigError(
+                    f"auto_join_rooms entries must be canonical room IDs "
+                    f"starting with '!', got {entry!r}"
+                )
+
         # --- Encryption-mode validation ---
         if self.encryption_mode not in _VALID_ENCRYPTION_MODES:
             raise MatrixConfigError(
@@ -192,5 +212,6 @@ class MatrixConfig:
             f"user_id={self.user_id!r}, "
             f"access_token={token_preview!r}, "
             f"encryption_mode={self.encryption_mode!r}, "
-            f"room_allowlist={self.room_allowlist!r})"
+            f"room_allowlist={self.room_allowlist!r}, "
+            f"auto_join_rooms={self.auto_join_rooms!r})"
         )

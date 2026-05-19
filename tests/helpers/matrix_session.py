@@ -91,16 +91,22 @@ def build_mock_nio_module() -> MagicMock:
     whoami_resp = MagicMock(name="whoami_response")
     whoami_resp.device_id = "MOCK_DISCOVERED_DEVICE"
     client.whoami = AsyncMock(return_value=whoami_resp)
+    client.join = AsyncMock()
+    join_resp = MagicMock(name="join_response")
+    join_resp.room_id = "!auto:server"
+    client.join.return_value = join_resp
     mock.AsyncClient = MagicMock(return_value=client)
     mock.ClientConfig = MagicMock(name="ClientConfig")
     mock.RoomMessageText = MagicMock(name="RoomMessageText")
     mock.RoomMessageNotice = MagicMock(name="RoomMessageNotice")
     mock.RoomMessageEmote = MagicMock(name="RoomMessageEmote")
     mock.ReactionEvent = MagicMock(name="ReactionEvent")
+    mock.InviteMemberEvent = MagicMock(name="InviteMemberEvent")
     # nio.events.MegolmEvent for undecryptable event callback
     mock_events = MagicMock(name="nio.events")
     mock_events.MegolmEvent = MagicMock(name="MegolmEvent")
     mock_events.RoomEncryptionEvent = MagicMock(name="RoomEncryptionEvent")
+    mock_events.InviteMemberEvent = MagicMock(name="InviteMemberEvent")
     # Explicitly provide room_events submodule WITHOUT ReactionEvent
     # so auto-created MagicMock doesn't create a false match.
     mock_room_events = MagicMock(name="nio.events.room_events")
