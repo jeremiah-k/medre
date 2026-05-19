@@ -535,3 +535,77 @@ class TestChannelRoomMapExpansion:
         routes = build_runtime_routes(rcs, {})
         assert len(routes) == 1
         assert routes[0].id == "plain"
+
+    # --- runtime cardinality checks (FIX 2) ---
+
+    def test_empty_source_adapters_raises(self) -> None:
+        """Directly constructed RouteConfig with empty source_adapters raises RouteValidationError."""
+        from medre.runtime.route_engine import RouteValidationError, build_runtime_routes
+
+        rc = RouteConfig(
+            route_id="empty_src",
+            source_adapters=(),
+            dest_adapters=("mesh_adapter",),
+            channel_room_map={"0": "!room:example.com"},
+        )
+        rcs = RouteConfigSet(routes=(rc,))
+        with pytest.raises(RouteValidationError, match="exactly one source"):
+            build_runtime_routes(rcs, self._platforms())
+
+    def test_multiple_source_adapters_raises(self) -> None:
+        """Multiple source_adapters raises RouteValidationError at runtime."""
+        from medre.runtime.route_engine import RouteValidationError, build_runtime_routes
+
+        rc = RouteConfig(
+            route_id="multi_src",
+            source_adapters=("a", "b"),
+            dest_adapters=("mesh_adapter",),
+            channel_room_map={"0": "!room:example.com"},
+        )
+        rcs = RouteConfigSet(routes=(rc,))
+        with pytest.raises(RouteValidationError, match="exactly one source"):
+            build_runtime_routes(rcs, {"a": "matrix", "b": "matrix", "mesh_adapter": "meshtastic"})
+
+    def test_empty_dest_adapters_raises(self) -> None:
+        """Directly constructed RouteConfig with empty dest_adapters raises RouteValidationError."""
+        from medre.runtime.route_engine import RouteValidationError, build_runtime_routes
+
+        rc = RouteConfig(
+            route_id="empty_dst",
+            source_adapters=("matrix_adapter",),
+            dest_adapters=(),
+            channel_room_map={"0": "!room:example.com"},
+        )
+        rcs = RouteConfigSet(routes=(rc,))
+        with pytest.raises(RouteValidationError, match="exactly one source"):
+            build_runtime_routes(rcs, self._platforms())
+
+    def test_multiple_dest_adapters_raises(self) -> None:
+        """Multiple dest_adapters raises RouteValidationError at runtime."""
+        from medre.runtime.route_engine import RouteValidationError, build_runtime_routes
+
+        rc = RouteConfig(
+            route_id="multi_dst",
+            source_adapters=("matrix_adapter",),
+            dest_adapters=("a", "b"),
+            channel_room_map={"0": "!room:example.com"},
+        )
+        rcs = RouteConfigSet(routes=(rc,))
+        with pytest.raises(RouteValidationError, match="exactly one source"):
+            build_runtime_routes(rcs, {"matrix_adapter": "matrix", "a": "meshtastic", "b": "meshtastic"})
+
+    def test_valid_one_source_one_dest_expands(self) -> None:
+        """Valid one-source/one-dest config still expands correctly."""
+        from medre.runtime.route_engine import build_runtime_routes
+
+        rc = RouteConfig(
+            route_id="valid",
+            source_adapters=("matrix_adapter",),
+            dest_adapters=("mesh_adapter",),
+            directionality=RouteDirectionality.SOURCE_TO_DEST,
+            channel_room_map={"0": "!room0:example.com", "1": "!room1:example.com"},
+        )
+        rcs = RouteConfigSet(routes=(rc,))
+        routes = build_runtime_routes(rcs, self._platforms())
+        assert len(routes) == 2
+        assert all("matrix_to_meshtastic" in r.id for r in routes)

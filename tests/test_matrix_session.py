@@ -918,7 +918,7 @@ class TestEnsureJoinedRooms:
 
 
 class TestConcurrentJoinDeduplication:
-    """_joining_rooms set prevents duplicate concurrent joins."""
+    """_joining_rooms Future prevents duplicate concurrent joins."""
 
     async def test_concurrent_join_dedup(self, mock_nio) -> None:
         """Two concurrent ensure_joined calls for same room deduplicate."""
@@ -952,6 +952,93 @@ class TestConcurrentJoinDeduplication:
             assert all(results)
             # join should only have been called once due to dedup
             assert join_count == 1
+        finally:
+            await session.stop()
+
+    async def test_concurrent_join_both_true_on_success(self, mock_nio) -> None:
+        """Both callers get True when the underlying join succeeds."""
+        config = make_matrix_config()
+        session = MatrixSession(config)
+        try:
+            await session.start()
+            mock_client = mock_nio.AsyncClient.return_value
+            mock_client.rooms = {}
+
+            async def _join(rid: str) -> MagicMock:
+                await asyncio.sleep(0)
+                resp = MagicMock(name="ok")
+                resp.room_id = rid
+                return resp
+
+            mock_client.join = AsyncMock(side_effect=_join)
+
+            results = await asyncio.gather(
+                session.ensure_joined("!room:server"),
+                session.ensure_joined("!room:server"),
+            )
+            assert results == [True, True]
+        finally:
+            await session.stop()
+
+    async def test_concurrent_join_both_false_on_failure(self, mock_nio) -> None:
+        """Both callers get False when the underlying join fails."""
+        config = make_matrix_config()
+        session = MatrixSession(config)
+        try:
+            await session.start()
+            mock_client = mock_nio.AsyncClient.return_value
+            mock_client.rooms = {}
+
+            async def _failing_join(rid: str) -> MagicMock:
+                await asyncio.sleep(0)
+                err = MagicMock(name="error")
+                del err.room_id
+                return err
+
+            mock_client.join = AsyncMock(side_effect=_failing_join)
+
+            results = await asyncio.gather(
+                session.ensure_joined("!room:server"),
+                session.ensure_joined("!room:server"),
+            )
+            assert results == [False, False]
+        finally:
+            await session.stop()
+
+    async def test_concurrent_join_both_false_on_exception(self, mock_nio) -> None:
+        """Both callers get False when the underlying join raises."""
+        config = make_matrix_config()
+        session = MatrixSession(config)
+        try:
+            await session.start()
+            mock_client = mock_nio.AsyncClient.return_value
+            mock_client.rooms = {}
+
+            async def _exception_join(rid: str) -> None:
+                await asyncio.sleep(0)
+                raise RuntimeError("network error")
+
+            mock_client.join = AsyncMock(side_effect=_exception_join)
+
+            results = await asyncio.gather(
+                session.ensure_joined("!room:server"),
+                session.ensure_joined("!room:server"),
+            )
+            assert results == [False, False]
+        finally:
+            await session.stop()
+
+    async def test_already_joined_skips_join(self, mock_nio) -> None:
+        """Already-joined room returns True without calling join."""
+        config = make_matrix_config()
+        session = MatrixSession(config)
+        try:
+            await session.start()
+            mock_client = mock_nio.AsyncClient.return_value
+            mock_client.rooms = {"!room:server": MagicMock()}
+            result = await session.ensure_joined("!room:server")
+            assert result is True
+            mock_client.join.assert_not_called()
         finally:
             await session.stop()
 

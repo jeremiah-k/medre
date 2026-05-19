@@ -470,6 +470,12 @@ def _expand_channel_room_map_route(
 
     assert rc.channel_room_map is not None  # guarded by caller
 
+    if len(rc.source_adapters) != 1 or len(rc.dest_adapters) != 1:
+        raise RouteValidationError(
+            f"Route {rc.route_id!r}: channel_room_map requires exactly "
+            f"one source adapter and one dest adapter"
+        )
+
     src_id = rc.source_adapters[0]
     dst_id = rc.dest_adapters[0]
 
