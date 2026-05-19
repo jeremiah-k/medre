@@ -551,4 +551,4 @@ class TestClassifierReplyIdZero:
         packet["decoded"]["emoji"] = 1
         result = MeshtasticPacketClassifier().classify(packet)
         # Should not throw. reaction_key should be str(42)
-        assert result["reaction_key"] is not None
+        assert result["reaction_key"] == "42"

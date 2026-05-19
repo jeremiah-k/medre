@@ -42,6 +42,7 @@ from medre.interop.mmrelay import (
     KEY_LONGNAME,
     KEY_MESHNET,
     KEY_PORTNUM,
+    KEY_REACTION_KEY,
     KEY_REPLY_ID,
     KEY_SHORTNAME,
     KEY_TEXT,
@@ -198,6 +199,27 @@ class MatrixCodec(AdapterCodec):
             }
             self._capture_mmrelay_fields(content, native_data)
 
+            # Resolve the reaction key: prefer the structured MEDRE extension
+            # key (meshtastic_reaction_key) when present, fall back to body.
+            reaction_key_value = content.get(KEY_REACTION_KEY)
+            if reaction_key_value is not None:
+                reaction_key_value = str(reaction_key_value).strip()
+            if not reaction_key_value:
+                reaction_key_value = body
+
+            # Propagate the structured key into payload when available.
+            if reaction_key_value != body:
+                payload["key"] = reaction_key_value
+
+            # Build relation metadata: include the structured key when present.
+            rel_metadata: dict[str, object] = {
+                "meshtastic_reply_id": str(mmrelay_reply_id),
+                "meshtastic_emoji": mmrelay_emoji,
+            }
+            raw_rk = content.get(KEY_REACTION_KEY)
+            if raw_rk is not None and str(raw_rk).strip():
+                rel_metadata["meshtastic_reaction_key"] = str(raw_rk).strip()
+
             # Build a canonical reaction relation.  The target is identified
             # by the MMRelay reply ID but we do NOT fabricate an adapter ID.
             relations = [
@@ -205,12 +227,9 @@ class MatrixCodec(AdapterCodec):
                     relation_type="reaction",
                     target_event_id=None,
                     target_native_ref=None,
-                    key=body,
+                    key=reaction_key_value,
                     fallback_text=None,
-                    metadata={
-                        "meshtastic_reply_id": str(mmrelay_reply_id),
-                        "meshtastic_emoji": mmrelay_emoji,
-                    },
+                    metadata=rel_metadata,
                 ),
             ]
 
@@ -393,6 +412,7 @@ class MatrixCodec(AdapterCodec):
             KEY_PORTNUM,
             KEY_LONGNAME,
             KEY_SHORTNAME,
+            KEY_REACTION_KEY,
         ):
             if key in content:
                 native_data[key] = content[key]

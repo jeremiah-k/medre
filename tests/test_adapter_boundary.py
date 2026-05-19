@@ -31,6 +31,7 @@ from medre.core.contracts.adapter import (
     AdapterPermanentError,
     AdapterRole,
     AdapterSendError,
+    OutboundNativeRefRecord,
 )
 from medre.core.rendering.renderer import RenderingResult
 
@@ -833,3 +834,45 @@ class TestErrorClassificationPipeline:
         import asyncio
 
         assert not isinstance(asyncio.CancelledError(), AdapterSendError)
+
+
+# ===================================================================
+# 14. OutboundNativeRefRecord metadata immutability
+# ===================================================================
+
+
+class TestOutboundNativeRefRecordMetadataFrozen:
+    """OutboundNativeRefRecord.metadata is frozen after construction."""
+
+    def test_metadata_readable(self) -> None:
+        record = OutboundNativeRefRecord(
+            event_id="evt-1",
+            adapter="mesh-1",
+            native_channel_id="0",
+            native_message_id="42",
+            metadata={"packet_id": 1},
+        )
+        assert record.metadata["packet_id"] == 1
+
+    def test_metadata_immutable_assignment_raises(self) -> None:
+        record = OutboundNativeRefRecord(
+            event_id="evt-1",
+            adapter="mesh-1",
+            native_channel_id="0",
+            native_message_id="42",
+            metadata={"packet_id": 1},
+        )
+        with pytest.raises(TypeError):
+            record.metadata["x"] = "y"  # type: ignore[index]
+
+    def test_metadata_isolated_from_mutable_original(self) -> None:
+        original = {"packet_id": 1}
+        record = OutboundNativeRefRecord(
+            event_id="evt-1",
+            adapter="mesh-1",
+            native_channel_id="0",
+            native_message_id="42",
+            metadata=original,
+        )
+        original["packet_id"] = 999
+        assert record.metadata["packet_id"] == 1

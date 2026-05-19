@@ -310,6 +310,9 @@ class OutboundNativeRefRecord:
     native_relation_id: str | None = None
     metadata: Mapping[str, object] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
+
 
 @dataclass
 class AdapterContext:

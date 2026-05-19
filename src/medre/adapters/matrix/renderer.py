@@ -30,6 +30,7 @@ from medre.interop.mmrelay import (
     KEY_LONGNAME,
     KEY_MESHNET,
     KEY_PORTNUM,
+    KEY_REACTION_KEY,
     KEY_REPLY_ID,
     KEY_SHORTNAME,
     KEY_TEXT,
@@ -394,6 +395,7 @@ class MatrixRenderer:
             content["msgtype"] = "m.emote"
             content["body"] = emote_body
             content[KEY_EMOJI] = EMOJI_FLAG_VALUE
+            content[KEY_REACTION_KEY] = symbol
 
             # KEY_TEXT: original text preview (not reaction emoji)
             content[KEY_TEXT] = original_text

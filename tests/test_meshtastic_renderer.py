@@ -646,7 +646,7 @@ class TestCrossPlatformReactionDescriptive:
         text = result.payload["text"]
         assert "[DisplayName] reacted" in text
         # NOT lowercased
-        assert "[displayname]" not in str(text).lower().replace("displayname", "X")
+        assert "[displayname]" not in text
 
     async def test_compact_prefix_not_lowercased(self) -> None:
         """Casing is preserved: 'MeshUser' stays 'MeshUser', not 'meshuser'."""

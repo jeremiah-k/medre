@@ -885,6 +885,103 @@ class TestQueueMetadataSnapshot:
 
 
 # ===================================================================
+# _packet_snapshot decoded subobject capture
+# ===================================================================
+
+
+class TestPacketSnapshotDecodedSubobject:
+    """_packet_snapshot captures fields from decoded protobuf sub-object."""
+
+    @staticmethod
+    def _call(result: Any) -> dict[str, object]:
+        from medre.adapters.meshtastic.queue import _packet_snapshot
+
+        return _packet_snapshot(result)
+
+    def test_dict_decoded_captures_reply_id_and_emoji(self) -> None:
+        """Dict result with decoded sub-dict captures reply_id and emoji."""
+        snap = self._call({"decoded": {"reply_id": 42, "emoji": 1}})
+        assert snap["reply_id"] == 42
+        assert snap["emoji"] == 1
+
+    def test_dict_decoded_camel_case_replyId(self) -> None:
+        """Dict decoded with replyId (camelCase) maps to reply_id."""
+        snap = self._call({"decoded": {"replyId": 99}})
+        assert snap["reply_id"] == 99
+
+    def test_dict_decoded_captures_channel_and_to(self) -> None:
+        """Dict decoded captures channel and to fields."""
+        snap = self._call({"decoded": {"channel": 3, "to": 12345}})
+        assert snap["channel"] == 3
+        assert snap["to"] == 12345
+
+    def test_dict_decoded_captures_reaction_key(self) -> None:
+        """Dict decoded captures reaction_key when present."""
+        snap = self._call({"decoded": {"reaction_key": "abc"}})
+        assert snap["reaction_key"] == "abc"
+
+    def test_object_decoded_captures_attributes(self) -> None:
+        """Object result with decoded sub-object captures reply_id and emoji."""
+        Decoded = type("Decoded", (), {"reply_id": 42, "emoji": 1})
+        Packet = type("Packet", (), {"decoded": Decoded()})
+        snap = self._call(Packet())
+        assert snap["reply_id"] == 42
+        assert snap["emoji"] == 1
+
+    def test_object_decoded_camel_case_replyId(self) -> None:
+        """Object decoded with replyId attribute maps to reply_id."""
+        Decoded = type("Decoded", (), {"replyId": 77})
+        Packet = type("Packet", (), {"decoded": Decoded()})
+        snap = self._call(Packet())
+        assert snap["reply_id"] == 77
+
+    def test_top_level_not_overwritten_by_decoded(self) -> None:
+        """Top-level reply_id is preserved; decoded reply_id does not overwrite."""
+        snap = self._call(
+            {"reply_id": 10, "decoded": {"reply_id": 20, "emoji": 5}}
+        )
+        assert snap["reply_id"] == 10
+        assert snap["emoji"] == 5
+
+    def test_object_top_level_not_overwritten_by_decoded(self) -> None:
+        """Object top-level reply_id preserved; decoded does not overwrite."""
+        Decoded = type("Decoded", (), {"reply_id": 20})
+        Packet = type("Packet", (), {"reply_id": 10, "decoded": Decoded()})
+        snap = self._call(Packet())
+        assert snap["reply_id"] == 10
+
+    def test_none_result_returns_empty(self) -> None:
+        """result=None returns empty dict."""
+        assert self._call(None) == {}
+
+    def test_no_decoded_returns_top_level_only(self) -> None:
+        """Result without decoded sub-object still captures top-level."""
+        snap = self._call({"id": 5, "channel": 1})
+        assert snap["id"] == 5
+        assert snap["channel"] == 1
+        assert "emoji" not in snap
+
+    def test_decoded_values_pass_through_json_safe(self) -> None:
+        """Decoded bytes values are JSON-safe'd via json_safe."""
+        snap = self._call({"decoded": {"emoji": b"\x01\x02"}})
+        assert snap["emoji"] == {"encoding": "base64", "data": "AQI="}
+
+    def test_dict_decoded_none_values_skipped(self) -> None:
+        """None values in decoded dict are not captured."""
+        snap = self._call({"decoded": {"reply_id": None, "emoji": None}})
+        assert "reply_id" not in snap
+        assert "emoji" not in snap
+
+    def test_object_decoded_missing_attrs_skipped(self) -> None:
+        """Missing attributes on decoded object are silently skipped."""
+        Decoded = type("Decoded", (), {})
+        Packet = type("Packet", (), {"decoded": Decoded()})
+        snap = self._call(Packet())
+        assert "reply_id" not in snap
+        assert "emoji" not in snap
+
+
+# ===================================================================
 # Adapter deliver -> send_one passthrough
 # ===================================================================
 

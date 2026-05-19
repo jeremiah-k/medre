@@ -569,20 +569,25 @@ class PipelineRunner:
                         )
                         refs = []
 
-                    # Find ref matching target adapter, preferring exact channel.
-                    matching: NativeMessageRef | None = None
-                    exact_match: NativeMessageRef | None = None
-                    for nref in refs:
-                        if nref.adapter == target_adapter:
+                    # Find ref matching target adapter.
+                    if target_channel is not None:
+                        # When target_channel is specified, only accept
+                        # exact channel match — no adapter-only fallback.
+                        matching = None
+                        for nref in refs:
                             if (
-                                target_channel is not None
+                                nref.adapter == target_adapter
                                 and nref.native_channel_id == target_channel
                             ):
-                                exact_match = nref
-                                break
-                            if matching is None:
                                 matching = nref
-                    matching = exact_match or matching
+                                break
+                    else:
+                        # Without target_channel, fall back to adapter-only.
+                        matching = None
+                        for nref in refs:
+                            if nref.adapter == target_adapter:
+                                matching = nref
+                                break
 
                     if matching is not None:
                         enriched_native_ref = NativeRef(

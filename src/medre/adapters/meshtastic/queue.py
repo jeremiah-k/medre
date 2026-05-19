@@ -340,9 +340,43 @@ def _packet_snapshot(result: Any) -> dict[str, object]:
             val = result.get(key)
             if val is not None:
                 snapshot[key] = json_safe(val)
+        decoded = result.get("decoded")
     else:
         for attr in ("id", "channel", "reply_id", "to"):
             val = getattr(result, attr, None)
             if val is not None:
                 snapshot[attr] = json_safe(val)
+        decoded = getattr(result, "decoded", None)
+
+    # Capture fields from the decoded protobuf sub-object when they fill
+    # gaps in the top-level snapshot.  Never overwrite a top-level value.
+    if decoded is not None:
+        if isinstance(decoded, dict):
+            for src_key, dst_key in (
+                ("reply_id", "reply_id"),
+                ("replyId", "reply_id"),
+                ("emoji", "emoji"),
+                ("to", "to"),
+                ("channel", "channel"),
+                ("reaction_key", "reaction_key"),
+            ):
+                if src_key not in decoded:
+                    continue
+                val = decoded[src_key]
+                if val is not None and dst_key not in snapshot:
+                    snapshot[dst_key] = json_safe(val)
+        else:
+            for src_attr, dst_key in (
+                ("reply_id", "reply_id"),
+                ("replyId", "reply_id"),
+                ("emoji", "emoji"),
+                ("channel", "channel"),
+                ("reaction_key", "reaction_key"),
+            ):
+                if dst_key in snapshot:
+                    continue
+                val = getattr(decoded, src_attr, None)
+                if val is not None:
+                    snapshot[dst_key] = json_safe(val)
+
     return snapshot

@@ -33,6 +33,22 @@ from tests.helpers.cli import (
     _run_cli_raw,
 )
 
+
+async def _trigger_shutdown_after_startup(
+    run_mod, stdout: io.StringIO, timeout: float = 2.0
+) -> None:
+    """Wait for startup completion marker, then trigger shutdown."""
+    marker = "Run `medre diagnostics --refresh-health` for live adapter health"
+    ok = await wait_until(
+        lambda: marker in stdout.getvalue(), timeout=timeout
+    )
+    assert ok, (
+        f"runtime did not reach post-startup marker within {timeout}s; "
+        f"output was:\n{stdout.getvalue()}"
+    )
+    run_mod.shutdown_requested = True
+
+
 # ===================================================================
 # 9. Shutdown/restart workflow with fake runtime
 # ===================================================================
@@ -340,14 +356,15 @@ class TestRealSnapshotOnShutdown:
 
         run_mod.shutdown_requested = False
 
-        async def _trigger_shutdown() -> None:
-            """Yield to event loop so _run() can start, then trigger shutdown."""
-            await wait_until(lambda: True, timeout=1.0)
-            run_mod.shutdown_requested = True
-
-        task = asyncio.create_task(run_mod._run(str(p), snapshot_path=str(snap_path)))
-        trigger = asyncio.create_task(_trigger_shutdown())
-        await asyncio.gather(task, trigger)
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            task = asyncio.create_task(
+                run_mod._run(str(p), snapshot_path=str(snap_path))
+            )
+            trigger = asyncio.create_task(
+                _trigger_shutdown_after_startup(run_mod, stdout)
+            )
+            await asyncio.gather(task, trigger)
 
         assert snap_path.exists(), "Snapshot file was not written"
         data = json.loads(snap_path.read_text())
@@ -368,13 +385,15 @@ class TestRealSnapshotOnShutdown:
 
         run_mod.shutdown_requested = False
 
-        async def _trigger_shutdown() -> None:
-            await wait_until(lambda: True, timeout=1.0)
-            run_mod.shutdown_requested = True
-
-        task = asyncio.create_task(run_mod._run(str(p), snapshot_path=str(snap_path)))
-        trigger = asyncio.create_task(_trigger_shutdown())
-        await asyncio.gather(task, trigger)
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            task = asyncio.create_task(
+                run_mod._run(str(p), snapshot_path=str(snap_path))
+            )
+            trigger = asyncio.create_task(
+                _trigger_shutdown_after_startup(run_mod, stdout)
+            )
+            await asyncio.gather(task, trigger)
 
         raw = snap_path.read_text()
         data = json.loads(raw)
@@ -401,14 +420,12 @@ class TestRunOutput:
 
         run_mod.shutdown_requested = False
 
-        async def _trigger_shutdown() -> None:
-            await wait_until(lambda: True, timeout=1.0)
-            run_mod.shutdown_requested = True
-
         stdout = io.StringIO()
         with redirect_stdout(stdout):
             task = asyncio.create_task(run_mod._run(str(p)))
-            trigger = asyncio.create_task(_trigger_shutdown())
+            trigger = asyncio.create_task(
+                _trigger_shutdown_after_startup(run_mod, stdout)
+            )
             await asyncio.gather(task, trigger)
 
         output = stdout.getvalue()
@@ -424,14 +441,12 @@ class TestRunOutput:
 
         run_mod.shutdown_requested = False
 
-        async def _trigger_shutdown() -> None:
-            await wait_until(lambda: True, timeout=1.0)
-            run_mod.shutdown_requested = True
-
         stdout = io.StringIO()
         with redirect_stdout(stdout):
             task = asyncio.create_task(run_mod._run(str(p)))
-            trigger = asyncio.create_task(_trigger_shutdown())
+            trigger = asyncio.create_task(
+                _trigger_shutdown_after_startup(run_mod, stdout)
+            )
             await asyncio.gather(task, trigger)
 
         output = stdout.getvalue()
@@ -447,14 +462,12 @@ class TestRunOutput:
 
         run_mod.shutdown_requested = False
 
-        async def _trigger_shutdown() -> None:
-            await wait_until(lambda: True, timeout=1.0)
-            run_mod.shutdown_requested = True
-
         stdout = io.StringIO()
         with redirect_stdout(stdout):
             task = asyncio.create_task(run_mod._run(str(p)))
-            trigger = asyncio.create_task(_trigger_shutdown())
+            trigger = asyncio.create_task(
+                _trigger_shutdown_after_startup(run_mod, stdout)
+            )
             await asyncio.gather(task, trigger)
 
         output = stdout.getvalue()
@@ -471,16 +484,14 @@ class TestRunOutput:
 
         run_mod.shutdown_requested = False
 
-        async def _trigger_shutdown() -> None:
-            await wait_until(lambda: True, timeout=1.0)
-            run_mod.shutdown_requested = True
-
         stdout = io.StringIO()
         with redirect_stdout(stdout):
             task = asyncio.create_task(
                 run_mod._run(str(p), snapshot_path=str(snap_path))
             )
-            trigger = asyncio.create_task(_trigger_shutdown())
+            trigger = asyncio.create_task(
+                _trigger_shutdown_after_startup(run_mod, stdout)
+            )
             await asyncio.gather(task, trigger)
 
         output = stdout.getvalue()
@@ -506,28 +517,24 @@ class TestStaleShutdownState:
         # Pre-set stale shutdown state.
         run_mod.shutdown_requested = True
 
-        async def _trigger_shutdown_after_delay() -> None:
-            await wait_until(lambda: True, timeout=1.0)
-            run_mod.shutdown_requested = True
-
         # First run: should reset shutdown_requested to False at start,
         # then exit when we trigger shutdown.
         stdout1 = io.StringIO()
         with redirect_stdout(stdout1):
             task1 = asyncio.create_task(run_mod._run(str(p)))
-            trigger1 = asyncio.create_task(_trigger_shutdown_after_delay())
+            trigger1 = asyncio.create_task(
+                _trigger_shutdown_after_startup(run_mod, stdout1)
+            )
             await asyncio.gather(task1, trigger1)
 
         # After first run, shutdown_requested is True (set by trigger).
         # Second run should reset it to False.
-        async def _trigger_shutdown_second() -> None:
-            await wait_until(lambda: True, timeout=1.0)
-            run_mod.shutdown_requested = True
-
         stdout2 = io.StringIO()
         with redirect_stdout(stdout2):
             task2 = asyncio.create_task(run_mod._run(str(p)))
-            trigger2 = asyncio.create_task(_trigger_shutdown_second())
+            trigger2 = asyncio.create_task(
+                _trigger_shutdown_after_startup(run_mod, stdout2)
+            )
             await asyncio.gather(task2, trigger2)
 
         # Both runs should have completed successfully (not hung).

@@ -316,6 +316,7 @@ class TestCrossAdapterArtifactRun:
                     "send_one() should return a result when queue is non-empty "
                     "and session is connected"
                 )
+                assert send_result.delivery_result is not None, "expected delivery_result to be present"
                 assert (
                     send_result.delivery_result.native_message_id is not None
                 ), "send_one() should return a real packet ID from meshtasticd"
@@ -353,7 +354,11 @@ class TestCrossAdapterArtifactRun:
             # Count total native refs (inbound Matrix + outbound Mesh).
             native_ref_count = 1  # inbound Matrix ref verified above
             mesh_native_id: str | None = None
-            if send_result is not None and send_result.delivery_result.native_message_id is not None:
+            if (
+                send_result is not None
+                and send_result.delivery_result is not None
+                and send_result.delivery_result.native_message_id is not None
+            ):
                 mesh_native_id = send_result.delivery_result.native_message_id
                 mesh_out_ref = await temp_storage.resolve_native_ref(
                     adapter="cross-mesh-target",

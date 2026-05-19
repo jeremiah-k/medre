@@ -42,7 +42,7 @@ A Meshtastic inbound reply (with `replyId`) becomes a Matrix reply (`m.in_reply_
 
 MMRelay-compatible `m.emote` descriptive rendering. The Matrix renderer produces:
 
-```
+```text
 \n {prefix}reacted {emoji} to "{preview}"
 ```
 
@@ -57,7 +57,7 @@ When `mmrelay_compat` is false and a Matrix-native target event ID is available,
 
 Cross-platform reactions (Matrix origin, Meshtastic target) use MMRelay-compatible descriptive text:
 
-```
+```text
 {compact_prefix}{sep}reacted {emoji} to "{preview}"
 ```
 
