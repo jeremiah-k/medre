@@ -659,6 +659,13 @@ class MatrixSession:
         callers await the leader's task via ``asyncio.shield`` so that
         cancelling a waiter does **not** cancel the underlying join.
         """
+        if self._stop_requested or self._closed:
+            self._logger.debug(
+                "ensure_joined: session stopping/closed, skipping join for %s",
+                room_id,
+            )
+            return False
+
         if not isinstance(room_id, str) or not room_id:
             self._logger.warning("ensure_joined: invalid room_id %r", room_id)
             return False

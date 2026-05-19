@@ -356,3 +356,15 @@ class TestMatrixConfigAutoJoinRooms:
         result = config.validate()
         assert result.room_allowlist == {"!room1:example.com"}
         assert result.auto_join_rooms == ("!room2:example.com",)
+
+    def test_missing_domain_rejected(self) -> None:
+        """auto_join_rooms entry without ':server' part is rejected."""
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="https://matrix.example.com",
+            user_id="@bot:example.com",
+            access_token="s3cret",
+            auto_join_rooms=("!no_domain",),
+        )
+        with pytest.raises(MatrixConfigError, match="auto_join_rooms"):
+            config.validate()

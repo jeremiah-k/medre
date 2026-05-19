@@ -1140,6 +1140,7 @@ class TestChannelRoomMapEndToEnd:
 
         evt = _make_event(source_adapter=_MESH_ID, source_channel_id="1")
         matched = router.match(evt)
+        assert len(matched) > 0
 
         for route in matched:
             targets = router.resolve_targets(evt, route)

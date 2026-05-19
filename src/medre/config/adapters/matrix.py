@@ -175,10 +175,10 @@ class MatrixConfig:
                 raise MatrixConfigError(
                     "auto_join_rooms entries must be non-empty strings"
                 )
-            if not entry.startswith("!"):
+            if not entry.startswith("!") or ":" not in entry:
                 raise MatrixConfigError(
                     f"auto_join_rooms entries must be canonical room IDs "
-                    f"starting with '!', got {entry!r}"
+                    f"in '!localpart:server' form, got {entry!r}",
                 )
 
         # --- Encryption-mode validation ---

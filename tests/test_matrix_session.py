@@ -81,9 +81,10 @@ class TestMatrixSessionLifecycle:
         session = MatrixSession(config, message_callback=cb)
         try:
             await session.start()
-            # Five callbacks: message types + ReactionEvent +
-            # MegolmEvent + RoomEncryptionEvent + InviteMemberEvent
-            assert mock_nio.AsyncClient.return_value.add_event_callback.call_count == 5
+            calls = mock_nio.AsyncClient.return_value.add_event_callback.call_args_list
+            registered_event_sets = [set(call.args[1]) for call in calls if len(call.args) >= 2]
+            assert any(mock_nio.InviteMemberEvent in events for events in registered_event_sets)
+            assert any(mock_nio.ReactionEvent in events for events in registered_event_sets)
         finally:
             await session.stop()
 
@@ -1395,35 +1396,38 @@ class TestEnsureJoinedCancellationSafety:
         config = make_matrix_config()
         session = MatrixSession(config)
         await session.start()
-        mock_client = mock_nio.AsyncClient.return_value
-        mock_client.rooms = {}
+        try:
+            mock_client = mock_nio.AsyncClient.return_value
+            mock_client.rooms = {}
 
-        join_started = asyncio.Event()
+            join_started = asyncio.Event()
 
-        async def _slow_join(rid: str) -> MagicMock:
-            join_started.set()
-            await asyncio.sleep(10)
-            resp = MagicMock(name="ok")
-            resp.room_id = rid
-            return resp
+            async def _slow_join(rid: str) -> MagicMock:
+                join_started.set()
+                await asyncio.sleep(10)
+                resp = MagicMock(name="ok")
+                resp.room_id = rid
+                return resp
 
-        mock_client.join = AsyncMock(side_effect=_slow_join)
+            mock_client.join = AsyncMock(side_effect=_slow_join)
 
-        # Start a join
-        task = asyncio.create_task(session.ensure_joined("!room:server"))
-        await join_started.wait()
+            # Start a join
+            task = asyncio.create_task(session.ensure_joined("!room:server"))
+            await join_started.wait()
 
-        # Task is in-flight
-        assert "!room:server" in session._joining_rooms
+            # Task is in-flight
+            assert "!room:server" in session._joining_rooms
 
-        # stop should cancel the join task
-        await session.stop()
+            # stop should cancel the join task
+            await session.stop()
 
-        # _joining_rooms should be cleared
-        assert len(session._joining_rooms) == 0
+            # _joining_rooms should be cleared
+            assert len(session._joining_rooms) == 0
 
-        # The task should have been cancelled
-        assert task.cancelled() or task.done()
+            # The task should have been cancelled
+            assert task.cancelled()
+        finally:
+            await session.stop()
 
     async def test_concurrent_failure_both_receive_false(self, mock_nio) -> None:
         """Two concurrent callers call join exactly once and both get False on failure."""

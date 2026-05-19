@@ -332,7 +332,7 @@ class TestChannelRoomMapExpansion:
         return {"matrix_adapter": "matrix", "mesh_adapter": "meshtastic"}
 
     def test_bidirectional_2_channels_4_routes(self) -> None:
-        """2 channels × bidirectional = 4 routes."""
+        """2 channels x bidirectional = 4 routes."""
         from medre.runtime.route_engine import build_runtime_routes
 
         rc = self._crm_config()
@@ -409,7 +409,7 @@ class TestChannelRoomMapExpansion:
         # Only channel 0 should have routes
         ch2_routes = [r for r in routes if r.source.channel == "2"]
         assert len(ch2_routes) == 0
-        assert len(routes) == 2  # 1 channel × bidirectional
+        assert len(routes) == 2  # 1 channel x bidirectional
 
     def test_source_to_dest_only(self) -> None:
         """source_to_dest creates only Matrix→Meshtastic legs."""

@@ -148,7 +148,7 @@ class TestAdapterDeliverAutoJoin:
             await adapter.start(make_matrix_context())
             mock_client = mock_nio.AsyncClient.return_value
             # Set up rooms with the target room already joined (plaintext).
-            mock_client.rooms = {"!unconfigured:server": SimpleNamespace(encrypted=False)}
+            mock_client.rooms = {}
 
             mock_client.join.reset_mock()
 
