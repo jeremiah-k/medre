@@ -891,6 +891,53 @@ class TestQueueMetadataSnapshot:
 
 
 # ===================================================================
+# _extract_packet_id extended coverage
+# ===================================================================
+
+
+class TestExtractPacketIdExtended:
+    """_extract_packet_id handles object .packet_id and decoded fallback."""
+
+    @staticmethod
+    def _call(result: Any) -> str | None:
+        from medre.adapters.meshtastic.queue import _extract_packet_id
+
+        return _extract_packet_id(result)
+
+    def test_object_packet_id_no_id(self) -> None:
+        """Object result with packet_id=777 but no id → '777'."""
+        Packet = type("Packet", (), {"packet_id": 777})
+        assert self._call(Packet()) == "777"
+
+    def test_object_id_preferred_over_packet_id(self) -> None:
+        """Object result with id=123 and packet_id=777 → '123' (prefers id)."""
+        Packet = type("Packet", (), {"id": 123, "packet_id": 777})
+        assert self._call(Packet()) == "123"
+
+    def test_dict_decoded_packet_id_fallback(self) -> None:
+        """Dict result with no top-level id/packet_id, decoded has packet_id=42."""
+        result = {"decoded": {"packet_id": 42}}
+        assert self._call(result) == "42"
+
+    def test_object_decoded_packet_id_fallback(self) -> None:
+        """Object result with no top-level id/packet_id, decoded has packet_id=55."""
+        Decoded = type("Decoded", (), {"packet_id": 55})
+        Packet = type("Packet", (), {"decoded": Decoded()})
+        assert self._call(Packet()) == "55"
+
+    def test_object_decoded_id_fallback(self) -> None:
+        """Object result with no top-level, decoded has id=99 but no packet_id."""
+        Decoded = type("Decoded", (), {"id": 99})
+        Packet = type("Packet", (), {"decoded": Decoded()})
+        assert self._call(Packet()) == "99"
+
+    def test_object_no_top_level_no_decoded_returns_none(self) -> None:
+        """Object result with no top-level and no decoded → None."""
+        Packet = type("Packet", (), {})
+        assert self._call(Packet()) is None
+
+
+# ===================================================================
 # _packet_snapshot decoded subobject capture
 # ===================================================================
 

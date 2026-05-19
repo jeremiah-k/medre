@@ -297,7 +297,13 @@ def _extract_packet_id(result: Any) -> str | None:
 
     The Meshtastic ``sendText`` API returns the sent packet object with
     a populated ``id`` field.  The fake client returns a dict with
-    ``"packet_id"``.  This helper handles both cases.
+    ``"packet_id"``.  Object results may carry ``.packet_id`` instead
+    of ``.id``.  When no top-level ID is found, the ``decoded``
+    sub-object (dict or attribute) is inspected for ``packet_id``
+    then ``id``.
+
+    Fields such as ``channel``, ``reply_id``, ``emoji``,
+    ``reaction_id``, and ``reaction_key`` are never used as IDs.
 
     Parameters
     ----------
@@ -311,13 +317,41 @@ def _extract_packet_id(result: Any) -> str | None:
     """
     if result is None:
         return None
-    # Dict with "packet_id" key (fake client pattern).
+    # --- Top-level ID ---------------------------------------------------
     if isinstance(result, dict):
         pid = result.get("packet_id") or result.get("id")
-        return str(pid) if pid is not None else None
-    # Object with .id attribute (real meshtastic client pattern).
-    pid = getattr(result, "id", None)
-    return str(pid) if pid is not None else None
+        if pid is not None:
+            return str(pid)
+    else:
+        pid = getattr(result, "id", None)
+        if pid is not None:
+            return str(pid)
+        pid = getattr(result, "packet_id", None)
+        if pid is not None:
+            return str(pid)
+    # --- Decoded sub-object fallback ------------------------------------
+    decoded: Any = None
+    if isinstance(result, dict):
+        decoded = result.get("decoded")
+    else:
+        decoded = getattr(result, "decoded", None)
+    if decoded is None:
+        return None
+    if isinstance(decoded, dict):
+        pid = decoded.get("packet_id")
+        if pid is not None:
+            return str(pid)
+        pid = decoded.get("id")
+        if pid is not None:
+            return str(pid)
+    else:
+        pid = getattr(decoded, "packet_id", None)
+        if pid is not None:
+            return str(pid)
+        pid = getattr(decoded, "id", None)
+        if pid is not None:
+            return str(pid)
+    return None
 
 
 def _packet_snapshot(result: Any) -> dict[str, object]:
@@ -335,9 +369,9 @@ def _packet_snapshot(result: Any) -> dict[str, object]:
 
     For dict ``decoded``, ``packet_id`` and ``reaction_id`` are
     captured in addition to ``reply_id``, ``replyId``, ``emoji``,
-    ``to``, ``channel``, and ``reaction_key``.  If ``decoded["id"]``
-    is present and neither ``packet_id`` nor ``id`` already exist in
-    the snapshot from the top level, it is stored as ``"packet_id"``.
+    ``to``, ``channel``, and ``reaction_key``.  ``decoded["id"]``
+    maps to ``snapshot["packet_id"]`` when ``snapshot["packet_id"]``
+    is absent; top-level ``snapshot["id"]`` is never overwritten.
 
     For object ``decoded``, attributes ``to``, ``packet_id``, ``id``
     (mapped to ``"packet_id"``), and ``reaction_id`` are captured

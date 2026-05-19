@@ -611,6 +611,29 @@ class PipelineRunner:
                         )
                         native_ref_changed = True
 
+                    # No exact match found — strip incompatible ref if it
+                    # belongs to the right adapter but wrong/unknown channel.
+                    if matching is None and target_channel is not None:
+                        existing_ref = current_rel.target_native_ref
+                        if (
+                            existing_ref is not None
+                            and existing_ref.adapter == target_adapter
+                            and existing_ref.native_channel_id != target_channel
+                        ):
+                            current_rel = EventRelation(
+                                relation_type=current_rel.relation_type,
+                                target_event_id=current_rel.target_event_id,
+                                target_native_ref=None,
+                                key=current_rel.key,
+                                fallback_text=current_rel.fallback_text,
+                                metadata=(
+                                    dict(current_rel.metadata)
+                                    if current_rel.metadata
+                                    else {}
+                                ),
+                            )
+                            native_ref_changed = True
+
             # -- Phase 2: Text enrichment --------------------------------------
             # Extract original text from the target event to populate
             # fallback_text and metadata["original_text"] when missing.

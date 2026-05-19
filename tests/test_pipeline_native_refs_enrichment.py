@@ -722,3 +722,298 @@ class TestExistingNativeRefStrictChannel:
 
         # Should be the same ref — compatible.
         assert enriched_rel.target_native_ref is existing_nref
+
+
+# ===================================================================
+# Fix 2: strip incompatible target_native_ref when no exact match
+# ===================================================================
+
+
+class TestStrictChannelStripsIncompatibleRef:
+    """When an existing target_native_ref is for the right adapter but wrong
+    channel and no exact match is found in storage, the incompatible ref
+    is stripped (set to None) so the renderer doesn't use it."""
+
+    async def test_existing_adapter_ref_wrong_channel_stripped(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Existing ref adapter==target, channel='1', target_channel='0',
+        no exact match in storage → target_native_ref becomes None."""
+        # Store a ref for a DIFFERENT channel so lookup finds no exact match.
+        await temp_storage.store_native_ref(
+            NativeMessageRef(
+                id="nref-strip-1",
+                event_id="evt-strip-001",
+                adapter="mesh-1",
+                native_channel_id="1",
+                native_message_id="wrong-ch-msg",
+                native_thread_id=None,
+                native_relation_id=None,
+                direction="inbound",
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+
+        existing_nref = NativeRef(
+            adapter="mesh-1",
+            native_channel_id="1",
+            native_message_id="old-msg",
+        )
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-strip-001",
+            target_native_ref=existing_nref,
+            key=None,
+            fallback_text=None,
+        )
+        event = CanonicalEvent(
+            event_id="src-strip-001",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="src",
+            source_transport_id="",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"body": "hi"},
+            metadata=EventMetadata(),
+        )
+
+        config = PipelineConfig(
+            storage=temp_storage,
+            router=Router(routes=[]),
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters={},
+            event_bus=EventBus(),
+        )
+        runner = PipelineRunner(config)
+
+        result = await runner._enrich_relations_for_target(
+            event, "mesh-1", target_channel="0"
+        )
+        enriched_rel = result.relations[0]
+
+        # Incompatible ref should be stripped.
+        assert enriched_rel.target_native_ref is None
+
+    async def test_existing_adapter_ref_none_channel_stripped(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Existing ref adapter==target, channel=None, target_channel='0',
+        no exact match → target_native_ref is None."""
+        # No matching ref in storage.
+        existing_nref = NativeRef(
+            adapter="mesh-1",
+            native_channel_id=None,
+            native_message_id="no-ch-msg",
+        )
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-strip-002",
+            target_native_ref=existing_nref,
+            key=None,
+            fallback_text=None,
+        )
+        event = CanonicalEvent(
+            event_id="src-strip-002",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="src",
+            source_transport_id="",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"body": "hi"},
+            metadata=EventMetadata(),
+        )
+
+        config = PipelineConfig(
+            storage=temp_storage,
+            router=Router(routes=[]),
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters={},
+            event_bus=EventBus(),
+        )
+        runner = PipelineRunner(config)
+
+        result = await runner._enrich_relations_for_target(
+            event, "mesh-1", target_channel="0"
+        )
+        enriched_rel = result.relations[0]
+
+        assert enriched_rel.target_native_ref is None
+
+    async def test_existing_different_adapter_ref_preserved(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Existing ref for a different adapter → kept unchanged when no match."""
+        existing_nref = NativeRef(
+            adapter="other-adapter",
+            native_channel_id="1",
+            native_message_id="other-msg",
+        )
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-strip-003",
+            target_native_ref=existing_nref,
+            key=None,
+            fallback_text=None,
+        )
+        event = CanonicalEvent(
+            event_id="src-strip-003",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="src",
+            source_transport_id="",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"body": "hi"},
+            metadata=EventMetadata(),
+        )
+
+        config = PipelineConfig(
+            storage=temp_storage,
+            router=Router(routes=[]),
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters={},
+            event_bus=EventBus(),
+        )
+        runner = PipelineRunner(config)
+
+        result = await runner._enrich_relations_for_target(
+            event, "mesh-1", target_channel="0"
+        )
+        enriched_rel = result.relations[0]
+
+        # Different adapter ref is NOT stripped.
+        assert enriched_rel.target_native_ref is existing_nref
+
+    async def test_existing_exact_ref_preserved(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Existing ref adapter+channel match target → kept unchanged."""
+        existing_nref = NativeRef(
+            adapter="mesh-1",
+            native_channel_id="0",
+            native_message_id="correct-msg",
+        )
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-strip-004",
+            target_native_ref=existing_nref,
+            key=None,
+            fallback_text=None,
+        )
+        event = CanonicalEvent(
+            event_id="src-strip-004",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="src",
+            source_transport_id="",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"body": "hi"},
+            metadata=EventMetadata(),
+        )
+
+        config = PipelineConfig(
+            storage=temp_storage,
+            router=Router(routes=[]),
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters={},
+            event_bus=EventBus(),
+        )
+        runner = PipelineRunner(config)
+
+        result = await runner._enrich_relations_for_target(
+            event, "mesh-1", target_channel="0"
+        )
+        enriched_rel = result.relations[0]
+
+        assert enriched_rel.target_native_ref is existing_nref
+
+    async def test_existing_incompatible_replaced_by_exact_match(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Existing ref wrong channel, but storage has exact match → replaced
+        with correct ref."""
+        await temp_storage.store_native_ref(
+            NativeMessageRef(
+                id="nref-strip-exact",
+                event_id="evt-strip-005",
+                adapter="mesh-1",
+                native_channel_id="0",
+                native_message_id="exact-msg",
+                native_thread_id=None,
+                native_relation_id=None,
+                direction="inbound",
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+
+        existing_nref = NativeRef(
+            adapter="mesh-1",
+            native_channel_id="1",
+            native_message_id="wrong-ch-msg",
+        )
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-strip-005",
+            target_native_ref=existing_nref,
+            key=None,
+            fallback_text=None,
+        )
+        event = CanonicalEvent(
+            event_id="src-strip-005",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="src",
+            source_transport_id="",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"body": "hi"},
+            metadata=EventMetadata(),
+        )
+
+        config = PipelineConfig(
+            storage=temp_storage,
+            router=Router(routes=[]),
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters={},
+            event_bus=EventBus(),
+        )
+        runner = PipelineRunner(config)
+
+        result = await runner._enrich_relations_for_target(
+            event, "mesh-1", target_channel="0"
+        )
+        enriched_rel = result.relations[0]
+
+        # Should be replaced with the exact match, not stripped to None.
+        assert enriched_rel.target_native_ref is not None
+        assert enriched_rel.target_native_ref is not existing_nref
+        assert enriched_rel.target_native_ref.native_channel_id == "0"
+        assert enriched_rel.target_native_ref.native_message_id == "exact-msg"
