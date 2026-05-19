@@ -34,7 +34,6 @@ from medre.interop.mmrelay import (
     KEY_LONGNAME,
     KEY_MESHNET,
     KEY_PORTNUM,
-    KEY_REACTION_KEY,
     KEY_REPLY_ID,
     KEY_SHORTNAME,
     KEY_TEXT,
@@ -786,9 +785,7 @@ class TestMMRelayReactionBodyFormat:
             meshnet_name="mynet",
             matrix_relay_prefix="[{longname}] ",
         )
-        event = _make_mesh_reaction(
-            key="❤️", body="❤️", fallback_text="hello world"
-        )
+        event = _make_mesh_reaction(key="❤️", body="❤️", fallback_text="hello world")
         result = await renderer.render(event, "matrix-1")
 
         body = result.payload["body"]
@@ -830,9 +827,7 @@ class TestMMRelayReactionBodyFormat:
     @pytest.mark.asyncio
     async def test_emote_body_normalizes_newlines(self) -> None:
         renderer = MatrixRenderer(mmrelay_compat=True)
-        event = _make_mesh_reaction(
-            key="👍", fallback_text="line1\nline2\r\nline3"
-        )
+        event = _make_mesh_reaction(key="👍", fallback_text="line1\nline2\r\nline3")
         result = await renderer.render(event, "matrix-1")
 
         body = result.payload["body"]
@@ -846,9 +841,7 @@ class TestReactionSymbolExtraction:
     @pytest.mark.asyncio
     async def test_symbol_from_rel_key(self) -> None:
         event = _make_mesh_reaction(key="❤️", body="thumbs up")
-        symbol = MatrixRenderer._extract_reaction_symbol(
-            event.relations[0], event
-        )
+        symbol = MatrixRenderer._extract_reaction_symbol(event.relations[0], event)
         assert symbol == "❤️"
 
     @pytest.mark.asyncio
@@ -938,9 +931,7 @@ class TestReactionSymbolExtraction:
     @pytest.mark.asyncio
     async def test_symbol_strips_whitespace(self) -> None:
         event = _make_mesh_reaction(key="  ❤️  ")
-        symbol = MatrixRenderer._extract_reaction_symbol(
-            event.relations[0], event
-        )
+        symbol = MatrixRenderer._extract_reaction_symbol(event.relations[0], event)
         assert symbol == "❤️"
 
 
@@ -953,9 +944,7 @@ class TestOriginalTextExtraction:
             rel_metadata={"meshtastic_text": "original from meta"},
             fallback_text="fallback",
         )
-        text = MatrixRenderer._extract_original_text(
-            event.relations[0], event
-        )
+        text = MatrixRenderer._extract_original_text(event.relations[0], event)
         assert text == "original from meta"
 
     def test_from_relation_metadata_text_key(self) -> None:
@@ -964,16 +953,12 @@ class TestOriginalTextExtraction:
             rel_metadata={"text": "from text key"},
             fallback_text="fallback",
         )
-        text = MatrixRenderer._extract_original_text(
-            event.relations[0], event
-        )
+        text = MatrixRenderer._extract_original_text(event.relations[0], event)
         assert text == "from text key"
 
     def test_from_fallback_text(self) -> None:
         event = _make_mesh_reaction(key="👍", fallback_text="fallback text")
-        text = MatrixRenderer._extract_original_text(
-            event.relations[0], event
-        )
+        text = MatrixRenderer._extract_original_text(event.relations[0], event)
         assert text == "fallback text"
 
     def test_from_event_native_metadata(self) -> None:
@@ -984,16 +969,12 @@ class TestOriginalTextExtraction:
                 "meshtastic_text": "from event meta",
             },
         )
-        text = MatrixRenderer._extract_original_text(
-            event.relations[0], event
-        )
+        text = MatrixRenderer._extract_original_text(event.relations[0], event)
         assert text == "from event meta"
 
     def test_empty_when_no_sources(self) -> None:
         event = _make_mesh_reaction(key="👍")
-        text = MatrixRenderer._extract_original_text(
-            event.relations[0], event
-        )
+        text = MatrixRenderer._extract_original_text(event.relations[0], event)
         assert text == ""
 
 
@@ -1014,14 +995,10 @@ class TestAbbreviateText:
         assert len(result) == 43
 
     def test_newlines_normalized_to_spaces(self) -> None:
-        assert (
-            MatrixRenderer._abbreviate_text("line1\nline2") == "line1 line2"
-        )
+        assert MatrixRenderer._abbreviate_text("line1\nline2") == "line1 line2"
 
     def test_carriage_returns_normalized(self) -> None:
-        assert (
-            MatrixRenderer._abbreviate_text("a\r\nb") == "a b"
-        )
+        assert MatrixRenderer._abbreviate_text("a\r\nb") == "a b"
 
 
 class TestReactionMetadataCompleteness:
@@ -1050,9 +1027,7 @@ class TestReactionMetadataCompleteness:
 
     @pytest.mark.asyncio
     async def test_reaction_has_meshnet(self) -> None:
-        renderer = MatrixRenderer(
-            mmrelay_compat=True, meshnet_name="testnet"
-        )
+        renderer = MatrixRenderer(mmrelay_compat=True, meshnet_name="testnet")
         event = _make_mesh_reaction()
         result = await renderer.render(event, "matrix-1")
         assert result.payload[KEY_MESHNET] == "testnet"
@@ -1074,9 +1049,7 @@ class TestReactionMetadataCompleteness:
     @pytest.mark.asyncio
     async def test_reaction_text_is_original_preview(self) -> None:
         renderer = MatrixRenderer(mmrelay_compat=True)
-        event = _make_mesh_reaction(
-            key="❤️", fallback_text="the original message"
-        )
+        event = _make_mesh_reaction(key="❤️", fallback_text="the original message")
         result = await renderer.render(event, "matrix-1")
         assert result.payload[KEY_TEXT] == "the original message"
 

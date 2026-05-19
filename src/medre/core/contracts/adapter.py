@@ -21,11 +21,11 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from types import MappingProxyType
-from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 if TYPE_CHECKING:
@@ -356,9 +356,9 @@ class AdapterContext:
     logger: logging.Logger
     clock: Callable[[], datetime]
     shutdown_event: Any  # asyncio.Event – avoided import to prevent hard dep
-    record_outbound_native_ref: Callable[
-        [OutboundNativeRefRecord], Awaitable[None]
-    ] | None = None
+    record_outbound_native_ref: (
+        Callable[[OutboundNativeRefRecord], Awaitable[None]] | None
+    ) = None
 
 
 # ---------------------------------------------------------------------------

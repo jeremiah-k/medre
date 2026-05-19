@@ -289,7 +289,7 @@ class MeshtasticRenderer:
                     if compact_prefix and not compact_prefix[-1:].isspace():
                         sep = " "
                     desc_text = (
-                        f'{compact_prefix}{sep}reacted {emoji_text} '
+                        f"{compact_prefix}{sep}reacted {emoji_text} "
                         f'to "{orig_preview}"'
                     )
                     content["text"] = desc_text
@@ -358,26 +358,26 @@ class MeshtasticRenderer:
 
     def _format_prefix_compact(self, event: CanonicalEvent) -> str:
         """Format ``radio_relay_prefix`` with spaces stripped from display
-        name tokens.
+                name tokens.
 
-        Identical to :meth:`_format_prefix` except that spaces are removed
-        from ``longname`` and ``shortname`` values before template
-        substitution.  This is used for cross-platform (Matrix → Meshtastic)
-        reaction prefixes where meshnet bandwidth savings matter while
-        preserving casing.
+                Identical to :meth:`_format_prefix` except that spaces are removed
+                from ``longname`` and ``shortname`` values before template
+                substitution.  This is used for cross-platform (Matrix → Meshtastic)
+                reaction prefixes where meshnet bandwidth savings matter while
+                preserving casing.
 
-Example: ``"Display Name"`` → ``"DisplayName"`` (spaces removed,
-casing preserved).
+        Example: ``"Display Name"`` → ``"DisplayName"`` (spaces removed,
+        casing preserved).
 
-        Parameters
-        ----------
-        event:
-            The canonical event whose source metadata is used for formatting.
+                Parameters
+                ----------
+                event:
+                    The canonical event whose source metadata is used for formatting.
 
-        Returns
-        -------
-        str
-            The formatted prefix string with compact name tokens.
+                Returns
+                -------
+                str
+                    The formatted prefix string with compact name tokens.
         """
         if not self._radio_relay_prefix:
             return ""
@@ -449,9 +449,7 @@ casing preserved).
 
         # 3. Event payload body/text
         if not source_text:
-            source_text = str(
-                event.payload.get("body", event.payload.get("text", ""))
-            )
+            source_text = str(event.payload.get("body", event.payload.get("text", "")))
 
         # Normalise: treat str and non-str uniformly
         text = str(source_text) if source_text else ""

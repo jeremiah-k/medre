@@ -39,9 +39,7 @@ async def _trigger_shutdown_after_startup(
 ) -> None:
     """Wait for startup completion marker, then trigger shutdown."""
     marker = "Run `medre diagnostics --refresh-health` for live adapter health"
-    ok = await wait_until(
-        lambda: marker in stdout.getvalue(), timeout=timeout
-    )
+    ok = await wait_until(lambda: marker in stdout.getvalue(), timeout=timeout)
     assert ok, (
         f"runtime did not reach post-startup marker within {timeout}s; "
         f"output was:\n{stdout.getvalue()}"

@@ -25,16 +25,13 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
-import pytest
-
 from medre.adapters.fake_matrix import FakeMatrixAdapter
 from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
 from medre.adapters.matrix.renderer import MatrixRenderer
-from medre.adapters.meshtastic.renderer import MeshtasticRenderer
 from medre.adapters.meshtastic.codec import MeshtasticCodec
 from medre.adapters.meshtastic.packet_classifier import MeshtasticPacketClassifier
+from medre.adapters.meshtastic.renderer import MeshtasticRenderer
 from medre.config.adapters.meshtastic import MeshtasticConfig
-from medre.core.contracts.adapter import AdapterContext
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.events import (
     CanonicalEvent,
@@ -44,7 +41,6 @@ from medre.core.events import (
     NativeRef,
 )
 from medre.core.events.bus import EventBus
-from medre.core.events.metadata import NativeMetadata
 from medre.core.planning import FallbackResolver, RelationResolver
 from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
@@ -282,7 +278,7 @@ def _make_reply_event_with_longname() -> CanonicalEvent:
     classifier = MeshtasticPacketClassifier(config)
 
     packet = _make_reply_packet()
-    classification = classifier.classify(packet)
+    classifier.classify(packet)
     event = codec.decode(packet)
 
     # Inject longname/shortname into native metadata (as the adapter would).
@@ -616,7 +612,9 @@ class TestPipelineTextEnrichmentForReactions:
             rel = enriched.relations[0]
             # Text enrichment should populate both fields.
             assert rel.fallback_text == "Hello from the original message"
-            assert rel.metadata.get("original_text") == "Hello from the original message"
+            assert (
+                rel.metadata.get("original_text") == "Hello from the original message"
+            )
 
             # Native ref enrichment should also have run.
             assert rel.target_native_ref is not None

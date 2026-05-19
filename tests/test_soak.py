@@ -68,7 +68,6 @@ from unittest.mock import AsyncMock
 import pytest
 
 from tests.helpers.soak import (
-    _MESHTASTIC_CONNECTION_TYPE,
     _make_meshtastic_config,
     _validate_meshtastic_soak_env,
 )

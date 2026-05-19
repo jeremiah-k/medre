@@ -13,7 +13,6 @@ Tests cover:
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -27,12 +26,10 @@ from medre.interop.mmrelay import (
     EMOJI_FLAG_VALUE,
     KEY_EMOJI,
     KEY_ID,
-    KEY_LONGNAME,
     KEY_MESHNET,
     KEY_PORTNUM,
     KEY_REACTION_KEY,
     KEY_REPLY_ID,
-    KEY_SHORTNAME,
     KEY_TEXT,
     PORTNUM_TEXT,
 )
@@ -459,9 +456,7 @@ class TestCodecBackwardCompatNoReactionKey:
     def test_no_reaction_key_falls_back_to_body(self) -> None:
         """Without KEY_REACTION_KEY, codec falls back to body for rel.key."""
         codec = MatrixCodec("matrix-1", _make_config())
-        native = _make_mmrelay_emote_reaction(
-            body="reacted", reply_id="!abc123"
-        )
+        native = _make_mmrelay_emote_reaction(body="reacted", reply_id="!abc123")
         event = codec.decode(native, room_id="!room:server")
 
         rel = event.relations[0]
@@ -470,9 +465,7 @@ class TestCodecBackwardCompatNoReactionKey:
     def test_no_reaction_key_no_payload_key(self) -> None:
         """Without KEY_REACTION_KEY, payload has no 'key' field."""
         codec = MatrixCodec("matrix-1", _make_config())
-        native = _make_mmrelay_emote_reaction(
-            body="reacted", reply_id="!abc123"
-        )
+        native = _make_mmrelay_emote_reaction(body="reacted", reply_id="!abc123")
         event = codec.decode(native, room_id="!room:server")
 
         assert "key" not in event.payload
@@ -480,9 +473,7 @@ class TestCodecBackwardCompatNoReactionKey:
     def test_no_reaction_key_no_metadata_key(self) -> None:
         """Without KEY_REACTION_KEY, rel.metadata has no meshtastic_reaction_key."""
         codec = MatrixCodec("matrix-1", _make_config())
-        native = _make_mmrelay_emote_reaction(
-            body="reacted", reply_id="!abc123"
-        )
+        native = _make_mmrelay_emote_reaction(body="reacted", reply_id="!abc123")
         event = codec.decode(native, room_id="!room:server")
 
         rel = event.relations[0]

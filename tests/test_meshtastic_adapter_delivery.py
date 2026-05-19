@@ -861,7 +861,10 @@ class TestQueueMetadataSnapshot:
 
         result = await queue.process_one(send_fn=send_fn)
         assert result is not None
-        assert result.delivery_result.metadata.get("to") == {"encoding": "base64", "data": "AP8="}
+        assert result.delivery_result.metadata.get("to") == {
+            "encoding": "base64",
+            "data": "AP8=",
+        }
         assert result.delivery_result.metadata.get("packet_id") == 42
 
     async def test_bytes_metadata_json_safe_from_object(self) -> None:
@@ -880,7 +883,10 @@ class TestQueueMetadataSnapshot:
 
         result = await queue.process_one(send_fn=send_fn)
         assert result is not None
-        assert result.delivery_result.metadata.get("to") == {"encoding": "base64", "data": "AP8="}
+        assert result.delivery_result.metadata.get("to") == {
+            "encoding": "base64",
+            "data": "AP8=",
+        }
         assert result.delivery_result.metadata.get("id") == 1
 
 
@@ -937,9 +943,7 @@ class TestPacketSnapshotDecodedSubobject:
 
     def test_top_level_not_overwritten_by_decoded(self) -> None:
         """Top-level reply_id is preserved; decoded reply_id does not overwrite."""
-        snap = self._call(
-            {"reply_id": 10, "decoded": {"reply_id": 20, "emoji": 5}}
-        )
+        snap = self._call({"reply_id": 10, "decoded": {"reply_id": 20, "emoji": 5}})
         assert snap["reply_id"] == 10
         assert snap["emoji"] == 5
 
@@ -1127,9 +1131,7 @@ class TestDelayedOutboundNativeRef:
         delivery = AdapterDeliveryResult(
             native_message_id="987654321",
             native_channel_id="0",
-            metadata=MappingProxyType(
-                {"packet_id": 987654321, "channel": 0}
-            ),
+            metadata=MappingProxyType({"packet_id": 987654321, "channel": 0}),
         )
         result = QueueDeliveryResult(item=item, delivery_result=delivery)
 

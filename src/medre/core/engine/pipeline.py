@@ -542,9 +542,9 @@ class PipelineRunner:
                     existing_channel = current_rel.target_native_ref.native_channel_id
                     # Keep if no target channel specified, or existing matches,
                     # or existing channel is None (unknown).
-                    if (
-                        target_channel is None
-                        or existing_channel in (None, target_channel)
+                    if target_channel is None or existing_channel in (
+                        None,
+                        target_channel,
                     ):
                         skip_native = True
                     # Existing channel differs — fall through to lookup.
@@ -628,18 +628,22 @@ class PipelineRunner:
                         target_payload = getattr(target_event, "payload", None)
                         extracted_text: str | None = None
                         if isinstance(target_payload, dict):
-                            raw = target_payload.get(
-                                "body", target_payload.get("text")
-                            )
+                            raw = target_payload.get("body", target_payload.get("text"))
                             if raw is not None:
-                                extracted_text = str(raw) if not isinstance(raw, str) else raw
+                                extracted_text = (
+                                    str(raw) if not isinstance(raw, str) else raw
+                                )
                         if extracted_text:
                             new_fallback = (
                                 current_rel.fallback_text
                                 if current_rel.fallback_text
                                 else extracted_text
                             )
-                            new_meta = dict(current_rel.metadata) if current_rel.metadata else {}
+                            new_meta = (
+                                dict(current_rel.metadata)
+                                if current_rel.metadata
+                                else {}
+                            )
                             if "original_text" not in new_meta:
                                 new_meta["original_text"] = extracted_text
                             current_rel = EventRelation(

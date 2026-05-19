@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
-from unittest.mock import AsyncMock
 
 from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
@@ -27,7 +26,6 @@ from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite import SQLiteStorage
 from tests.helpers.meshtastic_bridge import make_adapter_context, make_text_packet
-
 
 # ===================================================================
 # 4. Session callback bridge

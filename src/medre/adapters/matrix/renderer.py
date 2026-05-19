@@ -198,8 +198,7 @@ class MatrixRenderer:
         # its own MMRelay metadata, so general injection must be skipped to
         # avoid overwriting KEY_TEXT with the payload body).
         _is_reaction = (
-            event.relations
-            and event.relations[0].relation_type == "reaction"
+            event.relations and event.relations[0].relation_type == "reaction"
         )
 
         # Inject mmrelay-compatible metadata when enabled (skip for

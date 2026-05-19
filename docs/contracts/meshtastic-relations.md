@@ -46,7 +46,7 @@ MMRelay-compatible `m.emote` descriptive rendering. The Matrix renderer produces
 \n {prefix}reacted {emoji} to "{preview}"
 ```
 
-- `prefix` is the formatted relay prefix template (e.g. `[MeshUser]`). When no prefix is configured, the line starts with `\n `.
+- `prefix` is the formatted relay prefix template (e.g. `[MeshUser]`). When no prefix is configured, the line starts with `\n` followed by a space.
 - `emoji` is the reaction symbol extracted from the relation key.
 - `preview` is the abbreviated original text (up to 40 chars, newlines collapsed to spaces, `...` appended if truncated).
 - Longname/shortname from Meshtastic are preserved exactly as received: spaces, casing, and emoji characters are not altered.
@@ -70,11 +70,11 @@ Native Meshtastic-originated reactions (same adapter) continue to use `emoji=1` 
 
 ## Display name handling
 
-| Direction | Rule | Example |
-|---|---|---|
-| Matrix -> Meshtastic (compact prefix) | Spaces removed, casing preserved | `"Display Name"` -> `"DisplayName"` |
-| Meshtastic -> Matrix | Longname preserved exactly | `"Mesh User 📡"` -> `"Mesh User 📡"` |
-| Meshtastic -> Matrix | Shortname preserved exactly | `"Mesh"` -> `"Mesh"` |
+| Direction                             | Rule                             | Example                              |
+| ------------------------------------- | -------------------------------- | ------------------------------------ |
+| Matrix -> Meshtastic (compact prefix) | Spaces removed, casing preserved | `"Display Name"` -> `"DisplayName"`  |
+| Meshtastic -> Matrix                  | Longname preserved exactly       | `"Mesh User 📡"` -> `"Mesh User 📡"` |
+| Meshtastic -> Matrix                  | Shortname preserved exactly      | `"Mesh"` -> `"Mesh"`                 |
 
 ## Packet snapshot storage
 

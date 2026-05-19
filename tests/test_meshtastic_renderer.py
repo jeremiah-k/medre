@@ -678,7 +678,7 @@ class TestCrossPlatformReactionDescriptive:
         result = await renderer.render(event, "mesh-1")
         text = result.payload["text"]
         # Should contain abbreviated text (40 chars + "...")
-        assert "A" * 40 + "...\"" in text
+        assert "A" * 40 + '..."' in text
         # Should NOT contain the full 60 chars
         assert "A" * 60 not in text
 

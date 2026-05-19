@@ -83,11 +83,9 @@ from .conftest import (
     _write_artifact_json,
     _write_run_metadata,
 )
-from .synapse_helpers import (
-    INBOUND_FALLBACK as _INBOUND_FALLBACK,
-    INBOUND_SYNC_LOOP as _INBOUND_SYNC_LOOP,
-    wait_for_sync_or_fallback as _wait_for_sync_or_fallback,
-)
+from .synapse_helpers import INBOUND_FALLBACK as _INBOUND_FALLBACK
+from .synapse_helpers import INBOUND_SYNC_LOOP as _INBOUND_SYNC_LOOP
+from .synapse_helpers import wait_for_sync_or_fallback as _wait_for_sync_or_fallback
 
 logger = logging.getLogger(__name__)
 
@@ -316,7 +314,9 @@ class TestCrossAdapterArtifactRun:
                     "send_one() should return a result when queue is non-empty "
                     "and session is connected"
                 )
-                assert send_result.delivery_result is not None, "expected delivery_result to be present"
+                assert (
+                    send_result.delivery_result is not None
+                ), "expected delivery_result to be present"
                 assert (
                     send_result.delivery_result.native_message_id is not None
                 ), "send_one() should return a real packet ID from meshtasticd"

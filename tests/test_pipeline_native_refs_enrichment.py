@@ -9,8 +9,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-import pytest
-
 from medre.core.engine.pipeline import (
     PipelineConfig,
     PipelineRunner,
@@ -26,7 +24,6 @@ from medre.core.events.bus import EventBus
 from medre.core.planning import FallbackResolver, RelationResolver
 from medre.core.routing import Router
 from medre.core.storage import SQLiteStorage
-
 
 # ===================================================================
 # Text enrichment tests
@@ -96,7 +93,10 @@ class TestTextEnrichment:
         enriched_rel = result.relations[0]
 
         assert enriched_rel.fallback_text == "Hello from the original message"
-        assert enriched_rel.metadata.get("original_text") == "Hello from the original message"
+        assert (
+            enriched_rel.metadata.get("original_text")
+            == "Hello from the original message"
+        )
 
     async def test_text_enrichment_skips_when_both_populated(
         self,
