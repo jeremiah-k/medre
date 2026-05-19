@@ -635,7 +635,7 @@ def _expand_all_routes(
                     f"{rc.route_id!r} conflicts with route "
                     f"{provenance[r.id]!r}. Route IDs must be unique and "
                     f"must not match the expansion pattern "
-                    f"'<id>__<N>' or '<id>__rev_<N>'."
+                    f"'<id>__<N>', '<id>__rev_<N>', or '<id>__ch<channel>__<direction>'."
                 )
             provenance[r.id] = rc.route_id
 
