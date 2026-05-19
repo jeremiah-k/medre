@@ -33,12 +33,14 @@ import pytest
 def _close_stale_event_loop() -> Generator[None, None, None]:
     """Close any non-running default event loop left by prior async tests."""
     yield
-    try:
-        loop = asyncio.get_event_loop_policy().get_event_loop()
-    except RuntimeError:
+    policy = asyncio.get_event_loop_policy()
+    local = getattr(policy, "_local", None)
+    loop = getattr(local, "_loop", None)
+    if loop is None:
         return
     if not loop.is_running():
         loop.close()
+        policy.set_event_loop(None)
 
 
 from medre.core.events import (
