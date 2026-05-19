@@ -16,6 +16,7 @@ import pytest
 from medre.adapters import FakeMatrixAdapter
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
+from medre.adapters.matrix.session import MatrixSession
 from medre.config.adapters.matrix import MatrixConfig
 from medre.core.contracts.adapter import (
     AdapterContext,
@@ -1348,3 +1349,104 @@ class TestDisplayNameEnrichment:
             published[0].metadata.native.data["longname"] = "x"
         with pytest.raises(TypeError):
             published[1].metadata.native.data["longname"] = "x"
+
+
+# ===================================================================
+# Startup history suppression (is_live boundary)
+# ===================================================================
+
+
+class TestStartupHistorySuppression:
+    """_on_room_message suppresses events before is_live (startup backlog)."""
+
+    async def test_not_live_text_suppressed(self) -> None:
+        """RoomMessageText is suppressed when session.is_live is False."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        # Mock session with is_live = False
+        mock_session = MagicMock(name="session")
+        mock_session.is_live = False
+        mock_session._track_room = MagicMock()
+        adapter._session = mock_session
+
+        event = _make_fake_nio_event(sender="@alice:example.com")
+        room = _make_fake_room()
+
+        await adapter._on_room_message(room, event)
+        assert len(published) == 0
+        assert adapter._inbound_suppressed_startup == 1
+
+    async def test_live_text_published(self) -> None:
+        """RoomMessageText publishes normally when session.is_live is True."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        # Mock session with is_live = True
+        mock_session = MagicMock(name="session")
+        mock_session.is_live = True
+        mock_session._track_room = MagicMock()
+        mock_session.crypto_enabled = False
+        mock_session.room_state = MagicMock(return_value="unknown")
+        adapter._session = mock_session
+
+        event = _make_fake_nio_event(sender="@alice:example.com")
+        room = _make_fake_room()
+
+        await adapter._on_room_message(room, event)
+        assert len(published) == 1
+        assert adapter._inbound_suppressed_startup == 0
+
+    async def test_not_live_reaction_suppressed(self) -> None:
+        """m.reaction events are suppressed when session.is_live is False."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        mock_session = MagicMock(name="session")
+        mock_session.is_live = False
+        mock_session._track_room = MagicMock()
+        adapter._session = mock_session
+
+        event = _make_fake_reaction_event(sender="@alice:example.com")
+        room = _make_fake_room()
+
+        await adapter._on_room_message(room, event)
+        assert len(published) == 0
+        assert adapter._inbound_suppressed_startup == 1
+
+    async def test_invite_handled_regardless_of_is_live(self, mock_nio) -> None:
+        """InviteMemberEvent is handled even when is_live is False."""
+        from tests.helpers.matrix_session import make_matrix_config as _cfg
+
+        config = _cfg()
+        session = MatrixSession(config, auto_join_rooms=("!target:server",))
+        try:
+            await session.start()
+            # is_live may be True or False depending on timing;
+            # either way, invite should work
+            mock_client = mock_nio.AsyncClient.return_value
+            mock_client.rooms = {}
+
+            event = MagicMock(name="invite_event")
+            event.room_id = "!target:server"
+            room = MagicMock(name="room")
+
+            await session._on_invite(room, event)
+            mock_client.join.assert_called_once_with("!target:server")
+        finally:
+            await session.stop()
+
+    async def test_diagnostics_exposes_startup_suppressed(self) -> None:
+        """diagnostics() dict includes inbound_suppressed_startup."""
+        config = _make_matrix_config()
+        adapter = MatrixAdapter(config)
+        adapter._inbound_suppressed_startup = 5
+        diag = adapter.diagnostics()
+        assert diag["inbound_suppressed_startup"] == 5
+

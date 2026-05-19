@@ -732,9 +732,9 @@ class MedreApp:
             },
         )
 
-        # -- Summary logging --------------------------------------------------
+        # -- Summary logging (DEBUG — run_commands prints the same to stdout) --
         if failed_count > 0 or build_failed > 0:
-            _logger.info(
+            _logger.debug(
                 "Runtime started with %d/%d adapter(s)%s (%d start failed, %d build failed)",
                 started_count,
                 attempted_total,
@@ -747,7 +747,7 @@ class MedreApp:
                 build_failed,
             )
         else:
-            _logger.info(
+            _logger.debug(
                 "Runtime started with %d/%d adapter(s)",
                 started_count,
                 attempted_total,

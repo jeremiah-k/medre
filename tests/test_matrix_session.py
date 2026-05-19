@@ -109,7 +109,7 @@ class TestMatrixSessionLifecycle:
             await asyncio.sleep(0)
             raise RuntimeError("sync died")
 
-        mock_nio.AsyncClient.return_value.sync_forever = _failing_sync
+        mock_nio.AsyncClient.return_value.sync = _failing_sync
         config = make_matrix_config()
         logger = logging.getLogger("test.sync_failure")
         session = MatrixSession(config, logger=logger)
@@ -1456,5 +1456,175 @@ class TestEnsureJoinedCancellationSafety:
             )
             assert results == [False, False]
             assert join_count == 1
+        finally:
+            await session.stop()
+
+
+# ===================================================================
+# Sync boundary / history suppression / live undecryptable dedup
+# ===================================================================
+
+
+def _make_megolm_event(
+    event_id: str = "$mega-001",
+    room_id: str = "!room:server",
+    session_id: str = "sess-abc",
+) -> MagicMock:
+    """Build a minimal fake MegolmEvent for undecryptable event tests."""
+    event = MagicMock(name="MegolmEvent")
+    event.event_id = event_id
+    event.session_id = session_id
+    return event
+
+
+def _make_room(room_id: str = "!room:server") -> MagicMock:
+    """Build a minimal fake Room object."""
+    room = MagicMock(name="Room")
+    room.room_id = room_id
+    return room
+
+
+class TestSyncBoundaryIsLive:
+    """MatrixSession.is_live reflects sync boundary state."""
+
+    async def test_is_live_false_before_start(self) -> None:
+        config = make_matrix_config()
+        session = MatrixSession(config)
+        assert session.is_live is False
+
+    async def test_is_live_true_after_first_sync(self, mock_nio) -> None:
+        """After the first successful sync, is_live becomes True."""
+        config = make_matrix_config()
+        session = MatrixSession(config)
+        try:
+            await session.start()
+            # The mock sync returns immediately with next_batch,
+            # so is_live should be True after one event-loop tick.
+            await asyncio.sleep(0)
+            assert session.is_live is True
+        finally:
+            await session.stop()
+
+    async def test_is_live_reset_on_restart(self, mock_nio) -> None:
+        """is_live resets to False when session restarts."""
+        config = make_matrix_config()
+        session = MatrixSession(config)
+        await session.start()
+        await asyncio.sleep(0)
+        assert session.is_live is True
+        await session.stop()
+        # After stop, session is no longer live
+        assert session.is_live is False
+        # Re-start: is_live should begin False again
+        await session.start()
+        assert session.is_live is False
+        await asyncio.sleep(0)
+        assert session.is_live is True
+        await session.stop()
+
+
+class TestMegolmEventHistorySuppression:
+    """Undecryptable MegolmEvent handling with sync boundary."""
+
+    async def test_not_live_undecryptable_no_warning(self, mock_nio) -> None:
+        """Before is_live, undecryptable MegolmEvents log DEBUG, not WARNING."""
+        config = make_matrix_config()
+        logger = logging.getLogger("test.history_suppression")
+        session = MatrixSession(config, logger=logger)
+        # Don't start — is_live stays False
+
+        event = _make_megolm_event()
+        room = _make_room()
+
+        with patch.object(logger, "warning") as mock_warning, \
+             patch.object(logger, "debug") as mock_debug:
+            await session._on_megolm_event(room, event)
+            mock_warning.assert_not_called()
+            mock_debug.assert_called()
+
+        assert session._suppressed_backlog_undecryptable == 1
+        assert session.undecryptable_event_count == 1
+
+    async def test_live_undecryptable_logs_warning(self, mock_nio) -> None:
+        """After is_live, undecryptable MegolmEvents log WARNING."""
+        config = make_matrix_config()
+        logger = logging.getLogger("test.live_megolm")
+        session = MatrixSession(config, logger=logger)
+        try:
+            await session.start()
+            await asyncio.sleep(0)  # let first sync complete
+            assert session.is_live is True
+
+            event = _make_megolm_event()
+            room = _make_room()
+
+            with patch.object(logger, "warning") as mock_warning:
+                await session._on_megolm_event(room, event)
+                mock_warning.assert_called_once()
+        finally:
+            await session.stop()
+
+
+class TestLiveUndecryptableDedup:
+    """Live undecryptable dedup: same key within 60s -> DEBUG only."""
+
+    async def test_repeated_same_key_one_warning_rest_debug(
+        self, mock_nio
+    ) -> None:
+        """Repeated live events with same room:session_id produce one WARNING."""
+        config = make_matrix_config()
+        logger = logging.getLogger("test.dedup")
+        session = MatrixSession(config, logger=logger)
+        try:
+            await session.start()
+            await asyncio.sleep(0)
+            assert session.is_live is True
+
+            event1 = _make_megolm_event(
+                event_id="$mega-a", room_id="!room:server", session_id="sess-1"
+            )
+            event2 = _make_megolm_event(
+                event_id="$mega-b", room_id="!room:server", session_id="sess-1"
+            )
+            room = _make_room(room_id="!room:server")
+
+            with patch.object(logger, "warning") as mock_warning, \
+                 patch.object(logger, "debug") as mock_debug:
+                await session._on_megolm_event(room, event1)
+                await session._on_megolm_event(room, event2)
+                # Only first should produce WARNING
+                assert mock_warning.call_count == 1
+                # Second should produce DEBUG (rate-limited)
+                debug_calls = [
+                    c for c in mock_debug.call_args_list
+                    if "Rate-limited" in str(c)
+                ]
+                assert len(debug_calls) == 1
+        finally:
+            await session.stop()
+
+    async def test_different_rooms_warn_separately(self, mock_nio) -> None:
+        """Different rooms produce separate WARNINGs."""
+        config = make_matrix_config()
+        logger = logging.getLogger("test.dedup_rooms")
+        session = MatrixSession(config, logger=logger)
+        try:
+            await session.start()
+            await asyncio.sleep(0)
+            assert session.is_live is True
+
+            event1 = _make_megolm_event(
+                event_id="$mega-a", room_id="!room1:server", session_id="sess-1"
+            )
+            event2 = _make_megolm_event(
+                event_id="$mega-b", room_id="!room2:server", session_id="sess-1"
+            )
+            room1 = _make_room(room_id="!room1:server")
+            room2 = _make_room(room_id="!room2:server")
+
+            with patch.object(logger, "warning") as mock_warning:
+                await session._on_megolm_event(room1, event1)
+                await session._on_megolm_event(room2, event2)
+                assert mock_warning.call_count == 2
         finally:
             await session.stop()

@@ -182,6 +182,7 @@ class MatrixAdapter(AdapterContract):
         "_inbound_suppressed_self",
         "_inbound_suppressed_envelope",
         "_inbound_filtered_allowlist",
+        "_inbound_suppressed_startup",
     )
 
     adapter_id: str
@@ -209,6 +210,7 @@ class MatrixAdapter(AdapterContract):
         self._inbound_suppressed_self: int = 0
         self._inbound_suppressed_envelope: int = 0
         self._inbound_filtered_allowlist: int = 0
+        self._inbound_suppressed_startup: int = 0
 
     @property
     def _sync_failure(self) -> Exception | None:
@@ -248,7 +250,9 @@ class MatrixAdapter(AdapterContract):
         self._inbound_suppressed_self = 0
         self._inbound_suppressed_envelope = 0
         self._inbound_filtered_allowlist = 0
+        self._inbound_suppressed_startup = 0
         self.ctx = ctx
+        self._inbound_suppressed_startup = 0
         self._mark_started(ctx)
 
         if not HAS_NIO:
@@ -618,6 +622,17 @@ class MatrixAdapter(AdapterContract):
             )
             return
 
+        # Startup history suppression: before the first successful sync,
+        # inbound events are considered backlog / history and are dropped.
+        if self._session is not None and not self._session.is_live:
+            self._inbound_suppressed_startup += 1
+            self.ctx.logger.debug(
+                "MatrixAdapter %s: suppressing startup backlog event from %s",
+                self.adapter_id,
+                sender,
+            )
+            return
+
         try:
             canonical = self._codec.decode(event, room_id=room.room_id)
 
@@ -742,6 +757,7 @@ class MatrixAdapter(AdapterContract):
                 "inbound_suppressed_self": self._inbound_suppressed_self,
                 "inbound_suppressed_envelope": self._inbound_suppressed_envelope,
                 "inbound_filtered_allowlist": self._inbound_filtered_allowlist,
+                "inbound_suppressed_startup": self._inbound_suppressed_startup,
             }
         return {
             "connected": False,
@@ -773,4 +789,5 @@ class MatrixAdapter(AdapterContract):
             "inbound_suppressed_self": self._inbound_suppressed_self,
             "inbound_suppressed_envelope": self._inbound_suppressed_envelope,
             "inbound_filtered_allowlist": self._inbound_filtered_allowlist,
+            "inbound_suppressed_startup": self._inbound_suppressed_startup,
         }

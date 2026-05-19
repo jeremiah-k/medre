@@ -69,6 +69,47 @@ format = "text"   # text or json
 | `level`  | string | `"INFO"` | Log level. One of `INFO`, `DEBUG`, `WARNING`, `ERROR`.                   |
 | `format` | string | `"text"` | Output format. `text` for human-readable, `json` for structured logging. |
 
+> **`level` controls MEDRE logs only.** It sets the log level for the
+> `medre.*` logger namespace. Dependency libraries (nio, meshtastic, aiohttp,
+> peewee, etc.) have their own default levels and are not affected by this
+> setting. Use `[logging.overrides]` to quiet noisy dependencies.
+
+#### `[logging.overrides]`
+
+Per-logger level overrides for dependency libraries. Each key is a Python
+logger name and the value is a log level string (`"DEBUG"`, `"INFO"`,
+`"WARNING"`, `"ERROR"`).
+
+```toml
+[logging.overrides]
+nio = "WARNING"
+"nio.crypto.log" = "ERROR"
+meshtastic = "WARNING"
+aiohttp = "WARNING"
+peewee = "WARNING"
+```
+
+| Key                | Value  | Description                                              |
+| ------------------ | ------ | -------------------------------------------------------- |
+| _(logger name)_    | string | Log level to force for this logger.                      |
+
+**Default dependency log levels** (applied automatically when no overrides
+are configured):
+
+| Logger             | Default Level | Reason                                              |
+| ------------------ | ------------- | --------------------------------------------------- |
+| `nio`              | `WARNING`     | Crypto key and sync noise at INFO                   |
+| `nio.crypto.log`   | `ERROR`       | Olm/Megolm session warnings are non-actionable      |
+| `meshtastic`       | `WARNING`     | SDK prints every radio packet at INFO               |
+| `aiohttp`          | `WARNING`     | HTTP access logs at INFO                            |
+| `peewee`           | `WARNING`     | Query logging at DEBUG, noisy at INFO               |
+
+> **Matrix room history before startup is ignored.** The Matrix adapter
+> processes only events received *after* the sync connection is established.
+> Messages that arrived in bridged rooms while MEDRE was stopped are not
+> replayed or relayed. This is by design — it prevents message duplication
+> and stale relays on restart.
+
 ### `[storage]`
 
 Persistence and database configuration.

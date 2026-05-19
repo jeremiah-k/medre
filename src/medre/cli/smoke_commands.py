@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json as _json
-import logging
 import sys
 
 
@@ -22,50 +21,21 @@ def _transport_for_adapter(adapter_id: str, config: object) -> str:
 
 def _setup_logging(config: object) -> None:
     """Apply logging configuration from the parsed config."""
+    from medre.core.observability.logging import setup_logging
+
     log_cfg = getattr(config, "logging", None)
     if log_cfg is None:
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-            stream=sys.stdout,
-        )
+        setup_logging(level="INFO", json_format=False)
         return
 
     level = getattr(log_cfg, "level", "INFO")
-    fmt = (
-        getattr(log_cfg, "format", None)
-        or "%(asctime)s %(levelname)s %(name)s: %(message)s"
-    )
-    # Map preset names to actual Python format strings.
-    _FORMAT_PRESETS = {
-        "text": "%(asctime)s %(levelname)-8s %(name)s: %(message)s",
-        "json": '{"time":"%(asctime)s","level":"%(levelname)s","message":"%(message)s"}',
-    }
-    fmt = _FORMAT_PRESETS.get(fmt, fmt)
-    logging.basicConfig(
-        level=getattr(logging, level.upper(), logging.INFO),
-        format=fmt,
-        stream=sys.stdout,
-    )
-
-    # Apply per-logger level overrides (or defaults if none configured).
+    fmt = getattr(log_cfg, "format", "text")
     overrides = getattr(log_cfg, "overrides", None)
-    # Keep noisy third-party SDK internals out of operator logs by default.
-    # MEDRE loggers remain controlled by the root level/explicit overrides.
-    for name, default_level in (
-        ("nio", logging.WARNING),
-        ("nio.events", logging.ERROR),
-        ("meshtastic", logging.WARNING),
-        ("aiohttp", logging.WARNING),
-        ("peewee", logging.WARNING),
-    ):
-        logging.getLogger(name).setLevel(default_level)
-
-    if overrides:
-        for name, level_str in overrides.items():
-            logging.getLogger(name).setLevel(
-                getattr(logging, level_str.upper(), logging.WARNING)
-            )
+    setup_logging(
+        level=level,
+        json_format=(fmt == "json"),
+        overrides=overrides if overrides else None,
+    )
 
 
 async def _smoke(

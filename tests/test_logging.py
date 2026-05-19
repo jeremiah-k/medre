@@ -34,6 +34,7 @@ from typing import Any, Generator
 import pytest
 
 from medre.core.observability.logging import (
+    _DEPENDENCY_DEFAULTS,
     _JsonFormatter,
     diagnostic_event,
     get_logger,
@@ -622,3 +623,118 @@ class TestRouteMetrics:
         assert entry["failed"] == 1
         assert entry["skipped"] == 1
         assert entry["loop_prevented"] == 1
+
+
+# ---------------------------------------------------------------------------
+# setup_logging overrides and dependency defaults
+# ---------------------------------------------------------------------------
+
+
+class TestSetupLoggingOverrides:
+    """Tests for setup_logging dependency defaults, overrides, and isolation."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_all_loggers(self) -> Generator[None, None, None]:
+        """Clean up medre, root, and dependency loggers between tests."""
+        # Snapshot original state so we can restore it.
+        medre_logger = logging.getLogger("medre")
+        root_logger = logging.getLogger()
+        saved_medre_handlers = list(medre_logger.handlers)
+        saved_medre_level = medre_logger.level
+        saved_root_level = root_logger.level
+
+        # Also snapshot dependency loggers that might be touched.
+        saved_dep_levels: dict[str, int] = {}
+        for name in list(_DEPENDENCY_DEFAULTS.keys()) + ["custom.lib"]:
+            saved_dep_levels[name] = logging.getLogger(name).level
+
+        yield
+
+        # Restore.
+        medre_logger.handlers = saved_medre_handlers
+        medre_logger.setLevel(saved_medre_level)
+        root_logger.setLevel(saved_root_level)
+        for name, lvl in saved_dep_levels.items():
+            logging.getLogger(name).setLevel(lvl)
+
+    def test_debug_sets_medre_debug_root_warning(self) -> None:
+        """setup_logging with level=DEBUG sets medre to DEBUG but root stays WARNING."""
+        setup_logging(level="DEBUG", json_format=False)
+        assert logging.getLogger("medre").level == logging.DEBUG
+        assert logging.getLogger().level == logging.WARNING
+
+    def test_override_sets_logger_level(self) -> None:
+        """setup_logging with overrides={"nio": "INFO"} sets nio logger to INFO."""
+        setup_logging(level="INFO", json_format=False, overrides={"nio": "INFO"})
+        assert logging.getLogger("nio").level == logging.INFO
+
+    def test_override_dotname_logger(self) -> None:
+        """setup_logging with overrides for dotted logger names."""
+        setup_logging(
+            level="INFO",
+            json_format=False,
+            overrides={"nio.crypto.log": "ERROR"},
+        )
+        assert logging.getLogger("nio.crypto.log").level == logging.ERROR
+
+    def test_override_suppresses_warning(self) -> None:
+        """Override {"nio.crypto.log": "ERROR"} suppresses WARNING from that logger."""
+        setup_logging(
+            level="INFO",
+            json_format=False,
+            overrides={"nio.crypto.log": "ERROR"},
+        )
+        nio_crypto = logging.getLogger("nio.crypto.log")
+        # WARNING (30) < ERROR (40), so a WARNING-level log should be suppressed.
+        assert not nio_crypto.isEnabledFor(logging.WARNING)
+
+    def test_dependency_defaults_applied(self) -> None:
+        """Dependency loggers get their default levels when no override is provided."""
+        setup_logging(level="DEBUG", json_format=False)
+        assert logging.getLogger("nio").level == logging.WARNING
+        assert logging.getLogger("nio.crypto.log").level == logging.ERROR
+        assert logging.getLogger("aiohttp").level == logging.WARNING
+        assert logging.getLogger("meshtastic").level == logging.WARNING
+        assert logging.getLogger("peewee").level == logging.WARNING
+        assert logging.getLogger("urllib3").level == logging.WARNING
+        assert logging.getLogger("serial").level == logging.WARNING
+
+    def test_nio_default_is_warning(self) -> None:
+        """nio logger is WARNING by default when no override provided."""
+        setup_logging(level="DEBUG", json_format=False)
+        assert logging.getLogger("nio").level == logging.WARNING
+
+    def test_override_takes_precedence_over_default(self) -> None:
+        """User override takes precedence over dependency defaults."""
+        # nio default is WARNING; override to DEBUG
+        setup_logging(level="INFO", json_format=False, overrides={"nio": "DEBUG"})
+        assert logging.getLogger("nio").level == logging.DEBUG
+
+    def test_invalid_override_raises_valueerror(self) -> None:
+        """Override with invalid level raises ValueError."""
+        with pytest.raises(ValueError, match="Invalid logging level"):
+            setup_logging(
+                level="INFO",
+                json_format=False,
+                overrides={"nio": "NOTAREALEVEL"},
+            )
+
+    def test_handler_not_duplicated_on_repeated_calls(self) -> None:
+        """Repeated calls to setup_logging do not add duplicate handlers."""
+        setup_logging(level="DEBUG", json_format=False)
+        handler_count = len(logging.getLogger("medre").handlers)
+        setup_logging(level="ERROR", json_format=True)
+        assert len(logging.getLogger("medre").handlers) == handler_count
+
+    def test_medre_logger_propagates_to_root(self) -> None:
+        """medre logger should propagate to root (default propagation=True)."""
+        setup_logging(level="DEBUG", json_format=False)
+        medre_logger = logging.getLogger("medre")
+        assert medre_logger.propagate is True
+
+    def test_overrides_none_means_no_user_overrides(self) -> None:
+        """overrides=None (default) applies only dependency defaults."""
+        setup_logging(level="INFO", json_format=False, overrides=None)
+        # Dependency defaults should still be applied.
+        assert logging.getLogger("nio").level == logging.WARNING
+        # No crash, no extra overrides.

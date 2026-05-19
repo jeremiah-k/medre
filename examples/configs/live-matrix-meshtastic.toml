@@ -24,6 +24,13 @@ shutdown_timeout_seconds = 30   # give adapters time to drain on Ctrl-C
 level = "INFO"  # use DEBUG for bring-up visibility
 format = "text" # "text" for humans, "json" for log aggregation
 
+[logging.overrides]
+nio = "WARNING"
+"nio.crypto.log" = "ERROR"
+meshtastic = "WARNING"
+aiohttp = "WARNING"
+peewee = "WARNING"
+
 [storage]
 backend = "sqlite"
 path = "{state}/medre.sqlite" # {state} resolves to XDG state dir

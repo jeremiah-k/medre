@@ -25,6 +25,27 @@ from typing import Any
 from medre.observability.sanitization import sanitize_error, sanitize_for_log
 
 # ---------------------------------------------------------------------------
+# Dependency logger defaults
+# ---------------------------------------------------------------------------
+
+# Sensible levels for noisy third-party loggers.  Applied by setup_logging()
+# before user overrides so that overrides take precedence.
+_DEPENDENCY_DEFAULTS: dict[str, int] = {
+    "nio": logging.WARNING,
+    "nio.crypto.log": logging.ERROR,
+    "aiohttp": logging.WARNING,
+    "meshtastic": logging.WARNING,
+    "peewee": logging.WARNING,
+    "urllib3": logging.WARNING,
+    "serial": logging.WARNING,
+}
+
+# Valid logging level names accepted by setup_logging / overrides.
+_VALID_LEVEL_NAMES: frozenset[str] = frozenset(
+    {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+)
+
+# ---------------------------------------------------------------------------
 # Log-record internals filter
 # ---------------------------------------------------------------------------
 
@@ -102,12 +123,22 @@ class _JsonFormatter(logging.Formatter):
 # ---------------------------------------------------------------------------
 
 
-def setup_logging(level: str = "INFO", json_format: bool = False) -> None:
+def setup_logging(
+    level: str = "INFO",
+    json_format: bool = False,
+    overrides: dict[str, str] | None = None,
+) -> None:
     """Configure structured logging for the medre runtime.
 
     Creates a :class:`logging.StreamHandler` writing to *stdout* and
     attaches it to the ``medre`` root logger.  Repeated
     calls are no-ops (duplicate handlers are avoided).
+
+    The *level* parameter controls **only** the ``medre`` namespace.
+    The true Python root logger is set to ``WARNING`` so that noisy
+    dependency loggers do not flood the console when medre is in DEBUG
+    mode.  Sensible defaults are applied for known noisy dependencies
+    (see ``_DEPENDENCY_DEFAULTS``).
 
     Parameters
     ----------
@@ -118,26 +149,55 @@ def setup_logging(level: str = "INFO", json_format: bool = False) -> None:
         If ``True``, use JSON-structured log output suitable for machine
         parsing (log aggregators, structured log files).  Otherwise use
         a human-readable format.
+    overrides:
+        Per-logger level overrides keyed by logger name.  Applied *after*
+        dependency defaults so that user-supplied values take precedence.
+        Values must be valid level name strings (e.g. ``"WARNING"``).
+        Invalid level names raise :class:`ValueError`.
+
+    Raises
+    ------
+    ValueError
+        If any override level name is not a recognised logging level.
     """
-    root = logging.getLogger("medre")
+    # 1. Set the true root logger to WARNING so dependency loggers don't
+    #    leak DEBUG/INFO when medre is configured at DEBUG.
+    logging.getLogger().setLevel(logging.WARNING)
+
+    # 2. Set the medre namespace logger to the configured level.
+    medre_logger = logging.getLogger("medre")
+    medre_logger.setLevel(getattr(logging, level.upper(), logging.INFO))
 
     # Avoid duplicate handlers on repeated calls.
-    if root.handlers:
-        return
+    if not medre_logger.handlers:
+        handler = logging.StreamHandler(sys.stdout)
 
-    handler = logging.StreamHandler(sys.stdout)
+        if json_format:
+            handler.setFormatter(_JsonFormatter())
+        else:
+            formatter = logging.Formatter(
+                "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+                datefmt="%Y-%m-%dT%H:%M:%S%z",
+            )
+            handler.setFormatter(formatter)
 
-    if json_format:
-        handler.setFormatter(_JsonFormatter())
-    else:
-        formatter = logging.Formatter(
-            "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-            datefmt="%Y-%m-%dT%H:%M:%S%z",
-        )
-        handler.setFormatter(formatter)
+        medre_logger.addHandler(handler)
 
-    root.setLevel(getattr(logging, level.upper(), logging.INFO))
-    root.addHandler(handler)
+    # 3. Apply dependency defaults.
+    for logger_name, default_level in _DEPENDENCY_DEFAULTS.items():
+        logging.getLogger(logger_name).setLevel(default_level)
+
+    # 4. Apply user overrides on top of defaults.
+    if overrides:
+        for logger_name, level_str in overrides.items():
+            upper = level_str.upper()
+            if not hasattr(logging, upper) or upper not in _VALID_LEVEL_NAMES:
+                raise ValueError(
+                    f"Invalid logging level {level_str!r} for logger "
+                    f"{logger_name!r}.  Must be one of: "
+                    f"{', '.join(sorted(_VALID_LEVEL_NAMES))}"
+                )
+            logging.getLogger(logger_name).setLevel(getattr(logging, upper))
 
 
 def get_logger(name: str) -> logging.Logger:
