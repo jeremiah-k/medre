@@ -71,8 +71,11 @@ format = "text"   # text or json
 
 > **`level` controls MEDRE logs only.** It sets the log level for the
 > `medre.*` logger namespace. Dependency libraries (nio, meshtastic, aiohttp,
-> peewee, etc.) have their own default levels and are not affected by this
-> setting. Use `[logging.overrides]` to quiet noisy dependencies.
+> peewee, etc.) are not affected by this setting — their loggers inherit the
+> root logger level (`WARNING`) unless explicitly configured via
+> `[logging.overrides]`. Setting `level = "DEBUG"` enables debug output for
+> `medre.*` but does **not** enable DEBUG for unknown or unlisted dependency
+> loggers.
 
 #### `[logging.overrides]`
 
@@ -103,6 +106,10 @@ are configured):
 | `meshtastic`       | `WARNING`     | SDK prints every radio packet at INFO               |
 | `aiohttp`          | `WARNING`     | HTTP access logs at INFO                            |
 | `peewee`           | `WARNING`     | Query logging at DEBUG, noisy at INFO               |
+
+> Any dependency logger **not** listed above (or in `[logging.overrides]`)
+> inherits the root logger's `WARNING` level. Add an entry to
+> `[logging.overrides]` to change it.
 
 > **Matrix room history before startup is suppressed.** The Matrix adapter
 > processes only events received *after* the sync connection is established.

@@ -140,31 +140,39 @@ def setup_logging(
     so that repeated calls can find, update, and reuse it without
     creating duplicates.
 
-    Handler topology:
+    Handler topology and level semantics:
 
-    * The handler level is ``NOTSET`` — all filtering happens at the
-      individual logger level.
-    * The Python root logger level is set to ``NOTSET`` so that records
-      which pass their originating logger's level check are forwarded
-      to the root and processed by the MEDRE-managed handler.
+    * The MEDRE-managed handler level is ``NOTSET`` — all filtering
+      happens at the individual logger level, not at the handler.
+    * The Python root logger level is set to ``WARNING``.  This acts as
+      a **fallback gate** for loggers without an explicit level:
+      unknown third-party dependency loggers inherit the root level and
+      will not emit DEBUG or INFO noise by default.
     * The ``medre`` namespace logger is set to the configured *level*
-      with ``propagate=True``.  It does **not** carry its own handler;
-      records flow up to the root handler.
+      with ``propagate=True``.  Because the originating logger's own
+      effective level controls record creation (not the parent's), MEDRE
+      records pass through to the root handler regardless of the root
+      WARNING gate.  The ``medre`` logger does **not** carry its own
+      handler; records flow up to the root handler.
+    * Known dependency loggers (``nio``, ``aiohttp``, etc.) receive
+      sensible defaults (see ``_DEPENDENCY_DEFAULTS``).  User-supplied
+      *overrides* take precedence over defaults and allow explicitly
+      lowering a dependency logger below root WARNING (e.g.
+      ``overrides={"nio": "DEBUG"}``).
     * Any MEDRE-managed handlers previously attached to the ``medre``
       logger (from older versions) are removed while non-MEDRE user
       handlers are preserved.
 
     The *level* parameter controls **only** the ``medre`` namespace.
-    Dependency loggers (``nio``, ``aiohttp``, etc.) receive sensible
-    defaults (see ``_DEPENDENCY_DEFAULTS``) which suppress DEBUG noise.
-    User-supplied *overrides* take precedence over defaults.
+    To enable DEBUG for a specific dependency, pass it in *overrides*.
 
     Parameters
     ----------
     level:
         One of ``DEBUG``, ``INFO``, ``WARNING``, ``ERROR``, ``CRITICAL``.
         Case-insensitive; controls the ``medre.*`` namespace only.
-        Defaults to ``INFO`` for unrecognised values.
+        Must be a string.  ``ValueError`` is raised for non-string or
+        invalid level names.
     json_format:
         If ``True``, use JSON-structured log output suitable for machine
         parsing (log aggregators, structured log files).  Otherwise use
@@ -178,8 +186,21 @@ def setup_logging(
     Raises
     ------
     ValueError
-        If any override level name is not a recognised logging level.
+        If *level* is not a string, if *level* is not a recognised
+        logging level, or if any override level name is not recognised.
     """
+    # 0. Validate level parameter.
+    if not isinstance(level, str):
+        raise ValueError(
+            f"Logging level must be a string, got {type(level).__name__}"
+        )
+    upper_level = level.upper()
+    if upper_level not in _VALID_LEVEL_NAMES:
+        raise ValueError(
+            f"Invalid logging level {level!r}.  Must be one of: "
+            f"{', '.join(sorted(_VALID_LEVEL_NAMES))}"
+        )
+
     # 1. Locate or create the single MEDRE-managed handler on the root logger.
     root = logging.getLogger()
     medre_handler: logging.Handler | None = None
@@ -205,13 +226,15 @@ def setup_logging(
             )
         )
 
-    # 3. Set root logger to NOTSET so all records that pass their
-    #    originating logger's level check reach our handler.
-    root.setLevel(logging.NOTSET)
+    # 3. Set root logger to WARNING as a fallback gate for unknown
+    #    dependency loggers.  MEDRE records bypass this gate because the
+    #    medre namespace logger has its own explicit level and propagation
+    #    delivers records directly to the root handler without re-filtering.
+    root.setLevel(logging.WARNING)
 
     # 4. Configure the medre namespace logger.
     medre_logger = logging.getLogger("medre")
-    medre_logger.setLevel(getattr(logging, level.upper(), logging.INFO))
+    medre_logger.setLevel(getattr(logging, upper_level, logging.INFO))
     medre_logger.propagate = True
 
     # Remove any MEDRE-managed handlers left on medre_logger by a

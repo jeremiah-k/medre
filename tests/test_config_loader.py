@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from medre.config.errors import ConfigFileError, ConfigNotFoundError
+from medre.config.errors import ConfigFileError, ConfigNotFoundError, ConfigValidationError
 from medre.config.loader import ConfigSource, find_config, load_config
 from medre.config.model import (
     MatrixRuntimeConfig,
@@ -457,3 +457,87 @@ class TestSampleConfig:
                         f"Sample config route {route_id!r} references "
                         f"{field}={ref!r} which is not a declared adapter ID"
                     )
+
+
+# ---------------------------------------------------------------------------
+# Logging validation — bad types / levels / formats / overrides
+# ---------------------------------------------------------------------------
+
+
+def _write_config(tmp_path: Path, toml_content: str) -> Path:
+    """Write TOML content to a temp config file and return its path."""
+    p = tmp_path / "config.toml"
+    p.write_text(toml_content)
+    return p
+
+
+class TestLoggingValidation:
+    """Bad logging config types/levels/formats/overs raise ConfigValidationError
+    at config load, not AttributeError or setup_logging-time errors."""
+
+    def test_level_int_raises(self, tmp_path: Path) -> None:
+        """logging.level = 123 → ConfigValidationError."""
+        p = _write_config(tmp_path, "[runtime]\n[logging]\nlevel = 123\n")
+        with pytest.raises(ConfigValidationError, match="level must be a string"):
+            load_config(str(p))
+
+    def test_level_invalid_string_raises(self, tmp_path: Path) -> None:
+        """logging.level = 'NOPE' → ConfigValidationError."""
+        p = _write_config(tmp_path, '[runtime]\n[logging]\nlevel = "NOPE"\n')
+        with pytest.raises(ConfigValidationError, match="level must be one of"):
+            load_config(str(p))
+
+    def test_format_invalid_raises(self, tmp_path: Path) -> None:
+        """logging.format = 'xml' → ConfigValidationError."""
+        p = _write_config(tmp_path, '[runtime]\n[logging]\nformat = "xml"\n')
+        with pytest.raises(ConfigValidationError, match="format must be one of"):
+            load_config(str(p))
+
+    def test_format_int_raises(self, tmp_path: Path) -> None:
+        """logging.format = 42 → ConfigValidationError."""
+        p = _write_config(tmp_path, "[runtime]\n[logging]\nformat = 42\n")
+        with pytest.raises(ConfigValidationError, match="format must be a string"):
+            load_config(str(p))
+
+    def test_overrides_array_raises(self, tmp_path: Path) -> None:
+        """logging.overrides = [] → ConfigValidationError (not a table)."""
+        p = _write_config(tmp_path, "[runtime]\n[logging]\noverrides = []\n")
+        with pytest.raises(ConfigValidationError, match="overrides must be a table"):
+            load_config(str(p))
+
+    def test_overrides_blank_key_raises(self, tmp_path: Path) -> None:
+        """overrides[''] = 'DEBUG' → ConfigValidationError (blank logger name)."""
+        p = _write_config(
+            tmp_path,
+            '[runtime]\n[logging]\nlevel = "INFO"\n[logging.overrides]\n"" = "DEBUG"\n',
+        )
+        with pytest.raises(ConfigValidationError, match="invalid logger name"):
+            load_config(str(p))
+
+    def test_overrides_value_int_raises(self, tmp_path: Path) -> None:
+        """overrides.nio = 123 → ConfigValidationError."""
+        p = _write_config(
+            tmp_path,
+            "[runtime]\n[logging]\nlevel = \"INFO\"\n[logging.overrides]\nnio = 123\n",
+        )
+        with pytest.raises(ConfigValidationError, match="invalid level"):
+            load_config(str(p))
+
+    def test_overrides_value_invalid_string_raises(self, tmp_path: Path) -> None:
+        """overrides.nio = 'NOPE' → ConfigValidationError."""
+        p = _write_config(
+            tmp_path,
+            '[runtime]\n[logging]\nlevel = "INFO"\n[logging.overrides]\nnio = "NOPE"\n',
+        )
+        with pytest.raises(ConfigValidationError, match="invalid level"):
+            load_config(str(p))
+
+    def test_valid_quoted_dotted_key_override(self, tmp_path: Path) -> None:
+        """'nio.crypto.log' = 'ERROR' loads correctly."""
+        p = _write_config(
+            tmp_path,
+            '[runtime]\n[logging]\nlevel = "INFO"\n'
+            '[logging.overrides]\n"nio.crypto.log" = "ERROR"\n',
+        )
+        config, _, _ = load_config(str(p))
+        assert config.logging.overrides["nio.crypto.log"] == "ERROR"

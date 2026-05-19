@@ -217,14 +217,14 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
         ),
     ).validate()
 
-    # [logging] section
+    # [logging] section — validate raw data before constructing LoggingConfig
     log_data = data.get("logging", {})
+    _validate_logging_section(log_data)
     logging = LoggingConfig(
         level=log_data.get("level", "INFO"),
         format=log_data.get("format", "text"),
         overrides=log_data.get("overrides", {}),
     )
-    _validate_logging_section(logging)
 
     # [storage] section — expand path placeholders
     storage_data = data.get("storage", {})
@@ -337,30 +337,78 @@ def _validate_retry_section(retry_data: dict) -> None:
             )
 
 
-def _validate_logging_section(
-    logging_config: LoggingConfig,
-) -> None:
-    """Validate [logging] section level and override values.
+def _validate_logging_section(log_data: dict) -> None:
+    """Validate [logging] section types and values from raw TOML data.
 
-    Raises :class:`ConfigValidationError` for invalid level names so
-    that misconfiguration is caught at config-load time rather than
-    deferred to :func:`setup_logging`.
+    Validates that *level*, *format*, and *overrides* have correct types
+    and permissible values **before** constructing :class:`LoggingConfig`,
+    so that misconfiguration is caught at config-load time with clear
+    :class:`ConfigValidationError` messages rather than deferred to
+    :func:`setup_logging` or producing ``AttributeError``.
     """
-    if logging_config.level.upper() not in _VALID_LOG_LEVELS:
+    _VALID_FORMATS: frozenset[str] = frozenset({"text", "json"})
+
+    if not isinstance(log_data, dict):
+        raise ConfigValidationError(
+            f"[logging] must be a table, got {type(log_data).__name__}",
+            section_path="logging",
+        )
+
+    # --- level ---
+    raw_level = log_data.get("level", "INFO")
+    if not isinstance(raw_level, str):
+        raise ConfigValidationError(
+            f"[logging] level must be a string, "
+            f"got {type(raw_level).__name__} {raw_level!r}",
+            section_path="logging",
+        )
+    if raw_level.upper() not in _VALID_LOG_LEVELS:
         raise ConfigValidationError(
             f"[logging] level must be one of "
             f"{', '.join(sorted(_VALID_LOG_LEVELS))}, "
-            f"got {logging_config.level!r}",
+            f"got {raw_level!r}",
             section_path="logging",
         )
-    for logger_name, level_str in logging_config.overrides.items():
-        if not isinstance(level_str, str) or level_str.upper() not in _VALID_LOG_LEVELS:
+
+    # --- format ---
+    raw_format = log_data.get("format", "text")
+    if not isinstance(raw_format, str):
+        raise ConfigValidationError(
+            f"[logging] format must be a string, "
+            f"got {type(raw_format).__name__} {raw_format!r}",
+            section_path="logging",
+        )
+    if raw_format.lower() not in _VALID_FORMATS:
+        raise ConfigValidationError(
+            f"[logging] format must be one of "
+            f"{', '.join(sorted(_VALID_FORMATS))}, "
+            f"got {raw_format!r}",
+            section_path="logging",
+        )
+
+    # --- overrides ---
+    raw_overrides = log_data.get("overrides")
+    if raw_overrides is not None:
+        if not isinstance(raw_overrides, dict):
             raise ConfigValidationError(
-                f"[logging] overrides[{logger_name!r}] has invalid level "
-                f"{level_str!r}. Must be one of: "
-                f"{', '.join(sorted(_VALID_LOG_LEVELS))}",
-                section_path=f"logging.overrides.{logger_name}",
+                f"[logging] overrides must be a table, "
+                f"got {type(raw_overrides).__name__}",
+                section_path="logging",
             )
+        for logger_name, level_val in raw_overrides.items():
+            if not isinstance(logger_name, str) or not logger_name:
+                raise ConfigValidationError(
+                    f"[logging] overrides has invalid logger name "
+                    f"{logger_name!r}. Keys must be non-empty strings.",
+                    section_path="logging.overrides",
+                )
+            if not isinstance(level_val, str) or level_val.upper() not in _VALID_LOG_LEVELS:
+                raise ConfigValidationError(
+                    f"[logging] overrides[{logger_name!r}] has invalid level "
+                    f"{level_val!r}. Must be one of: "
+                    f"{', '.join(sorted(_VALID_LOG_LEVELS))}",
+                    section_path=f"logging.overrides.{logger_name}",
+                )
 
 
 # ---------------------------------------------------------------------------

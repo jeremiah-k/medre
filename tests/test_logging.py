@@ -671,11 +671,11 @@ class TestSetupLoggingOverrides:
         for name, lvl in saved_dep_levels.items():
             logging.getLogger(name).setLevel(lvl)
 
-    def test_debug_sets_medre_debug_root_notset(self) -> None:
-        """setup_logging with level=DEBUG sets medre to DEBUG, root to NOTSET."""
+    def test_debug_sets_medre_debug_root_warning(self) -> None:
+        """setup_logging with level=DEBUG sets medre to DEBUG, root to WARNING."""
         setup_logging(level="DEBUG", json_format=False)
         assert logging.getLogger("medre").level == logging.DEBUG
-        assert logging.getLogger().level == logging.NOTSET
+        assert logging.getLogger().level == logging.WARNING
 
     def test_override_sets_logger_level(self) -> None:
         """setup_logging with overrides={"nio": "INFO"} sets nio logger to INFO."""
@@ -789,7 +789,7 @@ class TestLoggingTopology:
         saved_root_handlers = list(root_logger.handlers)
         saved_root_level = root_logger.level
         saved_dep_levels: dict[str, int] = {}
-        for name in list(_DEPENDENCY_DEFAULTS.keys()):
+        for name in list(_DEPENDENCY_DEFAULTS.keys()) + ["custom.lib", "unknown.dep"]:
             saved_dep_levels[name] = logging.getLogger(name).level
 
         yield
@@ -985,3 +985,114 @@ class TestLoggingTopology:
 
         # Old handler should be gone from medre logger
         assert old_handler not in medre_logger.handlers
+
+    def test_root_warning_after_setup_debug(self) -> None:
+        """Root logger stays at WARNING even when medre level=DEBUG."""
+        setup_logging(level="DEBUG", json_format=False)
+        assert logging.getLogger().level == logging.WARNING
+        assert logging.getLogger("medre").level == logging.DEBUG
+
+    def test_unknown_dependency_debug_suppressed(self) -> None:
+        """Unknown dependency DEBUG suppressed by root WARNING gate."""
+        setup_logging(level="DEBUG", json_format=False)
+        handler = self._get_medre_root_handler()
+        assert handler is not None
+        buf = StringIO()
+        handler.stream = buf
+
+        logging.getLogger("unknown.dep").debug("unknown-debug-msg")
+
+        output = buf.getvalue()
+        assert "unknown-debug-msg" not in output
+
+    def test_unknown_dependency_warning_formatted(self) -> None:
+        """Unknown dependency WARNING passes root gate and is formatted."""
+        setup_logging(level="DEBUG", json_format=False)
+        handler = self._get_medre_root_handler()
+        assert handler is not None
+        buf = StringIO()
+        handler.stream = buf
+
+        logging.getLogger("unknown.dep").warning("unknown-warn-msg")
+
+        output = buf.getvalue()
+        assert "unknown-warn-msg" in output
+        assert "[WARNING]" in output
+        assert "unknown.dep" in output
+
+    def test_override_custom_lib_debug_emits(self) -> None:
+        """Override custom.lib=DEBUG emits DEBUG despite root WARNING."""
+        setup_logging(
+            level="INFO",
+            json_format=False,
+            overrides={"custom.lib": "DEBUG"},
+        )
+        handler = self._get_medre_root_handler()
+        assert handler is not None
+        buf = StringIO()
+        handler.stream = buf
+
+        logging.getLogger("custom.lib").debug("custom-debug-msg")
+
+        output = buf.getvalue()
+        assert "custom-debug-msg" in output
+        assert "[DEBUG]" in output
+
+    def test_override_nio_debug_emits(self) -> None:
+        """Override nio=DEBUG emits DEBUG despite root WARNING."""
+        setup_logging(
+            level="INFO",
+            json_format=False,
+            overrides={"nio": "DEBUG"},
+        )
+        handler = self._get_medre_root_handler()
+        assert handler is not None
+        buf = StringIO()
+        handler.stream = buf
+
+        logging.getLogger("nio").debug("nio-debug-override")
+
+        output = buf.getvalue()
+        assert "nio-debug-override" in output
+        assert "[DEBUG]" in output
+
+    def test_dependency_warning_uses_json_formatter(self) -> None:
+        """Dependency WARNING uses JSON formatter when json_format=True."""
+        setup_logging(level="INFO", json_format=True)
+        handler = self._get_medre_root_handler()
+        assert handler is not None
+        buf = StringIO()
+        handler.stream = buf
+
+        logging.getLogger("nio").warning("nio-json-warn")
+
+        output = buf.getvalue().strip()
+        parsed = json.loads(output)
+        assert parsed["message"] == "nio-json-warn"
+        assert parsed["level"] == "WARNING"
+        assert parsed["logger"] == "nio"
+
+    def test_dependency_error_uses_json_formatter(self) -> None:
+        """Dependency ERROR uses JSON formatter when json_format=True."""
+        setup_logging(level="INFO", json_format=True)
+        handler = self._get_medre_root_handler()
+        assert handler is not None
+        buf = StringIO()
+        handler.stream = buf
+
+        logging.getLogger("nio").error("nio-json-error")
+
+        output = buf.getvalue().strip()
+        parsed = json.loads(output)
+        assert parsed["message"] == "nio-json-error"
+        assert parsed["level"] == "ERROR"
+
+    def test_invalid_level_string_raises_valueerror(self) -> None:
+        """setup_logging with invalid level string raises ValueError."""
+        with pytest.raises(ValueError, match="Invalid logging level"):
+            setup_logging(level="NOTAREALEVEL", json_format=False)
+
+    def test_non_string_level_raises_valueerror(self) -> None:
+        """setup_logging with non-string level raises ValueError."""
+        with pytest.raises(ValueError, match="must be a string"):
+            setup_logging(level=10, json_format=False)  # type: ignore[arg-type]
