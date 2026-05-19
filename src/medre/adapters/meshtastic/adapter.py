@@ -666,7 +666,7 @@ class MeshtasticAdapter(AdapterContract):
         send_meta: dict[str, object] = {}
 
         # Merge delivery metadata (packet snapshot: id, channel, reply_id, etc.)
-        for k, v in delivery.metadata.items():
+        for k, v in (delivery.metadata or {}).items():
             send_meta[k] = v
 
         # Add useful send context from the queued payload.

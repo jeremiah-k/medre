@@ -16,6 +16,8 @@ import logging
 import random
 from typing import Any
 
+import msgspec
+
 from medre.adapters.matrix.codec import MatrixCodec
 from medre.adapters.matrix.compat import HAS_NIO
 from medre.adapters.matrix.errors import MatrixConnectionError, MatrixSendError
@@ -33,6 +35,7 @@ from medre.core.contracts.adapter import (
     AdapterRole,
     AdapterSendError,
 )
+from medre.core.events.metadata import NativeMetadata
 from medre.core.rendering.renderer import RenderingResult
 
 _logger = logging.getLogger(__name__)
@@ -634,10 +637,6 @@ class MatrixAdapter(AdapterContract):
                     enriched["displayname"] = display_name
                     enriched["longname"] = display_name
                     enriched["shortname"] = shortname
-
-                    import msgspec
-
-                    from medre.core.events.metadata import NativeMetadata
 
                     new_native = NativeMetadata(data=enriched)
                     new_metadata = msgspec.structs.replace(

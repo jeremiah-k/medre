@@ -855,7 +855,6 @@ class TestMatrixReplyMissingMappingNoCrash:
     async def test_reply_without_mapping_sends_safely(
         self, temp_storage: SQLiteStorage
     ) -> None:
-        datetime.now(timezone.utc)
         _MESH_ADAPTER = "radio-d2"
         _MX_ADAPTER = "matrix-d2"
         _ROOM = "!room-d2:server"
@@ -1106,7 +1105,9 @@ def _make_reply_native_event(
             },
         },
         "event_id": event_id,
+        "room_id": room_id,
         "sender": sender,
         "type": "m.room.message",
     }
+    evt.room_id = room_id
     return evt
