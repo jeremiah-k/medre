@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ast
 import re
+import warnings
 from pathlib import Path
 
 import pytest
@@ -109,7 +110,8 @@ def _count_lines(path: Path) -> int:
     """Return the number of lines in *path* (0 if missing)."""
     if not path.exists():
         return 0
-    return sum(1 for _ in path.open(encoding="utf-8", errors="replace"))
+    with path.open(encoding="utf-8", errors="replace") as f:
+        return sum(1 for _ in f)
 
 
 def _has_fixed_sleep(source: str) -> bool:
@@ -155,7 +157,9 @@ def test_no_file_exceeds_1500_lines() -> None:
     failures: list[str] = []
     for path in sorted(TESTS_DIR.glob("test_*.py")):
         name = path.name
-        lines = _count_lines(path)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=ResourceWarning)
+            lines = _count_lines(path)
         if lines > MAX_LINES:
             failures.append(f"  {name}: {lines} lines (limit {MAX_LINES})")
 
@@ -222,7 +226,10 @@ def test_no_fixed_sleeps_in_new_files(filename: str) -> None:
         return
 
     source = path.read_text(encoding="utf-8")
-    assert not _has_fixed_sleep(source), (
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=ResourceWarning)
+        has_sleep = _has_fixed_sleep(source)
+    assert not has_sleep, (
         f"{filename} contains a fixed asyncio.sleep(N) with N > 0. "
         f"Use an event, flag, or short poll loop instead."
     )
