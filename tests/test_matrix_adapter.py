@@ -1062,7 +1062,9 @@ class TestDisplayNameEnrichment:
         event = _make_fake_nio_event(sender="@alice:example.com")
         room = SimpleNamespace(
             room_id="!room:server",
-            user_name=lambda uid: "Alice Display" if uid == "@alice:example.com" else uid,
+            user_name=lambda uid: (
+                "Alice Display" if uid == "@alice:example.com" else uid
+            ),
             users={},
         )
 
@@ -1121,9 +1123,7 @@ class TestDisplayNameEnrichment:
             "meshtastic_longname": "NodeLong",
             "meshtastic_shortname": "NSh",
         }
-        event = _make_fake_nio_event(
-            sender="@alice:example.com", content=content
-        )
+        event = _make_fake_nio_event(sender="@alice:example.com", content=content)
         room = SimpleNamespace(
             room_id="!room:server",
             user_name=lambda _uid: "Alice Display",
@@ -1228,7 +1228,9 @@ class TestDisplayNameEnrichment:
         event = _make_fake_nio_event(sender="@tad:example.com")
         room = SimpleNamespace(
             room_id="!room:server",
-            user_name=lambda uid: "From User Name Fn" if uid == "@tad:example.com" else uid,
+            user_name=lambda uid: (
+                "From User Name Fn" if uid == "@tad:example.com" else uid
+            ),
             users={"@tad:example.com": UserObj()},
         )
 
@@ -1252,9 +1254,7 @@ class TestDisplayNameEnrichment:
             "meshtastic_longname": "NodeLong",
             "meshtastic_shortname": "NSh",
         }
-        event = _make_fake_nio_event(
-            sender="@tad:example.com", content=content
-        )
+        event = _make_fake_nio_event(sender="@tad:example.com", content=content)
         UserObj = type("User", (), {"display_name": "Tad Chilly"})
         room = SimpleNamespace(
             room_id="!room:server",
@@ -1280,7 +1280,9 @@ class TestDisplayNameEnrichment:
         event = _make_fake_nio_event(sender="@alice:example.com")
         room = SimpleNamespace(
             room_id="!room:server",
-            user_name=lambda uid: "Alice Display" if uid == "@alice:example.com" else uid,
+            user_name=lambda uid: (
+                "Alice Display" if uid == "@alice:example.com" else uid
+            ),
             users={},
         )
 
@@ -1291,11 +1293,6 @@ class TestDisplayNameEnrichment:
 
     async def test_enrichment_preserves_other_metadata_namespaces(self) -> None:
         """Existing metadata namespaces (transport, routing, etc.) preserved."""
-        from medre.core.events.metadata import (
-            EventMetadata,
-            NativeMetadata,
-            TransportMetadata,
-        )
 
         config = _make_matrix_config(user_id="@bot:example.com")
         adapter = MatrixAdapter(config)
@@ -1307,7 +1304,9 @@ class TestDisplayNameEnrichment:
         event = _make_fake_nio_event(sender="@alice:example.com")
         room = SimpleNamespace(
             room_id="!room:server",
-            user_name=lambda uid: "Alice Display" if uid == "@alice:example.com" else uid,
+            user_name=lambda uid: (
+                "Alice Display" if uid == "@alice:example.com" else uid
+            ),
             users={},
         )
 
@@ -1326,12 +1325,8 @@ class TestDisplayNameEnrichment:
 
         # Process the same sender twice — the second event must get its
         # own independent enrichment, proving no shared mutable state.
-        event1 = _make_fake_nio_event(
-            sender="@alice:example.com", event_id="$evt-a"
-        )
-        event2 = _make_fake_nio_event(
-            sender="@bob:example.com", event_id="$evt-b"
-        )
+        event1 = _make_fake_nio_event(sender="@alice:example.com", event_id="$evt-a")
+        event2 = _make_fake_nio_event(sender="@bob:example.com", event_id="$evt-b")
         room = SimpleNamespace(
             room_id="!room:server",
             user_name=lambda uid: {

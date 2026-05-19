@@ -14,13 +14,11 @@ import pytest
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.session import MatrixSession
 from medre.core.contracts.adapter import AdapterPermanentError
-
 from tests.helpers.matrix_session import (
     make_matrix_config,
     make_matrix_context,
-    mock_nio,  # noqa: F401
 )
-
+from tests.helpers.matrix_session import mock_nio as _mock_nio  # noqa: F401
 
 # ===================================================================
 # TestMegolmEventHandling

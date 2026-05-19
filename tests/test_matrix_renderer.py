@@ -7,7 +7,13 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from medre.adapters.matrix.renderer import MatrixRenderer
-from medre.core.events import CanonicalEvent, EventMetadata, EventRelation, NativeMetadata, NativeRef
+from medre.core.events import (
+    CanonicalEvent,
+    EventMetadata,
+    EventRelation,
+    NativeMetadata,
+    NativeRef,
+)
 from medre.core.rendering.renderer import RenderingResult
 
 
@@ -297,9 +303,7 @@ class TestMatrixRendererReplySender:
             relations=(relation,),
             payload={"body": "my reply"},
             metadata=EventMetadata(
-                native=NativeMetadata(
-                    data={"longname": "TadChilly"}
-                )
+                native=NativeMetadata(data={"longname": "TadChilly"})
             ),
         )
         result = await renderer.render(event, "matrix-1")
@@ -326,7 +330,10 @@ class TestMatrixRendererReplySender:
             relations=(relation,),
         )
         result = await renderer.render(event, "matrix-1")
-        assert result.payload["m.relates_to"]["m.in_reply_to"]["event_id"] == "$orig-native"
+        assert (
+            result.payload["m.relates_to"]["m.in_reply_to"]["event_id"]
+            == "$orig-native"
+        )
 
     async def test_reply_with_mmrelay_id_includes_key_reply_id(self) -> None:
         """Meshtastic->Matrix reply payload still includes KEY_REPLY_ID."""

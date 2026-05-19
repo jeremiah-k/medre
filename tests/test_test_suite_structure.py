@@ -160,9 +160,9 @@ def test_no_file_exceeds_1500_lines() -> None:
         if lines > MAX_LINES:
             failures.append(f"  {name}: {lines} lines (limit {MAX_LINES})")
 
-    assert (
-        not failures
-    ), "Test files exceed the 1 500-line limit:\n" + "\n".join(failures)
+    assert not failures, "Test files exceed the 1 500-line limit:\n" + "\n".join(
+        failures
+    )
 
 
 # ===================================================================
@@ -329,10 +329,13 @@ def test_no_test_imports_other_test_modules() -> None:
             elif s.startswith("from tests import test_"):
                 bad.append((rel, i, s))
             # Allow from tests.helpers and from tests.conftest
-            elif s.startswith("from tests.helpers") or s.startswith("import tests.helpers"):
+            elif s.startswith("from tests.helpers") or s.startswith(
+                "import tests.helpers"
+            ):
                 continue
 
-    assert not bad, (
-        "Test modules must not import from other test modules:\n"
-        + "\n".join(f"  {f}:{ln}: {l}" for f, ln, l in bad)
+    assert (
+        not bad
+    ), "Test modules must not import from other test modules:\n" + "\n".join(
+        f"  {f}:{ln}: {line}" for f, ln, line in bad
     )

@@ -1081,9 +1081,7 @@ class TestPacketSnapshotDecodedSubobject:
     def test_top_level_packet_id_not_overwritten_by_decoded(self) -> None:
         """Top-level packet_id is preserved; decoded packet_id does not
         overwrite."""
-        snap = self._call(
-            {"packet_id": 100, "decoded": {"packet_id": 200, "emoji": 1}}
-        )
+        snap = self._call({"packet_id": 100, "decoded": {"packet_id": 200, "emoji": 1}})
         assert snap["packet_id"] == 100
         assert snap["emoji"] == 1
 

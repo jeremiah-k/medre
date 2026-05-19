@@ -697,49 +697,32 @@ class PipelineRunner:
                         # event's native metadata into the relation metadata
                         # so the renderer can use it for reply fallback sender.
                         sender_meta = (
-                            dict(current_rel.metadata)
-                            if current_rel.metadata
-                            else {}
+                            dict(current_rel.metadata) if current_rel.metadata else {}
                         )
                         sender_changed = False
 
                         if "original_sender_displayname" not in sender_meta:
                             _dn = None
-                            target_native = getattr(
-                                target_event, "metadata", None
-                            )
+                            target_native = getattr(target_event, "metadata", None)
                             if target_native is not None:
-                                target_native = getattr(
-                                    target_native, "native", None
-                                )
+                                target_native = getattr(target_native, "native", None)
                             if target_native is not None:
-                                target_data = getattr(
-                                    target_native, "data", None
-                                )
+                                target_data = getattr(target_native, "data", None)
                                 if isinstance(target_data, dict):
-                                    _dn = (
-                                        target_data.get("displayname")
-                                        or target_data.get("longname")
-                                    )
+                                    _dn = target_data.get(
+                                        "displayname"
+                                    ) or target_data.get("longname")
                             if _dn:
-                                sender_meta[
-                                    "original_sender_displayname"
-                                ] = str(_dn)
+                                sender_meta["original_sender_displayname"] = str(_dn)
                                 sender_changed = True
 
                         if "original_sender" not in sender_meta:
                             _snd = None
-                            target_native = getattr(
-                                target_event, "metadata", None
-                            )
+                            target_native = getattr(target_event, "metadata", None)
                             if target_native is not None:
-                                target_native = getattr(
-                                    target_native, "native", None
-                                )
+                                target_native = getattr(target_native, "native", None)
                             if target_native is not None:
-                                target_data = getattr(
-                                    target_native, "data", None
-                                )
+                                target_data = getattr(target_native, "data", None)
                                 if isinstance(target_data, dict):
                                     _snd = target_data.get("sender")
                             if not _snd:
@@ -838,9 +821,9 @@ class PipelineRunner:
             if not target_id:
                 continue
             try:
-                target_event = await cast(
-                    Callable[[str], Awaitable[object]], get_fn
-                )(target_id)
+                target_event = await cast(Callable[[str], Awaitable[object]], get_fn)(
+                    target_id
+                )
             except Exception:
                 self._log.debug(
                     "Failed to fetch target event for reaction-to-reaction check: %s",

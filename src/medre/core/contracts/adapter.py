@@ -317,7 +317,10 @@ class OutboundNativeRefRecord:
     metadata: Mapping[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if not isinstance(self.native_message_id, str) or not self.native_message_id.strip():
+        if (
+            not isinstance(self.native_message_id, str)
+            or not self.native_message_id.strip()
+        ):
             raise ValueError(
                 "OutboundNativeRefRecord.native_message_id must be a non-empty string"
             )

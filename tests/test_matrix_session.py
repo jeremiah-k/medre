@@ -14,21 +14,18 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.errors import MatrixConnectionError
 from medre.adapters.matrix.session import MatrixSession, MatrixSessionDiagnostics
-from medre.config.adapters.matrix import MatrixConfig
-
 from tests.helpers.matrix_session import (
     make_matrix_config,
     make_matrix_context,
-    mock_nio,  # noqa: F401
 )
-
+from tests.helpers.matrix_session import mock_nio as _mock_nio  # noqa: F401
 
 # ===================================================================
 # TestMatrixSessionLifecycle
@@ -483,9 +480,9 @@ class TestReactionCallbackRegistration:
                 for call in calls
                 if len(call[0]) >= 2
             )
-            assert reaction_registered, (
-                "ReactionEvent not found in any add_event_callback call"
-            )
+            assert (
+                reaction_registered
+            ), "ReactionEvent not found in any add_event_callback call"
         finally:
             await session.stop()
 

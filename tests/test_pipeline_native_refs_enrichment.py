@@ -17,8 +17,8 @@ from medre.core.events import (
     CanonicalEvent,
     EventMetadata,
     EventRelation,
-    NativeMetadata,
     NativeMessageRef,
+    NativeMetadata,
     NativeRef,
 )
 from medre.core.events.bus import EventBus
@@ -1115,9 +1115,7 @@ class TestSenderInfoEnrichment:
             lineage=(),
             relations=(),
             payload={"body": "Msg"},
-            metadata=EventMetadata(
-                native=NativeMetadata(data={"longname": "BobNode"})
-            ),
+            metadata=EventMetadata(native=NativeMetadata(data={"longname": "BobNode"})),
         )
         await temp_storage.append(prior_event)
 

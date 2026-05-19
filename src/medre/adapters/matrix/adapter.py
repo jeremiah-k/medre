@@ -636,6 +636,7 @@ class MatrixAdapter(AdapterContract):
                     enriched["shortname"] = shortname
 
                     import msgspec
+
                     from medre.core.events.metadata import NativeMetadata
 
                     new_native = NativeMetadata(data=enriched)

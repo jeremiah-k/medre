@@ -852,7 +852,7 @@ class TestMatrixReplyMissingMappingNoCrash:
     async def test_reply_without_mapping_sends_safely(
         self, temp_storage: SQLiteStorage
     ) -> None:
-        ts = datetime.now(timezone.utc)
+        datetime.now(timezone.utc)
         _MESH_ADAPTER = "radio-d2"
         _MX_ADAPTER = "matrix-d2"
         _ROOM = "!room-d2:server"
@@ -1244,8 +1244,7 @@ class TestMeshtasticReactionToReactionSuppressed:
 
 
 class TestMatrixReactionToReactionSuppressed:
-    """Test B: Matrix reaction targeting another Matrix reaction is suppressed
-    but inbound ref is still stored."""
+    """Test B: Matrix reaction targeting another Matrix reaction is suppressed but inbound ref is still stored."""
 
     async def test_matrix_reaction_to_reaction_suppressed(
         self, temp_storage: SQLiteStorage
