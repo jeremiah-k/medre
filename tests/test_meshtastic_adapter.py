@@ -747,8 +747,8 @@ class TestMeshtasticAdapterQueueOwnership:
         # send_one processes the queue item
         result = await adapter.send_one()
         assert result is not None
-        assert result.native_message_id == "77"
-        assert result.native_channel_id == "0"
+        assert result.delivery_result.native_message_id == "77"
+        assert result.delivery_result.native_channel_id == "0"
         assert adapter.queue.pending_count == 0
         assert len(fake_client.sent) == 1
 

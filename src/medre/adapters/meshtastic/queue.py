@@ -11,7 +11,8 @@ Meshtastic-specific sleeping.
 
 * **No ``send_fn``**: dequeues one item and returns ``None`` (scaffold mode).
 * **With ``send_fn``**: dequeues, applies pacing delay, calls the async
-  *send_fn*, and returns an :class:`AdapterDeliveryResult` with the
+  *send_fn*, and returns a :class:`QueueDeliveryResult` with the
+  dequeued item and the :class:`AdapterDeliveryResult` containing the
   native packet ID if available.
 
 Failure semantics
@@ -37,6 +38,7 @@ import asyncio
 import logging
 import time
 from collections import deque
+from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Awaitable, Callable
 
@@ -47,6 +49,30 @@ _logger = logging.getLogger(__name__)
 
 # Default maximum queue size.  When full, oldest items are dropped.
 _DEFAULT_MAX_QUEUE_SIZE: int = 1024
+
+
+@dataclass(frozen=True)
+class QueueDeliveryResult:
+    """Immutable result of processing one queued item through send.
+
+    Bundles the dequeued item (carrying ``event_id`` and other metadata
+    outside the radio payload) with the :class:`AdapterDeliveryResult`
+    returned by the send function.  This allows callers (e.g.
+    :class:`MeshtasticAdapter._process_queue`) to correlate the canonical
+    event ID with the native message ID obtained from the platform.
+
+    Attributes
+    ----------
+    item:
+        The dequeued item dict with ``payload``, ``channel_index``, and
+        optionally ``event_id`` keys.
+    delivery_result:
+        The adapter delivery result populated with the native packet ID
+        and metadata.
+    """
+
+    item: dict[str, Any]
+    delivery_result: AdapterDeliveryResult
 
 
 class MeshtasticOutboundQueue:
@@ -97,7 +123,13 @@ class MeshtasticOutboundQueue:
         """Number of items dropped due to queue overflow."""
         return self._total_dropped
 
-    async def enqueue(self, payload: dict[str, Any], channel_index: int) -> None:
+    async def enqueue(
+        self,
+        payload: dict[str, Any],
+        channel_index: int,
+        *,
+        event_id: str | None = None,
+    ) -> None:
         """Enqueue a payload for delivery.
 
         When the queue is at capacity, the oldest item is silently
@@ -106,9 +138,15 @@ class MeshtasticOutboundQueue:
         Parameters
         ----------
         payload:
-            The rendered payload dict to deliver.
+            The rendered payload dict to deliver.  ``event_id`` is NOT
+            included in this dict — it is stored separately alongside
+            the payload so that the radio-facing data never contains
+            framework-internal identifiers.
         channel_index:
             The target radio channel index.
+        event_id:
+            Optional canonical event ID that originated this send.
+            Stored outside the payload so it is never sent to the radio.
         """
         # Detect overflow: deque with maxlen silently drops from the
         # left (oldest) when append would exceed capacity.
@@ -125,6 +163,7 @@ class MeshtasticOutboundQueue:
             {
                 "payload": payload,
                 "channel_index": channel_index,
+                "event_id": event_id,
             }
         )
 
@@ -144,7 +183,7 @@ class MeshtasticOutboundQueue:
     async def process_one(
         self,
         send_fn: Callable[[dict[str, Any]], Awaitable[Any]] | None = None,
-    ) -> AdapterDeliveryResult | None:
+    ) -> QueueDeliveryResult | None:
         """Process one queued item.
 
         When *send_fn* is ``None`` (scaffold mode), this method dequeues
@@ -153,8 +192,10 @@ class MeshtasticOutboundQueue:
 
         When *send_fn* is provided, the method dequeues one item, applies
         the configured pacing delay, calls *send_fn* with the dequeued
-        item, and returns an :class:`AdapterDeliveryResult` populated
-        with the native packet ID (if the send result exposes one).
+        item, and returns a :class:`QueueDeliveryResult` containing both
+        the dequeued item and an :class:`AdapterDeliveryResult`
+        populated with the native packet ID (if the send result exposes
+        one).
 
         Parameters
         ----------
@@ -167,9 +208,9 @@ class MeshtasticOutboundQueue:
 
         Returns
         -------
-        AdapterDeliveryResult | None
+        QueueDeliveryResult | None
             ``None`` in scaffold mode or when the queue is empty.
-            An :class:`AdapterDeliveryResult` when a send was attempted.
+            A :class:`QueueDeliveryResult` when a send was attempted.
         """
         item = await self.dequeue()
         if item is None:
@@ -203,11 +244,13 @@ class MeshtasticOutboundQueue:
         snapshot = _packet_snapshot(send_result)
         metadata = MappingProxyType(snapshot) if snapshot else MappingProxyType({})
 
-        return AdapterDeliveryResult(
+        delivery_result = AdapterDeliveryResult(
             native_message_id=native_id,
             native_channel_id=str(channel_index),
             metadata=metadata,
         )
+
+        return QueueDeliveryResult(item=item, delivery_result=delivery_result)
 
     @property
     def pending_count(self) -> int:

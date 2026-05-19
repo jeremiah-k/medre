@@ -587,6 +587,7 @@ class MedreApp:
                         logger=logging.getLogger(f"medre.adapters.{adapter_id}"),
                         clock=_utc_now,
                         shutdown_event=self.shutdown_event,
+                        record_outbound_native_ref=self.pipeline_runner._record_outbound_native_ref,
                     )
                     await adapter.start(ctx)
                     elapsed = _monotonic_ms() - t0

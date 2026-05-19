@@ -52,7 +52,7 @@ class TestMeshtasticAdapterSendSemantics:
         assert result is None
 
     async def test_queue_process_one_with_send_fn_returns_result(self) -> None:
-        """process_one with send_fn returns AdapterDeliveryResult."""
+        """process_one with send_fn returns QueueDeliveryResult."""
         from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
 
         queue = MeshtasticOutboundQueue(delay_between_messages=0.0)
@@ -63,8 +63,8 @@ class TestMeshtasticAdapterSendSemantics:
 
         result = await queue.process_one(send_fn=fake_send)
         assert result is not None
-        assert result.native_message_id == "99"
-        assert result.native_channel_id == "0"
+        assert result.delivery_result.native_message_id == "99"
+        assert result.delivery_result.native_channel_id == "0"
 
     async def test_queue_process_one_extracts_id_from_object(self) -> None:
         """process_one captures packet id from objects with .id attribute."""
@@ -78,8 +78,8 @@ class TestMeshtasticAdapterSendSemantics:
 
         result = await queue.process_one(send_fn=fake_send)
         assert result is not None
-        assert result.native_message_id == "123"
-        assert result.native_channel_id == "3"
+        assert result.delivery_result.native_message_id == "123"
+        assert result.delivery_result.native_channel_id == "3"
 
     async def test_queue_process_one_handles_none_send_result(self) -> None:
         """process_one handles send_fn returning None gracefully."""
@@ -93,7 +93,7 @@ class TestMeshtasticAdapterSendSemantics:
 
         result = await queue.process_one(send_fn=fake_send_none)
         assert result is not None
-        assert result.native_message_id is None
+        assert result.delivery_result.native_message_id is None
 
     async def test_queue_process_one_tracks_failures(self) -> None:
         """process_one increments total_failed on send_fn exception."""
@@ -725,9 +725,9 @@ class TestQueueMetadataSnapshot:
 
         result = await queue.process_one(send_fn=fake_send)
         assert result is not None
-        assert result.metadata["packet_id"] == 42
-        assert result.metadata["channel"] == 0
-        assert result.metadata["reply_id"] == 7
+        assert result.delivery_result.metadata["packet_id"] == 42
+        assert result.delivery_result.metadata["channel"] == 0
+        assert result.delivery_result.metadata["reply_id"] == 7
 
     async def test_metadata_from_object_result(self) -> None:
         """process_one includes metadata snapshot from object send result."""
@@ -741,9 +741,9 @@ class TestQueueMetadataSnapshot:
 
         result = await queue.process_one(send_fn=fake_send)
         assert result is not None
-        assert result.metadata["id"] == 123
-        assert result.metadata["channel"] == 3
-        assert result.metadata["reply_id"] == 99
+        assert result.delivery_result.metadata["id"] == 123
+        assert result.delivery_result.metadata["channel"] == 3
+        assert result.delivery_result.metadata["reply_id"] == 99
 
     async def test_metadata_empty_for_none_result(self) -> None:
         """process_one metadata is empty when send returns None."""
@@ -757,7 +757,7 @@ class TestQueueMetadataSnapshot:
 
         result = await queue.process_one(send_fn=fake_send_none)
         assert result is not None
-        assert len(result.metadata) == 0
+        assert len(result.delivery_result.metadata) == 0
 
     async def test_metadata_preserves_existing_send_result_id(self) -> None:
         """Metadata snapshot does not break existing native_message_id extraction."""
@@ -771,8 +771,8 @@ class TestQueueMetadataSnapshot:
 
         result = await queue.process_one(send_fn=fake_send)
         assert result is not None
-        assert result.native_message_id == "55"
-        assert result.metadata["packet_id"] == 55
+        assert result.delivery_result.native_message_id == "55"
+        assert result.delivery_result.metadata["packet_id"] == 55
 
     async def test_bytes_metadata_json_safe_from_dict(self) -> None:
         """Dict send result with bytes in a captured key is JSON-safe."""
@@ -786,8 +786,8 @@ class TestQueueMetadataSnapshot:
 
         result = await queue.process_one(send_fn=send_fn)
         assert result is not None
-        assert result.metadata.get("to") == {"encoding": "base64", "data": "AP8="}
-        assert result.metadata.get("packet_id") == 42
+        assert result.delivery_result.metadata.get("to") == {"encoding": "base64", "data": "AP8="}
+        assert result.delivery_result.metadata.get("packet_id") == 42
 
     async def test_bytes_metadata_json_safe_from_object(self) -> None:
         """Object send result with bytes in a captured attr is JSON-safe."""
@@ -805,8 +805,8 @@ class TestQueueMetadataSnapshot:
 
         result = await queue.process_one(send_fn=send_fn)
         assert result is not None
-        assert result.metadata.get("to") == {"encoding": "base64", "data": "AP8="}
-        assert result.metadata.get("id") == 1
+        assert result.delivery_result.metadata.get("to") == {"encoding": "base64", "data": "AP8="}
+        assert result.delivery_result.metadata.get("id") == 1
 
 
 # ===================================================================

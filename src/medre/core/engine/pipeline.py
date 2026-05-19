@@ -36,6 +36,7 @@ from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContract,
     AdapterDeliveryResult,
+    OutboundNativeRefRecord,
 )
 from medre.core.events.bus import EventBus
 from medre.core.events.canonical import (
@@ -634,6 +635,51 @@ class PipelineRunner:
             created_at=now,
         )
         await self._config.storage.store_native_ref(inbound_ref)
+
+    async def _record_outbound_native_ref(
+        self, record: OutboundNativeRefRecord
+    ) -> None:
+        """Persist a delayed outbound :class:`NativeMessageRef`.
+
+        Called by queue-based adapters after a queued send returns a real
+        native message ID.  This is the callback wired into
+        :class:`AdapterContext.record_outbound_native_ref`.
+
+        Returns early when *record.native_message_id* is empty.  Catches
+        and logs all exceptions with ``exc_info=True`` so that callback
+        failures never crash the adapter's queue drain.
+
+        Parameters
+        ----------
+        record:
+            The outbound native reference record from the adapter.
+        """
+        if not record.native_message_id:
+            return
+
+        try:
+            now = datetime.now(tz=timezone.utc)
+            outbound_ref = NativeMessageRef(
+                id=f"nref-outbound-{uuid.uuid4()}",
+                event_id=record.event_id,
+                adapter=record.adapter,
+                native_channel_id=record.native_channel_id,
+                native_message_id=record.native_message_id,
+                native_thread_id=record.native_thread_id,
+                native_relation_id=record.native_relation_id,
+                direction="outbound",
+                metadata=dict(record.metadata),
+                created_at=now,
+            )
+            await self._config.storage.store_native_ref(outbound_ref)
+        except Exception:
+            self._log.exception(
+                "Failed to record delayed outbound native ref: "
+                "event_id=%s adapter=%s native_message_id=%s",
+                record.event_id,
+                record.adapter,
+                record.native_message_id,
+            )
 
     # -- Stage 3-4: Routing + Planning -------------------------------------
 

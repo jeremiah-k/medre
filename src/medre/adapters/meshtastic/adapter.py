@@ -62,7 +62,7 @@ from medre.adapters.meshtastic.errors import (
     MeshtasticSendError,
 )
 from medre.adapters.meshtastic.packet_classifier import MeshtasticPacketClassifier
-from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
+from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue, QueueDeliveryResult
 from medre.adapters.meshtastic.session import MeshtasticSession
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.contracts.adapter import (
@@ -74,6 +74,7 @@ from medre.core.contracts.adapter import (
     AdapterPermanentError,
     AdapterRole,
     AdapterSendError,
+    OutboundNativeRefRecord,
 )
 from medre.core.rendering.renderer import RenderingResult
 
@@ -311,7 +312,7 @@ class MeshtasticAdapter(AdapterContract):
             channel_index = self._config.default_channel
 
         try:
-            await self._queue.enqueue(payload, channel_index)
+            await self._queue.enqueue(payload, channel_index, event_id=result.event_id)
         except asyncio.CancelledError:
             raise
         except MeshtasticSendError as exc:
@@ -546,7 +547,7 @@ class MeshtasticAdapter(AdapterContract):
 
     # -- Queue / send helpers -----------------------------------------------
 
-    async def send_one(self) -> AdapterDeliveryResult | None:
+    async def send_one(self) -> QueueDeliveryResult | None:
         """Send one queued payload via the session, if connected.
 
         Creates an async wrapper around the session's ``send`` method
@@ -557,8 +558,9 @@ class MeshtasticAdapter(AdapterContract):
 
         Returns
         -------
-        AdapterDeliveryResult | None
-            Delivery metadata or ``None``.
+        QueueDeliveryResult | None
+            Delivery result with both the queued item and adapter result,
+            or ``None``.
         """
         session = self._session
         if session is None or session.client is None:
@@ -590,6 +592,12 @@ class MeshtasticAdapter(AdapterContract):
         Started during :meth:`start` and cancelled during :meth:`stop`.
         Calls :meth:`send_one` in a loop; sleeps when the queue is empty
         or on transient errors.
+
+        After each successful send that yields a real native message ID,
+        records a delayed outbound :class:`OutboundNativeRefRecord` via
+        the ``record_outbound_native_ref`` callback on
+        :class:`AdapterContext` (if wired).  Callback failures are
+        caught and logged so they never crash the queue drain.
         """
         try:
             while self._started:
@@ -597,6 +605,30 @@ class MeshtasticAdapter(AdapterContract):
                     result = await self.send_one()
                     if result is None:
                         await asyncio.sleep(0.1)
+                        continue
+
+                    # Record delayed outbound native ref when both
+                    # event_id and native_message_id are available.
+                    event_id = result.item.get("event_id")
+                    delivery = result.delivery_result
+                    if (
+                        event_id
+                        and delivery.native_message_id
+                        and self.ctx is not None
+                        and self.ctx.record_outbound_native_ref is not None
+                    ):
+                        try:
+                            await self._record_delayed_outbound_ref(
+                                result, event_id, delivery
+                            )
+                        except Exception:
+                            if self.ctx is not None:
+                                self.ctx.logger.exception(
+                                    "MeshtasticAdapter %s: error recording "
+                                    "delayed outbound native ref for event_id=%s",
+                                    self.adapter_id,
+                                    event_id,
+                                )
                 except asyncio.CancelledError:
                     raise
                 except Exception:
@@ -608,6 +640,70 @@ class MeshtasticAdapter(AdapterContract):
                     await asyncio.sleep(1.0)
         except asyncio.CancelledError:
             pass
+
+    async def _record_delayed_outbound_ref(
+        self,
+        result: QueueDeliveryResult,
+        event_id: str,
+        delivery: AdapterDeliveryResult,
+    ) -> None:
+        """Build and record an :class:`OutboundNativeRefRecord`.
+
+        Assembles metadata from the queued payload and the delivery
+        result, excluding private/internal keys and keeping only
+        JSON-safe values.
+
+        Parameters
+        ----------
+        result:
+            The queue delivery result containing the dequeued item.
+        event_id:
+            The canonical event ID associated with this send.
+        delivery:
+            The adapter delivery result with native IDs and metadata.
+        """
+        # Build enriched metadata from delivery result + payload context.
+        send_meta: dict[str, object] = {}
+
+        # Merge delivery metadata (packet snapshot: id, channel, reply_id, etc.)
+        for k, v in delivery.metadata.items():
+            send_meta[k] = v
+
+        # Add useful send context from the queued payload.
+        payload = result.item.get("payload", {})
+        text = payload.get("text")
+        if text is not None:
+            send_meta["text"] = str(text)
+        meshnet_name = payload.get("meshnet_name")
+        if meshnet_name is not None and meshnet_name != "":
+            send_meta["meshnet_name"] = str(meshnet_name)
+        channel_name = payload.get("channel_name")
+        if channel_name is not None and channel_name != "":
+            send_meta["channel_name"] = str(channel_name)
+        reply_id = payload.get("reply_id")
+        if reply_id is not None:
+            send_meta["reply_id"] = reply_id
+        emoji = payload.get("emoji")
+        if emoji is not None:
+            send_meta["emoji"] = emoji
+
+        # Caller guarantees native_message_id is non-None, but the type
+        # checker cannot see the guard in _process_queue through the
+        # method boundary.
+        assert delivery.native_message_id is not None
+
+        record = OutboundNativeRefRecord(
+            event_id=event_id,
+            adapter=self.adapter_id,
+            native_channel_id=delivery.native_channel_id,
+            native_message_id=delivery.native_message_id,
+            native_thread_id=delivery.native_thread_id,
+            native_relation_id=delivery.native_relation_id,
+            metadata=send_meta,
+        )
+        callback = self.ctx.record_outbound_native_ref if self.ctx else None
+        if callback is not None:
+            await callback(record)
 
     @property
     def queue_health(self) -> dict[str, Any]:

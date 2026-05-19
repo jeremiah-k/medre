@@ -231,8 +231,8 @@ class TestMeshtasticSendOneBridge:
         # send_one processes the queue item via the monkeypatched client.
         send_result = await adapter.send_one()
         assert send_result is not None
-        assert send_result.native_message_id == "42"
-        assert send_result.native_channel_id == "0"
+        assert send_result.delivery_result.native_message_id == "42"
+        assert send_result.delivery_result.native_channel_id == "0"
         assert adapter.queue.pending_count == 0
         assert len(fake_client.sent) == 1
         assert fake_client.sent[0]["text"] == "send one test"
