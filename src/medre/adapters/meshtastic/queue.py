@@ -318,8 +318,25 @@ def _packet_snapshot(result: Any) -> dict[str, object]:
     """Extract a safe metadata snapshot from a packet-like send result.
 
     Returns a dict with available keys (``id``, ``packet_id``,
-    ``channel``, ``reply_id``, ``to``) when the result looks like a
-    packet.  Returns an empty dict for ``None`` or non-packet results.
+    ``channel``, ``reply_id``, ``to``, ``emoji``, ``reaction_id``,
+    ``reaction_key``) when the result looks like a packet.  Returns an
+    empty dict for ``None`` or non-packet results.
+
+    Top-level fields (dict keys or object attributes) are captured
+    first.  Then, if the result has a ``decoded`` sub-object (dict or
+    object), additional fields are extracted to fill gaps — top-level
+    values are never overwritten.
+
+    For dict ``decoded``, ``packet_id`` and ``reaction_id`` are
+    captured in addition to ``reply_id``, ``replyId``, ``emoji``,
+    ``to``, ``channel``, and ``reaction_key``.  If ``decoded["id"]``
+    is present and neither ``packet_id`` nor ``id`` already exist in
+    the snapshot from the top level, it is stored as ``"packet_id"``.
+
+    For object ``decoded``, attributes ``to``, ``packet_id``, ``id``
+    (mapped to ``"packet_id"``), and ``reaction_id`` are captured
+    alongside the existing ``reply_id``, ``replyId``, ``emoji``,
+    ``channel``, and ``reaction_key``.
 
     Parameters
     ----------
@@ -342,7 +359,7 @@ def _packet_snapshot(result: Any) -> dict[str, object]:
                 snapshot[key] = json_safe(val)
         decoded = result.get("decoded")
     else:
-        for attr in ("id", "channel", "reply_id", "to"):
+        for attr in ("id", "packet_id", "channel", "reply_id", "to"):
             val = getattr(result, attr, None)
             if val is not None:
                 snapshot[attr] = json_safe(val)
@@ -359,18 +376,30 @@ def _packet_snapshot(result: Any) -> dict[str, object]:
                 ("to", "to"),
                 ("channel", "channel"),
                 ("reaction_key", "reaction_key"),
+                ("packet_id", "packet_id"),
+                ("reaction_id", "reaction_id"),
             ):
                 if src_key not in decoded:
                     continue
                 val = decoded[src_key]
                 if val is not None and dst_key not in snapshot:
                     snapshot[dst_key] = json_safe(val)
+            # decoded["id"] → "packet_id" only when both "packet_id"
+            # and "id" are absent from the snapshot (top-level priority).
+            if "packet_id" not in snapshot and "id" not in snapshot:
+                id_val = decoded.get("id")
+                if id_val is not None:
+                    snapshot["packet_id"] = json_safe(id_val)
         else:
             for src_attr, dst_key in (
                 ("reply_id", "reply_id"),
                 ("replyId", "reply_id"),
                 ("emoji", "emoji"),
+                ("packet_id", "packet_id"),
+                ("id", "packet_id"),
+                ("to", "to"),
                 ("channel", "channel"),
+                ("reaction_id", "reaction_id"),
                 ("reaction_key", "reaction_key"),
             ):
                 if dst_key in snapshot:

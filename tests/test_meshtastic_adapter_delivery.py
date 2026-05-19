@@ -984,6 +984,77 @@ class TestPacketSnapshotDecodedSubobject:
         assert "reply_id" not in snap
         assert "emoji" not in snap
 
+    # --- New: packet_id / id / reaction_id / object decoded.to ---
+
+    def test_dict_decoded_captures_packet_id(self) -> None:
+        """Dict decoded with packet_id captures packet_id."""
+        snap = self._call({"decoded": {"packet_id": 1234}})
+        assert snap["packet_id"] == 1234
+
+    def test_dict_decoded_id_captures_packet_id_when_missing(self) -> None:
+        """Dict decoded with id maps to packet_id when packet_id otherwise
+        absent from top level."""
+        snap = self._call({"decoded": {"id": 5678}})
+        assert snap["packet_id"] == 5678
+
+    def test_dict_decoded_id_not_used_when_top_level_id_present(self) -> None:
+        """Dict decoded id does NOT map to packet_id when top-level id
+        already exists in snapshot."""
+        snap = self._call({"id": 10, "decoded": {"id": 20}})
+        assert snap["id"] == 10
+        assert "packet_id" not in snap
+
+    def test_dict_decoded_reaction_id(self) -> None:
+        """Dict decoded with reaction_id captures reaction_id."""
+        snap = self._call({"decoded": {"reaction_id": "react-abc"}})
+        assert snap["reaction_id"] == "react-abc"
+
+    def test_object_decoded_captures_to(self) -> None:
+        """Object decoded with to attribute captures to."""
+        Decoded = type("Decoded", (), {"to": 12345})
+        Packet = type("Packet", (), {"decoded": Decoded()})
+        snap = self._call(Packet())
+        assert snap["to"] == 12345
+
+    def test_object_decoded_packet_id_and_id(self) -> None:
+        """Object decoded with packet_id captures it; decoded id maps to
+        packet_id only when packet_id is absent."""
+        # packet_id present on decoded → captured
+        DecodedA = type("Decoded", (), {"packet_id": 42})
+        PacketA = type("Packet", (), {"decoded": DecodedA()})
+        snap_a = self._call(PacketA())
+        assert snap_a["packet_id"] == 42
+
+        # id on decoded (no packet_id) → mapped to packet_id
+        DecodedB = type("Decoded", (), {"id": 99})
+        PacketB = type("Packet", (), {"decoded": DecodedB()})
+        snap_b = self._call(PacketB())
+        assert snap_b["packet_id"] == 99
+
+    def test_top_level_packet_id_not_overwritten_by_decoded(self) -> None:
+        """Top-level packet_id is preserved; decoded packet_id does not
+        overwrite."""
+        snap = self._call(
+            {"packet_id": 100, "decoded": {"packet_id": 200, "emoji": 1}}
+        )
+        assert snap["packet_id"] == 100
+        assert snap["emoji"] == 1
+
+    def test_top_level_id_not_overwritten_by_decoded_id(self) -> None:
+        """Top-level id is preserved; decoded id does not overwrite."""
+        snap = self._call({"id": 5, "decoded": {"id": 50}})
+        assert snap["id"] == 5
+        # decoded["id"] should NOT become packet_id because top-level
+        # "id" is already present in snapshot.
+        assert "packet_id" not in snap
+
+    def test_object_top_level_packet_id_captured(self) -> None:
+        """Object top-level packet_id attribute is captured."""
+        Packet = type("Packet", (), {"packet_id": 777, "channel": 2})
+        snap = self._call(Packet())
+        assert snap["packet_id"] == 777
+        assert snap["channel"] == 2
+
 
 # ===================================================================
 # Adapter deliver -> send_one passthrough

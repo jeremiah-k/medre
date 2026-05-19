@@ -1,17 +1,8 @@
 """Shutdown/restart, signal safety, snapshot-on-shutdown, run output, and stale shutdown state.
 
-Covers:
-
-- Shutdown/restart workflow with fake runtime
-- Degraded-state messaging
-- Signal safety and shutdown request
-- Snapshot-on-shutdown end-to-end (manual build and via ``_run()`` lifecycle)
-- Run output assertions (startup and shutdown stdout)
-- Stale shutdown state (repeated ``_run()`` calls)
-
-All fixed ``asyncio.sleep(0.3)`` calls from the original have been replaced
-with ``wait_until(lambda: True, ...)`` from ``tests.helpers.async_utils``
-for deterministic behaviour.
+Shutdown lifecycle tests use ``_trigger_shutdown_after_startup()`` which waits
+for a deterministic startup marker in stdout before requesting shutdown,
+avoiding races where shutdown fires before startup completes.
 """
 
 from __future__ import annotations

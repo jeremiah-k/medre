@@ -449,6 +449,28 @@ class TestCodecDecodesReactionKey:
         data = event.metadata.native.data
         assert data.get(KEY_REACTION_KEY) == "👍"
 
+    def test_reaction_key_equals_body_still_in_payload(self) -> None:
+        """When KEY_REACTION_KEY == body, payload['key'] is still set."""
+        codec = MatrixCodec("matrix-1", _make_config())
+        native = _make_mmrelay_emote_reaction_with_key(
+            body="👍", reply_id="!abc123", reaction_key="👍"
+        )
+        event = codec.decode(native, room_id="!room:server")
+
+        assert event.payload["key"] == "👍"
+        assert event.payload["body"] == "👍"
+
+    def test_reaction_key_equals_body_still_in_metadata(self) -> None:
+        """When KEY_REACTION_KEY == body, rel.metadata still has the key."""
+        codec = MatrixCodec("matrix-1", _make_config())
+        native = _make_mmrelay_emote_reaction_with_key(
+            body="👍", reply_id="!abc123", reaction_key="👍"
+        )
+        event = codec.decode(native, room_id="!room:server")
+
+        rel = event.relations[0]
+        assert rel.metadata.get("meshtastic_reaction_key") == "👍"
+
 
 class TestCodecBackwardCompatNoReactionKey:
     """Codec still decodes old MMRelay emotes without KEY_REACTION_KEY."""

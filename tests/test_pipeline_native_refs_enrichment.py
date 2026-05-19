@@ -596,3 +596,129 @@ class TestChannelAwareStrictMatching:
 
         assert enriched_rel.target_native_ref is not None
         assert enriched_rel.target_native_ref.native_message_id == "adapt-msg"
+
+
+class TestExistingNativeRefStrictChannel:
+    """When relation already has a target_native_ref, strict channel matching
+    applies when target_channel is specified."""
+
+    async def test_existing_ref_channel_none_target_channel_set_falls_through(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Existing target_native_ref with adapter match but
+        native_channel_id=None and target_channel='0' should NOT be treated
+        as enriched — falls through to lookup."""
+        # Store a native ref so lookup can find it.
+        await temp_storage.store_native_ref(
+            NativeMessageRef(
+                id="nref-lookup",
+                event_id="evt-strict-nref-001",
+                adapter="mesh-1",
+                native_channel_id="0",
+                native_message_id="lookup-msg",
+                native_thread_id=None,
+                native_relation_id=None,
+                direction="inbound",
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+
+        existing_nref = NativeRef(
+            adapter="mesh-1",
+            native_channel_id=None,
+            native_message_id="old-msg",
+        )
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-strict-nref-001",
+            target_native_ref=existing_nref,
+            key=None,
+            fallback_text=None,
+        )
+        event = CanonicalEvent(
+            event_id="src-strict-nref-001",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="src",
+            source_transport_id="",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"body": "hi"},
+            metadata=EventMetadata(),
+        )
+
+        config = PipelineConfig(
+            storage=temp_storage,
+            router=Router(routes=[]),
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters={},
+            event_bus=EventBus(),
+        )
+        runner = PipelineRunner(config)
+
+        result = await runner._enrich_relations_for_target(
+            event, "mesh-1", target_channel="0"
+        )
+        enriched_rel = result.relations[0]
+
+        # Should NOT be the old ref — should be the looked-up one.
+        assert enriched_rel.target_native_ref is not existing_nref
+        assert enriched_rel.target_native_ref is not None
+        assert enriched_rel.target_native_ref.native_channel_id == "0"
+        assert enriched_rel.target_native_ref.native_message_id == "lookup-msg"
+
+    async def test_existing_ref_channel_matches_target_channel_compatible(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Existing target_native_ref with adapter match and
+        native_channel_id='0' with target_channel='0' remains compatible."""
+        existing_nref = NativeRef(
+            adapter="mesh-1",
+            native_channel_id="0",
+            native_message_id="existing-msg",
+        )
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-compat-nref-001",
+            target_native_ref=existing_nref,
+            key=None,
+            fallback_text=None,
+        )
+        event = CanonicalEvent(
+            event_id="src-compat-nref-001",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="src",
+            source_transport_id="",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"body": "hi"},
+            metadata=EventMetadata(),
+        )
+
+        config = PipelineConfig(
+            storage=temp_storage,
+            router=Router(routes=[]),
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters={},
+            event_bus=EventBus(),
+        )
+        runner = PipelineRunner(config)
+
+        result = await runner._enrich_relations_for_target(
+            event, "mesh-1", target_channel="0"
+        )
+        enriched_rel = result.relations[0]
+
+        # Should be the same ref — compatible.
+        assert enriched_rel.target_native_ref is existing_nref

@@ -540,13 +540,15 @@ class PipelineRunner:
                     and current_rel.target_native_ref.adapter == target_adapter
                 ):
                     existing_channel = current_rel.target_native_ref.native_channel_id
-                    # Keep if no target channel specified, or existing matches,
-                    # or existing channel is None (unknown).
-                    if target_channel is None or existing_channel in (
-                        None,
-                        target_channel,
-                    ):
+                    if target_channel is None:
+                        # No target channel specified — adapter match + any
+                        # channel (including None) is fine.
                         skip_native = True
+                    elif existing_channel == target_channel:
+                        # Exact channel match — compatible.
+                        skip_native = True
+                    # else: existing_channel is None or differs from
+                    # target_channel — fall through to lookup.
                     # Existing channel differs — fall through to lookup.
 
                 if not skip_native:

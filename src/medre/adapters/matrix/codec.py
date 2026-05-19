@@ -201,23 +201,22 @@ class MatrixCodec(AdapterCodec):
 
             # Resolve the reaction key: prefer the structured MEDRE extension
             # key (meshtastic_reaction_key) when present, fall back to body.
-            reaction_key_value = content.get(KEY_REACTION_KEY)
-            if reaction_key_value is not None:
-                reaction_key_value = str(reaction_key_value).strip()
-            if not reaction_key_value:
-                reaction_key_value = body
-
-            # Propagate the structured key into payload when available.
-            if reaction_key_value != body:
+            raw_rk = content.get(KEY_REACTION_KEY)
+            reaction_key_value: str
+            has_structured_key = raw_rk is not None and str(raw_rk).strip()
+            if has_structured_key:
+                reaction_key_value = str(raw_rk).strip()
+                # Propagate the structured key into payload unconditionally.
                 payload["key"] = reaction_key_value
+            else:
+                reaction_key_value = body
 
             # Build relation metadata: include the structured key when present.
             rel_metadata: dict[str, object] = {
                 "meshtastic_reply_id": str(mmrelay_reply_id),
                 "meshtastic_emoji": mmrelay_emoji,
             }
-            raw_rk = content.get(KEY_REACTION_KEY)
-            if raw_rk is not None and str(raw_rk).strip():
+            if has_structured_key:
                 rel_metadata["meshtastic_reaction_key"] = str(raw_rk).strip()
 
             # Build a canonical reaction relation.  The target is identified
@@ -400,7 +399,8 @@ class MatrixCodec(AdapterCodec):
         Copies any present MMRelay keys (``meshtastic_id``,
         ``meshtastic_replyId``, ``meshtastic_text``, ``meshtastic_emoji``,
         ``meshtastic_meshnet``, ``meshtastic_portnum``,
-        ``meshtastic_longname``, ``meshtastic_shortname``) from the Matrix
+        ``meshtastic_longname``, ``meshtastic_shortname``,
+        ``meshtastic_reaction_key``) from the Matrix
         event content into the native metadata dict.
         """
         for key in (

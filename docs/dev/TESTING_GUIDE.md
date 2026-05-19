@@ -460,7 +460,8 @@ When the full suite hangs, use this per-file timeout loop to isolate which test
 file is blocking:
 
 ```bash
-cd /home/jeremiah/dev/medre && for f in tests/test_*.py; do
+# Run from the repository root
+for f in tests/test_*.py; do
   echo -n "$(basename $f): "
   PYTHONPATH=src timeout 90 python -m pytest -q "$f" 2>&1 | head -3
 done
