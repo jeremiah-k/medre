@@ -423,6 +423,23 @@ class TestCodecMMRelayEmoteReaction:
         assert data[KEY_PORTNUM] == PORTNUM_TEXT
         assert data[KEY_TEXT] == "reacted"
 
+    def test_mmrelay_emote_with_reply_id_zero_decodes_to_reaction(self) -> None:
+        """MMRelay emote with meshtastic_replyId=0 decodes to reaction relation."""
+        codec = MatrixCodec("matrix-1", _make_config())
+        native = _make_mmrelay_emote_reaction(
+            body="reacted", reply_id="0"
+        )
+        event = codec.decode(native, room_id="!room:server")
+
+        assert event.event_kind == EventKind.MESSAGE_REACTED
+        assert len(event.relations) == 1
+        rel = event.relations[0]
+        assert rel.relation_type == "reaction"
+        # Metadata should preserve meshtastic_reply_id="0"
+        meta = rel.metadata
+        assert meta.get("meshtastic_reply_id") == "0"
+        assert meta.get("meshtastic_emoji") == 1
+
 
 # ===========================================================================
 # Renderer tests
@@ -519,6 +536,39 @@ class TestRendererMMRelayEmoteFallback:
         result = await renderer.render(event, "matrix-1")
 
         assert "_matrix_event_type" not in result.payload
+
+    @pytest.mark.asyncio
+    async def test_reply_id_zero_emits_key_reply_id(self) -> None:
+        """Reaction with metadata meshtastic_reply_id=0 emits KEY_REPLY_ID='0'."""
+        renderer = MatrixRenderer()
+        from datetime import datetime, timezone
+        rel = EventRelation(
+            relation_type="reaction",
+            target_event_id=None,
+            target_native_ref=None,
+            key="👍",
+            fallback_text=None,
+            metadata={"meshtastic_reply_id": 0},
+        )
+        event = CanonicalEvent(
+            event_id="evt-zero-rlid",
+            event_kind=EventKind.MESSAGE_REACTED,
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="matrix-1",
+            source_transport_id="@alice:example.com",
+            source_channel_id="!room:server",
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"body": "👍"},
+            metadata=EventMetadata(),
+        )
+        result = await renderer.render(event, "matrix-1")
+        # No Matrix-native target → no true m.reaction
+        assert "_matrix_event_type" not in result.payload
+        # But KEY_REPLY_ID must be "0" (preserved, not dropped)
+        assert result.payload.get(KEY_REPLY_ID) == "0"
 
     @pytest.mark.asyncio
     async def test_no_target_falls_back_to_emote(self) -> None:
