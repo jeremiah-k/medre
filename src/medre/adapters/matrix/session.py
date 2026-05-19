@@ -570,7 +570,7 @@ class MatrixSession:
         self._register_megolm_callback()
 
         # Part D — register invite callback for auto-join.
-        self._register_invite_callback();
+        self._register_invite_callback()
 
         sync_coro = self._run_sync()
         try:

@@ -29,6 +29,14 @@ Key points:
 - **Use throwaway resources only.** Create a throwaway Matrix room and select
   a non-critical Meshtastic channel. Test messages are visible to all
   participants on both sides.
+- **Matrix auto-join.** The Matrix bot automatically joins rooms that appear in
+  route targeting fields (`source_room`, `dest_room`, or `channel_room_map`
+  values) and any rooms listed in `auto_join_rooms` on the adapter config.
+  Invitations to rooms not referenced by routes or the auto-join list are
+  ignored.
+- **Unmapped Meshtastic channels are dropped.** Packets arriving on a
+  Meshtastic channel that has no matching route are silently discarded. They
+  are not broadcast or relayed anywhere.
 
 ## 2. Prerequisites
 

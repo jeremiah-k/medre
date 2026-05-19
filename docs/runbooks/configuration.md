@@ -344,6 +344,47 @@ Both levels must be active for automatic retry:
   with `next_retry_at` set but are never processed. They can be inspected
   manually or processed later when the worker is enabled.
 
+#### channel_room_map shorthand
+
+For Matrix↔Meshtastic bridges, `channel_room_map` expands a single route config
+into N channel→room pairs. Instead of writing separate routes for each channel,
+you declare a mapping table and the runtime generates one route per entry.
+
+```toml
+[routes.multi_channel_bridge]
+source_adapters = ["main"]
+dest_adapters = ["radio"]
+directionality = "bidirectional"
+enabled = true
+channel_room_map = {0 = "!general:example.com", 1 = "!admin:example.com", 2 = "!alerts:example.com"}
+```
+
+This is equivalent to writing three separate bidirectional routes, each with
+`source_room` and `dest_channel` set to the corresponding pair. The runtime
+generates forward and reverse legs for every entry.
+
+**Limitations:**
+
+- Room IDs must be canonical (`!` prefix). Aliases (`#room:server`) are not
+  supported yet.
+- `channel_room_map` is mutually exclusive with `source_room`, `dest_room`,
+  `source_channel`, and `dest_channel`. A route uses either explicit targeting
+  fields or a channel map, never both.
+- The route must have exactly one source adapter and one destination adapter.
+  Multi-source or multi-dest routes cannot use channel maps.
+- Channel keys must be integers in the range 0 through 7 (Meshtastic supports
+  up to 8 channels).
+- Each room ID must be unique across the map. Mapping two channels to the same
+  room is rejected at validation.
+
+**When to use each approach:**
+
+- Use `channel_room_map` when bridging multiple Meshtastic channels to
+  dedicated Matrix rooms and the policy is the same for every channel.
+- Use explicit `source_room` / `dest_channel` targeting fields when you need
+  per-route policies, asymmetric directions, or different adapter combinations.
+  Existing explicit routes continue to work alongside channel map routes.
+
 ### `[retry]`
 
 Controls the background RetryWorker that polls for due retry receipts and

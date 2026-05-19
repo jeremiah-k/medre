@@ -506,6 +506,7 @@ class RouteConfig:
             # Validate and normalize entries.
             normalized: dict[str, str] = {}
             seen_channels: set[str] = set()
+            seen_rooms: set[str] = set()
             for raw_key, raw_value in raw_crm.items():
                 # --- channel key validation ---
                 if isinstance(raw_key, bool):
@@ -565,6 +566,13 @@ class RouteConfig:
                         f"use a canonical room ID starting with '!'",
                         section_path=section_path,
                     )
+                if room_value in seen_rooms:
+                    raise ConfigValidationError(
+                        f"Route {route_id!r}: channel_room_map has duplicate "
+                        f"room {room_value!r}",
+                        section_path=section_path,
+                    )
+                seen_rooms.add(room_value)
                 normalized[ch_normalized] = room_value
             channel_room_map = normalized
 

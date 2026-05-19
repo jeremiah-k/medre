@@ -972,9 +972,6 @@ def register_routes(
     _logger.info("Registered %d route(s)", len(registered_routes))
 
     # Build per-route operational states.
-    {sr.route_id for sr in skipped_routes}
-    {dr.route_id for dr in degraded_routes}
-    {r.id for r in registered_routes}
 
     # Build a reverse provenance: config_route_id → set of expanded route IDs.
     config_to_expanded: dict[str, set[str]] = {}

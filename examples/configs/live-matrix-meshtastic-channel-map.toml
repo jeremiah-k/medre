@@ -1,0 +1,77 @@
+# MEDRE Example: Live Matrix <-> Meshtastic Bridge with Multi-Channel Map
+#
+# Bridges multiple Meshtastic radio channels to separate Matrix rooms using
+# channel_room_map.  Each channel gets its own dedicated room.
+#
+# NOT for unattended production.  Use throwaway Matrix rooms and non-critical
+# Meshtastic channels.
+#
+# Prerequisites:
+#   pip install ".[matrix,meshtastic]"
+#   A Meshtastic radio on /dev/ttyACM0 (or change serial_port below)
+#   A Matrix bot account with a valid access token
+#
+# Usage:
+#   medre run --config examples/configs/live-matrix-meshtastic-channel-map.toml
+
+[runtime]
+name = "live-channel-map"
+shutdown_timeout_seconds = 30
+
+[logging]
+level = "INFO"
+format = "text"
+
+[storage]
+backend = "sqlite"
+path = "{state}/medre.sqlite"
+
+# ---------------------------------------------------------------------------
+# Matrix transport
+# ---------------------------------------------------------------------------
+# Fill in your real homeserver URL, bot credentials, and room IDs below.
+# The bot auto-joins every room listed in the channel_room_map.
+[adapters.matrix.main]
+enabled = true
+homeserver = ""                        # REQUIRED — your homeserver URL
+user_id = ""                           # REQUIRED — bot user ID (e.g. @mesh-bot:example.com)
+access_token = ""                      # REQUIRED — bot access token
+encryption_mode = "plaintext"          # plaintext for bring-up; e2ee_required once vodozemac is installed
+
+# ---------------------------------------------------------------------------
+# Meshtastic transport (serial)
+# ---------------------------------------------------------------------------
+[adapters.meshtastic.radio]
+enabled = true
+connection_type = "serial"
+serial_port = "/dev/ttyACM0"
+meshnet_name = "medre-radio"
+matrix_relay_prefix = "[{longname}/{meshnet_name}]: "  # Meshtastic→Matrix prefix
+radio_relay_prefix = "{shortname5}[M]: "               # Matrix→Meshtastic prefix
+
+# # --- TCP alternative (uncomment to use instead of serial) ---
+# connection_type = "tcp"
+# host = "meshtastic.local"
+# port = 4403
+
+# ---------------------------------------------------------------------------
+# Route — multi-channel bridge via channel_room_map
+# ---------------------------------------------------------------------------
+# channel_room_map expands this single route into one bidirectional pair
+# per channel.  Channel keys are Meshtastic channel indices (0-7).
+# Room values must be canonical Matrix room IDs (! prefix).
+#
+# The bot auto-joins every room listed here.  Channels not listed in the map
+# are silently dropped — packets on unmapped channels are not relayed.
+#
+# To add more channels, extend the map up to channel 7:
+#   3 = "!room3:example.com"
+#   4 = "!room4:example.com"
+#   ...
+
+[routes.radio_map]
+source_adapters = ["main"]
+dest_adapters = ["radio"]
+directionality = "bidirectional"
+enabled = true
+channel_room_map = {0 = "!general:example.com", 1 = "!admin:example.com", 2 = "!alerts:example.com"}

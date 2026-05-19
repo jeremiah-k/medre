@@ -364,9 +364,14 @@ class RuntimeBuilder:
         )
 
         # 10. Construct adapters from RuntimeConfig
+        # 10.0 Build adapter_id → transport mapping for route expansion.
+        adapter_platforms: dict[str, str] = {}
+        for transport, adapter_id, _rtc in self._config.adapters.all_configs():
+            adapter_platforms[adapter_id] = transport
+
         # 10.1 Derive Matrix auto-join rooms from route configuration
         #      before constructing adapters.
-        self._matrix_auto_join = self._derive_matrix_auto_join_rooms()
+        self._matrix_auto_join = self._derive_matrix_auto_join_rooms(adapter_platforms)
         build_failures = self._build_adapters(adapters)
 
         if build_failures:
@@ -392,6 +397,7 @@ class RuntimeBuilder:
             self._config.routes,
             configured_enabled_ids,
             built_adapter_ids,
+            adapter_platforms=adapter_platforms,
         )
 
         # 10.6. Build route-level retry policies mapping.
@@ -514,7 +520,10 @@ class RuntimeBuilder:
 
     # -- Matrix auto-join room derivation ----------------------------------------
 
-    def _derive_matrix_auto_join_rooms(self) -> dict[str, tuple[str, ...]]:
+    def _derive_matrix_auto_join_rooms(
+        self,
+        adapter_platforms: dict[str, str],
+    ) -> dict[str, tuple[str, ...]]:
         """Derive Matrix auto-join rooms from route configuration.
 
         For each Matrix adapter, collect canonical room IDs from:
@@ -553,7 +562,7 @@ class RuntimeBuilder:
             return {}
 
         # Expand routes to get Route objects with channels.
-        expanded_routes = build_runtime_routes(self._config.routes)
+        expanded_routes = build_runtime_routes(self._config.routes, adapter_platforms)
 
         # Collect rooms per adapter, tracking source vs all.
         source_rooms: dict[str, set[str]] = {aid: set() for aid in matrix_adapter_ids}
