@@ -317,7 +317,16 @@ class OutboundNativeRefRecord:
     metadata: Mapping[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
+        frozen = dict(self.metadata)
+        try:
+            import json
+
+            json.dumps(frozen)
+        except (TypeError, ValueError) as exc:
+            raise TypeError(
+                "OutboundNativeRefRecord.metadata must contain only JSON-safe values"
+            ) from exc
+        object.__setattr__(self, "metadata", MappingProxyType(frozen))
 
 
 @dataclass

@@ -461,16 +461,21 @@ file is blocking:
 
 ```bash
 # Run from the repository root
-for f in tests/test_*.py; do
-  echo -n "$(basename $f): "
-  PYTHONPATH=src timeout 90 python -m pytest -q "$f" 2>&1 | head -3
+set -o pipefail
+find tests -type f -name 'test_*.py' | sort | while read -r f; do
+  echo -n "$(basename "$f"): "
+  out="$(PYTHONPATH=src timeout 90 python -m pytest -q "$f" 2>&1)"
+  status=$?
+  printf '%s\n' "$out" | head -3
+  if [ "$status" -eq 124 ]; then
+    echo "TIMEOUT (124)"
+  fi
 done
 ```
 
-Each file gets a 90-second timeout. Files that hang will show a timeout exit code
-(124) instead of a pass/fail summary. The last file printed before the loop hangs
-is the culprit. Note that test ordering or pollution across files can mask the
-real hang — run the suspect file in isolation to confirm.
+Each file gets a 90-second timeout. Files that hang will report timeout exit code
+`124`. Note that ordering/pollution across files can mask the real hang — always
+re-run suspect files in isolation to confirm.
 
 ### Failure interpretation
 

@@ -13,35 +13,10 @@ import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, AsyncGenerator, Generator
+from typing import Any, AsyncGenerator
 from unittest.mock import patch
 
 import pytest
-
-# ---------------------------------------------------------------------------
-# Event-loop hygiene (pytest-asyncio "auto" mode)
-# ---------------------------------------------------------------------------
-# With ``asyncio_mode = "auto"``, pytest-asyncio may leave a non-running
-# default event loop on the policy after async tests finish.  When a later
-# sync test runs and the GC collects that loop, Python emits
-# ``ResourceWarning: unclosed socket`` from the loop's selector.  Because
-# ``filterwarnings = ["error"]`` in pyproject.toml, this becomes a hard
-# failure.  The fixture below closes any lingering loop after every test.
-
-
-@pytest.fixture(autouse=True)
-def _close_stale_event_loop() -> Generator[None, None, None]:
-    """Close any non-running default event loop left by prior async tests."""
-    yield
-    policy = asyncio.get_event_loop_policy()
-    local = getattr(policy, "_local", None)
-    loop = getattr(local, "_loop", None)
-    if loop is None:
-        return
-    if not loop.is_running():
-        loop.close()
-        policy.set_event_loop(None)
-
 
 from medre.core.events import (
     CanonicalEvent,

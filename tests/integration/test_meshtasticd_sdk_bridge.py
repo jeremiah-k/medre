@@ -255,6 +255,7 @@ class TestMeshtasticdSdkBridge:
             # send_one dequeues and sends via real sendText.
             send_result = await adapter.send_one()
             assert send_result is not None
+            assert send_result.delivery_result is not None
             assert send_result.delivery_result.native_message_id is not None
             assert send_result.delivery_result.native_channel_id == "0"
             assert adapter.queue.pending_count == 0

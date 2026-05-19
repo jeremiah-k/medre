@@ -167,7 +167,7 @@ class MeshtasticOutboundQueue:
             )
         self._queue.append(
             {
-                "payload": payload,
+                "payload": dict(payload),
                 "channel_index": channel_index,
                 "event_id": event_id,
             }

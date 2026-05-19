@@ -402,9 +402,9 @@ class MatrixRenderer:
             # KEY_REPLY_ID: prefer meshtastic_reply_id from metadata,
             # fall back to the Matrix-native target event ID when available.
             mmrelay_reply_id = rel_meta.get("meshtastic_reply_id")
-            if mmrelay_reply_id is not None:
+            if mmrelay_reply_id not in (None, ""):
                 content[KEY_REPLY_ID] = str(mmrelay_reply_id)
-            elif mx_event_id is not None:
+            elif mx_event_id not in (None, ""):
                 content[KEY_REPLY_ID] = str(mx_event_id)
 
             # Mesh provenance metadata

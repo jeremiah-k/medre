@@ -231,7 +231,11 @@ class MeshtasticPacketClassifier:
             category = "unknown"
 
         # Reply / reaction semantics from decoded.replyId and decoded.emoji
-        reply_id = decoded.get("replyId") if isinstance(decoded, dict) else None
+        reply_id = None
+        if isinstance(decoded, dict):
+            reply_id = decoded.get("replyId")
+            if reply_id is None:
+                reply_id = decoded.get("reply_id")
         emoji_raw = decoded.get("emoji") if isinstance(decoded, dict) else None
         emoji_flag = emoji_raw == EMOJI_FLAG_VALUE
 
