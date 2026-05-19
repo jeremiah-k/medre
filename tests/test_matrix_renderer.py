@@ -130,7 +130,8 @@ class TestMatrixRenderer:
             "event_id": "$orig-native",
             "key": "👍",
         }
-        assert result.payload["body"] == "👍"
+        assert "msgtype" not in result.payload
+        assert "body" not in result.payload
 
     async def test_render_with_envelope(self) -> None:
         renderer = MatrixRenderer()

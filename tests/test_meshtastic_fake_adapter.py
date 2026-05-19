@@ -430,6 +430,8 @@ class TestFakeMeshtasticStructuredDelivery:
         packet = adapter.fake_client.sent_packets[-1]
         assert packet.get("reply_id") == 99
         assert delivery.metadata.get("reply_id") == 99
+        assert delivery.metadata["packet_id"] == packet["packet_id"]
+        assert delivery.metadata["channel"] == 0
 
     async def test_deliver_preserves_emoji(self) -> None:
         """Fake delivery preserves emoji=1 in sent packets and metadata."""
@@ -447,6 +449,8 @@ class TestFakeMeshtasticStructuredDelivery:
         assert packet.get("emoji") == 1
         assert delivery.metadata.get("reply_id") == 10
         assert delivery.metadata.get("emoji") == 1
+        assert delivery.metadata["packet_id"] == packet["packet_id"]
+        assert delivery.metadata["channel"] == 0
 
     async def test_plain_deliver_unchanged(self) -> None:
         """Plain text delivery without reply_id/emoji remains unchanged."""
@@ -462,3 +466,7 @@ class TestFakeMeshtasticStructuredDelivery:
         packet = adapter.fake_client.sent_packets[-1]
         assert "reply_id" not in packet
         assert "emoji" not in packet
+        assert delivery.metadata["packet_id"] == packet["packet_id"]
+        assert delivery.metadata["channel"] == 0
+        assert "reply_id" not in delivery.metadata
+        assert "emoji" not in delivery.metadata

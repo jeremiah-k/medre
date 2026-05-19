@@ -262,6 +262,9 @@ class MatrixRenderer:
 
         if mx_event_id is not None and not self._mmrelay_compat:
             # True Matrix reaction — adapter will use _matrix_event_type
+            # Remove default msgtype/body set at top of render()
+            content.pop("msgtype", None)
+            content.pop("body", None)
             content["m.relates_to"] = {
                 "rel_type": "m.annotation",
                 "event_id": mx_event_id,
@@ -269,10 +272,6 @@ class MatrixRenderer:
             }
             # Internal key consumed by adapter; never leaks to homeserver
             content["_matrix_event_type"] = "m.reaction"
-            # Keep msgtype and body for backward compat, though m.reaction
-            # events technically only need m.relates_to
-            content["msgtype"] = "m.text"
-            content["body"] = emoji
         else:
             # mmrelay_compat or missing Matrix-native target → m.emote fallback
             content["msgtype"] = "m.emote"

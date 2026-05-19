@@ -455,13 +455,16 @@ class TestRendererTrueReaction:
         assert relates["key"] == "❤️"
 
     @pytest.mark.asyncio
-    async def test_true_reaction_body_is_emoji(self) -> None:
+    async def test_true_reaction_has_no_msgtype_or_body(self) -> None:
         renderer = MatrixRenderer()
         event = _make_canonical_reaction(
             key="🔥", target_event_id="$msg-3"
         )
         result = await renderer.render(event, "matrix-1")
-        assert result.payload["body"] == "🔥"
+        assert "_matrix_event_type" in result.payload
+        assert result.payload["_matrix_event_type"] == "m.reaction"
+        assert "msgtype" not in result.payload
+        assert "body" not in result.payload
 
 
 class TestRendererMMRelayEmoteFallback:

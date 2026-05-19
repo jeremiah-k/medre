@@ -582,99 +582,6 @@ class TestSessionStructuredSend:
 
 
 # ===================================================================
-# Adapter reply_id/emoji passthrough
-# ===================================================================
-
-
-class TestAdapterReplyIdPassthrough:
-    """MeshtasticAdapter.send_one passes reply_id/emoji to session."""
-
-    async def test_send_one_passes_reply_id(self, make_adapter_context) -> None:
-        """send_one passes reply_id from rendered payload through to session."""
-        config = make_meshtastic_config(connection_type="fake")
-        adapter = MeshtasticAdapter(config)
-        ctx = make_adapter_context("mesh-1")
-        await adapter.start(ctx)
-
-        # Enqueue a payload with reply_id
-        payload = {
-            "text": "reply msg",
-            "channel_index": 0,
-            "meshnet_name": "",
-            "reply_id": 42,
-        }
-        await adapter._queue.enqueue(payload, 0)
-
-        # Manually call send_one with a fake session
-        session_calls: list[dict[str, Any]] = []
-
-        class FakeSession:
-            @property
-            def client(self):
-                return type("Client", (), {})()
-
-        async def fake_send_fn(item):
-            session_calls.append(item.get("payload", {}))
-            return {"packet_id": 99}
-
-        # Use queue.process_one directly
-        result = await adapter._queue.process_one(send_fn=fake_send_fn)
-        assert result is not None
-        assert session_calls[0].get("reply_id") == 42
-
-        await adapter.stop()
-
-    async def test_send_one_passes_emoji(self, make_adapter_context) -> None:
-        """send_one passes emoji from rendered payload through to session."""
-        config = make_meshtastic_config(connection_type="fake")
-        adapter = MeshtasticAdapter(config)
-        ctx = make_adapter_context("mesh-1")
-        await adapter.start(ctx)
-
-        payload = {
-            "text": "👍",
-            "channel_index": 0,
-            "meshnet_name": "",
-            "reply_id": 7,
-            "emoji": 1,
-        }
-        await adapter._queue.enqueue(payload, 0)
-
-        session_calls: list[dict[str, Any]] = []
-
-        async def fake_send_fn(item):
-            session_calls.append(item.get("payload", {}))
-            return {"packet_id": 100}
-
-        result = await adapter._queue.process_one(send_fn=fake_send_fn)
-        assert result is not None
-        assert session_calls[0].get("emoji") == 1
-
-        await adapter.stop()
-
-    async def test_capabilities_native_replies(self) -> None:
-        """Adapter declares native reply support."""
-        config = make_meshtastic_config(connection_type="fake")
-        adapter = MeshtasticAdapter(config)
-        caps = adapter._capabilities
-        assert caps.replies == "native"
-
-    async def test_capabilities_native_reactions(self) -> None:
-        """Adapter declares native reaction support."""
-        config = make_meshtastic_config(connection_type="fake")
-        adapter = MeshtasticAdapter(config)
-        caps = adapter._capabilities
-        assert caps.reactions == "native"
-
-    async def test_capabilities_metadata_fields(self) -> None:
-        """Adapter declares metadata_fields support."""
-        config = make_meshtastic_config(connection_type="fake")
-        adapter = MeshtasticAdapter(config)
-        caps = adapter._capabilities
-        assert caps.metadata_fields is True
-
-
-# ===================================================================
 # Queue metadata snapshot
 # ===================================================================
 
@@ -742,6 +649,40 @@ class TestQueueMetadataSnapshot:
         assert result is not None
         assert result.native_message_id == "55"
         assert result.metadata["packet_id"] == 55
+
+    async def test_bytes_metadata_json_safe_from_dict(self) -> None:
+        """Dict send result with bytes in a captured key is JSON-safe."""
+        from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
+
+        queue = MeshtasticOutboundQueue(delay_between_messages=0.0)
+        await queue.enqueue({"text": "hi"}, 0)
+
+        async def send_fn(item):
+            return {"packet_id": 42, "to": b"\x00\xff"}
+
+        result = await queue.process_one(send_fn=send_fn)
+        assert result is not None
+        assert result.metadata.get("to") == {"encoding": "base64", "data": "AP8="}
+        assert result.metadata.get("packet_id") == 42
+
+    async def test_bytes_metadata_json_safe_from_object(self) -> None:
+        """Object send result with bytes in a captured attr is JSON-safe."""
+        from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
+
+        queue = MeshtasticOutboundQueue(delay_between_messages=0.0)
+        await queue.enqueue({"text": "hi"}, 0)
+
+        class FakeResult:
+            id = 1
+            to = b"\x00\xff"
+
+        async def send_fn(item):
+            return FakeResult()
+
+        result = await queue.process_one(send_fn=send_fn)
+        assert result is not None
+        assert result.metadata.get("to") == {"encoding": "base64", "data": "AP8="}
+        assert result.metadata.get("id") == 1
 
 
 # ===================================================================

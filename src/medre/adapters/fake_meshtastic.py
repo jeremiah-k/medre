@@ -129,7 +129,7 @@ class FakeMeshtasticClient:
         self.sent_packets.append(record)
         _trim(self.sent_packets)
         self.sent_count += 1
-        return {"packet_id": packet_id, "reply_id": reply_id, "emoji": emoji}
+        return {"packet_id": packet_id, "channel": channel_index, "reply_id": reply_id, "emoji": emoji}
 
 
 # Default capabilities for the fake Meshtastic adapter.
@@ -332,6 +332,8 @@ class FakeMeshtasticAdapter(AdapterContract):
             result_metadata["reply_id"] = reply_id_val
         if emoji_val is not None:
             result_metadata["emoji"] = emoji_val
+        result_metadata["packet_id"] = packet_id
+        result_metadata["channel"] = channel_index
 
         return AdapterDeliveryResult(
             native_message_id=str(packet_id),
