@@ -252,7 +252,6 @@ class MatrixAdapter(AdapterContract):
         self._inbound_filtered_allowlist = 0
         self._inbound_suppressed_startup = 0
         self.ctx = ctx
-        self._inbound_suppressed_startup = 0
         self._mark_started(ctx)
 
         if not HAS_NIO:
@@ -611,23 +610,26 @@ class MatrixAdapter(AdapterContract):
                 self._inbound_filtered_allowlist += 1
                 return
 
-        # Self-message suppression: skip events sent by our own user.
+        # Startup history suppression: before the first successful sync,
+        # inbound timeline events are considered backlog / history and are
+        # dropped.  This check must happen before self-message suppression
+        # so that pre-live self-messages are counted as startup-suppressed,
+        # not self-suppressed.
         sender = getattr(event, "sender", "")
-        if sender == self._config.user_id:
-            self._inbound_suppressed_self += 1
+        if self._session is not None and not self._session.is_live:
+            self._inbound_suppressed_startup += 1
             self.ctx.logger.debug(
-                "MatrixAdapter %s: suppressing self-message from %s",
+                "MatrixAdapter %s: suppressing startup backlog event from %s",
                 self.adapter_id,
                 sender,
             )
             return
 
-        # Startup history suppression: before the first successful sync,
-        # inbound events are considered backlog / history and are dropped.
-        if self._session is not None and not self._session.is_live:
-            self._inbound_suppressed_startup += 1
+        # Self-message suppression: skip events sent by our own user.
+        if sender == self._config.user_id:
+            self._inbound_suppressed_self += 1
             self.ctx.logger.debug(
-                "MatrixAdapter %s: suppressing startup backlog event from %s",
+                "MatrixAdapter %s: suppressing self-message from %s",
                 self.adapter_id,
                 sender,
             )

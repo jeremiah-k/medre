@@ -178,6 +178,8 @@ class MatrixSession:
         # Live undecryptable dedup
         "_undecryptable_dedup",
         "_suppressed_rate_limited_undecryptable",
+        # RoomEncryptionEvent logging dedup
+        "_encryption_event_seen_rooms",
     )
 
     def __init__(
@@ -217,6 +219,8 @@ class MatrixSession:
         # Live undecryptable dedup
         self._undecryptable_dedup: dict[str, float] = {}
         self._suppressed_rate_limited_undecryptable: int = 0
+        # RoomEncryptionEvent logging dedup
+        self._encryption_event_seen_rooms: set[str] = set()
 
     # -- Properties -----------------------------------------------------------
 
@@ -375,6 +379,8 @@ class MatrixSession:
         self._suppressed_backlog_undecryptable = 0
         self._undecryptable_dedup = {}
         self._suppressed_rate_limited_undecryptable = 0
+        # RoomEncryptionEvent logging dedup
+        self._encryption_event_seen_rooms = set()
 
         mode = self._config.encryption_mode
         if mode == "e2ee_required":
@@ -859,16 +865,24 @@ class MatrixSession:
 
         Sets ``_encrypted_room_seen`` and logs.  Does NOT forward to the
         canonical event pipeline — this is a state-tracking callback only.
+
+        Logging is deduplicated per room_id: the first event for a given
+        room emits a DEBUG record; subsequent events for the same room
+        are silently suppressed.  No INFO record is emitted by default.
         """
         self._encrypted_room_seen = True
         room_id = getattr(room, "room_id", "<unknown>") if room else "<unknown>"
-        self._logger.info(
-            "RoomEncryptionEvent received for room %s — room encryption enabled",
-            room_id,
-        )
 
-        # Track 4 — mark room as encrypted
+        # Track 4 — mark room as encrypted (always, regardless of logging)
         self._track_room_encrypted(room, room_id)
+
+        # Deduped logging: first event per room at DEBUG, rest silent.
+        if room_id not in self._encryption_event_seen_rooms:
+            self._encryption_event_seen_rooms.add(room_id)
+            self._logger.debug(
+                "RoomEncryptionEvent received for room %s — room encryption enabled",
+                room_id,
+            )
 
     # Track 4 — track rooms seen via sync (called by message callback wrapper)
     def _track_room(self, room_id: str) -> None:
@@ -935,7 +949,7 @@ class MatrixSession:
                         if not self._live_sync_started:
                             self._live_sync_started = True
                             if self._suppressed_backlog_undecryptable > 0:
-                                self._logger.info(
+                                self._logger.debug(
                                     "Sync boundary reached — suppressed "
                                     "%d undecryptable backlog events",
                                     self._suppressed_backlog_undecryptable,
@@ -1065,6 +1079,7 @@ class MatrixSession:
 
         self._closed = True
         self._reconnecting = False
+        self._live_sync_started = False
         # Track 3 — reset reconnect counter so diagnostics are truthful after stop
         self._reconnect_attempts = 0
 

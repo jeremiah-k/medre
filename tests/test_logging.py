@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from io import StringIO
 from typing import Any, Generator
 
@@ -36,6 +37,7 @@ import pytest
 from medre.core.observability.logging import (
     _DEPENDENCY_DEFAULTS,
     _JsonFormatter,
+    _MEDRE_HANDLER_ATTR,
     diagnostic_event,
     get_logger,
     log_route_delivered,
@@ -355,10 +357,16 @@ class TestSetupLoggingIntegration:
 
     @pytest.fixture(autouse=True)
     def _reset_medre_logger(self) -> None:
-        """Ensure a clean medre logger for each test."""
+        """Ensure a clean medre logger and root for each test."""
         logger = logging.getLogger("medre")
         logger.handlers.clear()
         logger.setLevel(logging.WARNING)
+        # Also remove MEDRE-managed handlers from root.
+        root = logging.getLogger()
+        root.handlers = [
+            h for h in root.handlers
+            if not getattr(h, _MEDRE_HANDLER_ATTR, False)
+        ]
 
     def test_json_format_includes_extra_fields(self) -> None:
         buf = StringIO()
@@ -416,9 +424,14 @@ class TestSetupLoggingIntegration:
     def test_repeated_setup_logging_noop(self) -> None:
         """Repeated calls to setup_logging do not add duplicate handlers."""
         setup_logging(level="DEBUG", json_format=False)
-        handler_count = len(logging.getLogger("medre").handlers)
+        root = logging.getLogger()
+        medre_handler_count = sum(
+            1 for h in root.handlers if getattr(h, _MEDRE_HANDLER_ATTR, False)
+        )
         setup_logging(level="ERROR", json_format=True)
-        assert len(logging.getLogger("medre").handlers) == handler_count
+        assert sum(
+            1 for h in root.handlers if getattr(h, _MEDRE_HANDLER_ATTR, False)
+        ) == medre_handler_count
 
     def test_get_logger_returns_child(self) -> None:
         child = get_logger("subsystem")
@@ -636,11 +649,11 @@ class TestSetupLoggingOverrides:
     @pytest.fixture(autouse=True)
     def _reset_all_loggers(self) -> Generator[None, None, None]:
         """Clean up medre, root, and dependency loggers between tests."""
-        # Snapshot original state so we can restore it.
         medre_logger = logging.getLogger("medre")
         root_logger = logging.getLogger()
         saved_medre_handlers = list(medre_logger.handlers)
         saved_medre_level = medre_logger.level
+        saved_root_handlers = list(root_logger.handlers)
         saved_root_level = root_logger.level
 
         # Also snapshot dependency loggers that might be touched.
@@ -653,15 +666,16 @@ class TestSetupLoggingOverrides:
         # Restore.
         medre_logger.handlers = saved_medre_handlers
         medre_logger.setLevel(saved_medre_level)
+        root_logger.handlers = saved_root_handlers
         root_logger.setLevel(saved_root_level)
         for name, lvl in saved_dep_levels.items():
             logging.getLogger(name).setLevel(lvl)
 
-    def test_debug_sets_medre_debug_root_warning(self) -> None:
-        """setup_logging with level=DEBUG sets medre to DEBUG but root stays WARNING."""
+    def test_debug_sets_medre_debug_root_notset(self) -> None:
+        """setup_logging with level=DEBUG sets medre to DEBUG, root to NOTSET."""
         setup_logging(level="DEBUG", json_format=False)
         assert logging.getLogger("medre").level == logging.DEBUG
-        assert logging.getLogger().level == logging.WARNING
+        assert logging.getLogger().level == logging.NOTSET
 
     def test_override_sets_logger_level(self) -> None:
         """setup_logging with overrides={"nio": "INFO"} sets nio logger to INFO."""
@@ -722,9 +736,14 @@ class TestSetupLoggingOverrides:
     def test_handler_not_duplicated_on_repeated_calls(self) -> None:
         """Repeated calls to setup_logging do not add duplicate handlers."""
         setup_logging(level="DEBUG", json_format=False)
-        handler_count = len(logging.getLogger("medre").handlers)
+        root = logging.getLogger()
+        medre_handler_count = sum(
+            1 for h in root.handlers if getattr(h, _MEDRE_HANDLER_ATTR, False)
+        )
         setup_logging(level="ERROR", json_format=True)
-        assert len(logging.getLogger("medre").handlers) == handler_count
+        assert sum(
+            1 for h in root.handlers if getattr(h, _MEDRE_HANDLER_ATTR, False)
+        ) == medre_handler_count
 
     def test_medre_logger_propagates_to_root(self) -> None:
         """medre logger should propagate to root (default propagation=True)."""
@@ -738,3 +757,231 @@ class TestSetupLoggingOverrides:
         # Dependency defaults should still be applied.
         assert logging.getLogger("nio").level == logging.WARNING
         # No crash, no extra overrides.
+
+
+# ---------------------------------------------------------------------------
+# Logging handler topology
+# ---------------------------------------------------------------------------
+
+
+class TestLoggingTopology:
+    """Tests for the new MEDRE-managed root handler topology.
+
+    Verifies:
+    - One MEDRE-managed console handler on root logger
+    - No duplicate MEDRE records
+    - Dependency WARNING formatted by MEDRE handler
+    - medre DEBUG emitted when level=DEBUG
+    - nio DEBUG suppressed by default
+    - Override nio DEBUG allowed
+    - Repeated setup updates formatter without duplicate handlers
+    - medre_logger.handlers does not contain MEDRE-managed handler
+    - Non-MEDRE user handlers on root are preserved
+    """
+
+    @pytest.fixture(autouse=True)
+    def _reset_all_loggers(self) -> Generator[None, None, None]:
+        """Clean up medre, root, and dependency loggers between tests."""
+        medre_logger = logging.getLogger("medre")
+        root_logger = logging.getLogger()
+        saved_medre_handlers = list(medre_logger.handlers)
+        saved_medre_level = medre_logger.level
+        saved_root_handlers = list(root_logger.handlers)
+        saved_root_level = root_logger.level
+        saved_dep_levels: dict[str, int] = {}
+        for name in list(_DEPENDENCY_DEFAULTS.keys()):
+            saved_dep_levels[name] = logging.getLogger(name).level
+
+        yield
+
+        medre_logger.handlers = saved_medre_handlers
+        medre_logger.setLevel(saved_medre_level)
+        root_logger.handlers = saved_root_handlers
+        root_logger.setLevel(saved_root_level)
+        for name, lvl in saved_dep_levels.items():
+            logging.getLogger(name).setLevel(lvl)
+
+    @staticmethod
+    def _get_medre_root_handler() -> logging.StreamHandler | None:
+        """Find the MEDRE-managed handler on root, or None."""
+        for h in logging.getLogger().handlers:
+            if getattr(h, _MEDRE_HANDLER_ATTR, False):
+                assert isinstance(h, logging.StreamHandler)
+                return h
+        return None
+
+    def test_root_has_exactly_one_medre_handler(self) -> None:
+        """After setup_logging, root has exactly one MEDRE-managed handler."""
+        setup_logging(level="INFO", json_format=False)
+        root = logging.getLogger()
+        medre_handlers = [
+            h for h in root.handlers if getattr(h, _MEDRE_HANDLER_ATTR, False)
+        ]
+        assert len(medre_handlers) == 1
+        assert medre_handlers[0].level == logging.NOTSET
+
+    def test_medre_logger_has_no_medre_handler(self) -> None:
+        """medre_logger.handlers does not contain the MEDRE-managed console handler."""
+        setup_logging(level="INFO", json_format=False)
+        medre_logger = logging.getLogger("medre")
+        for h in medre_logger.handlers:
+            assert not getattr(h, _MEDRE_HANDLER_ATTR, False)
+
+    def test_medre_logger_propagates_to_root(self) -> None:
+        """medre logger propagate=True so records reach root handler."""
+        setup_logging(level="DEBUG", json_format=False)
+        assert logging.getLogger("medre").propagate is True
+
+    def test_no_duplicate_medre_records(self) -> None:
+        """A single medre DEBUG log appears exactly once in output."""
+        setup_logging(level="DEBUG", json_format=False)
+        handler = self._get_medre_root_handler()
+        assert handler is not None
+        buf = StringIO()
+        handler.stream = buf
+
+        logging.getLogger("medre.test").debug("unique-msg-12345")
+
+        output = buf.getvalue()
+        assert output.count("unique-msg-12345") == 1
+
+    def test_dependency_warning_formatted_by_medre_handler(self) -> None:
+        """A nio WARNING log gets formatted by the MEDRE-managed root handler."""
+        setup_logging(level="INFO", json_format=False)
+        handler = self._get_medre_root_handler()
+        assert handler is not None
+        buf = StringIO()
+        handler.stream = buf
+
+        logging.getLogger("nio").warning("nio-warn-msg")
+
+        output = buf.getvalue()
+        assert "nio-warn-msg" in output
+        assert "[WARNING]" in output
+        assert "nio" in output
+
+    def test_dependency_error_formatted_by_medre_handler(self) -> None:
+        """A nio ERROR log gets formatted by the MEDRE-managed root handler."""
+        setup_logging(level="INFO", json_format=False)
+        handler = self._get_medre_root_handler()
+        assert handler is not None
+        buf = StringIO()
+        handler.stream = buf
+
+        logging.getLogger("nio").error("nio-error-msg")
+
+        output = buf.getvalue()
+        assert "nio-error-msg" in output
+        assert "[ERROR]" in output
+
+    def test_medre_debug_emitted_when_level_debug(self) -> None:
+        """medre DEBUG logs are emitted when level=DEBUG."""
+        setup_logging(level="DEBUG", json_format=False)
+        handler = self._get_medre_root_handler()
+        assert handler is not None
+        buf = StringIO()
+        handler.stream = buf
+
+        logging.getLogger("medre.subsystem").debug("medre-debug-msg")
+
+        output = buf.getvalue()
+        assert "medre-debug-msg" in output
+        assert "[DEBUG]" in output
+
+    def test_medre_info_suppressed_when_level_warning(self) -> None:
+        """medre INFO logs suppressed when medre level=WARNING."""
+        setup_logging(level="WARNING", json_format=False)
+        handler = self._get_medre_root_handler()
+        assert handler is not None
+        buf = StringIO()
+        handler.stream = buf
+
+        logging.getLogger("medre.subsystem").info("medre-info-msg")
+
+        output = buf.getvalue()
+        assert "medre-info-msg" not in output
+
+    def test_nio_debug_suppressed_by_default(self) -> None:
+        """nio DEBUG logs are suppressed by default (nio default=WARNING)."""
+        setup_logging(level="DEBUG", json_format=False)
+        handler = self._get_medre_root_handler()
+        assert handler is not None
+        buf = StringIO()
+        handler.stream = buf
+
+        logging.getLogger("nio").debug("nio-debug-msg")
+
+        output = buf.getvalue()
+        assert "nio-debug-msg" not in output
+
+    def test_override_nio_debug_allowed(self) -> None:
+        """nio DEBUG logs emitted when override={"nio": "DEBUG"}."""
+        setup_logging(level="INFO", json_format=False, overrides={"nio": "DEBUG"})
+        handler = self._get_medre_root_handler()
+        assert handler is not None
+        buf = StringIO()
+        handler.stream = buf
+
+        logging.getLogger("nio").debug("nio-debug-visible")
+
+        output = buf.getvalue()
+        assert "nio-debug-visible" in output
+
+    def test_repeated_setup_updates_formatter(self) -> None:
+        """Repeated setup changes formatter without adding duplicate handlers."""
+        setup_logging(level="INFO", json_format=False)
+        root = logging.getLogger()
+        medre_count = sum(
+            1 for h in root.handlers if getattr(h, _MEDRE_HANDLER_ATTR, False)
+        )
+        assert medre_count == 1
+
+        # Switch to JSON format
+        setup_logging(level="INFO", json_format=True)
+        medre_count = sum(
+            1 for h in root.handlers if getattr(h, _MEDRE_HANDLER_ATTR, False)
+        )
+        assert medre_count == 1
+
+        handler = self._get_medre_root_handler()
+        assert handler is not None
+        assert isinstance(handler.formatter, _JsonFormatter)
+
+        # Switch back to text format
+        setup_logging(level="INFO", json_format=False)
+        medre_count = sum(
+            1 for h in root.handlers if getattr(h, _MEDRE_HANDLER_ATTR, False)
+        )
+        assert medre_count == 1
+        assert not isinstance(handler.formatter, _JsonFormatter)
+
+    def test_preserves_non_medre_root_handlers(self) -> None:
+        """Non-MEDRE user handlers on root are preserved by setup_logging."""
+        root = logging.getLogger()
+        user_handler = logging.StreamHandler(StringIO())
+        root.addHandler(user_handler)
+        user_count_before = len(root.handlers)
+
+        setup_logging(level="INFO", json_format=False)
+
+        # User handler still present
+        assert user_handler in root.handlers
+        medre_handlers = [
+            h for h in root.handlers if getattr(h, _MEDRE_HANDLER_ATTR, False)
+        ]
+        assert len(medre_handlers) == 1
+        # Total = user handler + MEDRE handler
+        assert len(root.handlers) == user_count_before + 1
+
+    def test_removes_old_medre_handler_from_medre_logger(self) -> None:
+        """Old MEDRE-managed handlers on medre_logger are removed."""
+        medre_logger = logging.getLogger("medre")
+        # Simulate old setup: add a MEDRE-managed handler to medre logger
+        old_handler = logging.StreamHandler(sys.stdout)
+        setattr(old_handler, _MEDRE_HANDLER_ATTR, True)
+        medre_logger.addHandler(old_handler)
+
+        setup_logging(level="INFO", json_format=False)
+
+        # Old handler should be gone from medre logger
+        assert old_handler not in medre_logger.handlers

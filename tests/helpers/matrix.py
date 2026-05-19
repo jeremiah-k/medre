@@ -67,6 +67,12 @@ def build_mock_nio_module() -> MagicMock:
 
     client.sync_forever = _sync_forever_stub
 
+    async def _sync_stub(*args: object, **kwargs: object) -> SimpleNamespace:
+        await asyncio.sleep(0)
+        return SimpleNamespace(next_batch="mock_batch_token")
+
+    client.sync = _sync_stub
+
     async def _room_send(
         room_id: str, message_type: str, content: dict, **kwargs: object
     ) -> SimpleNamespace:

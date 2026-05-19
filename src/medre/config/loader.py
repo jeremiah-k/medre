@@ -37,8 +37,14 @@ from medre.config.model import (
     RuntimeOptions,
     StorageConfig,
 )
+
 from medre.config.paths import MedrePaths, MedrePathsError, resolve
 from medre.runtime.routes import RouteConfigSet
+
+# Valid logging level names for config validation.
+_VALID_LOG_LEVELS: frozenset[str] = frozenset(
+    {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+)
 
 # ---------------------------------------------------------------------------
 # Config source enum
@@ -218,6 +224,7 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
         format=log_data.get("format", "text"),
         overrides=log_data.get("overrides", {}),
     )
+    _validate_logging_section(logging)
 
     # [storage] section — expand path placeholders
     storage_data = data.get("storage", {})
@@ -327,6 +334,32 @@ def _validate_retry_section(retry_data: dict) -> None:
                 f"[retry] {field_name} must be a boolean (true/false), "
                 f"got {type(raw).__name__} {raw!r}",
                 section_path="retry",
+            )
+
+
+def _validate_logging_section(
+    logging_config: LoggingConfig,
+) -> None:
+    """Validate [logging] section level and override values.
+
+    Raises :class:`ConfigValidationError` for invalid level names so
+    that misconfiguration is caught at config-load time rather than
+    deferred to :func:`setup_logging`.
+    """
+    if logging_config.level.upper() not in _VALID_LOG_LEVELS:
+        raise ConfigValidationError(
+            f"[logging] level must be one of "
+            f"{', '.join(sorted(_VALID_LOG_LEVELS))}, "
+            f"got {logging_config.level!r}",
+            section_path="logging",
+        )
+    for logger_name, level_str in logging_config.overrides.items():
+        if not isinstance(level_str, str) or level_str.upper() not in _VALID_LOG_LEVELS:
+            raise ConfigValidationError(
+                f"[logging] overrides[{logger_name!r}] has invalid level "
+                f"{level_str!r}. Must be one of: "
+                f"{', '.join(sorted(_VALID_LOG_LEVELS))}",
+                section_path=f"logging.overrides.{logger_name}",
             )
 
 

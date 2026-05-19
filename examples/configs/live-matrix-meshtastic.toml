@@ -21,15 +21,16 @@ name = "live-matrix-meshtastic"
 shutdown_timeout_seconds = 30   # give adapters time to drain on Ctrl-C
 
 [logging]
-level = "INFO"  # use DEBUG for bring-up visibility
+level = "INFO"  # controls medre.* namespace only; use DEBUG for bring-up visibility
 format = "text" # "text" for humans, "json" for log aggregation
 
 [logging.overrides]
-nio = "WARNING"
-"nio.crypto.log" = "ERROR"
-meshtastic = "WARNING"
-aiohttp = "WARNING"
-peewee = "WARNING"
+# Keys are Python logger namespaces. These defaults quiet noisy dependencies.
+nio = "WARNING"           # nio SDK sync/key noise at INFO
+"nio.crypto.log" = "ERROR" # Olm/Megolm session warnings; set to "WARNING" to troubleshoot E2EE
+meshtastic = "WARNING"    # SDK prints every radio packet at INFO
+aiohttp = "WARNING"       # HTTP access logs at INFO
+peewee = "WARNING"        # Query logging at DEBUG, noisy at INFO
 
 [storage]
 backend = "sqlite"

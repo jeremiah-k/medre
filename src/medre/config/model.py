@@ -150,15 +150,18 @@ class LoggingConfig:
     Attributes
     ----------
     level:
-        Root logger level (e.g. ``"DEBUG"``, ``"INFO"``).
+        MEDRE namespace logger level (e.g. ``"DEBUG"``, ``"INFO"``).
+        Controls the ``medre.*`` logger hierarchy only — dependency
+        loggers are governed by their own defaults and overrides.
     format:
         Log format preset — ``"text"`` or ``"json"``.
     overrides:
-        Per-logger level overrides keyed by logger name.  Allows
-        suppressing noisy SDK loggers (e.g. ``nio``, ``meshtastic``,
-        ``aiohttp``) at a higher level than the root logger.  Values
-        are level name strings (e.g. ``"WARNING"``).  When empty, the
-        CLI layer applies sensible defaults.
+        Per-logger namespace level overrides keyed by logger name.
+        Allows suppressing or enabling output from dependency loggers
+        (e.g. ``nio``, ``meshtastic``, ``aiohttp``) independently of
+        the MEDRE namespace level.  Values are level name strings
+        (e.g. ``"WARNING"``, ``"DEBUG"``).  Validated at config-load
+        time; invalid values raise :class:`ConfigValidationError`.
     """
 
     level: str = "INFO"

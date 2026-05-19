@@ -99,16 +99,17 @@ are configured):
 | Logger             | Default Level | Reason                                              |
 | ------------------ | ------------- | --------------------------------------------------- |
 | `nio`              | `WARNING`     | Crypto key and sync noise at INFO                   |
-| `nio.crypto.log`   | `ERROR`       | Olm/Megolm session warnings are non-actionable      |
+| `nio.crypto.log`   | `ERROR`       | Olm/Megolm session warnings are non-actionable; set to `WARNING` only when troubleshooting Matrix E2EE key issues |
 | `meshtastic`       | `WARNING`     | SDK prints every radio packet at INFO               |
 | `aiohttp`          | `WARNING`     | HTTP access logs at INFO                            |
 | `peewee`           | `WARNING`     | Query logging at DEBUG, noisy at INFO               |
 
-> **Matrix room history before startup is ignored.** The Matrix adapter
+> **Matrix room history before startup is suppressed.** The Matrix adapter
 > processes only events received *after* the sync connection is established.
 > Messages that arrived in bridged rooms while MEDRE was stopped are not
 > replayed or relayed. This is by design — it prevents message duplication
-> and stale relays on restart.
+> and stale relays on restart. If you need to bridge historical messages,
+> use `medre replay` after startup.
 
 ### `[storage]`
 

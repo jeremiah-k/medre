@@ -45,6 +45,10 @@ _VALID_LEVEL_NAMES: frozenset[str] = frozenset(
     {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 )
 
+# Private attribute used to mark the MEDRE-managed console handler on the
+# root logger so it can be identified and updated across repeated calls.
+_MEDRE_HANDLER_ATTR = "_medre_console_handler"
+
 # ---------------------------------------------------------------------------
 # Log-record internals filter
 # ---------------------------------------------------------------------------
@@ -130,21 +134,37 @@ def setup_logging(
 ) -> None:
     """Configure structured logging for the medre runtime.
 
-    Creates a :class:`logging.StreamHandler` writing to *stdout* and
-    attaches it to the ``medre`` root logger.  Repeated
-    calls are no-ops (duplicate handlers are avoided).
+    Creates **one** MEDRE-managed :class:`logging.StreamHandler` writing
+    to *stdout* and attaches it to the **Python root logger**.  The
+    handler is marked with a private ``_medre_console_handler`` attribute
+    so that repeated calls can find, update, and reuse it without
+    creating duplicates.
+
+    Handler topology:
+
+    * The handler level is ``NOTSET`` — all filtering happens at the
+      individual logger level.
+    * The Python root logger level is set to ``NOTSET`` so that records
+      which pass their originating logger's level check are forwarded
+      to the root and processed by the MEDRE-managed handler.
+    * The ``medre`` namespace logger is set to the configured *level*
+      with ``propagate=True``.  It does **not** carry its own handler;
+      records flow up to the root handler.
+    * Any MEDRE-managed handlers previously attached to the ``medre``
+      logger (from older versions) are removed while non-MEDRE user
+      handlers are preserved.
 
     The *level* parameter controls **only** the ``medre`` namespace.
-    The true Python root logger is set to ``WARNING`` so that noisy
-    dependency loggers do not flood the console when medre is in DEBUG
-    mode.  Sensible defaults are applied for known noisy dependencies
-    (see ``_DEPENDENCY_DEFAULTS``).
+    Dependency loggers (``nio``, ``aiohttp``, etc.) receive sensible
+    defaults (see ``_DEPENDENCY_DEFAULTS``) which suppress DEBUG noise.
+    User-supplied *overrides* take precedence over defaults.
 
     Parameters
     ----------
     level:
         One of ``DEBUG``, ``INFO``, ``WARNING``, ``ERROR``, ``CRITICAL``.
-        Case-insensitive; defaults to ``INFO`` for unrecognised values.
+        Case-insensitive; controls the ``medre.*`` namespace only.
+        Defaults to ``INFO`` for unrecognised values.
     json_format:
         If ``True``, use JSON-structured log output suitable for machine
         parsing (log aggregators, structured log files).  Otherwise use
@@ -160,34 +180,52 @@ def setup_logging(
     ValueError
         If any override level name is not a recognised logging level.
     """
-    # 1. Set the true root logger to WARNING so dependency loggers don't
-    #    leak DEBUG/INFO when medre is configured at DEBUG.
-    logging.getLogger().setLevel(logging.WARNING)
+    # 1. Locate or create the single MEDRE-managed handler on the root logger.
+    root = logging.getLogger()
+    medre_handler: logging.Handler | None = None
+    for h in root.handlers:
+        if getattr(h, _MEDRE_HANDLER_ATTR, False):
+            medre_handler = h
+            break
 
-    # 2. Set the medre namespace logger to the configured level.
-    medre_logger = logging.getLogger("medre")
-    medre_logger.setLevel(getattr(logging, level.upper(), logging.INFO))
+    if medre_handler is None:
+        medre_handler = logging.StreamHandler(sys.stdout)
+        setattr(medre_handler, _MEDRE_HANDLER_ATTR, True)
+        medre_handler.setLevel(logging.NOTSET)
+        root.addHandler(medre_handler)
 
-    # Avoid duplicate handlers on repeated calls.
-    if not medre_logger.handlers:
-        handler = logging.StreamHandler(sys.stdout)
-
-        if json_format:
-            handler.setFormatter(_JsonFormatter())
-        else:
-            formatter = logging.Formatter(
+    # 2. Update formatter (supports repeated calls with different modes).
+    if json_format:
+        medre_handler.setFormatter(_JsonFormatter())
+    else:
+        medre_handler.setFormatter(
+            logging.Formatter(
                 "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
                 datefmt="%Y-%m-%dT%H:%M:%S%z",
             )
-            handler.setFormatter(formatter)
+        )
 
-        medre_logger.addHandler(handler)
+    # 3. Set root logger to NOTSET so all records that pass their
+    #    originating logger's level check reach our handler.
+    root.setLevel(logging.NOTSET)
 
-    # 3. Apply dependency defaults.
+    # 4. Configure the medre namespace logger.
+    medre_logger = logging.getLogger("medre")
+    medre_logger.setLevel(getattr(logging, level.upper(), logging.INFO))
+    medre_logger.propagate = True
+
+    # Remove any MEDRE-managed handlers left on medre_logger by a
+    # previous version of setup_logging.  Preserve non-MEDRE handlers.
+    medre_logger.handlers = [
+        h for h in medre_logger.handlers
+        if not getattr(h, _MEDRE_HANDLER_ATTR, False)
+    ]
+
+    # 5. Apply dependency defaults.
     for logger_name, default_level in _DEPENDENCY_DEFAULTS.items():
         logging.getLogger(logger_name).setLevel(default_level)
 
-    # 4. Apply user overrides on top of defaults.
+    # 6. Apply user overrides on top of defaults.
     if overrides:
         for logger_name, level_str in overrides.items():
             upper = level_str.upper()
