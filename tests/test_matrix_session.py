@@ -83,8 +83,9 @@ class TestMatrixSessionLifecycle:
         session = MatrixSession(config, message_callback=cb)
         try:
             await session.start()
-            # Three callbacks: message types + MegolmEvent + RoomEncryptionEvent
-            assert mock_nio.AsyncClient.return_value.add_event_callback.call_count == 3
+            # Four callbacks: message types + ReactionEvent +
+            # MegolmEvent + RoomEncryptionEvent
+            assert mock_nio.AsyncClient.return_value.add_event_callback.call_count == 4
         finally:
             await session.stop()
 
@@ -458,3 +459,65 @@ class TestAdapterDelegatesToSession:
         await adapter.stop()
         await adapter.stop()
         assert adapter._session is None
+
+
+# ===================================================================
+# Reaction callback registration
+# ===================================================================
+
+
+class TestReactionCallbackRegistration:
+    """Verify ReactionEvent is registered as an event callback."""
+
+    async def test_reaction_callback_registered(self, mock_nio) -> None:
+        """MatrixSession registers a callback for nio.ReactionEvent."""
+        cb = MagicMock()
+        config = make_matrix_config()
+        session = MatrixSession(config, message_callback=cb)
+        try:
+            await session.start()
+            calls = mock_nio.AsyncClient.return_value.add_event_callback.call_args_list
+            # Check that one of the calls includes ReactionEvent
+            reaction_registered = any(
+                mock_nio.ReactionEvent in call[0][1]
+                for call in calls
+                if len(call[0]) >= 2
+            )
+            assert reaction_registered, (
+                "ReactionEvent not found in any add_event_callback call"
+            )
+        finally:
+            await session.stop()
+
+    async def test_reaction_callback_graceful_without_reaction_event(
+        self, mock_nio
+    ) -> None:
+        """If nio lacks ReactionEvent, start still succeeds (no crash)."""
+        del mock_nio.ReactionEvent
+        cb = MagicMock()
+        config = make_matrix_config()
+        session = MatrixSession(config, message_callback=cb)
+        try:
+            await session.start()
+            # Should not raise; reaction callback simply skipped
+            assert session.connected is True
+        finally:
+            await session.stop()
+
+    async def test_reaction_callback_uses_same_handler(self, mock_nio) -> None:
+        """The reaction callback is the same function as message callback."""
+        cb = MagicMock()
+        config = make_matrix_config()
+        session = MatrixSession(config, message_callback=cb)
+        try:
+            await session.start()
+            calls = mock_nio.AsyncClient.return_value.add_event_callback.call_args_list
+            # Find the call that includes ReactionEvent
+            for call in calls:
+                if len(call[0]) >= 2 and mock_nio.ReactionEvent in call[0][1]:
+                    assert call[0][0] is cb
+                    break
+            else:
+                pytest.fail("No ReactionEvent callback found")
+        finally:
+            await session.stop()

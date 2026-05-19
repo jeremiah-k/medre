@@ -944,3 +944,216 @@ class TestInboundDiagnosticsCounters:
 
         assert adapter._inbound_published == 0
         assert adapter._inbound_suppressed_self == 0
+
+
+# ===================================================================
+# Reaction event handling
+# ===================================================================
+
+
+def _make_fake_reaction_event(
+    sender: str = "@alice:example.com",
+    event_id: str = "$react-001",
+    target_event_id: str = "$original-001",
+    key: str = "👍",
+    content: dict | None = None,
+) -> SimpleNamespace:
+    """Build a minimal fake nio ReactionEvent (m.annotation)."""
+    reaction_content = content or {
+        "msgtype": "m.reaction",
+        "body": key,
+        "m.relates_to": {
+            "rel_type": "m.annotation",
+            "event_id": target_event_id,
+            "key": key,
+        },
+    }
+    return SimpleNamespace(
+        sender=sender,
+        event_id=event_id,
+        body=key,
+        source={
+            "content": reaction_content,
+            "event_id": event_id,
+            "sender": sender,
+            "type": "m.reaction",
+        },
+    )
+
+
+class TestReactionEventHandling:
+    """Reaction events are decoded and published correctly."""
+
+    async def test_reaction_event_published(self) -> None:
+        """A reaction event from another user is decoded and published."""
+        config = _make_matrix_config(user_id="@bot:example.com")
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        event = _make_fake_reaction_event(sender="@alice:example.com")
+        room = _make_fake_room()
+
+        await adapter._on_room_message(room, event)
+        assert len(published) == 1
+        assert published[0].event_kind == EventKind.MESSAGE_REACTED
+
+    async def test_self_reaction_suppressed(self) -> None:
+        """Self-sent reaction events are suppressed."""
+        config = _make_matrix_config(user_id="@bot:example.com")
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        event = _make_fake_reaction_event(sender="@bot:example.com")
+        room = _make_fake_room()
+
+        await adapter._on_room_message(room, event)
+        assert len(published) == 0
+        assert adapter._inbound_suppressed_self == 1
+
+    async def test_medre_origin_reaction_suppressed(self) -> None:
+        """MEDRE-origin reaction events from the same adapter are suppressed."""
+        config = _make_matrix_config(adapter_id="matrix-1")
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        envelope = MatrixMetadataEnvelope(
+            source_adapter="matrix-1",
+            canonical_event_id="evt-orig",
+        )
+        content = {
+            "msgtype": "m.reaction",
+            "body": "👍",
+            "m.relates_to": {
+                "rel_type": "m.annotation",
+                "event_id": "$target-001",
+                "key": "👍",
+            },
+            **envelope.to_content(),
+        }
+        event = _make_fake_reaction_event(
+            sender="@alice:example.com",
+            content=content,
+        )
+        room = _make_fake_room()
+
+        await adapter._on_room_message(room, event)
+        assert len(published) == 0
+        assert adapter._inbound_suppressed_envelope == 1
+
+
+# ===================================================================
+# Display name enrichment
+# ===================================================================
+
+
+class TestDisplayNameEnrichment:
+    """Matrix display name enrichment for Meshtastic prefix formatting."""
+
+    async def test_display_name_from_room_user_name(self) -> None:
+        """Display name is enriched from room.user_name()."""
+        config = _make_matrix_config(user_id="@bot:example.com")
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        event = _make_fake_nio_event(sender="@alice:example.com")
+        room = SimpleNamespace(
+            room_id="!room:server",
+            user_name=lambda uid: "Alice Display" if uid == "@alice:example.com" else uid,
+            users={},
+        )
+
+        await adapter._on_room_message(room, event)
+        assert len(published) == 1
+        ndata = published[0].metadata.native.data
+        assert ndata["longname"] == "Alice Display"
+        assert ndata["displayname"] == "Alice Display"
+        assert ndata["shortname"] == "Alice"
+
+    async def test_display_name_falls_back_to_users_dict(self) -> None:
+        """Without user_name, falls back to room.users dict."""
+        config = _make_matrix_config(user_id="@bot:example.com")
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        event = _make_fake_nio_event(sender="@alice:example.com")
+        room = SimpleNamespace(
+            room_id="!room:server",
+            users={"@alice:example.com": {"display_name": "Alice From Dict"}},
+        )
+
+        await adapter._on_room_message(room, event)
+        assert len(published) == 1
+        ndata = published[0].metadata.native.data
+        assert ndata["longname"] == "Alice From Dict"
+
+    async def test_display_name_falls_back_to_mxid(self) -> None:
+        """Without any display name, falls back to sender MXID."""
+        config = _make_matrix_config(user_id="@bot:example.com")
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        event = _make_fake_nio_event(sender="@alice:example.com")
+        room = SimpleNamespace(room_id="!room:server", users={})
+
+        await adapter._on_room_message(room, event)
+        assert len(published) == 1
+        ndata = published[0].metadata.native.data
+        assert ndata["longname"] == "@alice:example.com"
+        # shortname should be localpart
+        assert ndata["shortname"] == "alice"
+
+    async def test_mmrelay_longname_preserved(self) -> None:
+        """Existing MMRelay longname/shortname are not overwritten."""
+        config = _make_matrix_config(user_id="@bot:example.com")
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        content = {
+            "msgtype": "m.text",
+            "body": "hello",
+            "meshtastic_longname": "NodeLong",
+            "meshtastic_shortname": "NSh",
+        }
+        event = _make_fake_nio_event(
+            sender="@alice:example.com", content=content
+        )
+        room = SimpleNamespace(
+            room_id="!room:server",
+            user_name=lambda uid: "Alice Display",
+            users={},
+        )
+
+        await adapter._on_room_message(room, event)
+        assert len(published) == 1
+        ndata = published[0].metadata.native.data
+        # MMRelay names should be preserved, not overwritten by Matrix name
+        assert ndata["meshtastic_longname"] == "NodeLong"
+        assert ndata["meshtastic_shortname"] == "NSh"
+        # Enrichment should not have set longname to the Matrix display name
+        assert ndata.get("longname") != "Alice Display"
+
+    async def test_display_name_enriched_for_reaction_events(self) -> None:
+        """Display name enrichment also works for reaction events."""
+        config = _make_matrix_config(user_id="@bot:example.com")
+        adapter = MatrixAdapter(config)
+        published, ctx = _make_adapter_context()
+        adapter.ctx = ctx
+
+        event = _make_fake_reaction_event(sender="@bob:example.com")
+        room = SimpleNamespace(
+            room_id="!room:server",
+            user_name=lambda uid: "Bob Display" if uid == "@bob:example.com" else uid,
+            users={},
+        )
+
+        await adapter._on_room_message(room, event)
+        assert len(published) == 1
+        ndata = published[0].metadata.native.data
+        assert ndata["longname"] == "Bob Display"

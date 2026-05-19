@@ -259,10 +259,13 @@ class MeshtasticRenderer:
             rel = event.relations[0]
             reply_id = self._meshtastic_reply_id_from_relation(rel, target_adapter)
 
-            if rel.relation_type == "reply" and reply_id is not None:
-                # Native structured reply — plain text, numeric reply_id
+            if rel.relation_type == "reply":
+                # Reply: plain text, optionally with native reply_id.
+                # Always use _plain_text (stripped body from fix B) to
+                # avoid "[replying to: …]" text prefix on the mesh.
                 content["text"] = self._plain_text(event)
-                content["reply_id"] = reply_id
+                if reply_id is not None:
+                    content["reply_id"] = reply_id
             elif rel.relation_type == "reaction":
                 emoji_text = rel.key or str(
                     event.payload.get("key", event.payload.get("body", ""))

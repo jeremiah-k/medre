@@ -163,11 +163,23 @@ class MatrixRenderer:
                 if mx_event_id:
                     # Matrix-native reply — render m.in_reply_to with Matrix event ID
                     original_text = rel.fallback_text or ""
+                    # Resolve a human-readable sender for the fallback body.
+                    # The adapter ID (e.g. "matrix") is meaningless in a
+                    # reply fallback, so try metadata sources first.
                     sender = (
-                        getattr(rel.target_native_ref, "adapter", "")
-                        if rel.target_native_ref
-                        else ""
+                        str(rel_meta.get("displayname") or "")
+                        or str(rel_meta.get("sender") or "")
+                        or ""
                     )
+                    if not sender and event.metadata and event.metadata.native:
+                        nd = event.metadata.native.data
+                        sender = (
+                            str(nd.get("displayname") or "")
+                            or str(nd.get("sender") or "")
+                            or ""
+                        )
+                    if not sender:
+                        sender = "original message"
                     content["body"] = build_reply_body(body, sender, original_text)
                     content["m.relates_to"] = {
                         "m.in_reply_to": {

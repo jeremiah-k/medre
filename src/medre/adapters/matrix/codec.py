@@ -30,7 +30,11 @@ from datetime import datetime, timezone
 from typing import Any
 
 from medre.adapters.matrix.errors import MatrixCodecError
-from medre.adapters.matrix.relations import extract_reaction, extract_reply_target
+from medre.adapters.matrix.relations import (
+    extract_reaction,
+    extract_reply_target,
+    strip_reply_fallback_body,
+)
 from medre.core.contracts.adapter import AdapterCodec
 from medre.core.events.canonical import CanonicalEvent, EventRelation, NativeRef
 from medre.core.events.kinds import EventKind
@@ -257,6 +261,12 @@ class MatrixCodec(AdapterCodec):
             )
 
         # -- Regular message (text / reply) -----------------------------------
+
+        # Strip Matrix reply fallback prefix when this is a reply.
+        reply_event_id = extract_reply_target(source)
+        if reply_event_id is not None:
+            body = strip_reply_fallback_body(body)
+
         payload = {
             "body": body,
             "msgtype": effective_msgtype,
@@ -284,8 +294,7 @@ class MatrixCodec(AdapterCodec):
         # Resolve relations from envelope if present
         relations = []
 
-        # Extract Matrix reply relation without storage lookup.
-        reply_event_id = extract_reply_target(source)
+        # Build reply relation (reply_event_id already extracted above).
         if reply_event_id:
             relations.append(
                 EventRelation(

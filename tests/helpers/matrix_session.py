@@ -97,6 +97,7 @@ def build_mock_nio_module() -> MagicMock:
     mock.RoomMessageText = MagicMock(name="RoomMessageText")
     mock.RoomMessageNotice = MagicMock(name="RoomMessageNotice")
     mock.RoomMessageEmote = MagicMock(name="RoomMessageEmote")
+    mock.ReactionEvent = MagicMock(name="ReactionEvent")
     # nio.events.MegolmEvent for undecryptable event callback
     mock_events = MagicMock(name="nio.events")
     mock_events.MegolmEvent = MagicMock(name="MegolmEvent")

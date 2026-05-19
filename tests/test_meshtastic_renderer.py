@@ -277,8 +277,8 @@ class TestRendererStructuredReply:
         assert result.payload["channel_index"] == 0
         assert "meshnet_name" in result.payload
 
-    async def test_reply_without_native_ref_uses_fallback(self) -> None:
-        """Reply without numeric native ref → fallback text prefix."""
+    async def test_reply_without_native_ref_plain_text(self) -> None:
+        """Reply without numeric native ref → plain text, no fallback prefix."""
         renderer = MeshtasticRenderer()
         rel = _make_relation(
             relation_type="reply",
@@ -291,11 +291,11 @@ class TestRendererStructuredReply:
         )
         result = await renderer.render(event, "mesh-1")
         assert "reply_id" not in result.payload
-        assert "[replying to: original msg]" in result.payload["text"]
-        assert "my reply" in result.payload["text"]
+        # No "[replying to: …]" prefix — plain text only.
+        assert result.payload["text"] == "my reply"
 
-    async def test_reply_with_non_numeric_ref_uses_fallback(self) -> None:
-        """Reply with non-numeric native_message_id → fallback text."""
+    async def test_reply_with_non_numeric_ref_plain_text(self) -> None:
+        """Reply with non-numeric native_message_id → plain text, no fallback prefix."""
         renderer = MeshtasticRenderer()
         rel = _make_relation(
             relation_type="reply",
@@ -308,7 +308,8 @@ class TestRendererStructuredReply:
         )
         result = await renderer.render(event, "mesh-1")
         assert "reply_id" not in result.payload
-        assert "[replying to: non-mesh msg]" in result.payload["text"]
+        # No "[replying to: …]" prefix — plain text only.
+        assert result.payload["text"] == "my reply"
 
     async def test_reply_preserves_channel_index(self) -> None:
         """Reply rendering preserves target channel."""
@@ -434,7 +435,8 @@ class TestMeshtasticRendererForeignRefs:
         event = _make_event(payload={"body": "hello"}, relations=(rel,))
         result = await renderer.render(event, "mesh-1")
         assert "reply_id" not in result.payload
-        assert "[replying to: orig msg]" in result.payload["text"]
+        # Plain text only — no "[replying to: …]" prefix for non-native replies.
+        assert result.payload["text"] == "hello"
 
     async def test_foreign_native_ref_not_used_for_reaction(self) -> None:
         """Matrix native ref must not produce reply_id + emoji when rendering reaction to Meshtastic."""
@@ -1032,3 +1034,82 @@ class TestNativeReactionPreserved:
         result = await renderer.render(event, "mesh-1")
         assert result.payload["reply_id"] == 77
         assert result.payload["emoji"] == 1
+
+
+# ===================================================================
+# Matrix display name enrichment → prefix rendering
+# ===================================================================
+
+
+class TestMatrixDisplayNameInPrefix:
+    """Verify that Matrix display names flow through to the prefix template."""
+
+    async def test_longname_in_prefix_from_matrix_display_name(self) -> None:
+        """radio_relay_prefix {longname} uses Matrix display name."""
+        from unittest.mock import MagicMock
+
+        config = MagicMock()
+        config.radio_relay_prefix = "[{longname}]: "
+        config.meshnet_name = ""
+        renderer = MeshtasticRenderer(config=config)
+
+        event = CanonicalEvent(
+            event_id="mx-1",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="matrix-1",
+            source_transport_id="@alice:example.com",
+            source_channel_id="!room:example.com",
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"body": "hello from alice"},
+            metadata=EventMetadata(
+                native=NativeMetadata(
+                    data={
+                        "longname": "Alice Wonderland",
+                        "shortname": "Alice",
+                        "from_id": "@alice:example.com",
+                    }
+                )
+            ),
+        )
+        result = await renderer.render(event, "mesh-1")
+        assert result.payload["text"].startswith("[Alice Wonderland]: ")
+        assert "hello from alice" in result.payload["text"]
+
+    async def test_prefix_uses_display_name_not_mxid(self) -> None:
+        """Prefix shows display name, not raw MXID like @user:server."""
+        from unittest.mock import MagicMock
+
+        config = MagicMock()
+        config.radio_relay_prefix = "{longname}: "
+        config.meshnet_name = ""
+        renderer = MeshtasticRenderer(config=config)
+
+        event = CanonicalEvent(
+            event_id="mx-2",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="matrix-1",
+            source_transport_id="@alice:example.com",
+            source_channel_id="!room:example.com",
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"body": "hi"},
+            metadata=EventMetadata(
+                native=NativeMetadata(
+                    data={
+                        "longname": "Display Name",
+                        "shortname": "Displ",
+                        "from_id": "@alice:example.com",
+                    }
+                )
+            ),
+        )
+        result = await renderer.render(event, "mesh-1")
+        assert result.payload["text"].startswith("Display Name: ")
+        assert "@alice" not in result.payload["text"].split(": hi")[0]

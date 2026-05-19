@@ -27,6 +27,7 @@ from datetime import datetime, timezone
 
 from medre.adapters.fake_matrix import FakeMatrixAdapter
 from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
+from medre.adapters.matrix.codec import MatrixCodec
 from medre.adapters.matrix.renderer import MatrixRenderer
 from medre.adapters.meshtastic.codec import MeshtasticCodec
 from medre.adapters.meshtastic.packet_classifier import MeshtasticPacketClassifier
@@ -674,3 +675,434 @@ class TestMeshtasticRendererEnrichedReactionText:
         assert "Hello from the original message" in text
         # Should NOT contain just the reaction body "👍" as the preview.
         # The text should be the descriptive pattern, not just the emoji.
+
+
+# ===================================================================
+# Test D1: Matrix reply to Meshtastic-originated message renders
+# with native Meshtastic reply_id
+# ===================================================================
+
+
+class TestMatrixReplyToMeshtasticNativeReplyId:
+    """Matrix reply to a Meshtastic-originated message, when rendered back
+    to Meshtastic, carries native reply_id from the Meshtastic packet."""
+
+    async def test_reply_carries_native_meshtastic_reply_id(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """End-to-end: Matrix reply to Meshtastic message → Meshtastic
+        renderer output has reply_id matching the original Meshtastic
+        packet ID and stripped reply body."""
+        ts = datetime.now(timezone.utc)
+        _CANON_ID = "canon-mesh-orig-d1"
+        _MESH_PKT_ID = 12345
+        _MATRIX_COPY_ID = "$matrix-copy-d1"
+        _MESH_ADAPTER = "radio-d1"
+        _MX_ADAPTER = "matrix-d1"
+        _ROOM = "!room-d1:server"
+
+        # 1. Store a Meshtastic-originated canonical event.
+        orig_event = CanonicalEvent(
+            event_id=_CANON_ID,
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=ts,
+            source_adapter=_MESH_ADAPTER,
+            source_transport_id="!meshnode1",
+            source_channel_id="0",
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"text": "Hello from mesh"},
+            metadata=EventMetadata(),
+            source_native_ref=NativeRef(
+                adapter=_MESH_ADAPTER,
+                native_channel_id="0",
+                native_message_id=str(_MESH_PKT_ID),
+            ),
+        )
+        await temp_storage.append(orig_event)
+
+        # 2. Store inbound Meshtastic native ref.
+        await temp_storage.store_native_ref(
+            NativeMessageRef(
+                id="nref-d1-mesh-in",
+                event_id=_CANON_ID,
+                adapter=_MESH_ADAPTER,
+                native_channel_id="0",
+                native_message_id=str(_MESH_PKT_ID),
+                native_thread_id=None,
+                native_relation_id=None,
+                direction="inbound",
+                created_at=ts,
+            )
+        )
+
+        # 3. Store outbound Matrix native ref (the relayed copy).
+        await temp_storage.store_native_ref(
+            NativeMessageRef(
+                id="nref-d1-mx-out",
+                event_id=_CANON_ID,
+                adapter=_MX_ADAPTER,
+                native_channel_id=_ROOM,
+                native_message_id=_MATRIX_COPY_ID,
+                native_thread_id=None,
+                native_relation_id=None,
+                direction="outbound",
+                created_at=ts,
+            )
+        )
+
+        # 4. Store outbound Meshtastic native ref.
+        await temp_storage.store_native_ref(
+            NativeMessageRef(
+                id="nref-d1-mesh-out",
+                event_id=_CANON_ID,
+                adapter=_MESH_ADAPTER,
+                native_channel_id="0",
+                native_message_id=str(_MESH_PKT_ID),
+                native_thread_id=None,
+                native_relation_id=None,
+                direction="outbound",
+                created_at=ts,
+            )
+        )
+
+        # 5. Decode a Matrix reply event via MatrixCodec.
+        config_mx = _make_matrix_config(adapter_id=_MX_ADAPTER)
+        codec = MatrixCodec(_MX_ADAPTER, config_mx)
+
+        reply_native = _make_reply_native_event(
+            body="> <@sender:server> Hello from mesh\n\nHi",
+            event_id="$reply-evt-d1",
+            sender="@replyer:server",
+            reply_target=_MATRIX_COPY_ID,
+            room_id=_ROOM,
+        )
+        reply_event = codec.decode(reply_native, room_id=_ROOM)
+
+        # Verify codec stripped the fallback and created a reply relation.
+        assert reply_event.payload["body"] == "Hi"
+        assert len(reply_event.relations) == 1
+        rel = reply_event.relations[0]
+        assert rel.relation_type == "reply"
+        assert rel.target_native_ref is not None
+        assert rel.target_native_ref.native_message_id == _MATRIX_COPY_ID
+
+        # 6. Process through pipeline: resolve + enrich + render.
+        route = Route(
+            id="mx-to-mesh-d1",
+            source=RouteSource(
+                adapter=_MX_ADAPTER,
+                event_kinds=("message.created",),
+                channel=None,
+            ),
+            targets=[RouteTarget(adapter=_MESH_ADAPTER, channel="0")],
+        )
+        router = Router(routes=[route])
+
+        rp = RenderingPipeline()
+        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register_adapter_platform(_MESH_ADAPTER, "meshtastic")
+        rp.register(TextRenderer(), priority=100)
+
+        radio_config = MeshtasticConfig(adapter_id=_MESH_ADAPTER)
+        radio_adapter = FakeMeshtasticAdapter(radio_config)
+
+        runner = PipelineRunner(
+            PipelineConfig(
+                storage=temp_storage,
+                router=router,
+                fallback_resolver=FallbackResolver(),
+                relation_resolver=RelationResolver(storage=temp_storage),
+                adapters={_MESH_ADAPTER: radio_adapter},
+                event_bus=EventBus(),
+                rendering_pipeline=rp,
+            )
+        )
+        await runner.start()
+
+        try:
+            outcomes = await runner.handle_ingress(reply_event)
+
+            # 7. Assert delivery succeeded.
+            assert len(outcomes) >= 1
+            assert outcomes[0].status == "success"
+
+            # 8. Verify renderer output has reply_id and stripped text.
+            assert len(radio_adapter.delivered_payloads) == 1
+            payload = radio_adapter.delivered_payloads[0].payload
+            assert payload["reply_id"] == _MESH_PKT_ID
+            assert payload["text"] == "Hi"
+        finally:
+            await runner.stop()
+
+
+# ===================================================================
+# Test D2: Missing mapping — reply still sends safely
+# ===================================================================
+
+
+class TestMatrixReplyMissingMappingNoCrash:
+    """Matrix reply where the target Matrix event has no canonical mapping.
+    The message still sends to Meshtastic safely with no reply_id and
+    no crash."""
+
+    async def test_reply_without_mapping_sends_safely(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        ts = datetime.now(timezone.utc)
+        _MESH_ADAPTER = "radio-d2"
+        _MX_ADAPTER = "matrix-d2"
+        _ROOM = "!room-d2:server"
+
+        # No pre-seeded native refs — the reply target is unmapped.
+
+        # Decode a Matrix reply via codec.
+        config_mx = _make_matrix_config(adapter_id=_MX_ADAPTER)
+        codec = MatrixCodec(_MX_ADAPTER, config_mx)
+
+        reply_native = _make_reply_native_event(
+            body="> <@sender:server> unknown msg\n\nMy reply",
+            event_id="$reply-evt-d2",
+            sender="@replyer:server",
+            reply_target="$unknown-matrix-event",
+            room_id=_ROOM,
+        )
+        reply_event = codec.decode(reply_native, room_id=_ROOM)
+
+        assert reply_event.payload["body"] == "My reply"
+
+        route = Route(
+            id="mx-to-mesh-d2",
+            source=RouteSource(
+                adapter=_MX_ADAPTER,
+                event_kinds=("message.created",),
+                channel=None,
+            ),
+            targets=[RouteTarget(adapter=_MESH_ADAPTER, channel="0")],
+        )
+        router = Router(routes=[route])
+
+        rp = RenderingPipeline()
+        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register_adapter_platform(_MESH_ADAPTER, "meshtastic")
+        rp.register(TextRenderer(), priority=100)
+
+        radio_config = MeshtasticConfig(adapter_id=_MESH_ADAPTER)
+        radio_adapter = FakeMeshtasticAdapter(radio_config)
+
+        runner = PipelineRunner(
+            PipelineConfig(
+                storage=temp_storage,
+                router=router,
+                fallback_resolver=FallbackResolver(),
+                relation_resolver=RelationResolver(storage=temp_storage),
+                adapters={_MESH_ADAPTER: radio_adapter},
+                event_bus=EventBus(),
+                rendering_pipeline=rp,
+            )
+        )
+        await runner.start()
+
+        try:
+            outcomes = await runner.handle_ingress(reply_event)
+
+            # Delivery succeeded — no crash.
+            assert len(outcomes) >= 1
+            assert outcomes[0].status == "success"
+
+            # Renderer output has no reply_id but text is clean.
+            assert len(radio_adapter.delivered_payloads) == 1
+            payload = radio_adapter.delivered_payloads[0].payload
+            assert "reply_id" not in payload
+            # Text should be just the reply body, no "[replying to: ...]" prefix.
+            assert str(payload["text"]) == "My reply"
+        finally:
+            await runner.stop()
+
+
+# ===================================================================
+# Test E1: Matrix→Matrix reply still links on meshnet
+# ===================================================================
+
+
+class TestMatrixToMatrixReplyLinksOnMeshnet:
+    """When a Matrix user replies to a Matrix-originated message that was
+    also relayed to Meshtastic, the reply rendered for Meshtastic carries
+    the Meshtastic native reply_id (cross-adapter enrichment)."""
+
+    async def test_matrix_reply_to_matrix_msg_has_mesh_reply_id(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        ts = datetime.now(timezone.utc)
+        _CANON_ID = "canon-matrix-orig-e1"
+        _MATRIX_MSG_ID = "$matrix-orig-e1"
+        _MESH_PKT_ID = 99887766
+        _MESH_ADAPTER = "radio-e1"
+        _MX_ADAPTER = "matrix-e1"
+        _ROOM = "!room-e1:server"
+
+        # 1. Store a Matrix-originated canonical event.
+        orig_event = CanonicalEvent(
+            event_id=_CANON_ID,
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=ts,
+            source_adapter=_MX_ADAPTER,
+            source_transport_id="@orig-sender:server",
+            source_channel_id=_ROOM,
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"text": "Original Matrix message"},
+            metadata=EventMetadata(),
+            source_native_ref=NativeRef(
+                adapter=_MX_ADAPTER,
+                native_channel_id=_ROOM,
+                native_message_id=_MATRIX_MSG_ID,
+            ),
+        )
+        await temp_storage.append(orig_event)
+
+        # 2. Inbound Matrix native ref.
+        await temp_storage.store_native_ref(
+            NativeMessageRef(
+                id="nref-e1-mx-in",
+                event_id=_CANON_ID,
+                adapter=_MX_ADAPTER,
+                native_channel_id=_ROOM,
+                native_message_id=_MATRIX_MSG_ID,
+                native_thread_id=None,
+                native_relation_id=None,
+                direction="inbound",
+                created_at=ts,
+            )
+        )
+
+        # 3. Outbound Meshtastic native ref.
+        await temp_storage.store_native_ref(
+            NativeMessageRef(
+                id="nref-e1-mesh-out",
+                event_id=_CANON_ID,
+                adapter=_MESH_ADAPTER,
+                native_channel_id="0",
+                native_message_id=str(_MESH_PKT_ID),
+                native_thread_id=None,
+                native_relation_id=None,
+                direction="outbound",
+                created_at=ts,
+            )
+        )
+
+        # 4. Decode a Matrix reply to the original Matrix message.
+        config_mx = _make_matrix_config(adapter_id=_MX_ADAPTER)
+        codec = MatrixCodec(_MX_ADAPTER, config_mx)
+
+        reply_native = _make_reply_native_event(
+            body="> <@orig-sender:server> Original Matrix message\n\nReply from Matrix",
+            event_id="$reply-evt-e1",
+            sender="@replier:server",
+            reply_target=_MATRIX_MSG_ID,
+            room_id=_ROOM,
+        )
+        reply_event = codec.decode(reply_native, room_id=_ROOM)
+
+        assert reply_event.payload["body"] == "Reply from Matrix"
+
+        # 5. Route to Meshtastic — enrichment should find the mesh ref.
+        route = Route(
+            id="mx-to-mesh-e1",
+            source=RouteSource(
+                adapter=_MX_ADAPTER,
+                event_kinds=("message.created",),
+                channel=None,
+            ),
+            targets=[RouteTarget(adapter=_MESH_ADAPTER, channel="0")],
+        )
+        router = Router(routes=[route])
+
+        rp = RenderingPipeline()
+        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register_adapter_platform(_MESH_ADAPTER, "meshtastic")
+        rp.register(TextRenderer(), priority=100)
+
+        radio_config = MeshtasticConfig(adapter_id=_MESH_ADAPTER)
+        radio_adapter = FakeMeshtasticAdapter(radio_config)
+
+        runner = PipelineRunner(
+            PipelineConfig(
+                storage=temp_storage,
+                router=router,
+                fallback_resolver=FallbackResolver(),
+                relation_resolver=RelationResolver(storage=temp_storage),
+                adapters={_MESH_ADAPTER: radio_adapter},
+                event_bus=EventBus(),
+                rendering_pipeline=rp,
+            )
+        )
+        await runner.start()
+
+        try:
+            outcomes = await runner.handle_ingress(reply_event)
+
+            assert len(outcomes) >= 1
+            assert outcomes[0].status == "success"
+
+            # Renderer output has Meshtastic reply_id from the mesh ref.
+            assert len(radio_adapter.delivered_payloads) == 1
+            payload = radio_adapter.delivered_payloads[0].payload
+            assert payload["reply_id"] == _MESH_PKT_ID
+            assert payload["text"] == "Reply from Matrix"
+        finally:
+            await runner.stop()
+
+
+# ===================================================================
+# Shared test helpers for D/E tests
+# ===================================================================
+
+
+def _make_matrix_config(**overrides):
+    """Build a minimal MatrixConfig for testing."""
+    from medre.config.adapters.matrix import MatrixConfig
+
+    defaults = dict(
+        adapter_id="matrix-test",
+        homeserver="https://matrix.example.com",
+        user_id="@bot:example.com",
+        access_token="tok",
+    )
+    defaults.update(overrides)
+    return MatrixConfig(**defaults)
+
+
+def _make_reply_native_event(
+    body: str,
+    event_id: str,
+    sender: str,
+    reply_target: str,
+    room_id: str,
+):
+    """Build a minimal native event object that looks like a Matrix reply."""
+
+    class _Fake:
+        pass
+
+    evt = _Fake()
+    evt.body = body
+    evt.sender = sender
+    evt.event_id = event_id
+    evt.source = {
+        "content": {
+            "msgtype": "m.text",
+            "body": body,
+            "m.relates_to": {
+                "m.in_reply_to": {"event_id": reply_target},
+            },
+        },
+        "event_id": event_id,
+        "sender": sender,
+        "type": "m.room.message",
+    }
+    return evt

@@ -62,6 +62,56 @@ def extract_reaction(source: dict) -> tuple[str, str] | None:
     return (event_id, key)
 
 
+def strip_reply_fallback_body(body: str) -> str:
+    """Strip the Matrix reply fallback prefix from a message body.
+
+    Matrix clients embed a quoted fallback when replying.  The wire format
+    is::
+
+        > <@sender:server> original line 1
+        > <@sender:server> original line 2
+
+        User-authored reply text
+
+    Lines starting with ``"> "`` form the quoted block, a single blank line
+    separates it from the user's reply, and everything after that separator
+    is the actual reply text.
+
+    Parameters
+    ----------
+    body:
+        The raw message body that may contain a reply fallback prefix.
+
+    Returns
+    -------
+    str
+        The body with the fallback prefix removed.  If *body* does not
+        start with ``"> "``, it is returned unchanged — this preserves
+        ordinary messages that happen to contain ``"> "`` quotes later
+        in the text.
+    """
+    # Normalise line endings so we only deal with \n internally.
+    normalised = body.replace("\r\n", "\n")
+    if not normalised.startswith("> "):
+        return body
+
+    lines = normalised.split("\n")
+    idx = 0
+    # Skip consecutive "> " lines (the quoted fallback block).
+    while idx < len(lines) and lines[idx].startswith("> "):
+        idx += 1
+
+    # Skip the blank separator line immediately after the quoted block.
+    if idx < len(lines) and lines[idx] == "":
+        idx += 1
+
+    remainder = "\n".join(lines[idx:])
+    # Preserve the original line-ending style if possible.
+    if "\r\n" in body:
+        return remainder.replace("\n", "\r\n")
+    return remainder
+
+
 def build_reply_body(body: str, sender: str, original_text: str) -> str:
     """Build a Matrix reply body with quoted original message.
 
@@ -99,4 +149,5 @@ class MatrixRelationHandler:
 
     extract_reply_target = staticmethod(extract_reply_target)
     extract_reaction = staticmethod(extract_reaction)
+    strip_reply_fallback_body = staticmethod(strip_reply_fallback_body)
     build_reply_body = staticmethod(build_reply_body)

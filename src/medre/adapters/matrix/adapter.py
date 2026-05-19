@@ -490,12 +490,13 @@ class MatrixAdapter(AdapterContract):
     # -- Inbound callback ---------------------------------------------------
 
     async def _on_room_message(self, room: Any, event: Any) -> None:
-        """nio callback for inbound room messages.
+        """nio callback for inbound room events.
 
-        Decodes the native event into a canonical event and publishes
-        it into the framework's inbound stream.  Self-messages (where
-        the sender matches ``config.user_id``) are suppressed to prevent
-        echo loops.  Events carrying a MEDRE metadata envelope whose
+        Decodes the native event (messages, reactions, etc.) into a
+        canonical event and publishes it into the framework's inbound
+        stream.  Self-messages (where the sender matches
+        ``config.user_id``) are suppressed to prevent echo loops.
+        Events carrying a MEDRE metadata envelope whose
         ``source_adapter`` equals this adapter's ID are also suppressed
         as loop-origin hints.
 
@@ -504,7 +505,8 @@ class MatrixAdapter(AdapterContract):
         room:
             The nio ``Room`` object.
         event:
-            The nio ``RoomMessage*`` event object.
+            The nio event object (``RoomMessage*``, ``ReactionEvent``,
+            etc.).
         """
         if self.ctx is None:
             return
@@ -549,6 +551,64 @@ class MatrixAdapter(AdapterContract):
                     self.adapter_id,
                 )
                 return
+
+            # -- Enrich native metadata with Matrix display name -----------
+            # When the event has no existing MMRelay longname/shortname
+            # (populated by the codec from meshtastic_longname /
+            # meshtastic_shortname content keys), fill them from the
+            # Matrix room member display name so that downstream
+            # renderers (e.g. Meshtastic radio_relay_prefix {longname})
+            # show a human-readable name instead of a bare MXID.
+            # Because CanonicalEvent and its metadata are frozen
+            # (msgspec.Struct), we rebuild the data dict and use
+            # force_setattr to patch the immutable structures.
+            if canonical.metadata and canonical.metadata.native:
+                ndata = canonical.metadata.native.data
+                existing_longname = ndata.get("longname") or ndata.get(
+                    "meshtastic_longname"
+                )
+                existing_shortname = ndata.get("shortname") or ndata.get(
+                    "meshtastic_shortname"
+                )
+                if not existing_longname and not existing_shortname:
+                    # Resolve display name from the nio Room object.
+                    display_name: str = ""
+                    user_name_fn = getattr(room, "user_name", None)
+                    if callable(user_name_fn):
+                        try:
+                            display_name = str(user_name_fn(sender) or "")
+                        except Exception:
+                            display_name = ""
+                    if not display_name:
+                        users = getattr(room, "users", {})
+                        user_info = users.get(sender, {}) if isinstance(users, dict) else {}
+                        raw_dn = (
+                            user_info.get("display_name")
+                            if isinstance(user_info, dict)
+                            else ""
+                        ) or ""
+                        display_name = str(raw_dn) if raw_dn else ""
+                    if not display_name:
+                        display_name = sender
+
+                    # shortname: first 5 chars of display name, or
+                    # localpart of MXID if display_name is just the MXID.
+                    if display_name != sender:
+                        shortname = display_name[:5]
+                    else:
+                        localpart = sender.lstrip("@").split(":")[0]
+                        shortname = localpart[:5]
+
+                    enriched = dict(ndata)
+                    enriched["displayname"] = display_name
+                    enriched["longname"] = display_name
+                    enriched["shortname"] = shortname
+
+                    from msgspec.structs import force_setattr
+
+                    force_setattr(
+                        canonical.metadata.native, "data", enriched
+                    )
 
             await self.publish_inbound(canonical)
             self._inbound_published += 1

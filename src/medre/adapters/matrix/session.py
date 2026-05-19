@@ -489,6 +489,18 @@ class MatrixSession:
                 (nio.RoomMessageText, nio.RoomMessageNotice, nio.RoomMessageEmote),
             )
 
+            # Register reaction event callback so that Matrix reactions
+            # (m.annotation) reach the same inbound handler.  Wrapped in
+            # try/except so that older nio versions without ReactionEvent
+            # degrade gracefully.
+            try:
+                self._client.add_event_callback(
+                    self._message_callback,
+                    (nio.ReactionEvent,),
+                )
+            except AttributeError:
+                pass
+
         # Register MegolmEvent callback for undecryptable encrypted events.
         self._register_megolm_callback()
 
