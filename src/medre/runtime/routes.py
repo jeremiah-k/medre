@@ -576,6 +576,14 @@ class RouteConfig:
                 normalized[ch_normalized] = room_value
             channel_room_map = normalized
 
+            # Reject empty channel_room_map — at least one mapping is required.
+            if not channel_room_map:
+                raise ConfigValidationError(
+                    f"Route {route_id!r}: 'channel_room_map' must have at "
+                    f"least one mapping",
+                    section_path=section_path,
+                )
+
         # --- policy ---
         raw_policy = data.pop("policy", None)
         policy: BridgePolicy | None = None

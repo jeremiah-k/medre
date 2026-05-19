@@ -935,6 +935,8 @@ class TestConcurrentJoinDeduplication:
                 nonlocal join_count
                 join_count += 1
                 await asyncio.sleep(0)  # yield to allow concurrency
+                # Simulate nio behaviour: room appears in client.rooms after join.
+                mock_client.rooms[rid] = MagicMock(name=f"room_{rid}")
                 resp = MagicMock(name="ok")
                 resp.room_id = rid
                 return resp

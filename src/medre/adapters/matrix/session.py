@@ -204,7 +204,7 @@ class MatrixSession:
         self._room_states: dict[str, RoomEncryptionState] = {}
         # Part D — auto-join
         self._auto_join_rooms = auto_join_rooms
-        self._joining_rooms: set[str] = set()
+        self._joining_rooms: dict[str, asyncio.Event] = {}
 
     # -- Properties -----------------------------------------------------------
 
@@ -672,10 +672,19 @@ class MatrixSession:
         if rooms is not None and isinstance(rooms, dict) and room_id in rooms:
             return True
 
-        # Deduplicate concurrent joins.
+        # Deduplicate concurrent joins using an Event per room.
+        # Waiters block on the event, then re-check client.rooms so they
+        # observe the actual outcome (success or failure) of the join.
         if room_id in self._joining_rooms:
-            return True
-        self._joining_rooms.add(room_id)
+            await self._joining_rooms[room_id].wait()
+            # Re-check after the leader finished — it may have failed.
+            rooms = getattr(self._client, "rooms", None)
+            if rooms is not None and isinstance(rooms, dict) and room_id in rooms:
+                return True
+            return False
+
+        event = asyncio.Event()
+        self._joining_rooms[room_id] = event
         try:
             response = await self._client.join(room_id)
             # nio JoinResponse has room_id; error responses do not.
@@ -694,7 +703,8 @@ class MatrixSession:
             )
             return False
         finally:
-            self._joining_rooms.discard(room_id)
+            self._joining_rooms.pop(room_id, None)
+            event.set()
 
     # Part D — ensure_joined_rooms batch helper
     async def ensure_joined_rooms(self, room_ids: Iterable[str]) -> dict[str, bool]:

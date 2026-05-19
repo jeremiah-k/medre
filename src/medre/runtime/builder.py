@@ -608,6 +608,25 @@ class RuntimeBuilder:
 
         self._config = replace(self._config, routes=RouteConfigSet(routes=tuple(new_routes)))
 
+        # Back-patch resolved aliases into Matrix adapter auto_join_rooms.
+        matrix_changed = False
+        new_matrix = dict(self._config.adapters.matrix)
+        for instance_name, rtc in new_matrix.items():
+            if rtc.config is None:
+                continue
+            old_rooms = rtc.config.auto_join_rooms
+            if not old_rooms:
+                continue
+            new_rooms = tuple(alias_map.get(r, r) for r in old_rooms)
+            if new_rooms != old_rooms:
+                new_matrix[instance_name] = replace(rtc, config=replace(rtc.config, auto_join_rooms=new_rooms))
+                matrix_changed = True
+        if matrix_changed:
+            self._config = replace(
+                self._config,
+                adapters=replace(self._config.adapters, matrix=new_matrix),
+            )
+
     # -- Storage construction ----------------------------------------------------
 
     def _build_storage(self) -> SQLiteStorage:
