@@ -517,8 +517,7 @@ class PipelineRunner:
 
         storage = self._config.storage
         list_fn = getattr(storage, "list_native_refs_for_event", None)
-        if not callable(list_fn):
-            return event
+        get_fn = getattr(storage, "get", None)
 
         changed = False
         new_relations: list[EventRelation] = []
@@ -528,78 +527,139 @@ class PipelineRunner:
                 new_relations.append(rel)
                 continue
 
-            # Check if already has a native ref for the target adapter.
-            if (
-                rel.target_native_ref is not None
-                and rel.target_native_ref.adapter == target_adapter
-            ):
-                existing_channel = rel.target_native_ref.native_channel_id
-                # Keep if no target channel specified, or existing channel matches,
-                # or existing channel is None (unknown).
-                if target_channel is None or existing_channel in (None, target_channel):
-                    new_relations.append(rel)
-                    continue
-                # Existing channel differs from target channel — may need replacement.
-                # Fall through to lookup an exact match.
+            current_rel = rel
 
-            # Look up stored native refs for the target event.
-            try:
-                list_native_refs = cast(
-                    Callable[[str], Awaitable[list[NativeMessageRef]]],
-                    list_fn,
-                )
-                refs = await list_native_refs(rel.target_event_id)
-            except Exception:
-                self._log.debug(
-                    "Failed to enrich relation native ref for "
-                    "target_event_id=%s target_adapter=%s relation_type=%s",
-                    getattr(rel, "target_event_id", "?"),
-                    target_adapter,
-                    getattr(rel, "relation_type", "?"),
-                    exc_info=True,
-                )
-                new_relations.append(rel)
-                continue
-
-            # Find ref matching the target adapter, preferring exact channel match.
-            matching: NativeMessageRef | None = None
-            exact_match: NativeMessageRef | None = None
-            for nref in refs:
-                if nref.adapter == target_adapter:
+            # -- Phase 1: Native-ref enrichment --------------------------------
+            # Only when list_fn is available; otherwise skip native-ref lookup.
+            native_ref_changed = False
+            if callable(list_fn):
+                # Check if already has a native ref for the target adapter.
+                skip_native = False
+                if (
+                    current_rel.target_native_ref is not None
+                    and current_rel.target_native_ref.adapter == target_adapter
+                ):
+                    existing_channel = current_rel.target_native_ref.native_channel_id
+                    # Keep if no target channel specified, or existing matches,
+                    # or existing channel is None (unknown).
                     if (
-                        target_channel is not None
-                        and nref.native_channel_id == target_channel
+                        target_channel is None
+                        or existing_channel in (None, target_channel)
                     ):
-                        exact_match = nref
-                        break
-                    if matching is None:
-                        matching = nref
-            # Prefer exact channel match over adapter-only fallback.
-            matching = exact_match or matching
+                        skip_native = True
+                    # Existing channel differs — fall through to lookup.
 
-            if matching is None:
-                new_relations.append(rel)
-                continue
+                if not skip_native:
+                    # Look up stored native refs for the target event.
+                    try:
+                        list_native_refs = cast(
+                            Callable[[str], Awaitable[list[NativeMessageRef]]],
+                            list_fn,
+                        )
+                        refs = await list_native_refs(current_rel.target_event_id)
+                    except Exception:
+                        self._log.debug(
+                            "Failed to enrich relation native ref for "
+                            "target_event_id=%s target_adapter=%s "
+                            "relation_type=%s",
+                            getattr(current_rel, "target_event_id", "?"),
+                            target_adapter,
+                            getattr(current_rel, "relation_type", "?"),
+                            exc_info=True,
+                        )
+                        refs = []
 
-            # Build enriched native ref.
-            enriched_native_ref = NativeRef(
-                adapter=matching.adapter,
-                native_channel_id=matching.native_channel_id,
-                native_message_id=matching.native_message_id,
-                native_thread_id=matching.native_thread_id,
-            )
+                    # Find ref matching target adapter, preferring exact channel.
+                    matching: NativeMessageRef | None = None
+                    exact_match: NativeMessageRef | None = None
+                    for nref in refs:
+                        if nref.adapter == target_adapter:
+                            if (
+                                target_channel is not None
+                                and nref.native_channel_id == target_channel
+                            ):
+                                exact_match = nref
+                                break
+                            if matching is None:
+                                matching = nref
+                    matching = exact_match or matching
 
-            # Build enriched relation preserving original fields.
-            enriched_rel = EventRelation(
-                relation_type=rel.relation_type,
-                target_event_id=rel.target_event_id,
-                target_native_ref=enriched_native_ref,
-                key=rel.key,
-                fallback_text=rel.fallback_text,
-                metadata=dict(rel.metadata) if rel.metadata else {},
-            )
-            new_relations.append(enriched_rel)
-            changed = True
+                    if matching is not None:
+                        enriched_native_ref = NativeRef(
+                            adapter=matching.adapter,
+                            native_channel_id=matching.native_channel_id,
+                            native_message_id=matching.native_message_id,
+                            native_thread_id=matching.native_thread_id,
+                        )
+                        current_rel = EventRelation(
+                            relation_type=current_rel.relation_type,
+                            target_event_id=current_rel.target_event_id,
+                            target_native_ref=enriched_native_ref,
+                            key=current_rel.key,
+                            fallback_text=current_rel.fallback_text,
+                            metadata=(
+                                dict(current_rel.metadata)
+                                if current_rel.metadata
+                                else {}
+                            ),
+                        )
+                        native_ref_changed = True
+
+            # -- Phase 2: Text enrichment --------------------------------------
+            # Extract original text from the target event to populate
+            # fallback_text and metadata["original_text"] when missing.
+            # This runs regardless of whether native-ref enrichment succeeded.
+            text_changed = False
+            if callable(get_fn) and (
+                not current_rel.fallback_text
+                or not (current_rel.metadata or {}).get("original_text")
+            ):
+                try:
+                    target_event = await cast(
+                        Callable[[str], Awaitable[object]],
+                        get_fn,
+                    )(current_rel.target_event_id)
+                    if target_event is not None:
+                        target_payload = getattr(target_event, "payload", None)
+                        extracted_text: str | None = None
+                        if isinstance(target_payload, dict):
+                            raw = target_payload.get(
+                                "body", target_payload.get("text")
+                            )
+                            if raw is not None:
+                                extracted_text = str(raw) if not isinstance(raw, str) else raw
+                        if extracted_text:
+                            new_fallback = (
+                                current_rel.fallback_text
+                                if current_rel.fallback_text
+                                else extracted_text
+                            )
+                            new_meta = dict(current_rel.metadata) if current_rel.metadata else {}
+                            if "original_text" not in new_meta:
+                                new_meta["original_text"] = extracted_text
+                            current_rel = EventRelation(
+                                relation_type=current_rel.relation_type,
+                                target_event_id=current_rel.target_event_id,
+                                target_native_ref=current_rel.target_native_ref,
+                                key=current_rel.key,
+                                fallback_text=new_fallback,
+                                metadata=new_meta,
+                            )
+                            text_changed = True
+                except Exception:
+                    self._log.debug(
+                        "Failed to enrich relation text for "
+                        "target_event_id=%s target_adapter=%s "
+                        "relation_type=%s",
+                        getattr(current_rel, "target_event_id", "?"),
+                        target_adapter,
+                        getattr(current_rel, "relation_type", "?"),
+                        exc_info=True,
+                    )
+
+            new_relations.append(current_rel)
+            if native_ref_changed or text_changed:
+                changed = True
 
         if not changed:
             return event

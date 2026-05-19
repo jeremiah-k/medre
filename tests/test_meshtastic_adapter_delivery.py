@@ -413,6 +413,75 @@ def _install_fake_protobuf(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
 class TestSessionStructuredSend:
     """MeshtasticSession._send_structured via fake protobuf and _sendPacket."""
 
+    async def test_send_structured_returns_mesh_packet_when_sendpacket_none(
+        self, monkeypatch
+    ) -> None:
+        """_send_structured returns mesh_packet when _sendPacket returns None
+        but mesh_packet.id was set via _generatePacketId."""
+        config = make_meshtastic_config(connection_type="tcp", host="1.2.3.4")
+        session = MeshtasticSession(
+            config=config, adapter_id="mesh-1", platform="meshtastic"
+        )
+
+        _install_fake_protobuf(monkeypatch)
+
+        class FakeClient:
+            def _generatePacketId(self):
+                return 12345
+
+            def _sendPacket(self, mesh_packet, wantAck=True):
+                # SDK sends the packet but returns None
+                return None
+
+        session._client = FakeClient()
+
+        result = await session.send(
+            {"text": "hello", "channel_index": 0, "reply_id": 1}
+        )
+        assert result is not None
+        assert getattr(result, "id", None) == 12345
+
+    async def test_send_structured_returns_none_when_no_id_and_sendpacket_none(
+        self, monkeypatch
+    ) -> None:
+        """_send_structured returns None when _sendPacket returns None and
+        mesh_packet has no id (no _generatePacketId on client)."""
+        config = make_meshtastic_config(connection_type="tcp", host="1.2.3.4")
+        session = MeshtasticSession(
+            config=config, adapter_id="mesh-1", platform="meshtastic"
+        )
+
+        _install_fake_protobuf(monkeypatch)
+
+        class FakeClient:
+            # No _generatePacketId method
+            def _sendPacket(self, mesh_packet, wantAck=True):
+                return None
+
+        session._client = FakeClient()
+
+        result = await session.send(
+            {"text": "hello", "channel_index": 0, "reply_id": 1}
+        )
+        assert result is None
+
+    async def test_send_structured_sendpacket_none_queue_extracts_id(self) -> None:
+        """Queue process_one extracts packet ID from mesh_packet returned
+        by _send_structured when _sendPacket returns None."""
+        from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
+
+        queue = MeshtasticOutboundQueue(delay_between_messages=0.0)
+        await queue.enqueue({"text": "test", "channel_index": 0}, 0)
+
+        # Simulate _send_structured fallback: send_fn returns an object
+        # with id set (the mesh_packet), mimicking _sendPacket returning None.
+        async def fake_send(item):
+            return type("MeshPacket", (), {"id": 12345, "channel": 0})()
+
+        result = await queue.process_one(send_fn=fake_send)
+        assert result is not None
+        assert result.delivery_result.native_message_id == "12345"
+
     async def test_send_with_reply_id_calls_send_structured(self, monkeypatch) -> None:
         """send() with reply_id routes to _send_structured path."""
         config = make_meshtastic_config(connection_type="tcp", host="1.2.3.4")

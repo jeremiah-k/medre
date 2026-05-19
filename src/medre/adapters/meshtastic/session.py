@@ -543,11 +543,21 @@ class MeshtasticSession:
         except Exception:
             pass
 
-        return await asyncio.to_thread(
+        result = await asyncio.to_thread(
             _send_packet,
             mesh_packet,
             **send_kwargs,
         )
+        if result is not None:
+            return result
+        # _sendPacket may return None even after successfully sending
+        # (SDK mutates the packet, setting id via _generatePacketId).
+        # Fall back to the mesh_packet so the caller can still extract
+        # the packet ID via getattr(obj, "id", None).
+        packet_id = getattr(mesh_packet, "id", None)
+        if packet_id:
+            return mesh_packet
+        return None
 
     # -- Diagnostics ----------------------------------------------------------
 

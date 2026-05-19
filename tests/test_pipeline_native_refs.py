@@ -1386,3 +1386,381 @@ class TestEnrichRelationsChannelAware:
             bad_storage, event, "mesh-1", target_channel="0"
         )
         assert result.relations[0].target_event_id == "boom"
+
+
+# ===================================================================
+# Text enrichment tests
+# ===================================================================
+
+
+class TestTextEnrichment:
+    """Pipeline _enrich_relations_for_target populates fallback_text and
+    metadata["original_text"] from the target event's payload."""
+
+    async def test_text_enriched_from_target_payload(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Relation with empty fallback_text gets text from target event body."""
+        # Store a prior event with known body text.
+        ts = datetime.now(timezone.utc)
+        prior_event = CanonicalEvent(
+            event_id="prior-text-001",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=ts,
+            source_adapter="src",
+            source_transport_id="node-1",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"body": "Hello from the original message"},
+            metadata=EventMetadata(),
+        )
+        await temp_storage.append(prior_event)
+
+        rel = EventRelation(
+            relation_type="reaction",
+            target_event_id="prior-text-001",
+            target_native_ref=None,
+            key="👍",
+            fallback_text=None,
+        )
+        event = CanonicalEvent(
+            event_id="enrich-text-001",
+            event_kind="message.reacted",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="src",
+            source_transport_id="node-1",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"body": "👍"},
+            metadata=EventMetadata(),
+        )
+
+        config = PipelineConfig(
+            storage=temp_storage,
+            router=Router(routes=[]),
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters={},
+            event_bus=EventBus(),
+        )
+        runner = PipelineRunner(config)
+
+        result = await runner._enrich_relations_for_target(event, "target_adapter")
+        enriched_rel = result.relations[0]
+
+        assert enriched_rel.fallback_text == "Hello from the original message"
+        assert enriched_rel.metadata.get("original_text") == "Hello from the original message"
+
+    async def test_text_enrichment_skips_when_both_populated(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Relation with both fallback_text and original_text already set
+        is not overwritten."""
+        ts = datetime.now(timezone.utc)
+        prior_event = CanonicalEvent(
+            event_id="prior-skip-001",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=ts,
+            source_adapter="src",
+            source_transport_id="node-1",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"body": "Different text"},
+            metadata=EventMetadata(),
+        )
+        await temp_storage.append(prior_event)
+
+        rel = EventRelation(
+            relation_type="reaction",
+            target_event_id="prior-skip-001",
+            target_native_ref=None,
+            key="👍",
+            fallback_text="already set",
+            metadata={"original_text": "already set"},
+        )
+        event = CanonicalEvent(
+            event_id="enrich-skip-text-001",
+            event_kind="message.reacted",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="src",
+            source_transport_id="node-1",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"body": "👍"},
+            metadata=EventMetadata(),
+        )
+
+        config = PipelineConfig(
+            storage=temp_storage,
+            router=Router(routes=[]),
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters={},
+            event_bus=EventBus(),
+        )
+        runner = PipelineRunner(config)
+
+        result = await runner._enrich_relations_for_target(event, "target_adapter")
+        enriched_rel = result.relations[0]
+
+        # Should NOT be overwritten.
+        assert enriched_rel.fallback_text == "already set"
+        assert enriched_rel.metadata.get("original_text") == "already set"
+
+    async def test_text_enrichment_runs_even_with_native_ref(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Text enrichment runs even when relation already has a matching
+        target_native_ref for the target adapter."""
+        ts = datetime.now(timezone.utc)
+        prior_event = CanonicalEvent(
+            event_id="prior-nref-text-001",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=ts,
+            source_adapter="src",
+            source_transport_id="node-1",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"body": "Original text here"},
+            metadata=EventMetadata(),
+        )
+        await temp_storage.append(prior_event)
+
+        existing_nref = NativeRef(
+            adapter="target_adapter",
+            native_channel_id="ch-1",
+            native_message_id="msg-1",
+        )
+        rel = EventRelation(
+            relation_type="reaction",
+            target_event_id="prior-nref-text-001",
+            target_native_ref=existing_nref,
+            key="👍",
+            fallback_text=None,
+        )
+        event = CanonicalEvent(
+            event_id="enrich-nref-text-001",
+            event_kind="message.reacted",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="src",
+            source_transport_id="node-1",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"body": "👍"},
+            metadata=EventMetadata(),
+        )
+
+        config = PipelineConfig(
+            storage=temp_storage,
+            router=Router(routes=[]),
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters={},
+            event_bus=EventBus(),
+        )
+        runner = PipelineRunner(config)
+
+        result = await runner._enrich_relations_for_target(event, "target_adapter")
+        enriched_rel = result.relations[0]
+
+        # Native ref should be preserved.
+        assert enriched_rel.target_native_ref is existing_nref
+        # But text enrichment should still have populated fallback_text.
+        assert enriched_rel.fallback_text == "Original text here"
+        assert enriched_rel.metadata.get("original_text") == "Original text here"
+
+    async def test_text_enrichment_falls_back_to_text_field(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """When target event has 'text' but no 'body', uses 'text'."""
+        ts = datetime.now(timezone.utc)
+        prior_event = CanonicalEvent(
+            event_id="prior-textfield-001",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=ts,
+            source_adapter="src",
+            source_transport_id="node-1",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"text": "Text field content"},
+            metadata=EventMetadata(),
+        )
+        await temp_storage.append(prior_event)
+
+        rel = EventRelation(
+            relation_type="reaction",
+            target_event_id="prior-textfield-001",
+            target_native_ref=None,
+            key="👍",
+            fallback_text=None,
+        )
+        event = CanonicalEvent(
+            event_id="enrich-textfield-001",
+            event_kind="message.reacted",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="src",
+            source_transport_id="node-1",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"body": "👍"},
+            metadata=EventMetadata(),
+        )
+
+        config = PipelineConfig(
+            storage=temp_storage,
+            router=Router(routes=[]),
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters={},
+            event_bus=EventBus(),
+        )
+        runner = PipelineRunner(config)
+
+        result = await runner._enrich_relations_for_target(event, "target_adapter")
+        enriched_rel = result.relations[0]
+
+        assert enriched_rel.fallback_text == "Text field content"
+
+
+# ===================================================================
+# Test C: missing mapping safety (storage.get returns None)
+# ===================================================================
+
+
+class TestTextEnrichmentMissingMapping:
+    """storage.get returns None — no crash, relation preserved unchanged."""
+
+    async def test_storage_get_returns_none_no_crash(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """When storage.get(event_id) returns None, relation is unchanged."""
+        rel = EventRelation(
+            relation_type="reaction",
+            target_event_id="nonexistent-event-id",
+            target_native_ref=None,
+            key="👍",
+            fallback_text=None,
+        )
+        event = CanonicalEvent(
+            event_id="enrich-missing-001",
+            event_kind="message.reacted",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="src",
+            source_transport_id="node-1",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"body": "👍"},
+            metadata=EventMetadata(),
+        )
+
+        config = PipelineConfig(
+            storage=temp_storage,
+            router=Router(routes=[]),
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters={},
+            event_bus=EventBus(),
+        )
+        runner = PipelineRunner(config)
+
+        # Should not crash.
+        result = await runner._enrich_relations_for_target(event, "target_adapter")
+        enriched_rel = result.relations[0]
+
+        # Relation preserved unchanged (no fallback_text set).
+        assert enriched_rel.fallback_text is None
+        assert "original_text" not in enriched_rel.metadata
+
+
+# ===================================================================
+# Test D: storage.get raises exception
+# ===================================================================
+
+
+class TestTextEnrichmentStorageGetFailure:
+    """storage.get raises exception — no crash, relation preserved."""
+
+    async def test_storage_get_raises_no_crash(self) -> None:
+        """When storage.get raises, relation is unchanged and no crash."""
+
+        class _FailingStorage:
+            """Storage where get() always raises."""
+
+            def list_native_refs_for_event(self, event_id):
+                raise RuntimeError("DB connection lost")
+
+            async def get(self, event_id):
+                raise RuntimeError("DB connection lost")
+
+        storage = _FailingStorage()
+        config = PipelineConfig(
+            storage=storage,  # type: ignore[arg-type]
+            router=Router(routes=[]),
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=storage),  # type: ignore[arg-type]
+            adapters={},
+            event_bus=EventBus(),
+        )
+        runner = PipelineRunner(config)
+
+        rel = EventRelation(
+            relation_type="reaction",
+            target_event_id="boom-event-id",
+            target_native_ref=None,
+            key="👍",
+            fallback_text=None,
+        )
+        event = CanonicalEvent(
+            event_id="enrich-fail-001",
+            event_kind="message.reacted",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="src",
+            source_transport_id="node-1",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"body": "👍"},
+            metadata=EventMetadata(),
+        )
+
+        # Should not crash.
+        result = await runner._enrich_relations_for_target(event, "target_adapter")
+        enriched_rel = result.relations[0]
+
+        # Relation preserved unchanged.
+        assert enriched_rel.fallback_text is None
+        assert enriched_rel.target_native_ref is None

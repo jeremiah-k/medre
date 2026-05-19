@@ -483,3 +483,196 @@ class TestMeshtasticToMatrixReplyResolution:
             assert rel.target_event_id is None
         finally:
             await runner.stop()
+
+
+# ===================================================================
+# Test A: Pipeline text enrichment for reactions
+# ===================================================================
+
+
+class TestPipelineTextEnrichmentForReactions:
+    """Pipeline enriches reaction relations with original text from the
+    target event, enabling MeshtasticRenderer to preview the original
+    message instead of falling back to the reaction event body."""
+
+    async def test_text_enriched_from_target_event(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Matrix reaction event enriched with original text from the target
+        canonical event's payload body."""
+        # -- Seed a prior canonical event with known text ------------------
+        ts = datetime.now(timezone.utc)
+        prior_event = CanonicalEvent(
+            event_id="orig-event-1",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=ts,
+            source_adapter=_MATRIX_ADAPTER,
+            source_transport_id="matrix-user-1",
+            source_channel_id=_MATRIX_ROOM,
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"body": "Hello from the original message"},
+            metadata=EventMetadata(),
+            source_native_ref=NativeRef(
+                adapter=_MATRIX_ADAPTER,
+                native_channel_id=_MATRIX_ROOM,
+                native_message_id="$orig-msg-1",
+            ),
+        )
+        await temp_storage.append(prior_event)
+
+        # Store native refs for both adapters (Matrix + Meshtastic outbound).
+        await temp_storage.store_native_ref(
+            NativeMessageRef(
+                id="nref-orig-inbound",
+                event_id="orig-event-1",
+                adapter=_MATRIX_ADAPTER,
+                native_channel_id=_MATRIX_ROOM,
+                native_message_id="$orig-msg-1",
+                native_thread_id=None,
+                native_relation_id=None,
+                direction="inbound",
+                created_at=ts,
+            )
+        )
+        await temp_storage.store_native_ref(
+            NativeMessageRef(
+                id="nref-orig-outbound",
+                event_id="orig-event-1",
+                adapter=_RADIO_ADAPTER,
+                native_channel_id="0",
+                native_message_id="999888",
+                native_thread_id=None,
+                native_relation_id=None,
+                direction="outbound",
+                created_at=ts,
+            )
+        )
+
+        # -- Build a Matrix reaction event --------------------------------
+        reaction_rel = EventRelation(
+            relation_type="reaction",
+            target_event_id="orig-event-1",
+            target_native_ref=None,
+            key="👍",
+            fallback_text=None,
+        )
+        reaction_event = CanonicalEvent(
+            event_id="reaction-event-1",
+            event_kind="message.reacted",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter=_MATRIX_ADAPTER,
+            source_transport_id="@user:example.com",
+            source_channel_id=_MATRIX_ROOM,
+            parent_event_id=None,
+            lineage=(),
+            relations=(reaction_rel,),
+            payload={"body": "👍"},
+            metadata=EventMetadata(),
+        )
+
+        # -- Set up pipeline targeting radio adapter -----------------------
+        route = Route(
+            id="matrix-to-radio-reaction",
+            source=RouteSource(
+                adapter=_MATRIX_ADAPTER,
+                event_kinds=("message.reacted",),
+                channel=None,
+            ),
+            targets=[RouteTarget(adapter=_RADIO_ADAPTER, channel="0")],
+        )
+        router = Router(routes=[route])
+
+        rp = RenderingPipeline()
+        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register_adapter_platform(_RADIO_ADAPTER, "meshtastic")
+        rp.register(TextRenderer(), priority=100)
+
+        radio_config = MeshtasticConfig(adapter_id=_RADIO_ADAPTER)
+        radio_adapter = FakeMeshtasticAdapter(radio_config)
+
+        runner = PipelineRunner(
+            PipelineConfig(
+                storage=temp_storage,
+                router=router,
+                fallback_resolver=FallbackResolver(),
+                relation_resolver=RelationResolver(storage=temp_storage),
+                adapters={_RADIO_ADAPTER: radio_adapter},
+                event_bus=EventBus(),
+                rendering_pipeline=rp,
+            )
+        )
+        await runner.start()
+
+        try:
+            # -- Enrich directly to test text enrichment ------------------
+            enriched = await runner._enrich_relations_for_target(
+                reaction_event, _RADIO_ADAPTER, target_channel="0"
+            )
+
+            rel = enriched.relations[0]
+            # Text enrichment should populate both fields.
+            assert rel.fallback_text == "Hello from the original message"
+            assert rel.metadata.get("original_text") == "Hello from the original message"
+
+            # Native ref enrichment should also have run.
+            assert rel.target_native_ref is not None
+            assert rel.target_native_ref.adapter == _RADIO_ADAPTER
+            assert rel.target_native_ref.native_message_id == "999888"
+        finally:
+            await runner.stop()
+
+
+# ===================================================================
+# Test B: MeshtasticRenderer uses enriched text for reaction preview
+# ===================================================================
+
+
+class TestMeshtasticRendererEnrichedReactionText:
+    """MeshtasticRenderer renders the original message text as preview
+    when the relation has fallback_text and metadata["original_text"]
+    populated by pipeline text enrichment."""
+
+    async def test_renders_original_text_preview(self) -> None:
+        """Reaction with enriched fallback_text shows original message,
+        not the reaction event body."""
+        renderer = MeshtasticRenderer()
+
+        rel = EventRelation(
+            relation_type="reaction",
+            target_event_id="mesh-evt-0",
+            target_native_ref=NativeRef(
+                adapter="mesh-1",
+                native_channel_id="0",
+                native_message_id="42",
+            ),
+            key="👍",
+            fallback_text="Hello from the original message",
+            metadata={"original_text": "Hello from the original message"},
+        )
+        event = CanonicalEvent(
+            event_id="reaction-render-test",
+            event_kind="message.reacted",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="matrix-1",
+            source_transport_id="@user:example.com",
+            source_channel_id="!room:server",
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"body": "👍"},
+            metadata=EventMetadata(),
+        )
+
+        result = await renderer.render(event, "mesh-1")
+        text = str(result.payload["text"])
+
+        # Should contain the reaction key and the original text preview.
+        assert "reacted 👍 to" in text
+        assert "Hello from the original message" in text
+        # Should NOT contain just the reaction body "👍" as the preview.
+        # The text should be the descriptive pattern, not just the emoji.

@@ -218,6 +218,7 @@ __marimo__/
 .streamlit/secrets.toml
 
 #AI Agents
+.sisyphus/
 .omo/
 
 # Docker integration test artifacts

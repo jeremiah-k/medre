@@ -39,9 +39,11 @@ from medre.interop.mmrelay import (
     EMOJI_FLAG_VALUE,
     KEY_EMOJI,
     KEY_ID,
+    KEY_LONGNAME,
     KEY_MESHNET,
     KEY_PORTNUM,
     KEY_REPLY_ID,
+    KEY_SHORTNAME,
     KEY_TEXT,
 )
 
@@ -378,7 +380,8 @@ class MatrixCodec(AdapterCodec):
 
         Copies any present MMRelay keys (``meshtastic_id``,
         ``meshtastic_replyId``, ``meshtastic_text``, ``meshtastic_emoji``,
-        ``meshtastic_meshnet``, ``meshtastic_portnum``) from the Matrix
+        ``meshtastic_meshnet``, ``meshtastic_portnum``,
+        ``meshtastic_longname``, ``meshtastic_shortname``) from the Matrix
         event content into the native metadata dict.
         """
         for key in (
@@ -388,6 +391,8 @@ class MatrixCodec(AdapterCodec):
             KEY_EMOJI,
             KEY_MESHNET,
             KEY_PORTNUM,
+            KEY_LONGNAME,
+            KEY_SHORTNAME,
         ):
             if key in content:
                 native_data[key] = content[key]

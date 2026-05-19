@@ -322,12 +322,15 @@ class MatrixRenderer:
         native_data: dict[str, object] = {}
         if event.metadata and event.metadata.native:
             native_data = dict(event.metadata.native.data)
-        return self._matrix_relay_prefix.format(
-            longname=native_data.get("longname", ""),
-            shortname=native_data.get("shortname", ""),
-            meshnet_name=self._meshnet_name,
-            from_id=native_data.get("from_id", ""),
-        )
+        try:
+            return self._matrix_relay_prefix.format(
+                longname=native_data.get("longname", ""),
+                shortname=native_data.get("shortname", ""),
+                meshnet_name=self._meshnet_name,
+                from_id=native_data.get("from_id", ""),
+            )
+        except (KeyError, IndexError, ValueError):
+            return self._matrix_relay_prefix
 
     # ------------------------------------------------------------------
     # Reaction rendering
@@ -365,10 +368,11 @@ class MatrixRenderer:
             # Remove default msgtype/body set at top of render()
             content.pop("msgtype", None)
             content.pop("body", None)
+            symbol = self._extract_reaction_symbol(rel, event)
             content["m.relates_to"] = {
                 "rel_type": "m.annotation",
                 "event_id": mx_event_id,
-                "key": rel.key or body,
+                "key": symbol,
             }
             # Internal key consumed by adapter; never leaks to homeserver
             content["_matrix_event_type"] = "m.reaction"
@@ -380,7 +384,12 @@ class MatrixRenderer:
             )
             prefix = self._format_reaction_prefix(event)
 
-            emote_body = f'\n {prefix}reacted {symbol} to "{original_text}"'
+            if not prefix or not prefix.strip():
+                emote_body = f'\n reacted {symbol} to "{original_text}"'
+            elif prefix[-1].isspace():
+                emote_body = f'\n {prefix}reacted {symbol} to "{original_text}"'
+            else:
+                emote_body = f'\n {prefix} reacted {symbol} to "{original_text}"'
 
             content["msgtype"] = "m.emote"
             content["body"] = emote_body
