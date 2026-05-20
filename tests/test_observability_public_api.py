@@ -8,13 +8,9 @@ Verifies that:
 
 from __future__ import annotations
 
+import importlib
 import logging
 import sys
-
-# Snapshot sys.modules BEFORE importing any medre modules so that the
-# side-effect tests can distinguish modules pulled in by the sanitization
-# import from those already loaded by other tests or the test runner.
-_MODULES_BEFORE = frozenset(sys.modules)
 
 from medre.core.observability.sanitization import sanitize_error as _core_sanitize_error  # noqa: E402
 from medre.core.observability.sanitization import (  # noqa: E402
@@ -57,18 +53,22 @@ class TestSanitizationImportNoSideEffects:
     ]
 
     def test_import_does_not_configure_logging(self) -> None:
+        module_name = "medre.observability.sanitization"
+        sys.modules.pop(module_name, None)
         root = logging.getLogger()
         handler_ids_before = {id(h) for h in root.handlers}
-
+        importlib.import_module(module_name)
         handler_ids_after = {id(h) for h in root.handlers}
-        assert (
-            handler_ids_after == handler_ids_before
-        ), "Importing medre.observability.sanitization added root logger handlers"
+        assert handler_ids_after == handler_ids_before, (
+            "Importing medre.observability.sanitization added root logger handlers"
+        )
 
     def test_import_does_not_pull_forbidden_modules(self) -> None:
-        newly = [
-            m
-            for m in self._FORBIDDEN_MODULES
-            if m in sys.modules and m not in _MODULES_BEFORE
-        ]
-        assert not newly, f"Importing sanitization pulled in forbidden modules: {newly}"
+        module_name = "medre.observability.sanitization"
+        sys.modules.pop(module_name, None)
+        already = {m for m in self._FORBIDDEN_MODULES if m in sys.modules}
+        importlib.import_module(module_name)
+        newly = [m for m in self._FORBIDDEN_MODULES if m in sys.modules and m not in already]
+        assert not newly, (
+            f"Importing sanitization pulled in forbidden modules: {newly}"
+        )

@@ -136,7 +136,7 @@ class TestMeshtasticCodecStandalone:
         assert isinstance(result, CanonicalEvent)
         assert "hello mesh" in str(result.payload.get("body", ""))
         assert result.source_adapter == "mesh-1"
-        assert "message" in result.event_kind
+        assert isinstance(result.event_kind, str) and result.event_kind.startswith("message")
 
 
 # ======================================================================

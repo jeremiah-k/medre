@@ -122,17 +122,23 @@ class TestSetupLoggingNotCalledOnImport:
     def test_no_medre_handler_after_importing_reusable_modules(self):
         """After importing reusable modules, root logger must not have a
         MEDRE-managed handler — which would indicate setup_logging was called."""
+        root = logging.getLogger()
+        before = {
+            id(h) for h in root.handlers
+            if getattr(h, "_medre_console_handler", False)
+        }
+
         # Import all reusable modules explicitly (self-contained, no ordering dependency).
         for module_name in _REUSABLE_MODULES:
             _import_fresh(module_name)
 
-        root = logging.getLogger()
-        for h in root.handlers:
-            # setup_logging marks its handler with _medre_console_handler
-            assert not getattr(h, "_medre_console_handler", False), (
-                "Root logger has a MEDRE-managed handler — setup_logging was "
-                "called during import of reusable modules"
-            )
+        after = {
+            id(h) for h in root.handlers
+            if getattr(h, "_medre_console_handler", False)
+        }
+        assert after == before, (
+            "Importing reusable modules attached MEDRE-managed root handlers"
+        )
 
 
 class TestCodecRendererSdkFree:

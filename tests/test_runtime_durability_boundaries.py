@@ -223,13 +223,26 @@ class TestStorageNoRuntimeInternals:
         source = _source_of("medre.core.storage.replay")
         lines = _import_lines(source)
 
-        # Allow only medre.core.runtime.capacity.
+        # Check classic runtime prefixes (app, builder, route_engine, etc.).
         runtime_imports = _banned_imports(lines, _RUNTIME_PREFIXES)
-        allowed = ["from medre.core.runtime.capacity import CapacityController"]
-        disallowed = [line for line in runtime_imports if line not in allowed]
-        assert (
-            disallowed == []
-        ), f"replay.py imports disallowed runtime modules: {disallowed}"
+        assert runtime_imports == [], (
+            f"replay.py imports banned runtime modules: {runtime_imports}"
+        )
+
+        # Also check medre.core.runtime.* — both TYPE_CHECKING-guarded
+        # imports (accounting, capacity) are allowed; any other would be banned.
+        core_runtime_imports = _banned_imports(lines, ("medre.core.runtime",))
+        allowed = [
+            "from medre.core.runtime.capacity import CapacityController",
+            "from medre.core.runtime.accounting import RuntimeAccounting",
+        ]
+        disallowed = [
+            line for line in core_runtime_imports if line not in allowed
+        ]
+        assert disallowed == [], (
+            f"replay.py imports disallowed medre.core.runtime modules: "
+            f"{disallowed}"
+        )
 
 
 # ===================================================================

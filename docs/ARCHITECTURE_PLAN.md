@@ -75,7 +75,7 @@ These are adapter runtime errors — NOT config validation errors.
 
 | Layer            | May Import From                                                              | Must Not Import From             |
 | ---------------- | ---------------------------------------------------------------------------- | -------------------------------- |
-| `medre.core`     | `medre.core` only (documented exceptions: `core/observability/sanitization`) | `medre.adapters`, `medre.config` |
+| `medre.core`     | `medre.core` only (with narrowly scoped internal dependency notes)           | `medre.adapters`, `medre.config` |
 | `medre.config`   | `medre.config` (including `config.adapters`)                                 | `medre.adapters`                 |
 | `medre.adapters` | `medre.core.contracts.adapter`, `medre.config.adapters.*`, `medre.core.*`    | —                                |
 
@@ -93,7 +93,7 @@ These are adapter runtime errors — NOT config validation errors.
 | `core/observability/logging.py` | `sanitize_for_log` from `core/observability/sanitization.py` | Pure function, no I/O or SDK coupling |
 | `core/routing/stats.py`         | `sanitize_error` from `core/observability/sanitization.py`   | Pure function, no I/O or SDK coupling |
 
-Both exceptions import the same pure-function module (`core/observability/sanitization.py`). They are the only runtime core->external dependencies.
+Both imports target the same pure-function module (`core/observability/sanitization.py`) within `medre.core`. They are the only documented internal exception within core.
 
 **Type-only coupling** (acceptable, no runtime dependency):
 

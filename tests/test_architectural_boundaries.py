@@ -1249,38 +1249,15 @@ class TestReusableAdapterModuleBoundary:
         violations: list[str] = []
 
         try:
-            tree = _ast.parse(source)
+            _ast.parse(source)
         except SyntaxError:
             return [f"{rel}: syntax error, cannot parse"]
 
         is_codec_or_renderer = py_file.name in ("codec.py", "renderer.py")
 
         # Gather top-level vs nested imports
-        top_imports: list[tuple[str, int]] = []
-        all_imports_list: list[tuple[str, int]] = []
-
-        for node in _ast.walk(tree):
-            if isinstance(node, _ast.Import):
-                for alias in node.names:
-                    entry = (alias.name, node.lineno)
-                    all_imports_list.append(entry)
-            elif isinstance(node, _ast.ImportFrom):
-                mod = node.module or ""
-                for alias in node.names:
-                    entry = (f"{mod}.{alias.name}", node.lineno)
-                    all_imports_list.append(entry)
-                all_imports_list.append((mod, node.lineno))
-
-        # Top-level only
-        for node in _ast.iter_child_nodes(tree):
-            if isinstance(node, _ast.Import):
-                for alias in node.names:
-                    top_imports.append((alias.name, node.lineno))
-            elif isinstance(node, _ast.ImportFrom):
-                mod = node.module or ""
-                for alias in node.names:
-                    top_imports.append((f"{mod}.{alias.name}", node.lineno))
-                top_imports.append((mod, node.lineno))
+        all_imports_list = _all_imports(source, file_path=str(py_file))
+        top_imports = _top_level_imports(source, file_path=str(py_file))
 
         # 1. Check all imports for banned prefixes (runtime, cli, core.engine, core.storage)
         for mod, lineno in all_imports_list:

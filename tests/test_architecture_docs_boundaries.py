@@ -35,8 +35,10 @@ _HISTORICAL_WORDS = frozenset(
         "moved from",
         "moved to",
         "historical",
-        "was",
         "deprecated",
+        "was previously",
+        "was formerly",
+        "was moved",
     }
 )
 

@@ -4,6 +4,7 @@ medre.runtime.trace timeline assembly, and medre trace CLI commands.
 
 from __future__ import annotations
 
+import ast
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1314,6 +1315,10 @@ class TestPublicSanitizeError:
         import medre.runtime.evidence._helpers as evidence_helpers
 
         source = inspect.getsource(evidence_helpers)
-        assert (
-            "from medre.core.observability.sanitization import sanitize_error" in source
-        )
+        tree = ast.parse(source)
+        assert any(
+            isinstance(node, ast.ImportFrom)
+            and node.module == "medre.core.observability.sanitization"
+            and any(alias.name == "sanitize_error" for alias in node.names)
+            for node in ast.walk(tree)
+        ), "Expected import of sanitize_error from medre.core.observability.sanitization not found"

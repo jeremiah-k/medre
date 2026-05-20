@@ -60,6 +60,8 @@ def _is_secret_key(key: str) -> bool:
 
 def _sanitize_value(value: Any) -> Any:
     """Coerce *value* into a log-safe form."""
+    if isinstance(value, str):
+        return _TOKEN_RE.sub("[REDACTED]", _SDK_RE.sub("[OBJECT_REPR]", value))
     if isinstance(value, _SAFE_SCALAR):
         return value
     if isinstance(value, dict):
@@ -105,7 +107,8 @@ _TOKEN_RE: re.Pattern[str] = re.compile(
     r"|(token[=:]\s*\S+)"
     r"|(password[=:]\s*\S+)"
     r"|(secret[=:]\s*\S+)"
-    r"|(credential[=:]\s*\S+)"
+    r"|(credentials?[=:]\s*\S+)",
+    re.IGNORECASE,
 )
 
 _SDK_RE: re.Pattern[str] = re.compile(r"<[\w.]+ object at 0x[0-9a-fA-F]+>")

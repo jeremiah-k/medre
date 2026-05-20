@@ -155,6 +155,12 @@ for direct consumption by CLI or adapter code.
 ### Boundary rules
 
 - `medre.observability` must not import from `medre.core.observability`.
+  **Exception:** `medre.observability.sanitization` is a documented re-export
+  from `medre.core.observability.sanitization`. The `medre.observability`
+  package MAY import specific symbols from `medre.core.observability.sanitization`
+  for the sole purpose of maintaining the user-facing `medre.observability.sanitization`
+  public API. No other cross-boundary imports from `medre.core.observability`
+  are permitted.
 - `medre.core.observability` may import from `medre.observability` (e.g.
   `log_route_failed` delegates sanitization to `medre.observability.sanitize_error`,
   and `core.observability.logging` delegates dict redaction to
