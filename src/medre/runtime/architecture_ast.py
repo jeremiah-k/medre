@@ -311,21 +311,6 @@ def extract_aliases(
     """
     aliases: dict[str, str] = {}
 
-    def _is_type_checking(node: ast.AST) -> bool:
-        if not isinstance(node, ast.If):
-            return False
-        test = node.test
-        if isinstance(test, ast.Name) and test.id == "TYPE_CHECKING":
-            return True
-        if (
-            isinstance(test, ast.Attribute)
-            and test.attr == "TYPE_CHECKING"
-            and isinstance(test.value, ast.Name)
-            and test.value.id == "typing"
-        ):
-            return True
-        return False
-
     def _walk(node: ast.AST) -> None:
         for child in ast.iter_child_nodes(node):
             if isinstance(child, (ast.Import, ast.ImportFrom)):
@@ -338,7 +323,7 @@ def extract_aliases(
                     for alias in child.names:
                         local = alias.asname or alias.name
                         aliases[local] = f"{base}.{alias.name}" if base else alias.name
-            elif isinstance(child, ast.If) and _is_type_checking(child):
+            elif isinstance(child, ast.If) and is_type_checking(child):
                 for stmt in child.orelse:
                     _walk(stmt)
                 continue

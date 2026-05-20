@@ -179,7 +179,7 @@ The following modules do not exist and must not be imported:
 - `medre.adapters.base` does not exist.
 - `medre.core.ports` does not exist.
 - `medre.core.adapter_base` does not exist.
-- `medre.adapters.*.config` modules do not exist.
+- `medre.adapters.*.config` modules do not exist (now `medre.config.adapters.*`).
 
 ## 4. Remaining Follow-Up Work
 

@@ -304,7 +304,7 @@ class TestPackageRootsSystematic:
     """Package roots outside medre.core.* must be lightweight markers only.
 
     Walk selected __init__.py files and reject:
-    - __all__ (must be absent or empty)
+    - __all__ (must be absent)
     - __getattr__ (must be absent)
     - from .x import Symbol (re-exports from submodules)
     - from medre.x import Symbol (cross-package re-exports)

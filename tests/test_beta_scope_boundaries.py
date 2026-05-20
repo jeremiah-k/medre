@@ -211,7 +211,7 @@ class TestNoTransportSdkInRuntimeCore:
     (``medre.core.*``) must remain transport-agnostic.  Only adapter
     compat modules (``medre.adapters.*.compat``) may import SDKs.
 
-    Adapter config dataclasses (``medre.adapters.*.config``) are pure
+    Adapter config dataclasses (``medre.config.adapters.*``) are pure
     data — they import no SDKs and are excluded from this check.
     """
 

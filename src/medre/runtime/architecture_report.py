@@ -211,6 +211,7 @@ def build_dependency_graph_report(
         forbidden_imports_by_module=all_violations,
         layer_summary=layer_summary,
         total_edges=total_edges,
+        parse_errors=graph.parse_errors,
     )
 
 
@@ -241,6 +242,13 @@ def render_dependency_graph_report(report: DependencyGraphReport) -> str:
                 lines.append(f"  {v.source} -> {v.target} (line {v.line}): {v.rule}")
     else:
         lines.append("  (none)")
+
+    # Parse errors
+    if report.parse_errors:
+        lines.append("")
+        lines.append(f"== Parse Errors ({len(report.parse_errors)}) ==")
+        for mod, err in sorted(report.parse_errors.items()):
+            lines.append(f"  {mod}: {err}")
 
     return "\n".join(lines)
 
@@ -331,6 +339,7 @@ class DependencyGraphReport:
     forbidden_imports_by_module: dict[str, list[BoundaryViolation]]
     layer_summary: dict[str, int]
     total_edges: int
+    parse_errors: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -367,17 +376,6 @@ def _transport_for(module: str) -> str | None:
     return parts[0] if parts else None
 
 
-_ADAPTER_INNER_MODULES = frozenset({"codec", "renderer", "session"})
-
-
-def _is_adapter_inner(module: str) -> bool:
-    """True if module is a codec/renderer/session inside an adapter transport."""
-    prefix = "medre.adapters."
-    if not module.startswith(prefix):
-        return False
-    rest = module[len(prefix) :]
-    parts = rest.split(".")
-    return len(parts) >= 2 and parts[-1] in _ADAPTER_INNER_MODULES
 
 
 def build_route_adapter_boundary_report(
@@ -684,11 +682,15 @@ def render_boundary_report(report: RouteAdapterBoundaryReport) -> str:
         report.runtime_assembly_points,
     ]
 
+    # Track which sections represent allowed (not violations) entries
+    allowed_titles = {"Allowed Runtime → Adapter Assembly"}
+
     for section in sections:
-        lines.append(f"--- {section.title} ---")
+        count_label = "entries" if section.title in allowed_titles else "violations"
+        lines.append(f"--- {section.title} ({section.count} {count_label}) ---")
         if section.violations:
             for v in section.violations:
-                lines.append(f"  {v.source} -> {v.target}")
+                lines.append(f"  {v.source} -> {v.target} (line {v.line}): {v.rule}")
         else:
             lines.append("  (none)")
         lines.append("")

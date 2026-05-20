@@ -26,7 +26,7 @@ All tests use source-level text inspection.  This avoids triggering SDK
 imports at test collection time and works in environments where some or
 all SDKs are not installed.
 
-Adapter config dataclasses (``medre.adapters.*.config``) are pure frozen
+Adapter config dataclasses (``medre.config.adapters.*``) are pure frozen
 dataclasses with no SDK dependency.  Imports of these modules are **not**
 flagged as violations — only runtime modules (adapter, session, codec)
 and direct SDK imports are banned.
@@ -90,7 +90,7 @@ _BANNED_SDK_IMPORT_PREFIXES = (
 )
 
 # Adapter runtime module imports banned in runtime core contexts.
-# Config imports (medre.adapters.*.config) are pure dataclasses — permitted.
+# Config imports (medre.config.adapters.*) are pure dataclasses — permitted.
 _BANNED_ADAPTER_RUNTIME_IMPORTS = (
     "from medre.adapters.matrix.adapter",
     "from medre.adapters.matrix.session",
@@ -155,7 +155,7 @@ class TestRuntimeCoreNoSdk:
     transport SDK packages.
 
     Note: ``medre.runtime.builder`` imports adapter config dataclasses
-    (``medre.adapters.*.config``) and the abstract ``AdapterContract``.
+    (``medre.config.adapters.*``) and the abstract ``AdapterContract``.
     These are pure dataclasses / abstract base with no SDK dependency
     and are excluded from the SDK ban.
 
@@ -194,7 +194,7 @@ class TestRuntimeCoreNoSdk:
         lines = _import_lines(source)
 
         banned = _banned_imports(lines, _SDK_PACKAGES)
-        # Config imports (medre.adapters.*.config) are pure dataclasses,
+        # Config imports (medre.config.adapters.*) are pure dataclasses,
         # not third-party SDK packages — explicitly permitted per the test
         # docstring and _ADAPTER_CONFIG_ALLOWED.
         banned = [
@@ -370,7 +370,7 @@ class TestRuntimeCoreNoAdapterRuntime:
     ) -> None:
         """Runtime modules must not import adapter runtime modules.
 
-        Config dataclass imports (``medre.adapters.*.config``) are
+        Config dataclass imports (``medre.config.adapters.*``) are
         permitted — they are pure frozen dataclasses with no SDK
         dependency.
         """
@@ -605,16 +605,18 @@ class TestBuilderAbstraction:
         )
 
     def test_builder_imports_config_dataclasses(self) -> None:
-        """builder.py must import adapter config dataclasses (allowed pattern)."""
+        """builder.py imports RuntimeConfig and StorageConfig for actual use."""
         try:
             source = _source_of("medre.runtime.builder")
         except ImportError:
             pytest.skip("medre.runtime.builder not importable")
 
-        # Builder should import config dataclasses — this is the permitted pattern
-        assert (
-            "MatrixRuntimeConfig" in source or "matrix.config" in source
-        ), "medre.runtime.builder should import adapter config dataclasses"
+        assert "RuntimeConfig" in source, (
+            "medre.runtime.builder should import RuntimeConfig"
+        )
+        assert "StorageConfig" in source, (
+            "medre.runtime.builder should import StorageConfig"
+        )
 
 
 # ===================================================================

@@ -6,7 +6,7 @@ the TOML loader (:mod:`medre.config.loader`), environment-variable overrides
 
 Adapter-specific settings are *wrapped*, not duplicated — each runtime config
 type holds a reference to the existing adapter config dataclass from
-:mod:`medre.adapters.*.config`.
+:mod:`medre.config.adapters.*`.
 """
 
 from __future__ import annotations

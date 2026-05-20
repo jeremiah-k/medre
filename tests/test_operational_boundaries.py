@@ -391,7 +391,7 @@ class TestCliWorkflowsRuntimeLayerOnly:
     ) -> None:
         """CLI test files must not import concrete adapter runtime modules.
 
-        Config imports (``medre.adapters.*.config``) are permitted — they
+        Config imports (``medre.config.adapters.*``) are permitted — they
         are pure data classes with no SDK dependency.
         """
         violations = _scan_file_for_banned_imports(

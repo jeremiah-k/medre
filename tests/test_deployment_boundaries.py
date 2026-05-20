@@ -18,7 +18,7 @@ All tests use source-level text inspection.  This avoids triggering SDK
 imports at test collection time and works in environments where some or
 all SDKs are not installed.
 
-Adapter config dataclasses (``medre.adapters.*.config``) are pure frozen
+Adapter config dataclasses (``medre.config.adapters.*``) are pure frozen
 dataclasses with no SDK dependency.  Imports of these modules are **not**
 flagged as violations — only runtime modules (adapter, session, codec)
 and direct SDK imports are banned.
@@ -77,7 +77,7 @@ _BANNED_SDK_IMPORT_PREFIXES = (
 )
 
 # Adapter runtime module imports banned in deployment/clean-env contexts.
-# Config imports (medre.adapters.*.config) are pure dataclasses — permitted.
+# Config imports (medre.config.adapters.*) are pure dataclasses — permitted.
 _BANNED_ADAPTER_RUNTIME_IMPORTS = (
     "from medre.adapters.matrix.adapter",
     "from medre.adapters.matrix.session",
@@ -215,7 +215,7 @@ class TestCleanEnvTestsNoLiveSdk:
     ) -> None:
         """Clean-env test files must not import concrete adapter runtime modules.
 
-        Config dataclass imports (``medre.adapters.*.config``) are
+        Config dataclass imports (``medre.config.adapters.*``) are
         permitted — they are pure data with no SDK dependency.
         """
         violations = _scan_file_for_banned_imports(
@@ -240,7 +240,7 @@ class TestConfigSubsystemNoSdk:
     depend on optional transport SDK packages.
 
     Note: ``medre.config.model`` and ``medre.config.env`` import adapter
-    config dataclasses (``medre.adapters.*.config``).  These are pure
+    config dataclasses (``medre.config.adapters.*``).  These are pure
     frozen dataclasses with no SDK dependency and are excluded from the
     concrete adapter ban.
     """
@@ -264,7 +264,7 @@ class TestConfigSubsystemNoSdk:
     ) -> None:
         """Config modules must not have top-level SDK imports.
 
-        Adapter config dataclass imports (``medre.adapters.*.config``)
+        Adapter config dataclass imports (``medre.config.adapters.*``)
         are excluded — they are pure frozen dataclasses with no SDK
         dependency.
         """
@@ -371,7 +371,7 @@ class TestDeploymentHelpersNoSdkInstantiation:
     ) -> None:
         """Deployment modules must not import concrete adapter packages.
 
-        Config dataclass imports (``medre.adapters.*.config``) are
+        Config dataclass imports (``medre.config.adapters.*``) are
         excluded from this check — they carry no SDK dependency.
         """
         source = _source_of(module_name)

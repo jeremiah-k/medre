@@ -838,6 +838,7 @@ class TestDependencyGraphReportDataclass:
         assert report.forbidden_imports_by_module == {}
         assert report.layer_summary == {"core": 5}
         assert report.total_edges == 0
+        assert report.parse_errors == {}
 
 
 class TestBoundaryViolationHasRule:
@@ -1054,3 +1055,35 @@ class TestBuildDependencyGraphReport:
         text = render_dependency_report(g)
         assert "Parse Errors" in text
         assert "medre.broken" in text
+
+
+class TestDependencyGraphReportParseErrors:
+    """Tests for parse_errors in DependencyGraphReport."""
+
+    def test_build_preserves_parse_errors(self) -> None:
+        """build_dependency_graph_report preserves parse_errors from graph."""
+        g = ArchitectureGraph()
+        g.modules["medre.broken"] = ModuleInfo(
+            module="medre.broken", file="broken.py", imports=[], layer="other"
+        )
+        g.parse_errors["medre.broken"] = "invalid syntax (line 1)"
+        report = build_dependency_graph_report(g)
+        assert report.parse_errors == {"medre.broken": "invalid syntax (line 1)"}
+
+    def test_render_includes_parse_errors(self) -> None:
+        """render_dependency_graph_report includes parse errors section."""
+        g = ArchitectureGraph()
+        g.modules["medre.broken"] = ModuleInfo(
+            module="medre.broken", file="broken.py", imports=[], layer="other"
+        )
+        g.parse_errors["medre.broken"] = "invalid syntax (line 1)"
+        report = build_dependency_graph_report(g)
+        text = render_dependency_graph_report(report)
+        assert "Parse Errors" in text
+        assert "medre.broken" in text
+        assert "invalid syntax (line 1)" in text
+
+    def test_real_graph_has_no_parse_errors(self) -> None:
+        """Real source tree should have zero parse errors."""
+        graph = build_dependency_graph(_SRC)
+        assert graph.parse_errors == {}

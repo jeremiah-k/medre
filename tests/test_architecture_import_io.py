@@ -109,8 +109,12 @@ def _scan_file(py_file: Path) -> list[str]:
     """
     try:
         tree = parse_python(py_file)
-    except SyntaxError:
-        return []  # Skip files with syntax errors
+    except SyntaxError as exc:
+        rel = str(py_file.relative_to(_REPO))
+        return [
+            f"{rel}:{getattr(exc, 'lineno', '?')}: SyntaxError while scanning "
+            f"import-time I/O: {exc}"
+        ]
 
     # Extract aliases from the file
     aliases = extract_aliases(tree)
@@ -212,6 +216,27 @@ class TestNoBlockingIOAtImport:
             assert (
                 actual_keys == sorted_keys
             ), "_ALLOWLIST must be sorted by (file_path_rel, func_name)"
+
+    def test_syntax_error_produces_violation(self) -> None:
+        """A .py file with invalid syntax produces a violation mentioning SyntaxError."""
+        tmp = tempfile.NamedTemporaryFile(
+            suffix=".py",
+            delete=False,
+            prefix="test_io_syntax_err_",
+            dir=_SRC,
+        )
+        try:
+            tmp.write(b"def f(\n")  # invalid syntax
+            tmp.flush()
+            tmp.close()
+
+            violations = _scan_file(Path(tmp.name))
+            assert violations, "Scanner should report SyntaxError as violation"
+            assert "SyntaxError" in violations[0], (
+                f"Expected SyntaxError in violation, got: {violations[0]}"
+            )
+        finally:
+            Path(tmp.name).unlink(missing_ok=True)
 
     def test_scanner_catches_known_violation(self) -> None:
         """Verify the scanner flags a file with `open()` at module level."""
