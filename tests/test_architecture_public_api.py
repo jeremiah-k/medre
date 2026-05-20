@@ -98,7 +98,9 @@ class TestObservabilityFacadeRemoved:
         import medre.core.observability.sanitization  # noqa: F401 — canonical path works
 
         with pytest.raises(ImportError):
-            pass
+            from medre.observability import (  # type: ignore[import-not-found]  # noqa: F401
+                sanitize_error,
+            )
 
 
 class TestConfigFacadeRemoved:
@@ -364,8 +366,6 @@ class TestPackageRootsSystematic:
         import ast
 
         for rel in self._PACKAGE_ROOTS:
-            if rel in ("medre/runtime/run_session/__init__.py",):
-                continue  # Allow until cleaned
             _file, source = self._read_py_file(rel)
             tree = ast.parse(source)
             for node in ast.iter_child_nodes(tree):
