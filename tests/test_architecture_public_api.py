@@ -24,9 +24,13 @@ class TestTopLevelImportLightweight:
     )
 
     def test_import_medre_is_lightweight(self) -> None:
-        # Cold import: remove pre-existing entries so test is reliable
-        for m in list(self._FORBIDDEN_AFTER_IMPORT) + ["medre"]:
-            sys.modules.pop(m, None)
+        """import medre must not pull in heavy modules.
+        
+        Note: This test checks sys.modules delta before/after the import.
+        If medre was already cached, import is a no-op and the check is
+        best-effort. Do NOT pop medre from sys.modules here — that would
+        break monkeypatch.setattr('medre.adapters.*') in downstream tests.
+        """
         already = {m for m in self._FORBIDDEN_AFTER_IMPORT if m in sys.modules}
         import medre  # noqa: F811
         for m in self._FORBIDDEN_AFTER_IMPORT:
