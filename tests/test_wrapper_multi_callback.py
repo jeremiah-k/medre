@@ -78,6 +78,7 @@ class TestMatrixWrapperMultiCallback:
 
         await matrix_adapter.start(make_adapter_context("mx-multi", runner))
         await fake_target.start(make_adapter_context("mx-multi-target", runner))
+        matrix_adapter._session._live_sync_started = True
 
         room = make_nio_room("!multi_room:example.com")
 
@@ -156,6 +157,7 @@ class TestMatrixWrapperMultiCallback:
         await runner.start()
 
         await matrix_adapter.start(make_adapter_context("mx-self", runner))
+        matrix_adapter._session._live_sync_started = True
 
         try:
             room = make_nio_room("!self_room:example.com")

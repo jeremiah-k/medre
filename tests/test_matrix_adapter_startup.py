@@ -5,24 +5,18 @@ Moved from test_matrix_adapter.py to keep that file under 1500 lines.
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 from unittest.mock import MagicMock
-
-import pytest
 
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
 from medre.adapters.matrix.session import MatrixSession
 
-# Re-use private helpers from the sibling test module.  These are stable
-# module-level callables used across dozens of tests; importing avoids
-# duplication while keeping this file self-contained at the import level.
-from tests.test_matrix_adapter import (
-    _make_adapter_context,
-    _make_fake_nio_event,
-    _make_fake_reaction_event,
-    _make_fake_room,
-    _make_matrix_config,
+from tests.helpers.matrix_adapter import (
+    make_adapter_context as _make_adapter_context,
+    make_fake_nio_event as _make_fake_nio_event,
+    make_fake_reaction_event as _make_fake_reaction_event,
+    make_fake_room as _make_fake_room,
+    make_matrix_config as _make_matrix_config,
 )
 
 

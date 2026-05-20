@@ -5,27 +5,29 @@ factories, and relation helpers.
 
 from __future__ import annotations
 
-import logging
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from medre.adapters import FakeMatrixAdapter
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
-from medre.adapters.matrix.session import MatrixSession
-from medre.config.adapters.matrix import MatrixConfig
 from medre.core.contracts.adapter import (
-    AdapterContext,
     AdapterDeliveryResult,
     AdapterRole,
 )
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.events.kinds import EventKind
 from medre.core.rendering.renderer import RenderingResult
+
+from tests.helpers.matrix_adapter import (
+    make_adapter_context as _make_adapter_context,
+    make_fake_nio_event as _make_fake_nio_event,
+    make_fake_reaction_event as _make_fake_reaction_event,
+    make_fake_room as _make_fake_room,
+    make_matrix_config as _make_matrix_config,
+)
 
 
 def _make_event(event_id: str = "evt-1") -> CanonicalEvent:
@@ -310,70 +312,6 @@ class TestFakeMatrixAdapterMakeReactionEvent:
         target = adapter.make_event(text="original")
         reaction = adapter.make_reaction_event(target, emoji="🔥")
         assert reaction.relations[0].key == "🔥"
-
-
-# ===================================================================
-# Helpers for real MatrixAdapter suppression / hygiene tests
-# ===================================================================
-
-
-def _make_matrix_config(**overrides: Any) -> MatrixConfig:
-    """Build a valid MatrixConfig for testing."""
-    defaults: dict[str, Any] = {
-        "adapter_id": "matrix-1",
-        "homeserver": "https://matrix.example.com",
-        "user_id": "@bot:example.com",
-        "access_token": "tok",
-    }
-    defaults.update(overrides)
-    return MatrixConfig(**defaults)
-
-
-def _make_fake_nio_event(
-    sender: str = "@alice:example.com",
-    event_id: str = "$evt-001",
-    body: str = "hello",
-    content: dict | None = None,
-) -> SimpleNamespace:
-    """Build a minimal fake nio RoomMessageText event."""
-    return SimpleNamespace(
-        sender=sender,
-        event_id=event_id,
-        body=body,
-        source={
-            "content": content or {"msgtype": "m.text", "body": body},
-            "event_id": event_id,
-            "sender": sender,
-            "type": "m.room.message",
-        },
-    )
-
-
-def _make_fake_room(room_id: str = "!room:server") -> SimpleNamespace:
-    """Build a minimal fake nio Room object."""
-    return SimpleNamespace(room_id=room_id)
-
-
-def _make_adapter_context(
-    adapter_id: str = "matrix-1",
-) -> tuple[list[CanonicalEvent], AdapterContext]:
-    """Create an AdapterContext that collects published events."""
-    import asyncio
-
-    published: list[CanonicalEvent] = []
-
-    async def _publish(event: CanonicalEvent) -> None:
-        published.append(event)
-
-    ctx = AdapterContext(
-        adapter_id=adapter_id,
-        event_bus=None,
-        publish_inbound=_publish,
-        logger=logging.getLogger(f"test.{adapter_id}"),
-        clock=lambda: datetime.now(timezone.utc),
-        shutdown_event=asyncio.Event(),
-    )
-    return published, ctx
 
 
 # ===================================================================
@@ -951,36 +889,6 @@ class TestInboundDiagnosticsCounters:
 # ===================================================================
 # Reaction event handling
 # ===================================================================
-
-
-def _make_fake_reaction_event(
-    sender: str = "@alice:example.com",
-    event_id: str = "$react-001",
-    target_event_id: str = "$original-001",
-    key: str = "👍",
-    content: dict | None = None,
-) -> SimpleNamespace:
-    """Build a minimal fake nio ReactionEvent (m.annotation)."""
-    reaction_content = content or {
-        "msgtype": "m.reaction",
-        "body": key,
-        "m.relates_to": {
-            "rel_type": "m.annotation",
-            "event_id": target_event_id,
-            "key": key,
-        },
-    }
-    return SimpleNamespace(
-        sender=sender,
-        event_id=event_id,
-        body=key,
-        source={
-            "content": reaction_content,
-            "event_id": event_id,
-            "sender": sender,
-            "type": "m.reaction",
-        },
-    )
 
 
 class TestReactionEventHandling:
