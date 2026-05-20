@@ -391,3 +391,31 @@ def top_level_imports(
                     )
                 )
     return result
+
+
+def resolve_call_name(func_name: str, aliases: dict[str, str]) -> str:
+    """Resolve an aliased call name to its fully qualified form.
+    
+    Handles:
+      Path.read_text + {"Path": "pathlib.Path"} -> "pathlib.Path.read_text"
+      pl.Path.write_text + {"pl": "pathlib"} -> "pathlib.Path.write_text"
+      sp.run + {"sp": "subprocess"} -> "subprocess.run"
+      run + {"run": "subprocess.run"} -> "subprocess.run"
+      obj.read_text (no alias) -> "obj.read_text"
+    
+    Args:
+        func_name: The call name as extracted by top_level_calls().
+        aliases: Module-level alias mapping from extract_aliases().
+        
+    Returns:
+        Resolved fully qualified name, or func_name unchanged if no alias matches.
+    """
+    if "." not in func_name:
+        return aliases.get(func_name, func_name)
+    
+    parts = func_name.split(".")
+    root = parts[0]
+    if root in aliases:
+        resolved = aliases[root] + "." + ".".join(parts[1:])
+        return resolved
+    return func_name

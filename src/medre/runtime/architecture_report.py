@@ -573,7 +573,7 @@ def build_route_adapter_boundary_report(
             violations=sorted(config_adapter_impl_imports, key=sort_key),
         ),
         adapter_cross_imports=BoundarySection(
-            title="Adapter Cross-Imports (same transport)",
+            title="Adapter → Foreign Transport Imports",
             violations=sorted(adapter_cross, key=sort_key),
         ),
         codec_renderer_forbidden=BoundarySection(

@@ -14,6 +14,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
+from medre.runtime.architecture_ast import resolve_call_name
 from tests.helpers.ast_imports import (
     extract_aliases,
     parse_python,
@@ -98,32 +99,6 @@ _ALLOWLIST: list[tuple[str, str, str]] = [
 ]
 
 
-def _resolve_via_aliases(
-    func_name: str,
-    aliases: dict[str, str],
-) -> str:
-    """Resolve an aliased call like 'sp.run' to 'subprocess.run'.
-
-    Checks if the call's root object maps to an alias:
-      'sp.run' -> aliases.get('sp', 'sp') + '.run'
-    If the resolved name is 'subprocess.run', returns that.
-    Otherwise returns the original func_name.
-    """
-    if "." not in func_name:
-        # Direct call like 'sleep(1)' — check if 'sleep' is an alias
-        base = aliases.get(func_name)
-        if base:
-            return base
-        return func_name
-
-    parts = func_name.split(".")
-    root = parts[0]
-    if root in aliases:
-        resolved = aliases[root] + "." + ".".join(parts[1:])
-        return resolved
-    return func_name
-
-
 def _is_allowed(file_rel: str, func_name: str) -> bool:
     """Check if a blocking call is in the allowlist."""
     for aw_rel, aw_func, _reason in _ALLOWLIST:
@@ -151,7 +126,7 @@ def _scan_file(py_file: Path) -> list[str]:
 
     for call in calls:
         # Resolve alias
-        resolved = _resolve_via_aliases(call.func, aliases)
+        resolved = resolve_call_name(call.func, aliases)
 
         # 1. Exact match against dotted blocking patterns
         for dotted in _BLOCKING_DOTTED:
@@ -229,7 +204,7 @@ class TestNoBlockingIOAtImport:
             tree = parse_python(full_path)
             calls = top_level_calls(tree)
             aliases = extract_aliases(tree)
-            called_names = {_resolve_via_aliases(c.func, aliases) for c in calls}
+            called_names = {resolve_call_name(c.func, aliases) for c in calls}
             assert func_name in called_names, (
                 f"Entry {idx}: {func_name!r} is not called at module level "
                 f"in {file_path_rel}. Stale allowlist entry?"
