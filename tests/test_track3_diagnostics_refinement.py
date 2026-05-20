@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -65,13 +66,11 @@ def _build_mock_nio_module() -> MagicMock:
     client.close = AsyncMock()
     client.rooms = {}
 
-    async def _sync_forever_stub(*args: object, **kwargs: object) -> None:
-        try:
-            await asyncio.Event().wait()
-        except asyncio.CancelledError:
-            pass
+    async def _safe_sync_stub(*args: object, **kwargs: object) -> SimpleNamespace:
+        await asyncio.sleep(0)
+        return SimpleNamespace(next_batch="token")
 
-    client.sync_forever = _sync_forever_stub
+    client.sync = _safe_sync_stub
     # whoami() is called by _discover_device_id() during _start_plaintext().
     _whoami_resp = MagicMock(name="whoami_response")
     _whoami_resp.device_id = "DEVICE_TEST_ID"
@@ -323,7 +322,7 @@ class TestMatrixReconnectErrorClearsOnRecovery:
         session._reconnect_attempts = 3
 
         # Simulate successful recovery by calling the recovery path directly
-        # In the real code, this happens when sync_forever returns normally
+        # In the real code, this happens when sync returns normally
         # after reconnects. We test by simulating the recovery branch.
         session._reconnect_attempts = 0
         session._last_reconnect_error = None

@@ -43,7 +43,7 @@ class TestSyncFailureLogging:
             await asyncio.sleep(0)
             raise RuntimeError("sync died")
 
-        mock_nio.AsyncClient.return_value.sync_forever = _failing_sync
+        mock_nio.AsyncClient.return_value.sync = _failing_sync
         config = make_matrix_config()
         logger = logging.getLogger("test.sync_failure_log")
         session = MatrixSession(config, logger=logger)
@@ -65,7 +65,7 @@ class TestSyncFailureLogging:
 
             # Create a new session with same pattern to capture log
             session2 = MatrixSession(config, logger=logger)
-            mock_nio.AsyncClient.return_value.sync_forever = _failing_sync
+            mock_nio.AsyncClient.return_value.sync = _failing_sync
             with fast_sleep_patch():
                 await session2.start()
                 for _ in range(100):
@@ -89,7 +89,7 @@ class TestSyncRecovery:
     """Automatic sync recovery with bounded reconnect/backoff."""
 
     async def test_reconnect_after_transient_failure(self, mock_nio) -> None:
-        """sync_forever fails 3 times then succeeds → reconnect happens."""
+        """sync fails 3 times then succeeds → reconnect happens."""
         call_count = 0
         fail_count = 3
 
@@ -97,11 +97,12 @@ class TestSyncRecovery:
             nonlocal call_count
             call_count += 1
             if call_count <= fail_count:
+                await asyncio.sleep(0)
                 raise ConnectionError(f"transient error #{call_count}")
             # Success — block forever
             await asyncio.Event().wait()
 
-        mock_nio.AsyncClient.return_value.sync_forever = _sync_controlled
+        mock_nio.AsyncClient.return_value.sync = _sync_controlled
 
         config = make_matrix_config()
         session = MatrixSession(config)
@@ -112,27 +113,27 @@ class TestSyncRecovery:
                 # Give the sync loop time to run through failures
                 for _ in range(30):
                     await asyncio.sleep(0)
-                # sync_forever was called more than fail_count times
+                # sync was called more than fail_count times
                 assert call_count > fail_count
                 # Reconnect happened and then sync succeeded
                 assert session.sync_task_running is True
                 assert session._sync_failure is None
                 # Reconnect attempts accumulated during failures
                 assert session.reconnect_attempts == fail_count
-                # Not currently in reconnect phase (sync_forever is running)
+                # Not currently in reconnect phase (sync is running)
                 assert session.reconnecting is False
             finally:
                 await session.stop()
 
     async def test_max_reconnect_attempts_reached(self, mock_nio) -> None:
-        """sync_forever always fails → max attempts reached, _sync_failure set."""
+        """sync always fails → max attempts reached, _sync_failure set."""
         import medre.adapters.matrix.session as sess_mod
 
         async def _always_fail(*a: object, **kw: object) -> None:
             await asyncio.sleep(0)
             raise ConnectionError("persistent failure")
 
-        mock_nio.AsyncClient.return_value.sync_forever = _always_fail
+        mock_nio.AsyncClient.return_value.sync = _always_fail
 
         config = make_matrix_config()
         session = MatrixSession(config)
@@ -161,7 +162,7 @@ class TestSyncRecovery:
             await asyncio.sleep(0)
             raise ConnectionError("fail")
 
-        mock_nio.AsyncClient.return_value.sync_forever = _always_fail
+        mock_nio.AsyncClient.return_value.sync = _always_fail
 
         config = make_matrix_config()
         session = MatrixSession(config)
@@ -190,9 +191,10 @@ class TestSyncRecovery:
         """Diagnostics reflect reconnect state during backoff."""
 
         async def _sync_phased(*a: object, **kw: object) -> None:
+            await asyncio.sleep(0)
             raise ConnectionError("transient")
 
-        mock_nio.AsyncClient.return_value.sync_forever = _sync_phased
+        mock_nio.AsyncClient.return_value.sync = _sync_phased
 
         config = make_matrix_config()
         session = MatrixSession(config)
@@ -219,7 +221,7 @@ class TestSyncRecovery:
             await asyncio.sleep(0)
             raise asyncio.CancelledError()
 
-        mock_nio.AsyncClient.return_value.sync_forever = _cancel_sync
+        mock_nio.AsyncClient.return_value.sync = _cancel_sync
 
         config = make_matrix_config()
         session = MatrixSession(config)
@@ -239,9 +241,10 @@ class TestSyncRecovery:
         async def _always_fail(*a: object, **kw: object) -> None:
             nonlocal attempts
             attempts += 1
+            await asyncio.sleep(0)
             raise ConnectionError("fail")
 
-        mock_nio.AsyncClient.return_value.sync_forever = _always_fail
+        mock_nio.AsyncClient.return_value.sync = _always_fail
 
         config = make_matrix_config()
         session = MatrixSession(config)
@@ -424,7 +427,7 @@ class TestSyncStateResilience:
             await asyncio.sleep(0)
             raise RuntimeError("sync died")
 
-        mock_nio.AsyncClient.return_value.sync_forever = _failing_sync
+        mock_nio.AsyncClient.return_value.sync = _failing_sync
 
         config = make_matrix_config()
         session = MatrixSession(config)

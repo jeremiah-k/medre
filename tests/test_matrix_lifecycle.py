@@ -15,7 +15,7 @@ The file contains 21 tests across 6 classes:
   - ``TestMatrixAdapterHealthCheck`` (4 tests): health_check() state mapping.
   - ``TestMatrixAdapterRestart`` (1 test): full start-stop-start cycle.
   - ``TestMatrixAdapterLifecycleEdgeCases`` (2 tests): failure edge cases.
-  - ``TestMatrixAdapterSyncFailure`` (5 tests): sync_forever raises — exception
+  - ``TestMatrixAdapterSyncFailure`` (5 tests): sync raises — exception
     is recorded by _run_sync(), health_check() reports failed, stop() is clean
     after failure, restart recovers healthy state.
 
@@ -28,6 +28,7 @@ import asyncio
 import logging
 import sys
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -67,17 +68,16 @@ def _make_context(adapter_id="matrix-test") -> AdapterContext:
     )
 
 
-async def _sync_forever_stub(*args: object, **kwargs: object) -> None:
-    """Stub for ``nio.AsyncClient.sync_forever`` — blocks until cancelled.
+async def _healthy_sync(*args: object, **kwargs: object) -> SimpleNamespace:
+    """Stub for ``nio.AsyncClient.sync`` — yields once then returns a response.
 
-    Using a real coroutine (instead of ``AsyncMock``) avoids the
-    ``RuntimeWarning: coroutine was never awaited`` that would otherwise
-    fire when the asyncio task wrapping this stub gets cancelled.
+    The production reconnect loop calls ``await self._client.sync(...)`` in a
+    ``while`` loop.  Each call must yield (``asyncio.sleep(0)``) to avoid a
+    hot CPU loop and return a ``SimpleNamespace(next_batch=...)`` so the loop
+    can proceed.  The adapter's ``stop()`` cancels the sync task externally.
     """
-    try:
-        await asyncio.Event().wait()
-    except asyncio.CancelledError:
-        pass
+    await asyncio.sleep(0)
+    return SimpleNamespace(next_batch="batch_token")
 
 
 def _build_mock_nio_module() -> MagicMock:
@@ -95,7 +95,7 @@ def _build_mock_nio_module() -> MagicMock:
     client.add_event_callback = MagicMock()
     client.stop_sync_forever = MagicMock()
     client.close = AsyncMock()
-    client.sync_forever = _sync_forever_stub
+    client.sync = _healthy_sync
     client.room_send = AsyncMock()
     # whoami() is called by _discover_device_id() during _start_plaintext().
     _whoami_resp = MagicMock(name="whoami_response")
@@ -235,7 +235,7 @@ class TestMatrixAdapterStop:
     """stop() behavior — must be idempotent and clean."""
 
     async def test_stop_cancels_sync_task(self, mock_nio):
-        """stop() cancels the sync_forever task."""
+        """stop() cancels the sync task."""
         config = _make_config()
         adapter = MatrixAdapter(config)
         await adapter.start(_make_context())
@@ -370,21 +370,21 @@ class TestMatrixAdapterLifecycleEdgeCases:
 class TestMatrixAdapterSyncFailure:
     """Sync task failure is observed and recorded by _run_sync().
 
-    With the reconnect loop, sync_forever must fail 10 consecutive times
+    With the reconnect loop, sync must fail 10 consecutive times
     before _sync_failure is set. Tests mock asyncio.sleep to skip backoff.
     """
 
-    async def test_sync_forever_raises_is_recorded(self, mock_nio):
-        """_run_sync records the exception when sync_forever raises."""
+    async def test_sync_raises_is_recorded(self, mock_nio):
+        """_run_sync records the exception when sync raises."""
         config = _make_config()
         adapter = MatrixAdapter(config)
 
-        # Replace the mock's sync_forever with one that always raises.
+        # Replace the mock's sync with one that always raises.
         async def _failing_sync(*args, **kwargs):
             await asyncio.sleep(0)
             raise RuntimeError("sync lost connection")
 
-        mock_nio.AsyncClient.return_value.sync_forever = _failing_sync
+        mock_nio.AsyncClient.return_value.sync = _failing_sync
 
         # Mock sleep to skip backoff delays
         original_sleep = asyncio.sleep
@@ -406,7 +406,7 @@ class TestMatrixAdapterSyncFailure:
             await adapter.stop()
 
     async def test_health_failed_after_sync_failure(self, mock_nio):
-        """health_check() returns 'failed' after sync_forever raises."""
+        """health_check() returns 'failed' after sync raises."""
         config = _make_config()
         adapter = MatrixAdapter(config)
 
@@ -414,7 +414,7 @@ class TestMatrixAdapterSyncFailure:
             await asyncio.sleep(0)
             raise RuntimeError("sync disconnected")
 
-        mock_nio.AsyncClient.return_value.sync_forever = _failing_sync
+        mock_nio.AsyncClient.return_value.sync = _failing_sync
 
         original_sleep = asyncio.sleep
 
@@ -443,7 +443,7 @@ class TestMatrixAdapterSyncFailure:
             await asyncio.sleep(0)
             raise RuntimeError("sync died")
 
-        mock_nio.AsyncClient.return_value.sync_forever = _failing_sync
+        mock_nio.AsyncClient.return_value.sync = _failing_sync
 
         original_sleep = asyncio.sleep
 
@@ -479,7 +479,7 @@ class TestMatrixAdapterSyncFailure:
             if delay <= 0:
                 await original_sleep(0)
 
-        mock_nio.AsyncClient.return_value.sync_forever = _failing_sync
+        mock_nio.AsyncClient.return_value.sync = _failing_sync
         with patch("asyncio.sleep", side_effect=_fast_sleep):
             await adapter.start(_make_context())
             for _ in range(100):
@@ -490,8 +490,8 @@ class TestMatrixAdapterSyncFailure:
         # Stop the failed adapter.
         await adapter.stop()
 
-        # Restart with healthy sync_forever.
-        mock_nio.AsyncClient.return_value.sync_forever = _sync_forever_stub
+        # Restart with healthy sync.
+        mock_nio.AsyncClient.return_value.sync = _healthy_sync
         # Need fresh client mock since stop() cleared _client.
         client = MagicMock(name="mock_async_client_2")
         client.logged_in = True
@@ -499,7 +499,7 @@ class TestMatrixAdapterSyncFailure:
         client.add_event_callback = MagicMock()
         client.stop_sync_forever = MagicMock()
         client.close = AsyncMock()
-        client.sync_forever = _sync_forever_stub
+        client.sync = _healthy_sync
         client.room_send = AsyncMock()
         # whoami() is called by _discover_device_id() during _start_plaintext().
         _whoami_resp = MagicMock(name="whoami_response_2")

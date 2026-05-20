@@ -962,6 +962,10 @@ class MatrixSession:
                             )
                         self._reconnect_attempts = 0
                         self._last_reconnect_error = None
+
+                        # Real nio sync long-polls; this yield prevents
+                        # tight loops with immediate-return test fakes.
+                        await asyncio.sleep(0)
                     else:
                         # Error response from server
                         error_msg = str(resp)
@@ -1058,6 +1062,9 @@ class MatrixSession:
             self._sync_task = None
 
         if self._client is not None:
+            # Vestigial: production code now uses manual sync loop, not
+            # sync_forever.  Kept for safety in case any code path or
+            # third-party wrapper still triggers sync_forever.
             try:
                 self._client.stop_sync_forever()
             except Exception:

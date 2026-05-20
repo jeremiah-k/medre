@@ -122,14 +122,12 @@ def _build_mock_nio_module() -> MagicMock:
     client.close = AsyncMock()
     client.rooms = {}
 
-    # sync_forever stub: blocks until cancelled
-    async def _sync_forever_stub(*args: object, **kwargs: object) -> None:
-        try:
-            await asyncio.Event().wait()
-        except asyncio.CancelledError:
-            pass
+    # sync stub: yields once then returns a sync response
+    async def _safe_sync_stub(*args: object, **kwargs: object) -> SimpleNamespace:
+        await asyncio.sleep(0)
+        return SimpleNamespace(next_batch="token")
 
-    client.sync_forever = _sync_forever_stub
+    client.sync = _safe_sync_stub
 
     # room_send: returns a response with a deterministic event_id
     async def _room_send(
