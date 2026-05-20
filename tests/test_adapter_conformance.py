@@ -55,23 +55,17 @@ class TestFakeAdapterConformance:
     @pytest.mark.parametrize("cls", _FAKE_ADAPTERS)
     def test_adapter_can_be_instantiated_with_minimal_args(self, cls: type) -> None:
         """Fake adapter should be constructable with minimal args."""
-        try:
-            instance = cls(adapter_id="test")
-            assert instance is not None
-            assert instance.adapter_id == "test"
-        except TypeError as e:
-            pytest.skip(f"{cls.__name__} needs more args: {e}")
+        instance = cls(adapter_id="test")
+        assert instance is not None
+        assert instance.adapter_id == "test"
 
     @pytest.mark.parametrize("cls", _FAKE_ADAPTERS)
     def test_adapter_has_platform(self, cls: type) -> None:
         """Adapter class should expose a platform attribute."""
-        try:
-            instance = cls(adapter_id="test")
-            platform = getattr(instance, "platform", None)
-            assert platform is not None, f"{cls.__name__} has no platform"
-            assert isinstance(platform, str), f"{cls.__name__} platform not str"
-        except TypeError as e:
-            pytest.skip(f"{cls.__name__} needs more args: {e}")
+        instance = cls(adapter_id="test")
+        platform = getattr(instance, "platform", None)
+        assert platform is not None, f"{cls.__name__} has no platform"
+        assert isinstance(platform, str), f"{cls.__name__} platform not str"
 
     @pytest.mark.parametrize("cls", _FAKE_ADAPTERS)
     def test_adapter_lifecycle_methods_are_async(self, cls: type) -> None:
@@ -143,19 +137,21 @@ class TestNoPackageRootAdapterImports:
         source = Path(__file__).read_text(encoding="utf-8")
         tree = ast.parse(source)
 
-        # Collect names used in TYPE_CHECKING blocks — those are allowed.
-        type_checking_names: set[str] = set()
+        # Build parent map for scope-aware TYPE_CHECKING detection
+        parent: dict[ast.AST, ast.AST] = {}
         for node in ast.walk(tree):
-            if not isinstance(node, ast.If):
-                continue
-            # Detect: if TYPE_CHECKING:
-            test = node.test
-            if isinstance(test, ast.Name) and test.id == "TYPE_CHECKING":
-                for child in ast.iter_child_nodes(node):
-                    if isinstance(child, ast.ImportFrom):
-                        type_checking_names.update(
-                            alias.name for alias in (child.names or [])
-                        )
+            for child in ast.iter_child_nodes(node):
+                parent[child] = node
+
+        def _inside_type_checking(n: ast.AST) -> bool:
+            cur = n
+            while cur in parent:
+                cur = parent[cur]
+                if isinstance(cur, ast.If):
+                    test = cur.test
+                    if isinstance(test, ast.Name) and test.id == "TYPE_CHECKING":
+                        return True
+            return False
 
         for node in ast.walk(tree):
             if not isinstance(node, ast.ImportFrom):
@@ -170,7 +166,7 @@ class TestNoPackageRootAdapterImports:
             if len(parts) > 2:
                 continue
             # Skip if this import is inside a TYPE_CHECKING guard
-            if all(alias.name in type_checking_names for alias in (node.names or [])):
+            if _inside_type_checking(node):
                 continue
             # This is a package-root facade import
             names = ", ".join(alias.name for alias in (node.names or []))

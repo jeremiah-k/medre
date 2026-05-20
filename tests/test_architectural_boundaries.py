@@ -847,14 +847,18 @@ class TestConfigErrorCanonicalImports:
 
     def test_config_adapters_no_facade_re_exports(self) -> None:
         """config/adapters/__init__.py must not re-export error types."""
-        import importlib
+        import medre.config.adapters as mod
 
-        mod = importlib.import_module("medre.config.adapters")
-
-        assert not hasattr(mod, "MatrixConfigError"), (
-            "medre.config.adapters should not re-export error types; "
-            "import from medre.config.adapters.errors instead"
-        )
+        for name in (
+            "MatrixConfigError",
+            "MeshtasticConfigError",
+            "MeshCoreConfigError",
+            "LxmfConfigError",
+        ):
+            assert not hasattr(mod, name), (
+                f"medre.config.adapters should not re-export {name}; "
+                f"import from medre.config.adapters.errors instead"
+            )
 
 
 # ===================================================================
@@ -1080,7 +1084,7 @@ class TestCoreBoundaryComprehensive:
             rel = str(py_file.relative_to(repo_root))
             source = py_file.read_text()
             try:
-                imports = _runtime_imports(source)
+                imports = _runtime_imports(source, file_path=str(py_file))
             except SyntaxError:
                 violations.append(f"{rel}: syntax error, cannot parse")
                 continue
@@ -1123,7 +1127,7 @@ class TestRouteEngineBoundaryComprehensive:
 
         rel = str(route_engine.relative_to(repo_root))
         source = route_engine.read_text()
-        imports = _all_imports(source)
+        imports = _all_imports(source, file_path=str(route_engine))
         violations = _check_banned_ast(imports, self._BANNED_PREFIXES, rel_path=rel)
 
         assert (
@@ -1177,7 +1181,7 @@ class TestConfigModelBoundaryComprehensive:
         source = model_file.read_text()
 
         # Check runtime-scope imports for banned items
-        rt_imports = _runtime_imports(source)
+        rt_imports = _runtime_imports(source, file_path=str(model_file))
         violations = _check_banned_ast(rt_imports, self._BANNED_TOP_LEVEL, rel_path=rel)
 
         # Also check that medre.runtime.routes is NOT a bare runtime-scope import

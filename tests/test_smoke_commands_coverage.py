@@ -8,6 +8,7 @@ file with a ``medre-session-`` prefix and ``.db`` suffix, then passes it to
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -95,11 +96,11 @@ class TestRunSessionTempStorage:
                     os.unlink(passed_path)
 
     @pytest.mark.asyncio
-    async def test_no_temp_storage_when_path_provided(self) -> None:
+    async def test_no_temp_storage_when_path_provided(self, tmp_path: Path) -> None:
         """When storage_path is given, no temp file is created."""
         from medre.cli.smoke_commands import _run_session
 
-        explicit_path = "/tmp/test-explicit-storage.db"
+        explicit_path = str(tmp_path / "test-explicit-storage.db")
 
         with patch(
             "medre.runtime.run_session.orchestration.run_bridge_session",

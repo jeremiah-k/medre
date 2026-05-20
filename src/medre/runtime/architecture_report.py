@@ -116,7 +116,7 @@ def module_path_for(py_file: Path, src_root: Path) -> str:
         parts[-1] = parts[-1][:-3]
     # Remove __init__
     parts = [p for p in parts if p != "__init__"]
-    return "medre." + ".".join(parts)
+    return "medre" if not parts else "medre." + ".".join(parts)
 
 
 @dataclass

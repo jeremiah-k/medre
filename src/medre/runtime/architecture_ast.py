@@ -115,6 +115,13 @@ def runtime_scope_imports(
                             ast.Module(body=child.orelse, type_ignores=[]),
                             in_type_checking=in_type_checking,
                         )
+                else:
+                    # Skip TYPE_CHECKING body, but still process runtime else-branch
+                    if child.orelse:
+                        _walk(
+                            ast.Module(body=child.orelse, type_ignores=[]),
+                            in_type_checking=in_type_checking,
+                        )
                 continue
             if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
@@ -233,6 +240,9 @@ def top_level_calls(
                 )
                 _walk(child)
             elif isinstance(child, ast.If) and is_type_checking(child):
+                # Ignore TYPE_CHECKING body but keep runtime else-branch
+                for stmt in child.orelse:
+                    _walk(stmt)
                 continue
             elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
                 continue
