@@ -123,7 +123,7 @@ def _build_mock_nio_module() -> MagicMock:
     client.rooms = {}
 
     # sync stub: yields once then returns a sync response
-    async def _safe_sync_stub(*args: object, **kwargs: object) -> SimpleNamespace:
+    async def _safe_sync_stub(*_args: object, **_kwargs: object) -> SimpleNamespace:
         await asyncio.sleep(0)
         return SimpleNamespace(next_batch="token")
 

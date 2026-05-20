@@ -997,9 +997,14 @@ class TestLoggingTopology:
         # Switch back to text format
         setup_logging(level="INFO", json_format=False)
         medre_count = sum(
-            1 for h in root.handlers if getattr(h, _MEDRE_HANDLER_ATTR, False)
+            1 for h in logging.getLogger().handlers
+            if getattr(h, _MEDRE_HANDLER_ATTR, False)
         )
         assert medre_count == 1
+
+        # Re-fetch the current MEDRE-managed handler after the third call.
+        handler = self._get_medre_root_handler()
+        assert handler is not None
         assert not isinstance(handler.formatter, _JsonFormatter)
 
     def test_preserves_non_medre_root_handlers(self) -> None:

@@ -541,3 +541,35 @@ class TestLoggingValidation:
         )
         config, _, _ = load_config(str(p))
         assert config.logging.overrides["nio.crypto.log"] == "ERROR"
+
+
+class TestLoggingCanonicalisation:
+    """Logging level/format/overrides are normalised regardless of TOML casing."""
+
+    def test_lowercase_level_stored_uppercase(self, tmp_path: Path) -> None:
+        """logging.level = 'debug' → stored as 'DEBUG'."""
+        p = _write_config(
+            tmp_path,
+            '[runtime]\n[logging]\nlevel = "debug"\n',
+        )
+        config, _, _ = load_config(str(p))
+        assert config.logging.level == "DEBUG"
+
+    def test_uppercase_format_stored_lowercase(self, tmp_path: Path) -> None:
+        """logging.format = 'JSON' → stored as 'json'."""
+        p = _write_config(
+            tmp_path,
+            '[runtime]\n[logging]\nlevel = "INFO"\nformat = "JSON"\n',
+        )
+        config, _, _ = load_config(str(p))
+        assert config.logging.format == "json"
+
+    def test_override_lowercase_stored_uppercase(self, tmp_path: Path) -> None:
+        """logging.overrides.nio = 'debug' → stored as 'DEBUG'."""
+        p = _write_config(
+            tmp_path,
+            '[runtime]\n[logging]\nlevel = "INFO"\n'
+            '[logging.overrides]\nnio = "debug"\n',
+        )
+        config, _, _ = load_config(str(p))
+        assert config.logging.overrides["nio"] == "DEBUG"

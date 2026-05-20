@@ -22,6 +22,7 @@ import sys
 from datetime import datetime, timezone
 from typing import Any
 
+from medre.core.observability.log_levels import VALID_LEVEL_NAMES
 from medre.observability.sanitization import sanitize_error, sanitize_for_log
 
 # ---------------------------------------------------------------------------
@@ -41,11 +42,6 @@ _DEPENDENCY_DEFAULTS: dict[str, int] = {
     "serial_asyncio": logging.WARNING,
     "asyncio": logging.WARNING,
 }
-
-# Valid logging level names accepted by setup_logging / overrides.
-_VALID_LEVEL_NAMES: frozenset[str] = frozenset(
-    {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
-)
 
 # Private attribute used to mark the MEDRE-managed console handler on the
 # root logger so it can be identified and updated across repeated calls.
@@ -197,10 +193,10 @@ def setup_logging(
             f"Logging level must be a string, got {type(level).__name__}"
         )
     upper_level = level.upper()
-    if upper_level not in _VALID_LEVEL_NAMES:
+    if upper_level not in VALID_LEVEL_NAMES:
         raise ValueError(
             f"Invalid logging level {level!r}.  Must be one of: "
-            f"{', '.join(sorted(_VALID_LEVEL_NAMES))}"
+            f"{', '.join(sorted(VALID_LEVEL_NAMES))}"
         )
 
     # 1. Locate or create the single MEDRE-managed handler on the root logger.
@@ -241,10 +237,9 @@ def setup_logging(
 
     # Remove any MEDRE-managed handlers left on medre_logger by a
     # previous version of setup_logging.  Preserve non-MEDRE handlers.
-    medre_logger.handlers = [
-        h for h in medre_logger.handlers
-        if not getattr(h, _MEDRE_HANDLER_ATTR, False)
-    ]
+    for h in list(medre_logger.handlers):
+        if getattr(h, _MEDRE_HANDLER_ATTR, False):
+            medre_logger.removeHandler(h)
 
     # 5. Apply dependency defaults.
     for logger_name, default_level in _DEPENDENCY_DEFAULTS.items():
@@ -268,11 +263,11 @@ def setup_logging(
                     f"got {type(level_value).__name__}"
                 )
             upper = level_value.upper()
-            if upper not in _VALID_LEVEL_NAMES:
+            if upper not in VALID_LEVEL_NAMES:
                 raise ValueError(
                     f"Invalid logging level {level_value!r} for logger "
                     f"{logger_name!r}.  Must be one of: "
-                    f"{', '.join(sorted(_VALID_LEVEL_NAMES))}"
+                    f"{', '.join(sorted(VALID_LEVEL_NAMES))}"
                 )
             logging.getLogger(logger_name).setLevel(getattr(logging, upper))
 

@@ -100,6 +100,10 @@ logger name and the value is a log level string (`"DEBUG"`, `"INFO"`,
 | `meshtastic`       | `WARNING`     | SDK prints every radio packet at INFO               |
 | `aiohttp`          | `WARNING`     | HTTP access logs at INFO                            |
 | `peewee`           | `WARNING`     | Query logging at DEBUG, noisy at INFO               |
+| `urllib3`          | `WARNING`     | Noisy HTTP/retry logs                                |
+| `serial`           | `WARNING`     | Verbose device I/O                                   |
+| `serial_asyncio`   | `WARNING`     | Verbose async serial/device I/O                      |
+| `asyncio`          | `WARNING`     | Event-loop/debug chatter                             |
 
 > Any dependency logger **not** listed above (or in `[logging.overrides]`)
 > inherits the root logger's `WARNING` level. Add an entry to

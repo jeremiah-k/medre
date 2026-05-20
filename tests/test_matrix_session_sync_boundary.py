@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -229,6 +230,113 @@ class TestLiveUndecryptableDedup:
 
 
 # ===================================================================
+# TestUndecryptableDedupPruning
+# ===================================================================
+
+
+class TestUndecryptableDedupPruning:
+    """Undecryptable dedup cache is pruned of stale entries."""
+
+    async def test_old_entries_pruned(self, mock_nio) -> None:
+        """Dedup entries older than the window are evicted by _prune_undecryptable_dedup."""
+        config = make_matrix_config()
+        session = MatrixSession(config)
+        now = 1000.0
+        # Inject a stale entry (older than 60s window)
+        session._undecryptable_dedup["!old:server:sess-old"] = now - 61.0
+        # Inject a recent entry
+        session._undecryptable_dedup["!new:server:sess-new"] = now - 10.0
+
+        session._prune_undecryptable_dedup(now)
+
+        assert "!old:server:sess-old" not in session._undecryptable_dedup
+        assert "!new:server:sess-new" in session._undecryptable_dedup
+
+    async def test_recent_entries_preserved(self, mock_nio) -> None:
+        """Dedup entries within the window are kept."""
+        config = make_matrix_config()
+        session = MatrixSession(config)
+        now = 1000.0
+        session._undecryptable_dedup["!r:server:s1"] = now - 30.0
+        session._undecryptable_dedup["!r:server:s2"] = now - 59.9
+
+        session._prune_undecryptable_dedup(now)
+
+        assert len(session._undecryptable_dedup) == 2
+
+    async def test_rate_limiting_suppresses_repeated_live_events(self, mock_nio) -> None:
+        """Within the dedup window, repeated live events are suppressed."""
+        config = make_matrix_config()
+        logger = logging.getLogger("test.pruning_rate_limit")
+        session = MatrixSession(config, logger=logger)
+        try:
+            await session.start()
+            for _ in range(20):
+                if session.is_live:
+                    break
+                await asyncio.sleep(0)
+            assert session.is_live is True
+
+            event = _make_megolm_event(
+                event_id="$mega-1", room_id="!room:server", session_id="sess-1"
+            )
+            room = _make_room(room_id="!room:server")
+
+            with patch.object(logger, "warning") as mock_warning, \
+                 patch.object(logger, "debug") as mock_debug:
+                await session._on_megolm_event(room, event)
+                await session._on_megolm_event(room, event)
+                assert mock_warning.call_count == 1
+                rate_limited = [
+                    c for c in mock_debug.call_args_list
+                    if "Rate-limited" in str(c)
+                ]
+                assert len(rate_limited) == 1
+        finally:
+            await session.stop()
+
+    async def test_expired_key_can_warn_again(self, mock_nio) -> None:
+        """After the dedup window expires, a new event for the same key WARNINGs again."""
+        config = make_matrix_config()
+        logger = logging.getLogger("test.pruning_expiry")
+        session = MatrixSession(config, logger=logger)
+        try:
+            await session.start()
+            for _ in range(20):
+                if session.is_live:
+                    break
+                await asyncio.sleep(0)
+            assert session.is_live is True
+
+            event1 = _make_megolm_event(
+                event_id="$mega-a", room_id="!room:server", session_id="sess-1"
+            )
+            event2 = _make_megolm_event(
+                event_id="$mega-b", room_id="!room:server", session_id="sess-1"
+            )
+            room = _make_room(room_id="!room:server")
+
+            # First call: WARNING
+            with patch.object(logger, "warning") as mock_warning:
+                await session._on_megolm_event(room, event1)
+                assert mock_warning.call_count == 1
+
+            # Manually age the dedup entry beyond the window
+            key = "!room:server:sess-1"
+            assert key in session._undecryptable_dedup
+            session._undecryptable_dedup[key] = (
+                time.monotonic() - session._UNDECRYPTABLE_DEDUP_WINDOW_SECS - 1.0
+            )
+
+            # Second call: should WARNING again because entry expired
+            with patch.object(logger, "warning") as mock_warning2:
+                await session._on_megolm_event(room, event2)
+                mock_warning2.assert_called_once()
+        finally:
+            await session.stop()
+
+
+# ===================================================================
 # TestRoomEncryptionEventLogging
 # ===================================================================
 
@@ -363,8 +471,12 @@ class TestBacklogSummaryLogLevel:
         mock_client.sync = AsyncMock(side_effect=_gated_sync)
 
         try:
-            with patch.object(logger, "debug") as mock_debug:
+            with patch.object(logger, "debug") as mock_debug, \
+                 patch.object(logger, "info") as mock_info:
                 await session.start()
+
+                # Record how many debug calls exist before boundary.
+                debug_before_boundary = len(mock_debug.call_args_list)
 
                 # Session started but sync hasn't completed yet.
                 # Inject backlog events (is_live is still False).
@@ -386,17 +498,29 @@ class TestBacklogSummaryLogLevel:
 
                 assert session.is_live, "Sync task did not set is_live in time"
 
-                # Check that a debug message containing the backlog summary was emitted
-                debug_messages = [
-                    str(call) for call in mock_debug.call_args_list
-                ]
+                # Scan only post-boundary debug calls for the summary message.
+                post_boundary_debugs = (
+                    mock_debug.call_args_list[debug_before_boundary:]
+                )
                 summary_found = any(
-                    "suppressed" in msg and "undecryptable" in msg
-                    for msg in debug_messages
+                    "suppressed" in str(call) and "undecryptable" in str(call)
+                    for call in post_boundary_debugs
                 )
                 assert summary_found, (
                     f"Expected DEBUG summary log about suppressed undecryptable "
-                    f"backlog events. Debug calls: {debug_messages}"
+                    f"backlog events. Post-boundary debug calls: "
+                    f"{post_boundary_debugs}"
+                )
+
+                # No INFO summary should be emitted for the backlog undecryptable events.
+                info_messages = [str(c) for c in mock_info.call_args_list]
+                summary_info = any(
+                    "suppressed" in msg and "undecryptable" in msg
+                    for msg in info_messages
+                )
+                assert not summary_info, (
+                    f"Backlog summary should be DEBUG only, but found INFO call: "
+                    f"{[m for m in info_messages if 'suppressed' in m]}"
                 )
         finally:
             await session.stop()

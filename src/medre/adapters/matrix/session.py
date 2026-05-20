@@ -182,6 +182,8 @@ class MatrixSession:
         "_encryption_event_seen_rooms",
     )
 
+    _UNDECRYPTABLE_DEDUP_WINDOW_SECS: float = 60.0
+
     def __init__(
         self,
         config: MatrixConfig,
@@ -812,12 +814,13 @@ class MatrixSession:
             )
             return
 
-        # Live dedecryptable dedup (60-second window per room:session_id).
+        # Live undecryptable dedup (60-second window per room:session_id).
         session_id = getattr(event, "session_id", "?")
         key = f"{room_id}:{session_id}"
         now = time.monotonic()
+        self._prune_undecryptable_dedup(now)
         prev = self._undecryptable_dedup.get(key)
-        if prev is not None and now - prev < 60:
+        if prev is not None and now - prev < self._UNDECRYPTABLE_DEDUP_WINDOW_SECS:
             self._suppressed_rate_limited_undecryptable += 1
             self._logger.debug(
                 "Rate-limited undecryptable MegolmEvent %s in room %s "
@@ -835,6 +838,19 @@ class MatrixSession:
             room_id,
         )
         self._undecryptable_dedup[key] = now
+
+    def _prune_undecryptable_dedup(self, now: float) -> None:
+        """Evict expired entries from the live undecryptable dedup cache.
+
+        Removes entries older than ``_UNDECRYPTABLE_DEDUP_WINDOW_SECS``
+        to prevent unbounded growth over long-lived sessions.
+        """
+        cutoff = now - self._UNDECRYPTABLE_DEDUP_WINDOW_SECS
+        self._undecryptable_dedup = {
+            key: ts
+            for key, ts in self._undecryptable_dedup.items()
+            if ts >= cutoff
+        }
 
     def _track_room_encrypted(self, room: Any, room_id: str) -> None:
         """Mark a room as encrypted in the room-state tracking cache.
