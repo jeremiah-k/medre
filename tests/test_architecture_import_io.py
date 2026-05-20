@@ -232,9 +232,9 @@ class TestNoBlockingIOAtImport:
 
             violations = _scan_file(Path(tmp.name))
             assert violations, "Scanner should report SyntaxError as violation"
-            assert "SyntaxError" in violations[0], (
-                f"Expected SyntaxError in violation, got: {violations[0]}"
-            )
+            assert (
+                "SyntaxError" in violations[0]
+            ), f"Expected SyntaxError in violation, got: {violations[0]}"
         finally:
             Path(tmp.name).unlink(missing_ok=True)
 

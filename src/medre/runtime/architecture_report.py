@@ -395,7 +395,11 @@ def _transport_for(module: str) -> str | None:
 def _extract_string_kwargs(call_node: _ast.Call, param_name: str) -> str | None:
     """Extract a string keyword argument from an AST Call node."""
     for kw in call_node.keywords:
-        if kw.arg == param_name and isinstance(kw.value, _ast.Constant) and isinstance(kw.value.value, str):
+        if (
+            kw.arg == param_name
+            and isinstance(kw.value, _ast.Constant)
+            and isinstance(kw.value.value, str)
+        ):
             return kw.value.value
     return None
 
@@ -418,7 +422,9 @@ def extract_dynamic_adapter_imports(source: str) -> list[tuple[str, int, str]]:
             if isinstance(func, _ast.Name) and func.id == "_AdapterFactory":
                 module = _extract_string_kwargs(node, "module")
                 if module:
-                    results.append((module, node.lineno, f"dynamic builder assembly: {module}"))
+                    results.append(
+                        (module, node.lineno, f"dynamic builder assembly: {module}")
+                    )
 
     # Also find _ADAPTER_RENDERER_SPECS tuples (can be Assign or AnnAssign)
     for node in _ast.walk(tree):
@@ -426,19 +432,33 @@ def extract_dynamic_adapter_imports(source: str) -> list[tuple[str, int, str]]:
         value_node = None
         if isinstance(node, _ast.Assign):
             for target in node.targets:
-                if isinstance(target, _ast.Name) and target.id == "_ADAPTER_RENDERER_SPECS":
+                if (
+                    isinstance(target, _ast.Name)
+                    and target.id == "_ADAPTER_RENDERER_SPECS"
+                ):
                     target_name = target.id
                     value_node = node.value
                     break
         elif isinstance(node, _ast.AnnAssign):
-            if isinstance(node.target, _ast.Name) and node.target.id == "_ADAPTER_RENDERER_SPECS":
+            if (
+                isinstance(node.target, _ast.Name)
+                and node.target.id == "_ADAPTER_RENDERER_SPECS"
+            ):
                 target_name = node.target.id
                 value_node = node.value
         if target_name and value_node and isinstance(value_node, _ast.List):
             for elt in value_node.elts:
                 if isinstance(elt, _ast.Tuple) and len(elt.elts) >= 1:
-                    if isinstance(elt.elts[0], _ast.Constant) and isinstance(elt.elts[0].value, str):
-                        results.append((elt.elts[0].value, elt.lineno, f"dynamic renderer spec: {elt.elts[0].value}"))
+                    if isinstance(elt.elts[0], _ast.Constant) and isinstance(
+                        elt.elts[0].value, str
+                    ):
+                        results.append(
+                            (
+                                elt.elts[0].value,
+                                elt.lineno,
+                                f"dynamic renderer spec: {elt.elts[0].value}",
+                            )
+                        )
 
     return results
 

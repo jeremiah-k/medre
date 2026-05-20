@@ -34,7 +34,6 @@ and direct SDK imports are banned.
 
 from __future__ import annotations
 
-import importlib
 import re
 
 # Capture SDK presence in sys.modules at module-load time, BEFORE any
@@ -109,15 +108,23 @@ _BANNED_ADAPTER_RUNTIME_IMPORTS = (
 
 
 def _source_of(module_name: str) -> str:
-    """Import module and return its source text."""
-    mod = importlib.import_module(module_name)
-    assert mod.__file__ is not None, f"{module_name} has no __file__"
-    with open(mod.__file__) as f:
-        return f.read()
+    """Resolve module to source file and return its text (no import)."""
+    import importlib.util
+
+    spec = importlib.util.find_spec(module_name)
+    if spec is None:
+        raise ModuleNotFoundError(f"{module_name} not found")
+    if spec.origin is None:
+        raise ModuleNotFoundError(f"{module_name} has no origin")
+    return Path(spec.origin).read_text()
 
 
 def _import_lines(source: str) -> list[str]:
-    """Extract all import/from-import lines from source text."""
+    """Extract all import/from-import lines from source text.
+
+    See also: architecture_ast.runtime_scope_imports() for AST-based
+    import extraction (returns ImportRecord objects with resolved names).
+    """
     return [
         line.strip()
         for line in source.splitlines()
@@ -126,7 +133,11 @@ def _import_lines(source: str) -> list[str]:
 
 
 def _banned_imports(lines: list[str], banned: tuple[str, ...]) -> list[str]:
-    """Return import lines referencing any banned package."""
+    """Return import lines referencing any banned package.
+
+    See also: architecture_ast.import_matches() for module-prefix matching
+    on resolved module names (AST-level, not text-level).
+    """
     found: list[str] = []
     for line in lines:
         for b in banned:
@@ -306,23 +317,33 @@ class TestRuntimeCoreModuleGuard:
         importing ``medre.runtime.app``, it means the runtime has a
         transitive dependency on the SDK — the source scan would miss this
         but CI would fail in clean environments.
+
+        HOW: Uses subprocess isolation so sys.modules pollution from other
+        tests in the same session does not produce false positives.
         """
+        import subprocess
         import sys
 
-        try:
-            importlib.import_module(module_name)
-        except ImportError:
-            pytest.skip(f"{module_name} not importable")
+        script = (
+            "import importlib, sys;\n"
+            f"target = {module_name!r};\n"
+            "mod = importlib.import_module(target);\n"
+            f"leaked = [s for s in {self._SDK_PACKAGES!r} if s in sys.modules];\n"
+            "sys.stdout.write(','.join(leaked) if leaked else 'CLEAN');\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            pytest.skip(f"{module_name} not importable: {result.stderr.strip()}")
 
-        # Check for new SDK entries in sys.modules (relative to session baseline).
-        new_sdk_modules = []
-        for sdk in self._SDK_PACKAGES:
-            if sdk in sys.modules and sdk not in _SESSION_BASELINE_SDK_MODULES:
-                new_sdk_modules.append(sdk)
-
-        assert new_sdk_modules == [], (
+        leaked = result.stdout.strip()
+        assert leaked == "CLEAN", (
             f"Importing {module_name} leaked SDK packages into sys.modules: "
-            f"{new_sdk_modules}"
+            f"{leaked}"
         )
 
 
@@ -611,12 +632,12 @@ class TestBuilderAbstraction:
         except ImportError:
             pytest.skip("medre.runtime.builder not importable")
 
-        assert "RuntimeConfig" in source, (
-            "medre.runtime.builder should import RuntimeConfig"
-        )
-        assert "StorageConfig" in source, (
-            "medre.runtime.builder should import StorageConfig"
-        )
+        assert (
+            "RuntimeConfig" in source
+        ), "medre.runtime.builder should import RuntimeConfig"
+        assert (
+            "StorageConfig" in source
+        ), "medre.runtime.builder should import StorageConfig"
 
 
 # ===================================================================

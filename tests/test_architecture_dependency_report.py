@@ -86,9 +86,7 @@ class TestParseFile:
         type_checking = [e for e in edges if e.is_type_checking]
         # After normalization, symbol pseudo-edges are removed; the module-level
         # edge for the CapacityController import is preserved.
-        assert any(
-            e.target == "medre.core.runtime.capacity" for e in type_checking
-        )
+        assert any(e.target == "medre.core.runtime.capacity" for e in type_checking)
 
 
 class TestBuildGraph:
@@ -1110,8 +1108,18 @@ class TestNormalizeImportRecordsForGraph:
     def test_deduplicates_identical_records(self) -> None:
         """Records with same (module, lineno, kind, is_type_checking) are deduped."""
         records = [
-            ImportRecord(module="medre.adapters.lxmf.codec", lineno=1, kind="import_from", is_type_checking=False),
-            ImportRecord(module="medre.adapters.lxmf.codec", lineno=1, kind="import_from", is_type_checking=False),
+            ImportRecord(
+                module="medre.adapters.lxmf.codec",
+                lineno=1,
+                kind="import_from",
+                is_type_checking=False,
+            ),
+            ImportRecord(
+                module="medre.adapters.lxmf.codec",
+                lineno=1,
+                kind="import_from",
+                is_type_checking=False,
+            ),
         ]
         result = normalize_import_records_for_graph(records)
         assert len(result) == 1
@@ -1129,7 +1137,9 @@ class TestNormalizeImportRecordsForGraph:
         """Same module+line but different kind are kept separate."""
         records = [
             ImportRecord(module="os", lineno=1, kind="import", is_type_checking=False),
-            ImportRecord(module="os", lineno=1, kind="import_from", is_type_checking=False),
+            ImportRecord(
+                module="os", lineno=1, kind="import_from", is_type_checking=False
+            ),
         ]
         result = normalize_import_records_for_graph(records)
         assert len(result) == 2
@@ -1179,9 +1189,9 @@ class TestParseFileNormalizedEdges:
 
         edges = parse_file(py_file)
         module_edges = [e for e in edges if e.target == "medre.pkg.sub"]
-        assert len(module_edges) == 1, (
-            f"Expected 1 module-level edge, got {len(module_edges)}: {module_edges}"
-        )
+        assert (
+            len(module_edges) == 1
+        ), f"Expected 1 module-level edge, got {len(module_edges)}: {module_edges}"
 
 
 # ---------------------------------------------------------------------------
@@ -1269,12 +1279,11 @@ class TestFakeTransportClassification:
         """Real source has no adapter cross-transport imports."""
         graph = build_dependency_graph(_SRC)
         report = build_route_adapter_boundary_report(graph)
-        assert report.adapter_cross_imports.count == 0, (
-            f"Unexpected adapter cross-imports:\n"
-            + "\n".join(
-                f"  {v.source} -> {v.target}: {v.rule}"
-                for v in report.adapter_cross_imports.violations
-            )
+        assert (
+            report.adapter_cross_imports.count == 0
+        ), "Unexpected adapter cross-imports:\n" + "\n".join(
+            f"  {v.source} -> {v.target}: {v.rule}"
+            for v in report.adapter_cross_imports.violations
         )
 
 
@@ -1289,12 +1298,12 @@ class TestExtractDynamicAdapterImports:
     def test_extracts_adapter_factory_modules(self) -> None:
         """Parses _AdapterFactory(module=...) calls."""
         source = (
-            '_ADAPTER_BUILDERS = {\n'
+            "_ADAPTER_BUILDERS = {\n"
             '    "matrix": _AdapterFactory(\n'
             '        module="medre.adapters.matrix.adapter",\n'
             '        cls_name="MatrixAdapter",\n'
-            '    ),\n'
-            '}\n'
+            "    ),\n"
+            "}\n"
         )
         results = extract_dynamic_adapter_imports(source)
         modules = [r[0] for r in results]
@@ -1303,10 +1312,10 @@ class TestExtractDynamicAdapterImports:
     def test_extracts_renderer_specs(self) -> None:
         """Parses _ADAPTER_RENDERER_SPECS list tuples."""
         source = (
-            '_ADAPTER_RENDERER_SPECS: list[tuple[str, str]] = [\n'
+            "_ADAPTER_RENDERER_SPECS: list[tuple[str, str]] = [\n"
             '    ("medre.adapters.matrix.renderer", "MatrixRenderer"),\n'
             '    ("medre.adapters.lxmf.renderer", "LxmfRenderer"),\n'
-            ']\n'
+            "]\n"
         )
         results = extract_dynamic_adapter_imports(source)
         modules = [r[0] for r in results]
@@ -1322,23 +1331,25 @@ class TestExtractDynamicAdapterImports:
         results = extract_dynamic_adapter_imports(source)
         modules = [r[0] for r in results]
         # Should find 4 adapter factories + 4 renderer specs = 8
-        assert len(modules) >= 8, f"Expected >= 8 dynamic imports, got {len(modules)}: {modules}"
+        assert (
+            len(modules) >= 8
+        ), f"Expected >= 8 dynamic imports, got {len(modules)}: {modules}"
         assert "medre.adapters.matrix.adapter" in modules
         assert "medre.adapters.matrix.renderer" in modules
 
     def test_returns_line_numbers(self) -> None:
         """Each result includes a line number."""
         source = (
-            '_ADAPTER_BUILDERS = {\n'
+            "_ADAPTER_BUILDERS = {\n"
             '    "matrix": _AdapterFactory(\n'
             '        module="medre.adapters.matrix.adapter",\n'
             '        cls_name="MatrixAdapter",\n'
-            '    ),\n'
-            '}\n'
+            "    ),\n"
+            "}\n"
         )
         results = extract_dynamic_adapter_imports(source)
         assert len(results) >= 1
-        for module, line, reason in results:
+        for _module, line, reason in results:
             assert line > 0
             assert reason
 
@@ -1368,7 +1379,8 @@ class TestDynamicBuilderAssembly:
         graph = build_dependency_graph(_SRC)
         report = build_route_adapter_boundary_report(graph, src_root=_SRC)
         builder_in_forbidden = [
-            v for v in report.forbidden_runtime_adapter.violations
+            v
+            for v in report.forbidden_runtime_adapter.violations
             if v.source == "medre.runtime.builder"
         ]
         assert not builder_in_forbidden
@@ -1379,8 +1391,41 @@ class TestDynamicBuilderAssembly:
         report = build_route_adapter_boundary_report(graph)
         # Only static AST imports are in allowed section
         dynamic_rules = [
-            v for v in report.allowed_runtime_adapter.violations
+            v
+            for v in report.allowed_runtime_adapter.violations
             if v.rule.startswith("dynamic")
         ]
         # Without src_root, no dynamic imports should be added
         assert not dynamic_rules
+
+
+class TestRealGraphBoundaryReport:
+    """Comprehensive assertions on the real repository's boundary report."""
+
+    @pytest.fixture(autouse=True)
+    def _setup(self):
+        self.graph = build_dependency_graph(_SRC)
+        self.report = build_route_adapter_boundary_report(self.graph, src_root=_SRC)
+
+    def test_no_parse_errors(self):
+        assert (
+            self.graph.parse_errors == {}
+        ), f"Real graph has parse errors: {self.graph.parse_errors}"
+
+    def test_no_adapter_cross_imports(self):
+        assert self.report.adapter_cross_imports.count == 0, (
+            f"Cross-transport violations: "
+            f"{[v.target for v in self.report.adapter_cross_imports.violations]}"
+        )
+
+    def test_no_forbidden_runtime_adapter(self):
+        assert self.report.forbidden_runtime_adapter.count == 0, (
+            f"Forbidden runtime→adapter: "
+            f"{[f'{v.source}→{v.target}' for v in self.report.forbidden_runtime_adapter.violations]}"
+        )
+
+    def test_allowed_runtime_adapter_at_least_four(self):
+        # 4 adapters via _AdapterFactory + 4 renderers via _ADAPTER_RENDERER_SPECS
+        assert (
+            self.report.allowed_runtime_adapter.count >= 4
+        ), f"Expected ≥4 allowed adapter refs, got {self.report.allowed_runtime_adapter.count}"

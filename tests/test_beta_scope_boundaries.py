@@ -30,7 +30,6 @@ The helper functions and scanning patterns are reused from
 
 from __future__ import annotations
 
-import importlib
 import re
 from pathlib import Path
 
@@ -106,15 +105,23 @@ _SRC_ROOT = _TESTS_DIR.parent / "src" / "medre"
 
 
 def _source_of(module_name: str) -> str:
-    """Import module and return its source text."""
-    mod = importlib.import_module(module_name)
-    assert mod.__file__ is not None, f"{module_name} has no __file__"
-    with open(mod.__file__) as f:
-        return f.read()
+    """Resolve module to source file and return its text (no import)."""
+    import importlib.util
+
+    spec = importlib.util.find_spec(module_name)
+    if spec is None:
+        raise ModuleNotFoundError(f"{module_name} not found")
+    if spec.origin is None:
+        raise ModuleNotFoundError(f"{module_name} has no origin")
+    return Path(spec.origin).read_text()
 
 
 def _import_lines(source: str) -> list[str]:
-    """Extract all import/from-import lines from source text."""
+    """Extract all import/from-import lines from source text.
+
+    See also: architecture_ast.runtime_scope_imports() for AST-based
+    import extraction (returns ImportRecord objects with resolved names).
+    """
     return [
         line.strip()
         for line in source.splitlines()
@@ -123,7 +130,11 @@ def _import_lines(source: str) -> list[str]:
 
 
 def _banned_imports(lines: list[str], banned: tuple[str, ...]) -> list[str]:
-    """Return import lines referencing any banned package."""
+    """Return import lines referencing any banned package.
+
+    See also: architecture_ast.import_matches() for module-prefix matching
+    on resolved module names (AST-level, not text-level).
+    """
     found: list[str] = []
     for line in lines:
         for b in banned:
