@@ -272,6 +272,7 @@ class TestMatrixInboundToFakeOutbound:
 
         ctx = _make_adapter_context_for_pipeline("matrix-in", runner)
         await matrix_adapter.start(ctx)
+        matrix_adapter._session._live_sync_started = True
 
         try:
             room = _make_nio_room("!bridge_room:example.com")
@@ -324,6 +325,7 @@ class TestMatrixInboundToFakeOutbound:
 
         ctx = _make_adapter_context_for_pipeline("matrix-in-ref", runner)
         await matrix_adapter.start(ctx)
+        matrix_adapter._session._live_sync_started = True
 
         try:
             room = _make_nio_room("!ref_room:example.com")
@@ -378,6 +380,7 @@ class TestMatrixInboundToFakeOutbound:
 
         ctx = _make_adapter_context_for_pipeline("matrix-self", runner)
         await matrix_adapter.start(ctx)
+        matrix_adapter._session._live_sync_started = True
 
         try:
             room = _make_nio_room("!room:example.com")
