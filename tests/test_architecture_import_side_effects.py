@@ -94,12 +94,6 @@ class TestNoForbiddenTransitiveImports:
 
     @pytest.mark.parametrize("module_name", _LIGHTWEIGHT_MODULES)
     def test_no_forbidden_transitive_imports(self, module_name: str) -> None:
-        # Clear any forbidden modules loaded by prior parametrized cases
-        for m in self._FORBIDDEN:
-            sys.modules.pop(m, None)
-            for key in [k for k in list(sys.modules) if k.startswith(f"{m}.")]:
-                sys.modules.pop(key, None)
-
         # Snapshot already-loaded modules before import.
         # Do NOT pop from sys.modules — that would poison cached state
         # for subsequent tests.
