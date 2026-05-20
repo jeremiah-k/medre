@@ -78,8 +78,9 @@ def _resolve_relative(level: int, module: str | None, file_path: str | None) -> 
             package_parts = []
 
         if module:
-            return ".".join(package_parts) + "." + module
-        return ".".join(package_parts) if package_parts else module or ""
+            base = ".".join(package_parts)
+            return f"{base}.{module}" if base else module
+        return ".".join(package_parts) if package_parts else ""
     except (ValueError, IndexError):
         return module or ""
 

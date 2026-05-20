@@ -95,6 +95,9 @@ class TestNoForbiddenTransitiveImports:
 
     @pytest.mark.parametrize("module_name", _LIGHTWEIGHT_MODULES)
     def test_no_forbidden_transitive_imports(self, module_name: str) -> None:
+        # Clear forbidden modules so each case is independent
+        for m in list(self._FORBIDDEN):
+            sys.modules.pop(m, None)
         already = {m for m in self._FORBIDDEN if m in sys.modules}
         _import_fresh(module_name)
         newly = [

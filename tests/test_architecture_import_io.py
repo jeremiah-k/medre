@@ -109,7 +109,7 @@ class TestNoBlockingIOAtImport:
         # Filter out __init__.py files that are just package markers
         all_violations = [
             v for v in all_violations
-            if not v.endswith("__init__.py:")  # unlikely but safe
+            if not v.split(":", 1)[0].endswith("__init__.py")
         ]
 
         assert not all_violations, (

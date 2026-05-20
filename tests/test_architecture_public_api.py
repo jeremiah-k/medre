@@ -24,6 +24,9 @@ class TestTopLevelImportLightweight:
     )
 
     def test_import_medre_is_lightweight(self) -> None:
+        # Cold import: remove pre-existing entries so test is reliable
+        for m in list(self._FORBIDDEN_AFTER_IMPORT) + ["medre"]:
+            sys.modules.pop(m, None)
         already = {m for m in self._FORBIDDEN_AFTER_IMPORT if m in sys.modules}
         import medre  # noqa: F811
         for m in self._FORBIDDEN_AFTER_IMPORT:
@@ -74,15 +77,46 @@ class TestConfigFacadeRemoved:
     """Config packages must not expose convenience re-exports."""
 
     def test_config_has_no_all(self) -> None:
-        import medre.config
-
-        assert not hasattr(medre.config, "__all__") or medre.config.__all__ == [], (
-            "medre.config should not expose __all__ convenience symbols"
-        )
+        import importlib
+        mod = importlib.import_module("medre.config")
+        if hasattr(mod, "__all__"):
+            assert mod.__all__ == [], (
+                f"medre.config exposes __all__: {mod.__all__}"
+            )
 
     def test_config_adapters_has_no_all(self) -> None:
-        import medre.config.adapters
+        import importlib
+        mod = importlib.import_module("medre.config.adapters")
+        if hasattr(mod, "__all__"):
+            assert mod.__all__ == [], (
+                f"medre.config.adapters exposes __all__: {mod.__all__}"
+            )
 
-        assert not hasattr(medre.config.adapters, "__all__") or medre.config.adapters.__all__ == [], (
-            "medre.config.adapters should not expose __all__ convenience symbols"
+
+class TestRunSessionFacadeRemoved:
+    """medre.runtime.run_session must not expose convenience re-exports."""
+
+    def test_run_session_has_no_bridge_session(self) -> None:
+        import importlib
+        mod = importlib.import_module("medre.runtime.run_session")
+        assert not hasattr(mod, "run_bridge_session"), (
+            "medre.runtime.run_session should not re-export run_bridge_session"
+        )
+
+    def test_run_session_has_no_scenario_category(self) -> None:
+        import importlib
+        mod = importlib.import_module("medre.runtime.run_session")
+        assert not hasattr(mod, "scenario_category"), (
+            "medre.runtime.run_session should not re-export scenario_category"
+        )
+
+
+class TestEvidenceFacadeRemoved:
+    """medre.runtime.evidence must not expose convenience re-exports."""
+
+    def test_evidence_has_no_collect_bundle(self) -> None:
+        import importlib
+        mod = importlib.import_module("medre.runtime.evidence")
+        assert not hasattr(mod, "collect_evidence_bundle"), (
+            "medre.runtime.evidence should not re-export collect_evidence_bundle"
         )

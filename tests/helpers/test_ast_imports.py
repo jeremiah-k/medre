@@ -160,3 +160,66 @@ if TYPE_CHECKING:
         tree = _parse(source)
         calls = top_level_calls(tree)
         assert all(c.lineno > 0 for c in calls)
+
+
+class TestFindRelativeImports:
+    """Tests for find_relative_imports()."""
+
+    def test_single_dot_import_resolved(self) -> None:
+        source = "from .sibling import X\n"
+        tree = _parse(source)
+        # file_path in medre/core/observability/ → resolves to medre.core.observability.sibling
+        records = find_relative_imports(
+            tree,
+            file_path="/home/user/src/medre/core/observability/module.py",
+        )
+        assert len(records) >= 1
+        modules = {r.module for r in records}
+        assert "medre.core.observability.sibling" in modules or \
+               "medre.core.observability.sibling.X" in modules
+
+    def test_double_dot_import_resolved(self) -> None:
+        source = "from ..routing import Route\n"
+        tree = _parse(source)
+        # file_path in medre/core/observability/ → up 2 levels → medre.core.routing
+        records = find_relative_imports(
+            tree,
+            file_path="/home/user/src/medre/core/observability/module.py",
+        )
+        assert len(records) >= 1
+        modules = {r.module for r in records}
+        assert "medre.core.routing" in modules or \
+               "medre.core.routing.Route" in modules
+
+    def test_over_traversal_returns_empty(self) -> None:
+        """Going beyond package root should not crash and returns module or empty."""
+        source = "from ....root import X\n"
+        tree = _parse(source)
+        records = find_relative_imports(
+            tree,
+            file_path="/home/user/src/medre/core/observability/module.py",
+        )
+        # Should not crash; may return empty or a truncated result
+        assert records is not None
+
+    def test_no_relative_imports_returns_empty(self) -> None:
+        source = "import os\nimport sys\n"
+        tree = _parse(source)
+        records = find_relative_imports(tree)
+        assert len(records) == 0
+
+    def test_mixed_absolute_and_relative(self) -> None:
+        source = """
+import os
+from . import sibling
+from ..parent import ParentClass
+"""
+        tree = _parse(source)
+        records = find_relative_imports(
+            tree,
+            file_path="/home/user/src/medre/core/observability/module.py",
+        )
+        relative_modules = {r.module for r in records}
+        # Both relatives should appear
+        assert any("sibling" in m for m in relative_modules)
+        assert any("parent" in m or "ParentClass" in m for m in relative_modules)

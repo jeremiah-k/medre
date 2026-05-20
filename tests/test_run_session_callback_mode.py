@@ -24,7 +24,7 @@ class TestRunSessionCallbackMode:
     @pytest.mark.asyncio
     async def test_happy_path_returns_passed(self, tmp_path: Path) -> None:
         """Happy-path adapter_callback session returns status='passed'."""
-        from medre.runtime.run_session import run_bridge_session
+        from medre.runtime.run_session.orchestration import run_bridge_session
 
         db_path = str(tmp_path / "callback-happy.db")
         report = await run_bridge_session(
@@ -40,7 +40,7 @@ class TestRunSessionCallbackMode:
     @pytest.mark.asyncio
     async def test_report_includes_receipts(self, tmp_path: Path) -> None:
         """Report has non-empty delivery_receipts for adapter_callback."""
-        from medre.runtime.run_session import run_bridge_session
+        from medre.runtime.run_session.orchestration import run_bridge_session
 
         db_path = str(tmp_path / "callback-receipts.db")
         report = await run_bridge_session(
@@ -56,7 +56,7 @@ class TestRunSessionCallbackMode:
     @pytest.mark.asyncio
     async def test_report_includes_target_adapters(self, tmp_path: Path) -> None:
         """target_adapters is non-empty for adapter_callback."""
-        from medre.runtime.run_session import run_bridge_session
+        from medre.runtime.run_session.orchestration import run_bridge_session
 
         db_path = str(tmp_path / "callback-adapters.db")
         report = await run_bridge_session(
@@ -74,7 +74,7 @@ class TestRunSessionCallbackMode:
     @pytest.mark.asyncio
     async def test_report_includes_route_id(self, tmp_path: Path) -> None:
         """route_id is present (not None) for adapter_callback."""
-        from medre.runtime.run_session import run_bridge_session
+        from medre.runtime.run_session.orchestration import run_bridge_session
 
         db_path = str(tmp_path / "callback-route.db")
         report = await run_bridge_session(
@@ -90,7 +90,7 @@ class TestRunSessionCallbackMode:
     @pytest.mark.asyncio
     async def test_report_includes_native_refs(self, tmp_path: Path) -> None:
         """native_refs is non-empty for adapter_callback."""
-        from medre.runtime.run_session import run_bridge_session
+        from medre.runtime.run_session.orchestration import run_bridge_session
 
         db_path = str(tmp_path / "callback-nrefs.db")
         report = await run_bridge_session(
@@ -108,7 +108,7 @@ class TestRunSessionCallbackMode:
     @pytest.mark.asyncio
     async def test_native_refs_match_sent_receipts(self, tmp_path: Path) -> None:
         """Every native ref adapter appears in sent receipts."""
-        from medre.runtime.run_session import run_bridge_session
+        from medre.runtime.run_session.orchestration import run_bridge_session
 
         db_path = str(tmp_path / "callback-nref-match.db")
         report = await run_bridge_session(
@@ -128,7 +128,7 @@ class TestRunSessionCallbackMode:
     @pytest.mark.asyncio
     async def test_accounting_present(self, tmp_path: Path) -> None:
         """Accounting counters are present and valid for adapter_callback."""
-        from medre.runtime.run_session import run_bridge_session
+        from medre.runtime.run_session.orchestration import run_bridge_session
 
         db_path = str(tmp_path / "callback-accounting.db")
         report = await run_bridge_session(
@@ -148,7 +148,7 @@ class TestRunSessionCallbackMode:
     @pytest.mark.asyncio
     async def test_event_id_present(self, tmp_path: Path) -> None:
         """Event ID is present and valid for adapter_callback."""
-        from medre.runtime.run_session import run_bridge_session
+        from medre.runtime.run_session.orchestration import run_bridge_session
 
         db_path = str(tmp_path / "callback-eid.db")
         report = await run_bridge_session(
@@ -163,7 +163,7 @@ class TestRunSessionCallbackMode:
     @pytest.mark.asyncio
     async def test_storage_persistent(self, tmp_path: Path) -> None:
         """SQLite file is created at storage_path for adapter_callback."""
-        from medre.runtime.run_session import run_bridge_session
+        from medre.runtime.run_session.orchestration import run_bridge_session
 
         db_path = str(tmp_path / "callback-persist.db")
         report = await run_bridge_session(
@@ -178,7 +178,7 @@ class TestRunSessionCallbackMode:
     @pytest.mark.asyncio
     async def test_snapshot_checks_present(self, tmp_path: Path) -> None:
         """Snapshot checks section present with runtime_state='stopped'."""
-        from medre.runtime.run_session import run_bridge_session
+        from medre.runtime.run_session.orchestration import run_bridge_session
 
         db_path = str(tmp_path / "callback-snap.db")
         report = await run_bridge_session(
@@ -196,7 +196,7 @@ class TestRunSessionCallbackMode:
         """Report is JSON-serializable for adapter_callback."""
         import json
 
-        from medre.runtime.run_session import run_bridge_session
+        from medre.runtime.run_session.orchestration import run_bridge_session
 
         db_path = str(tmp_path / "callback-json.db")
         report = await run_bridge_session(
@@ -217,7 +217,7 @@ class TestDirectPipelineUnchanged:
     @pytest.mark.asyncio
     async def test_happy_path_still_passes(self, tmp_path: Path) -> None:
         """direct_pipeline happy_path still produces status='passed'."""
-        from medre.runtime.run_session import run_bridge_session
+        from medre.runtime.run_session.orchestration import run_bridge_session
 
         db_path = str(tmp_path / "direct-happy.db")
         report = await run_bridge_session(
@@ -233,7 +233,7 @@ class TestDirectPipelineUnchanged:
     @pytest.mark.asyncio
     async def test_receipts_and_native_refs_present(self, tmp_path: Path) -> None:
         """direct_pipeline still produces receipts and native refs."""
-        from medre.runtime.run_session import run_bridge_session
+        from medre.runtime.run_session.orchestration import run_bridge_session
 
         db_path = str(tmp_path / "direct-evidence.db")
         report = await run_bridge_session(
@@ -250,7 +250,7 @@ class TestDirectPipelineUnchanged:
     @pytest.mark.asyncio
     async def test_failure_scenario_still_passes(self, tmp_path: Path) -> None:
         """direct_pipeline failure scenarios still detect failure_kind."""
-        from medre.runtime.run_session import run_bridge_session
+        from medre.runtime.run_session.orchestration import run_bridge_session
 
         db_path = str(tmp_path / "direct-failure.db")
         report = await run_bridge_session(

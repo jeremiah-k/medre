@@ -144,7 +144,7 @@ async def _run_session(
         tmp.close()
         print(f"No --storage-path provided; using temporary database: {storage_path}")
 
-    from medre.runtime.run_session import run_bridge_session
+    from medre.runtime.run_session.orchestration import run_bridge_session
 
     report = await run_bridge_session(
         config_path,

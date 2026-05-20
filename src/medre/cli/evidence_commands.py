@@ -5,7 +5,7 @@ from __future__ import annotations
 import json as _json
 import sys
 
-from medre.runtime.evidence import collect_evidence_bundle
+from medre.runtime.evidence._bundle import collect_evidence_bundle
 
 from .exit_codes import EXIT_CONFIG
 

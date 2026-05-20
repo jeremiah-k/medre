@@ -84,7 +84,7 @@ Owns TOML loading, model classes, environment overrides, and path resolution.
 
 | From                    | May import                                                | Must not import                             |
 | ----------------------- | --------------------------------------------------------- | ------------------------------------------- |
-| `cli/` commands         | `config.*`, `runtime.builder`                             | Adapter implementations, `core.*` internals |
+| `cli/` commands         | `config.*`, `runtime.*`, `core.observability.*`           | Adapter implementations, unrelated `core.*` internals |
 | `runtime/builder`       | `core.contracts.adapter`, `config.model`, `core.*`        | Specific adapter SDK modules                |
 | `runtime/observability` | `core.diagnostics`, `core.routing.stats`                  | Adapter code                                |
 | `core/*`                | Other `core/*` sub-packages                               | `adapters.*`, `runtime.*`, `cli.*`          |

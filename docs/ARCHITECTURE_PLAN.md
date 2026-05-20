@@ -2,8 +2,9 @@
 
 > **Status**: Current architecture record.
 >
-> **No stable public API.** All import paths are internal and may change
-> until a deliberate public facade is introduced.
+> **No stable public API.** All import paths are internal and may change.
+> Public facades/shim modules have been removed during the early architecture
+> phase and may be reintroduced deliberately after the API design settles.
 
 ## 0. Canonical Layout
 
@@ -143,7 +144,7 @@ medre/
 │   └── sample.py
 ├── core/
 │   ├── contracts/
-│   │   ├── __init__.py      # re-exports AdapterContract, AdapterRole, etc.
+│   │   ├── __init__.py      # package-level imports of AdapterContract, AdapterRole, etc.
 │   │   └── adapter.py       # AdapterContract and contract types
 │   ├── diagnostics/         # replay_metrics, snapshot
 │   ├── engine/              # pipeline.py (orchestration)
@@ -155,13 +156,13 @@ medre/
 │   ├── policies/            # empty
 │   ├── rendering/           # renderer, text
 │   ├── routing/             # models, router, stats
-│   ├── runtime/             # accounting, capabilities, diagnostic_contract,
-│   │                        # diagnostics, health, supervision
+│   ├── runtime/             # accounting, capabilities, capacity,
+│   │                        # diagnostic_contract, diagnostics, health, supervision
 │   ├── storage/             # backend, replay, sqlite
 │   └── transforms/          # empty
 ├── interop/                 # mmrelay wire-format constants
 ├── plugins/                 # scaffolding only: Plugin protocol, PluginCapability enum
-└── runtime/                 # app, builder, capacity, retry, routes, route_engine,
+└── runtime/                 # app, builder, retry, routes, route_engine,
                              # boot_summary, drill, smoke, snapshot, timeline, trace,
                              # errors, events, observability, docker_bridge_artifacts,
                              # evidence/, run_session/

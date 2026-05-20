@@ -201,9 +201,9 @@ class TestBaseImportBoundary:
 
     def test_import_medre_runtime(self) -> None:
         from medre.runtime.builder import RuntimeBuilder
-        from medre.runtime.errors import RuntimeError
+        from medre.runtime.errors import RuntimeError as MedreRuntimeError
 
-        assert RuntimeError is not None
+        assert MedreRuntimeError is not None
         assert RuntimeBuilder is not None
 
     def test_import_medre_core_adapter_contracts(self) -> None:

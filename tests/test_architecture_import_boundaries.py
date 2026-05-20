@@ -95,6 +95,10 @@ class TestCoreBoundary:
         return _find_py_files(core_dir)
 
     def test_core_no_forbidden_imports(self, core_py_files: list[Path]) -> None:
+        assert core_py_files, (
+            f"No .py files found in src/medre/core — "
+            f"directory may be missing or empty"
+        )
         all_violations: list[str] = []
         for py_file in core_py_files:
             violations = _check_forbidden(py_file, _CORE_FORBIDDEN)

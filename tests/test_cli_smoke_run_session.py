@@ -80,7 +80,7 @@ class TestOperatorBridgeSession:
     @pytest.mark.asyncio
     async def test_run_session_report_cross_links(self, tmp_path: Path) -> None:
         """Report commands_text/commands_argv reflect real --storage-path shape."""
-        from medre.runtime.run_session import run_bridge_session
+        from medre.runtime.run_session.orchestration import run_bridge_session
 
         config_path = _smoke_config_path()
         db_path = str(tmp_path / "crosslink.db")

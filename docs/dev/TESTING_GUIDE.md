@@ -303,9 +303,20 @@ async def test_matrix_adapter_without_nio_bad(mock_has_nio):
     ...
 ```
 
-Avoid patching package-root re-exports. If `medre.adapters.matrix.__init__`
-re-exports `HAS_NIO`, patch `medre.adapters.matrix.adapter.HAS_NIO` instead
-of `medre.adapters.matrix.HAS_NIO`.
+### Patching adapter modules
+
+Adapter package root `__init__.py` files are lightweight package markers and
+should not be used as patch targets. Patch the concrete definition/use site
+instead:
+
+```python
+# ✅ Correct: patch the actual module where the symbol is defined/used
+from unittest.mock import patch
+patch("medre.adapters.matrix.compat.HAS_NIO", False)
+
+# ❌ Wrong: adapter package roots are docstring-only with no re-exports
+# from medre.adapters.matrix import HAS_NIO  # This will not work
+```
 
 ## Compatibility
 

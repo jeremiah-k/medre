@@ -845,9 +845,10 @@ class TestConfigErrorCanonicalImports:
 
     def test_config_adapters_no_facade_re_exports(self) -> None:
         """config/adapters/__init__.py must not re-export error types."""
-        import medre.config.adapters
+        import importlib
+        mod = importlib.import_module("medre.config.adapters")
 
-        assert not hasattr(medre.config.adapters, "MatrixConfigError"), (
+        assert not hasattr(mod, "MatrixConfigError"), (
             "medre.config.adapters should not re-export error types; "
             "import from medre.config.adapters.errors instead"
         )
