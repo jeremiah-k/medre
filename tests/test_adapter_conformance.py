@@ -4,10 +4,10 @@ Verifies that every adapter (real and fake) conforms to the core
 adapter contract shape using concrete imports only — no package-root
 facade imports.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -37,9 +37,9 @@ class TestFakeAdapterConformance:
     @pytest.mark.parametrize("cls", _FAKE_ADAPTERS)
     def test_adapter_class_is_contract(self, cls: type) -> None:
         """Adapter class should be a subclass of AdapterContract."""
-        assert issubclass(cls, AdapterContract), (
-            f"{cls.__name__} is not a subclass of AdapterContract"
-        )
+        assert issubclass(
+            cls, AdapterContract
+        ), f"{cls.__name__} is not a subclass of AdapterContract"
 
     @pytest.mark.parametrize("cls", _FAKE_ADAPTERS)
     def test_adapter_has_expected_lifecycle_methods(self, cls: type) -> None:
@@ -50,9 +50,7 @@ class TestFakeAdapterConformance:
         assert hasattr(cls, "deliver"), f"{cls.__name__} lacks deliver"
 
     @pytest.mark.parametrize("cls", _FAKE_ADAPTERS)
-    def test_adapter_can_be_instantiated_with_minimal_args(
-        self, cls: type
-    ) -> None:
+    def test_adapter_can_be_instantiated_with_minimal_args(self, cls: type) -> None:
         """Fake adapter should be constructable with minimal args."""
         try:
             instance = cls(adapter_id="test")
@@ -75,24 +73,28 @@ class TestFakeAdapterConformance:
 
 class TestRealAdapterContractImports:
     """Real adapter classes must be importable from concrete paths.
-    
+
     Does NOT instantiate — only verifies the imports resolve.
     """
 
     def test_matrix_adapter_importable(self) -> None:
         from medre.adapters.matrix.adapter import MatrixAdapter
+
         assert issubclass(MatrixAdapter, AdapterContract)
 
     def test_meshtastic_adapter_importable(self) -> None:
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+
         assert issubclass(MeshtasticAdapter, AdapterContract)
 
     def test_meshcore_adapter_importable(self) -> None:
         from medre.adapters.meshcore.adapter import MeshCoreAdapter
+
         assert issubclass(MeshCoreAdapter, AdapterContract)
 
     def test_lxmf_adapter_importable(self) -> None:
         from medre.adapters.lxmf.adapter import LxmfAdapter
+
         assert issubclass(LxmfAdapter, AdapterContract)
 
 

@@ -733,9 +733,7 @@ class MatrixSession:
                     )
                     return False
             except Exception as exc:
-                self._logger.warning(
-                    "Exception joining room %s: %s", room_id, exc
-                )
+                self._logger.warning("Exception joining room %s: %s", room_id, exc)
                 return False
             finally:
                 if self._joining_rooms.get(room_id) is task:
@@ -772,14 +770,10 @@ class MatrixSession:
             return
 
         if room_id in self._auto_join_rooms:
-            self._logger.info(
-                "Accepting invitation to configured room %s", room_id
-            )
+            self._logger.info("Accepting invitation to configured room %s", room_id)
             await self.ensure_joined(room_id)
         else:
-            self._logger.debug(
-                "Ignoring invitation to unconfigured room %s", room_id
-            )
+            self._logger.debug("Ignoring invitation to unconfigured room %s", room_id)
 
     async def _on_megolm_event(self, room: Any, event: Any) -> None:
         """Handle an undecryptable MegolmEvent.
@@ -847,9 +841,7 @@ class MatrixSession:
         """
         cutoff = now - self._UNDECRYPTABLE_DEDUP_WINDOW_SECS
         self._undecryptable_dedup = {
-            key: ts
-            for key, ts in self._undecryptable_dedup.items()
-            if ts >= cutoff
+            key: ts for key, ts in self._undecryptable_dedup.items() if ts >= cutoff
         }
 
     def _track_room_encrypted(self, room: Any, room_id: str) -> None:
@@ -985,9 +977,7 @@ class MatrixSession:
                     else:
                         # Error response from server
                         error_msg = str(resp)
-                        raise RuntimeError(
-                            f"sync returned error: {error_msg}"
-                        )
+                        raise RuntimeError(f"sync returned error: {error_msg}")
 
                 # Loop exited because _stop_requested
                 return

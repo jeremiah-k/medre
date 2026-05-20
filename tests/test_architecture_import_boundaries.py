@@ -3,6 +3,7 @@
 Uses AST analysis to verify that source files don't import forbidden
 modules at runtime scope.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -112,9 +113,10 @@ class TestCoreBoundary:
         for py_file in core_py_files:
             violations = _check_forbidden(py_file, _CORE_FORBIDDEN)
             all_violations.extend(violations)
-        assert not all_violations, (
-            "Core modules have forbidden runtime-scope imports:\n" +
-            "\n".join(all_violations)
+        assert (
+            not all_violations
+        ), "Core modules have forbidden runtime-scope imports:\n" + "\n".join(
+            all_violations
         )
 
 
@@ -125,9 +127,8 @@ class TestRouteEngineBoundary:
         py_file = _SRC / "runtime" / "route_engine.py"
         assert py_file.exists(), f"File not found: {py_file}"
         violations = _check_forbidden(py_file, _ROUTE_ENGINE_FORBIDDEN)
-        assert not violations, (
-            "route_engine.py has forbidden imports:\n" +
-            "\n".join(violations)
+        assert not violations, "route_engine.py has forbidden imports:\n" + "\n".join(
+            violations
         )
 
 
@@ -152,7 +153,6 @@ class TestConfigModelBoundary:
                 violations.append(
                     f"{rel}:{imp.lineno}: unregistered adapter config {imp.module}"
                 )
-        assert not violations, (
-            "config/model.py has import violations:\n" +
-            "\n".join(violations)
+        assert not violations, "config/model.py has import violations:\n" + "\n".join(
+            violations
         )

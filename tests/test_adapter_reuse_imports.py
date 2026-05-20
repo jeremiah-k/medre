@@ -11,14 +11,13 @@ Part F — Logging Boundary Tests
 
 from __future__ import annotations
 
+import ast
 import importlib
 import logging
 import sys
 from pathlib import Path
 
 import pytest
-
-import ast
 
 from tests.helpers.ast_imports import runtime_scope_imports
 
@@ -126,8 +125,7 @@ class TestSetupLoggingNotCalledOnImport:
         MEDRE-managed handler — which would indicate setup_logging was called."""
         root = logging.getLogger()
         before = {
-            id(h) for h in root.handlers
-            if getattr(h, "_medre_console_handler", False)
+            id(h) for h in root.handlers if getattr(h, "_medre_console_handler", False)
         }
 
         # Import all reusable modules explicitly (self-contained, no ordering dependency).
@@ -135,12 +133,11 @@ class TestSetupLoggingNotCalledOnImport:
             _import_fresh(module_name)
 
         after = {
-            id(h) for h in root.handlers
-            if getattr(h, "_medre_console_handler", False)
+            id(h) for h in root.handlers if getattr(h, "_medre_console_handler", False)
         }
-        assert after == before, (
-            "Importing reusable modules attached MEDRE-managed root handlers"
-        )
+        assert (
+            after == before
+        ), "Importing reusable modules attached MEDRE-managed root handlers"
 
 
 class TestCodecRendererSdkFree:

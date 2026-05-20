@@ -77,11 +77,11 @@ These are adapter runtime errors — NOT config validation errors.
 
 ## 1. Layer Ownership Rules
 
-| Layer            | May Import From                                                              | Must Not Import From             |
-| ---------------- | ---------------------------------------------------------------------------- | -------------------------------- |
-| `medre.core`     | `medre.core` only (with narrowly scoped internal dependency notes)           | `medre.adapters`, `medre.config` |
-| `medre.config`   | `medre.config` (including `config.adapters`)                                 | `medre.adapters`                 |
-| `medre.adapters` | `medre.core.contracts.adapter`, `medre.config.adapters.*`, `medre.core.*`    | —                                |
+| Layer            | May Import From                                                           | Must Not Import From             |
+| ---------------- | ------------------------------------------------------------------------- | -------------------------------- |
+| `medre.core`     | `medre.core` only (with narrowly scoped internal dependency notes)        | `medre.adapters`, `medre.config` |
+| `medre.config`   | `medre.config` (including `config.adapters`)                              | `medre.adapters`                 |
+| `medre.adapters` | `medre.core.contracts.adapter`, `medre.config.adapters.*`, `medre.core.*` | —                                |
 
 - Concrete adapters depend inward on core contracts and config models.
 - `medre.config.adapters.matrix_credentials` is the canonical owner of credential file operations.

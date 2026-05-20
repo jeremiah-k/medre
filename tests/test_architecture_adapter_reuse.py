@@ -3,6 +3,7 @@
 Ensures codec/renderer/interop/session modules don't import runtime, CLI,
 storage, engine, adapter wrappers, or protocol SDKs at module level.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -95,14 +96,13 @@ def _check_module(
 
         # Check own-adapter import (codec should not import its own adapter)
         if transport and import_matches(mod, (f"medre.adapters.{transport}.adapter",)):
-            violations.append(
-                f"{rel}:{imp.lineno}: imports own adapter wrapper: {mod}"
-            )
+            violations.append(f"{rel}:{imp.lineno}: imports own adapter wrapper: {mod}")
             continue
 
         # Check cross-adapter imports
-        other_transports = [t for t in ["matrix", "meshtastic", "meshcore", "lxmf"]
-                          if t != transport]
+        other_transports = [
+            t for t in ["matrix", "meshtastic", "meshcore", "lxmf"] if t != transport
+        ]
         for ot in other_transports:
             if import_matches(mod, (f"medre.adapters.{ot}",)):
                 violations.append(
@@ -146,6 +146,6 @@ class TestCodecRendererBoundary:
         assert py_file.exists(), f"File not found: {py_file}"
         is_session = "session" in rel_path
         violations = _check_module(py_file, transport, is_session=is_session)
-        assert not violations, (
-            f"{rel_path} has forbidden imports:\n" + "\n".join(violations)
+        assert not violations, f"{rel_path} has forbidden imports:\n" + "\n".join(
+            violations
         )

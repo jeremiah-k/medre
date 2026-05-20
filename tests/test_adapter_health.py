@@ -359,12 +359,43 @@ class TestAdapterInfoContract:
     @pytest.mark.parametrize(
         "adapter_cls,adapter_kwargs",
         [
-            (__import__("medre.adapters.fake_transport", fromlist=["FakeTransportAdapter"]).FakeTransportAdapter, {"adapter_id": "ft"}),
-            (__import__("medre.adapters.fake_presentation", fromlist=["FakePresentationAdapter"]).FakePresentationAdapter, {"adapter_id": "fp"}),
-            (__import__("medre.adapters.fake_matrix", fromlist=["FakeMatrixAdapter"]).FakeMatrixAdapter, {"adapter_id": "fm"}),
-            (__import__("medre.adapters.fake_meshtastic", fromlist=["FakeMeshtasticAdapter"]).FakeMeshtasticAdapter, {}),
-            (__import__("medre.adapters.fake_meshcore", fromlist=["FakeMeshCoreAdapter"]).FakeMeshCoreAdapter, {}),
-            (__import__("medre.adapters.fake_lxmf", fromlist=["FakeLxmfAdapter"]).FakeLxmfAdapter, {}),
+            (
+                __import__(
+                    "medre.adapters.fake_transport", fromlist=["FakeTransportAdapter"]
+                ).FakeTransportAdapter,
+                {"adapter_id": "ft"},
+            ),
+            (
+                __import__(
+                    "medre.adapters.fake_presentation",
+                    fromlist=["FakePresentationAdapter"],
+                ).FakePresentationAdapter,
+                {"adapter_id": "fp"},
+            ),
+            (
+                __import__(
+                    "medre.adapters.fake_matrix", fromlist=["FakeMatrixAdapter"]
+                ).FakeMatrixAdapter,
+                {"adapter_id": "fm"},
+            ),
+            (
+                __import__(
+                    "medre.adapters.fake_meshtastic", fromlist=["FakeMeshtasticAdapter"]
+                ).FakeMeshtasticAdapter,
+                {},
+            ),
+            (
+                __import__(
+                    "medre.adapters.fake_meshcore", fromlist=["FakeMeshCoreAdapter"]
+                ).FakeMeshCoreAdapter,
+                {},
+            ),
+            (
+                __import__(
+                    "medre.adapters.fake_lxmf", fromlist=["FakeLxmfAdapter"]
+                ).FakeLxmfAdapter,
+                {},
+            ),
         ],
     )
     async def test_fake_adapter_returns_adapter_info(

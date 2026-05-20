@@ -14,6 +14,7 @@ from typing import Any, Literal
 
 import pytest
 
+import medre.runtime.timeline as _timeline
 from medre.core.events import (
     CanonicalEvent,
     DeliveryReceipt,
@@ -21,7 +22,6 @@ from medre.core.events import (
     NativeMessageRef,
 )
 from medre.core.storage.sqlite import SQLiteStorage
-import medre.runtime.timeline as _timeline
 
 
 def _now() -> datetime:

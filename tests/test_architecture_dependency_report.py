@@ -1,17 +1,21 @@
 """Tests for the architecture dependency graph and boundary reports."""
+
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
-import pytest
-
 from medre.runtime.architecture_report import (
-    _CORE_FORBIDDEN,
     _CONFIG_FORBIDDEN,
-    _ROUTE_ENGINE_FORBIDDEN,
+    _CORE_FORBIDDEN,
     ArchitectureGraph,
+    ImportEdge,
     ModuleInfo,
+    _is_type_checking,
+    _resolve_name,
+    _resolve_relative,
     build_dependency_graph,
+    build_route_adapter_boundary_report,
     check_forbidden_imports,
     module_path_for,
     parse_file,
@@ -81,9 +85,8 @@ class TestCoreBoundary:
     def test_core_no_forbidden_imports(self) -> None:
         graph = build_dependency_graph(_SRC)
         violations = check_forbidden_imports(graph, "medre.core", _CORE_FORBIDDEN)
-        assert not violations, (
-            "Core modules have forbidden imports:\n" +
-            "\n".join(f"  {m}: {t} (line {l})" for m, t, l in violations)
+        assert not violations, "Core modules have forbidden imports:\n" + "\n".join(
+            f"  {m}: {t} (line {ln})" for m, t, ln in violations
         )
 
 
@@ -93,9 +96,8 @@ class TestConfigBoundary:
     def test_config_no_forbidden_imports(self) -> None:
         graph = build_dependency_graph(_SRC)
         violations = check_forbidden_imports(graph, "medre.config", _CONFIG_FORBIDDEN)
-        assert not violations, (
-            "Config modules have forbidden imports:\n" +
-            "\n".join(f"  {m}: {t} (line {l})" for m, t, l in violations)
+        assert not violations, "Config modules have forbidden imports:\n" + "\n".join(
+            f"  {m}: {t} (line {ln})" for m, t, ln in violations
         )
 
 
@@ -112,7 +114,8 @@ class TestAdapterReuseBoundary:
     def test_codec_renderer_no_forbidden(self) -> None:
         graph = build_dependency_graph(_SRC)
         codec_renderer_modules = [
-            m for m in graph.modules
+            m
+            for m in graph.modules
             if any(m.endswith(s) for s in [".codec", ".renderer"])
             and m.startswith("medre.adapters.")
         ]
@@ -122,9 +125,10 @@ class TestAdapterReuseBoundary:
                 graph, mod, self._ADAPTER_FORBIDDEN
             ):
                 violations.append((module, target, line))
-        assert not violations, (
-            "Codec/renderer modules have forbidden imports:\n" +
-            "\n".join(f"  {m}: {t} (line {l})" for m, t, l in violations)
+        assert (
+            not violations
+        ), "Codec/renderer modules have forbidden imports:\n" + "\n".join(
+            f"  {m}: {t} (line {ln})" for m, t, ln in violations
         )
 
 
@@ -137,3 +141,330 @@ class TestReportDeterminism:
         report1 = render_dependency_report(graph1)
         report2 = render_dependency_report(graph2)
         assert report1 == report2
+
+
+# ---------------------------------------------------------------------------
+# New tests covering previously-uncovered lines
+# ---------------------------------------------------------------------------
+
+
+class TestResolveName:
+    """Tests for _resolve_name() — lines 48-59."""
+
+    def test_ast_name_returns_id(self) -> None:
+        """ast.Name node returns its .id."""
+        node = ast.Name(id="foo", ctx=ast.Load())
+        assert _resolve_name(node) == "foo"
+
+    def test_ast_attribute_chain(self) -> None:
+        """ast.Attribute chain like a.b.c returns dotted name."""
+        # Build: a.b.c  →  Attribute(value=Attribute(value=Name('a'), attr='b'), attr='c')
+        inner = ast.Attribute(
+            value=ast.Name(id="a", ctx=ast.Load()), attr="b", ctx=ast.Load()
+        )
+        outer = ast.Attribute(value=inner, attr="c", ctx=ast.Load())
+        assert _resolve_name(outer) == "a.b.c"
+
+    def test_non_name_non_attribute_returns_none(self) -> None:
+        """Non-Name, non-Attribute node returns None."""
+        node = ast.Constant(value=42)
+        assert _resolve_name(node) is None
+
+    def test_attribute_with_non_name_base(self) -> None:
+        """Attribute whose base is NOT ast.Name (e.g. a Call) — while loop
+        ends without appending a base id, so only the attr parts are joined."""
+        call = ast.Call(
+            func=ast.Name(id="func", ctx=ast.Load()),
+            args=[],
+            keywords=[],
+        )
+        attr = ast.Attribute(value=call, attr="method", ctx=ast.Load())
+        result = _resolve_name(attr)
+        # Only "method" collected; base is a Call, not Name, so no base id appended
+        assert result == "method"
+
+
+class TestResolveRelativeValueError:
+    """Tests for _resolve_relative() ValueError branch — lines 71-72."""
+
+    def test_path_without_src_returns_module_or_empty(self) -> None:
+        """When file_path has no 'src' in its path parts, returns module or ''."""
+        # level > 0, no 'src' in path
+        assert _resolve_relative(1, None, "/tmp/foo/bar.py") == ""
+        assert _resolve_relative(1, "somemod", "/tmp/foo/bar.py") == "somemod"
+
+
+class TestIsTypeChecking:
+    """Tests for _is_type_checking() — lines 89-98."""
+
+    def test_name_type_checking(self) -> None:
+        """if TYPE_CHECKING: (ast.Name test) → True."""
+        node = ast.If(
+            test=ast.Name(id="TYPE_CHECKING", ctx=ast.Load()),
+            body=[ast.Pass()],
+            orelse=[],
+        )
+        assert _is_type_checking(node) is True
+
+    def test_attribute_typing_type_checking(self) -> None:
+        """if typing.TYPE_CHECKING: (ast.Attribute test) → True."""
+        node = ast.If(
+            test=ast.Attribute(
+                value=ast.Name(id="typing", ctx=ast.Load()),
+                attr="TYPE_CHECKING",
+                ctx=ast.Load(),
+            ),
+            body=[ast.Pass()],
+            orelse=[],
+        )
+        assert _is_type_checking(node) is True
+
+    def test_regular_if_is_not_type_checking(self) -> None:
+        """Regular if x: → False."""
+        node = ast.If(
+            test=ast.Name(id="x", ctx=ast.Load()),
+            body=[ast.Pass()],
+            orelse=[],
+        )
+        assert _is_type_checking(node) is False
+
+    def test_non_if_node_is_not_type_checking(self) -> None:
+        """Non-If node → False."""
+        assert _is_type_checking(ast.Pass()) is False
+
+
+class TestParseFileResolvedBranch:
+    """Tests for parse_file() 'if resolved:' branch — line 136."""
+
+    def test_relative_import_adds_parent_edge(self, tmp_path: Path) -> None:
+        """from .module import name produces edges for both the specific
+        import and the parent module."""
+        # Create src/medre/pkg/__init__.py and src/medre/pkg/sub.py
+        pkg = tmp_path / "src" / "medre" / "pkg"
+        pkg.mkdir(parents=True)
+        (pkg / "__init__.py").write_text("", encoding="utf-8")
+        sub = pkg / "sub.py"
+        sub.write_text("from .sibling import SomeName\n", encoding="utf-8")
+
+        edges = parse_file(sub)
+        targets = [e.target for e in edges]
+
+        # Specific import: medre.pkg.sibling.SomeName
+        assert "medre.pkg.sibling.SomeName" in targets
+        # Parent module edge: medre.pkg.sibling
+        assert "medre.pkg.sibling" in targets
+
+        # Both edges should be import_from kind
+        for e in edges:
+            assert e.kind == "import_from"
+
+
+class TestBuildDependencyGraphEdgeCases:
+    """Tests for build_dependency_graph() edge cases — lines 183-196."""
+
+    def test_syntax_error_file_skipped_gracefully(self, tmp_path: Path) -> None:
+        """A .py file with invalid syntax doesn't crash the graph builder;
+        module is present but has empty imports."""
+        # Mimic src/medre/ structure
+        medre_dir = tmp_path / "src" / "medre"
+        medre_dir.mkdir(parents=True)
+        (medre_dir / "__init__.py").write_text("", encoding="utf-8")
+
+        bad_file = medre_dir / "broken.py"
+        bad_file.write_text("def f(\n", encoding="utf-8")  # invalid syntax
+
+        # Also add a valid file so there's something to compare
+        good_file = medre_dir / "good.py"
+        good_file.write_text("import os\n", encoding="utf-8")
+
+        graph = build_dependency_graph(medre_dir)
+
+        # broken module should be in the graph
+        assert "medre.broken" in graph.modules
+        # but with empty imports (SyntaxError was caught)
+        assert graph.modules["medre.broken"].imports == []
+
+        # good module should have its imports
+        assert len(graph.modules["medre.good"].imports) > 0
+
+
+class TestBuildRouteAdapterBoundaryReport:
+    """Tests for build_route_adapter_boundary_report() — lines 258-315."""
+
+    @staticmethod
+    def _make_graph(*modules: ModuleInfo) -> ArchitectureGraph:
+        """Helper to build a graph from given ModuleInfo entries."""
+        g = ArchitectureGraph()
+        for m in modules:
+            g.modules[m.module] = m
+        return g
+
+    def test_empty_graph(self) -> None:
+        """Empty graph produces report with zero counts."""
+        report = build_route_adapter_boundary_report(ArchitectureGraph())
+        assert "Runtime → Adapter imports: 0" in report
+        assert "Route engine forbidden imports: 0" in report
+        assert "Adapter → Runtime imports: 0" in report
+        assert "Config → Adapter implementation imports: 0" in report
+
+    def test_runtime_importing_adapter(self) -> None:
+        """Runtime module importing an adapter is reported."""
+        graph = self._make_graph(
+            ModuleInfo(
+                module="medre.runtime.engine",
+                file="runtime/engine.py",
+                imports=[
+                    ImportEdge(
+                        source="medre.runtime.engine",
+                        target="medre.adapters.mesh.send",
+                        line=10,
+                        kind="import_from",
+                        is_type_checking=False,
+                    ),
+                ],
+                layer="runtime",
+            ),
+        )
+        report = build_route_adapter_boundary_report(graph)
+        assert "Runtime → Adapter imports: 1" in report
+        assert "medre.runtime.engine -> medre.adapters.mesh.send" in report
+
+    def test_route_engine_forbidden_imports(self) -> None:
+        """Route engine with forbidden imports is reported."""
+        graph = self._make_graph(
+            ModuleInfo(
+                module="medre.runtime.route_engine",
+                file="runtime/route_engine.py",
+                imports=[
+                    ImportEdge(
+                        source="medre.runtime.route_engine",
+                        target="medre.adapters",
+                        line=5,
+                        kind="import",
+                        is_type_checking=False,
+                    ),
+                ],
+                layer="runtime",
+            ),
+        )
+        report = build_route_adapter_boundary_report(graph)
+        assert "Route engine forbidden imports: 1" in report
+
+    def test_adapter_importing_runtime(self) -> None:
+        """Adapter module importing runtime is reported."""
+        graph = self._make_graph(
+            ModuleInfo(
+                module="medre.adapters.matrix.codec",
+                file="adapters/matrix/codec.py",
+                imports=[
+                    ImportEdge(
+                        source="medre.adapters.matrix.codec",
+                        target="medre.runtime.builder",
+                        line=7,
+                        kind="import_from",
+                        is_type_checking=False,
+                    ),
+                ],
+                layer="adapters",
+            ),
+        )
+        report = build_route_adapter_boundary_report(graph)
+        assert "Adapter → Runtime imports: 1" in report
+        assert "medre.adapters.matrix.codec -> medre.runtime.builder" in report
+
+    def test_config_importing_adapter_implementation(self) -> None:
+        """Config module importing adapter implementation (not config.adapters) is reported."""
+        graph = self._make_graph(
+            ModuleInfo(
+                module="medre.config.model",
+                file="config/model.py",
+                imports=[
+                    ImportEdge(
+                        source="medre.config.model",
+                        target="medre.adapters.mesh.handler",
+                        line=12,
+                        kind="import_from",
+                        is_type_checking=False,
+                    ),
+                ],
+                layer="config",
+            ),
+        )
+        report = build_route_adapter_boundary_report(graph)
+        assert "Config → Adapter implementation imports: 1" in report
+
+    def test_type_checking_imports_not_counted(self) -> None:
+        """TYPE_CHECKING imports are excluded from boundary reports."""
+        graph = self._make_graph(
+            ModuleInfo(
+                module="medre.runtime.engine",
+                file="runtime/engine.py",
+                imports=[
+                    ImportEdge(
+                        source="medre.runtime.engine",
+                        target="medre.adapters.mesh.send",
+                        line=10,
+                        kind="import_from",
+                        is_type_checking=True,
+                    ),
+                ],
+                layer="runtime",
+            ),
+        )
+        report = build_route_adapter_boundary_report(graph)
+        assert "Runtime → Adapter imports: 0" in report
+
+
+class TestCheckForbiddenImportsInnerLoop:
+    """Tests for check_forbidden_imports() inner loop — lines 338-340."""
+
+    def test_allow_type_checking_false_flags_type_checking_imports(self) -> None:
+        """With allow_type_checking=False, TYPE_CHECKING imports are still flagged."""
+        graph = ArchitectureGraph()
+        graph.modules["medre.core.engine"] = ModuleInfo(
+            module="medre.core.engine",
+            file="core/engine.py",
+            imports=[
+                ImportEdge(
+                    source="medre.core.engine",
+                    target="medre.adapters.mesh",
+                    line=5,
+                    kind="import_from",
+                    is_type_checking=True,
+                ),
+            ],
+            layer="core",
+        )
+        violations = check_forbidden_imports(
+            graph,
+            "medre.core",
+            ("medre.adapters",),
+            allow_type_checking=False,
+        )
+        assert len(violations) == 1
+        assert violations[0] == ("medre.core.engine", "medre.adapters.mesh", 5)
+
+    def test_exact_match_not_just_prefix(self) -> None:
+        """Exact match (target == forbidden) works, not just prefix match."""
+        graph = ArchitectureGraph()
+        graph.modules["medre.core.engine"] = ModuleInfo(
+            module="medre.core.engine",
+            file="core/engine.py",
+            imports=[
+                ImportEdge(
+                    source="medre.core.engine",
+                    target="medre.runtime",
+                    line=3,
+                    kind="import",
+                    is_type_checking=False,
+                ),
+            ],
+            layer="core",
+        )
+        violations = check_forbidden_imports(
+            graph,
+            "medre.core",
+            ("medre.runtime",),
+        )
+        assert len(violations) == 1
+        assert violations[0][1] == "medre.runtime"

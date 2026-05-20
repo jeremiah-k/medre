@@ -1,4 +1,5 @@
 """Tests for tests/helpers/ast_imports.py"""
+
 from __future__ import annotations
 
 import ast
@@ -176,8 +177,10 @@ class TestFindRelativeImports:
         )
         assert len(records) >= 1
         modules = {r.module for r in records}
-        assert "medre.core.observability.sibling" in modules or \
-               "medre.core.observability.sibling.X" in modules
+        assert (
+            "medre.core.observability.sibling" in modules
+            or "medre.core.observability.sibling.X" in modules
+        )
 
     def test_double_dot_import_resolved(self) -> None:
         source = "from ..routing import Route\n"
@@ -189,8 +192,7 @@ class TestFindRelativeImports:
         )
         assert len(records) >= 1
         modules = {r.module for r in records}
-        assert "medre.core.routing" in modules or \
-               "medre.core.routing.Route" in modules
+        assert "medre.core.routing" in modules or "medre.core.routing.Route" in modules
 
     def test_over_traversal_returns_empty(self) -> None:
         """Going beyond package root should not crash and returns module or empty."""

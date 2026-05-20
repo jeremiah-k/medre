@@ -192,13 +192,12 @@ async def _adapter_matrix_auth_status(credentials_path: Path | None = None) -> N
         the default sidecar path is used.
     """
     from medre.adapters.matrix.auth import check_credentials_completeness
-    from medre.config.adapters.matrix_credentials import get_credentials_path, load_credentials_json
-
-    path = (
-        credentials_path
-        if credentials_path is not None
-        else get_credentials_path()
+    from medre.config.adapters.matrix_credentials import (
+        get_credentials_path,
+        load_credentials_json,
     )
+
+    path = credentials_path if credentials_path is not None else get_credentials_path()
 
     if not path.exists():
         print(f"No credentials file at: {path}")

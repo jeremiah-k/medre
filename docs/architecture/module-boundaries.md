@@ -72,6 +72,7 @@ Owns TOML loading, model classes, environment overrides, and path resolution.
 `sample.py`, `adapters/` (per-transport config models and credential helpers).
 
 **Import rules:**
+
 - `config/model.py` may import adapter config dataclasses from
   `medre.config.adapters.*`.
 - `config/` must not import adapter implementations, protocol SDKs,
@@ -82,13 +83,13 @@ Owns TOML loading, model classes, environment overrides, and path resolution.
 
 ## Import rules
 
-| From                    | May import                                                | Must not import                             |
-| ----------------------- | --------------------------------------------------------- | ------------------------------------------- |
-| `cli/` commands         | `config.*`, `runtime.*`, `core.observability.*`           | Adapter implementations, unrelated `core.*` internals |
-| `runtime/builder`       | `core.contracts.adapter`, `config.model`, `core.*`        | Specific adapter SDK modules                |
-| `runtime/observability` | `core.diagnostics`, `core.routing.stats`                  | Adapter code                                |
-| `core/*`                | Other `core/*` sub-packages                               | `adapters.*`, `runtime.*`, `cli.*`          |
-| `adapters/<transport>/` | `core.contracts.adapter`, `core.events`, `core.rendering` | Other adapter packages, `runtime.*`         |
+| From                    | May import                                                                                      | Must not import                                           |
+| ----------------------- | ----------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| `cli/` commands         | `config.*`, `runtime.*`, `core.observability.*`                                                 | Adapter implementations, unrelated `core.*` internals     |
+| `runtime/builder`       | `core.contracts.adapter`, `config.model`, `core.*`                                              | Specific adapter SDK modules                              |
+| `runtime/observability` | `core.diagnostics`, `core.routing.stats`                                                        | Adapter code                                              |
+| `core/*`                | Other `core/*` sub-packages                                                                     | `adapters.*`, `runtime.*`, `cli.*`                        |
+| `adapters/<transport>/` | `core.contracts.adapter`, `core.events`, `core.rendering`                                       | Other adapter packages, `runtime.*`                       |
 | `config/`               | `medre.config.*` (own internals), `medre.runtime.routes`, `medre.core.observability.log_levels` | `medre.adapters.*`, adapter SDKs, `medre.runtime.builder` |
 
 Key invariants:
@@ -106,12 +107,12 @@ Key invariants:
 
 ## What was removed or moved
 
-| Before                        | After                                                  | Reason                                                                      |
-| ----------------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------- |
-| `runner.py` (top-level)       | Deleted                                                | Logic moved into `runtime/builder.py` and `runtime/app.py`                  |
-| `cli.py` (monolithic)         | `cli/` package                                         | Split into per-command modules for maintainability                          |
-| `_sanitize_error` (scattered) | `medre.core.observability.sanitization.sanitize_error` | Consolidated into core observability                                        |
-| `medre.observability` package | Removed                                                | Modules moved to canonical homes (see Observability section below)          |
+| Before                        | After                                                  | Reason                                                             |
+| ----------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------ |
+| `runner.py` (top-level)       | Deleted                                                | Logic moved into `runtime/builder.py` and `runtime/app.py`         |
+| `cli.py` (monolithic)         | `cli/` package                                         | Split into per-command modules for maintainability                 |
+| `_sanitize_error` (scattered) | `medre.core.observability.sanitization.sanitize_error` | Consolidated into core observability                               |
+| `medre.observability` package | Removed                                                | Modules moved to canonical homes (see Observability section below) |
 
 ## Operator Tooling Boundary
 

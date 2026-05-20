@@ -7,17 +7,18 @@ Provides helpers to:
 - Collect top-level function calls (to detect blocking I/O)
 - Match import prefixes for banned-import checks
 """
+
 from __future__ import annotations
 
 import ast
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 
 @dataclass
 class ImportRecord:
     """Single import found in source code."""
+
     module: str
     lineno: int
     kind: str  # "import" or "import_from"
@@ -27,6 +28,7 @@ class ImportRecord:
 @dataclass
 class CallRecord:
     """Single function call found in source code."""
+
     func: str
     lineno: int
     file: str | None = None
@@ -65,14 +67,14 @@ def _resolve_relative(level: int, module: str | None, file_path: str | None) -> 
 
         # Package parts are everything after 'src/medre'
         if src_idx + 1 < len(parts):
-            package_parts = parts[src_idx + 1:]
+            package_parts = parts[src_idx + 1 :]
         else:
             return module or ""
 
         # Go up 'level - 1' levels (level counts dots; file's own dir is 1 level)
         # Remove from the end: go up (level - 1) directories
         if level > 1 and level - 1 <= len(package_parts):
-            package_parts = package_parts[:-(level - 1)]
+            package_parts = package_parts[: -(level - 1)]
         elif level > 1:
             # Can't go up that far — just use what's left
             package_parts = []
@@ -129,31 +131,35 @@ def runtime_scope_imports(
             if isinstance(child, (ast.Import, ast.ImportFrom)):
                 if isinstance(child, ast.Import):
                     for alias in child.names:
-                        result.append(ImportRecord(
-                            module=alias.name,
-                            lineno=child.lineno,
-                            kind="import",
-                            file=file_path,
-                        ))
+                        result.append(
+                            ImportRecord(
+                                module=alias.name,
+                                lineno=child.lineno,
+                                kind="import",
+                                file=file_path,
+                            )
+                        )
                 elif isinstance(child, ast.ImportFrom):
-                    resolved = _resolve_relative(
-                        child.level, child.module, file_path
-                    )
+                    resolved = _resolve_relative(child.level, child.module, file_path)
                     for alias in child.names:
                         full = f"{resolved}.{alias.name}" if resolved else alias.name
-                        result.append(ImportRecord(
-                            module=full,
-                            lineno=child.lineno,
-                            kind="import_from",
-                            file=file_path,
-                        ))
+                        result.append(
+                            ImportRecord(
+                                module=full,
+                                lineno=child.lineno,
+                                kind="import_from",
+                                file=file_path,
+                            )
+                        )
                     if resolved:
-                        result.append(ImportRecord(
-                            module=resolved,
-                            lineno=child.lineno,
-                            kind="import_from",
-                            file=file_path,
-                        ))
+                        result.append(
+                            ImportRecord(
+                                module=resolved,
+                                lineno=child.lineno,
+                                kind="import_from",
+                                file=file_path,
+                            )
+                        )
             elif isinstance(child, ast.If):
                 if _is_type_checking(child):
                     continue
@@ -184,31 +190,35 @@ def all_imports(
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                result.append(ImportRecord(
-                    module=alias.name,
-                    lineno=node.lineno,
-                    kind="import",
-                    file=file_path,
-                ))
+                result.append(
+                    ImportRecord(
+                        module=alias.name,
+                        lineno=node.lineno,
+                        kind="import",
+                        file=file_path,
+                    )
+                )
         elif isinstance(node, ast.ImportFrom):
-            resolved = _resolve_relative(
-                node.level, node.module, file_path
-            )
+            resolved = _resolve_relative(node.level, node.module, file_path)
             for alias in node.names:
                 full = f"{resolved}.{alias.name}" if resolved else alias.name
-                result.append(ImportRecord(
-                    module=full,
-                    lineno=node.lineno,
-                    kind="import_from",
-                    file=file_path,
-                ))
+                result.append(
+                    ImportRecord(
+                        module=full,
+                        lineno=node.lineno,
+                        kind="import_from",
+                        file=file_path,
+                    )
+                )
             if resolved:
-                result.append(ImportRecord(
-                    module=resolved,
-                    lineno=node.lineno,
-                    kind="import_from",
-                    file=file_path,
-                ))
+                result.append(
+                    ImportRecord(
+                        module=resolved,
+                        lineno=node.lineno,
+                        kind="import_from",
+                        file=file_path,
+                    )
+                )
     return result
 
 
@@ -266,11 +276,13 @@ def top_level_calls(
     def _walk(node: ast.AST) -> None:
         for child in ast.iter_child_nodes(node):
             if isinstance(child, ast.Call):
-                result.append(CallRecord(
-                    func=_get_call_name(child),
-                    lineno=child.lineno,
-                    file=file_path,
-                ))
+                result.append(
+                    CallRecord(
+                        func=_get_call_name(child),
+                        lineno=child.lineno,
+                        file=file_path,
+                    )
+                )
                 _walk(child)
             elif isinstance(child, ast.If):
                 if _is_type_checking(child):
@@ -312,19 +324,23 @@ def find_relative_imports(
             resolved = _resolve_relative(node.level, node.module, file_path)
             for alias in node.names:
                 full = f"{resolved}.{alias.name}" if resolved else alias.name
-                result.append(ImportRecord(
-                    module=full,
-                    lineno=node.lineno,
-                    kind="import_from",
-                    file=file_path,
-                ))
+                result.append(
+                    ImportRecord(
+                        module=full,
+                        lineno=node.lineno,
+                        kind="import_from",
+                        file=file_path,
+                    )
+                )
             if resolved:
-                result.append(ImportRecord(
-                    module=resolved,
-                    lineno=node.lineno,
-                    kind="import_from",
-                    file=file_path,
-                ))
+                result.append(
+                    ImportRecord(
+                        module=resolved,
+                        lineno=node.lineno,
+                        kind="import_from",
+                        file=file_path,
+                    )
+                )
     return result
 
 
@@ -371,29 +387,33 @@ def top_level_imports(
     for node in ast.iter_child_nodes(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                result.append(ImportRecord(
-                    module=alias.name,
-                    lineno=node.lineno,
-                    kind="import",
-                    file=file_path,
-                ))
+                result.append(
+                    ImportRecord(
+                        module=alias.name,
+                        lineno=node.lineno,
+                        kind="import",
+                        file=file_path,
+                    )
+                )
         elif isinstance(node, ast.ImportFrom):
-            resolved = _resolve_relative(
-                node.level, node.module, file_path
-            )
+            resolved = _resolve_relative(node.level, node.module, file_path)
             for alias in node.names:
                 full = f"{resolved}.{alias.name}" if resolved else alias.name
-                result.append(ImportRecord(
-                    module=full,
-                    lineno=node.lineno,
-                    kind="import_from",
-                    file=file_path,
-                ))
+                result.append(
+                    ImportRecord(
+                        module=full,
+                        lineno=node.lineno,
+                        kind="import_from",
+                        file=file_path,
+                    )
+                )
             if resolved:
-                result.append(ImportRecord(
-                    module=resolved,
-                    lineno=node.lineno,
-                    kind="import_from",
-                    file=file_path,
-                ))
+                result.append(
+                    ImportRecord(
+                        module=resolved,
+                        lineno=node.lineno,
+                        kind="import_from",
+                        file=file_path,
+                    )
+                )
     return result

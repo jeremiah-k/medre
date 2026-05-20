@@ -2,27 +2,29 @@
 
 Pure AST-based analysis. Does NOT import any project modules.
 """
+
 from __future__ import annotations
 
 import ast
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 
 @dataclass
 class ImportEdge:
     """A single import edge from one module to another."""
+
     source: str  # dotted module path relative to src/medre
     target: str  # the imported module (fully qualified)
     line: int
-    kind: str   # "import" or "import_from"
+    kind: str  # "import" or "import_from"
     is_type_checking: bool = False
 
 
 @dataclass
 class ModuleInfo:
     """Information about a single Python module."""
+
     module: str
     file: str
     imports: list[ImportEdge] = field(default_factory=list)
@@ -30,7 +32,16 @@ class ModuleInfo:
 
 
 # Layer classification
-_LAYER_ORDER = ["config", "core", "interop", "runtime", "adapters", "cli", "plugins", "observability"]
+_LAYER_ORDER = [
+    "config",
+    "core",
+    "interop",
+    "runtime",
+    "adapters",
+    "cli",
+    "plugins",
+    "observability",
+]
 
 
 def _classify_layer(module: str) -> str:
@@ -71,11 +82,11 @@ def _resolve_relative(level: int, module: str | None, file_path: str) -> str:
         except ValueError:
             return module or ""
         if src_idx + 1 < len(parts):
-            package_parts = parts[src_idx + 1:]
+            package_parts = parts[src_idx + 1 :]
         else:
             return module or ""
         if level > 1 and level - 1 <= len(package_parts):
-            package_parts = package_parts[:-(level - 1)]
+            package_parts = package_parts[: -(level - 1)]
         elif level > 1:
             package_parts = []
         if module:
@@ -93,8 +104,12 @@ def _is_type_checking(node: ast.AST) -> bool:
     test = node.test
     if isinstance(test, ast.Name) and test.id == "TYPE_CHECKING":
         return True
-    if (isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
-            and isinstance(test.value, ast.Name) and test.value.id == "typing"):
+    if (
+        isinstance(test, ast.Attribute)
+        and test.attr == "TYPE_CHECKING"
+        and isinstance(test.value, ast.Name)
+        and test.value.id == "typing"
+    ):
         return True
     return False
 
@@ -115,32 +130,38 @@ def parse_file(py_file: Path) -> list[ImportEdge]:
                 continue
             if isinstance(child, ast.Import):
                 for alias in child.names:
-                    edges.append(ImportEdge(
-                        source="",
-                        target=alias.name,
-                        line=child.lineno,
-                        kind="import",
-                        is_type_checking=in_type_checking,
-                    ))
+                    edges.append(
+                        ImportEdge(
+                            source="",
+                            target=alias.name,
+                            line=child.lineno,
+                            kind="import",
+                            is_type_checking=in_type_checking,
+                        )
+                    )
             elif isinstance(child, ast.ImportFrom):
                 resolved = _resolve_relative(child.level, child.module, str(py_file))
                 for alias in child.names:
                     full = f"{resolved}.{alias.name}" if resolved else alias.name
-                    edges.append(ImportEdge(
-                        source="",
-                        target=full,
-                        line=child.lineno,
-                        kind="import_from",
-                        is_type_checking=in_type_checking,
-                    ))
+                    edges.append(
+                        ImportEdge(
+                            source="",
+                            target=full,
+                            line=child.lineno,
+                            kind="import_from",
+                            is_type_checking=in_type_checking,
+                        )
+                    )
                 if resolved:
-                    edges.append(ImportEdge(
-                        source="",
-                        target=resolved,
-                        line=child.lineno,
-                        kind="import_from",
-                        is_type_checking=in_type_checking,
-                    ))
+                    edges.append(
+                        ImportEdge(
+                            source="",
+                            target=resolved,
+                            line=child.lineno,
+                            kind="import_from",
+                            is_type_checking=in_type_checking,
+                        )
+                    )
             else:
                 _walk(child, in_type_checking)
 
@@ -150,7 +171,7 @@ def parse_file(py_file: Path) -> list[ImportEdge]:
 
 def module_path_for(py_file: Path, src_root: Path) -> str:
     """Convert a file path under src_root to a dotted module name.
-    
+
     Prepends ``medre.`` because *src_root* is expected to be
     ``src/medre/`` — the resulting module name includes the top-level
     package.
@@ -168,12 +189,13 @@ def module_path_for(py_file: Path, src_root: Path) -> str:
 @dataclass
 class ArchitectureGraph:
     """Full dependency graph for the medre project."""
+
     modules: dict[str, ModuleInfo] = field(default_factory=dict)
 
 
 def build_dependency_graph(src_root: Path) -> ArchitectureGraph:
     """Build a dependency graph from source files under src_root.
-    
+
     Scans all .py files recursively. Pure AST-based; does NOT import modules.
     """
     graph = ArchitectureGraph()
@@ -216,8 +238,11 @@ def render_dependency_report(graph: ArchitectureGraph) -> str:
             continue
         lines.append(f"\n--- {layer} layer ({len(by_layer[layer])} modules) ---")
         for info in sorted(by_layer[layer], key=lambda m: m.module):
-            ext_imports = [e for e in info.imports if e.target.startswith("medre.")
-                          and not e.is_type_checking]
+            ext_imports = [
+                e
+                for e in info.imports
+                if e.target.startswith("medre.") and not e.is_type_checking
+            ]
             if ext_imports:
                 lines.append(f"  {info.module}:")
                 for imp in sorted(ext_imports, key=lambda x: x.target):
@@ -225,7 +250,9 @@ def render_dependency_report(graph: ArchitectureGraph) -> str:
 
     lines.append("\n" + "=" * 70)
     lines.append(f"Total modules: {len(graph.modules)}")
-    lines.append(f"Total import edges: {sum(len(m.imports) for m in graph.modules.values())}")
+    lines.append(
+        f"Total import edges: {sum(len(m.imports) for m in graph.modules.values())}"
+    )
     return "\n".join(lines)
 
 
@@ -235,12 +262,23 @@ _CORE_FORBIDDEN = (
     "medre.runtime",
     "medre.adapters",
     "medre.cli",
-    "nio", "meshtastic", "aiohttp", "serial", "serial_asyncio", "meshcore", "RNS", "lxmf",
+    "nio",
+    "meshtastic",
+    "aiohttp",
+    "serial",
+    "serial_asyncio",
+    "meshcore",
+    "RNS",
+    "lxmf",
 )
 
 _ROUTE_ENGINE_FORBIDDEN = (
     "medre.adapters",
-    "nio", "meshtastic", "aiohttp", "serial", "serial_asyncio",
+    "nio",
+    "meshtastic",
+    "aiohttp",
+    "serial",
+    "serial_asyncio",
     "medre.runtime.builder",
 )
 
@@ -249,7 +287,14 @@ _CONFIG_FORBIDDEN = (
     "medre.runtime.builder",
     "medre.runtime.route_engine",
     "medre.core.engine",
-    "nio", "meshtastic", "aiohttp", "serial", "serial_asyncio", "meshcore", "RNS", "lxmf",
+    "nio",
+    "meshtastic",
+    "aiohttp",
+    "serial",
+    "serial_asyncio",
+    "meshcore",
+    "RNS",
+    "lxmf",
 )
 
 
@@ -264,9 +309,12 @@ def build_route_adapter_boundary_report(graph: ArchitectureGraph) -> str:
     for mod, info in graph.modules.items():
         if mod.startswith("medre.runtime."):
             for edge in info.imports:
-                if edge.target.startswith("medre.adapters.") and not edge.is_type_checking:
+                if (
+                    edge.target.startswith("medre.adapters.")
+                    and not edge.is_type_checking
+                ):
                     runtime_adapter_imports.append((mod, edge.target, edge.line))
-    
+
     lines.append(f"\nRuntime → Adapter imports: {len(runtime_adapter_imports)}")
     for mod, target, line in sorted(runtime_adapter_imports):
         lines.append(f"  {mod} -> {target} (line {line})")
@@ -280,7 +328,7 @@ def build_route_adapter_boundary_report(graph: ArchitectureGraph) -> str:
                 target = edge.target
                 if target == f or target.startswith(f + "."):
                     route_engine_violations.append((edge.target, edge.line))
-    
+
     lines.append(f"\nRoute engine forbidden imports: {len(route_engine_violations)}")
     for target, line in route_engine_violations:
         lines.append(f"  {target} (line {line})")
@@ -290,9 +338,12 @@ def build_route_adapter_boundary_report(graph: ArchitectureGraph) -> str:
     for mod, info in graph.modules.items():
         if mod.startswith("medre.adapters."):
             for edge in info.imports:
-                if edge.target.startswith("medre.runtime.") and not edge.is_type_checking:
+                if (
+                    edge.target.startswith("medre.runtime.")
+                    and not edge.is_type_checking
+                ):
                     adapter_runtime_imports.append((mod, edge.target, edge.line))
-    
+
     lines.append(f"\nAdapter → Runtime imports: {len(adapter_runtime_imports)}")
     for mod, target, line in sorted(adapter_runtime_imports):
         lines.append(f"  {mod} -> {target} (line {line})")
@@ -303,12 +354,16 @@ def build_route_adapter_boundary_report(graph: ArchitectureGraph) -> str:
         if mod.startswith("medre.config."):
             for edge in info.imports:
                 # Allow config.adapters.* dataclass imports
-                if (edge.target.startswith("medre.adapters.") 
+                if (
+                    edge.target.startswith("medre.adapters.")
                     and not edge.target.startswith("medre.config.adapters.")
-                    and not edge.is_type_checking):
+                    and not edge.is_type_checking
+                ):
                     config_adapter_impl_imports.append((mod, edge.target, edge.line))
-    
-    lines.append(f"\nConfig → Adapter implementation imports: {len(config_adapter_impl_imports)}")
+
+    lines.append(
+        f"\nConfig → Adapter implementation imports: {len(config_adapter_impl_imports)}"
+    )
     for mod, target, line in config_adapter_impl_imports:
         lines.append(f"  {mod} -> {target} (line {line})")
 
@@ -323,7 +378,7 @@ def check_forbidden_imports(
     allow_type_checking: bool = True,
 ) -> list[tuple[str, str, int]]:
     """Check all modules matching *module_prefix* for forbidden imports.
-    
+
     Returns list of (module, forbidden_import, line_number).
     """
     violations: list[tuple[str, str, int]] = []

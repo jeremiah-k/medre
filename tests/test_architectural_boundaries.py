@@ -21,10 +21,12 @@ from typing import Any, AsyncGenerator
 
 import pytest
 
+from tests.helpers.ast_imports import all_imports as _all_imports_new
 from tests.helpers.ast_imports import (
-    all_imports as _all_imports_new,
     import_matches,
-    runtime_scope_imports as _runtime_scope_new,
+)
+from tests.helpers.ast_imports import runtime_scope_imports as _runtime_scope_new
+from tests.helpers.ast_imports import (
     top_level_imports,
 )
 
@@ -846,6 +848,7 @@ class TestConfigErrorCanonicalImports:
     def test_config_adapters_no_facade_re_exports(self) -> None:
         """config/adapters/__init__.py must not re-export error types."""
         import importlib
+
         mod = importlib.import_module("medre.config.adapters")
 
         assert not hasattr(mod, "MatrixConfigError"), (
@@ -1024,7 +1027,9 @@ def _all_imports(source: str, file_path: str | None = None):
     return _all_imports_new(tree, file_path=file_path)
 
 
-def _check_banned_ast(imports, banned_prefixes: tuple[str, ...], *, rel_path: str) -> list[str]:
+def _check_banned_ast(
+    imports, banned_prefixes: tuple[str, ...], *, rel_path: str
+) -> list[str]:
     """Check ImportRecords for banned import prefixes."""
     violations: list[str] = []
     for r in imports:

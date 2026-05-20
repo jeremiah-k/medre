@@ -6,12 +6,16 @@ import json as _json
 import sys
 from typing import Any
 
-from medre.core.observability.classification import failure_category as _failure_category
-from medre.core.observability.classification import infer_failure_kind as _infer_failure_kind
+import medre.runtime.timeline as _timeline
+from medre.core.observability.classification import (
+    failure_category as _failure_category,
+)
+from medre.core.observability.classification import (
+    infer_failure_kind as _infer_failure_kind,
+)
 from medre.core.observability.classification import (
     recommended_commands as _recommended_commands,
 )
-import medre.runtime.timeline as _timeline
 
 from .exit_codes import EXIT_NOT_FOUND
 from .storage_helpers import _open_readonly_storage

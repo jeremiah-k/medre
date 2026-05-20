@@ -19,13 +19,14 @@ class TestEvidencePackageBoundary:
 
     def test_no_all_at_package_root(self, evidence_pkg) -> None:
         """The package root must not expose ``__all__`` convenience exports."""
-        assert not hasattr(evidence_pkg, "__all__") or evidence_pkg.__all__ == [], (
-            "medre.runtime.evidence should not expose __all__"
-        )
+        assert (
+            not hasattr(evidence_pkg, "__all__") or evidence_pkg.__all__ == []
+        ), "medre.runtime.evidence should not expose __all__"
 
     def test_collect_evidence_bundle_from_concrete_path(self) -> None:
         """``collect_evidence_bundle`` must be imported from concrete submodule."""
         from medre.runtime.evidence._bundle import collect_evidence_bundle
+
         assert callable(collect_evidence_bundle)
 
     PRIVATE_NAMES = [

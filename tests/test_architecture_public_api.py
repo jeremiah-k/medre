@@ -3,11 +3,11 @@
 Ensures that importing top-level packages does not pull in heavy
 implementation modules, and that public facade paths are not required.
 """
+
 from __future__ import annotations
 
-from pathlib import Path
-
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -27,7 +27,7 @@ class TestTopLevelImportLightweight:
 
     def test_import_medre_is_lightweight(self) -> None:
         """import medre must not pull in heavy modules.
-        
+
         Runs in a subprocess to get a cold interpreter — avoids false
         positives from modules already cached in the test process.
         """
@@ -35,8 +35,7 @@ class TestTopLevelImportLightweight:
         import subprocess
         import textwrap
 
-        code = textwrap.dedent(
-            f"""
+        code = textwrap.dedent(f"""
             import json, sys
             forbidden = {self._FORBIDDEN_AFTER_IMPORT!r}
             before = set(sys.modules)
@@ -44,8 +43,7 @@ class TestTopLevelImportLightweight:
             after = set(sys.modules)
             loaded = sorted((after - before) & set(forbidden))
             print(json.dumps(loaded))
-            """
-        )
+            """)
         proc = subprocess.run(
             [sys.executable, "-c", code],
             check=True,
@@ -57,16 +55,24 @@ class TestTopLevelImportLightweight:
 
     def test_medre_has_no_substantive_all(self) -> None:
         import medre  # noqa: F811
+
         # __all__ should not contain runtime builders, adapters, pipeline
         if hasattr(medre, "__all__"):
-            api_symbols = set(medre.__all__)  # pyright: ignore[reportAttributeAccessIssue]
-            forbidden = {"RuntimeBuilder", "MedreApp", "PipelineRunner",
-                        "PipelineConfig", "MatrixAdapter", "MeshtasticAdapter",
-                        "sanitize_error", "sanitize_for_log"}
+            api_symbols = set(
+                medre.__all__
+            )  # pyright: ignore[reportAttributeAccessIssue]
+            forbidden = {
+                "RuntimeBuilder",
+                "MedreApp",
+                "PipelineRunner",
+                "PipelineConfig",
+                "MatrixAdapter",
+                "MeshtasticAdapter",
+                "sanitize_error",
+                "sanitize_for_log",
+            }
             found = api_symbols & forbidden
-            assert not found, (
-                f"medre.__all__ contains public API symbols: {found}"
-            )
+            assert not found, f"medre.__all__ contains public API symbols: {found}"
 
 
 class TestObservabilityFacadeRemoved:
@@ -80,19 +86,19 @@ class TestObservabilityFacadeRemoved:
     def test_observability_sanitization_module_does_not_exist(self) -> None:
         """The medre.observability.sanitization re-export module must not exist."""
         from pathlib import Path
+
         # The module lives at medre.core.observability.sanitization now
         # Check the old facade path doesn't exist
         src_dir = Path(__file__).resolve().parents[1] / "src" / "medre"
         old_path = src_dir / "observability" / "sanitization.py"
-        assert not old_path.exists(), (
-            "medre.observability.sanitization.py still exists"
-        )
+        assert not old_path.exists(), "medre.observability.sanitization.py still exists"
 
     def test_from_medre_observability_import_fails(self) -> None:
         """medre.observability should not be importable as a facade."""
         import medre.core.observability.sanitization  # noqa: F401 — canonical path works
+
         with pytest.raises(ImportError):
-            from medre.observability import sanitize_error  # type: ignore[unused-import]
+            pass
 
 
 class TestConfigFacadeRemoved:
@@ -100,19 +106,19 @@ class TestConfigFacadeRemoved:
 
     def test_config_has_no_all(self) -> None:
         import importlib
+
         mod = importlib.import_module("medre.config")
         if hasattr(mod, "__all__"):
-            assert not mod.__all__, (
-                f"medre.config exposes __all__: {mod.__all__}"
-            )
+            assert not mod.__all__, f"medre.config exposes __all__: {mod.__all__}"
 
     def test_config_adapters_has_no_all(self) -> None:
         import importlib
+
         mod = importlib.import_module("medre.config.adapters")
         if hasattr(mod, "__all__"):
-            assert not mod.__all__, (
-                f"medre.config.adapters exposes __all__: {mod.__all__}"
-            )
+            assert (
+                not mod.__all__
+            ), f"medre.config.adapters exposes __all__: {mod.__all__}"
 
 
 class TestRunSessionFacadeRemoved:
@@ -120,17 +126,19 @@ class TestRunSessionFacadeRemoved:
 
     def test_run_session_has_no_bridge_session(self) -> None:
         import importlib
+
         mod = importlib.import_module("medre.runtime.run_session")
-        assert not hasattr(mod, "run_bridge_session"), (
-            "medre.runtime.run_session should not re-export run_bridge_session"
-        )
+        assert not hasattr(
+            mod, "run_bridge_session"
+        ), "medre.runtime.run_session should not re-export run_bridge_session"
 
     def test_run_session_has_no_scenario_category(self) -> None:
         import importlib
+
         mod = importlib.import_module("medre.runtime.run_session")
-        assert not hasattr(mod, "scenario_category"), (
-            "medre.runtime.run_session should not re-export scenario_category"
-        )
+        assert not hasattr(
+            mod, "scenario_category"
+        ), "medre.runtime.run_session should not re-export scenario_category"
 
 
 class TestEvidenceFacadeRemoved:
@@ -138,10 +146,11 @@ class TestEvidenceFacadeRemoved:
 
     def test_evidence_has_no_collect_bundle(self) -> None:
         import importlib
+
         mod = importlib.import_module("medre.runtime.evidence")
-        assert not hasattr(mod, "collect_evidence_bundle"), (
-            "medre.runtime.evidence should not re-export collect_evidence_bundle"
-        )
+        assert not hasattr(
+            mod, "collect_evidence_bundle"
+        ), "medre.runtime.evidence should not re-export collect_evidence_bundle"
 
 
 class TestPackageRootsNoFormerSymbols:
@@ -149,46 +158,82 @@ class TestPackageRootsNoFormerSymbols:
 
     def _mod(self, name: str):
         import importlib
+
         return importlib.import_module(name)
 
     def test_adapters_no_former_symbols(self) -> None:
         mod = self._mod("medre.adapters")
-        forbidden = ["FakeMatrixAdapter", "FakeMeshtasticAdapter", "FakeMeshCoreAdapter",
-                     "FakeLxmfAdapter", "FakePresentationAdapter", "FakeTransportAdapter",
-                     "FaultyPresentationAdapter"]
+        forbidden = [
+            "FakeMatrixAdapter",
+            "FakeMeshtasticAdapter",
+            "FakeMeshCoreAdapter",
+            "FakeLxmfAdapter",
+            "FakePresentationAdapter",
+            "FakeTransportAdapter",
+            "FaultyPresentationAdapter",
+        ]
         for sym in forbidden:
             assert not hasattr(mod, sym), f"medre.adapters exposes {sym}"
 
     def test_adapters_matrix_no_former_symbols(self) -> None:
         mod = self._mod("medre.adapters.matrix")
-        forbidden = ["MatrixAdapter", "MatrixCodec", "MatrixRenderer", "MatrixSession",
-                     "MatrixConfig", "MatrixConnectionError", "MatrixSendError"]
+        forbidden = [
+            "MatrixAdapter",
+            "MatrixCodec",
+            "MatrixRenderer",
+            "MatrixSession",
+            "MatrixConfig",
+            "MatrixConnectionError",
+            "MatrixSendError",
+        ]
         for sym in forbidden:
             assert not hasattr(mod, sym), f"medre.adapters.matrix exposes {sym}"
 
     def test_adapters_meshtastic_no_former_symbols(self) -> None:
         mod = self._mod("medre.adapters.meshtastic")
-        forbidden = ["MeshtasticAdapter", "MeshtasticCodec", "MeshtasticRenderer",
-                     "MeshtasticSession", "MeshtasticConfig"]
+        forbidden = [
+            "MeshtasticAdapter",
+            "MeshtasticCodec",
+            "MeshtasticRenderer",
+            "MeshtasticSession",
+            "MeshtasticConfig",
+        ]
         for sym in forbidden:
             assert not hasattr(mod, sym), f"medre.adapters.meshtastic exposes {sym}"
 
     def test_adapters_meshcore_no_former_symbols(self) -> None:
         mod = self._mod("medre.adapters.meshcore")
-        forbidden = ["MeshCoreAdapter", "MeshCoreCodec", "MeshCoreRenderer",
-                     "MeshCoreSession", "MeshCoreConfig"]
+        forbidden = [
+            "MeshCoreAdapter",
+            "MeshCoreCodec",
+            "MeshCoreRenderer",
+            "MeshCoreSession",
+            "MeshCoreConfig",
+        ]
         for sym in forbidden:
             assert not hasattr(mod, sym), f"medre.adapters.meshcore exposes {sym}"
 
     def test_adapters_lxmf_no_former_symbols(self) -> None:
         mod = self._mod("medre.adapters.lxmf")
-        forbidden = ["LxmfAdapter", "LxmfCodec", "LxmfRenderer", "LxmfSession", "LxmfConfig"]
+        forbidden = [
+            "LxmfAdapter",
+            "LxmfCodec",
+            "LxmfRenderer",
+            "LxmfSession",
+            "LxmfConfig",
+        ]
         for sym in forbidden:
             assert not hasattr(mod, sym), f"medre.adapters.lxmf exposes {sym}"
 
     def test_config_no_former_symbols(self) -> None:
         mod = self._mod("medre.config")
-        forbidden = ["RuntimeConfig", "load_config", "MedrePaths", "RouteConfig", "MatrixConfig"]
+        forbidden = [
+            "RuntimeConfig",
+            "load_config",
+            "MedrePaths",
+            "RouteConfig",
+            "MatrixConfig",
+        ]
         for sym in forbidden:
             assert not hasattr(mod, sym), f"medre.config exposes {sym}"
 
@@ -210,34 +255,45 @@ class TestConcretePathsWork:
 
     def test_import_adapter_matrix(self) -> None:
         from medre.adapters.matrix.adapter import MatrixAdapter
+
         assert MatrixAdapter is not None
 
     def test_import_codec_matrix(self) -> None:
         from medre.adapters.matrix.codec import MatrixCodec
+
         assert MatrixCodec is not None
 
     def test_import_config_matrix(self) -> None:
         from medre.config.adapters.matrix import MatrixConfig
+
         assert MatrixConfig is not None
 
     def test_import_config_model(self) -> None:
         from medre.config.model import RuntimeConfig
+
         assert RuntimeConfig is not None
 
     def test_import_loader(self) -> None:
         from medre.config.loader import load_config
+
         assert load_config is not None
 
     def test_import_runtime_builder(self) -> None:
         from medre.runtime.builder import RuntimeBuilder
+
         assert RuntimeBuilder is not None
 
     def test_import_timeline(self) -> None:
         import medre.runtime.timeline as timeline
+
         assert timeline is not None
 
     def test_import_sanitization(self) -> None:
-        from medre.core.observability.sanitization import sanitize_error, sanitize_for_log
+        from medre.core.observability.sanitization import (
+            sanitize_error,
+            sanitize_for_log,
+        )
+
         assert sanitize_error is not None
         assert sanitize_for_log is not None
 
@@ -288,8 +344,13 @@ class TestPackageRootsSystematic:
                 if isinstance(node, ast.Assign):
                     for target in node.targets:
                         if isinstance(target, ast.Name) and target.id == "__all__":
-                            if isinstance(node.value, ast.List) and len(node.value.elts) > 0:
-                                pytest.fail(f"{rel}: __all__ has {len(node.value.elts)} entries")
+                            if (
+                                isinstance(node.value, ast.List)
+                                and len(node.value.elts) > 0
+                            ):
+                                pytest.fail(
+                                    f"{rel}: __all__ has {len(node.value.elts)} entries"
+                                )
 
     def test_all_roots_have_no_getattr(self) -> None:
         """__getattr__ must be absent."""
@@ -328,19 +389,42 @@ class TestPackageRootsSystematic:
         import ast
 
         former_names = {
-            "RuntimeConfig", "load_config", "RouteConfig", "MedrePaths",
-            "RuntimeBuilder", "MedreApp", "RuntimeStartupError",
-            "MatrixAdapter", "MatrixCodec", "MatrixRenderer", "MatrixSession",
-            "MatrixConfig", "MatrixConfigError",
-            "MeshtasticAdapter", "MeshtasticCodec", "MeshtasticRenderer",
-            "MeshtasticSession", "MeshtasticConfig",
-            "MeshCoreAdapter", "MeshCoreCodec", "MeshCoreRenderer",
-            "MeshCoreSession", "MeshCoreConfig",
-            "LxmfAdapter", "LxmfCodec", "LxmfRenderer", "LxmfSession",
+            "RuntimeConfig",
+            "load_config",
+            "RouteConfig",
+            "MedrePaths",
+            "RuntimeBuilder",
+            "MedreApp",
+            "RuntimeStartupError",
+            "MatrixAdapter",
+            "MatrixCodec",
+            "MatrixRenderer",
+            "MatrixSession",
+            "MatrixConfig",
+            "MatrixConfigError",
+            "MeshtasticAdapter",
+            "MeshtasticCodec",
+            "MeshtasticRenderer",
+            "MeshtasticSession",
+            "MeshtasticConfig",
+            "MeshCoreAdapter",
+            "MeshCoreCodec",
+            "MeshCoreRenderer",
+            "MeshCoreSession",
+            "MeshCoreConfig",
+            "LxmfAdapter",
+            "LxmfCodec",
+            "LxmfRenderer",
+            "LxmfSession",
             "LxmfConfig",
-            "FakeMatrixAdapter", "FakeMeshtasticAdapter", "FakeMeshCoreAdapter",
-            "FakeLxmfAdapter", "FakePresentationAdapter", "FakeTransportAdapter",
-            "collect_evidence_bundle", "run_bridge_session",
+            "FakeMatrixAdapter",
+            "FakeMeshtasticAdapter",
+            "FakeMeshCoreAdapter",
+            "FakeLxmfAdapter",
+            "FakePresentationAdapter",
+            "FakeTransportAdapter",
+            "collect_evidence_bundle",
+            "run_bridge_session",
         }
         for rel in self._PACKAGE_ROOTS:
             _file, source = self._read_py_file(rel)
@@ -350,11 +434,13 @@ class TestPackageRootsSystematic:
                     for target in node.targets:
                         if isinstance(target, ast.Name):
                             if target.id in former_names:
-                                pytest.fail(f"{rel}: assigns former API name '{target.id}'")
+                                pytest.fail(
+                                    f"{rel}: assigns former API name '{target.id}'"
+                                )
 
     def test_observability_does_not_exist(self) -> None:
         """medre.observability must not exist as a package."""
-        obs_dir = Path(__file__).resolve().parents[1] / "src" / "medre" / "observability"
-        assert not obs_dir.exists(), (
-            "medre/observability/ directory still exists"
+        obs_dir = (
+            Path(__file__).resolve().parents[1] / "src" / "medre" / "observability"
         )
+        assert not obs_dir.exists(), "medre/observability/ directory still exists"

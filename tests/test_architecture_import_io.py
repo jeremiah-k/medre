@@ -4,11 +4,10 @@ Scans all src/medre/**/*.py for obvious blocking calls at module level.
 Uses alias resolution (extract_aliases) to catch aliased calls like
 sp.run, t.sleep, etc.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
-
-import pytest
 
 from tests.helpers.ast_imports import (
     extract_aliases,
@@ -125,16 +124,14 @@ class TestNoBlockingIOAtImport:
             violations = _scan_file(py_file)
             all_violations.extend(violations)
 
-        assert not all_violations, (
-            "Blocking I/O calls found at module level:\n" +
-            "\n".join(all_violations)
-        )
+        assert (
+            not all_violations
+        ), "Blocking I/O calls found at module level:\n" + "\n".join(all_violations)
 
     def test_allowlist_entries_are_documented(self) -> None:
         """If the allowlist has entries, list them so they stay visible."""
         if _ALLOWLIST:
             entries = "\n".join(
-                f"  {rel}: {func} — {reason}"
-                for rel, func, reason in _ALLOWLIST
+                f"  {rel}: {func} — {reason}" for rel, func, reason in _ALLOWLIST
             )
             print(f"Allowlisted blocking I/O:\n{entries}")
