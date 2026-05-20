@@ -396,12 +396,17 @@ def top_level_imports(
 def resolve_call_name(func_name: str, aliases: dict[str, str]) -> str:
     """Resolve an aliased call name to its fully qualified form.
 
+    Follows alias chains recursively with cycle detection.
+
     Handles:
       Path.read_text + {"Path": "pathlib.Path"} -> "pathlib.Path.read_text"
       pl.Path.write_text + {"pl": "pathlib"} -> "pathlib.Path.write_text"
       sp.run + {"sp": "subprocess"} -> "subprocess.run"
       run + {"run": "subprocess.run"} -> "subprocess.run"
       obj.read_text (no alias) -> "obj.read_text"
+      P.read_text + {"P": "Path", "Path": "pathlib.Path"} -> "pathlib.Path.read_text"
+      runner + {"runner": "run", "run": "subprocess.run"} -> "subprocess.run"
+      a.x + {"a": "b", "b": "pkg.mod"} -> "pkg.mod.x"
 
     Args:
         func_name: The call name as extracted by top_level_calls().
@@ -411,11 +416,20 @@ def resolve_call_name(func_name: str, aliases: dict[str, str]) -> str:
         Resolved fully qualified name, or func_name unchanged if no alias matches.
     """
     if "." not in func_name:
-        return aliases.get(func_name, func_name)
+        seen: set[str] = set()
+        current = func_name
+        while current in aliases and current not in seen:
+            seen.add(current)
+            current = aliases[current]
+        return current
 
     parts = func_name.split(".")
     root = parts[0]
     if root in aliases:
-        resolved = aliases[root] + "." + ".".join(parts[1:])
-        return resolved
+        seen: set[str] = set()
+        current = root
+        while current in aliases and current not in seen:
+            seen.add(current)
+            current = aliases[current]
+        return current + "." + ".".join(parts[1:])
     return func_name

@@ -5,17 +5,10 @@ AST-based analysis, delegates shared AST walking to architecture_ast.
 
 from __future__ import annotations
 
-import ast as _ast  # noqa: F401 — kept for re-export compatibility
+import ast as _ast
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# Re-export for backward compatibility with test imports
-from medre.runtime.architecture_ast import (  # noqa: F401
-    is_type_checking as _is_type_checking,
-)
-from medre.runtime.architecture_ast import (  # noqa: F401
-    resolve_relative as _resolve_relative,
-)
 from medre.runtime.architecture_ast import (
     runtime_scope_imports,
 )
@@ -108,6 +101,7 @@ class ArchitectureGraph:
     """Full dependency graph for the medre project."""
 
     modules: dict[str, ModuleInfo] = field(default_factory=dict)
+    parse_errors: dict[str, str] = field(default_factory=dict)
 
 
 def build_dependency_graph(src_root: Path) -> ArchitectureGraph:
@@ -131,8 +125,8 @@ def build_dependency_graph(src_root: Path) -> ArchitectureGraph:
             for edge in edges:
                 edge.source = module
             info.imports = edges
-        except SyntaxError:
-            pass  # Skip files with syntax errors
+        except SyntaxError as exc:
+            graph.parse_errors[module] = str(exc)
         graph.modules[module] = info
     return graph
 
@@ -170,10 +164,86 @@ def render_dependency_report(graph: ArchitectureGraph) -> str:
     lines.append(
         f"Total import edges: {sum(len(m.imports) for m in graph.modules.values())}"
     )
+    if graph.parse_errors:
+        lines.append("")
+        lines.append("== Parse Errors ==")
+        for mod, err in sorted(graph.parse_errors.items()):
+            lines.append(f"  {mod}: {err}")
     return "\n".join(lines)
 
 
-# Convenience: forbidden import check helpers
+def build_dependency_graph_report(
+    graph: ArchitectureGraph,
+    forbidden_rules: dict[str, tuple[str, ...]] | None = None,
+) -> DependencyGraphReport:
+    """Build a structured DependencyGraphReport from an ArchitectureGraph.
+
+    Args:
+        graph: The dependency graph to analyze.
+        forbidden_rules: Mapping of module_prefix -> forbidden import prefixes.
+            Defaults to core, config, and route_engine rules if not provided.
+
+    Returns:
+        DependencyGraphReport with populated violations and summaries.
+    """
+    if forbidden_rules is None:
+        forbidden_rules = {
+            "medre.core": _CORE_FORBIDDEN,
+            "medre.config": _CONFIG_FORBIDDEN,
+            "medre.runtime.route_engine": _ROUTE_ENGINE_FORBIDDEN,
+        }
+
+    all_violations: dict[str, list[BoundaryViolation]] = {}
+    for prefix, forbidden in forbidden_rules.items():
+        by_mod = check_forbidden_imports_by_module(graph, prefix, forbidden)
+        for mod, viols in by_mod.items():
+            all_violations.setdefault(mod, []).extend(viols)
+
+    # Layer summary
+    layer_summary: dict[str, int] = {}
+    for info in graph.modules.values():
+        layer_summary[info.layer] = layer_summary.get(info.layer, 0) + 1
+
+    total_edges = sum(len(m.imports) for m in graph.modules.values())
+
+    return DependencyGraphReport(
+        modules=graph.modules,
+        forbidden_imports_by_module=all_violations,
+        layer_summary=layer_summary,
+        total_edges=total_edges,
+    )
+
+
+def render_dependency_graph_report(report: DependencyGraphReport) -> str:
+    """Render a DependencyGraphReport as a human-readable string."""
+    lines: list[str] = []
+    lines.append("=" * 70)
+    lines.append("MEDRE Dependency Graph Report")
+    lines.append("=" * 70)
+    lines.append("")
+
+    lines.append(f"Total modules: {len(report.modules)}")
+    lines.append(f"Total edges: {report.total_edges}")
+    lines.append("")
+
+    # Layer summary
+    lines.append("--- Layer Summary ---")
+    for layer, count in sorted(report.layer_summary.items()):
+        lines.append(f"  {layer}: {count} modules")
+    lines.append("")
+
+    # Violations
+    total_violations = sum(len(v) for v in report.forbidden_imports_by_module.values())
+    lines.append(f"--- Violations ({total_violations} total) ---")
+    if report.forbidden_imports_by_module:
+        for mod in sorted(report.forbidden_imports_by_module):
+            for v in report.forbidden_imports_by_module[mod]:
+                lines.append(f"  {v.source} -> {v.target} (line {v.line}): {v.rule}")
+    else:
+        lines.append("  (none)")
+
+    return "\n".join(lines)
+
 
 _CORE_FORBIDDEN = (
     "medre.runtime",

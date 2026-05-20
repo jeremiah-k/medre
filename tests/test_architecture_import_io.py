@@ -236,3 +236,47 @@ class TestNoBlockingIOAtImport:
             ), f"Expected 'open' in violation, got: {violations[0]}"
         finally:
             Path(tmp.name).unlink(missing_ok=True)
+
+
+# ---------------------------------------------------------------------------
+# resolve_call_name — recursive alias resolution tests
+# ---------------------------------------------------------------------------
+
+
+class TestResolveCallName:
+    """Tests for recursive alias resolution in resolve_call_name()."""
+
+    def test_chained_alias_dotted(self) -> None:
+        """P.read_text with {"P": "Path", "Path": "pathlib.Path"} -> pathlib.Path.read_text."""
+        result = resolve_call_name("P.read_text", {"P": "Path", "Path": "pathlib.Path"})
+        assert result == "pathlib.Path.read_text"
+
+    def test_chained_alias_bare(self) -> None:
+        """runner with {"runner": "run", "run": "subprocess.run"} -> subprocess.run."""
+        result = resolve_call_name("runner", {"runner": "run", "run": "subprocess.run"})
+        assert result == "subprocess.run"
+
+    def test_deep_chain(self) -> None:
+        """a.x with {"a": "b", "b": "pkg.mod"} -> pkg.mod.x."""
+        result = resolve_call_name("a.x", {"a": "b", "b": "pkg.mod"})
+        assert result == "pkg.mod.x"
+
+    def test_cycle_detected(self) -> None:
+        """a.x with {"a": "b", "b": "a"} -> terminates without infinite loop."""
+        result = resolve_call_name("a.x", {"a": "b", "b": "a"})
+        # Must terminate; exact value is less important than no hang
+        assert result in ("a.x", "b.x")
+
+    def test_self_cycle(self) -> None:
+        """a.x with {"a": "a"} -> a.x (self-cycle detected, stops)."""
+        result = resolve_call_name("a.x", {"a": "a"})
+        assert result == "a.x"
+
+    def test_no_alias(self) -> None:
+        """Unaliased name passes through unchanged."""
+        assert resolve_call_name("foo.bar", {}) == "foo.bar"
+        assert resolve_call_name("foo", {}) == "foo"
+
+    def test_single_alias(self) -> None:
+        """Single-level alias still works."""
+        assert resolve_call_name("sp.run", {"sp": "subprocess"}) == "subprocess.run"

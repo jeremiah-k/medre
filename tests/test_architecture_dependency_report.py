@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from medre.runtime.architecture_ast import is_type_checking, resolve_relative
 from medre.runtime.architecture_report import (
     _CONFIG_FORBIDDEN,
     _CORE_FORBIDDEN,
@@ -17,15 +18,15 @@ from medre.runtime.architecture_report import (
     ImportEdge,
     ModuleInfo,
     RouteAdapterBoundaryReport,
-    _is_type_checking,
-    _resolve_relative,
     build_dependency_graph,
+    build_dependency_graph_report,
     build_route_adapter_boundary_report,
     check_forbidden_imports,
     check_forbidden_imports_by_module,
     module_path_for,
     parse_file,
     render_boundary_report,
+    render_dependency_graph_report,
     render_dependency_report,
 )
 
@@ -166,18 +167,18 @@ class TestReportDeterminism:
 
 
 class TestResolveRelativeValueError:
-    """Tests for _resolve_relative() ValueError branch — lines 71-72."""
+    """Tests for resolve_relative() ValueError branch — lines 71-72."""
 
     def test_path_without_src_returns_module_or_empty(self) -> None:
         """When file_path has no 'src' in its path parts, returns module or ''."""
         # level > 0, no 'src' in path
         fake_path = "sandbox/foo/bar.py"
-        assert _resolve_relative(1, None, fake_path) == ""
-        assert _resolve_relative(1, "somemod", fake_path) == "somemod"
+        assert resolve_relative(1, None, fake_path) == ""
+        assert resolve_relative(1, "somemod", fake_path) == "somemod"
 
 
 class TestIsTypeChecking:
-    """Tests for _is_type_checking() — lines 89-98."""
+    """Tests for is_type_checking() — lines 89-98."""
 
     def test_name_type_checking(self) -> None:
         """if TYPE_CHECKING: (ast.Name test) → True."""
@@ -186,7 +187,7 @@ class TestIsTypeChecking:
             body=[ast.Pass()],
             orelse=[],
         )
-        assert _is_type_checking(node) is True
+        assert is_type_checking(node) is True
 
     def test_attribute_typing_type_checking(self) -> None:
         """if typing.TYPE_CHECKING: (ast.Attribute test) → True."""
@@ -199,7 +200,7 @@ class TestIsTypeChecking:
             body=[ast.Pass()],
             orelse=[],
         )
-        assert _is_type_checking(node) is True
+        assert is_type_checking(node) is True
 
     def test_regular_if_is_not_type_checking(self) -> None:
         """Regular if x: → False."""
@@ -208,11 +209,11 @@ class TestIsTypeChecking:
             body=[ast.Pass()],
             orelse=[],
         )
-        assert _is_type_checking(node) is False
+        assert is_type_checking(node) is False
 
     def test_non_if_node_is_not_type_checking(self) -> None:
         """Non-If node → False."""
-        assert _is_type_checking(ast.Pass()) is False
+        assert is_type_checking(ast.Pass()) is False
 
 
 class TestParseFileTypeCheckingElseBranch:
@@ -278,9 +279,7 @@ class TestBuildDependencyGraphEdgeCases:
     """Tests for build_dependency_graph() edge cases — lines 183-196."""
 
     def test_syntax_error_file_skipped_gracefully(self, tmp_path: Path) -> None:
-        """A .py file with invalid syntax doesn't crash the graph builder;
-        module is present but has empty imports."""
-        # Mimic src/medre/ structure
+        """A .py file with invalid syntax is recorded in parse_errors."""
         medre_dir = tmp_path / "src" / "medre"
         medre_dir.mkdir(parents=True)
         (medre_dir / "__init__.py").write_text("", encoding="utf-8")
@@ -288,16 +287,17 @@ class TestBuildDependencyGraphEdgeCases:
         bad_file = medre_dir / "broken.py"
         bad_file.write_text("def f(\n", encoding="utf-8")  # invalid syntax
 
-        # Also add a valid file so there's something to compare
         good_file = medre_dir / "good.py"
         good_file.write_text("import os\n", encoding="utf-8")
 
         graph = build_dependency_graph(medre_dir)
 
-        # broken module should be in the graph
+        # broken module should be in the graph with empty imports
         assert "medre.broken" in graph.modules
-        # but with empty imports (SyntaxError was caught)
         assert graph.modules["medre.broken"].imports == []
+        # SyntaxError should be recorded, not silently swallowed
+        assert "medre.broken" in graph.parse_errors
+        assert graph.parse_errors["medre.broken"]  # non-empty error message
 
         # good module should have its imports
         assert len(graph.modules["medre.good"].imports) > 0
@@ -970,3 +970,87 @@ class TestRuntimeBuilderOnlyAssembly:
                     pytest.fail(
                         f"route_engine imports forbidden: {edge.target} (line {edge.line})"
                     )
+
+
+class TestBuildDependencyGraphReport:
+    """Tests for build_dependency_graph_report()."""
+
+    def test_report_has_forbidden_imports(self) -> None:
+        """Report populated with real forbidden_imports_by_module data."""
+        graph = build_dependency_graph(_SRC)
+        report = build_dependency_graph_report(graph)
+        assert isinstance(report.forbidden_imports_by_module, dict)
+        # Even if no violations exist, the field is populated
+        assert report.total_edges > 0
+
+    def test_layer_summary_counts_modules(self) -> None:
+        """layer_summary should count modules by layer."""
+        graph = build_dependency_graph(_SRC)
+        report = build_dependency_graph_report(graph)
+        total_from_summary = sum(report.layer_summary.values())
+        assert total_from_summary == len(graph.modules)
+
+    def test_total_edges_matches_sum(self) -> None:
+        """total_edges should equal sum of all module import counts."""
+        graph = build_dependency_graph(_SRC)
+        report = build_dependency_graph_report(graph)
+        expected = sum(len(m.imports) for m in graph.modules.values())
+        assert report.total_edges == expected
+
+    def test_custom_forbidden_rules(self) -> None:
+        """Custom forbidden_rules override defaults."""
+        graph = build_dependency_graph(_SRC)
+        custom_rules = {"medre.core": ("medre.adapters",)}
+        report = build_dependency_graph_report(graph, forbidden_rules=custom_rules)
+        # Only core modules checked, only for adapters
+        for mod in report.forbidden_imports_by_module:
+            assert mod.startswith("medre.core")
+
+    def test_render_includes_violation_summary(self) -> None:
+        """render_dependency_graph_report includes violations when present."""
+        # Build a synthetic graph with a violation
+        g = ArchitectureGraph()
+        g.modules["medre.core.engine"] = ModuleInfo(
+            module="medre.core.engine",
+            file="core/engine.py",
+            imports=[
+                ImportEdge(
+                    source="medre.core.engine",
+                    target="medre.adapters.mesh",
+                    line=5,
+                    kind="import_from",
+                    is_type_checking=False,
+                ),
+            ],
+            layer="core",
+        )
+        report = build_dependency_graph_report(g)
+        text = render_dependency_graph_report(report)
+        assert "MEDRE Dependency Graph Report" in text
+        assert "Layer Summary" in text
+        assert "core:" in text  # layer summary
+        assert "Violations" in text
+
+    def test_render_no_violations(self) -> None:
+        """render_dependency_graph_report shows (none) when no violations."""
+        g = ArchitectureGraph()
+        g.modules["medre.core.events"] = ModuleInfo(
+            module="medre.core.events",
+            file="core/events.py",
+            imports=[],
+            layer="core",
+        )
+        report = build_dependency_graph_report(g)
+        text = render_dependency_graph_report(report)
+        assert "(none)" in text
+
+    def test_parse_errors_visible_in_report(self) -> None:
+        """render_dependency_report shows parse errors."""
+        g = ArchitectureGraph()
+        g.modules["medre.broken"] = ModuleInfo(
+            module="medre.broken", file="broken.py", imports=[], layer="other"
+        )
+        g.parse_errors["medre.broken"] = "invalid syntax (line 1)"
+        text = render_dependency_report(g)
+        assert "Parse Errors" in text
+        assert "medre.broken" in text

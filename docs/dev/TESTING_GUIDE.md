@@ -17,14 +17,14 @@ explicitly justified in the file and in this guide.
 
 Split files by behavioral domain, not by "coverage" or "misc". When a domain
 file approaches the target, split it by subdomain following the procedure in
-the [Next Modernization Wave](#next-modernization-wave) section below.
+the [File Size Limits](#file-size-limits) section below.
 
 ### Size enforcement
 
 There is **no oversized-test allowlist**. Every `test_*.py` file must stay at
 or below **1,500 lines** (`MAX_LINES`). The target remains below 1,200 lines.
 If a file approaches the hard cap, split it by behavioral domain following the
-procedure in [Splitting procedure](#splitting-procedure). Completed splits are
+procedure documented there. Completed splits are
 listed in the [Completed Splits](#completed-splits) table as historical record,
 not as active allowlist entries.
 
