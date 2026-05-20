@@ -312,7 +312,8 @@ instead:
 ```python
 # ✅ Correct: patch the actual module where the symbol is defined/used
 from unittest.mock import patch
-patch("medre.adapters.matrix.compat.HAS_NIO", False)
+with patch("medre.adapters.matrix.compat.HAS_NIO", False):
+    ...  # tests that need HAS_NIO=False run here
 
 # ❌ Wrong: adapter package roots are docstring-only with no re-exports
 # from medre.adapters.matrix import HAS_NIO  # This will not work

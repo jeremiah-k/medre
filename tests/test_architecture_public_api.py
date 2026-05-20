@@ -28,16 +28,32 @@ class TestTopLevelImportLightweight:
     def test_import_medre_is_lightweight(self) -> None:
         """import medre must not pull in heavy modules.
         
-        Note: This test checks sys.modules delta before/after the import.
-        If medre was already cached, import is a no-op and the check is
-        best-effort. Do NOT pop medre from sys.modules here — that would
-        break monkeypatch.setattr('medre.adapters.*') in downstream tests.
+        Runs in a subprocess to get a cold interpreter — avoids false
+        positives from modules already cached in the test process.
         """
-        already = {m for m in self._FORBIDDEN_AFTER_IMPORT if m in sys.modules}
-        import medre  # noqa: F811
-        for m in self._FORBIDDEN_AFTER_IMPORT:
-            if m in sys.modules and m not in already:
-                pytest.fail(f"importing 'medre' pulled in heavy module: {m}")
+        import json
+        import subprocess
+        import textwrap
+
+        code = textwrap.dedent(
+            f"""
+            import json, sys
+            forbidden = {self._FORBIDDEN_AFTER_IMPORT!r}
+            before = set(sys.modules)
+            import medre  # noqa: F401
+            after = set(sys.modules)
+            loaded = sorted((after - before) & set(forbidden))
+            print(json.dumps(loaded))
+            """
+        )
+        proc = subprocess.run(
+            [sys.executable, "-c", code],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        loaded = json.loads(proc.stdout.strip() or "[]")
+        assert not loaded, f"importing 'medre' pulled in heavy module(s): {loaded}"
 
     def test_medre_has_no_substantive_all(self) -> None:
         import medre  # noqa: F811
@@ -69,7 +85,7 @@ class TestObservabilityFacadeRemoved:
         src_dir = Path(__file__).resolve().parents[1] / "src" / "medre"
         old_path = src_dir / "observability" / "sanitization.py"
         assert not old_path.exists(), (
-            f"medre.observability.sanitization.py still exists"
+            "medre.observability.sanitization.py still exists"
         )
 
     def test_from_medre_observability_import_fails(self) -> None:
@@ -86,7 +102,7 @@ class TestConfigFacadeRemoved:
         import importlib
         mod = importlib.import_module("medre.config")
         if hasattr(mod, "__all__"):
-            assert mod.__all__ == [], (
+            assert not mod.__all__, (
                 f"medre.config exposes __all__: {mod.__all__}"
             )
 
@@ -94,7 +110,7 @@ class TestConfigFacadeRemoved:
         import importlib
         mod = importlib.import_module("medre.config.adapters")
         if hasattr(mod, "__all__"):
-            assert mod.__all__ == [], (
+            assert not mod.__all__, (
                 f"medre.config.adapters exposes __all__: {mod.__all__}"
             )
 
