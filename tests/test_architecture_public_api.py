@@ -334,25 +334,20 @@ class TestPackageRootsSystematic:
         return py_file, py_file.read_text(encoding="utf-8")
 
     def test_all_roots_have_no_all(self) -> None:
-        """__all__ must be absent or empty."""
+        """__all__ must not appear in package roots outside medre.core.*."""
         import ast
 
         for rel in self._PACKAGE_ROOTS:
             _file, source = self._read_py_file(rel)
-            if "__all__" not in source:
-                continue
             tree = ast.parse(source)
             for node in ast.iter_child_nodes(tree):
                 if isinstance(node, ast.Assign):
                     for target in node.targets:
                         if isinstance(target, ast.Name) and target.id == "__all__":
-                            if (
-                                isinstance(node.value, ast.List)
-                                and len(node.value.elts) > 0
-                            ):
-                                pytest.fail(
-                                    f"{rel}: __all__ has {len(node.value.elts)} entries"
-                                )
+                            pytest.fail(
+                                f"{rel}: defines __all__ — package roots outside "
+                                f"medre.core.* must not declare __all__"
+                            )
 
     def test_all_roots_have_no_getattr(self) -> None:
         """__getattr__ must be absent."""

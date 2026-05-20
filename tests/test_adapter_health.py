@@ -20,6 +20,12 @@ from datetime import datetime, timezone
 
 import pytest
 
+from medre.adapters.fake_transport import FakeTransportAdapter
+from medre.adapters.fake_presentation import FakePresentationAdapter
+from medre.adapters.fake_matrix import FakeMatrixAdapter
+from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
+from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
+from medre.adapters.fake_lxmf import FakeLxmfAdapter
 from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
@@ -234,16 +240,12 @@ class TestFakeLiveDetection:
     """Fake/live mode is inferred from class name, config, and platform."""
 
     def test_fake_class_name_detected(self) -> None:
-        from medre.adapters.fake_transport import FakeTransportAdapter
-
         adapter = FakeTransportAdapter("test")
         info = _make_info(platform="fake_transport")
         result = normalize_adapter_health(info, adapter=adapter)
         assert result["fake_or_live"] == "fake"
 
     def test_fake_matrix_detected(self) -> None:
-        from medre.adapters.fake_matrix import FakeMatrixAdapter
-
         adapter = FakeMatrixAdapter("test")
         info = _make_info(platform="matrix")
         result = normalize_adapter_health(info, adapter=adapter)
@@ -360,40 +362,27 @@ class TestAdapterInfoContract:
         "adapter_cls,adapter_kwargs",
         [
             (
-                __import__(
-                    "medre.adapters.fake_transport", fromlist=["FakeTransportAdapter"]
-                ).FakeTransportAdapter,
+                FakeTransportAdapter,
                 {"adapter_id": "ft"},
             ),
             (
-                __import__(
-                    "medre.adapters.fake_presentation",
-                    fromlist=["FakePresentationAdapter"],
-                ).FakePresentationAdapter,
+                FakePresentationAdapter,
                 {"adapter_id": "fp"},
             ),
             (
-                __import__(
-                    "medre.adapters.fake_matrix", fromlist=["FakeMatrixAdapter"]
-                ).FakeMatrixAdapter,
+                FakeMatrixAdapter,
                 {"adapter_id": "fm"},
             ),
             (
-                __import__(
-                    "medre.adapters.fake_meshtastic", fromlist=["FakeMeshtasticAdapter"]
-                ).FakeMeshtasticAdapter,
+                FakeMeshtasticAdapter,
                 {},
             ),
             (
-                __import__(
-                    "medre.adapters.fake_meshcore", fromlist=["FakeMeshCoreAdapter"]
-                ).FakeMeshCoreAdapter,
+                FakeMeshCoreAdapter,
                 {},
             ),
             (
-                __import__(
-                    "medre.adapters.fake_lxmf", fromlist=["FakeLxmfAdapter"]
-                ).FakeLxmfAdapter,
+                FakeLxmfAdapter,
                 {},
             ),
         ],
@@ -416,8 +405,6 @@ class TestAdapterInfoContract:
         await adapter.stop()
 
     async def test_fake_transport_health_before_start(self) -> None:
-        from medre.adapters.fake_transport import FakeTransportAdapter
-
         adapter = FakeTransportAdapter("pre_start")
         info = await adapter.health_check()
         assert isinstance(info, AdapterInfo)
@@ -427,8 +414,6 @@ class TestAdapterInfoContract:
         self,
         make_adapter_context,
     ) -> None:
-        from medre.adapters.fake_transport import FakeTransportAdapter
-
         adapter = FakeTransportAdapter("post_start")
         ctx = make_adapter_context("post_start")
         await adapter.start(ctx)
@@ -464,8 +449,6 @@ class TestEndToEndNormalization:
         self,
         make_adapter_context,
     ) -> None:
-        from medre.adapters.fake_transport import FakeTransportAdapter
-
         adapter = FakeTransportAdapter("norm_t")
         ctx = make_adapter_context("norm_t")
         await adapter.start(ctx)
@@ -482,8 +465,6 @@ class TestEndToEndNormalization:
         self,
         make_adapter_context,
     ) -> None:
-        from medre.adapters.fake_matrix import FakeMatrixAdapter
-
         adapter = FakeMatrixAdapter("norm_m")
         ctx = make_adapter_context("norm_m")
         await adapter.start(ctx)
@@ -499,8 +480,6 @@ class TestEndToEndNormalization:
         self,
         make_adapter_context,
     ) -> None:
-        from medre.adapters.fake_transport import FakeTransportAdapter
-
         adapter = FakeTransportAdapter("lifecycle_t")
         # Don't start — adapter reports "unknown"
         info = await adapter.health_check()
@@ -516,8 +495,6 @@ class TestEndToEndNormalization:
         self,
         make_adapter_context,
     ) -> None:
-        from medre.adapters.fake_transport import FakeTransportAdapter
-
         adapter = FakeTransportAdapter("lifecycle_s")
         ctx = make_adapter_context("lifecycle_s")
         await adapter.start(ctx)
@@ -533,8 +510,6 @@ class TestEndToEndNormalization:
         self,
         make_adapter_context,
     ) -> None:
-        from medre.adapters.fake_transport import FakeTransportAdapter
-
         adapter = FakeTransportAdapter("caps_t")
         ctx = make_adapter_context("caps_t")
         await adapter.start(ctx)

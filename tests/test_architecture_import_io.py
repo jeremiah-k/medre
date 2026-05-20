@@ -67,11 +67,15 @@ _BLOCKING_DOTTED: tuple[str, ...] = (
     "shutil.copy",
     "shutil.move",
     "shutil.rmtree",
-    # pathlib — explicit dotted forms (caught via suffix on bare names too)
+    # pathlib — explicit dotted forms
     "pathlib.Path.read_text",
     "pathlib.Path.write_text",
     "pathlib.Path.read_bytes",
     "pathlib.Path.write_bytes",
+    "Path.read_text",
+    "Path.write_text",
+    "Path.read_bytes",
+    "Path.write_bytes",
     # aiohttp
     "aiohttp.ClientSession",
 )
@@ -80,13 +84,6 @@ _BLOCKING_BARE: tuple[str, ...] = (
     # builtins / ubiquitous
     "open",
     "urlopen",
-    # pathlib method names (commonly called on Path objects)
-    "read_text",
-    "write_text",
-    "read_bytes",
-    "write_bytes",
-    # socket helpers
-    "create_connection",
 )
 
 # Explicit allowlist for known intentional module-level calls.

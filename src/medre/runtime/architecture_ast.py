@@ -226,6 +226,9 @@ def top_level_calls(
             current = current.value
         if isinstance(current, ast.Name):
             parts.insert(0, current.id)
+        elif isinstance(current, ast.Call):
+            # e.g. Path("x").read_text() → prefix with "Path"
+            parts.insert(0, _get_call_name(current))
         return ".".join(parts)
 
     def _walk(node: ast.AST) -> None:
@@ -292,19 +295,57 @@ def find_relative_imports(
     return result
 
 
-def extract_aliases(tree: ast.Module) -> dict[str, str]:
-    """Extract import aliases from module-level imports."""
+def extract_aliases(
+    tree: ast.Module,
+    file_path: str | None = None,
+) -> dict[str, str]:
+    """Extract import aliases from module-level runtime-scope imports.
+
+    Uses the same traversal rules as runtime_scope_imports():
+    - includes imports inside try/except, with, if, for, while, class bodies
+    - excludes function/async function/lambda bodies
+    - excludes TYPE_CHECKING bodies
+    - includes TYPE_CHECKING else branches
+
+    Returns dict mapping local name -> fully qualified name.
+    """
     aliases: dict[str, str] = {}
-    for node in ast.iter_child_nodes(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                local = alias.asname or alias.name
-                aliases[local] = alias.name
-        elif isinstance(node, ast.ImportFrom) and node.level == 0:
-            base = node.module or ""
-            for alias in node.names:
-                local = alias.asname or alias.name
-                aliases[local] = f"{base}.{alias.name}"
+
+    def _is_type_checking(node: ast.AST) -> bool:
+        if not isinstance(node, ast.If):
+            return False
+        test = node.test
+        if isinstance(test, ast.Name) and test.id == "TYPE_CHECKING":
+            return True
+        if (
+            isinstance(test, ast.Attribute)
+            and test.attr == "TYPE_CHECKING"
+            and isinstance(test.value, ast.Name)
+            and test.value.id == "typing"
+        ):
+            return True
+        return False
+
+    def _walk(node: ast.AST) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.Import, ast.ImportFrom)):
+                if isinstance(child, ast.Import):
+                    for alias in child.names:
+                        local = alias.asname or alias.name
+                        aliases[local] = alias.name
+                elif isinstance(child, ast.ImportFrom):
+                    base = child.module or ""
+                    for alias in child.names:
+                        local = alias.asname or alias.name
+                        aliases[local] = f"{base}.{alias.name}"
+            elif isinstance(child, ast.If) and _is_type_checking(child):
+                continue
+            elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                continue
+            else:
+                _walk(child)
+
+    _walk(tree)
     return aliases
 
 

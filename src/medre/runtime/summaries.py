@@ -12,6 +12,7 @@ import time
 
 __all__ = [
     "format_duration_ms",
+    "format_duration_seconds",
     "startup_summary",
     "shutdown_summary",
 ]
@@ -48,6 +49,18 @@ def format_duration_ms(start_time: float, end_time: float | None = None) -> str:
     return f"{elapsed_ms / 1000:.1f}s"
 
 
+def format_duration_seconds(duration_s: float) -> str:
+    """Format an elapsed duration in seconds.
+    
+    Args:
+        duration_s: Elapsed wall-clock time in seconds.
+        
+    Returns:
+        Formatted duration string like ``"1.23s"``, ``"2m 3.45s"``.
+    """
+    return format_duration_ms(0.0, duration_s)
+
+
 # ---------------------------------------------------------------------------
 # Startup / shutdown summaries
 # ---------------------------------------------------------------------------
@@ -77,7 +90,7 @@ def startup_summary(
     succeeded = 0
     failed = 0
     for adapter_id, transport, success, duration_s, error in results:
-        dur = format_duration_ms(0.0, duration_s) if duration_s > 0 else "0ms"
+        dur = format_duration_seconds(duration_s) if duration_s > 0 else "0ms"
         if success:
             lines.append(f"  started {transport}.{adapter_id} ({dur})")
             succeeded += 1

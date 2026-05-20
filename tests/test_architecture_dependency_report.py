@@ -12,15 +12,17 @@ from medre.runtime.architecture_report import (
     _CORE_FORBIDDEN,
     _ROUTE_ENGINE_FORBIDDEN,
     ArchitectureGraph,
+    BoundaryViolation,
+    DependencyGraphReport,
     ImportEdge,
     ModuleInfo,
     RouteAdapterBoundaryReport,
     _is_type_checking,
-    _resolve_name,
     _resolve_relative,
     build_dependency_graph,
     build_route_adapter_boundary_report,
     check_forbidden_imports,
+    check_forbidden_imports_by_module,
     module_path_for,
     parse_file,
     render_boundary_report,
@@ -145,48 +147,9 @@ class TestReportDeterminism:
         graph2 = build_dependency_graph(_SRC)
         report1 = render_dependency_report(graph1)
         report2 = render_dependency_report(graph2)
-        assert report1 == report2
-
-
-# ---------------------------------------------------------------------------
+        assert report1 == report2# ---------------------------------------------------------------------------
 # New tests covering previously-uncovered lines
 # ---------------------------------------------------------------------------
-
-
-class TestResolveName:
-    """Tests for _resolve_name() — lines 48-59."""
-
-    def test_ast_name_returns_id(self) -> None:
-        """ast.Name node returns its .id."""
-        node = ast.Name(id="foo", ctx=ast.Load())
-        assert _resolve_name(node) == "foo"
-
-    def test_ast_attribute_chain(self) -> None:
-        """ast.Attribute chain like a.b.c returns dotted name."""
-        # Build: a.b.c  →  Attribute(value=Attribute(value=Name('a'), attr='b'), attr='c')
-        inner = ast.Attribute(
-            value=ast.Name(id="a", ctx=ast.Load()), attr="b", ctx=ast.Load()
-        )
-        outer = ast.Attribute(value=inner, attr="c", ctx=ast.Load())
-        assert _resolve_name(outer) == "a.b.c"
-
-    def test_non_name_non_attribute_returns_none(self) -> None:
-        """Non-Name, non-Attribute node returns None."""
-        node = ast.Constant(value=42)
-        assert _resolve_name(node) is None
-
-    def test_attribute_with_non_name_base(self) -> None:
-        """Attribute whose base is NOT ast.Name (e.g. a Call) — while loop
-        ends without appending a base id, so only the attr parts are joined."""
-        call = ast.Call(
-            func=ast.Name(id="func", ctx=ast.Load()),
-            args=[],
-            keywords=[],
-        )
-        attr = ast.Attribute(value=call, attr="method", ctx=ast.Load())
-        result = _resolve_name(attr)
-        # Only "method" collected; base is a Call, not Name, so no base id appended
-        assert result == "method"
 
 
 class TestResolveRelativeValueError:
@@ -341,13 +304,46 @@ class TestBuildRouteAdapterBoundaryReport:
         """Empty graph produces report with zero counts."""
         report = build_route_adapter_boundary_report(ArchitectureGraph())
         assert isinstance(report, RouteAdapterBoundaryReport)
-        assert report.runtime_to_adapter.count == 0
+        assert report.allowed_runtime_adapter.count == 0
+        assert report.forbidden_runtime_adapter.count == 0
         assert report.route_engine_forbidden.count == 0
         assert report.adapter_to_runtime.count == 0
         assert report.config_to_adapter_impl.count == 0
+        assert report.adapter_cross_imports.count == 0
+        assert report.codec_renderer_forbidden.count == 0
+        assert report.session_foreign_sdk.count == 0
+        assert report.adapter_wrapper_foreign_transport.count == 0
+        assert report.runtime_assembly_points.count == 0
 
-    def test_runtime_importing_adapter(self) -> None:
-        """Runtime module importing an adapter is reported."""
+    def test_builder_importing_adapter_is_allowed(self) -> None:
+        """Builder -> adapter imports appear in ALLOWED section."""
+        graph = self._make_graph(
+            ModuleInfo(
+                module="medre.runtime.builder",
+                file="runtime/builder.py",
+                imports=[
+                    ImportEdge(
+                        source="medre.runtime.builder",
+                        target="medre.adapters.matrix.adapter",
+                        line=10,
+                        kind="import_from",
+                        is_type_checking=False,
+                    ),
+                ],
+                layer="runtime",
+            ),
+        )
+        report = build_route_adapter_boundary_report(graph)
+        assert report.allowed_runtime_adapter.count == 1
+        assert (
+            report.allowed_runtime_adapter.violations[0].target
+            == "medre.adapters.matrix.adapter"
+        )
+        # Forbidden section should be empty
+        assert report.forbidden_runtime_adapter.count == 0
+
+    def test_non_builder_runtime_importing_adapter_is_forbidden(self) -> None:
+        """Runtime module OTHER than builder importing adapters is forbidden."""
         graph = self._make_graph(
             ModuleInfo(
                 module="medre.runtime.engine",
@@ -365,13 +361,16 @@ class TestBuildRouteAdapterBoundaryReport:
             ),
         )
         report = build_route_adapter_boundary_report(graph)
-        assert isinstance(report, RouteAdapterBoundaryReport)
-        assert report.runtime_to_adapter.count == 1
-        assert report.runtime_to_adapter.violations[0].source == "medre.runtime.engine"
+        assert report.forbidden_runtime_adapter.count == 1
         assert (
-            report.runtime_to_adapter.violations[0].target == "medre.adapters.mesh.send"
+            report.forbidden_runtime_adapter.violations[0].source
+            == "medre.runtime.engine"
         )
-        assert report.runtime_to_adapter.violations[0].line == 10
+        assert (
+            report.forbidden_runtime_adapter.violations[0].target
+            == "medre.adapters.mesh.send"
+        )
+        assert report.allowed_runtime_adapter.count == 0
 
     def test_route_engine_forbidden_imports(self) -> None:
         """Route engine with forbidden imports is reported."""
@@ -465,17 +464,23 @@ class TestBuildRouteAdapterBoundaryReport:
             ),
         )
         report = build_route_adapter_boundary_report(graph)
-        assert report.runtime_to_adapter.count == 0
+        assert report.forbidden_runtime_adapter.count == 0
 
     def test_render_empty_report(self) -> None:
-        """render_boundary_report produces expected string format for empty graph."""
+        """render_boundary_report produces expected v2 string format for empty graph."""
         report = build_route_adapter_boundary_report(ArchitectureGraph())
         text = render_boundary_report(report)
-        assert "Route/Adapter Boundary Report" in text
-        assert "Runtime → Adapter imports: 0" in text
-        assert "Route engine forbidden imports: 0" in text
-        assert "Adapter → Runtime imports: 0" in text
-        assert "Config → Adapter implementation imports: 0" in text
+        assert "== Route/Adapter Boundary Report ==" in text
+        assert "--- Allowed Runtime" in text
+        assert "--- Forbidden Runtime" in text
+        assert "--- Route Engine" in text
+        assert "--- Adapter" in text
+        assert "--- Config" in text
+        assert "--- Codec/Renderer" in text
+        assert "--- Session" in text
+        assert "--- Adapter Wrapper" in text
+        assert "--- Runtime Assembly" in text
+        assert "(none)" in text
 
     def test_render_report_with_violations(self) -> None:
         """render_boundary_report includes violation details."""
@@ -497,8 +502,299 @@ class TestBuildRouteAdapterBoundaryReport:
         )
         report = build_route_adapter_boundary_report(graph)
         text = render_boundary_report(report)
-        assert "Runtime → Adapter imports: 1" in text
         assert "medre.runtime.engine -> medre.adapters.mesh.send" in text
+
+    def test_adapter_cross_imports_same_transport(self) -> None:
+        """Adapter codec importing session from same transport is flagged."""
+        graph = self._make_graph(
+            ModuleInfo(
+                module="medre.adapters.matrix.codec",
+                file="adapters/matrix/codec.py",
+                imports=[
+                    ImportEdge(
+                        source="medre.adapters.matrix.codec",
+                        target="medre.adapters.matrix.session",
+                        line=5,
+                        kind="import_from",
+                        is_type_checking=False,
+                    ),
+                ],
+                layer="adapters",
+            ),
+        )
+        report = build_route_adapter_boundary_report(graph)
+        assert report.adapter_cross_imports.count == 1
+        assert (
+            report.adapter_cross_imports.violations[0].target
+            == "medre.adapters.matrix.session"
+        )
+
+    def test_codec_importing_sdk_is_forbidden(self) -> None:
+        """Codec importing an SDK is flagged."""
+        graph = self._make_graph(
+            ModuleInfo(
+                module="medre.adapters.meshtastic.codec",
+                file="adapters/meshtastic/codec.py",
+                imports=[
+                    ImportEdge(
+                        source="medre.adapters.meshtastic.codec",
+                        target="meshtastic",
+                        line=3,
+                        kind="import",
+                        is_type_checking=False,
+                    ),
+                ],
+                layer="adapters",
+            ),
+        )
+        report = build_route_adapter_boundary_report(graph)
+        assert report.codec_renderer_forbidden.count == 1
+        assert report.codec_renderer_forbidden.violations[0].target == "meshtastic"
+
+    def test_session_importing_foreign_sdk(self) -> None:
+        """Session importing a foreign SDK is flagged."""
+        graph = self._make_graph(
+            ModuleInfo(
+                module="medre.adapters.meshtastic.session",
+                file="adapters/meshtastic/session.py",
+                imports=[
+                    ImportEdge(
+                        source="medre.adapters.meshtastic.session",
+                        target="meshtastic",
+                        line=2,
+                        kind="import",
+                        is_type_checking=False,
+                    ),
+                ],
+                layer="adapters",
+            ),
+        )
+        report = build_route_adapter_boundary_report(graph)
+        assert report.session_foreign_sdk.count >= 1
+
+    def test_adapter_wrapper_importing_foreign_transport(self) -> None:
+        """Adapter wrapper importing from another transport is flagged."""
+        graph = self._make_graph(
+            ModuleInfo(
+                module="medre.adapters.matrix.adapter",
+                file="adapters/matrix/adapter.py",
+                imports=[
+                    ImportEdge(
+                        source="medre.adapters.matrix.adapter",
+                        target="medre.adapters.meshtastic.codec",
+                        line=8,
+                        kind="import_from",
+                        is_type_checking=False,
+                    ),
+                ],
+                layer="adapters",
+            ),
+        )
+        report = build_route_adapter_boundary_report(graph)
+        assert report.adapter_wrapper_foreign_transport.count == 1
+        assert (
+            report.adapter_wrapper_foreign_transport.violations[0].target
+            == "medre.adapters.meshtastic.codec"
+        )
+
+    def test_runtime_assembly_points_flags_non_builder(self) -> None:
+        """Runtime assembly points section flags non-builder runtime -> adapter."""
+        graph = self._make_graph(
+            ModuleInfo(
+                module="medre.runtime.engine",
+                file="runtime/engine.py",
+                imports=[
+                    ImportEdge(
+                        source="medre.runtime.engine",
+                        target="medre.adapters.matrix.adapter",
+                        line=5,
+                        kind="import_from",
+                        is_type_checking=False,
+                    ),
+                ],
+                layer="runtime",
+            ),
+        )
+        report = build_route_adapter_boundary_report(graph)
+        assert report.runtime_assembly_points.count == 1
+        assert (
+            report.runtime_assembly_points.violations[0].rule
+            == "violation: non-builder runtime assembly point"
+        )
+
+    def test_backward_compatible_runtime_to_adapter_alias(self) -> None:
+        """runtime_to_adapter is a backward-compatible alias for forbidden section."""
+        graph = self._make_graph(
+            ModuleInfo(
+                module="medre.runtime.engine",
+                file="runtime/engine.py",
+                imports=[
+                    ImportEdge(
+                        source="medre.runtime.engine",
+                        target="medre.adapters.matrix.adapter",
+                        line=5,
+                        kind="import_from",
+                        is_type_checking=False,
+                    ),
+                ],
+                layer="runtime",
+            ),
+        )
+        report = build_route_adapter_boundary_report(graph)
+        assert report.runtime_to_adapter is report.forbidden_runtime_adapter
+        assert report.runtime_to_adapter.count == 1
+
+
+class TestReportDeterminismV2:
+    """V2 boundary report must be deterministic."""
+
+    def test_boundary_report_is_deterministic(self) -> None:
+        graph1 = build_dependency_graph(_SRC)
+        graph2 = build_dependency_graph(_SRC)
+        report1 = build_route_adapter_boundary_report(graph1)
+        report2 = build_route_adapter_boundary_report(graph2)
+        text1 = render_boundary_report(report1)
+        text2 = render_boundary_report(report2)
+        assert text1 == text2
+
+
+class TestCheckForbiddenImportsByModule:
+    """Tests for check_forbidden_imports_by_module()."""
+
+    def test_returns_empty_for_no_violations(self) -> None:
+        graph = ArchitectureGraph()
+        graph.modules["medre.core.events"] = ModuleInfo(
+            module="medre.core.events",
+            file="core/events.py",
+            imports=[
+                ImportEdge(
+                    source="medre.core.events",
+                    target="medre.config.model",
+                    line=1,
+                    kind="import_from",
+                    is_type_checking=False,
+                ),
+            ],
+            layer="core",
+        )
+        result = check_forbidden_imports_by_module(
+            graph, "medre.core", ("medre.adapters",)
+        )
+        assert result == {}
+
+    def test_returns_structured_violations(self) -> None:
+        graph = ArchitectureGraph()
+        graph.modules["medre.core.engine"] = ModuleInfo(
+            module="medre.core.engine",
+            file="core/engine.py",
+            imports=[
+                ImportEdge(
+                    source="medre.core.engine",
+                    target="medre.adapters.mesh",
+                    line=5,
+                    kind="import_from",
+                    is_type_checking=False,
+                ),
+            ],
+            layer="core",
+        )
+        result = check_forbidden_imports_by_module(
+            graph, "medre.core", ("medre.adapters",)
+        )
+        assert "medre.core.engine" in result
+        violations = result["medre.core.engine"]
+        assert len(violations) == 1
+        assert isinstance(violations[0], BoundaryViolation)
+        assert violations[0].source == "medre.core.engine"
+        assert violations[0].target == "medre.adapters.mesh"
+        assert violations[0].line == 5
+        assert violations[0].rule == "forbidden prefix: medre.adapters"
+
+    def test_groups_by_module(self) -> None:
+        graph = ArchitectureGraph()
+        graph.modules["medre.core.engine"] = ModuleInfo(
+            module="medre.core.engine",
+            file="core/engine.py",
+            imports=[
+                ImportEdge(
+                    source="medre.core.engine",
+                    target="medre.adapters.mesh",
+                    line=5,
+                    kind="import_from",
+                    is_type_checking=False,
+                ),
+                ImportEdge(
+                    source="medre.core.engine",
+                    target="medre.runtime.builder",
+                    line=8,
+                    kind="import_from",
+                    is_type_checking=False,
+                ),
+            ],
+            layer="core",
+        )
+        result = check_forbidden_imports_by_module(
+            graph, "medre.core", ("medre.adapters", "medre.runtime")
+        )
+        assert len(result["medre.core.engine"]) == 2
+
+    def test_allow_type_checking_false_flags_tc_imports(self) -> None:
+        graph = ArchitectureGraph()
+        graph.modules["medre.core.engine"] = ModuleInfo(
+            module="medre.core.engine",
+            file="core/engine.py",
+            imports=[
+                ImportEdge(
+                    source="medre.core.engine",
+                    target="medre.adapters.mesh",
+                    line=5,
+                    kind="import_from",
+                    is_type_checking=True,
+                ),
+            ],
+            layer="core",
+        )
+        # Default: skip type_checking
+        result = check_forbidden_imports_by_module(
+            graph, "medre.core", ("medre.adapters",)
+        )
+        assert result == {}
+
+        # With allow_type_checking=False
+        result = check_forbidden_imports_by_module(
+            graph, "medre.core", ("medre.adapters",), allow_type_checking=False
+        )
+        assert "medre.core.engine" in result
+
+
+class TestDependencyGraphReportDataclass:
+    """Tests for the DependencyGraphReport dataclass."""
+
+    def test_instantiation(self) -> None:
+        report = DependencyGraphReport(
+            modules={},
+            forbidden_imports_by_module={},
+            layer_summary={"core": 5},
+            total_edges=0,
+        )
+        assert report.modules == {}
+        assert report.forbidden_imports_by_module == {}
+        assert report.layer_summary == {"core": 5}
+        assert report.total_edges == 0
+
+
+class TestBoundaryViolationHasRule:
+    """BoundaryViolation has a rule field."""
+
+    def test_rule_field_default(self) -> None:
+        v = BoundaryViolation(source="a", target="b", line=1)
+        assert v.rule == ""
+
+    def test_rule_field_set(self) -> None:
+        v = BoundaryViolation(
+            source="a", target="b", line=1, rule="forbidden prefix: medre.adapters"
+        )
+        assert v.rule == "forbidden prefix: medre.adapters"
 
 
 class TestCheckForbiddenImportsInnerLoop:

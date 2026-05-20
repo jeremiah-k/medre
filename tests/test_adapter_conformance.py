@@ -122,7 +122,21 @@ class TestRealAdapterContractImports:
 
 
 class TestNoPackageRootAdapterImports:
-    """Conformance tests must not import from package-root facades."""
+    """Conformance tests must not import from package-root facades.
+
+    Also verifies that adapter module imports (e.g.
+    ``medre.adapters.matrix.adapter``) succeed even without optional
+    SDKs installed, because SDK guards live behind compat/session
+    boundaries — not at the adapter-module level.
+    """
+
+    # Adapter modules whose import must work without optional SDKs.
+    _ADAPTER_MODULES: list[str] = [
+        "medre.adapters.matrix.adapter",
+        "medre.adapters.meshtastic.adapter",
+        "medre.adapters.meshcore.adapter",
+        "medre.adapters.lxmf.adapter",
+    ]
 
     def test_not_importing_from_adapters_root(self) -> None:
         """Verify this test file doesn't use package-root facade imports.
@@ -174,3 +188,16 @@ class TestNoPackageRootAdapterImports:
                 f"Conformance test uses package-root import: "
                 f"from {module} import {names}"
             )
+
+    @pytest.mark.parametrize("module_name", _ADAPTER_MODULES)
+    def test_adapter_module_imports_without_sdk(self, module_name: str) -> None:
+        """Importing the adapter module itself must not fail without SDKs.
+
+        SDK guards are behind compat/session boundaries, so
+        ``import medre.adapters.matrix.adapter`` should succeed even when
+        ``nio`` is not installed.
+        """
+        import importlib
+
+        mod = importlib.import_module(module_name)
+        assert mod is not None, f"Failed to import {module_name}"

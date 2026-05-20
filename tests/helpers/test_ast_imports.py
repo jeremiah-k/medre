@@ -203,7 +203,7 @@ class TestFindRelativeImports:
             file_path="/home/user/src/medre/core/observability/module.py",
         )
         # Should not crash; may return empty or a truncated result
-        assert records is not None
+        assert isinstance(records, list)
 
     def test_no_relative_imports_returns_empty(self) -> None:
         source = "import os\nimport sys\n"
@@ -252,7 +252,7 @@ class TestTopLevelCallsNested:
         tree = ast.parse(source)
         calls = top_level_calls(tree)
         funcs = {c.func for c in calls}
-        assert "read_text" in funcs or "Path.read_text" in funcs
+        assert "Path.read_text" in funcs
 
     def test_call_in_function_ignored(self) -> None:
         source = """
@@ -308,3 +308,83 @@ from pathlib import Path
         assert aliases.get("sleep") == "time.sleep"
         assert aliases.get("sp") == "subprocess"
         assert aliases.get("Path") == "pathlib.Path"
+
+
+class TestExtractAliasesRuntimeScope:
+    """Tests for extract_aliases() with runtime-scope blocks."""
+
+    def test_try_except_import_as(self) -> None:
+        source = """
+try:
+    import subprocess as sp
+except ImportError:
+    pass
+"""
+        tree = ast.parse(source)
+        aliases = extract_aliases(tree)
+        assert aliases.get("sp") == "subprocess"
+
+    def test_try_except_from_import(self) -> None:
+        source = """
+try:
+    from subprocess import run
+except ImportError:
+    pass
+"""
+        tree = ast.parse(source)
+        aliases = extract_aliases(tree)
+        assert aliases.get("run") == "subprocess.run"
+
+    def test_with_import_as(self) -> None:
+        source = """
+import contextlib
+with contextlib.suppress(Exception):
+    import time as t
+"""
+        tree = ast.parse(source)
+        aliases = extract_aliases(tree)
+        assert aliases.get("t") == "time"
+
+    def test_function_body_ignored(self) -> None:
+        source = """
+def my_func():
+    import subprocess as sp
+"""
+        tree = ast.parse(source)
+        aliases = extract_aliases(tree)
+        assert "sp" not in aliases
+
+    def test_type_checking_body_ignored(self) -> None:
+        source = """
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    import subprocess as sp
+"""
+        tree = ast.parse(source)
+        aliases = extract_aliases(tree)
+        assert "sp" not in aliases
+
+
+class TestCallNameResolution:
+    """Tests for precise call-name extraction."""
+
+    def test_path_read_text(self) -> None:
+        source = 'Path("x").read_text()\n'
+        tree = ast.parse(source)
+        calls = top_level_calls(tree)
+        funcs = {c.func for c in calls}
+        assert "Path.read_text" in funcs
+
+    def test_pathlib_path_read_text(self) -> None:
+        source = 'pathlib.Path("x").read_text()\n'
+        tree = ast.parse(source)
+        calls = top_level_calls(tree)
+        funcs = {c.func for c in calls}
+        assert "pathlib.Path.read_text" in funcs
+
+    def test_socket_create_connection(self) -> None:
+        source = 'socket.create_connection(("host", 80))\n'
+        tree = ast.parse(source)
+        calls = top_level_calls(tree)
+        funcs = {c.func for c in calls}
+        assert "socket.create_connection" in funcs

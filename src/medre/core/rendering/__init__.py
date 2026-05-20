@@ -22,7 +22,7 @@ from medre.core.rendering.renderer import (
 )
 from medre.core.rendering.text import TextRenderer
 
-# Internal alias: the rendering result for text-based rendering paths.
+# Compatibility/readability alias for text-rendering result paths.
 # Importers can use either ``RenderingResult`` or ``TextRenderingResult``.
 TextRenderingResult = RenderingResult
 
