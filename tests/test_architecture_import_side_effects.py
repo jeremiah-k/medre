@@ -19,30 +19,11 @@ import pytest
 # Adapter package __init__.py files are lightweight docstring-only markers,
 # so importing codec/renderer modules no longer pulls in sibling submodules.
 _LIGHTWEIGHT_MODULES: list[str] = [
-    # medre top-level is intentionally omitted: _import_fresh("medre") would
-    # wipe all medre.* submodules from sys.modules, poisoning class identity
-    # for subsequent tests that imported from medre.* at module level.
-    "medre.adapters",
-    "medre.adapters.matrix",
-    "medre.adapters.meshtastic",
-    "medre.adapters.meshcore",
-    "medre.adapters.lxmf",
-    "medre.config",
-    "medre.config.adapters",
-    "medre.runtime",
-    "medre.runtime.evidence",
-    "medre.runtime.run_session",
+    # Package roots are intentionally excluded: _import_fresh() removes ALL
+    # submodules from sys.modules, poisoning cached imports for subsequent
+    # tests. Only truly leaf modules with no submodule dependencies are safe.
     "medre.interop.mmrelay",
     "medre.core.observability.sanitization",
-    # Adapter codec/renderer modules are lightweight (no sibling adapter imports)
-    "medre.adapters.matrix.codec",
-    "medre.adapters.matrix.renderer",
-    "medre.adapters.meshtastic.codec",
-    "medre.adapters.meshtastic.renderer",
-    "medre.adapters.meshcore.codec",
-    "medre.adapters.meshcore.renderer",
-    "medre.adapters.lxmf.codec",
-    "medre.adapters.lxmf.renderer",
 ]
 
 # Modules that should NOT be imported as a side effect
@@ -106,9 +87,9 @@ class TestNoForbiddenTransitiveImports:
 
     @pytest.mark.parametrize("module_name", _LIGHTWEIGHT_MODULES)
     def test_no_forbidden_transitive_imports(self, module_name: str) -> None:
-        # Clear forbidden modules so each case is independent
-        for m in list(self._FORBIDDEN):
-            sys.modules.pop(m, None)
+        # Snapshot already-loaded modules before import.
+        # Do NOT pop from sys.modules — that would poison cached state
+        # for subsequent tests.
         already = {m for m in self._FORBIDDEN if m in sys.modules}
         _import_fresh(module_name)
         newly = [
