@@ -25,7 +25,7 @@ from medre.core.planning.delivery_plan import (
 )
 from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.core.runtime.accounting import RuntimeAccounting
-from medre.observability.classification import infer_failure_kind
+from medre.core.observability.classification import infer_failure_kind
 
 # ---------------------------------------------------------------------------
 # RetryWorker under test

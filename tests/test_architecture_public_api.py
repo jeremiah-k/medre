@@ -49,17 +49,35 @@ class TestObservabilityFacadeRemoved:
 
     def test_observability_sanitization_module_does_not_exist(self) -> None:
         """The medre.observability.sanitization re-export module must not exist."""
-        import medre.observability
         from pathlib import Path
-        init_dir = Path(medre.observability.__file__).parent
-        sanitization_file = init_dir / "sanitization.py"
-        assert not sanitization_file.exists(), (
-            f"medre.observability.sanitization.py still exists at "
-            f"{sanitization_file} — it should have been removed as a "
-            f"re-export facade"
+        # The module lives at medre.core.observability.sanitization now
+        # Check the old facade path doesn't exist
+        src_dir = Path(__file__).resolve().parents[1] / "src" / "medre"
+        old_path = src_dir / "observability" / "sanitization.py"
+        assert not old_path.exists(), (
+            f"medre.observability.sanitization.py still exists"
         )
 
-    def test_from_medre_observability_import_sanitize_error_fails(self) -> None:
-        """from medre.observability import sanitize_error should not work."""
+    def test_from_medre_observability_import_fails(self) -> None:
+        """medre.observability should not be importable as a facade."""
+        import medre.core.observability.sanitization  # noqa: F401 — canonical path works
         with pytest.raises(ImportError):
             from medre.observability import sanitize_error  # type: ignore[unused-import]
+
+
+class TestConfigFacadeRemoved:
+    """Config packages must not expose convenience re-exports."""
+
+    def test_config_has_no_all(self) -> None:
+        import medre.config
+
+        assert not hasattr(medre.config, "__all__") or medre.config.__all__ == [], (
+            "medre.config should not expose __all__ convenience symbols"
+        )
+
+    def test_config_adapters_has_no_all(self) -> None:
+        import medre.config.adapters
+
+        assert not hasattr(medre.config.adapters, "__all__") or medre.config.adapters.__all__ == [], (
+            "medre.config.adapters should not expose __all__ convenience symbols"
+        )

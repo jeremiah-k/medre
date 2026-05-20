@@ -192,12 +192,12 @@ async def _adapter_matrix_auth_status(credentials_path: Path | None = None) -> N
         the default sidecar path is used.
     """
     from medre.adapters.matrix.auth import check_credentials_completeness
-    from medre.config.adapters import matrix_credentials
+    from medre.config.adapters.matrix_credentials import get_credentials_path, load_credentials_json
 
     path = (
         credentials_path
         if credentials_path is not None
-        else matrix_credentials.get_credentials_path()
+        else get_credentials_path()
     )
 
     if not path.exists():
@@ -205,7 +205,7 @@ async def _adapter_matrix_auth_status(credentials_path: Path | None = None) -> N
         print("Run 'medre adapter matrix auth login' to authenticate.")
         return
 
-    creds = matrix_credentials.load_credentials_json(path=path)
+    creds = load_credentials_json(path=path)
     if creds is None:
         print(f"Credentials file malformed: {path}")
         return

@@ -21,12 +21,12 @@ from typing import Any, AsyncGenerator
 
 import pytest
 
-from tests.helpers.import_ast import (
-    all_imports,
+from tests.helpers.ast_imports import (
+    _backward_all_imports as all_imports,
+    _backward_runtime_imports as runtime_imports,
+    _backward_top_level_imports as top_level_imports,
     check_banned_ast,
     collect_imports_from_node,
-    runtime_imports,
-    top_level_imports,
 )
 
 # ---------------------------------------------------------------------------
@@ -844,27 +844,14 @@ class TestConfigErrorCanonicalImports:
             + "\n".join(violations)
         )
 
-    def test_package_re_exports_config_errors(self) -> None:
-        """Package-level re-exports of ConfigError classes are valid from medre.config.adapters."""
-        from medre.config.adapters.errors import (
-            LxmfConfigError,
-            MatrixConfigError,
-            MeshCoreConfigError,
-            MeshtasticConfigError,
-        )
+    def test_config_adapters_no_facade_re_exports(self) -> None:
+        """config/adapters/__init__.py must not re-export error types."""
+        import medre.config.adapters
 
-        _ = (
-            MatrixConfigError,
-            LxmfConfigError,
-            MeshtasticConfigError,
-            MeshCoreConfigError,
+        assert not hasattr(medre.config.adapters, "MatrixConfigError"), (
+            "medre.config.adapters should not re-export error types; "
+            "import from medre.config.adapters.errors instead"
         )
-        import medre.config.adapters as mod
-
-        assert hasattr(mod, "MatrixConfigError")
-        assert hasattr(mod, "LxmfConfigError")
-        assert hasattr(mod, "MeshtasticConfigError")
-        assert hasattr(mod, "MeshCoreConfigError")
 
 
 # ===================================================================

@@ -81,7 +81,7 @@ async def _collect_storage_data_from_backend(
                 data["timeline"] = tl_result["timeline_entries"]
 
                 # Compact incident summary using shared classification.
-                from medre.observability.classification import (
+                from medre.core.observability.classification import (
                     failure_category,
                     infer_failure_kind,
                     recommended_commands,

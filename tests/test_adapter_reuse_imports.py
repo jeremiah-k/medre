@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.helpers.import_ast import runtime_imports
+from tests.helpers.ast_imports import _backward_runtime_imports as runtime_imports
 
 # Modules to test — these should be importable without side effects.
 _REUSABLE_MODULES = [

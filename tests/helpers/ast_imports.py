@@ -324,3 +324,116 @@ def find_relative_imports(
                     file=file_path,
                 ))
     return result
+
+
+def top_level_imports(
+    source: str,
+    file_path: str | None = None,
+) -> list[ImportRecord]:
+    """Return imports that are direct children of the module body.
+
+    Only visits Import and ImportFrom nodes that are direct children
+    of the module body (i.e. *not* nested inside functions, classes,
+    or other blocks).
+
+    Args:
+        source: Raw Python source string
+        file_path: Optional file path for attribution
+
+    Returns:
+        List of ImportRecord instances
+    """
+    tree = ast.parse(source)
+    result: list[ImportRecord] = []
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                result.append(ImportRecord(
+                    module=alias.name,
+                    lineno=node.lineno,
+                    kind="import",
+                    file=file_path,
+                ))
+        elif isinstance(node, ast.ImportFrom):
+            resolved = _resolve_relative(
+                node.level, node.module, file_path
+            )
+            for alias in node.names:
+                full = f"{resolved}.{alias.name}" if resolved else alias.name
+                result.append(ImportRecord(
+                    module=full,
+                    lineno=node.lineno,
+                    kind="import_from",
+                    file=file_path,
+                ))
+            if resolved:
+                result.append(ImportRecord(
+                    module=resolved,
+                    lineno=node.lineno,
+                    kind="import_from",
+                    file=file_path,
+                ))
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Backward-compatible adapter functions for migration from import_ast.py
+# ---------------------------------------------------------------------------
+
+
+def _backward_runtime_imports(source: str, file_path: str | None = None) -> list[tuple[str, int]]:
+    """Backward-compatible adapter: runtime_imports(source) -> list of (module, lineno).
+
+    Mirrors the old tests.helpers.import_ast.runtime_imports() API.
+    """
+    tree = ast.parse(source)
+    records = runtime_scope_imports(tree, file_path=file_path)
+    return [(r.module, r.lineno) for r in records]
+
+
+def _backward_all_imports(source: str, file_path: str | None = None) -> list[tuple[str, int]]:
+    """Backward-compatible adapter: all_imports(source) -> list of (module, lineno)."""
+    tree = ast.parse(source)
+    records = all_imports(tree, file_path=file_path)
+    return [(r.module, r.lineno) for r in records]
+
+
+def _backward_top_level_imports(source: str, file_path: str | None = None) -> list[tuple[str, int]]:
+    """Backward-compatible adapter: top_level_imports(source) -> list of (module, lineno)."""
+    records = top_level_imports(source, file_path=file_path)
+    return [(r.module, r.lineno) for r in records]
+
+
+def check_banned_ast(
+    imports: list[tuple[str, int]],
+    banned_prefixes: tuple[str, ...],
+    *,
+    rel_path: str,
+) -> list[str]:
+    """Backward-compatible adapter: check_banned_ast() -> list of violation strings.
+
+    Mirrors the old tests.helpers.import_ast.check_banned_ast() API.
+    """
+    violations: list[str] = []
+    for mod, lineno in imports:
+        if import_matches(mod, banned_prefixes):
+            violations.append(f"{rel_path}:{lineno}: imports {mod}")
+    return violations
+
+
+def collect_imports_from_node(node: ast.AST) -> list[tuple[str, int]]:
+    """Backward-compatible adapter for legacy use in test_architectural_boundaries.py.
+
+    This is a compatibility shim and should be removed once the last consumer
+    is migrated away from the old tuple-based API.
+    """
+    result: list[tuple[str, int]] = []
+    if isinstance(node, ast.Import):
+        for alias in node.names:
+            result.append((alias.name, node.lineno))
+    elif isinstance(node, ast.ImportFrom):
+        mod = node.module or ""
+        for alias in node.names:
+            result.append((f"{mod}.{alias.name}", node.lineno))
+        result.append((mod, node.lineno))
+    return result

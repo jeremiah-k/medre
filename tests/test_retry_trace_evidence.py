@@ -17,7 +17,7 @@ from medre.core.events.canonical import (
     DeliveryReceipt,
 )
 from medre.core.events.metadata import EventMetadata
-from medre.observability.classification import (
+from medre.core.observability.classification import (
     failure_category,
     infer_failure_kind,
     recommended_commands,

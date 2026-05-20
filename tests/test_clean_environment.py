@@ -332,7 +332,6 @@ class TestCleanEnvironmentImportBoundaries:
         "medre.core.planning",
         "medre.core.runtime",
         "medre.interop",
-        "medre.observability",
         "medre.runtime",
         "medre.runtime.builder",
         "medre.runtime.app",
@@ -541,7 +540,7 @@ class TestEnvOverrideCleanEnv:
     correctly typed without optional SDKs."""
 
     def test_env_module_importable(self) -> None:
-        from medre.config import env
+        import medre.config.env as env
 
         assert env is not None
 
@@ -559,7 +558,7 @@ class TestEnvOverrideCleanEnv:
 
     def test_secret_env_names_is_frozenset(self) -> None:
         """Internal secret env-name registry must be a frozenset."""
-        from medre.config import env
+        import medre.config.env as env
 
         # Access private constant — intentional for clean-env boundary check
         assert hasattr(env, "_SECRET_ENV_NAMES") or hasattr(env, "MedreEnvConfig")

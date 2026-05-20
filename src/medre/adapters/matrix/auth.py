@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from medre.adapters.matrix.errors import MatrixConnectionError
-from medre.config.adapters import matrix_credentials
+from medre.config.adapters.matrix_credentials import write_credentials_json
 
 
 def _normalize_homeserver(homeserver: str) -> str:
@@ -449,7 +449,7 @@ def save_credentials_json(result: MatrixLoginResult, path: Path | None = None) -
 
     Returns the :class:`Path` that was written.
     """
-    return matrix_credentials.write_credentials_json(
+    return write_credentials_json(
         {
             "homeserver": result.homeserver,
             "access_token": result.access_token,

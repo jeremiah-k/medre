@@ -70,7 +70,7 @@ compat guard entirely. No adapter touches another adapter's transport.
 Owns TOML loading, model classes, environment overrides, and path resolution.
 
 **Contents:** `loader.py`, `model.py`, `env.py`, `paths.py`, `errors.py`,
-`sample.py`.
+`sample.py`, `adapters/` (per-transport config models and credential helpers).
 
 ## Import rules
 
@@ -81,7 +81,7 @@ Owns TOML loading, model classes, environment overrides, and path resolution.
 | `runtime/observability` | `core.diagnostics`, `core.routing.stats`                  | Adapter code                                |
 | `core/*`                | Other `core/*` sub-packages                               | `adapters.*`, `runtime.*`, `cli.*`          |
 | `adapters/<transport>/` | `core.contracts.adapter`, `core.events`, `core.rendering` | Other adapter packages, `runtime.*`         |
-| `config/`               | `pathlib`, stdlib only                                    | `core.*`, `adapters.*`, `runtime.*`         |
+| `config/`               | `medre.config.*` (own internals), `medre.runtime.routes`, `medre.core.observability.log_levels` | `medre.adapters.*`, adapter SDKs, `medre.runtime.builder` |
 
 Key invariants:
 
@@ -91,8 +91,10 @@ Key invariants:
   imports both config model types and adapter base classes to wire the system.
 - **`core/` is transport-agnostic.** No module under `core/` imports from
   `adapters/` or `runtime/`.
-- **Config package is dependency-free.** `config/` imports only stdlib — no
-  core types, no adapter types.
+- **Config package follows the same `no-adapters, no-SDK` rule as core.** It
+  imports from `medre.config.*` (its own internals), `medre.core.observability.log_levels`
+  (lightweight), and `medre.runtime.routes` (route config models). It must **not**
+  import `medre.adapters.*`, protocol SDKs, `medre.runtime.builder`, or `medre.core.engine.*`.
 
 ## What was removed or moved
 
@@ -128,14 +130,12 @@ Contains logging setup, diagnostic events, metrics, and the canonical
 sanitization implementation (`medre.core.observability.sanitization`). Used by
 the pipeline, routing engine, and internal framework code.
 
-### `medre.observability` — internal utilities
+### `medre.observability` — removed
 
-Import path: `from medre.observability import ...`
+The top-level `medre.observability` package was removed.
+Its modules moved to canonical internal homes:
+- `classification.py` → `medre.core.observability.classification`
+- `summaries.py` → `medre.runtime.summaries`
+- `logging.py` → deleted (unused)
 
-Contains classification helpers, adapter logger factories, and summary
-formatting. **Not a public API facade.** CLI and adapter code may import from
-here during development, but these paths are not guaranteed stable.
-
-> **Breaking changes to `medre.observability.*` import paths may occur** as the
-> API design settles. Prefer `medre.core.observability.sanitization` for the
-> canonical sanitization implementation.
+The canonical sanitization path is `medre.core.observability.sanitization`.

@@ -191,7 +191,9 @@ class TestBaseImportBoundary:
         assert medre is not None
 
     def test_import_medre_config(self) -> None:
-        from medre.config import MedrePaths, RuntimeConfig, load_config
+        from medre.config.loader import load_config
+        from medre.config.model import RuntimeConfig
+        from medre.config.paths import MedrePaths
 
         assert RuntimeConfig is not None
         assert load_config is not None

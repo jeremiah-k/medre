@@ -18,8 +18,9 @@ import pytest
 # Modules to test for import side effects.
 # Codec/renderer modules are tested separately via AST-based boundary checks
 # (test_architecture_adapter_reuse.py) and existing import-side-effect tests
-# (test_adapter_reuse_imports.py). They are NOT listed here because their
-# package __init__.py files re-export adapter modules, causing false positives.
+# (test_adapter_reuse_imports.py). They are intentionally NOT listed here:
+# importing a codec module triggers its parent package init, which still
+# eagerly imports sibling submodules due to Python package mechanics.
 _LIGHTWEIGHT_MODULES: list[str] = [
     # medre top-level is intentionally omitted: _import_fresh("medre") would
     # wipe all medre.* submodules from sys.modules, poisoning class identity
