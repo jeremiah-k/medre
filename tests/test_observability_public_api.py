@@ -11,8 +11,13 @@ from __future__ import annotations
 import logging
 import sys
 
-from medre.core.observability.sanitization import sanitize_error as _core_sanitize_error
-from medre.core.observability.sanitization import (
+# Snapshot sys.modules BEFORE importing any medre modules so that the
+# side-effect tests can distinguish modules pulled in by the sanitization
+# import from those already loaded by other tests or the test runner.
+_MODULES_BEFORE = frozenset(sys.modules)
+
+from medre.core.observability.sanitization import sanitize_error as _core_sanitize_error  # noqa: E402
+from medre.core.observability.sanitization import (  # noqa: E402
     sanitize_for_log as _core_sanitize_for_log,
 )
 
@@ -44,6 +49,7 @@ class TestSanitizationImportNoSideEffects:
     runtime/builder/pipeline/storage or configure logging."""
 
     _FORBIDDEN_MODULES = [
+        "medre.runtime.app",
         "medre.runtime.builder",
         "medre.core.engine.pipeline",
         "medre.core.storage",
@@ -60,12 +66,9 @@ class TestSanitizationImportNoSideEffects:
         ), "Importing medre.observability.sanitization added root logger handlers"
 
     def test_import_does_not_pull_forbidden_modules(self) -> None:
-        already = {m for m in self._FORBIDDEN_MODULES if m in sys.modules}
-
         newly = [
-            m for m in self._FORBIDDEN_MODULES if m in sys.modules and m not in already
+            m
+            for m in self._FORBIDDEN_MODULES
+            if m in sys.modules and m not in _MODULES_BEFORE
         ]
         assert not newly, f"Importing sanitization pulled in forbidden modules: {newly}"
-
-    def test_import_does_not_pull_runtime_app(self) -> None:
-        assert "medre.runtime.app" not in sys.modules
