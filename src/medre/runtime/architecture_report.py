@@ -1,6 +1,6 @@
 """Architecture dependency graph and boundary reports.
 
-Pure AST-based analysis. Does NOT import any project modules.
+AST-based analysis, delegates shared AST walking to architecture_ast.
 """
 
 from __future__ import annotations
@@ -8,6 +8,14 @@ from __future__ import annotations
 import ast
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from medre.runtime.architecture_ast import (
+    runtime_scope_imports,
+)
+from medre.runtime.architecture_ast import (
+    is_type_checking as _is_type_checking,
+    resolve_relative as _resolve_relative,
+)
 
 
 @dataclass
@@ -70,102 +78,22 @@ def _resolve_name(node: ast.AST) -> str | None:
     return None
 
 
-def _resolve_relative(level: int, module: str | None, file_path: str) -> str:
-    """Resolve a relative import to an absolute module name."""
-    if level == 0:
-        return module or ""
-    try:
-        fpath = Path(file_path).resolve()
-        parts = list(fpath.parent.parts)
-        try:
-            src_idx = parts.index("src")
-        except ValueError:
-            return module or ""
-        if src_idx + 1 < len(parts):
-            package_parts = parts[src_idx + 1 :]
-        else:
-            return module or ""
-        if level > 1 and level - 1 <= len(package_parts):
-            package_parts = package_parts[: -(level - 1)]
-        elif level > 1:
-            package_parts = []
-        if module:
-            base = ".".join(package_parts)
-            return f"{base}.{module}" if base else module
-        return ".".join(package_parts) if package_parts else module or ""
-    except (ValueError, IndexError):
-        return module or ""
-
-
-def _is_type_checking(node: ast.AST) -> bool:
-    """Check if node is an if TYPE_CHECKING block."""
-    if not isinstance(node, ast.If):
-        return False
-    test = node.test
-    if isinstance(test, ast.Name) and test.id == "TYPE_CHECKING":
-        return True
-    if (
-        isinstance(test, ast.Attribute)
-        and test.attr == "TYPE_CHECKING"
-        and isinstance(test.value, ast.Name)
-        and test.value.id == "typing"
-    ):
-        return True
-    return False
-
-
 def parse_file(py_file: Path) -> list[ImportEdge]:
     """Parse a single Python file and return its import edges (runtime-scope only)."""
     source = py_file.read_text(encoding="utf-8")
     tree = ast.parse(source)
+    records = runtime_scope_imports(tree, file_path=str(py_file), record_type_checking=True)
     edges: list[ImportEdge] = []
-
-    def _walk(node: ast.AST, in_type_checking: bool = False) -> None:
-        for child in ast.iter_child_nodes(node):
-            if isinstance(child, ast.If) and _is_type_checking(child):
-                # Record TYPE_CHECKING imports too, but mark them
-                _walk(child, in_type_checking=True)
-                continue
-            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                continue
-            if isinstance(child, ast.Import):
-                for alias in child.names:
-                    edges.append(
-                        ImportEdge(
-                            source="",
-                            target=alias.name,
-                            line=child.lineno,
-                            kind="import",
-                            is_type_checking=in_type_checking,
-                        )
-                    )
-            elif isinstance(child, ast.ImportFrom):
-                resolved = _resolve_relative(child.level, child.module, str(py_file))
-                for alias in child.names:
-                    full = f"{resolved}.{alias.name}" if resolved else alias.name
-                    edges.append(
-                        ImportEdge(
-                            source="",
-                            target=full,
-                            line=child.lineno,
-                            kind="import_from",
-                            is_type_checking=in_type_checking,
-                        )
-                    )
-                if resolved:
-                    edges.append(
-                        ImportEdge(
-                            source="",
-                            target=resolved,
-                            line=child.lineno,
-                            kind="import_from",
-                            is_type_checking=in_type_checking,
-                        )
-                    )
-            else:
-                _walk(child, in_type_checking)
-
-    _walk(tree)
+    for rec in records:
+        edges.append(
+            ImportEdge(
+                source="",  # filled later by build_dependency_graph
+                target=rec.module,
+                line=rec.lineno,
+                kind=rec.kind,
+                is_type_checking=rec.is_type_checking,
+            )
+        )
     return edges
 
 

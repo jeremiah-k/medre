@@ -233,6 +233,39 @@ class TestIsTypeChecking:
         assert _is_type_checking(ast.Pass()) is False
 
 
+class TestParseFileTypeCheckingElseBranch:
+    """Tests for parse_file() handling of TYPE_CHECKING else branches."""
+
+    def test_else_branch_not_marked_type_checking(self, tmp_path: Path) -> None:
+        """Imports in the else branch of `if TYPE_CHECKING:` should have
+        is_type_checking=False, while the if-body imports should have
+        is_type_checking=True."""
+        src = (
+            "from typing import TYPE_CHECKING\n"
+            "if TYPE_CHECKING:\n"
+            "    import medre.adapters.matrix.adapter\n"
+            "else:\n"
+            "    import medre.runtime.builder\n"
+        )
+        py_file = tmp_path / "test_mod.py"
+        py_file.write_text(src, encoding="utf-8")
+
+        edges = parse_file(py_file)
+
+        tc_edge = next(
+            (e for e in edges if e.target == "medre.adapters.matrix.adapter"), None
+        )
+        runtime_edge = next(
+            (e for e in edges if e.target == "medre.runtime.builder"), None
+        )
+
+        assert tc_edge is not None, "TYPE_CHECKING import not found"
+        assert tc_edge.is_type_checking is True
+
+        assert runtime_edge is not None, "else-branch import not found"
+        assert runtime_edge.is_type_checking is False
+
+
 class TestParseFileResolvedBranch:
     """Tests for parse_file() 'if resolved:' branch — line 136."""
 

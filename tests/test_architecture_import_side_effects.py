@@ -103,3 +103,82 @@ class TestNoForbiddenTransitiveImports:
         assert (
             not newly
         ), f"Importing {module_name} pulled in forbidden modules: {newly}"
+
+
+# ---------------------------------------------------------------------------
+# Package roots — tested in cold subprocesses to avoid sys.modules poisoning.
+# ---------------------------------------------------------------------------
+_PACKAGE_ROOTS = (
+    "medre",
+    "medre.adapters",
+    "medre.adapters.matrix",
+    "medre.adapters.meshtastic",
+    "medre.adapters.meshcore",
+    "medre.adapters.lxmf",
+    "medre.config",
+    "medre.config.adapters",
+    "medre.runtime",
+    "medre.runtime.evidence",
+    "medre.runtime.run_session",
+)
+
+
+def _check_root_in_subprocess(module_name: str) -> dict:
+    """Import module_name in a cold subprocess, return side-effect report."""
+    import json
+    import subprocess
+    import textwrap
+
+    code = textwrap.dedent(f"""\
+        import json, sys, logging
+        forbidden_side = {list(_FORBIDDEN_SIDE_EFFECTS)!r}
+        forbidden_sdks = {list(_FORBIDDEN_SDKS)!r}
+        forbidden = set(forbidden_side + forbidden_sdks)
+
+        before = set(sys.modules)
+        root_level_before = logging.root.level
+        root_handlers_before = len(logging.root.handlers)
+
+        import {module_name}  # noqa: F401
+
+        after = set(sys.modules)
+        new_modules = after - before
+        forbidden_loaded = sorted(m for m in new_modules
+                                   if any(m == f or m.startswith(f + ".") for f in forbidden))
+
+        result = {{
+            "forbidden_loaded": forbidden_loaded,
+            "root_level_changed": logging.root.level != root_level_before,
+            "new_handlers": len(logging.root.handlers) - root_handlers_before,
+        }}
+        print(json.dumps(result))
+    """)
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    return json.loads(proc.stdout.strip())
+
+
+class TestPackageRootImportSideEffects:
+    """Package roots must not pull heavy deps — tested in cold subprocesses."""
+
+    @pytest.mark.parametrize("module_name", _PACKAGE_ROOTS)
+    def test_no_forbidden_transitive_imports(self, module_name: str) -> None:
+        result = _check_root_in_subprocess(module_name)
+        assert not result["forbidden_loaded"], (
+            f"importing '{module_name}' pulled in: {result['forbidden_loaded']}"
+        )
+
+    @pytest.mark.parametrize("module_name", _PACKAGE_ROOTS)
+    def test_no_logging_side_effects(self, module_name: str) -> None:
+        result = _check_root_in_subprocess(module_name)
+        assert not result["root_level_changed"], (
+            f"importing '{module_name}' changed root logger level"
+        )
+        assert result["new_handlers"] == 0, (
+            f"importing '{module_name}' added {result['new_handlers']} root handler(s)"
+        )
