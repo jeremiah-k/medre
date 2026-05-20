@@ -38,7 +38,7 @@ from medre.core.storage.replay import (
     collect_replay_summary,
 )
 from medre.runtime.builder import RuntimeBuilder
-from medre.runtime.capacity import CapacityController
+from medre.core.runtime.capacity import CapacityController
 from medre.runtime.routes import RouteConfig, RouteConfigSet
 
 # ---------------------------------------------------------------------------

@@ -268,11 +268,11 @@ class TestInstallMetadataWorkflow:
 
 
 class TestRedactionSanitizeError:
-    """sanitize_error from medre.observability.sanitization redacts secrets."""
+    """sanitize_error from medre.core.observability.sanitization redacts secrets."""
 
     def test_sanitize_error_redacts_access_token(self) -> None:
         """access_token values are redacted by sanitize_error."""
-        from medre.observability.sanitization import sanitize_error
+        from medre.core.observability.sanitization import sanitize_error
 
         msg = "Config error: access_token=syt_super_secret_12345 for /etc/medre/access_token_config.toml"
         result = sanitize_error(msg)
@@ -282,7 +282,7 @@ class TestRedactionSanitizeError:
 
     def test_sanitize_error_redacts_password(self) -> None:
         """password= values are redacted by sanitize_error."""
-        from medre.observability.sanitization import sanitize_error
+        from medre.core.observability.sanitization import sanitize_error
 
         msg = "Auth failed: password=hunter2 for user admin"
         result = sanitize_error(msg)
@@ -292,7 +292,7 @@ class TestRedactionSanitizeError:
     def test_sanitize_error_regex_matches_access_token_pattern(self) -> None:
         """The _TOKEN_RE regex matches access_token= patterns."""
 
-        from medre.observability.sanitization import _TOKEN_RE
+        from medre.core.observability.sanitization import _TOKEN_RE
 
         patterns_that_should_match = [
             "access_token=syt_abc123",
@@ -308,7 +308,7 @@ class TestRedactionSanitizeError:
     def test_secret_config_path_does_not_leak_in_sanitized_error(self) -> None:
         """A config path containing 'access_token' in its filename does not leak
         into errors/limitations when sanitize_error is applied."""
-        from medre.observability.sanitization import sanitize_error
+        from medre.core.observability.sanitization import sanitize_error
 
         secret_path = "/home/user/.config/medre/access_token.toml"
         error_msg = f"Failed to load config from {secret_path}: permission denied"

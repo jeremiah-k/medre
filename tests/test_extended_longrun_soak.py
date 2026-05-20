@@ -72,7 +72,7 @@ from medre.core.storage.replay import (
 )
 from medre.runtime.app import MedreApp, RuntimeState
 from medre.runtime.builder import RuntimeBuilder
-from medre.runtime.capacity import CapacityController
+from medre.core.runtime.capacity import CapacityController
 from medre.runtime.snapshot import (
     _MAX_ADAPTERS,
     _MAX_BUILD_FAILURES,

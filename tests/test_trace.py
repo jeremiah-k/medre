@@ -1291,19 +1291,19 @@ class TestPublicSanitizeError:
     """sanitize_error is exported as a public function from snapshot.py."""
 
     def test_import_from_public_name(self) -> None:
-        from medre.observability.sanitization import sanitize_error
+        from medre.core.observability.sanitization import sanitize_error
 
         assert callable(sanitize_error)
 
     def test_sanitize_error_redacts_tokens(self) -> None:
-        from medre.observability.sanitization import sanitize_error
+        from medre.core.observability.sanitization import sanitize_error
 
         result = sanitize_error("Error: token syt_abc123def456 for user")
         assert "syt_abc123def456" not in result
         assert "[REDACTED]" in result
 
     def test_sanitize_error_in_all(self) -> None:
-        import medre.observability.sanitization as sanitization_mod
+        import medre.core.observability.sanitization as sanitization_mod
 
         assert "sanitize_error" in sanitization_mod.__all__
 
@@ -1314,4 +1314,4 @@ class TestPublicSanitizeError:
         import medre.runtime.evidence._helpers as evidence_helpers
 
         source = inspect.getsource(evidence_helpers)
-        assert "from medre.observability.sanitization import sanitize_error" in source
+        assert "from medre.core.observability.sanitization import sanitize_error" in source

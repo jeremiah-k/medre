@@ -22,7 +22,7 @@ from medre.core.planning.delivery_plan import RetryExecutor, RetryPolicy
 from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.core.runtime.accounting import RuntimeAccounting
 from medre.observability.classification import infer_failure_kind
-from medre.runtime.capacity import CapacityController
+from medre.core.runtime.capacity import CapacityController
 
 # ---------------------------------------------------------------------------
 # RetryWorker (shutdown variant)

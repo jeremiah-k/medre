@@ -29,7 +29,7 @@ from medre.core.storage.replay import (
     collect_replay_summary,
 )
 from medre.core.storage.sqlite import SQLiteStorage
-from medre.observability.sanitization import sanitize_error
+from medre.core.observability.sanitization import sanitize_error
 from medre.runtime.app import RuntimeState
 from medre.runtime.snapshot import SCHEMA_VERSION, build_runtime_snapshot
 from tests.helpers.bridge import make_pipeline_config

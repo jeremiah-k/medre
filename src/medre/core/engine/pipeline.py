@@ -66,7 +66,7 @@ from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage.backend import StorageBackend
 
 if TYPE_CHECKING:
-    from medre.runtime.capacity import CapacityController
+    from medre.core.runtime.capacity import CapacityController
 
 
 # ---------------------------------------------------------------------------
@@ -294,7 +294,7 @@ class PipelineRunner:
             )
 
     def set_capacity_controller(self, cc: CapacityController) -> None:
-        """Wire a :class:`~medre.runtime.capacity.CapacityController`.
+        """Wire a :class:`~medre.core.runtime.capacity.CapacityController`.
 
         When set, each per-target delivery inside :meth:`_deliver_to_targets_inner`
         acquires a delivery slot before processing and releases it on

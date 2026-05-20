@@ -49,7 +49,7 @@ from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage.replay import ReplayEngine
 from medre.core.storage.sqlite import SQLiteStorage
 from medre.runtime.app import MedreApp
-from medre.runtime.capacity import CapacityController
+from medre.core.runtime.capacity import CapacityController
 from medre.runtime.errors import RuntimeConfigError
 
 if TYPE_CHECKING:

@@ -38,7 +38,7 @@ from medre.core.planning.delivery_plan import DeliveryPlan, DeliveryStrategy
 from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.runtime.app import RuntimeState
 from medre.runtime.builder import RuntimeBuilder
-from medre.runtime.capacity import CapacityController
+from medre.core.runtime.capacity import CapacityController
 
 # ---------------------------------------------------------------------------
 # Shared constants & helpers
@@ -67,7 +67,7 @@ _SDK_IMPORT_ONLY_MODULES = frozenset(
 )
 
 _RUNTIME_MODULES = (
-    "medre.runtime.capacity",
+    "medre.core.runtime.capacity",
     "medre.runtime.app",
     "medre.runtime.builder",
     "medre.runtime.observability",

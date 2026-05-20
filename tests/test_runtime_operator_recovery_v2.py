@@ -81,7 +81,7 @@ from medre.core.storage.sqlite import SQLiteStorage
 from medre.runtime.app import MedreApp, RuntimeState
 from medre.runtime.boot_summary import build_boot_summary
 from medre.runtime.builder import RuntimeBuilder
-from medre.runtime.capacity import CapacityController
+from medre.core.runtime.capacity import CapacityController
 from medre.runtime.errors import RuntimeStartupError
 from medre.runtime.route_engine import (
     RouteValidationError,

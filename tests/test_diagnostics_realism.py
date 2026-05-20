@@ -22,9 +22,9 @@ import pytest
 from medre.core.diagnostics.replay_metrics import ReplayMetrics
 from medre.core.diagnostics.snapshot import build_diagnostics_snapshot
 from medre.core.routing.stats import RouteStats
-from medre.observability.sanitization import sanitize_error as _sanitize_error
+from medre.core.observability.sanitization import sanitize_error as _sanitize_error
 from medre.runtime.boot_summary import build_boot_summary
-from medre.runtime.capacity import CapacityController
+from medre.core.runtime.capacity import CapacityController
 from medre.runtime.snapshot import (
     _MAX_BUILD_FAILURES,
     _MAX_ERROR_DETAIL_LEN,

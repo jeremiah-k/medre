@@ -41,8 +41,8 @@ from medre.core.runtime.diagnostic_contract import (
     COMMON_DIAGNOSTIC_KEYS,
     normalize_diagnostics,
 )
-from medre.observability.sanitization import sanitize_error as _sanitize_error
-from medre.runtime.capacity import CapacityController
+from medre.core.observability.sanitization import sanitize_error as _sanitize_error
+from medre.core.runtime.capacity import CapacityController
 from medre.runtime.snapshot import (
     _MAX_ADAPTERS,
     _MAX_BUILD_FAILURES,

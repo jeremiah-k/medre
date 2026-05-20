@@ -49,7 +49,7 @@ from medre.core.events.metadata import EventMetadata, RoutingMetadata
 from medre.core.routing.stats import RouteStats
 from medre.runtime.app import MedreApp, RuntimeState
 from medre.runtime.builder import RuntimeBuilder
-from medre.runtime.capacity import CapacityController
+from medre.core.runtime.capacity import CapacityController
 from medre.runtime.snapshot import (
     build_runtime_snapshot,
 )

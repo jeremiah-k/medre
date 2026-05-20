@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from medre.core.engine.pipeline import PipelineRunner
     from medre.core.storage.sqlite import SQLiteStorage
-    from medre.runtime.capacity import CapacityController
+    from medre.core.runtime.capacity import CapacityController
     from medre.runtime.events import EventBuffer
 
 __all__ = ["RetryWorker", "RetryWorkerState"]

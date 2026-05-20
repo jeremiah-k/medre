@@ -65,7 +65,7 @@ if TYPE_CHECKING:
     from medre.core.storage.replay import ReplayEngine
     from medre.core.storage.sqlite import SQLiteStorage
     from medre.runtime.builder import AdapterBuildFailure
-    from medre.runtime.capacity import CapacityController
+    from medre.core.runtime.capacity import CapacityController
     from medre.runtime.retry import RetryWorker
     from medre.runtime.route_engine import RouteEligibility, RouteStartupReadiness
 

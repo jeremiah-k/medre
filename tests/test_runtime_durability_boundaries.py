@@ -46,7 +46,6 @@ _ADAPTER_PREFIXES = (
 _RUNTIME_PREFIXES = (
     "medre.runtime.app",
     "medre.runtime.builder",
-    "medre.runtime.capacity",
     "medre.runtime.route_engine",
     "medre.runtime.routes",
     "medre.runtime.snapshot",
@@ -224,9 +223,9 @@ class TestStorageNoRuntimeInternals:
         source = _source_of("medre.core.storage.replay")
         lines = _import_lines(source)
 
-        # Allow only medre.runtime.capacity.
+        # Allow only medre.core.runtime.capacity.
         runtime_imports = _banned_imports(lines, _RUNTIME_PREFIXES)
-        allowed = ["from medre.runtime.capacity import CapacityController"]
+        allowed = ["from medre.core.runtime.capacity import CapacityController"]
         disallowed = [line for line in runtime_imports if line not in allowed]
         assert (
             disallowed == []

@@ -42,7 +42,7 @@ from medre.core.events.metadata import EventMetadata
 from medre.core.lifecycle.states import AdapterState
 from medre.runtime.app import MedreApp, RuntimeState
 from medre.runtime.builder import RuntimeBuilder
-from medre.runtime.capacity import CapacityController
+from medre.core.runtime.capacity import CapacityController
 
 # ---------------------------------------------------------------------------
 # Fixtures

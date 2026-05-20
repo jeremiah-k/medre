@@ -742,7 +742,7 @@ class TestRetryRuntimeIntegration:
         """Full bridge retry: real pipeline, real storage query, native ref
         on retry success, original failed excluded from next due query."""
         from medre.config.model import RuntimeLimits
-        from medre.runtime.capacity import CapacityController
+        from medre.core.runtime.capacity import CapacityController
         from medre.runtime.retry import RetryWorker
 
         adapter = _TransientThenSucceedAdapter(
@@ -1101,7 +1101,7 @@ class TestRetryRuntimeIntegration:
 
             # Retry using the real RetryWorker with DIFFERENT defaults
             from medre.config.model import RuntimeLimits
-            from medre.runtime.capacity import CapacityController
+            from medre.core.runtime.capacity import CapacityController
             from medre.runtime.retry import RetryWorker
 
             limits = RuntimeLimits(
@@ -1142,7 +1142,7 @@ class TestRetryRuntimeIntegration:
         Proves trace/recover/evidence consistency across the retry lifecycle.
         """
         from medre.config.model import RuntimeLimits
-        from medre.runtime.capacity import CapacityController
+        from medre.core.runtime.capacity import CapacityController
         from medre.runtime.retry import RetryWorker
         from medre.runtime.timeline import (
             assemble_event_timeline,

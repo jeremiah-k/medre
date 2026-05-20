@@ -9,7 +9,7 @@ Covers:
 - Repeated setup_logging is a no-op
 
 Behavioral note on the canonical sanitizer (``sanitize_for_log`` from
-``medre.observability.sanitization``):
+``medre.core.observability.sanitization``):
 
 * Uses **anchored regex patterns** (e.g. ``^password$``, ``^secret``) instead
   of the old substring matching.  Keys like ``"user_password_hash"`` no longer
@@ -46,7 +46,7 @@ from medre.core.observability.logging import (
     log_route_matched,
     setup_logging,
 )
-from medre.observability.sanitization import sanitize_for_log
+from medre.core.observability.sanitization import sanitize_for_log
 
 # ---------------------------------------------------------------------------
 # Canonical sanitizer tests
@@ -54,7 +54,7 @@ from medre.observability.sanitization import sanitize_for_log
 
 
 class TestSanitizeForLogCanonical:
-    """Tests for ``sanitize_for_log`` from ``medre.observability.sanitization``.
+    """Tests for ``sanitize_for_log`` from ``medre.core.observability.sanitization``.
 
     These tests verify the canonical sanitizer's behaviour as used by the
     logging layer.  The canonical sanitizer uses anchored regex patterns

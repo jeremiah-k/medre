@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from medre.core.observability.log_levels import VALID_LEVEL_NAMES
-from medre.observability.sanitization import sanitize_error, sanitize_for_log
+from medre.core.observability.sanitization import sanitize_error, sanitize_for_log
 
 # ---------------------------------------------------------------------------
 # Dependency logger defaults

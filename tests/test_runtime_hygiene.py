@@ -38,7 +38,7 @@ from medre.core.runtime.supervision import (
     classify_startup_outcome,
 )
 from medre.runtime.boot_summary import build_boot_summary
-from medre.runtime.capacity import CapacityController
+from medre.core.runtime.capacity import CapacityController
 from medre.runtime.observability import DiagnosticsCollector
 from medre.runtime.snapshot import (
     _MAX_ADAPTERS,

@@ -4,6 +4,8 @@ Re-exported symbols
 -------------------
 * From :mod:`~medre.core.runtime.accounting`:
   ``RuntimeAccounting``, ``RuntimeCounters``.
+* From :mod:`~medre.core.runtime.capacity`:
+  ``CapacityController``.
 * From :mod:`~medre.core.runtime.health`:
   ``VALID_HEALTH_STRINGS``, ``normalize_adapter_health``.
 * From :mod:`~medre.core.runtime.supervision`:
@@ -13,6 +15,7 @@ Re-exported symbols
 """
 
 from .accounting import RuntimeAccounting, RuntimeCounters
+from .capacity import CapacityController
 from .health import (
     VALID_HEALTH_STRINGS,
     normalize_adapter_health,
@@ -31,6 +34,8 @@ __all__ = [
     # accounting
     "RuntimeAccounting",
     "RuntimeCounters",
+    # capacity
+    "CapacityController",
     # health
     "VALID_HEALTH_STRINGS",
     "normalize_adapter_health",

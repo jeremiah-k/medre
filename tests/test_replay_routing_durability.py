@@ -37,7 +37,7 @@ from medre.core.storage.replay import (
     collect_replay_state,
     collect_replay_summary,
 )
-from medre.runtime.capacity import CapacityController
+from medre.core.runtime.capacity import CapacityController
 
 # ---------------------------------------------------------------------------
 # Helpers
