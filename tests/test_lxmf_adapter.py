@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from medre.adapters import FakeLxmfAdapter
+from medre.adapters.fake_lxmf import FakeLxmfAdapter
 from medre.adapters.lxmf.adapter import LxmfAdapter
 from medre.adapters.lxmf.compat import HAS_LXMF
 from medre.adapters.lxmf.errors import LxmfConnectionError

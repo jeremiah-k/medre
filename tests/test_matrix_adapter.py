@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from medre.adapters import FakeMatrixAdapter
+from medre.adapters.fake_matrix import FakeMatrixAdapter
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
 from medre.core.contracts.adapter import (

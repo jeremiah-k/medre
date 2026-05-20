@@ -4,9 +4,6 @@ Checks that documentation files use current import paths for modules
 that were moved with no backward-compatibility re-export:
 
 - ``medre.runtime.capacity`` / ``src/medre/runtime/capacity.py`` → ``medre.core.runtime.capacity`` / ``src/medre/core/runtime/capacity.py``
-
-Note: ``medre.observability.sanitization`` is intentionally kept as a
-user-facing re-export and is NOT flagged as stale.
 """
 
 from __future__ import annotations
@@ -19,11 +16,10 @@ _DOC_DIRS = [
 ]
 
 # Stale path patterns that should NOT appear in active docs (without historical qualifier).
-# medre.observability.sanitization is intentionally NOT listed — the re-export
-# at that path was preserved as the user-facing API.
 _STALE_PATTERNS: list[tuple[str, str]] = [
     ("medre.runtime.capacity", "Use medre.core.runtime.capacity"),
     ("src/medre/runtime/capacity.py", "Use src/medre/core/runtime/capacity.py"),
+    ("medre.observability.sanitization", "Use medre.core.observability.sanitization"),
 ]
 
 # Words that indicate historical context — stale references on a line with

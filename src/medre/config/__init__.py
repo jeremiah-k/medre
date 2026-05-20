@@ -1,13 +1,9 @@
-"""Public API surface for the medre.config package.
+"""MEDRE configuration — models, paths, loaders, and adapter config dataclasses.
 
-Re-exports all configuration types, loaders, and utilities from submodules.
-Usage: ``from medre.config import RuntimeConfig, load_config, MedrePaths``
-
-Heavy imports (model, routes, loader, env) are deferred via ``__getattr__``
-so that lightweight CLI paths (``--help``, ``version``, ``config sample``)
-do not transitively import optional SDK packages (nio, meshtastic, RNS,
-LXMF).  The public API is unchanged — ``from medre.config import
-RuntimeConfig`` still works, the import is just deferred to first access.
+This package does not expose a stable public API yet.
+Import directly from concrete modules:
+  from medre.config.model import RuntimeConfig
+  from medre.config.adapters.matrix import MatrixConfig
 """
 
 from __future__ import annotations

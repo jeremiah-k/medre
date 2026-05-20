@@ -1053,7 +1053,6 @@ class TestCoreBoundaryComprehensive:
         "medre.cli",
         "medre.config",
         "medre.runtime",
-        "medre.observability",
         # Transport SDKs
         "nio",
         "meshtastic",

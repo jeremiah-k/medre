@@ -2,6 +2,11 @@
 
 Package structure and import rules after the runtime refactor.
 
+> **No public API commitment yet.** MEDRE is still discovering its shape.
+> Internal import paths may change without notice. Do not rely on any module
+> path outside `medre.core.*` as stable public API. A deliberate `medre.sdk`
+> or stable public facade may be introduced later after API design settles.
+
 ## Package layout
 
 ```text
@@ -10,7 +15,7 @@ src/medre/
   runtime/        builder, app, route engine, smoke/drill/trace
   core/           event model, storage, pipeline, routing, rendering
     observability/  logging setup, diagnostic events, metrics
-  observability/  user-facing: sanitization, adapter loggers, summaries
+  observability/  internal utilities: classification, adapter loggers, summaries
   adapters/       base class + per-transport packages (matrix/, meshtastic/, meshcore/, lxmf/)
   config/         loader, model, env overrides, paths, sample generation
 ```
@@ -71,7 +76,7 @@ Owns TOML loading, model classes, environment overrides, and path resolution.
 
 | From                    | May import                                                | Must not import                             |
 | ----------------------- | --------------------------------------------------------- | ------------------------------------------- |
-| `cli/` commands         | `config.*`, `observability`, `runtime.builder`            | Adapter implementations, `core.*` internals |
+| `cli/` commands         | `config.*`, `runtime.builder`                             | Adapter implementations, `core.*` internals |
 | `runtime/builder`       | `core.contracts.adapter`, `config.model`, `core.*`        | Specific adapter SDK modules                |
 | `runtime/observability` | `core.diagnostics`, `core.routing.stats`                  | Adapter code                                |
 | `core/*`                | Other `core/*` sub-packages                               | `adapters.*`, `runtime.*`, `cli.*`          |
@@ -86,7 +91,6 @@ Key invariants:
   imports both config model types and adapter base classes to wire the system.
 - **`core/` is transport-agnostic.** No module under `core/` imports from
   `adapters/` or `runtime/`.
-- **Observability has two packages** — see "Observability: Two Packages" below.
 - **Config package is dependency-free.** `config/` imports only stdlib — no
   core types, no adapter types.
 
@@ -96,7 +100,7 @@ Key invariants:
 | ----------------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------- |
 | `runner.py` (top-level)       | Deleted                                                | Logic moved into `runtime/builder.py` and `runtime/app.py`                  |
 | `cli.py` (monolithic)         | `cli/` package                                         | Split into per-command modules for maintainability                          |
-| `_sanitize_error` (scattered) | `medre.core.observability.sanitization.sanitize_error` | Consolidated into core observability; re-exported via `medre.observability` |
+| `_sanitize_error` (scattered) | `medre.core.observability.sanitization.sanitize_error` | Consolidated into core observability |
 
 ## Operator Tooling Boundary
 
@@ -112,61 +116,26 @@ Operator tools are consumers of the runtime, not dependencies of it.
 See [Operator Tooling Boundary](operator-tooling-boundary.md) for the full
 decision record, import invariants, and split criteria.
 
-## Observability: Two Packages
+## Observability
 
-medre has two observability packages with distinct responsibilities and consumers.
+medre has two observability packages. Neither exposes a stable public API yet.
 
-### `medre.observability` — user-facing
-
-Import path: `from medre.observability import ...`
-
-Used by CLI commands, runtime orchestration, and adapter-facing code. This is the
-public observability surface.
-
-| Symbol               | Module          | Purpose                                                                                                                                                                                   |
-| -------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sanitize_error`     | `.sanitization` | Redact tokens/passwords from error strings, truncate to safe length. Implementation lives in `medre.core.observability.sanitization`; re-exported here.                                   |
-| `sanitize_for_log`   | `.sanitization` | Canonical dict redaction path — strip secret keys from dicts, coerce values for structured log output. Implementation lives in `medre.core.observability.sanitization`; re-exported here. |
-| `adapter_logger`     | `.logging`      | LoggerAdapter factory injecting `adapter_id` and `transport` context                                                                                                                      |
-| `startup_summary`    | `.summaries`    | Multi-line startup summary string for the runtime                                                                                                                                         |
-| `shutdown_summary`   | `.summaries`    | Multi-line shutdown summary string for the runtime                                                                                                                                        |
-| `format_duration_ms` | `.summaries`    | Human-readable duration from monotonic timestamps                                                                                                                                         |
-
-### `medre.core.observability` — framework-internal
+### `medre.core.observability` — canonical implementation
 
 Import path: `from medre.core.observability import ...`
 
-Used by the pipeline, routing engine, and internal framework code. Not intended
-for direct consumption by CLI or adapter code.
+Contains logging setup, diagnostic events, metrics, and the canonical
+sanitization implementation (`medre.core.observability.sanitization`). Used by
+the pipeline, routing engine, and internal framework code.
 
-| Symbol                     | Module     | Purpose                                                               |
-| -------------------------- | ---------- | --------------------------------------------------------------------- |
-| `setup_logging`            | `.logging` | Configure the root `medre` logger (handler, level, JSON format)       |
-| `get_logger`               | `.logging` | Obtain a child logger in the `medre.*` namespace                      |
-| `diagnostic_event`         | `.logging` | Emit structured diagnostic log entries with category and context      |
-| `log_route_matched`        | `.logging` | Log route match event                                                 |
-| `log_route_delivered`      | `.logging` | Log successful route delivery                                         |
-| `log_route_failed`         | `.logging` | Log failed route delivery (sanitizes error via `medre.observability`) |
-| `log_route_loop_prevented` | `.logging` | Log loop-prevention skip                                              |
-| `EventMetrics`             | `.metrics` | Per-stage event counters with snapshot support                        |
-| `RouteMetrics`             | `.metrics` | Per-route delivery counters with snapshot support                     |
-| `Diagnostician`            | `.metrics` | Structured failure and diagnostic event recorder                      |
+### `medre.observability` — internal utilities
 
-### Boundary rules
+Import path: `from medre.observability import ...`
 
-- `medre.observability` must not import from `medre.core.observability`.
-  **Exception:** `medre.observability.sanitization` is a documented re-export
-  from `medre.core.observability.sanitization`. The `medre.observability`
-  package MAY import specific symbols from `medre.core.observability.sanitization`
-  for the sole purpose of maintaining the user-facing `medre.observability.sanitization`
-  public API. No other cross-boundary imports from `medre.core.observability`
-  are permitted.
-- `medre.core.observability` may import from `medre.observability` (e.g.
-  `log_route_failed` delegates sanitization to `medre.observability.sanitize_error`,
-  and `core.observability.logging` delegates dict redaction to
-  `medre.observability.sanitize_for_log`).
-- CLI and adapter code import from `medre.observability`. Pipeline and routing
-  internals import from `medre.core.observability`.
-- No duplicate APIs: each symbol lives in exactly one package.
-  Implementation lives in `medre.core.observability.sanitization`; re-exported
-  via `medre.observability.sanitization` for user-facing import.
+Contains classification helpers, adapter logger factories, and summary
+formatting. **Not a public API facade.** CLI and adapter code may import from
+here during development, but these paths are not guaranteed stable.
+
+> **Breaking changes to `medre.observability.*` import paths may occur** as the
+> API design settles. Prefer `medre.core.observability.sanitization` for the
+> canonical sanitization implementation.

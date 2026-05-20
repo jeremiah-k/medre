@@ -198,10 +198,8 @@ class TestBaseImportBoundary:
         assert MedrePaths is not None
 
     def test_import_medre_runtime(self) -> None:
-        from medre.runtime import (
-            RuntimeBuilder,
-            RuntimeError,
-        )
+        from medre.runtime.builder import RuntimeBuilder
+        from medre.runtime.errors import RuntimeError
 
         assert RuntimeError is not None
         assert RuntimeBuilder is not None
@@ -277,15 +275,13 @@ class TestFakeAdaptersWithoutSDKs:
         faulty = FaultyPresentationAdapter("test_faulty")
         assert faulty is not None
 
-    def test_all_fakes_importable_from_adapters_init(self) -> None:
-        from medre.adapters import (
-            FakeLxmfAdapter,
-            FakeMatrixAdapter,
-            FakeMeshCoreAdapter,
-            FakeMeshtasticAdapter,
-            FakePresentationAdapter,
-            FakeTransportAdapter,
-        )
+    def test_all_fakes_importable_from_submodules(self) -> None:
+        from medre.adapters.fake_lxmf import FakeLxmfAdapter
+        from medre.adapters.fake_matrix import FakeMatrixAdapter
+        from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
+        from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
+        from medre.adapters.fake_presentation import FakePresentationAdapter
+        from medre.adapters.fake_transport import FakeTransportAdapter
 
         assert all(
             [

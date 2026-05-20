@@ -9,7 +9,8 @@ import os
 import tempfile
 from datetime import datetime, timezone
 
-from medre.adapters import FakePresentationAdapter, FakeTransportAdapter
+from medre.adapters.fake_presentation import FakePresentationAdapter
+from medre.adapters.fake_transport import FakeTransportAdapter
 from medre.core.events import (
     CanonicalEvent,
     DeliveryReceipt,

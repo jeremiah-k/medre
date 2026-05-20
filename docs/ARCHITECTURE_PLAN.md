@@ -157,7 +157,7 @@ medre/
 │   ├── storage/             # backend, replay, sqlite
 │   └── transforms/          # empty
 ├── interop/                 # mmrelay wire-format constants
-├── observability/           # classification, logging, sanitization, summaries
+├── observability/           # classification, logging, summaries
 ├── plugins/                 # scaffolding only: Plugin protocol, PluginCapability enum
 └── runtime/                 # app, builder, capacity, retry, routes, route_engine,
                              # boot_summary, drill, smoke, snapshot, timeline, trace,

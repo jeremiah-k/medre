@@ -15,7 +15,7 @@ from medre.config.env import apply_env_overrides
 from medre.config.errors import ConfigError
 from medre.config.loader import load_config
 from medre.core.observability.sanitization import sanitize_for_log
-from medre.observability import (
+from medre.observability.summaries import (
     format_duration_ms,
     shutdown_summary,
     startup_summary,

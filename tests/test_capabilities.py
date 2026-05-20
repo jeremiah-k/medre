@@ -364,7 +364,7 @@ class TestFakeMatrixCapabilities:
         make_adapter_context,
     ) -> None:
         """health_check() returns AdapterInfo with declared capabilities."""
-        from medre.adapters import FakeMatrixAdapter
+        from medre.adapters.fake_matrix import FakeMatrixAdapter
         from medre.adapters.fake_matrix import _FAKE_MATRIX_CAPABILITIES
 
         adapter = FakeMatrixAdapter("caps_matrix")
@@ -410,7 +410,7 @@ class TestFakeMeshtasticCapabilities:
         make_adapter_context,
     ) -> None:
         """health_check() capabilities survive serialize_adapter_capabilities."""
-        from medre.adapters import FakeMeshtasticAdapter
+        from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
         from medre.adapters.fake_meshtastic import _FAKE_MESHTASTIC_CAPABILITIES
 
         adapter = FakeMeshtasticAdapter()
@@ -453,7 +453,7 @@ class TestFakeMeshCoreCapabilities:
         make_adapter_context,
     ) -> None:
         """health_check() capabilities are JSON-safe after serialization."""
-        from medre.adapters import FakeMeshCoreAdapter
+        from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
         from medre.adapters.fake_meshcore import _FAKE_MESHCORE_CAPABILITIES
 
         adapter = FakeMeshCoreAdapter()
@@ -500,7 +500,7 @@ class TestFakeLxmfCapabilities:
         make_adapter_context,
     ) -> None:
         """health_check() capabilities survive serialization."""
-        from medre.adapters import FakeLxmfAdapter
+        from medre.adapters.fake_lxmf import FakeLxmfAdapter
         from medre.adapters.fake_lxmf import _FAKE_LXMF_CAPABILITIES
 
         adapter = FakeLxmfAdapter()
