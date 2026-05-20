@@ -7,7 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from medre.runtime.architecture_ast import is_type_checking, resolve_relative
+from medre.runtime.architecture_ast import (
+    ImportRecord,
+    is_type_checking,
+    normalize_import_records_for_graph,
+    resolve_relative,
+)
 from medre.runtime.architecture_report import (
     _CONFIG_FORBIDDEN,
     _CORE_FORBIDDEN,
@@ -23,6 +28,7 @@ from medre.runtime.architecture_report import (
     build_route_adapter_boundary_report,
     check_forbidden_imports,
     check_forbidden_imports_by_module,
+    extract_dynamic_adapter_imports,
     module_path_for,
     parse_file,
     render_boundary_report,
@@ -78,7 +84,11 @@ class TestParseFile:
         py_file = _SRC / "core" / "engine" / "pipeline.py"
         edges = parse_file(py_file)
         type_checking = [e for e in edges if e.is_type_checking]
-        assert any("CapacityController" in e.target for e in type_checking)
+        # After normalization, symbol pseudo-edges are removed; the module-level
+        # edge for the CapacityController import is preserved.
+        assert any(
+            e.target == "medre.core.runtime.capacity" for e in type_checking
+        )
 
 
 class TestBuildGraph:
@@ -253,8 +263,8 @@ class TestParseFileResolvedBranch:
     """Tests for parse_file() 'if resolved:' branch — line 136."""
 
     def test_relative_import_adds_parent_edge(self, tmp_path: Path) -> None:
-        """from .module import name produces edges for both the specific
-        import and the parent module."""
+        """from .module import name produces only the module-level edge after
+        normalization (symbol pseudo-edges are removed)."""
         # Create src/medre/pkg/__init__.py and src/medre/pkg/sub.py
         pkg = tmp_path / "src" / "medre" / "pkg"
         pkg.mkdir(parents=True)
@@ -265,12 +275,12 @@ class TestParseFileResolvedBranch:
         edges = parse_file(sub)
         targets = [e.target for e in edges]
 
-        # Specific import: medre.pkg.sibling.SomeName
-        assert "medre.pkg.sibling.SomeName" in targets
-        # Parent module edge: medre.pkg.sibling
+        # After normalization, symbol pseudo-edge medre.pkg.sibling.SomeName
+        # is removed; only the module-level edge remains.
         assert "medre.pkg.sibling" in targets
+        assert "medre.pkg.sibling.SomeName" not in targets
 
-        # Both edges should be import_from kind
+        # Edge should be import_from kind
         for e in edges:
             assert e.kind == "import_from"
 
@@ -1087,3 +1097,290 @@ class TestDependencyGraphReportParseErrors:
         """Real source tree should have zero parse errors."""
         graph = build_dependency_graph(_SRC)
         assert graph.parse_errors == {}
+
+
+# ---------------------------------------------------------------------------
+# Item 1: Normalize dependency graph import edges
+# ---------------------------------------------------------------------------
+
+
+class TestNormalizeImportRecordsForGraph:
+    """Tests for normalize_import_records_for_graph()."""
+
+    def test_deduplicates_identical_records(self) -> None:
+        """Records with same (module, lineno, kind, is_type_checking) are deduped."""
+        records = [
+            ImportRecord(module="medre.adapters.lxmf.codec", lineno=1, kind="import_from", is_type_checking=False),
+            ImportRecord(module="medre.adapters.lxmf.codec", lineno=1, kind="import_from", is_type_checking=False),
+        ]
+        result = normalize_import_records_for_graph(records)
+        assert len(result) == 1
+
+    def test_keeps_different_lines(self) -> None:
+        """Same module at different lines produces separate records."""
+        records = [
+            ImportRecord(module="os", lineno=1, kind="import", is_type_checking=False),
+            ImportRecord(module="os", lineno=5, kind="import", is_type_checking=False),
+        ]
+        result = normalize_import_records_for_graph(records)
+        assert len(result) == 2
+
+    def test_keeps_different_kinds(self) -> None:
+        """Same module+line but different kind are kept separate."""
+        records = [
+            ImportRecord(module="os", lineno=1, kind="import", is_type_checking=False),
+            ImportRecord(module="os", lineno=1, kind="import_from", is_type_checking=False),
+        ]
+        result = normalize_import_records_for_graph(records)
+        assert len(result) == 2
+
+    def test_preserves_order(self) -> None:
+        """First occurrence is kept, order preserved."""
+        records = [
+            ImportRecord(module="a", lineno=1, kind="import", is_type_checking=False),
+            ImportRecord(module="b", lineno=2, kind="import", is_type_checking=False),
+            ImportRecord(module="a", lineno=1, kind="import", is_type_checking=False),
+        ]
+        result = normalize_import_records_for_graph(records)
+        assert [r.module for r in result] == ["a", "b"]
+
+
+class TestParseFileNormalizedEdges:
+    """Tests that parse_file() produces normalized edges (no pseudo symbol edges)."""
+
+    def test_from_import_produces_one_module_edge(self, tmp_path: Path) -> None:
+        """from medre.adapters.lxmf.codec import LxmfCodec produces ONE edge
+        to medre.adapters.lxmf.codec, not two (no symbol pseudo-edge)."""
+        pkg = tmp_path / "src" / "medre" / "adapters" / "lxmf"
+        pkg.mkdir(parents=True)
+        (pkg / "__init__.py").write_text("", encoding="utf-8")
+        (pkg / "codec.py").write_text("", encoding="utf-8")
+
+        src = "from medre.adapters.lxmf.codec import LxmfCodec\n"
+        py_file = pkg / "test_mod.py"
+        py_file.write_text(src, encoding="utf-8")
+
+        edges = parse_file(py_file)
+        # After normalization, we should have exactly 1 edge to the module
+        # (not the symbol pseudo-edge medre.adapters.lxmf.codec.LxmfCodec)
+        targets = [e.target for e in edges]
+        assert targets == ["medre.adapters.lxmf.codec"]
+
+    def test_dedup_from_import_same_statement(self, tmp_path: Path) -> None:
+        """from x import A, B at same line should deduplicate the module-level edge."""
+        pkg = tmp_path / "src" / "medre" / "pkg"
+        pkg.mkdir(parents=True)
+        (pkg / "__init__.py").write_text("", encoding="utf-8")
+        (pkg / "sub.py").write_text("", encoding="utf-8")
+
+        src = "from medre.pkg.sub import A, B\n"
+        py_file = pkg / "test_mod.py"
+        py_file.write_text(src, encoding="utf-8")
+
+        edges = parse_file(py_file)
+        module_edges = [e for e in edges if e.target == "medre.pkg.sub"]
+        assert len(module_edges) == 1, (
+            f"Expected 1 module-level edge, got {len(module_edges)}: {module_edges}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Item 2: Fix fake adapter transport classification
+# ---------------------------------------------------------------------------
+
+
+class TestFakeTransportClassification:
+    """Tests that fake adapter modules resolve to their canonical transport."""
+
+    @staticmethod
+    def _make_graph(*modules: ModuleInfo) -> ArchitectureGraph:
+        g = ArchitectureGraph()
+        for m in modules:
+            g.modules[m.module] = m
+        return g
+
+    def test_fake_lxmf_importing_lxmf_codec_not_flagged(self) -> None:
+        """fake_lxmf importing lxmf.codec is NOT a cross-transport violation."""
+        graph = self._make_graph(
+            ModuleInfo(
+                module="medre.adapters.fake_lxmf",
+                file="adapters/fake_lxmf/__init__.py",
+                imports=[
+                    ImportEdge(
+                        source="medre.adapters.fake_lxmf",
+                        target="medre.adapters.lxmf.codec",
+                        line=5,
+                        kind="import_from",
+                        is_type_checking=False,
+                    ),
+                ],
+                layer="adapters",
+            ),
+        )
+        report = build_route_adapter_boundary_report(graph)
+        assert report.adapter_cross_imports.count == 0, (
+            f"fake_lxmf importing lxmf.codec should NOT be flagged as foreign transport, "
+            f"got: {[v.rule for v in report.adapter_cross_imports.violations]}"
+        )
+
+    def test_fake_lxmf_importing_matrix_codec_is_flagged(self) -> None:
+        """fake_lxmf importing matrix.codec IS a cross-transport violation."""
+        graph = self._make_graph(
+            ModuleInfo(
+                module="medre.adapters.fake_lxmf",
+                file="adapters/fake_lxmf/__init__.py",
+                imports=[
+                    ImportEdge(
+                        source="medre.adapters.fake_lxmf",
+                        target="medre.adapters.matrix.codec",
+                        line=5,
+                        kind="import_from",
+                        is_type_checking=False,
+                    ),
+                ],
+                layer="adapters",
+            ),
+        )
+        report = build_route_adapter_boundary_report(graph)
+        assert report.adapter_cross_imports.count == 1
+
+    def test_matrix_importing_lxmf_codec_still_flagged(self) -> None:
+        """matrix.codec importing lxmf.codec IS still a cross-transport violation."""
+        graph = self._make_graph(
+            ModuleInfo(
+                module="medre.adapters.matrix.codec",
+                file="adapters/matrix/codec.py",
+                imports=[
+                    ImportEdge(
+                        source="medre.adapters.matrix.codec",
+                        target="medre.adapters.lxmf.codec",
+                        line=8,
+                        kind="import_from",
+                        is_type_checking=False,
+                    ),
+                ],
+                layer="adapters",
+            ),
+        )
+        report = build_route_adapter_boundary_report(graph)
+        assert report.adapter_cross_imports.count == 1
+
+    def test_real_graph_no_adapter_cross_imports(self) -> None:
+        """Real source has no adapter cross-transport imports."""
+        graph = build_dependency_graph(_SRC)
+        report = build_route_adapter_boundary_report(graph)
+        assert report.adapter_cross_imports.count == 0, (
+            f"Unexpected adapter cross-imports:\n"
+            + "\n".join(
+                f"  {v.source} -> {v.target}: {v.rule}"
+                for v in report.adapter_cross_imports.violations
+            )
+        )
+
+
+# ---------------------------------------------------------------------------
+# Item 3: Dynamic RuntimeBuilder assembly
+# ---------------------------------------------------------------------------
+
+
+class TestExtractDynamicAdapterImports:
+    """Tests for extract_dynamic_adapter_imports()."""
+
+    def test_extracts_adapter_factory_modules(self) -> None:
+        """Parses _AdapterFactory(module=...) calls."""
+        source = (
+            '_ADAPTER_BUILDERS = {\n'
+            '    "matrix": _AdapterFactory(\n'
+            '        module="medre.adapters.matrix.adapter",\n'
+            '        cls_name="MatrixAdapter",\n'
+            '    ),\n'
+            '}\n'
+        )
+        results = extract_dynamic_adapter_imports(source)
+        modules = [r[0] for r in results]
+        assert "medre.adapters.matrix.adapter" in modules
+
+    def test_extracts_renderer_specs(self) -> None:
+        """Parses _ADAPTER_RENDERER_SPECS list tuples."""
+        source = (
+            '_ADAPTER_RENDERER_SPECS: list[tuple[str, str]] = [\n'
+            '    ("medre.adapters.matrix.renderer", "MatrixRenderer"),\n'
+            '    ("medre.adapters.lxmf.renderer", "LxmfRenderer"),\n'
+            ']\n'
+        )
+        results = extract_dynamic_adapter_imports(source)
+        modules = [r[0] for r in results]
+        assert "medre.adapters.matrix.renderer" in modules
+        assert "medre.adapters.lxmf.renderer" in modules
+
+    def test_extracts_both_from_real_builder(self) -> None:
+        """Extracts from the real builder.py source file."""
+        builder_file = _SRC / "runtime" / "builder.py"
+        if not builder_file.is_file():
+            pytest.skip("builder.py not found")
+        source = builder_file.read_text(encoding="utf-8")
+        results = extract_dynamic_adapter_imports(source)
+        modules = [r[0] for r in results]
+        # Should find 4 adapter factories + 4 renderer specs = 8
+        assert len(modules) >= 8, f"Expected >= 8 dynamic imports, got {len(modules)}: {modules}"
+        assert "medre.adapters.matrix.adapter" in modules
+        assert "medre.adapters.matrix.renderer" in modules
+
+    def test_returns_line_numbers(self) -> None:
+        """Each result includes a line number."""
+        source = (
+            '_ADAPTER_BUILDERS = {\n'
+            '    "matrix": _AdapterFactory(\n'
+            '        module="medre.adapters.matrix.adapter",\n'
+            '        cls_name="MatrixAdapter",\n'
+            '    ),\n'
+            '}\n'
+        )
+        results = extract_dynamic_adapter_imports(source)
+        assert len(results) >= 1
+        for module, line, reason in results:
+            assert line > 0
+            assert reason
+
+
+class TestDynamicBuilderAssembly:
+    """Tests that dynamic builder imports appear in allowed section."""
+
+    def test_real_graph_allowed_with_src_root(self) -> None:
+        """With src_root, dynamic adapter imports appear in allowed section."""
+        graph = build_dependency_graph(_SRC)
+        report = build_route_adapter_boundary_report(graph, src_root=_SRC)
+        assert report.allowed_runtime_adapter.count >= 8, (
+            f"Expected >= 8 allowed entries (4 adapters + 4 renderers), "
+            f"got {report.allowed_runtime_adapter.count}"
+        )
+
+    def test_allowed_includes_specific_modules(self) -> None:
+        """Allowed section includes specific adapter modules."""
+        graph = build_dependency_graph(_SRC)
+        report = build_route_adapter_boundary_report(graph, src_root=_SRC)
+        targets = {v.target for v in report.allowed_runtime_adapter.violations}
+        assert "medre.adapters.matrix.adapter" in targets
+        assert "medre.adapters.matrix.renderer" in targets
+
+    def test_builder_not_in_forbidden(self) -> None:
+        """Builder module is NOT in forbidden_runtime_adapter."""
+        graph = build_dependency_graph(_SRC)
+        report = build_route_adapter_boundary_report(graph, src_root=_SRC)
+        builder_in_forbidden = [
+            v for v in report.forbidden_runtime_adapter.violations
+            if v.source == "medre.runtime.builder"
+        ]
+        assert not builder_in_forbidden
+
+    def test_without_src_root_no_dynamic(self) -> None:
+        """Without src_root, dynamic imports are not extracted (backward compat)."""
+        graph = build_dependency_graph(_SRC)
+        report = build_route_adapter_boundary_report(graph)
+        # Only static AST imports are in allowed section
+        dynamic_rules = [
+            v for v in report.allowed_runtime_adapter.violations
+            if v.rule.startswith("dynamic")
+        ]
+        # Without src_root, no dynamic imports should be added
+        assert not dynamic_rules

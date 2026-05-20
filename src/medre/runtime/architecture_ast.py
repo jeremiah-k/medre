@@ -166,6 +166,52 @@ def runtime_scope_imports(
     return result
 
 
+def normalize_import_records_for_graph(
+    records: list[ImportRecord],
+) -> list[ImportRecord]:
+    """Normalize import records for dependency graph use.
+
+    For ``from x.y import Z`` records, keep only the module-level ``x.y``
+    edge, not the symbol-level ``x.y.Z`` pseudo-edge.  Deduplicate by
+    ``(module, lineno, kind, is_type_checking)``.
+    """
+    # Phase 1: Identify module-level edges from import_from statements.
+    # For `from x.y import Z`, the AST produces both x.y.Z and x.y.
+    # We want to drop the symbol-level x.y.Z pseudo-edges where a
+    # module-level x.y edge exists at the same line.
+    module_edges_by_line: dict[tuple[int, bool], set[str]] = {}
+    for rec in records:
+        if rec.kind == "import_from":
+            key = (rec.lineno, rec.is_type_checking)
+            module_edges_by_line.setdefault(key, set()).add(rec.module)
+
+    dropped: set[tuple[str, int, str, bool]] = set()
+    for rec in records:
+        if rec.kind != "import_from":
+            continue
+        key = (rec.lineno, rec.is_type_checking)
+        modules_at_line = module_edges_by_line.get(key, set())
+        # Check if any other module at this line is a strict prefix of this one.
+        # e.g. if we have both "x.y" and "x.y.Z", then "x.y.Z" is a pseudo-edge.
+        for other in modules_at_line:
+            if other != rec.module and rec.module.startswith(other + "."):
+                dropped.add((rec.module, rec.lineno, rec.kind, rec.is_type_checking))
+                break
+
+    # Phase 2: Deduplicate remaining records.
+    seen: set[tuple[str, int, str, bool]] = set()
+    result: list[ImportRecord] = []
+    for rec in records:
+        dedup_key = (rec.module, rec.lineno, rec.kind, rec.is_type_checking)
+        if dedup_key in dropped:
+            continue
+        if dedup_key in seen:
+            continue
+        seen.add(dedup_key)
+        result.append(rec)
+    return result
+
+
 def all_imports(tree: ast.Module, file_path: str | None = None) -> list[ImportRecord]:
     """Return ALL imports including function-local."""
     result: list[ImportRecord] = []

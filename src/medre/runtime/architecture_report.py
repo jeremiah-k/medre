@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from medre.runtime.architecture_ast import (
+    normalize_import_records_for_graph,
     runtime_scope_imports,
 )
 
@@ -65,6 +66,7 @@ def parse_file(py_file: Path) -> list[ImportEdge]:
     records = runtime_scope_imports(
         tree, file_path=str(py_file), record_type_checking=True
     )
+    records = normalize_import_records_for_graph(records)
     edges: list[ImportEdge] = []
     for rec in records:
         edges.append(
@@ -363,23 +365,88 @@ class RouteAdapterBoundaryReport:
         return self.forbidden_runtime_adapter
 
 
+_FAKE_TO_TRANSPORT = {
+    "fake_matrix": "matrix",
+    "fake_meshtastic": "meshtastic",
+    "fake_meshcore": "meshcore",
+    "fake_lxmf": "lxmf",
+}
+
+
 def _transport_for(module: str) -> str | None:
     """Extract transport name from an adapter module path.
 
     E.g. ``medre.adapters.matrix.codec`` → ``matrix``.
+
+    Fake transports like ``medre.adapters.fake_lxmf`` are normalised
+    to their canonical transport name (``lxmf``).
     """
     prefix = "medre.adapters."
     if not module.startswith(prefix):
         return None
     rest = module[len(prefix) :]
     parts = rest.split(".")
-    return parts[0] if parts else None
+    transport = parts[0] if parts else None
+    if transport and transport in _FAKE_TO_TRANSPORT:
+        transport = _FAKE_TO_TRANSPORT[transport]
+    return transport
 
 
+def _extract_string_kwargs(call_node: _ast.Call, param_name: str) -> str | None:
+    """Extract a string keyword argument from an AST Call node."""
+    for kw in call_node.keywords:
+        if kw.arg == param_name and isinstance(kw.value, _ast.Constant) and isinstance(kw.value.value, str):
+            return kw.value.value
+    return None
+
+
+def extract_dynamic_adapter_imports(source: str) -> list[tuple[str, int, str]]:
+    """Extract dynamic adapter module strings from builder source.
+
+    Parses AST for ``_AdapterFactory(module="medre.adapters....")`` calls
+    and ``_ADAPTER_RENDERER_SPECS`` list literals.
+
+    Returns list of ``(module_path, line_number, reason)``.
+    """
+    tree = _ast.parse(source)
+    results: list[tuple[str, int, str]] = []
+
+    for node in _ast.walk(tree):
+        # _AdapterFactory(module="medre.adapters....", ...)
+        if isinstance(node, _ast.Call):
+            func = node.func
+            if isinstance(func, _ast.Name) and func.id == "_AdapterFactory":
+                module = _extract_string_kwargs(node, "module")
+                if module:
+                    results.append((module, node.lineno, f"dynamic builder assembly: {module}"))
+
+    # Also find _ADAPTER_RENDERER_SPECS tuples (can be Assign or AnnAssign)
+    for node in _ast.walk(tree):
+        target_name = None
+        value_node = None
+        if isinstance(node, _ast.Assign):
+            for target in node.targets:
+                if isinstance(target, _ast.Name) and target.id == "_ADAPTER_RENDERER_SPECS":
+                    target_name = target.id
+                    value_node = node.value
+                    break
+        elif isinstance(node, _ast.AnnAssign):
+            if isinstance(node.target, _ast.Name) and node.target.id == "_ADAPTER_RENDERER_SPECS":
+                target_name = node.target.id
+                value_node = node.value
+        if target_name and value_node and isinstance(value_node, _ast.List):
+            for elt in value_node.elts:
+                if isinstance(elt, _ast.Tuple) and len(elt.elts) >= 1:
+                    if isinstance(elt.elts[0], _ast.Constant) and isinstance(elt.elts[0].value, str):
+                        results.append((elt.elts[0].value, elt.lineno, f"dynamic renderer spec: {elt.elts[0].value}"))
+
+    return results
 
 
 def build_route_adapter_boundary_report(
     graph: ArchitectureGraph,
+    *,
+    src_root: Path | None = None,
 ) -> RouteAdapterBoundaryReport:
     """Build a v2 structured report of route/adapter boundary violations."""
     # --- Allowed Runtime → Adapter Assembly ---
@@ -396,6 +463,26 @@ def build_route_adapter_boundary_report(
                         rule="allowed: builder -> adapter assembly",
                     )
                 )
+
+    # --- Dynamic RuntimeBuilder Assembly ---
+    builder_info = graph.modules.get("medre.runtime.builder")
+    if builder_info and src_root is not None:
+        builder_file = src_root / builder_info.file
+        if builder_file.exists():
+            try:
+                source = builder_file.read_text(encoding="utf-8")
+                dynamic = extract_dynamic_adapter_imports(source)
+                for target, line, reason in dynamic:
+                    allowed.append(
+                        BoundaryViolation(
+                            source="medre.runtime.builder",
+                            target=target,
+                            line=line,
+                            rule=reason,
+                        )
+                    )
+            except (SyntaxError, OSError):
+                pass
 
     # --- Forbidden Runtime → Adapter Imports ---
     forbidden: list[BoundaryViolation] = []
