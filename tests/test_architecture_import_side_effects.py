@@ -169,16 +169,16 @@ class TestPackageRootImportSideEffects:
     @pytest.mark.parametrize("module_name", _PACKAGE_ROOTS)
     def test_no_forbidden_transitive_imports(self, module_name: str) -> None:
         result = _check_root_in_subprocess(module_name)
-        assert not result["forbidden_loaded"], (
-            f"importing '{module_name}' pulled in: {result['forbidden_loaded']}"
-        )
+        assert not result[
+            "forbidden_loaded"
+        ], f"importing '{module_name}' pulled in: {result['forbidden_loaded']}"
 
     @pytest.mark.parametrize("module_name", _PACKAGE_ROOTS)
     def test_no_logging_side_effects(self, module_name: str) -> None:
         result = _check_root_in_subprocess(module_name)
-        assert not result["root_level_changed"], (
-            f"importing '{module_name}' changed root logger level"
-        )
-        assert result["new_handlers"] == 0, (
-            f"importing '{module_name}' added {result['new_handlers']} root handler(s)"
-        )
+        assert not result[
+            "root_level_changed"
+        ], f"importing '{module_name}' changed root logger level"
+        assert (
+            result["new_handlers"] == 0
+        ), f"importing '{module_name}' added {result['new_handlers']} root handler(s)"

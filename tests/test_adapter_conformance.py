@@ -73,16 +73,15 @@ class TestFakeAdapterConformance:
         except TypeError as e:
             pytest.skip(f"{cls.__name__} needs more args: {e}")
 
-
     @pytest.mark.parametrize("cls", _FAKE_ADAPTERS)
     def test_adapter_lifecycle_methods_are_async(self, cls: type) -> None:
         """start, stop, health_check, deliver must be coroutine functions."""
         for method_name in ("start", "stop", "health_check", "deliver"):
             method = getattr(cls, method_name, None)
             assert method is not None, f"{cls.__name__} missing {method_name}"
-            assert inspect.iscoroutinefunction(method), (
-                f"{cls.__name__}.{method_name} must be async"
-            )
+            assert inspect.iscoroutinefunction(
+                method
+            ), f"{cls.__name__}.{method_name} must be async"
 
 
 class TestRealAdapterContractImports:

@@ -9,12 +9,15 @@ import ast
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from medre.runtime.architecture_ast import (
-    runtime_scope_imports,
+# Re-export for backward compatibility with test imports
+from medre.runtime.architecture_ast import (  # noqa: F401
+    is_type_checking as _is_type_checking,
+)
+from medre.runtime.architecture_ast import (  # noqa: F401
+    resolve_relative as _resolve_relative,
 )
 from medre.runtime.architecture_ast import (
-    is_type_checking as _is_type_checking,
-    resolve_relative as _resolve_relative,
+    runtime_scope_imports,
 )
 
 
@@ -82,7 +85,9 @@ def parse_file(py_file: Path) -> list[ImportEdge]:
     """Parse a single Python file and return its import edges (runtime-scope only)."""
     source = py_file.read_text(encoding="utf-8")
     tree = ast.parse(source)
-    records = runtime_scope_imports(tree, file_path=str(py_file), record_type_checking=True)
+    records = runtime_scope_imports(
+        tree, file_path=str(py_file), record_type_checking=True
+    )
     edges: list[ImportEdge] = []
     for rec in records:
         edges.append(
@@ -226,14 +231,43 @@ _CONFIG_FORBIDDEN = (
 )
 
 
-def build_route_adapter_boundary_report(graph: ArchitectureGraph) -> str:
-    """Build a report of route/adapter boundary violations."""
-    lines: list[str] = []
-    lines.append("Route/Adapter Boundary Report")
-    lines.append("-" * 40)
+@dataclass
+class BoundaryViolation:
+    """A single boundary violation."""
 
+    source: str  # module doing the import
+    target: str  # module being imported
+    line: int
+
+
+@dataclass
+class BoundarySection:
+    """One section of the boundary report."""
+
+    title: str
+    violations: list[BoundaryViolation]
+
+    @property
+    def count(self) -> int:
+        return len(self.violations)
+
+
+@dataclass
+class RouteAdapterBoundaryReport:
+    """Structured boundary report for route/adapter dependencies."""
+
+    runtime_to_adapter: BoundarySection
+    route_engine_forbidden: BoundarySection
+    adapter_to_runtime: BoundarySection
+    config_to_adapter_impl: BoundarySection
+
+
+def build_route_adapter_boundary_report(
+    graph: ArchitectureGraph,
+) -> RouteAdapterBoundaryReport:
+    """Build a structured report of route/adapter boundary violations."""
     # Which runtime modules import adapter implementations
-    runtime_adapter_imports = []
+    runtime_adapter_imports: list[BoundaryViolation] = []
     for mod, info in graph.modules.items():
         if mod.startswith("medre.runtime."):
             for edge in info.imports:
@@ -241,28 +275,30 @@ def build_route_adapter_boundary_report(graph: ArchitectureGraph) -> str:
                     edge.target.startswith("medre.adapters.")
                     and not edge.is_type_checking
                 ):
-                    runtime_adapter_imports.append((mod, edge.target, edge.line))
-
-    lines.append(f"\nRuntime → Adapter imports: {len(runtime_adapter_imports)}")
-    for mod, target, line in sorted(runtime_adapter_imports):
-        lines.append(f"  {mod} -> {target} (line {line})")
+                    runtime_adapter_imports.append(
+                        BoundaryViolation(
+                            source=mod, target=edge.target, line=edge.line
+                        )
+                    )
 
     # Route engine check
-    route_engine_violations = []
+    route_engine_violations: list[BoundaryViolation] = []
     route_engine = graph.modules.get("medre.runtime.route_engine")
     if route_engine:
         for edge in route_engine.imports:
             for f in _ROUTE_ENGINE_FORBIDDEN:
                 target = edge.target
                 if target == f or target.startswith(f + "."):
-                    route_engine_violations.append((edge.target, edge.line))
-
-    lines.append(f"\nRoute engine forbidden imports: {len(route_engine_violations)}")
-    for target, line in route_engine_violations:
-        lines.append(f"  {target} (line {line})")
+                    route_engine_violations.append(
+                        BoundaryViolation(
+                            source="medre.runtime.route_engine",
+                            target=target,
+                            line=edge.line,
+                        )
+                    )
 
     # Adapter → runtime imports
-    adapter_runtime_imports = []
+    adapter_runtime_imports: list[BoundaryViolation] = []
     for mod, info in graph.modules.items():
         if mod.startswith("medre.adapters."):
             for edge in info.imports:
@@ -270,14 +306,14 @@ def build_route_adapter_boundary_report(graph: ArchitectureGraph) -> str:
                     edge.target.startswith("medre.runtime.")
                     and not edge.is_type_checking
                 ):
-                    adapter_runtime_imports.append((mod, edge.target, edge.line))
-
-    lines.append(f"\nAdapter → Runtime imports: {len(adapter_runtime_imports)}")
-    for mod, target, line in sorted(adapter_runtime_imports):
-        lines.append(f"  {mod} -> {target} (line {line})")
+                    adapter_runtime_imports.append(
+                        BoundaryViolation(
+                            source=mod, target=edge.target, line=edge.line
+                        )
+                    )
 
     # Config → adapter implementation imports
-    config_adapter_impl_imports = []
+    config_adapter_impl_imports: list[BoundaryViolation] = []
     for mod, info in graph.modules.items():
         if mod.startswith("medre.config."):
             for edge in info.imports:
@@ -287,13 +323,65 @@ def build_route_adapter_boundary_report(graph: ArchitectureGraph) -> str:
                     and not edge.target.startswith("medre.config.adapters.")
                     and not edge.is_type_checking
                 ):
-                    config_adapter_impl_imports.append((mod, edge.target, edge.line))
+                    config_adapter_impl_imports.append(
+                        BoundaryViolation(
+                            source=mod, target=edge.target, line=edge.line
+                        )
+                    )
+
+    return RouteAdapterBoundaryReport(
+        runtime_to_adapter=BoundarySection(
+            title="Runtime → Adapter imports",
+            violations=sorted(
+                runtime_adapter_imports, key=lambda v: (v.source, v.target)
+            ),
+        ),
+        route_engine_forbidden=BoundarySection(
+            title="Route engine forbidden imports",
+            violations=route_engine_violations,
+        ),
+        adapter_to_runtime=BoundarySection(
+            title="Adapter → Runtime imports",
+            violations=sorted(
+                adapter_runtime_imports, key=lambda v: (v.source, v.target)
+            ),
+        ),
+        config_to_adapter_impl=BoundarySection(
+            title="Config → Adapter implementation imports",
+            violations=config_adapter_impl_imports,
+        ),
+    )
+
+
+def render_boundary_report(report: RouteAdapterBoundaryReport) -> str:
+    """Render a structured boundary report as a human-readable string."""
+    lines: list[str] = []
+    lines.append("Route/Adapter Boundary Report")
+    lines.append("-" * 40)
 
     lines.append(
-        f"\nConfig → Adapter implementation imports: {len(config_adapter_impl_imports)}"
+        f"\n{report.runtime_to_adapter.title}: {report.runtime_to_adapter.count}"
     )
-    for mod, target, line in config_adapter_impl_imports:
-        lines.append(f"  {mod} -> {target} (line {line})")
+    for v in report.runtime_to_adapter.violations:
+        lines.append(f"  {v.source} -> {v.target} (line {v.line})")
+
+    lines.append(
+        f"\n{report.route_engine_forbidden.title}: {report.route_engine_forbidden.count}"
+    )
+    for v in report.route_engine_forbidden.violations:
+        lines.append(f"  {v.target} (line {v.line})")
+
+    lines.append(
+        f"\n{report.adapter_to_runtime.title}: {report.adapter_to_runtime.count}"
+    )
+    for v in report.adapter_to_runtime.violations:
+        lines.append(f"  {v.source} -> {v.target} (line {v.line})")
+
+    lines.append(
+        f"\n{report.config_to_adapter_impl.title}: {report.config_to_adapter_impl.count}"
+    )
+    for v in report.config_to_adapter_impl.violations:
+        lines.append(f"  {v.source} -> {v.target} (line {v.line})")
 
     return "\n".join(lines)
 

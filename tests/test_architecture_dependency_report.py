@@ -5,12 +5,16 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
+
 from medre.runtime.architecture_report import (
     _CONFIG_FORBIDDEN,
     _CORE_FORBIDDEN,
+    _ROUTE_ENGINE_FORBIDDEN,
     ArchitectureGraph,
     ImportEdge,
     ModuleInfo,
+    RouteAdapterBoundaryReport,
     _is_type_checking,
     _resolve_name,
     _resolve_relative,
@@ -19,6 +23,7 @@ from medre.runtime.architecture_report import (
     check_forbidden_imports,
     module_path_for,
     parse_file,
+    render_boundary_report,
     render_dependency_report,
 )
 
@@ -322,7 +327,7 @@ class TestBuildDependencyGraphEdgeCases:
 
 
 class TestBuildRouteAdapterBoundaryReport:
-    """Tests for build_route_adapter_boundary_report() — lines 258-315."""
+    """Tests for build_route_adapter_boundary_report() returning structured data."""
 
     @staticmethod
     def _make_graph(*modules: ModuleInfo) -> ArchitectureGraph:
@@ -335,10 +340,11 @@ class TestBuildRouteAdapterBoundaryReport:
     def test_empty_graph(self) -> None:
         """Empty graph produces report with zero counts."""
         report = build_route_adapter_boundary_report(ArchitectureGraph())
-        assert "Runtime → Adapter imports: 0" in report
-        assert "Route engine forbidden imports: 0" in report
-        assert "Adapter → Runtime imports: 0" in report
-        assert "Config → Adapter implementation imports: 0" in report
+        assert isinstance(report, RouteAdapterBoundaryReport)
+        assert report.runtime_to_adapter.count == 0
+        assert report.route_engine_forbidden.count == 0
+        assert report.adapter_to_runtime.count == 0
+        assert report.config_to_adapter_impl.count == 0
 
     def test_runtime_importing_adapter(self) -> None:
         """Runtime module importing an adapter is reported."""
@@ -359,8 +365,13 @@ class TestBuildRouteAdapterBoundaryReport:
             ),
         )
         report = build_route_adapter_boundary_report(graph)
-        assert "Runtime → Adapter imports: 1" in report
-        assert "medre.runtime.engine -> medre.adapters.mesh.send" in report
+        assert isinstance(report, RouteAdapterBoundaryReport)
+        assert report.runtime_to_adapter.count == 1
+        assert report.runtime_to_adapter.violations[0].source == "medre.runtime.engine"
+        assert (
+            report.runtime_to_adapter.violations[0].target == "medre.adapters.mesh.send"
+        )
+        assert report.runtime_to_adapter.violations[0].line == 10
 
     def test_route_engine_forbidden_imports(self) -> None:
         """Route engine with forbidden imports is reported."""
@@ -381,7 +392,8 @@ class TestBuildRouteAdapterBoundaryReport:
             ),
         )
         report = build_route_adapter_boundary_report(graph)
-        assert "Route engine forbidden imports: 1" in report
+        assert report.route_engine_forbidden.count == 1
+        assert report.route_engine_forbidden.violations[0].target == "medre.adapters"
 
     def test_adapter_importing_runtime(self) -> None:
         """Adapter module importing runtime is reported."""
@@ -402,8 +414,12 @@ class TestBuildRouteAdapterBoundaryReport:
             ),
         )
         report = build_route_adapter_boundary_report(graph)
-        assert "Adapter → Runtime imports: 1" in report
-        assert "medre.adapters.matrix.codec -> medre.runtime.builder" in report
+        assert report.adapter_to_runtime.count == 1
+        assert (
+            report.adapter_to_runtime.violations[0].source
+            == "medre.adapters.matrix.codec"
+        )
+        assert report.adapter_to_runtime.violations[0].target == "medre.runtime.builder"
 
     def test_config_importing_adapter_implementation(self) -> None:
         """Config module importing adapter implementation (not config.adapters) is reported."""
@@ -424,7 +440,11 @@ class TestBuildRouteAdapterBoundaryReport:
             ),
         )
         report = build_route_adapter_boundary_report(graph)
-        assert "Config → Adapter implementation imports: 1" in report
+        assert report.config_to_adapter_impl.count == 1
+        assert (
+            report.config_to_adapter_impl.violations[0].target
+            == "medre.adapters.mesh.handler"
+        )
 
     def test_type_checking_imports_not_counted(self) -> None:
         """TYPE_CHECKING imports are excluded from boundary reports."""
@@ -445,7 +465,40 @@ class TestBuildRouteAdapterBoundaryReport:
             ),
         )
         report = build_route_adapter_boundary_report(graph)
-        assert "Runtime → Adapter imports: 0" in report
+        assert report.runtime_to_adapter.count == 0
+
+    def test_render_empty_report(self) -> None:
+        """render_boundary_report produces expected string format for empty graph."""
+        report = build_route_adapter_boundary_report(ArchitectureGraph())
+        text = render_boundary_report(report)
+        assert "Route/Adapter Boundary Report" in text
+        assert "Runtime → Adapter imports: 0" in text
+        assert "Route engine forbidden imports: 0" in text
+        assert "Adapter → Runtime imports: 0" in text
+        assert "Config → Adapter implementation imports: 0" in text
+
+    def test_render_report_with_violations(self) -> None:
+        """render_boundary_report includes violation details."""
+        graph = self._make_graph(
+            ModuleInfo(
+                module="medre.runtime.engine",
+                file="runtime/engine.py",
+                imports=[
+                    ImportEdge(
+                        source="medre.runtime.engine",
+                        target="medre.adapters.mesh.send",
+                        line=10,
+                        kind="import_from",
+                        is_type_checking=False,
+                    ),
+                ],
+                layer="runtime",
+            ),
+        )
+        report = build_route_adapter_boundary_report(graph)
+        text = render_boundary_report(report)
+        assert "Runtime → Adapter imports: 1" in text
+        assert "medre.runtime.engine -> medre.adapters.mesh.send" in text
 
 
 class TestCheckForbiddenImportsInnerLoop:
@@ -501,3 +554,66 @@ class TestCheckForbiddenImportsInnerLoop:
         )
         assert len(violations) == 1
         assert violations[0][1] == "medre.runtime"
+
+
+class TestRuntimeBuilderOnlyAssembly:
+    """Only medre.runtime.builder may import from medre.adapters.*."""
+
+    _ALLOWED_RUNTIME_ADAPTER_IMPORTS = frozenset(
+        {
+            "medre.runtime.builder",
+        }
+    )
+
+    def test_only_builder_imports_adapters(self) -> None:
+        """No runtime module except builder imports adapter implementations."""
+        graph = build_dependency_graph(_SRC)
+
+        violations = []
+        for mod, info in graph.modules.items():
+            if not mod.startswith("medre.runtime."):
+                continue
+            if mod in self._ALLOWED_RUNTIME_ADAPTER_IMPORTS:
+                continue
+            for edge in info.imports:
+                if edge.is_type_checking:
+                    continue
+                if edge.target.startswith("medre.adapters."):
+                    violations.append((mod, edge.target, edge.line))
+
+        assert (
+            not violations
+        ), "Runtime modules importing adapters (only builder allowed):\n" + "\n".join(
+            f"  {m} -> {t} (line {ln})" for m, t, ln in violations
+        )
+
+    def test_builder_actually_imports_adapters(self) -> None:
+        """Sanity check: builder.py does import from adapters (may be deferred)."""
+        builder_file = _SRC / "runtime" / "builder.py"
+        assert builder_file.is_file(), "runtime/builder.py not found"
+
+        source = builder_file.read_text(encoding="utf-8")
+        import re
+
+        adapter_refs = re.findall(r"\bfrom medre\.adapters\b", source)
+        assert len(adapter_refs) > 0, (
+            "medre.runtime.builder has no adapter imports — "
+            "if this is intentional, update the test"
+        )
+
+    def test_route_engine_no_adapter_imports(self) -> None:
+        """Route engine must not import adapter implementations."""
+        graph = build_dependency_graph(_SRC)
+
+        route_engine = graph.modules.get("medre.runtime.route_engine")
+        if route_engine is None:
+            pytest.skip("route_engine module not found")
+
+        for edge in route_engine.imports:
+            if edge.is_type_checking:
+                continue
+            for f in _ROUTE_ENGINE_FORBIDDEN:
+                if edge.target == f or edge.target.startswith(f + "."):
+                    pytest.fail(
+                        f"route_engine imports forbidden: {edge.target} (line {edge.line})"
+                    )

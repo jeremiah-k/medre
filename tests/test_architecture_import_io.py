@@ -201,9 +201,9 @@ class TestNoBlockingIOAtImport:
         assert isinstance(_ALLOWLIST, list), "_ALLOWLIST must be a list"
 
         for idx, entry in enumerate(_ALLOWLIST):
-            assert isinstance(entry, tuple), (
-                f"Entry {idx} must be a tuple, got {type(entry).__name__}"
-            )
+            assert isinstance(
+                entry, tuple
+            ), f"Entry {idx} must be a tuple, got {type(entry).__name__}"
             assert len(entry) == 3, (
                 f"Entry {idx} must be (file_path_rel, func_name, reason), "
                 f"got {len(entry)} elements"
@@ -211,18 +211,16 @@ class TestNoBlockingIOAtImport:
             file_path_rel, func_name, reason = entry
 
             # file_path_rel — non-empty, must exist under src/
-            assert isinstance(file_path_rel, str) and file_path_rel, (
-                f"Entry {idx}: file_path_rel must be a non-empty string"
-            )
+            assert (
+                isinstance(file_path_rel, str) and file_path_rel
+            ), f"Entry {idx}: file_path_rel must be a non-empty string"
             full_path = _REPO / "src" / file_path_rel
-            assert full_path.is_file(), (
-                f"Entry {idx}: {full_path} does not exist"
-            )
+            assert full_path.is_file(), f"Entry {idx}: {full_path} does not exist"
 
             # func_name — non-empty
-            assert isinstance(func_name, str) and func_name, (
-                f"Entry {idx}: func_name must be a non-empty string"
-            )
+            assert (
+                isinstance(func_name, str) and func_name
+            ), f"Entry {idx}: func_name must be a non-empty string"
 
             # reason — non-empty, >= 10 chars
             assert isinstance(reason, str) and len(reason) >= 10, (
@@ -242,13 +240,11 @@ class TestNoBlockingIOAtImport:
 
         # Sorted by (file_path_rel, func_name)
         if len(_ALLOWLIST) > 1:
-            sorted_keys = sorted(
-                (rel, func) for rel, func, _ in _ALLOWLIST
-            )
+            sorted_keys = sorted((rel, func) for rel, func, _ in _ALLOWLIST)
             actual_keys = [(rel, func) for rel, func, _ in _ALLOWLIST]
-            assert actual_keys == sorted_keys, (
-                "_ALLOWLIST must be sorted by (file_path_rel, func_name)"
-            )
+            assert (
+                actual_keys == sorted_keys
+            ), "_ALLOWLIST must be sorted by (file_path_rel, func_name)"
 
     def test_scanner_catches_known_violation(self) -> None:
         """Verify the scanner flags a file with `open()` at module level."""
@@ -265,11 +261,11 @@ class TestNoBlockingIOAtImport:
             tmp.close()
 
             violations = _scan_file(Path(tmp.name))
-            assert violations, (
-                "Scanner should flag open() at module level but found nothing"
-            )
-            assert "open" in violations[0], (
-                f"Expected 'open' in violation, got: {violations[0]}"
-            )
+            assert (
+                violations
+            ), "Scanner should flag open() at module level but found nothing"
+            assert (
+                "open" in violations[0]
+            ), f"Expected 'open' in violation, got: {violations[0]}"
         finally:
             Path(tmp.name).unlink(missing_ok=True)
