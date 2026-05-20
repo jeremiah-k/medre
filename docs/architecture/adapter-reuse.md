@@ -17,24 +17,24 @@ Each transport adapter (Matrix, Meshtastic, MeshCore, LXMF) is built from four
 cooperating layers, each with a single responsibility:
 
 **codec**
-    Decodes native transport events into `CanonicalEvent` instances. Operates
-    on raw dicts or SDK objects. Produces canonical events. Does not send
-    anything.
+Decodes native transport events into `CanonicalEvent` instances. Operates
+on raw dicts or SDK objects. Produces canonical events. Does not send
+anything.
 
 **renderer**
-    Encodes `CanonicalEvent` instances into native transport payloads (Matrix
-    `m.room.message` dicts, Meshtastic text payloads, etc.). Pure transform,
-    no I/O.
+Encodes `CanonicalEvent` instances into native transport payloads (Matrix
+`m.room.message` dicts, Meshtastic text payloads, etc.). Pure transform,
+no I/O.
 
 **session**
-    Owns the protocol client lifecycle. Connects, reconnects, subscribes to
-    transport events, and sends rendered payloads. This is the only layer
-    that imports the heavy protocol SDK (nio, meshtastic, etc.).
+Owns the protocol client lifecycle. Connects, reconnects, subscribes to
+transport events, and sends rendered payloads. This is the only layer
+that imports the heavy protocol SDK (nio, meshtastic, etc.).
 
 **adapter**
-    Runtime integration wrapper. Ties codec, renderer, session, and adapter
-    config together into a single object that `MedreApp` manages. Imports
-    everything, wires lifecycle hooks, and participates in the pipeline.
+Runtime integration wrapper. Ties codec, renderer, session, and adapter
+config together into a single object that `MedreApp` manages. Imports
+everything, wires lifecycle hooks, and participates in the pipeline.
 
 Each transport package also contains helpers alongside these four: packet
 classifiers, error types, compatibility guards, metadata envelopes, and so on.
@@ -175,15 +175,15 @@ interop wire constants.
 
 The following rules keep reusable modules clean and independent.
 
-| Rule | Rationale |
-|------|-----------|
-| Reusable modules (codec, renderer, interop) MUST NOT import runtime, builder, pipeline, storage, or CLI | Keeps them importable in isolation |
-| `core/` MUST NOT import from `adapters/` | Core is transport-agnostic by definition |
-| Config model wraps adapter config dataclasses only, no adapter implementation imports | Config stays dependency-free |
-| Route engine may use platform strings (`"matrix"`, `"meshtastic"`) but MUST NOT import adapter implementations | Platform dispatch stays string-based |
-| Logging setup happens only through app/CLI bootstrap, never as an import side effect | Prevents handler duplication and test pollution |
-| Codec and renderer modules MUST NOT import heavy protocol SDKs (nio, meshtastic, etc.) | Preserves SDK-free guarantee |
-| Session modules are the only place SDKs are imported, and imports are deferred inside methods | Allows graceful import-error handling when optional deps are missing |
+| Rule                                                                                                           | Rationale                                                            |
+| -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| Reusable modules (codec, renderer, interop) MUST NOT import runtime, builder, pipeline, storage, or CLI        | Keeps them importable in isolation                                   |
+| `core/` MUST NOT import from `adapters/`                                                                       | Core is transport-agnostic by definition                             |
+| Config model wraps adapter config dataclasses only, no adapter implementation imports                          | Config stays dependency-free                                         |
+| Route engine may use platform strings (`"matrix"`, `"meshtastic"`) but MUST NOT import adapter implementations | Platform dispatch stays string-based                                 |
+| Logging setup happens only through app/CLI bootstrap, never as an import side effect                           | Prevents handler duplication and test pollution                      |
+| Codec and renderer modules MUST NOT import heavy protocol SDKs (nio, meshtastic, etc.)                         | Preserves SDK-free guarantee                                         |
+| Session modules are the only place SDKs are imported, and imports are deferred inside methods                  | Allows graceful import-error handling when optional deps are missing |
 
 See [Module Boundaries](module-boundaries.md) for the complete import-rule
 table covering every package.

@@ -36,9 +36,9 @@ from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.events.kinds import EventKind
 from medre.core.planning.delivery_plan import DeliveryPlan, DeliveryStrategy
 from medre.core.routing.models import Route, RouteSource, RouteTarget
+from medre.core.runtime.capacity import CapacityController
 from medre.runtime.app import RuntimeState
 from medre.runtime.builder import RuntimeBuilder
-from medre.core.runtime.capacity import CapacityController
 
 # ---------------------------------------------------------------------------
 # Shared constants & helpers

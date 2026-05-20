@@ -21,14 +21,23 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from medre.config.model import RuntimeLimits
+from typing import Protocol
 
 __all__ = ["CapacityController"]
 
 _logger = logging.getLogger(__name__)
+
+
+class _Limits(Protocol):
+    """Structural interface for capacity configuration.
+
+    Satisfied by :class:`medre.config.model.RuntimeLimits` without
+    importing it — keeps core free of config dependencies.
+    """
+
+    max_inflight_deliveries: int
+    max_inflight_replay_events: int
+    delivery_acquire_timeout_seconds: float
 
 
 class CapacityController:
@@ -37,10 +46,14 @@ class CapacityController:
     Parameters
     ----------
     limits:
-        Runtime limits configuring semaphore sizes and acquire timeouts.
+        Object with ``max_inflight_deliveries``,
+        ``max_inflight_replay_events``, and
+        ``delivery_acquire_timeout_seconds`` attributes.
+        :class:`~medre.config.model.RuntimeLimits` satisfies this
+        protocol without a direct import dependency.
     """
 
-    def __init__(self, limits: RuntimeLimits) -> None:
+    def __init__(self, limits: _Limits) -> None:
         self._delivery_sem = asyncio.Semaphore(limits.max_inflight_deliveries)
         self._replay_sem = asyncio.Semaphore(limits.max_inflight_replay_events)
         self._delivery_limit = limits.max_inflight_deliveries

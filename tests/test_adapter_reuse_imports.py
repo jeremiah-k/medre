@@ -52,7 +52,7 @@ class TestNoLoggingSideEffects:
         """Root logger level must not change after importing reusable modules."""
         root = logging.getLogger()
         level_before = root.level
-        handler_count_before = len(root.handlers)
+        len(root.handlers)
 
         for module_name in _REUSABLE_MODULES:
             importlib.import_module(module_name)
@@ -86,10 +86,7 @@ class TestNoForbiddenTransitiveImports:
     def test_no_runtime_builder_import(self):
         """Forbidden modules must not appear in sys.modules after importing."""
         # Snapshot which forbidden modules are already loaded
-        already_loaded = {
-            m for m in _FORBIDDEN_TRANSITIVE_MODULES
-            if m in sys.modules
-        }
+        already_loaded = {m for m in _FORBIDDEN_TRANSITIVE_MODULES if m in sys.modules}
 
         for module_name in _REUSABLE_MODULES:
             importlib.import_module(module_name)
@@ -108,13 +105,17 @@ class TestNoForbiddenTransitiveImports:
 class TestSetupLoggingNotCalledOnImport:
     """setup_logging must not be called as an import side effect."""
 
-    def test_setup_logging_not_in_sys_modules_after_codec_import(self):
-        """After importing codecs, root logger must not have a MEDRE-managed
-        handler — which would indicate setup_logging was called."""
+    def test_no_medre_handler_after_importing_reusable_modules(self):
+        """After importing reusable modules, root logger must not have a
+        MEDRE-managed handler — which would indicate setup_logging was called."""
+        # Import all reusable modules explicitly (self-contained, no ordering dependency).
+        for module_name in _REUSABLE_MODULES:
+            importlib.import_module(module_name)
+
         root = logging.getLogger()
         for h in root.handlers:
             # setup_logging marks its handler with _medre_console_handler
-            assert not getattr(h, '_medre_console_handler', False), (
+            assert not getattr(h, "_medre_console_handler", False), (
                 "Root logger has a MEDRE-managed handler — setup_logging was "
                 "called during import of reusable modules"
             )
@@ -126,16 +127,19 @@ class TestCodecRendererSdkFree:
     # SDK packages that codec/renderer should avoid
     _SDK_MODULES = ("nio", "meshtastic", "meshcore", "RNS", "lxmf")
 
-    @pytest.mark.parametrize("module_name", [
-        "medre.adapters.matrix.codec",
-        "medre.adapters.matrix.renderer",
-        "medre.adapters.meshtastic.codec",
-        "medre.adapters.meshtastic.renderer",
-        "medre.adapters.meshcore.codec",
-        "medre.adapters.meshcore.renderer",
-        "medre.adapters.lxmf.codec",
-        "medre.adapters.lxmf.renderer",
-    ])
+    @pytest.mark.parametrize(
+        "module_name",
+        [
+            "medre.adapters.matrix.codec",
+            "medre.adapters.matrix.renderer",
+            "medre.adapters.meshtastic.codec",
+            "medre.adapters.meshtastic.renderer",
+            "medre.adapters.meshcore.codec",
+            "medre.adapters.meshcore.renderer",
+            "medre.adapters.lxmf.codec",
+            "medre.adapters.lxmf.renderer",
+        ],
+    )
     def test_no_sdk_import_at_top_level(self, module_name: str):
         """Verify no SDK packages appear in the module's top-level imports."""
         mod = importlib.import_module(module_name)

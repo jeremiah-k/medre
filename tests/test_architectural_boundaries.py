@@ -11,6 +11,7 @@ TRACK 6 — Boundary/Regression Tests
 
 from __future__ import annotations
 
+import ast as _ast
 import importlib
 import os
 import re
@@ -1015,8 +1016,6 @@ class TestNoStaleWordingInDocs:
 # AST-based import extraction helpers (Sections T–W)
 # ---------------------------------------------------------------------------
 
-import ast as _ast
-
 
 def _collect_imports_from_node(
     node: _ast.AST,
@@ -1084,20 +1083,29 @@ def _runtime_imports(source: str) -> list[tuple[str, int]]:
         return False
 
     # Walk the tree manually, tracking parent context
-    import _ast as _ast_mod
 
-    for node in _ast.iter_child_nodes(tree):
-        if isinstance(node, (_ast.Import, _ast.ImportFrom)):
-            # Direct module-level import — always runtime
-            result.extend(_collect_imports_from_node(node))
-        elif isinstance(node, _ast.If):
-            # Skip entire block if it's TYPE_CHECKING
-            if _is_type_checking_block(node):
-                continue
-            # Otherwise, check imports inside the if block
-            for child in _ast.walk(node):
+    def _walk_runtime_scope(node: _ast.AST) -> None:
+        """Walk a node's immediate children for runtime imports.
+
+        Recurses into class bodies (module-level classes execute their
+        bodies at import time) but NOT into function/method bodies
+        (deferred imports).
+        """
+        for child in _ast.iter_child_nodes(node):
+            if isinstance(child, (_ast.Import, _ast.ImportFrom)):
                 result.extend(_collect_imports_from_node(child))
+            elif isinstance(child, _ast.If):
+                # Skip entire block if it's TYPE_CHECKING
+                if _is_type_checking_block(child):
+                    continue
+                # Otherwise walk the if block
+                _walk_runtime_scope(child)
+            elif isinstance(child, _ast.ClassDef):
+                # Class bodies execute at module load time — recurse.
+                _walk_runtime_scope(child)
+            # Function/method/async function bodies are deferred — skip.
 
+    _walk_runtime_scope(tree)
     return result
 
 
@@ -1168,8 +1176,8 @@ class TestCoreBoundaryComprehensive:
                 _check_banned_ast(imports, self._BANNED_PREFIXES, rel_path=rel)
             )
 
-        assert violations == [], (
-            "Core files contain banned imports:\n" + "\n".join(violations)
+        assert violations == [], "Core files contain banned imports:\n" + "\n".join(
+            violations
         )
 
 
@@ -1204,13 +1212,11 @@ class TestRouteEngineBoundaryComprehensive:
         rel = str(route_engine.relative_to(repo_root))
         source = route_engine.read_text()
         imports = _all_imports(source)
-        violations = _check_banned_ast(
-            imports, self._BANNED_PREFIXES, rel_path=rel
-        )
+        violations = _check_banned_ast(imports, self._BANNED_PREFIXES, rel_path=rel)
 
-        assert violations == [], (
-            "route_engine.py contains banned imports:\n" + "\n".join(violations)
-        )
+        assert (
+            violations == []
+        ), "route_engine.py contains banned imports:\n" + "\n".join(violations)
 
 
 # ===================================================================
@@ -1289,9 +1295,9 @@ class TestConfigModelBoundaryComprehensive:
                         "(must be under TYPE_CHECKING or deferred)"
                     )
 
-        assert violations == [], (
-            "config/model.py contains banned imports:\n" + "\n".join(violations)
-        )
+        assert (
+            violations == []
+        ), "config/model.py contains banned imports:\n" + "\n".join(violations)
 
 
 # ===================================================================
@@ -1331,9 +1337,7 @@ class TestReusableAdapterModuleBoundary:
         ("src/medre/interop/mmrelay.py", ""),
     ]
 
-    def _check_module(
-        self, py_file: Path, rel: str, transport: str
-    ) -> list[str]:
+    def _check_module(self, py_file: Path, rel: str, transport: str) -> list[str]:
         """Check a single module for boundary violations."""
         source = py_file.read_text()
         violations: list[str] = []
@@ -1343,7 +1347,6 @@ class TestReusableAdapterModuleBoundary:
         except SyntaxError:
             return [f"{rel}: syntax error, cannot parse"]
 
-        is_session = py_file.name == "session.py"
         is_codec_or_renderer = py_file.name in ("codec.py", "renderer.py")
 
         # Gather top-level vs nested imports
@@ -1392,6 +1395,24 @@ class TestReusableAdapterModuleBoundary:
                         f"(circular: reusable module importing own adapter)"
                     )
 
+        # 2b. Cross-adapter isolation: reusable modules must not import
+        #     other transport adapter packages (e.g. matrix/codec importing
+        #     meshtastic/*).  interop modules are exempt.
+        if transport:
+            for mod, lineno in all_imports_list:
+                if not mod.startswith("medre.adapters."):
+                    continue
+                # e.g. "medre.adapters.meshtastic.codec"
+                parts = mod.split(".")
+                if len(parts) >= 3:
+                    other_transport = parts[2]
+                    if other_transport != transport and other_transport != "":
+                        violations.append(
+                            f"{rel}:{lineno}: imports {mod} "
+                            f"(cross-adapter: {transport} module importing "
+                            f"{other_transport})"
+                        )
+
         # 3. Codec/renderer must NOT have top-level heavy SDK imports
         if is_codec_or_renderer:
             for mod, lineno in top_imports:
@@ -1416,7 +1437,6 @@ class TestReusableAdapterModuleBoundary:
             rel = str(py_file.relative_to(repo_root))
             violations.extend(self._check_module(py_file, rel, transport))
 
-        assert violations == [], (
-            "Reusable adapter module boundary violations:\n"
-            + "\n".join(violations)
-        )
+        assert (
+            violations == []
+        ), "Reusable adapter module boundary violations:\n" + "\n".join(violations)

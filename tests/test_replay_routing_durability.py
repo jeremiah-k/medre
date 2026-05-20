@@ -24,6 +24,7 @@ from medre.core.rendering import RenderingPipeline
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.routing.stats import RouteStats
 from medre.core.runtime.accounting import RuntimeAccounting
+from medre.core.runtime.capacity import CapacityController
 from medre.core.storage import SQLiteStorage
 from medre.core.storage.backend import StorageBackend
 from medre.core.storage.replay import (
@@ -37,7 +38,6 @@ from medre.core.storage.replay import (
     collect_replay_state,
     collect_replay_summary,
 )
-from medre.core.runtime.capacity import CapacityController
 
 # ---------------------------------------------------------------------------
 # Helpers

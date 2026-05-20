@@ -62,7 +62,7 @@ from medre.config.model import (
     StorageConfig,
 )
 from medre.config.paths import MedrePaths, MedrePathsError, resolve
-from medre.observability import sanitize_for_log
+from medre.core.observability.sanitization import sanitize_for_log
 from medre.core.runtime.capacity import CapacityController
 from medre.runtime.errors import RuntimeConfigError
 from medre.runtime.route_engine import (

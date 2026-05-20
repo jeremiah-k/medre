@@ -33,7 +33,6 @@ from medre.interop.mmrelay import (
     KEY_LONGNAME,
     KEY_MESHNET,
     KEY_PORTNUM,
-    KEY_REACTION_KEY,
     KEY_REPLY_ID,
     KEY_SHORTNAME,
     KEY_TEXT,

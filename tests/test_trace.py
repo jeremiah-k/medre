@@ -1314,4 +1314,6 @@ class TestPublicSanitizeError:
         import medre.runtime.evidence._helpers as evidence_helpers
 
         source = inspect.getsource(evidence_helpers)
-        assert "from medre.core.observability.sanitization import sanitize_error" in source
+        assert (
+            "from medre.core.observability.sanitization import sanitize_error" in source
+        )

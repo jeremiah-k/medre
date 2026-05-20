@@ -61,6 +61,7 @@ from medre.core.diagnostics.replay_metrics import ReplayMetrics
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.metadata import EventMetadata, RoutingMetadata
 from medre.core.routing.stats import RouteStats
+from medre.core.runtime.capacity import CapacityController
 from medre.core.storage.replay import (
     _MAX_ERROR_LENGTH,
     _MAX_SUMMARY_ERRORS,
@@ -72,14 +73,13 @@ from medre.core.storage.replay import (
 )
 from medre.runtime.app import MedreApp, RuntimeState
 from medre.runtime.builder import RuntimeBuilder
-from medre.core.runtime.capacity import CapacityController
 from medre.runtime.snapshot import (
     _MAX_ADAPTERS,
     _MAX_BUILD_FAILURES,
     _MAX_ROUTES,
     build_runtime_snapshot,
 )
-from tests.helpers.soak import _count_asyncio_tasks, SoakRuntime
+from tests.helpers.soak import SoakRuntime, _count_asyncio_tasks
 
 # ---------------------------------------------------------------------------
 # Fixtures
