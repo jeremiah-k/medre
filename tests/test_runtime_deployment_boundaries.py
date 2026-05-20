@@ -338,7 +338,15 @@ class TestRuntimeCoreModuleGuard:
             timeout=30,
         )
         if result.returncode != 0:
-            pytest.skip(f"{module_name} not importable: {result.stderr.strip()}")
+            stderr = result.stderr.strip()
+            # If the module exists but fails due to an SDK dependency,
+            # that is a hard boundary violation — fail, don't skip.
+            if any(sdk in stderr for sdk in self._SDK_PACKAGES):
+                pytest.fail(
+                    f"{module_name} failed to import due to SDK dependency: "
+                    f"{stderr}"
+                )
+            pytest.skip(f"{module_name} not importable: {stderr}")
 
         leaked = result.stdout.strip()
         assert leaked == "CLEAN", (

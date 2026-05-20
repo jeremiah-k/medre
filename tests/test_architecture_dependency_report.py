@@ -1353,6 +1353,15 @@ class TestExtractDynamicAdapterImports:
             assert line > 0
             assert reason
 
+    def test_empty_source_returns_empty(self) -> None:
+        """Empty source yields no results."""
+        assert extract_dynamic_adapter_imports("") == []
+
+    def test_source_with_no_matches_returns_empty(self) -> None:
+        """Source with no _AdapterFactory or _ADAPTER_RENDERER_SPECS."""
+        source = "x = 1\ny = 2\n"
+        assert extract_dynamic_adapter_imports(source) == []
+
 
 class TestDynamicBuilderAssembly:
     """Tests that dynamic builder imports appear in allowed section."""
