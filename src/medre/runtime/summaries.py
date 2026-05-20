@@ -51,10 +51,10 @@ def format_duration_ms(start_time: float, end_time: float | None = None) -> str:
 
 def format_duration_seconds(duration_s: float) -> str:
     """Format an elapsed duration in seconds.
-    
+
     Args:
         duration_s: Elapsed wall-clock time in seconds.
-        
+
     Returns:
         Formatted duration string like ``"250µs"``, ``"42ms"``, or ``"1.2s"``.
     """

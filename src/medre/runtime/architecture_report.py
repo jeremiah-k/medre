@@ -5,6 +5,7 @@ AST-based analysis, delegates shared AST walking to architecture_ast.
 
 from __future__ import annotations
 
+import ast as _ast  # noqa: F401 — kept for re-export compatibility
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -18,8 +19,6 @@ from medre.runtime.architecture_ast import (  # noqa: F401
 from medre.runtime.architecture_ast import (
     runtime_scope_imports,
 )
-
-import ast as _ast  # noqa: F401 — kept for re-export compatibility
 
 
 @dataclass
@@ -236,10 +235,10 @@ _CODEC_RENDERER_FORBIDDEN = (
 class BoundaryViolation:
     """A single import boundary violation."""
 
-    source: str      # module doing the import
-    target: str      # module being imported
+    source: str  # module doing the import
+    target: str  # module being imported
     line: int
-    rule: str = ""   # which rule was violated
+    rule: str = ""  # which rule was violated
 
 
 @dataclass
@@ -293,7 +292,7 @@ def _transport_for(module: str) -> str | None:
     prefix = "medre.adapters."
     if not module.startswith(prefix):
         return None
-    rest = module[len(prefix):]
+    rest = module[len(prefix) :]
     parts = rest.split(".")
     return parts[0] if parts else None
 
@@ -306,7 +305,7 @@ def _is_adapter_inner(module: str) -> bool:
     prefix = "medre.adapters."
     if not module.startswith(prefix):
         return False
-    rest = module[len(prefix):]
+    rest = module[len(prefix) :]
     parts = rest.split(".")
     return len(parts) >= 2 and parts[-1] in _ADAPTER_INNER_MODULES
 
@@ -392,9 +391,8 @@ def build_route_adapter_boundary_report(
             if edge.is_type_checking:
                 continue
             # Allow config.adapters.* dataclass imports
-            if (
-                edge.target.startswith("medre.adapters.")
-                and not edge.target.startswith("medre.config.adapters.")
+            if edge.target.startswith("medre.adapters.") and not edge.target.startswith(
+                "medre.config.adapters."
             ):
                 config_adapter_impl_imports.append(
                     BoundaryViolation(
@@ -405,7 +403,7 @@ def build_route_adapter_boundary_report(
                     )
                 )
 
-    # --- Adapter Cross-Imports (same transport) ---
+    # --- Adapter → Foreign Transport Imports ---
     adapter_cross: list[BoundaryViolation] = []
     for mod, info in graph.modules.items():
         transport = _transport_for(mod)
@@ -414,18 +412,18 @@ def build_route_adapter_boundary_report(
         if mod.endswith(".adapter"):
             continue  # adapter wrapper importing its own submodules is fine
         for edge in info.imports:
-            if not edge.target.startswith(f"medre.adapters.{transport}."):
+            if edge.is_type_checking:
                 continue
-            if edge.target == mod or edge.is_type_checking:
+            if not edge.target.startswith("medre.adapters."):
                 continue
-            target_rest = edge.target[len(f"medre.adapters.{transport}."):]
-            if target_rest in _ADAPTER_INNER_MODULES:
+            target_transport = _transport_for(edge.target)
+            if target_transport is not None and target_transport != transport:
                 adapter_cross.append(
                     BoundaryViolation(
                         source=mod,
                         target=edge.target,
                         line=edge.line,
-                        rule=f"adapter cross-import ({transport})",
+                        rule=f"adapter foreign transport: {target_transport}",
                     )
                 )
 
@@ -550,7 +548,9 @@ def build_route_adapter_boundary_report(
                         )
                     )
 
-    sort_key = lambda v: (v.source, v.target, v.line)
+    def sort_key(v):
+        return (v.source, v.target, v.line)
+
     return RouteAdapterBoundaryReport(
         allowed_runtime_adapter=BoundarySection(
             title="Allowed Runtime → Adapter Assembly",

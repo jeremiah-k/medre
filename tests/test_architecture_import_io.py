@@ -31,11 +31,10 @@ _SRC = _REPO / "src" / "medre"
 #   Matched via **exact equality** after alias resolution.
 #   (e.g. sp.run -> subprocess.run matches; foo.subprocess.run does not)
 #
-# _BLOCKING_BARE — bare function/method names like "open" or "read_text".
-#   Matched via **suffix match** so that both `open()` and
-#   `pathlib.Path.open()` are caught.  This is intentionally broad to
-#   avoid missing real violations; false positives are managed through
-#   the allowlist.
+# _BLOCKING_BARE — bare function/method names like "open" or "urlopen".
+#   Matched via **suffix match**.  Only real bare builtins/helpers
+#   belong here.  pathlib.Path.* calls are matched exactly in
+#   _BLOCKING_DOTTED after resolve_call_name() resolves the full path.
 # ---------------------------------------------------------------------------
 
 _BLOCKING_DOTTED: tuple[str, ...] = (
@@ -68,15 +67,11 @@ _BLOCKING_DOTTED: tuple[str, ...] = (
     "shutil.copy",
     "shutil.move",
     "shutil.rmtree",
-    # pathlib — explicit dotted forms
+    # pathlib — explicit dotted forms (exact match after resolve_call_name)
     "pathlib.Path.read_text",
     "pathlib.Path.write_text",
     "pathlib.Path.read_bytes",
     "pathlib.Path.write_bytes",
-    "Path.read_text",
-    "Path.write_text",
-    "Path.read_bytes",
-    "Path.write_bytes",
     # aiohttp
     "aiohttp.ClientSession",
 )

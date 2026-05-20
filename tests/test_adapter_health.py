@@ -20,12 +20,12 @@ from datetime import datetime, timezone
 
 import pytest
 
-from medre.adapters.fake_transport import FakeTransportAdapter
-from medre.adapters.fake_presentation import FakePresentationAdapter
-from medre.adapters.fake_matrix import FakeMatrixAdapter
-from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
-from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
 from medre.adapters.fake_lxmf import FakeLxmfAdapter
+from medre.adapters.fake_matrix import FakeMatrixAdapter
+from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
+from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
+from medre.adapters.fake_presentation import FakePresentationAdapter
+from medre.adapters.fake_transport import FakeTransportAdapter
 from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,

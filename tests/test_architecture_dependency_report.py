@@ -63,7 +63,11 @@ class TestParseFile:
         edges = parse_file(py_file)
         # The deferred import of RouteConfigSet inside a function should NOT appear.
         # TYPE_CHECKING imports of RouteConfigSet ARE allowed (marked is_type_checking).
-        runtime_rcs = [e for e in edges if e.target.endswith("RouteConfigSet") and not e.is_type_checking]
+        runtime_rcs = [
+            e
+            for e in edges
+            if e.target.endswith("RouteConfigSet") and not e.is_type_checking
+        ]
         assert not runtime_rcs, (
             f"Function-body RouteConfigSet import leaked into parse_file: "
             f"{[(e.target, e.line) for e in runtime_rcs]}"
@@ -152,7 +156,11 @@ class TestReportDeterminism:
         graph2 = build_dependency_graph(_SRC)
         report1 = render_dependency_report(graph1)
         report2 = render_dependency_report(graph2)
-        assert report1 == report2# ---------------------------------------------------------------------------
+        assert (
+            report1 == report2
+        )  # ---------------------------------------------------------------------------
+
+
 # New tests covering previously-uncovered lines
 # ---------------------------------------------------------------------------
 
@@ -510,8 +518,8 @@ class TestBuildRouteAdapterBoundaryReport:
         text = render_boundary_report(report)
         assert "medre.runtime.engine -> medre.adapters.mesh.send" in text
 
-    def test_adapter_cross_imports_same_transport(self) -> None:
-        """Adapter codec importing session from same transport is flagged."""
+    def test_adapter_cross_imports_same_transport_not_flagged(self) -> None:
+        """Adapter codec importing session from same transport is NOT a violation."""
         graph = self._make_graph(
             ModuleInfo(
                 module="medre.adapters.matrix.codec",
@@ -529,11 +537,33 @@ class TestBuildRouteAdapterBoundaryReport:
             ),
         )
         report = build_route_adapter_boundary_report(graph)
+        assert report.adapter_cross_imports.count == 0
+
+    def test_adapter_cross_imports_foreign_transport_flagged(self) -> None:
+        """Adapter codec importing from a different transport IS a violation."""
+        graph = self._make_graph(
+            ModuleInfo(
+                module="medre.adapters.matrix.codec",
+                file="adapters/matrix/codec.py",
+                imports=[
+                    ImportEdge(
+                        source="medre.adapters.matrix.codec",
+                        target="medre.adapters.lxmf.codec",
+                        line=8,
+                        kind="import_from",
+                        is_type_checking=False,
+                    ),
+                ],
+                layer="adapters",
+            ),
+        )
+        report = build_route_adapter_boundary_report(graph)
         assert report.adapter_cross_imports.count == 1
         assert (
             report.adapter_cross_imports.violations[0].target
-            == "medre.adapters.matrix.session"
+            == "medre.adapters.lxmf.codec"
         )
+        assert "foreign transport" in report.adapter_cross_imports.violations[0].rule
 
     def test_codec_importing_sdk_is_forbidden(self) -> None:
         """Codec importing an SDK is flagged."""

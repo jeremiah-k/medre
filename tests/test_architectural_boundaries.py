@@ -26,9 +26,6 @@ from tests.helpers.ast_imports import (
     import_matches,
 )
 from tests.helpers.ast_imports import runtime_scope_imports as _runtime_scope_new
-from tests.helpers.ast_imports import (
-    top_level_imports,
-)
 
 # ---------------------------------------------------------------------------
 # Shared constants

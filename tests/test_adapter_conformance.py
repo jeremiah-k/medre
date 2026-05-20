@@ -8,7 +8,6 @@ facade imports.
 from __future__ import annotations
 
 import ast
-import importlib.util
 import inspect
 from pathlib import Path
 
@@ -78,47 +77,33 @@ class TestFakeAdapterConformance:
             ), f"{cls.__name__}.{method_name} must be async"
 
 
-class TestRealAdapterContractImports:
-    """Real adapter classes must be importable from concrete paths.
+# Adapter classes that must be importable without SDKs.
+# SDK guards live behind compat/session boundaries, not at the adapter-module level.
+_ADAPTER_CLASSES: list[tuple[str, str]] = [
+    ("medre.adapters.matrix.adapter", "MatrixAdapter"),
+    ("medre.adapters.meshtastic.adapter", "MeshtasticAdapter"),
+    ("medre.adapters.meshcore.adapter", "MeshCoreAdapter"),
+    ("medre.adapters.lxmf.adapter", "LxmfAdapter"),
+]
 
-    Does NOT instantiate — only verifies the imports resolve.
+
+class TestRealAdapterContractImports:
+    """Real adapter classes must be importable and conform to AdapterContract.
+
+    Does NOT instantiate — only verifies class presence and subclassing.
+    Adapter modules import SDK-free because SDK guards live behind
+    compat/session boundaries.
     """
 
-    @pytest.mark.skipif(
-        not importlib.util.find_spec("nio"),
-        reason="nio not installed",
-    )
-    def test_matrix_adapter_importable(self) -> None:
-        from medre.adapters.matrix.adapter import MatrixAdapter
+    @pytest.mark.parametrize("module_name, class_name", _ADAPTER_CLASSES)
+    def test_adapter_class_is_contract(self, module_name: str, class_name: str) -> None:
+        import importlib
 
-        assert issubclass(MatrixAdapter, AdapterContract)
-
-    @pytest.mark.skipif(
-        not importlib.util.find_spec("meshtastic"),
-        reason="meshtastic not installed",
-    )
-    def test_meshtastic_adapter_importable(self) -> None:
-        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
-
-        assert issubclass(MeshtasticAdapter, AdapterContract)
-
-    @pytest.mark.skipif(
-        not importlib.util.find_spec("meshcore"),
-        reason="meshcore not installed",
-    )
-    def test_meshcore_adapter_importable(self) -> None:
-        from medre.adapters.meshcore.adapter import MeshCoreAdapter
-
-        assert issubclass(MeshCoreAdapter, AdapterContract)
-
-    @pytest.mark.skipif(
-        not (importlib.util.find_spec("RNS") and importlib.util.find_spec("LXMF")),
-        reason="RNS and/or LXMF not installed",
-    )
-    def test_lxmf_adapter_importable(self) -> None:
-        from medre.adapters.lxmf.adapter import LxmfAdapter
-
-        assert issubclass(LxmfAdapter, AdapterContract)
+        mod = importlib.import_module(module_name)
+        cls = getattr(mod, class_name)
+        assert issubclass(
+            cls, AdapterContract
+        ), f"{class_name} is not a subclass of AdapterContract"
 
 
 class TestNoPackageRootAdapterImports:

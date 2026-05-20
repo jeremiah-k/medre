@@ -17,11 +17,8 @@ import pytest
 
 # Modules to test for import side effects.
 _LIGHTWEIGHT_MODULES: list[str] = [
-    # Package roots are intentionally excluded: _import_fresh() removes all
-    # submodules from sys.modules, poisoning cached imports for subsequent
-    # tests. A subprocess-based check could test them in isolation.
-    # Individual submodules are tested here: codec/renderer leaf modules
-    # have no submodule children, so _import_fresh is safe.
+    # Package roots are covered separately by subprocess-based tests below;
+    # this list covers leaf modules that are safe to import freshly in-process.
     "medre.interop.mmrelay",
     "medre.core.observability.sanitization",
     "medre.adapters.matrix.codec",

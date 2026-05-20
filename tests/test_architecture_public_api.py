@@ -352,6 +352,7 @@ class TestPackageRootsSystematic:
     def test_all_roots_have_no_getattr(self) -> None:
         """__getattr__ must be absent (AST-based, avoids docstring false positives)."""
         import ast
+
         for rel in self._PACKAGE_ROOTS:
             _file, source = self._read_py_file(rel)
             tree = ast.parse(source)
