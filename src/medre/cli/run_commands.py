@@ -14,9 +14,9 @@ from typing import Any
 from medre.config.env import apply_env_overrides
 from medre.config.errors import ConfigError
 from medre.config.loader import load_config
+from medre.core.observability.sanitization import sanitize_for_log
 from medre.observability import (
     format_duration_ms,
-    sanitize_for_log,
     shutdown_summary,
     startup_summary,
 )

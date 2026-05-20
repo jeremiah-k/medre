@@ -169,7 +169,7 @@ class TestRuntimeCoreNoSdk:
     _RUNTIME_MODULES = [
         "medre.runtime.app",
         "medre.runtime.builder",
-        "medre.runtime.capacity",
+        "medre.core.runtime.capacity",
         "medre.runtime.snapshot",
         "medre.runtime.observability",
         "medre.runtime.boot_summary",
@@ -273,7 +273,7 @@ class TestRuntimeCoreModuleGuard:
         "medre.runtime",
         "medre.runtime.app",
         "medre.runtime.builder",
-        "medre.runtime.capacity",
+        "medre.core.runtime.capacity",
         "medre.runtime.snapshot",
         "medre.runtime.observability",
         "medre.runtime.boot_summary",
@@ -353,7 +353,7 @@ class TestRuntimeCoreNoAdapterRuntime:
     _RUNTIME_MODULES = [
         "medre.runtime.app",
         "medre.runtime.builder",
-        "medre.runtime.capacity",
+        "medre.core.runtime.capacity",
         "medre.runtime.snapshot",
         "medre.runtime.observability",
         "medre.runtime.boot_summary",

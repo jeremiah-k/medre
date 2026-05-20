@@ -34,6 +34,7 @@ from medre.config.paths import MedrePaths
 from medre.core.contracts.adapter import AdapterPermanentError, AdapterSendError
 from medre.core.events.canonical import CanonicalEvent, EventMetadata
 from medre.core.runtime.accounting import RuntimeAccounting
+from medre.core.runtime.capacity import CapacityController
 from medre.core.storage.replay import (
     ReplayEngine,
     ReplayMode,
@@ -41,7 +42,6 @@ from medre.core.storage.replay import (
     collect_replay_summary,
 )
 from medre.runtime.builder import RuntimeBuilder
-from medre.runtime.capacity import CapacityController
 from medre.runtime.routes import RouteConfig, RouteConfigSet
 
 # ---------------------------------------------------------------------------

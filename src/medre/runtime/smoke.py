@@ -57,7 +57,7 @@ from medre.config.env import apply_env_overrides
 from medre.config.loader import load_config
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.kinds import EventKind
-from medre.observability.sanitization import sanitize_error
+from medre.core.observability.sanitization import sanitize_error
 from medre.runtime.app import MedreApp
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.snapshot import SCHEMA_VERSION, build_runtime_snapshot

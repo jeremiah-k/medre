@@ -10,7 +10,6 @@ Public symbols
 * :class:`~medre.runtime.app.MedreApp` — runtime container with lifecycle
 * :class:`~medre.runtime.builder.RuntimeBuilder` — constructs MedreApp from config
 * :class:`~medre.runtime.builder.AdapterBuildFailure` — adapter construction failure record
-* :class:`~medre.runtime.capacity.CapacityController` — semaphore-based in-flight limiter
 * :class:`~medre.runtime.routes.RouteDirectionality` — route flow direction
 * :class:`~medre.runtime.routes.BridgePolicy` — static route allowlist policy
 * :class:`~medre.runtime.routes.RouteConfig` — single named route definition
@@ -19,7 +18,6 @@ Public symbols
 
 from medre.runtime.app import MedreApp
 from medre.runtime.builder import AdapterBuildFailure, RuntimeBuilder
-from medre.runtime.capacity import CapacityController
 from medre.runtime.errors import (
     AdapterStartupError,
     RuntimeConfigError,
@@ -43,7 +41,6 @@ __all__ = [
     "MedreApp",
     "RuntimeBuilder",
     "AdapterBuildFailure",
-    "CapacityController",
     "BridgePolicy",
     "RouteConfig",
     "RouteConfigSet",

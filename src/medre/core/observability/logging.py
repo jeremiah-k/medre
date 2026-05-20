@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from medre.core.observability.log_levels import VALID_LEVEL_NAMES
-from medre.observability.sanitization import sanitize_error, sanitize_for_log
+from medre.core.observability.sanitization import sanitize_error, sanitize_for_log
 
 # ---------------------------------------------------------------------------
 # Dependency logger defaults
@@ -189,9 +189,7 @@ def setup_logging(
     """
     # 0. Validate level parameter.
     if not isinstance(level, str):
-        raise ValueError(
-            f"Logging level must be a string, got {type(level).__name__}"
-        )
+        raise ValueError(f"Logging level must be a string, got {type(level).__name__}")
     upper_level = level.upper()
     if upper_level not in VALID_LEVEL_NAMES:
         raise ValueError(

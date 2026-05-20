@@ -11,6 +11,7 @@ TRACK 6 — Boundary/Regression Tests
 
 from __future__ import annotations
 
+import ast as _ast
 import importlib
 import os
 import re
@@ -19,6 +20,14 @@ from pathlib import Path
 from typing import Any, AsyncGenerator
 
 import pytest
+
+from tests.helpers.import_ast import (
+    all_imports,
+    check_banned_ast,
+    collect_imports_from_node,
+    runtime_imports,
+    top_level_imports,
+)
 
 # ---------------------------------------------------------------------------
 # Shared constants
@@ -1009,3 +1018,308 @@ class TestNoStaleWordingInDocs:
         ), "Stale transitional wording found in docs:\n" + "\n".join(
             f"{f}:{line}: {s}" for f, line, s in violations
         )
+
+
+# ---------------------------------------------------------------------------
+# AST-based import extraction helpers (Sections T–W)
+# ---------------------------------------------------------------------------
+
+
+# Backward-compatible aliases for moved AST helpers.
+_collect_imports_from_node = collect_imports_from_node
+_top_level_imports = top_level_imports
+_all_imports = all_imports
+_runtime_imports = runtime_imports
+_check_banned_ast = check_banned_ast
+
+
+# ===================================================================
+# T) Core boundary — comprehensive AST-based check
+# ===================================================================
+
+
+class TestCoreBoundaryComprehensive:
+    """Core modules must not import from adapters, runtime.builder, CLI, or transport SDKs.
+
+    After the capacity/sanitization moves, core should be fully self-contained
+    with only stdlib, medre.core.*, and a few generic dependencies.
+    """
+
+    _BANNED_PREFIXES: tuple[str, ...] = (
+        "medre.adapters",
+        "medre.runtime.builder",
+        "medre.runtime.route_engine",
+        "medre.runtime.app",
+        "medre.cli",
+        "medre.config",
+        "medre.runtime",
+        "medre.observability",
+        # Transport SDKs
+        "nio",
+        "meshtastic",
+        "aiohttp",
+        "serial",
+        "meshcore",
+        "RNS",
+        "lxmf",
+    )
+
+    def test_core_files_have_no_banned_imports(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        core_dir = repo_root / "src" / "medre" / "core"
+        assert core_dir.exists(), f"core directory not found: {core_dir}"
+
+        violations: list[str] = []
+        for py_file in sorted(core_dir.rglob("*.py")):
+            if "__pycache__" in str(py_file):
+                continue
+            rel = str(py_file.relative_to(repo_root))
+            source = py_file.read_text()
+            try:
+                imports = _runtime_imports(source)
+            except SyntaxError:
+                violations.append(f"{rel}: syntax error, cannot parse")
+                continue
+            violations.extend(
+                _check_banned_ast(imports, self._BANNED_PREFIXES, rel_path=rel)
+            )
+
+        assert violations == [], "Core files contain banned imports:\n" + "\n".join(
+            violations
+        )
+
+
+# ===================================================================
+# U) Route engine boundary — comprehensive check
+# ===================================================================
+
+
+class TestRouteEngineBoundaryComprehensive:
+    """Route engine must not import adapter implementations or SDKs.
+
+    It may use platform strings like 'matrix' and 'meshtastic' for
+    channel_room_map expansion, but must not import adapter modules.
+    """
+
+    _BANNED_PREFIXES: tuple[str, ...] = (
+        "medre.adapters",
+        "nio",
+        "meshtastic",
+        "aiohttp",
+        "serial",
+        "medre.runtime.builder",
+        "medre.runtime.app",
+        "medre.cli",
+    )
+
+    def test_route_engine_no_banned_imports(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        route_engine = repo_root / "src" / "medre" / "runtime" / "route_engine.py"
+        assert route_engine.exists(), f"route_engine.py not found: {route_engine}"
+
+        rel = str(route_engine.relative_to(repo_root))
+        source = route_engine.read_text()
+        imports = _all_imports(source)
+        violations = _check_banned_ast(imports, self._BANNED_PREFIXES, rel_path=rel)
+
+        assert (
+            violations == []
+        ), "route_engine.py contains banned imports:\n" + "\n".join(violations)
+
+
+# ===================================================================
+# V) Config model boundary — comprehensive check
+# ===================================================================
+
+
+class TestConfigModelBoundaryComprehensive:
+    """config/model.py may import adapter config dataclasses but not
+    adapter implementations.
+
+    Allowed: medre.config.adapters.* (dataclasses only)
+    Disallowed: medre.adapters.*.adapter, medre.adapters.*.session,
+                medre.runtime.builder, medre.runtime.route_engine,
+                medre.core.engine, nio, meshtastic, aiohttp, serial
+    """
+
+    _BANNED_TOP_LEVEL: tuple[str, ...] = (
+        "medre.adapters.matrix.adapter",
+        "medre.adapters.matrix.session",
+        "medre.adapters.meshtastic.adapter",
+        "medre.adapters.meshtastic.session",
+        "medre.adapters.meshcore.adapter",
+        "medre.adapters.meshcore.session",
+        "medre.adapters.lxmf.adapter",
+        "medre.adapters.lxmf.session",
+        "medre.runtime.builder",
+        "medre.runtime.route_engine",
+        "medre.core.engine",
+        # SDKs
+        "nio",
+        "meshtastic",
+        "aiohttp",
+        "serial",
+    )
+
+    # medre.runtime.routes is allowed ONLY under TYPE_CHECKING or deferred
+    _RUNTIME_ROUTES_MODULE = "medre.runtime.routes"
+
+    def test_config_model_no_banned_imports(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        model_file = repo_root / "src" / "medre" / "config" / "model.py"
+        assert model_file.exists(), f"config/model.py not found: {model_file}"
+
+        rel = str(model_file.relative_to(repo_root))
+        source = model_file.read_text()
+
+        # Check runtime-scope imports for banned items
+        rt_imports = _runtime_imports(source)
+        violations = _check_banned_ast(rt_imports, self._BANNED_TOP_LEVEL, rel_path=rel)
+
+        # Also check that medre.runtime.routes is NOT a bare runtime-scope import
+        # (it must be under TYPE_CHECKING or deferred inside a function body)
+        for mod, lineno in rt_imports:
+            if mod == self._RUNTIME_ROUTES_MODULE or mod.startswith(
+                self._RUNTIME_ROUTES_MODULE + "."
+            ):
+                # Verify it is inside an `if TYPE_CHECKING:` block
+                # by checking the source line context
+                lines = source.splitlines()
+                # Look backward from lineno for `if TYPE_CHECKING`
+                in_type_checking = False
+                for check_line in range(lineno - 1, max(0, lineno - 10), -1):
+                    if "TYPE_CHECKING" in lines[check_line]:
+                        in_type_checking = True
+                        break
+                    if lines[check_line].strip() and not lines[
+                        check_line
+                    ].strip().startswith(("from ", "import ")):
+                        break
+                if not in_type_checking:
+                    violations.append(
+                        f"{rel}:{lineno}: top-level import of {mod} "
+                        "(must be under TYPE_CHECKING or deferred)"
+                    )
+
+        assert (
+            violations == []
+        ), "config/model.py contains banned imports:\n" + "\n".join(violations)
+
+
+# ===================================================================
+# W) Reusable adapter module boundary
+# ===================================================================
+
+
+class TestReusableAdapterModuleBoundary:
+    """Reusable adapter modules (codec/renderer/session) must not import
+    runtime/builder/pipeline/storage/CLI or other transport adapter modules.
+    """
+
+    _BANNED_PREFIXES: tuple[str, ...] = (
+        "medre.runtime",
+        "medre.cli",
+        "medre.core.engine",
+        "medre.core.storage",
+    )
+
+    # Heavy SDK packages banned at top-level for codec/renderer files.
+    _HEAVY_SDKS: tuple[str, ...] = ("nio", "meshtastic", "meshcore", "RNS", "lxmf")
+
+    # Modules to scan.  Tuple of (path_suffix, transport_name).
+    _MODULE_SPECS: list[tuple[str, str]] = [
+        ("src/medre/adapters/matrix/codec.py", "matrix"),
+        ("src/medre/adapters/matrix/renderer.py", "matrix"),
+        ("src/medre/adapters/matrix/session.py", "matrix"),
+        ("src/medre/adapters/meshtastic/codec.py", "meshtastic"),
+        ("src/medre/adapters/meshtastic/renderer.py", "meshtastic"),
+        ("src/medre/adapters/meshtastic/session.py", "meshtastic"),
+        ("src/medre/adapters/meshcore/codec.py", "meshcore"),
+        ("src/medre/adapters/meshcore/renderer.py", "meshcore"),
+        ("src/medre/adapters/meshcore/session.py", "meshcore"),
+        ("src/medre/adapters/lxmf/codec.py", "lxmf"),
+        ("src/medre/adapters/lxmf/renderer.py", "lxmf"),
+        ("src/medre/adapters/lxmf/session.py", "lxmf"),
+        ("src/medre/interop/mmrelay.py", ""),
+    ]
+
+    def _check_module(self, py_file: Path, rel: str, transport: str) -> list[str]:
+        """Check a single module for boundary violations."""
+        source = py_file.read_text()
+        violations: list[str] = []
+
+        try:
+            _ast.parse(source)
+        except SyntaxError:
+            return [f"{rel}: syntax error, cannot parse"]
+
+        is_codec_or_renderer = py_file.name in ("codec.py", "renderer.py")
+
+        # Gather top-level vs nested imports
+        all_imports_list = _all_imports(source, file_path=str(py_file))
+        top_imports = _top_level_imports(source, file_path=str(py_file))
+
+        # 1. Check all imports for banned prefixes (runtime, cli, core.engine, core.storage)
+        for mod, lineno in all_imports_list:
+            for prefix in self._BANNED_PREFIXES:
+                if mod == prefix or mod.startswith(prefix + "."):
+                    violations.append(
+                        f"{rel}:{lineno}: imports {mod} (banned: {prefix})"
+                    )
+                    break
+
+        # 2. Check own-adapter.module import (e.g. matrix/codec.py importing matrix/adapter)
+        if transport:
+            own_adapter = f"medre.adapters.{transport}.adapter"
+            for mod, lineno in all_imports_list:
+                if mod == own_adapter or mod.startswith(own_adapter + "."):
+                    violations.append(
+                        f"{rel}:{lineno}: imports {mod} "
+                        f"(circular: reusable module importing own adapter)"
+                    )
+
+        # 2b. Cross-adapter isolation: reusable modules must not import
+        #     other transport adapter packages (e.g. matrix/codec importing
+        #     meshtastic/*).  interop modules are exempt.
+        if transport:
+            for mod, lineno in all_imports_list:
+                if not mod.startswith("medre.adapters."):
+                    continue
+                # e.g. "medre.adapters.meshtastic.codec"
+                parts = mod.split(".")
+                if len(parts) >= 3:
+                    other_transport = parts[2]
+                    if other_transport != transport and other_transport != "":
+                        violations.append(
+                            f"{rel}:{lineno}: imports {mod} "
+                            f"(cross-adapter: {transport} module importing "
+                            f"{other_transport})"
+                        )
+
+        # 3. Codec/renderer must NOT have top-level heavy SDK imports
+        if is_codec_or_renderer:
+            for mod, lineno in top_imports:
+                for sdk in self._HEAVY_SDKS:
+                    if mod == sdk or mod.startswith(sdk + "."):
+                        violations.append(
+                            f"{rel}:{lineno}: top-level SDK import {mod} "
+                            "(codec/renderer must not import heavy SDKs)"
+                        )
+                        break
+
+        return violations
+
+    def test_reusable_modules_boundary(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        violations: list[str] = []
+
+        for path_suffix, transport in self._MODULE_SPECS:
+            py_file = repo_root / path_suffix
+            if not py_file.exists():
+                continue
+            rel = str(py_file.relative_to(repo_root))
+            violations.extend(self._check_module(py_file, rel, transport))
+
+        assert (
+            violations == []
+        ), "Reusable adapter module boundary violations:\n" + "\n".join(violations)

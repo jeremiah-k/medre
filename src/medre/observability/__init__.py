@@ -6,8 +6,8 @@ everything from a single namespace::
     from medre.observability import (
         adapter_logger,
         format_duration_ms,
-        sanitize_for_log,
         sanitize_error,
+        sanitize_for_log,
         startup_summary,
         shutdown_summary,
     )

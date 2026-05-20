@@ -40,9 +40,9 @@ from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.kinds import EventKind
 from medre.core.events.metadata import EventMetadata
 from medre.core.lifecycle.states import AdapterState
+from medre.core.runtime.capacity import CapacityController
 from medre.runtime.app import MedreApp, RuntimeState
 from medre.runtime.builder import RuntimeBuilder
-from medre.runtime.capacity import CapacityController
 
 # ---------------------------------------------------------------------------
 # Fixtures

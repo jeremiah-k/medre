@@ -7,7 +7,7 @@ from typing import Any
 from medre.config.env import MedreEnvConfig
 from medre.config.loader import ConfigSource
 from medre.config.paths import MedrePaths
-from medre.observability.sanitization import sanitize_error
+from medre.core.observability.sanitization import sanitize_error
 
 from ._helpers import _section_ok, _section_partial
 

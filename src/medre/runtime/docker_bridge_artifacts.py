@@ -74,7 +74,7 @@ deprecated regex parsing with an explicit limitation.
 
 Honesty requirements
 --------------------
-- Tokens/passwords are redacted via :func:`~medre.observability.sanitization.sanitize_for_log`.
+- Tokens/passwords are redacted via :func:`~medre.core.observability.sanitization.sanitize_for_log`.
 - Docs must state: no real external Matrix account or real radio is proven.
 - On failure, ``summary.json`` is still written with ``status: "failed"`` or
   ``"partial"`` and populated ``limitations``.
@@ -93,7 +93,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from medre.observability.sanitization import sanitize_error, sanitize_for_log
+from medre.core.observability.sanitization import sanitize_error, sanitize_for_log
 
 __all__ = [
     "ARTIFACT_PLAN",
@@ -265,7 +265,7 @@ def create_run_directory(
 def redact_config_snapshot(config_data: dict[str, Any]) -> dict[str, Any]:
     """Redact tokens, passwords, and secrets from a config snapshot.
 
-    Uses :func:`~medre.observability.sanitization.sanitize_for_log` for
+    Uses :func:`~medre.core.observability.sanitization.sanitize_for_log` for
     consistent redaction across the project.
     """
     return sanitize_for_log(config_data)

@@ -97,7 +97,7 @@ from medre.core.storage.backend import DEFAULT_QUERY_LIMIT, EventFilter, Storage
 if TYPE_CHECKING:
     from medre.core.observability.metrics import Diagnostician
     from medre.core.runtime.accounting import RuntimeAccounting
-    from medre.runtime.capacity import CapacityController
+    from medre.core.runtime.capacity import CapacityController
 
 
 _logger = logging.getLogger(__name__)
@@ -927,7 +927,7 @@ class ReplayEngine:
         self._accounting: RuntimeAccounting | None = accounting
 
     def set_capacity_controller(self, cc: CapacityController) -> None:
-        """Wire a :class:`~medre.runtime.capacity.CapacityController`.
+        """Wire a :class:`~medre.core.runtime.capacity.CapacityController`.
 
         When set, :meth:`_stage_deliver` acquires a replay slot
         before delivery in BEST_EFFORT mode and releases it on

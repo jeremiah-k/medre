@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from medre.observability.sanitization import sanitize_error
+from medre.core.observability.sanitization import sanitize_error
 
 # ---------------------------------------------------------------------------
 # Per-route counters

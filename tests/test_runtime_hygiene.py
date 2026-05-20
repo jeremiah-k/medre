@@ -32,13 +32,13 @@ from medre.core.diagnostics.snapshot import build_diagnostics_snapshot
 from medre.core.lifecycle.states import AdapterState
 from medre.core.routing.stats import RouteStats
 from medre.core.runtime.accounting import RuntimeAccounting, RuntimeCounters
+from medre.core.runtime.capacity import CapacityController
 from medre.core.runtime.supervision import (
     RuntimeHealth,
     classify_runtime_health,
     classify_startup_outcome,
 )
 from medre.runtime.boot_summary import build_boot_summary
-from medre.runtime.capacity import CapacityController
 from medre.runtime.observability import DiagnosticsCollector
 from medre.runtime.snapshot import (
     _MAX_ADAPTERS,

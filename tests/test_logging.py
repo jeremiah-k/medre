@@ -9,7 +9,7 @@ Covers:
 - Repeated setup_logging is a no-op
 
 Behavioral note on the canonical sanitizer (``sanitize_for_log`` from
-``medre.observability.sanitization``):
+``medre.core.observability.sanitization``):
 
 * Uses **anchored regex patterns** (e.g. ``^password$``, ``^secret``) instead
   of the old substring matching.  Keys like ``"user_password_hash"`` no longer
@@ -36,8 +36,8 @@ import pytest
 
 from medre.core.observability.logging import (
     _DEPENDENCY_DEFAULTS,
-    _JsonFormatter,
     _MEDRE_HANDLER_ATTR,
+    _JsonFormatter,
     diagnostic_event,
     get_logger,
     log_route_delivered,
@@ -46,7 +46,7 @@ from medre.core.observability.logging import (
     log_route_matched,
     setup_logging,
 )
-from medre.observability.sanitization import sanitize_for_log
+from medre.core.observability.sanitization import sanitize_for_log
 
 # ---------------------------------------------------------------------------
 # Canonical sanitizer tests
@@ -54,7 +54,7 @@ from medre.observability.sanitization import sanitize_for_log
 
 
 class TestSanitizeForLogCanonical:
-    """Tests for ``sanitize_for_log`` from ``medre.observability.sanitization``.
+    """Tests for ``sanitize_for_log`` from ``medre.core.observability.sanitization``.
 
     These tests verify the canonical sanitizer's behaviour as used by the
     logging layer.  The canonical sanitizer uses anchored regex patterns
@@ -364,8 +364,7 @@ class TestSetupLoggingIntegration:
         # Also remove MEDRE-managed handlers from root.
         root = logging.getLogger()
         root.handlers = [
-            h for h in root.handlers
-            if not getattr(h, _MEDRE_HANDLER_ATTR, False)
+            h for h in root.handlers if not getattr(h, _MEDRE_HANDLER_ATTR, False)
         ]
 
     def test_json_format_includes_extra_fields(self) -> None:
@@ -429,9 +428,10 @@ class TestSetupLoggingIntegration:
             1 for h in root.handlers if getattr(h, _MEDRE_HANDLER_ATTR, False)
         )
         setup_logging(level="ERROR", json_format=True)
-        assert sum(
-            1 for h in root.handlers if getattr(h, _MEDRE_HANDLER_ATTR, False)
-        ) == medre_handler_count
+        assert (
+            sum(1 for h in root.handlers if getattr(h, _MEDRE_HANDLER_ATTR, False))
+            == medre_handler_count
+        )
 
     def test_get_logger_returns_child(self) -> None:
         child = get_logger("subsystem")
@@ -743,9 +743,10 @@ class TestSetupLoggingOverrides:
             1 for h in root.handlers if getattr(h, _MEDRE_HANDLER_ATTR, False)
         )
         setup_logging(level="ERROR", json_format=True)
-        assert sum(
-            1 for h in root.handlers if getattr(h, _MEDRE_HANDLER_ATTR, False)
-        ) == medre_handler_count
+        assert (
+            sum(1 for h in root.handlers if getattr(h, _MEDRE_HANDLER_ATTR, False))
+            == medre_handler_count
+        )
 
     def test_medre_logger_propagates_to_root(self) -> None:
         """medre logger should propagate to root (default propagation=True)."""
@@ -997,7 +998,8 @@ class TestLoggingTopology:
         # Switch back to text format
         setup_logging(level="INFO", json_format=False)
         medre_count = sum(
-            1 for h in logging.getLogger().handlers
+            1
+            for h in logging.getLogger().handlers
             if getattr(h, _MEDRE_HANDLER_ATTR, False)
         )
         assert medre_count == 1

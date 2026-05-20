@@ -23,8 +23,8 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
+from medre.core.observability.sanitization import sanitize_error as _sanitize_error
 from medre.core.routing.stats import RouteStats
-from medre.observability.sanitization import sanitize_error as _sanitize_error
 from medre.runtime.snapshot import (
     _MAX_ADAPTERS,
     _MAX_BUILD_FAILURES,

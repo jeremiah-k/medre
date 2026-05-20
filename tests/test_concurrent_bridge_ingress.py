@@ -445,7 +445,7 @@ class TestConcurrentIngressCleanShutdown:
         temp_storage: SQLiteStorage,
     ) -> None:
         from medre.config.model import RuntimeLimits
-        from medre.runtime.capacity import CapacityController
+        from medre.core.runtime.capacity import CapacityController
 
         s = await _build_bridge(temp_storage, prefix="t4b", routes=_bidir_routes("t4b"))
         cc = CapacityController(
@@ -486,7 +486,7 @@ class TestConcurrentIngressCleanShutdown:
         temp_storage: SQLiteStorage,
     ) -> None:
         from medre.config.model import RuntimeLimits
-        from medre.runtime.capacity import CapacityController
+        from medre.core.runtime.capacity import CapacityController
 
         s = await _build_bridge(temp_storage, prefix="t4c", routes=_bidir_routes("t4c"))
         cc = CapacityController(

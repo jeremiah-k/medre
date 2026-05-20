@@ -7,7 +7,7 @@ from typing import Any, Callable
 
 from medre.config.env import apply_env_overrides
 from medre.config.loader import load_config
-from medre.observability.sanitization import sanitize_error
+from medre.core.observability.sanitization import sanitize_error
 
 from ._config_sections import (
     _collect_config_summary,

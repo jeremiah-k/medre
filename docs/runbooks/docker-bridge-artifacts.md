@@ -381,7 +381,7 @@ Combines both scenarios above. All proven and unproven statements from both indi
 
 ## Redaction
 
-All tokens, passwords, API keys, and secrets are redacted from the summary using the project's existing `sanitize_for_log` and `sanitize_error` utilities (from `medre.observability.sanitization`). This includes:
+All tokens, passwords, API keys, and secrets are redacted from the summary using the project's existing `sanitize_for_log` and `sanitize_error` utilities (from `medre.core.observability.sanitization`). This includes:
 
 - Matrix access tokens (`syt_...`)
 - Password fields

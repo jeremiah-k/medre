@@ -73,11 +73,11 @@ These are adapter runtime errors — NOT config validation errors.
 
 ## 1. Layer Ownership Rules
 
-| Layer            | May Import From                                                           | Must Not Import From             |
-| ---------------- | ------------------------------------------------------------------------- | -------------------------------- |
-| `medre.core`     | `medre.core` only (documented exceptions: `observability/sanitization`)   | `medre.adapters`, `medre.config` |
-| `medre.config`   | `medre.config` (including `config.adapters`)                              | `medre.adapters`                 |
-| `medre.adapters` | `medre.core.contracts.adapter`, `medre.config.adapters.*`, `medre.core.*` | —                                |
+| Layer            | May Import From                                                              | Must Not Import From             |
+| ---------------- | ---------------------------------------------------------------------------- | -------------------------------- |
+| `medre.core`     | `medre.core` only (with narrowly scoped internal dependency notes)           | `medre.adapters`, `medre.config` |
+| `medre.config`   | `medre.config` (including `config.adapters`)                                 | `medre.adapters`                 |
+| `medre.adapters` | `medre.core.contracts.adapter`, `medre.config.adapters.*`, `medre.core.*`    | —                                |
 
 - Concrete adapters depend inward on core contracts and config models.
 - `medre.config.adapters.matrix_credentials` is the canonical owner of credential file operations.
@@ -88,19 +88,19 @@ These are adapter runtime errors — NOT config validation errors.
 
 **Documented runtime exceptions** (core -> outside core):
 
-| Source                          | Import                                                  | Reason                                |
-| ------------------------------- | ------------------------------------------------------- | ------------------------------------- |
-| `core/observability/logging.py` | `sanitize_for_log` from `observability/sanitization.py` | Pure function, no I/O or SDK coupling |
-| `core/routing/stats.py`         | `sanitize_error` from `observability/sanitization.py`   | Pure function, no I/O or SDK coupling |
+| Source                          | Import                                                       | Reason                                |
+| ------------------------------- | ------------------------------------------------------------ | ------------------------------------- |
+| `core/observability/logging.py` | `sanitize_for_log` from `core/observability/sanitization.py` | Pure function, no I/O or SDK coupling |
+| `core/routing/stats.py`         | `sanitize_error` from `core/observability/sanitization.py`   | Pure function, no I/O or SDK coupling |
 
-Both exceptions import the same pure-function module (`observability/sanitization.py`). They are the only runtime core->external dependencies.
+Both imports target the same pure-function module (`core/observability/sanitization.py`) within `medre.core`. They are the only documented internal exception within core.
 
 **Type-only coupling** (acceptable, no runtime dependency):
 
-| Source                    | Import                                       | Guard                     |
-| ------------------------- | -------------------------------------------- | ------------------------- |
-| `core/engine/pipeline.py` | `CapacityController` from `runtime.capacity` | `if TYPE_CHECKING:` block |
-| `core/storage/replay.py`  | `CapacityController` from `runtime.capacity` | `if TYPE_CHECKING:` block |
+| Source                    | Import                                            | Guard                     |
+| ------------------------- | ------------------------------------------------- | ------------------------- |
+| `core/engine/pipeline.py` | `CapacityController` from `core.runtime.capacity` | `if TYPE_CHECKING:` block |
+| `core/storage/replay.py`  | `CapacityController` from `core.runtime.capacity` | `if TYPE_CHECKING:` block |
 
 ## 2. Package Tree
 
@@ -184,5 +184,5 @@ The following modules do not exist and must not be imported:
 - Move fake adapters to `medre.adapters.fakes/` subdirectory
 - Decide disposition of remaining contract/doc documents (audit records vs current specifications)
 - Evaluate merging `core/diagnostics/` into `core/observability/`
-- Deduplicate `_SECRET_KEY_PATTERNS` between `core/runtime/diagnostic_contract.py` and `observability/sanitization.py`
+- Deduplicate `_SECRET_KEY_PATTERNS` between `core/runtime/diagnostic_contract.py` and `core/observability/sanitization.py`
 - Delete empty packages `core/policies/` and `core/transforms/`

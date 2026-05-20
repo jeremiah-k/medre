@@ -207,7 +207,7 @@ import logging
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Callable
 
-from medre.observability.sanitization import sanitize_error as _sanitize_error
+from medre.core.observability.sanitization import sanitize_error as _sanitize_error
 
 if TYPE_CHECKING:
     pass

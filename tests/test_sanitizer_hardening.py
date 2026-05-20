@@ -14,7 +14,7 @@ import time
 
 import pytest
 
-from medre.observability.sanitization import (
+from medre.core.observability.sanitization import (
     _MAX_ERROR_DETAIL_LEN,
     _TOKEN_RE,
     sanitize_error,

@@ -184,7 +184,7 @@ async def _inject_scenario(
             return "No capacity controller wired"
         # Exhaust the delivery semaphore.
         from medre.config.model import RuntimeLimits
-        from medre.runtime.capacity import CapacityController
+        from medre.core.runtime.capacity import CapacityController
 
         small_cc = CapacityController(
             RuntimeLimits(

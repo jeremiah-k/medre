@@ -32,6 +32,7 @@ from medre.core.observability.logging import (
     setup_logging,
 )
 from medre.core.observability.metrics import EventMetrics, RouteMetrics
+from medre.core.observability.sanitization import sanitize_error, sanitize_for_log
 
 __all__ = [
     "EventMetrics",
@@ -41,5 +42,7 @@ __all__ = [
     "log_route_failed",
     "log_route_loop_prevented",
     "log_route_matched",
+    "sanitize_error",
+    "sanitize_for_log",
     "setup_logging",
 ]

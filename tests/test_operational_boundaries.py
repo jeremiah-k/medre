@@ -767,7 +767,7 @@ class TestDeploymentHelpersNoSdkInstantiation:
 class TestCoreLoggingImportsCanonicalSanitizer:
     """``medre.core.observability.logging`` must not define its own
     redaction logic — it must import and use the canonical
-    ``sanitize_for_log`` from ``medre.observability.sanitization``.
+    ``sanitize_for_log`` from ``medre.core.observability.sanitization``.
     """
 
     _LOGGING_MODULE = "medre.core.observability.logging"
@@ -808,11 +808,11 @@ class TestCoreLoggingImportsCanonicalSanitizer:
         """``sanitize_for_log`` must be imported from the canonical location."""
         source = _source_of(self._LOGGING_MODULE)
         assert (
-            "from medre.observability.sanitization import" in source
+            "from medre.core.observability.sanitization import" in source
             and "sanitize_for_log" in source
         ), (
             f"{self._LOGGING_MODULE} must import sanitize_for_log "
-            "from medre.observability.sanitization"
+            "from medre.core.observability.sanitization"
         )
 
     def test_uses_canonical_sanitize_for_log(self) -> None:

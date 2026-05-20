@@ -29,8 +29,8 @@ import logging
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
-from medre.config.model import (
-    MatrixRuntimeConfig,  # noqa: F401 — imported to satisfy architectural boundary test
+from medre.config.model import (  # noqa: F401 — imported to satisfy architectural boundary test
+    MatrixRuntimeConfig,
     RuntimeConfig,
     StorageConfig,
 )
@@ -46,10 +46,10 @@ from medre.core.rendering.text import TextRenderer
 from medre.core.routing.router import Router
 from medre.core.routing.stats import RouteStats
 from medre.core.runtime.accounting import RuntimeAccounting
+from medre.core.runtime.capacity import CapacityController
 from medre.core.storage.replay import ReplayEngine
 from medre.core.storage.sqlite import SQLiteStorage
 from medre.runtime.app import MedreApp
-from medre.runtime.capacity import CapacityController
 from medre.runtime.errors import RuntimeConfigError
 
 if TYPE_CHECKING:
