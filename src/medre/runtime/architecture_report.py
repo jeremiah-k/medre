@@ -120,7 +120,7 @@ def build_dependency_graph(src_root: Path) -> ArchitectureGraph:
     py_files = sorted(src_root.rglob("*.py"))
     for py_file in py_files:
         module = module_path_for(py_file, src_root)
-        if not module.startswith("medre."):
+        if module != "medre" and not module.startswith("medre."):
             continue
         info = ModuleInfo(
             module=module,
@@ -464,10 +464,18 @@ def build_route_adapter_boundary_report(
         "RNS",
         "lxmf",
     )
+    # Per-transport allowed SDKs
+    session_allowed_sdks = {
+        "matrix": ("nio",),
+        "meshtastic": ("meshtastic", "serial", "serial_asyncio"),
+        "meshcore": ("meshcore",),
+        "lxmf": ("RNS", "lxmf"),
+    }
     for mod, info in graph.modules.items():
         if not mod.endswith(".session") or not mod.startswith("medre.adapters."):
             continue
         own_transport = _transport_for(mod)
+        allowed_sdks = session_allowed_sdks.get(own_transport or "", ())
         for edge in info.imports:
             if edge.is_type_checking:
                 continue
@@ -476,16 +484,18 @@ def build_route_adapter_boundary_report(
             for sdk in _SDK_PREFIXES:
                 if target == sdk or target.startswith(sdk + "."):
                     # Allow if SDK belongs to own transport
-                    # (heuristic: meshtastic SDK in meshtastic session is fine)
-                    # We just report all SDK imports; the rule is informational
-                    session_foreign.append(
-                        BoundaryViolation(
-                            source=mod,
-                            target=target,
-                            line=edge.line,
-                            rule=f"session SDK import: {sdk}",
+                    if not any(
+                        target == allowed or target.startswith(allowed + ".")
+                        for allowed in allowed_sdks
+                    ):
+                        session_foreign.append(
+                            BoundaryViolation(
+                                source=mod,
+                                target=target,
+                                line=edge.line,
+                                rule=f"session foreign SDK import: {sdk}",
+                            )
                         )
-                    )
                     break
             # Check imports from other adapter transports
             if target.startswith("medre.adapters."):

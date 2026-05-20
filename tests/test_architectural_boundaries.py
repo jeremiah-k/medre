@@ -1263,9 +1263,9 @@ class TestReusableAdapterModuleBoundary:
 
         is_codec_or_renderer = py_file.name in ("codec.py", "renderer.py")
 
-        # Gather top-level vs nested imports
+        # Gather runtime-scope imports (catches try/except/with blocks)
         all_imports_list = _all_imports(source, file_path=str(py_file))
-        top_imports = top_level_imports(source, file_path=str(py_file))
+        rt_imports = _runtime_imports(source, file_path=str(py_file))
 
         # 1. Check all imports for banned prefixes (runtime, cli, core.engine, core.storage)
         for r in all_imports_list:
@@ -1302,9 +1302,9 @@ class TestReusableAdapterModuleBoundary:
                             f"{other_transport})"
                         )
 
-        # 3. Codec/renderer must NOT have top-level heavy SDK imports
+        # 3. Codec/renderer must NOT have runtime-scope heavy SDK imports
         if is_codec_or_renderer:
-            for r in top_imports:
+            for r in rt_imports:
                 for sdk in self._HEAVY_SDKS:
                     if r.module == sdk or r.module.startswith(sdk + "."):
                         violations.append(

@@ -61,8 +61,13 @@ class TestParseFile:
     def test_skips_function_body_imports(self) -> None:
         py_file = _SRC / "config" / "model.py"
         edges = parse_file(py_file)
-        # The deferred import of RouteConfigSet inside a function should NOT appear
-        assert not any("_RCS" in e.target for e in edges)
+        # The deferred import of RouteConfigSet inside a function should NOT appear.
+        # TYPE_CHECKING imports of RouteConfigSet ARE allowed (marked is_type_checking).
+        runtime_rcs = [e for e in edges if e.target.endswith("RouteConfigSet") and not e.is_type_checking]
+        assert not runtime_rcs, (
+            f"Function-body RouteConfigSet import leaked into parse_file: "
+            f"{[(e.target, e.line) for e in runtime_rcs]}"
+        )
 
     def test_includes_type_checking_as_marked(self) -> None:
         py_file = _SRC / "core" / "engine" / "pipeline.py"
@@ -158,8 +163,9 @@ class TestResolveRelativeValueError:
     def test_path_without_src_returns_module_or_empty(self) -> None:
         """When file_path has no 'src' in its path parts, returns module or ''."""
         # level > 0, no 'src' in path
-        assert _resolve_relative(1, None, "/tmp/foo/bar.py") == ""
-        assert _resolve_relative(1, "somemod", "/tmp/foo/bar.py") == "somemod"
+        fake_path = "sandbox/foo/bar.py"
+        assert _resolve_relative(1, None, fake_path) == ""
+        assert _resolve_relative(1, "somemod", fake_path) == "somemod"
 
 
 class TestIsTypeChecking:
@@ -552,7 +558,28 @@ class TestBuildRouteAdapterBoundaryReport:
         assert report.codec_renderer_forbidden.violations[0].target == "meshtastic"
 
     def test_session_importing_foreign_sdk(self) -> None:
-        """Session importing a foreign SDK is flagged."""
+        """Session importing a foreign (cross-transport) SDK is flagged."""
+        graph = self._make_graph(
+            ModuleInfo(
+                module="medre.adapters.meshtastic.session",
+                file="adapters/meshtastic/session.py",
+                imports=[
+                    ImportEdge(
+                        source="medre.adapters.meshtastic.session",
+                        target="nio",
+                        line=2,
+                        kind="import",
+                        is_type_checking=False,
+                    ),
+                ],
+                layer="adapters",
+            ),
+        )
+        report = build_route_adapter_boundary_report(graph)
+        assert report.session_foreign_sdk.count >= 1
+
+    def test_session_own_sdk_not_flagged(self) -> None:
+        """Session importing its own transport SDK is NOT flagged."""
         graph = self._make_graph(
             ModuleInfo(
                 module="medre.adapters.meshtastic.session",
@@ -570,7 +597,7 @@ class TestBuildRouteAdapterBoundaryReport:
             ),
         )
         report = build_route_adapter_boundary_report(graph)
-        assert report.session_foreign_sdk.count >= 1
+        assert report.session_foreign_sdk.count == 0
 
     def test_adapter_wrapper_importing_foreign_transport(self) -> None:
         """Adapter wrapper importing from another transport is flagged."""

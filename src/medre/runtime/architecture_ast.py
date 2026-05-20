@@ -334,11 +334,13 @@ def extract_aliases(
                         local = alias.asname or alias.name
                         aliases[local] = alias.name
                 elif isinstance(child, ast.ImportFrom):
-                    base = child.module or ""
+                    base = resolve_relative(child.level, child.module, file_path)
                     for alias in child.names:
                         local = alias.asname or alias.name
-                        aliases[local] = f"{base}.{alias.name}"
+                        aliases[local] = f"{base}.{alias.name}" if base else alias.name
             elif isinstance(child, ast.If) and _is_type_checking(child):
+                for stmt in child.orelse:
+                    _walk(stmt)
                 continue
             elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
                 continue

@@ -27,7 +27,7 @@ def _fake_report(**overrides: object) -> dict[str, object]:
         "native_refs": [],
         "final_snapshot_checks": {},
         "commands": {},
-        "storage_path": "/tmp/medre-session-fake.db",
+        "storage_path": "medre-session-fake.db",
         "final_snapshot_path": None,
     }
     base.update(overrides)

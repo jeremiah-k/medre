@@ -350,11 +350,19 @@ class TestPackageRootsSystematic:
                             )
 
     def test_all_roots_have_no_getattr(self) -> None:
-        """__getattr__ must be absent."""
+        """__getattr__ must be absent (AST-based, avoids docstring false positives)."""
+        import ast
         for rel in self._PACKAGE_ROOTS:
             _file, source = self._read_py_file(rel)
-            if "__getattr__" in source:
-                pytest.fail(f"{rel}: defines __getattr__")
+            tree = ast.parse(source)
+            for node in ast.iter_child_nodes(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    if node.name == "__getattr__":
+                        pytest.fail(f"{rel}: defines __getattr__")
+                elif isinstance(node, ast.Assign):
+                    for target in node.targets:
+                        if isinstance(target, ast.Name) and target.id == "__getattr__":
+                            pytest.fail(f"{rel}: assigns __getattr__")
 
     def test_all_roots_have_no_submodule_re_exports(self) -> None:
         """No 'from .x import Symbol' re-exports from submodules."""

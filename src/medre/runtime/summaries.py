@@ -56,7 +56,7 @@ def format_duration_seconds(duration_s: float) -> str:
         duration_s: Elapsed wall-clock time in seconds.
         
     Returns:
-        Formatted duration string like ``"1.23s"``, ``"2m 3.45s"``.
+        Formatted duration string like ``"250µs"``, ``"42ms"``, or ``"1.2s"``.
     """
     return format_duration_ms(0.0, duration_s)
 
