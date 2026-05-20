@@ -4,5 +4,3 @@ This package does not expose a stable public API.
 Import directly from concrete modules:
   from medre.runtime.evidence._bundle import collect_evidence_bundle
 """
-
-__all__ = []  # No public API commitment

@@ -944,7 +944,8 @@ The runner (`medre run`) is the primary way to operate MEDRE in alpha mode. This
 import asyncio
 import os
 
-from medre.adapters.matrix import MatrixAdapter, MatrixConfig
+from medre.adapters.matrix.adapter import MatrixAdapter
+from medre.config.adapters.matrix import MatrixConfig
 from medre.core.contracts.adapter import AdapterContext
 
 async def main():

@@ -11,7 +11,7 @@ from medre.core.observability.classification import infer_failure_kind as _infer
 from medre.core.observability.classification import (
     recommended_commands as _recommended_commands,
 )
-from medre.runtime import timeline as _timeline
+import medre.runtime.timeline as _timeline
 
 from .exit_codes import EXIT_NOT_FOUND
 from .storage_helpers import _open_readonly_storage

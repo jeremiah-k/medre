@@ -20,25 +20,31 @@ _SRC = _REPO / "src" / "medre"
 
 # Forbidden prefixes for core modules
 _CORE_FORBIDDEN: tuple[str, ...] = (
+    "medre.runtime",
     "medre.adapters",
-    "medre.runtime.builder",
     "medre.cli",
     "nio",
     "meshtastic",
     "aiohttp",
     "serial",
     "serial_asyncio",
+    "meshcore",
+    "RNS",
+    "lxmf",
 )
 
-# Forbidden for route_engine
+# Forbidden for route_engine (may import medre.runtime.errors, routes)
 _ROUTE_ENGINE_FORBIDDEN: tuple[str, ...] = (
+    "medre.runtime.builder",
     "medre.adapters",
     "nio",
     "meshtastic",
     "aiohttp",
     "serial",
     "serial_asyncio",
-    "medre.runtime.builder",
+    "meshcore",
+    "RNS",
+    "lxmf",
 )
 
 # Allowed adapter-specific prefixes for config/model.py
@@ -60,6 +66,9 @@ _CONFIG_FORBIDDEN: tuple[str, ...] = (
     "aiohttp",
     "serial",
     "serial_asyncio",
+    "meshcore",
+    "RNS",
+    "lxmf",
 )
 
 

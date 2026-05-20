@@ -10,8 +10,8 @@ from pathlib import Path
 import pytest
 
 from tests.helpers.ast_imports import (
+    extract_aliases,
     parse_python,
-    runtime_scope_imports,
     top_level_calls,
 )
 
@@ -58,6 +58,13 @@ _BLOCKING_FUNCS: tuple[str, ...] = (
     "time.sleep",
 )
 
+# Mapping of common alias patterns to their fully-qualified blocking equivalents.
+# Used by _scan_file to resolve aliased imports before checking _BLOCKING_FUNCS.
+_BLOCKING_ALIASES: dict[str, str] = {
+    "sp": "subprocess",
+    "aio": "asyncio",
+}
+
 # Allowlist of (file_path_rel, func_name, reason) for known intentional cases
 _ALLOWLIST: list[tuple[str, str, str]] = [
     # Add intentional cases here with justification
@@ -70,20 +77,33 @@ def _scan_file(py_file: Path) -> list[str]:
     violations: list[str] = []
     tree = parse_python(py_file)
     calls = top_level_calls(tree, file_path=str(py_file))
+    aliases = extract_aliases(tree)
     rel = str(py_file.relative_to(_REPO))
 
     for call in calls:
+        # Resolve aliased call names to fully qualified names.
+        resolved_func = call.func
+        parts = call.func.split(".", 1)
+        if len(parts) == 1:
+            # Simple name: check if it's an alias for a blocking module
+            if parts[0] in aliases:
+                resolved_func = aliases[parts[0]]
+        else:
+            # Dotted name: check if the root is an alias
+            if parts[0] in aliases:
+                resolved_func = f"{aliases[parts[0]]}.{parts[1]}"
+
         for blocking_func in _BLOCKING_FUNCS:
-            if call.func == blocking_func or call.func.endswith(f".{blocking_func}"):
+            if resolved_func == blocking_func or resolved_func.endswith(f".{blocking_func}"):
                 # Check allowlist
                 allowed = False
                 for aw_rel, aw_func, _reason in _ALLOWLIST:
-                    if rel == aw_rel and call.func == aw_func:
+                    if rel == aw_rel and resolved_func == aw_func:
                         allowed = True
                         break
                 if not allowed:
                     violations.append(
-                        f"{rel}:{call.lineno}: blocking call {call.func}() at module level"
+                        f"{rel}:{call.lineno}: blocking call {resolved_func}() at module level"
                     )
                 break
 

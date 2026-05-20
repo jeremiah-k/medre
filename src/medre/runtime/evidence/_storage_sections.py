@@ -39,7 +39,7 @@ async def _collect_storage_data_from_backend(
 
     The caller is responsible for opening and closing the storage backend.
     """
-    from medre.runtime import timeline as _timeline
+    import medre.runtime.timeline as _timeline
 
     data: dict[str, Any] = {
         "db_exists": True,

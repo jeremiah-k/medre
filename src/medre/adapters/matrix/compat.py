@@ -8,7 +8,7 @@ Two module-level flags:
 
 Both flags are safe to monkeypatch in tests::
 
-    from medre.adapters.matrix import compat
+    import medre.adapters.matrix.compat as compat
     compat.HAS_E2EE = True   # pretend e2ee is available
 """
 

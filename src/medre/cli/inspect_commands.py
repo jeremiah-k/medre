@@ -13,7 +13,7 @@ from typing import Any
 
 import msgspec
 
-from medre.runtime import timeline as _timeline
+import medre.runtime.timeline as _timeline
 from medre.runtime.evidence._bundle import collect_evidence_bundle
 from medre.runtime.trace import timeline_to_json
 

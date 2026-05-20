@@ -21,7 +21,7 @@ from medre.core.events import (
     NativeMessageRef,
 )
 from medre.core.storage.sqlite import SQLiteStorage
-from medre.runtime import timeline as _timeline
+import medre.runtime.timeline as _timeline
 
 
 def _now() -> datetime:

@@ -20,6 +20,16 @@ _STALE_PATTERNS: list[tuple[str, str]] = [
     ("medre.runtime.capacity", "Use medre.core.runtime.capacity"),
     ("src/medre/runtime/capacity.py", "Use src/medre/core/runtime/capacity.py"),
     ("medre.observability.sanitization", "Use medre.core.observability.sanitization"),
+    ("from medre.adapters.matrix import MatrixAdapter", "Use medre.adapters.matrix.adapter"),
+    ("from medre.adapters.matrix import MatrixConfig", "Use medre.config.adapters.matrix"),
+    ("from medre.adapters.lxmf import LxmfAdapter", "Use medre.adapters.lxmf.adapter"),
+    ("from medre.adapters.meshtastic import MeshtasticAdapter", "Use medre.adapters.meshtastic.adapter"),
+    ("from medre.adapters.meshcore import MeshCoreAdapter", "Use medre.adapters.meshcore.adapter"),
+    ("from medre.config import RuntimeConfig", "Use medre.config.model.RuntimeConfig"),
+    ("from medre.config.adapters import MatrixConfig", "Use medre.config.adapters.matrix"),
+    ("from medre.runtime import RuntimeBuilder", "Use medre.runtime.builder"),
+    ("from medre.runtime import timeline", "Use import medre.runtime.timeline as timeline"),
+    ("from medre.observability import", "Use medre.core.observability.* or medre.runtime.summaries"),
 ]
 
 # Words that indicate historical context — stale references on a line with
@@ -72,7 +82,7 @@ def _find_stale_references(
 class TestActiveDocsNoStalePaths:
     """Active documentation must not reference moved module paths."""
 
-    def test_no_stale_capacity_paths(self) -> None:
+    def test_no_stale_module_paths(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
         violations = _find_stale_references(repo_root)
         assert not violations, "Stale module paths found in active docs:\n" + "\n".join(

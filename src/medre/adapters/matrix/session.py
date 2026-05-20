@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Literal
 
-from medre.adapters.matrix import compat as _compat_mod
+import medre.adapters.matrix.compat as _compat_mod
 from medre.adapters.matrix.errors import MatrixConnectionError
 from medre.config.adapters.matrix import MatrixConfig
 

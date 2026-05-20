@@ -5,6 +5,7 @@ import ast
 
 from tests.helpers.ast_imports import (
     all_imports,
+    extract_aliases,
     find_relative_imports,
     import_matches,
     runtime_scope_imports,
@@ -223,3 +224,84 @@ from ..parent import ParentClass
         # Both relatives should appear
         assert any("sibling" in m for m in relative_modules)
         assert any("parent" in m or "ParentClass" in m for m in relative_modules)
+
+
+class TestTopLevelCallsNested:
+    """Tests that top_level_calls captures nested calls."""
+
+    def test_json_load_open_detected(self) -> None:
+        source = 'json.load(open("config.json"))\n'
+        tree = ast.parse(source)
+        calls = top_level_calls(tree)
+        funcs = {c.func for c in calls}
+        assert "json.load" in funcs
+        assert "open" in funcs
+
+    def test_wrapper_subprocess_run_detected(self) -> None:
+        source = 'wrapper(subprocess.run(["git", "status"]))\n'
+        tree = ast.parse(source)
+        calls = top_level_calls(tree)
+        funcs = {c.func for c in calls}
+        assert "wrapper" in funcs
+        assert "subprocess.run" in funcs
+
+    def test_path_read_text_detected(self) -> None:
+        source = 'Path("file").read_text()\n'
+        tree = ast.parse(source)
+        calls = top_level_calls(tree)
+        assert len(calls) >= 1
+
+    def test_call_in_function_ignored(self) -> None:
+        source = """
+def my_func():
+    json.load(open("config.json"))
+"""
+        tree = ast.parse(source)
+        calls = top_level_calls(tree)
+        assert len(calls) == 0
+
+    def test_call_in_type_checking_ignored(self) -> None:
+        source = """
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    print('hello')
+"""
+        tree = ast.parse(source)
+        calls = top_level_calls(tree)
+        assert len(calls) == 0
+
+
+class TestExtractAliases:
+    """Tests for extract_aliases()."""
+
+    def test_import_as_alias(self) -> None:
+        source = "import subprocess as sp\n"
+        tree = ast.parse(source)
+        aliases = extract_aliases(tree)
+        assert aliases.get("sp") == "subprocess"
+
+    def test_from_import_alias(self) -> None:
+        source = "from subprocess import run\n"
+        tree = ast.parse(source)
+        aliases = extract_aliases(tree)
+        assert aliases.get("run") == "subprocess.run"
+
+    def test_import_no_alias(self) -> None:
+        source = "import os\n"
+        tree = ast.parse(source)
+        aliases = extract_aliases(tree)
+        assert aliases.get("os") == "os"
+
+    def test_multiple_aliases(self) -> None:
+        source = """
+import asyncio as aio
+from time import sleep
+import subprocess as sp
+from pathlib import Path
+"""
+        tree = ast.parse(source)
+        aliases = extract_aliases(tree)
+        assert aliases.get("aio") == "asyncio"
+        assert aliases.get("sleep") == "time.sleep"
+        assert aliases.get("sp") == "subprocess"
+        assert aliases.get("Path") == "pathlib.Path"

@@ -120,3 +120,101 @@ class TestEvidenceFacadeRemoved:
         assert not hasattr(mod, "collect_evidence_bundle"), (
             "medre.runtime.evidence should not re-export collect_evidence_bundle"
         )
+
+
+class TestPackageRootsNoFormerSymbols:
+    """Package roots must not expose former convenience symbols."""
+
+    def _mod(self, name: str):
+        import importlib
+        return importlib.import_module(name)
+
+    def test_adapters_no_former_symbols(self) -> None:
+        mod = self._mod("medre.adapters")
+        forbidden = ["FakeMatrixAdapter", "FakeMeshtasticAdapter", "FakeMeshCoreAdapter",
+                     "FakeLxmfAdapter", "FakePresentationAdapter", "FakeTransportAdapter",
+                     "FaultyPresentationAdapter"]
+        for sym in forbidden:
+            assert not hasattr(mod, sym), f"medre.adapters exposes {sym}"
+
+    def test_adapters_matrix_no_former_symbols(self) -> None:
+        mod = self._mod("medre.adapters.matrix")
+        forbidden = ["MatrixAdapter", "MatrixCodec", "MatrixRenderer", "MatrixSession",
+                     "MatrixConfig", "MatrixConnectionError", "MatrixSendError"]
+        for sym in forbidden:
+            assert not hasattr(mod, sym), f"medre.adapters.matrix exposes {sym}"
+
+    def test_adapters_meshtastic_no_former_symbols(self) -> None:
+        mod = self._mod("medre.adapters.meshtastic")
+        forbidden = ["MeshtasticAdapter", "MeshtasticCodec", "MeshtasticRenderer",
+                     "MeshtasticSession", "MeshtasticConfig"]
+        for sym in forbidden:
+            assert not hasattr(mod, sym), f"medre.adapters.meshtastic exposes {sym}"
+
+    def test_adapters_meshcore_no_former_symbols(self) -> None:
+        mod = self._mod("medre.adapters.meshcore")
+        forbidden = ["MeshCoreAdapter", "MeshCoreCodec", "MeshCoreRenderer",
+                     "MeshCoreSession", "MeshCoreConfig"]
+        for sym in forbidden:
+            assert not hasattr(mod, sym), f"medre.adapters.meshcore exposes {sym}"
+
+    def test_adapters_lxmf_no_former_symbols(self) -> None:
+        mod = self._mod("medre.adapters.lxmf")
+        forbidden = ["LxmfAdapter", "LxmfCodec", "LxmfRenderer", "LxmfSession", "LxmfConfig"]
+        for sym in forbidden:
+            assert not hasattr(mod, sym), f"medre.adapters.lxmf exposes {sym}"
+
+    def test_config_no_former_symbols(self) -> None:
+        mod = self._mod("medre.config")
+        forbidden = ["RuntimeConfig", "load_config", "MedrePaths", "RouteConfig", "MatrixConfig"]
+        for sym in forbidden:
+            assert not hasattr(mod, sym), f"medre.config exposes {sym}"
+
+    def test_config_adapters_no_former_symbols(self) -> None:
+        mod = self._mod("medre.config.adapters")
+        forbidden = ["MatrixConfig", "MeshtasticConfig", "MeshCoreConfig", "LxmfConfig"]
+        for sym in forbidden:
+            assert not hasattr(mod, sym), f"medre.config.adapters exposes {sym}"
+
+    def test_runtime_no_former_symbols(self) -> None:
+        mod = self._mod("medre.runtime")
+        forbidden = ["RuntimeBuilder", "MedreApp", "RuntimeStartupError", "RouteConfig"]
+        for sym in forbidden:
+            assert not hasattr(mod, sym), f"medre.runtime exposes {sym}"
+
+
+class TestConcretePathsWork:
+    """Canonical concrete import paths must work."""
+
+    def test_import_adapter_matrix(self) -> None:
+        from medre.adapters.matrix.adapter import MatrixAdapter
+        assert MatrixAdapter is not None
+
+    def test_import_codec_matrix(self) -> None:
+        from medre.adapters.matrix.codec import MatrixCodec
+        assert MatrixCodec is not None
+
+    def test_import_config_matrix(self) -> None:
+        from medre.config.adapters.matrix import MatrixConfig
+        assert MatrixConfig is not None
+
+    def test_import_config_model(self) -> None:
+        from medre.config.model import RuntimeConfig
+        assert RuntimeConfig is not None
+
+    def test_import_loader(self) -> None:
+        from medre.config.loader import load_config
+        assert load_config is not None
+
+    def test_import_runtime_builder(self) -> None:
+        from medre.runtime.builder import RuntimeBuilder
+        assert RuntimeBuilder is not None
+
+    def test_import_timeline(self) -> None:
+        import medre.runtime.timeline as timeline
+        assert timeline is not None
+
+    def test_import_sanitization(self) -> None:
+        from medre.core.observability.sanitization import sanitize_error, sanitize_for_log
+        assert sanitize_error is not None
+        assert sanitize_for_log is not None

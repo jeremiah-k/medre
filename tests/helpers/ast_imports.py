@@ -271,11 +271,12 @@ def top_level_calls(
                     lineno=child.lineno,
                     file=file_path,
                 ))
+                _walk(child)
             elif isinstance(child, ast.If):
                 if _is_type_checking(child):
                     continue
                 _walk(child)
-            elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
                 continue
             else:
                 _walk(child)
@@ -325,6 +326,27 @@ def find_relative_imports(
                     file=file_path,
                 ))
     return result
+
+
+def extract_aliases(tree: ast.Module) -> dict[str, str]:
+    """Extract import aliases from module-level imports.
+
+    Returns a dict mapping local name -> fully qualified name, e.g.:
+      import subprocess as sp  ->  {"sp": "subprocess"}
+      from subprocess import run  ->  {"run": "subprocess.run"}
+    """
+    aliases: dict[str, str] = {}
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                local = alias.asname or alias.name
+                aliases[local] = alias.name
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            base = node.module or ""
+            for alias in node.names:
+                local = alias.asname or alias.name
+                aliases[local] = f"{base}.{alias.name}"
+    return aliases
 
 
 def top_level_imports(

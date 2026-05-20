@@ -793,7 +793,8 @@ MEDRE's adapter configs are plain Python dataclasses. Import and construct them
 directly:
 
 ```python
-from medre.adapters.matrix import MatrixAdapter, MatrixConfig
+from medre.adapters.matrix.adapter import MatrixAdapter
+from medre.config.adapters.matrix import MatrixConfig
 
 config = MatrixConfig(
     adapter_id="my-bot",

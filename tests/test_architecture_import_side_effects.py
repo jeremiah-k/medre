@@ -22,8 +22,19 @@ _LIGHTWEIGHT_MODULES: list[str] = [
     # medre top-level is intentionally omitted: _import_fresh("medre") would
     # wipe all medre.* submodules from sys.modules, poisoning class identity
     # for subsequent tests that imported from medre.* at module level.
+    "medre.adapters",
+    "medre.adapters.matrix",
+    "medre.adapters.meshtastic",
+    "medre.adapters.meshcore",
+    "medre.adapters.lxmf",
+    "medre.config",
+    "medre.config.adapters",
+    "medre.runtime",
+    "medre.runtime.evidence",
+    "medre.runtime.run_session",
     "medre.interop.mmrelay",
     "medre.core.observability.sanitization",
+    # Adapter codec/renderer modules are lightweight (no sibling adapter imports)
     "medre.adapters.matrix.codec",
     "medre.adapters.matrix.renderer",
     "medre.adapters.meshtastic.codec",

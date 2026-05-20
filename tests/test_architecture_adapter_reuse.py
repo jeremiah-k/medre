@@ -1,6 +1,6 @@
 """Architecture boundary tests: reusable adapter module boundaries.
 
-Ensures codec/renderer/interop modules don't import runtime, CLI,
+Ensures codec/renderer/interop/session modules don't import runtime, CLI,
 storage, engine, adapter wrappers, or protocol SDKs at module level.
 """
 from __future__ import annotations
@@ -28,6 +28,10 @@ _REUSABLE_MODULES: list[tuple[str, str]] = [
     ("src/medre/adapters/meshcore/renderer.py", "meshcore"),
     ("src/medre/adapters/lxmf/codec.py", "lxmf"),
     ("src/medre/adapters/lxmf/renderer.py", "lxmf"),
+    ("src/medre/adapters/matrix/session.py", "matrix"),
+    ("src/medre/adapters/meshtastic/session.py", "meshtastic"),
+    ("src/medre/adapters/meshcore/session.py", "meshcore"),
+    ("src/medre/adapters/lxmf/session.py", "lxmf"),
     ("src/medre/interop/mmrelay.py", ""),
 ]
 
@@ -55,6 +59,14 @@ _SESSION_FORBIDDEN: tuple[str, ...] = (
     "medre.core.storage",
 )
 
+# Per-transport SDK allowlists for session modules
+_TRANSPORT_SDKS: dict[str, tuple[str, ...]] = {
+    "matrix": ("nio",),
+    "meshtastic": ("meshtastic", "serial", "serial_asyncio"),
+    "meshcore": ("meshcore",),
+    "lxmf": ("RNS", "lxmf"),
+}
+
 
 def _check_module(
     py_file: Path,
@@ -66,6 +78,11 @@ def _check_module(
     tree = parse_python(py_file)
     imports = runtime_scope_imports(tree, file_path=str(py_file))
     rel = str(py_file.relative_to(_REPO))
+
+    # Resolve transport-specific SDK allowlist for session modules
+    allowed_sdks: tuple[str, ...] = ()
+    if is_session and transport in _TRANSPORT_SDKS:
+        allowed_sdks = _TRANSPORT_SDKS[transport]
 
     for imp in imports:
         mod = imp.module
@@ -93,7 +110,7 @@ def _check_module(
                 )
                 break
 
-        # Check heavy SDKs (for codec/renderer only)
+        # Check heavy SDKs (for codec/renderer only; session modules allow own SDK)
         if not is_session:
             for sdk in _HEAVY_SDKS:
                 top_level = mod.split(".")[0]
@@ -102,12 +119,26 @@ def _check_module(
                         f"{rel}:{imp.lineno}: imports SDK {sdk} at module level"
                     )
                     break
+        elif allowed_sdks:
+            # Session modules: allow their own transport's SDK, forbid others
+            top_level = mod.split(".")[0]
+            is_allowed = any(
+                top_level == s or mod.startswith(s + ".") for s in allowed_sdks
+            )
+            if not is_allowed:
+                for sdk in _HEAVY_SDKS:
+                    if top_level == sdk or mod.startswith(sdk + "."):
+                        violations.append(
+                            f"{rel}:{imp.lineno}: session imports "
+                            f"foreign SDK {sdk} at module level"
+                        )
+                        break
 
     return violations
 
 
 class TestCodecRendererBoundary:
-    """Codec and renderer modules must not import runtime, SDKs, or adapters."""
+    """Codec, renderer, interop, and session modules must not import runtime, SDKs, or adapters."""
 
     @pytest.mark.parametrize("rel_path,transport", _REUSABLE_MODULES)
     def test_module_no_forbidden_imports(self, rel_path: str, transport: str) -> None:
