@@ -1087,9 +1087,10 @@ def _runtime_imports(source: str) -> list[tuple[str, int]]:
     def _walk_runtime_scope(node: _ast.AST) -> None:
         """Walk a node's immediate children for runtime imports.
 
-        Recurses into class bodies (module-level classes execute their
-        bodies at import time) but NOT into function/method bodies
-        (deferred imports).
+        Recurses into all blocks that execute at module load time
+        (class bodies, try/with/for/while/match blocks, etc.) but
+        NOT into function/method bodies (deferred imports) or
+        ``if TYPE_CHECKING`` blocks.
         """
         for child in _ast.iter_child_nodes(node):
             if isinstance(child, (_ast.Import, _ast.ImportFrom)):
@@ -1098,12 +1099,13 @@ def _runtime_imports(source: str) -> list[tuple[str, int]]:
                 # Skip entire block if it's TYPE_CHECKING
                 if _is_type_checking_block(child):
                     continue
-                # Otherwise walk the if block
                 _walk_runtime_scope(child)
-            elif isinstance(child, _ast.ClassDef):
-                # Class bodies execute at module load time — recurse.
+            elif isinstance(child, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
+                # Deferred execution — skip function bodies
+                continue
+            else:
+                # Recurse into ClassDef, Try, With, For, While, Match, etc.
                 _walk_runtime_scope(child)
-            # Function/method/async function bodies are deferred — skip.
 
     _walk_runtime_scope(tree)
     return result

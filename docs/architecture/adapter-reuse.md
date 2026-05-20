@@ -87,7 +87,7 @@ medre.core.engine.pipeline             PipelineRunner
 medre.core.storage.*                   persistence layer
 medre.cli.*                            CLI commands
 medre.runtime.app                      MedreApp top-level orchestrator
-medre.runtime.capacity                 capacity controller
+medre.core.runtime.capacity            capacity controller
 ```
 
 ## Examples
@@ -118,6 +118,7 @@ No `meshtastic` package required. No runtime, no storage, no CLI.
 ### Example 2: Render a CanonicalEvent to Matrix content
 
 ```python
+import asyncio
 from medre.adapters.matrix.renderer import MatrixRenderer
 from medre.core.events import CanonicalEvent, EventMetadata
 from datetime import datetime, timezone
@@ -137,21 +138,45 @@ event = CanonicalEvent(
     metadata=EventMetadata(),
 )
 
-renderer = MatrixRenderer()
-result = await renderer.render(event, target_adapter="matrix-1")
-print(result.payload["msgtype"])  # "m.text"
-print(result.payload["body"])     # "hello from mesh"
+async def main() -> None:
+    renderer = MatrixRenderer()
+    result = await renderer.render(event, target_adapter="matrix-1")
+    print(result.payload["msgtype"])  # "m.text"
+    print(result.payload["body"])     # "hello from mesh"
+
+asyncio.run(main())
 ```
 
 ### Example 3: Render a CanonicalEvent to Meshtastic payload
 
 ```python
+import asyncio
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
+from medre.core.events import CanonicalEvent, EventMetadata
+from datetime import datetime, timezone
 
-renderer = MeshtasticRenderer()
-result = await renderer.render(event, target_adapter="mesh-1", target_channel="3")
-print(result.payload["text"])           # "hello from mesh"
-print(result.payload["channel_index"])  # 3
+event = CanonicalEvent(
+    event_id="evt-1",
+    event_kind="message.created",
+    schema_version=1,
+    timestamp=datetime.now(timezone.utc),
+    source_adapter="mesh-1",
+    source_transport_id="!abcd1234",
+    source_channel_id="0",
+    parent_event_id=None,
+    lineage=(),
+    relations=(),
+    payload={"body": "hello from mesh"},
+    metadata=EventMetadata(),
+)
+
+async def main() -> None:
+    renderer = MeshtasticRenderer()
+    result = await renderer.render(event, target_adapter="mesh-1", target_channel="3")
+    print(result.payload["text"])           # "hello from mesh"
+    print(result.payload["channel_index"])  # 3
+
+asyncio.run(main())
 ```
 
 ### Example 4: Use MEDRE primitives in a custom daemon

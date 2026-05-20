@@ -45,6 +45,19 @@ _FORBIDDEN_TRANSITIVE_MODULES = [
 ]
 
 
+def _import_fresh(module_name: str):
+    """Force a fresh import by clearing the module from sys.modules first."""
+    to_remove = [
+        name
+        for name in list(sys.modules)
+        if name == module_name or name.startswith(f"{module_name}.")
+    ]
+    for name in to_remove:
+        sys.modules.pop(name, None)
+    importlib.invalidate_caches()
+    return importlib.import_module(module_name)
+
+
 class TestNoLoggingSideEffects:
     """Importing reusable modules must not configure root logging."""
 
@@ -55,7 +68,7 @@ class TestNoLoggingSideEffects:
         len(root.handlers)
 
         for module_name in _REUSABLE_MODULES:
-            importlib.import_module(module_name)
+            _import_fresh(module_name)
 
         assert root.level == level_before, (
             f"Root logger level changed from {level_before} to {root.level} "
@@ -70,7 +83,7 @@ class TestNoLoggingSideEffects:
         handler_ids_before = {id(h) for h in root.handlers}
 
         for module_name in _REUSABLE_MODULES:
-            importlib.import_module(module_name)
+            _import_fresh(module_name)
 
         handler_ids_after = {id(h) for h in root.handlers}
         new_handlers = handler_ids_after - handler_ids_before
@@ -89,7 +102,7 @@ class TestNoForbiddenTransitiveImports:
         already_loaded = {m for m in _FORBIDDEN_TRANSITIVE_MODULES if m in sys.modules}
 
         for module_name in _REUSABLE_MODULES:
-            importlib.import_module(module_name)
+            _import_fresh(module_name)
 
         newly_loaded = set()
         for m in _FORBIDDEN_TRANSITIVE_MODULES:
@@ -110,7 +123,7 @@ class TestSetupLoggingNotCalledOnImport:
         MEDRE-managed handler — which would indicate setup_logging was called."""
         # Import all reusable modules explicitly (self-contained, no ordering dependency).
         for module_name in _REUSABLE_MODULES:
-            importlib.import_module(module_name)
+            _import_fresh(module_name)
 
         root = logging.getLogger()
         for h in root.handlers:
