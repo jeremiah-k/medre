@@ -11,13 +11,14 @@ Part F — Logging Boundary Tests
 
 from __future__ import annotations
 
-import ast
 import importlib
 import logging
 import sys
 from pathlib import Path
 
 import pytest
+
+from tests.helpers.import_ast import runtime_imports
 
 # Modules to test — these should be importable without side effects.
 _REUSABLE_MODULES = [
@@ -154,25 +155,20 @@ class TestCodecRendererSdkFree:
         ],
     )
     def test_no_sdk_import_at_top_level(self, module_name: str):
-        """Verify no SDK packages appear in the module's top-level imports."""
+        """Verify no SDK packages appear in the module's runtime-scope imports."""
         mod = importlib.import_module(module_name)
         assert mod.__file__ is not None
         source = Path(mod.__file__).read_text()
-        tree = ast.parse(source)
 
-        # Collect top-level import names (not inside functions)
-        top_level_imports = set()
-        for node in ast.iter_child_nodes(tree):
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    top_level_imports.add(alias.name.split(".")[0])
-            elif isinstance(node, ast.ImportFrom):
-                if node.module:
-                    top_level_imports.add(node.module.split(".")[0])
+        # Collect runtime-scope imports (catches module-level try/with/for blocks)
+        runtime_import_names = set()
+        for mod_name, _lineno in runtime_imports(source):
+            top = mod_name.split(".")[0] if "." in mod_name else mod_name
+            runtime_import_names.add(top)
 
-        sdk_found = top_level_imports & set(self._SDK_MODULES)
+        sdk_found = runtime_import_names & set(self._SDK_MODULES)
         assert not sdk_found, (
-            f"{module_name} imports SDK at top level: {sdk_found}. "
+            f"{module_name} imports SDK at module level: {sdk_found}. "
             f"SDK imports should be deferred to session modules or "
             f"inside function bodies."
         )

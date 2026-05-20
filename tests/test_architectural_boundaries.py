@@ -21,6 +21,14 @@ from typing import Any, AsyncGenerator
 
 import pytest
 
+from tests.helpers.import_ast import (
+    all_imports,
+    check_banned_ast,
+    collect_imports_from_node,
+    runtime_imports,
+    top_level_imports,
+)
+
 # ---------------------------------------------------------------------------
 # Shared constants
 # ---------------------------------------------------------------------------
@@ -1017,114 +1025,12 @@ class TestNoStaleWordingInDocs:
 # ---------------------------------------------------------------------------
 
 
-def _collect_imports_from_node(
-    node: _ast.AST,
-) -> list[tuple[str, int]]:
-    """Extract ``(module_name, line_no)`` pairs from an import/import-from node."""
-    result: list[tuple[str, int]] = []
-    if isinstance(node, _ast.Import):
-        for alias in node.names:
-            result.append((alias.name, node.lineno))
-    elif isinstance(node, _ast.ImportFrom):
-        mod = node.module or ""
-        for alias in node.names:
-            result.append((f"{mod}.{alias.name}", node.lineno))
-        result.append((mod, node.lineno))
-    return result
-
-
-def _top_level_imports(source: str) -> list[tuple[str, int]]:
-    """Return ``(module_name, line_no)`` for all top-level import/from-import nodes.
-
-    Only visits ``ast.Import`` and ``ast.ImportFrom`` nodes that are direct
-    children of the module body (i.e. *not* nested inside functions or classes).
-    """
-    tree = _ast.parse(source)
-    result: list[tuple[str, int]] = []
-    for node in _ast.iter_child_nodes(tree):
-        result.extend(_collect_imports_from_node(node))
-    return result
-
-
-def _all_imports(source: str) -> list[tuple[str, int]]:
-    """Return ``(module_name, line_no)`` for *all* import nodes in the tree."""
-    tree = _ast.parse(source)
-    result: list[tuple[str, int]] = []
-    for node in _ast.walk(tree):
-        result.extend(_collect_imports_from_node(node))
-    return result
-
-
-def _runtime_imports(source: str) -> list[tuple[str, int]]:
-    """Return imports that execute at module load time.
-
-    Excludes imports guarded by ``if TYPE_CHECKING:`` blocks and imports
-    inside function/method bodies (deferred imports).
-    """
-    tree = _ast.parse(source)
-    result: list[tuple[str, int]] = []
-
-    def _is_type_checking_block(parent: _ast.AST) -> bool:
-        """Check whether *parent* is an ``if TYPE_CHECKING:`` block."""
-        if not isinstance(parent, _ast.If):
-            return False
-        test = parent.test
-        # Handle `if TYPE_CHECKING:`
-        if isinstance(test, _ast.Name) and test.id == "TYPE_CHECKING":
-            return True
-        # Handle `if typing.TYPE_CHECKING:`
-        if (
-            isinstance(test, _ast.Attribute)
-            and test.attr == "TYPE_CHECKING"
-            and isinstance(test.value, _ast.Name)
-            and test.value.id == "typing"
-        ):
-            return True
-        return False
-
-    # Walk the tree manually, tracking parent context
-
-    def _walk_runtime_scope(node: _ast.AST) -> None:
-        """Walk a node's immediate children for runtime imports.
-
-        Recurses into all blocks that execute at module load time
-        (class bodies, try/with/for/while/match blocks, etc.) but
-        NOT into function/method bodies (deferred imports) or
-        ``if TYPE_CHECKING`` blocks.
-        """
-        for child in _ast.iter_child_nodes(node):
-            if isinstance(child, (_ast.Import, _ast.ImportFrom)):
-                result.extend(_collect_imports_from_node(child))
-            elif isinstance(child, _ast.If):
-                # Skip entire block if it's TYPE_CHECKING
-                if _is_type_checking_block(child):
-                    continue
-                _walk_runtime_scope(child)
-            elif isinstance(child, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
-                # Deferred execution — skip function bodies
-                continue
-            else:
-                # Recurse into ClassDef, Try, With, For, While, Match, etc.
-                _walk_runtime_scope(child)
-
-    _walk_runtime_scope(tree)
-    return result
-
-
-def _check_banned_ast(
-    imports: list[tuple[str, int]],
-    banned_prefixes: tuple[str, ...],
-    *,
-    rel_path: str,
-) -> list[str]:
-    """Return violation descriptions for imports matching any banned prefix."""
-    violations: list[str] = []
-    for mod, lineno in imports:
-        for prefix in banned_prefixes:
-            if mod == prefix or mod.startswith(prefix + "."):
-                violations.append(f"{rel_path}:{lineno}: imports {mod}")
-                break
-    return violations
+# Backward-compatible aliases for moved AST helpers.
+_collect_imports_from_node = collect_imports_from_node
+_top_level_imports = top_level_imports
+_all_imports = all_imports
+_runtime_imports = runtime_imports
+_check_banned_ast = check_banned_ast
 
 
 # ===================================================================
@@ -1266,15 +1172,13 @@ class TestConfigModelBoundaryComprehensive:
         rel = str(model_file.relative_to(repo_root))
         source = model_file.read_text()
 
-        # Check top-level imports only for banned items
-        top_imports = _top_level_imports(source)
-        violations = _check_banned_ast(
-            top_imports, self._BANNED_TOP_LEVEL, rel_path=rel
-        )
+        # Check runtime-scope imports for banned items
+        rt_imports = _runtime_imports(source)
+        violations = _check_banned_ast(rt_imports, self._BANNED_TOP_LEVEL, rel_path=rel)
 
-        # Also check that medre.runtime.routes is NOT a bare top-level import
+        # Also check that medre.runtime.routes is NOT a bare runtime-scope import
         # (it must be under TYPE_CHECKING or deferred inside a function body)
-        for mod, lineno in top_imports:
+        for mod, lineno in rt_imports:
             if mod == self._RUNTIME_ROUTES_MODULE or mod.startswith(
                 self._RUNTIME_ROUTES_MODULE + "."
             ):

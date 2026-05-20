@@ -404,7 +404,7 @@ v2 introduces `CapacityController` as a centralized capacity manager, wires `Rep
 
 ### 15.1 CapacityController
 
-`CapacityController` (in `src/medre/runtime/capacity.py`) is a semaphore-based capacity manager that bounds in-flight delivery and replay work. It replaces the inline semaphores that were previously held directly by `PipelineRunner` and `ReplayEngine`.
+`CapacityController` (in `src/medre/core/runtime/capacity.py`) is a semaphore-based capacity manager that bounds in-flight delivery and replay work. It replaces the inline semaphores that were previously held directly by `PipelineRunner` and `ReplayEngine`.
 
 The controller manages two independent semaphores:
 

@@ -37,7 +37,9 @@ graph allows — see [Operator Tooling Boundary](operator-tooling-boundary.md).
 **Contents:** `builder.py` (`RuntimeBuilder`), `app.py` (`MedreApp`),
 `route_engine.py`, `routes.py`, `observability.py` (diagnostics collector),
 `events.py`, `evidence.py`, `trace.py`, `drill.py`, `smoke.py`,
-`snapshot.py`, `boot_summary.py`, `capacity.py`, `errors.py`.
+`snapshot.py`, `boot_summary.py`, `errors.py`.
+
+> **Note:** `capacity.py` moved to `core/runtime/capacity.py` — see `core/` below.
 
 ### `core/` — domain primitives
 
@@ -90,11 +92,11 @@ Key invariants:
 
 ## What was removed or moved
 
-| Before                        | After                                             | Reason                                                     |
-| ----------------------------- | ------------------------------------------------- | ---------------------------------------------------------- |
-| `runner.py` (top-level)       | Deleted                                           | Logic moved into `runtime/builder.py` and `runtime/app.py` |
-| `cli.py` (monolithic)         | `cli/` package                                    | Split into per-command modules for maintainability         |
-| `_sanitize_error` (scattered) | `medre.observability.sanitization.sanitize_error` | Consolidated into user-facing observability package        |
+| Before                        | After                                                  | Reason                                                                      |
+| ----------------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------- |
+| `runner.py` (top-level)       | Deleted                                                | Logic moved into `runtime/builder.py` and `runtime/app.py`                  |
+| `cli.py` (monolithic)         | `cli/` package                                         | Split into per-command modules for maintainability                          |
+| `_sanitize_error` (scattered) | `medre.core.observability.sanitization.sanitize_error` | Consolidated into core observability; re-exported via `medre.observability` |
 
 ## Operator Tooling Boundary
 
@@ -121,14 +123,14 @@ Import path: `from medre.observability import ...`
 Used by CLI commands, runtime orchestration, and adapter-facing code. This is the
 public observability surface.
 
-| Symbol               | Module          | Purpose                                                                                                                                                                                         |
-| -------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sanitize_error`     | `.sanitization` | Redact tokens/passwords from error strings, truncate to safe length                                                                                                                             |
-| `sanitize_for_log`   | `.sanitization` | Canonical dict redaction path — strip secret keys from dicts, coerce values for structured log output. `medre.core.observability.logging` delegates to this function for all dict sanitization. |
-| `adapter_logger`     | `.logging`      | LoggerAdapter factory injecting `adapter_id` and `transport` context                                                                                                                            |
-| `startup_summary`    | `.summaries`    | Multi-line startup summary string for the runtime                                                                                                                                               |
-| `shutdown_summary`   | `.summaries`    | Multi-line shutdown summary string for the runtime                                                                                                                                              |
-| `format_duration_ms` | `.summaries`    | Human-readable duration from monotonic timestamps                                                                                                                                               |
+| Symbol               | Module          | Purpose                                                                                                                                                                                   |
+| -------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sanitize_error`     | `.sanitization` | Redact tokens/passwords from error strings, truncate to safe length. Implementation lives in `medre.core.observability.sanitization`; re-exported here.                                   |
+| `sanitize_for_log`   | `.sanitization` | Canonical dict redaction path — strip secret keys from dicts, coerce values for structured log output. Implementation lives in `medre.core.observability.sanitization`; re-exported here. |
+| `adapter_logger`     | `.logging`      | LoggerAdapter factory injecting `adapter_id` and `transport` context                                                                                                                      |
+| `startup_summary`    | `.summaries`    | Multi-line startup summary string for the runtime                                                                                                                                         |
+| `shutdown_summary`   | `.summaries`    | Multi-line shutdown summary string for the runtime                                                                                                                                        |
+| `format_duration_ms` | `.summaries`    | Human-readable duration from monotonic timestamps                                                                                                                                         |
 
 ### `medre.core.observability` — framework-internal
 
@@ -160,5 +162,5 @@ for direct consumption by CLI or adapter code.
 - CLI and adapter code import from `medre.observability`. Pipeline and routing
   internals import from `medre.core.observability`.
 - No duplicate APIs: each symbol lives in exactly one package.
-  `medre.observability.sanitization` is the single source for both
-  `sanitize_for_log` and `sanitize_error`.
+  Implementation lives in `medre.core.observability.sanitization`; re-exported
+  via `medre.observability.sanitization` for user-facing import.
