@@ -409,6 +409,33 @@ output suitable for archival or comparison.
 | Duplicate messages on radio              | Retry policy producing duplicates    | Expected behavior with retry (up to 3 attempts). See `docs/contracts/36-radio-limitations.md`.                                                                                 |
 | Health stays `degraded`                  | Reconnect cycle in progress          | Wait for reconnect or check transport availability.                                                                                                                            |
 
+### Logging and dependency noise
+
+`[logging] level` controls the MEDRE namespace only — it does **not** turn on
+DEBUG for dependency libraries (nio, meshtastic, aiohttp). Dependencies are
+quiet by default (root `WARNING`).
+
+If you need visibility into a dependency during bring-up troubleshooting, add
+a temporary `[logging.overrides]` block to your config. **Remove it after
+debugging.**
+
+```toml
+# Temporary troubleshooting only — remove after debugging
+[logging.overrides]
+aiohttp = "INFO"
+meshtastic = "DEBUG"
+nio = "DEBUG"
+"nio.crypto.log" = "WARNING"   # try WARNING first; DEBUG is extremely noisy
+```
+
+**Key points:**
+
+- `nio.crypto.log` produces very high volume at `DEBUG` or `INFO`. Start at
+  `WARNING` when troubleshooting Matrix E2EE issues and only go lower if
+  necessary.
+- These overrides are a temporary escape hatch, not a default. See
+  `docs/runbooks/configuration.md` for the full reference.
+
 ## Scope and Exclusions
 
 This bring-up procedure is explicitly limited to:

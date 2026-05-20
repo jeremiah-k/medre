@@ -19,16 +19,10 @@ name = "live-channel-map"
 shutdown_timeout_seconds = 30
 
 [logging]
-level = "INFO"  # controls medre.* namespace only; use DEBUG for bring-up visibility
+level = "INFO"  # controls MEDRE namespace only; use DEBUG for bring-up visibility
 format = "text"
-
-[logging.overrides]
-# Keys are Python logger namespaces. These defaults quiet noisy dependencies.
-nio = "WARNING"           # nio SDK sync/key noise at INFO
-"nio.crypto.log" = "ERROR" # Olm/Megolm session warnings; set to "WARNING" to troubleshoot E2EE
-meshtastic = "WARNING"    # SDK prints every radio packet at INFO
-aiohttp = "WARNING"       # HTTP access logs at INFO
-peewee = "WARNING"        # Query logging at DEBUG, noisy at INFO
+# Dependency loggers stay quiet by default (root WARNING).
+# Use [logging.overrides] only when troubleshooting integrations — see docs/runbooks/configuration.md.
 
 [storage]
 backend = "sqlite"

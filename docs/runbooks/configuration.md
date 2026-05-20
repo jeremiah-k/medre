@@ -77,32 +77,26 @@ format = "text"   # text or json
 > `medre.*` but does **not** enable DEBUG for unknown or unlisted dependency
 > loggers.
 
-#### `[logging.overrides]`
+#### `[logging.overrides]` — troubleshooting escape hatch
+
+> **This section is a troubleshooting tool, not a default.** Dependency
+> loggers are intentionally quiet by default. Add overrides only when
+> actively debugging an integration issue, and remove them afterward.
 
 Per-logger level overrides for dependency libraries. Each key is a Python
 logger name and the value is a log level string (`"DEBUG"`, `"INFO"`,
 `"WARNING"`, `"ERROR"`).
 
-```toml
-[logging.overrides]
-nio = "WARNING"
-"nio.crypto.log" = "ERROR"
-meshtastic = "WARNING"
-aiohttp = "WARNING"
-peewee = "WARNING"
-```
-
 | Key                | Value  | Description                                              |
 | ------------------ | ------ | -------------------------------------------------------- |
 | _(logger name)_    | string | Log level to force for this logger.                      |
 
-**Default dependency log levels** (applied automatically when no overrides
-are configured):
+**Default dependency log levels** (applied automatically — no config needed):
 
 | Logger             | Default Level | Reason                                              |
 | ------------------ | ------------- | --------------------------------------------------- |
 | `nio`              | `WARNING`     | Crypto key and sync noise at INFO                   |
-| `nio.crypto.log`   | `ERROR`       | Olm/Megolm session warnings are non-actionable; set to `WARNING` only when troubleshooting Matrix E2EE key issues |
+| `nio.crypto.log`   | `ERROR`       | Olm/Megolm session warnings; extremely noisy at lower levels |
 | `meshtastic`       | `WARNING`     | SDK prints every radio packet at INFO               |
 | `aiohttp`          | `WARNING`     | HTTP access logs at INFO                            |
 | `peewee`           | `WARNING`     | Query logging at DEBUG, noisy at INFO               |
@@ -110,6 +104,33 @@ are configured):
 > Any dependency logger **not** listed above (or in `[logging.overrides]`)
 > inherits the root logger's `WARNING` level. Add an entry to
 > `[logging.overrides]` to change it.
+
+**Troubleshooting example** — add this block temporarily when diagnosing
+integration issues, then remove it after debugging:
+
+```toml
+[logging.overrides]
+aiohttp = "INFO"
+meshtastic = "DEBUG"
+nio = "DEBUG"
+"nio.crypto.log" = "WARNING"   # WARNING first — DEBUG is extremely noisy
+```
+
+**Important notes:**
+
+- `nio.crypto.log` is **extremely noisy** at `DEBUG`. For Matrix E2EE
+  troubleshooting, try `WARNING` first. Only drop to `DEBUG` or `INFO` as a
+  last resort and expect high log volume.
+- Overrides are **temporary scaffolding**. Commit them only in dedicated
+  troubleshooting config files, not in main example configs or production
+  configs.
+- Setting `level = "DEBUG"` in `[logging]` does **not** enable DEBUG for
+  dependencies — it only affects the `medre.*` namespace.
+
+**Future direction:** `medre run --debug` would set MEDRE DEBUG only; a
+future `--debug-integrations` flag could enable selected dependency
+namespaces. These CLI flags are not yet implemented — use `[logging.overrides]`
+for now.
 
 > **Matrix room history before startup is suppressed.** The Matrix adapter
 > processes only events received *after* the sync connection is established.

@@ -38,6 +38,8 @@ _DEPENDENCY_DEFAULTS: dict[str, int] = {
     "peewee": logging.WARNING,
     "urllib3": logging.WARNING,
     "serial": logging.WARNING,
+    "serial_asyncio": logging.WARNING,
+    "asyncio": logging.WARNING,
 }
 
 # Valid logging level names accepted by setup_logging / overrides.
@@ -249,12 +251,26 @@ def setup_logging(
         logging.getLogger(logger_name).setLevel(default_level)
 
     # 6. Apply user overrides on top of defaults.
-    if overrides:
-        for logger_name, level_str in overrides.items():
-            upper = level_str.upper()
-            if not hasattr(logging, upper) or upper not in _VALID_LEVEL_NAMES:
+    if overrides is not None:
+        if not isinstance(overrides, dict):
+            raise ValueError(
+                f"overrides must be a dict, got {type(overrides).__name__}"
+            )
+        for logger_name, level_value in overrides.items():
+            if not isinstance(logger_name, str) or not logger_name:
                 raise ValueError(
-                    f"Invalid logging level {level_str!r} for logger "
+                    f"Override logger name must be a non-empty string, "
+                    f"got {logger_name!r}"
+                )
+            if not isinstance(level_value, str):
+                raise ValueError(
+                    f"Override level for logger {logger_name!r} must be a string, "
+                    f"got {type(level_value).__name__}"
+                )
+            upper = level_value.upper()
+            if upper not in _VALID_LEVEL_NAMES:
+                raise ValueError(
+                    f"Invalid logging level {level_value!r} for logger "
                     f"{logger_name!r}.  Must be one of: "
                     f"{', '.join(sorted(_VALID_LEVEL_NAMES))}"
                 )

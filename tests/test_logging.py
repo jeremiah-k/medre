@@ -712,6 +712,8 @@ class TestSetupLoggingOverrides:
         assert logging.getLogger("peewee").level == logging.WARNING
         assert logging.getLogger("urllib3").level == logging.WARNING
         assert logging.getLogger("serial").level == logging.WARNING
+        assert logging.getLogger("serial_asyncio").level == logging.WARNING
+        assert logging.getLogger("asyncio").level == logging.WARNING
 
     def test_nio_default_is_warning(self) -> None:
         """nio logger is WARNING by default when no override provided."""
@@ -757,6 +759,51 @@ class TestSetupLoggingOverrides:
         # Dependency defaults should still be applied.
         assert logging.getLogger("nio").level == logging.WARNING
         # No crash, no extra overrides.
+
+    def test_override_nio_crypto_log_warning_changes_level(self) -> None:
+        """Override nio.crypto.log=WARNING changes its level from default ERROR."""
+        setup_logging(
+            level="INFO",
+            json_format=False,
+            overrides={"nio.crypto.log": "WARNING"},
+        )
+        assert logging.getLogger("nio.crypto.log").level == logging.WARNING
+
+    def test_bad_override_non_string_value_raises_valueerror(self) -> None:
+        """Override with non-string value raises ValueError."""
+        with pytest.raises(ValueError, match="must be a string"):
+            setup_logging(
+                level="INFO",
+                json_format=False,
+                overrides={"nio": 123},  # type: ignore[dict-item]
+            )
+
+    def test_bad_override_non_string_key_raises_valueerror(self) -> None:
+        """Override with non-string key raises ValueError."""
+        with pytest.raises(ValueError, match="non-empty string"):
+            setup_logging(
+                level="INFO",
+                json_format=False,
+                overrides={123: "DEBUG"},  # type: ignore[dict-item]
+            )
+
+    def test_bad_override_empty_key_raises_valueerror(self) -> None:
+        """Override with empty string key raises ValueError."""
+        with pytest.raises(ValueError, match="non-empty string"):
+            setup_logging(
+                level="INFO",
+                json_format=False,
+                overrides={"": "DEBUG"},
+            )
+
+    def test_bad_override_not_dict_raises_valueerror(self) -> None:
+        """Override with non-dict type raises ValueError."""
+        with pytest.raises(ValueError, match="must be a dict"):
+            setup_logging(
+                level="INFO",
+                json_format=False,
+                overrides=["nio"],  # type: ignore[arg-type]
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -1054,6 +1101,24 @@ class TestLoggingTopology:
 
         output = buf.getvalue()
         assert "nio-debug-override" in output
+        assert "[DEBUG]" in output
+
+    def test_override_aiohttp_debug_emits(self) -> None:
+        """Override aiohttp=DEBUG emits DEBUG despite root WARNING."""
+        setup_logging(
+            level="INFO",
+            json_format=False,
+            overrides={"aiohttp": "DEBUG"},
+        )
+        handler = self._get_medre_root_handler()
+        assert handler is not None
+        buf = StringIO()
+        handler.stream = buf
+
+        logging.getLogger("aiohttp").debug("aiohttp-debug-override")
+
+        output = buf.getvalue()
+        assert "aiohttp-debug-override" in output
         assert "[DEBUG]" in output
 
     def test_dependency_warning_uses_json_formatter(self) -> None:
