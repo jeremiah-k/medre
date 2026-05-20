@@ -45,7 +45,12 @@ class TestTopLevelImportLightweight:
 
 
 class TestObservabilityFacadeRemoved:
-    """medre.observability.sanitization must not exist as a facade."""
+    """medre.observability must not exist as a package."""
+
+    def test_import_medre_observability_raises_module_not_found(self) -> None:
+        """importing medre.observability must raise ModuleNotFoundError."""
+        with pytest.raises(ModuleNotFoundError):
+            import medre.observability  # type: ignore[import-not-found,unused-import]  # noqa: F401
 
     def test_observability_sanitization_module_does_not_exist(self) -> None:
         """The medre.observability.sanitization re-export module must not exist."""

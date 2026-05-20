@@ -3,8 +3,8 @@
 This package provides identity resolution between platform-specific
 (native) identifiers and stable canonical actors.
 
-Re-exported symbols
--------------------
+Package-level imports
+---------------------
 * From :mod:`~medre.core.identity.actor`:
   ``CanonicalActor``, ``NativeIdentity``, ``VerificationStatus``.
 * From :mod:`~medre.core.identity.resolver`:

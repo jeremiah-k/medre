@@ -3,8 +3,8 @@
 This package separates target-specific *rendering* (converting a canonical
 event into an adapter-ready payload) from both transforms and adapters.
 
-Public symbols
---------------
+Package-level imports
+---------------------
 * :class:`~medre.core.rendering.renderer.Renderer` – protocol
   every renderer must satisfy.
 * :class:`~medre.core.rendering.renderer.RenderingPipeline` –
@@ -22,7 +22,7 @@ from medre.core.rendering.renderer import (
 )
 from medre.core.rendering.text import TextRenderer
 
-# Public alias: the rendering result for text-based rendering paths.
+# Internal alias: the rendering result for text-based rendering paths.
 # Importers can use either ``RenderingResult`` or ``TextRenderingResult``.
 TextRenderingResult = RenderingResult
 

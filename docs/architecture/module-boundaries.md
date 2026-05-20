@@ -2,10 +2,10 @@
 
 Package structure and import rules after the runtime refactor.
 
-> **No public API commitment yet.** MEDRE is still discovering its shape.
-> Internal import paths may change without notice. Do not rely on any module
-> path outside `medre.core.*` as stable public API. A deliberate `medre.sdk`
-> or stable public facade may be introduced later after API design settles.
+> **No public API commitment yet.** MEDRE has no stable public API commitment
+> yet. All import paths are internal and may change until a deliberate
+> `medre.sdk` or stable public facade is introduced later after API design
+> settles.
 
 ## Package layout
 
@@ -14,8 +14,7 @@ src/medre/
   cli/            argparse, command dispatch, I/O formatting
   runtime/        builder, app, route engine, smoke/drill/trace
   core/           event model, storage, pipeline, routing, rendering
-    observability/  logging setup, diagnostic events, metrics
-  observability/  internal utilities: classification, adapter loggers, summaries
+    observability/  logging setup, diagnostic events, metrics, sanitization
   adapters/       base class + per-transport packages (matrix/, meshtastic/, meshcore/, lxmf/)
   config/         loader, model, env overrides, paths, sample generation
 ```
@@ -42,7 +41,7 @@ graph allows — see [Operator Tooling Boundary](operator-tooling-boundary.md).
 **Contents:** `builder.py` (`RuntimeBuilder`), `app.py` (`MedreApp`),
 `route_engine.py`, `routes.py`, `observability.py` (diagnostics collector),
 `events.py`, `evidence.py`, `trace.py`, `drill.py`, `smoke.py`,
-`snapshot.py`, `boot_summary.py`, `errors.py`.
+`snapshot.py`, `boot_summary.py`, `errors.py`, `summaries.py`.
 
 > **Note:** `capacity.py` moved to `core/runtime/capacity.py` — see `core/` below.
 
@@ -71,6 +70,15 @@ Owns TOML loading, model classes, environment overrides, and path resolution.
 
 **Contents:** `loader.py`, `model.py`, `env.py`, `paths.py`, `errors.py`,
 `sample.py`, `adapters/` (per-transport config models and credential helpers).
+
+**Import rules:**
+- `config/model.py` may import adapter config dataclasses from
+  `medre.config.adapters.*`.
+- `config/` must not import adapter implementations, protocol SDKs,
+  `medre.runtime.builder`, route engine behavior, or `medre.core.engine.*`.
+- Concrete imports should target specific modules:
+  `medre.config.model`, `medre.config.loader`,
+  `medre.config.adapters.matrix`, `medre.config.adapters.errors`.
 
 ## Import rules
 
@@ -102,7 +110,8 @@ Key invariants:
 | ----------------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------- |
 | `runner.py` (top-level)       | Deleted                                                | Logic moved into `runtime/builder.py` and `runtime/app.py`                  |
 | `cli.py` (monolithic)         | `cli/` package                                         | Split into per-command modules for maintainability                          |
-| `_sanitize_error` (scattered) | `medre.core.observability.sanitization.sanitize_error` | Consolidated into core observability |
+| `_sanitize_error` (scattered) | `medre.core.observability.sanitization.sanitize_error` | Consolidated into core observability                                        |
+| `medre.observability` package | Removed                                                | Modules moved to canonical homes (see Observability section below)          |
 
 ## Operator Tooling Boundary
 
@@ -120,20 +129,15 @@ decision record, import invariants, and split criteria.
 
 ## Observability
 
-medre has two observability packages. Neither exposes a stable public API yet.
+`medre.core.observability` is the canonical internal observability
+implementation. It contains logging setup, diagnostic events, metrics, and
+the canonical sanitization implementation
+(`medre.core.observability.sanitization`). Used by the pipeline, routing
+engine, and internal framework code.
 
-### `medre.core.observability` — canonical implementation
+The top-level `medre.observability` package was removed. Its modules moved to
+canonical internal homes:
 
-Import path: `from medre.core.observability import ...`
-
-Contains logging setup, diagnostic events, metrics, and the canonical
-sanitization implementation (`medre.core.observability.sanitization`). Used by
-the pipeline, routing engine, and internal framework code.
-
-### `medre.observability` — removed
-
-The top-level `medre.observability` package was removed.
-Its modules moved to canonical internal homes:
 - `classification.py` → `medre.core.observability.classification`
 - `summaries.py` → `medre.runtime.summaries`
 - `logging.py` → deleted (unused)

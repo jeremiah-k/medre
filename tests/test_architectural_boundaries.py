@@ -22,11 +22,10 @@ from typing import Any, AsyncGenerator
 import pytest
 
 from tests.helpers.ast_imports import (
-    _backward_all_imports as all_imports,
-    _backward_runtime_imports as runtime_imports,
-    _backward_top_level_imports as top_level_imports,
-    check_banned_ast,
-    collect_imports_from_node,
+    all_imports as _all_imports_new,
+    import_matches,
+    runtime_scope_imports as _runtime_scope_new,
+    top_level_imports,
 )
 
 # ---------------------------------------------------------------------------
@@ -1008,16 +1007,29 @@ class TestNoStaleWordingInDocs:
 
 
 # ---------------------------------------------------------------------------
-# AST-based import extraction helpers (Sections T–W)
+# Local helpers wrapping ImportRecord-based API for violation checking
 # ---------------------------------------------------------------------------
 
 
-# Backward-compatible aliases for moved AST helpers.
-_collect_imports_from_node = collect_imports_from_node
-_top_level_imports = top_level_imports
-_all_imports = all_imports
-_runtime_imports = runtime_imports
-_check_banned_ast = check_banned_ast
+def _runtime_imports(source: str, file_path: str | None = None):
+    """Parse source and return runtime-scope ImportRecords."""
+    tree = _ast.parse(source)
+    return _runtime_scope_new(tree, file_path=file_path)
+
+
+def _all_imports(source: str, file_path: str | None = None):
+    """Parse source and return all ImportRecords."""
+    tree = _ast.parse(source)
+    return _all_imports_new(tree, file_path=file_path)
+
+
+def _check_banned_ast(imports, banned_prefixes: tuple[str, ...], *, rel_path: str) -> list[str]:
+    """Check ImportRecords for banned import prefixes."""
+    violations: list[str] = []
+    for r in imports:
+        if import_matches(r.module, banned_prefixes):
+            violations.append(f"{rel_path}:{r.lineno}: imports {r.module}")
+    return violations
 
 
 # ===================================================================
@@ -1164,8 +1176,8 @@ class TestConfigModelBoundaryComprehensive:
 
         # Also check that medre.runtime.routes is NOT a bare runtime-scope import
         # (it must be under TYPE_CHECKING or deferred inside a function body)
-        for mod, lineno in rt_imports:
-            if mod == self._RUNTIME_ROUTES_MODULE or mod.startswith(
+        for r in rt_imports:
+            if r.module == self._RUNTIME_ROUTES_MODULE or r.module.startswith(
                 self._RUNTIME_ROUTES_MODULE + "."
             ):
                 # Verify it is inside an `if TYPE_CHECKING:` block
@@ -1173,7 +1185,7 @@ class TestConfigModelBoundaryComprehensive:
                 lines = source.splitlines()
                 # Look backward from lineno for `if TYPE_CHECKING`
                 in_type_checking = False
-                for check_line in range(lineno - 1, max(0, lineno - 10), -1):
+                for check_line in range(r.lineno - 1, max(0, r.lineno - 10), -1):
                     if "TYPE_CHECKING" in lines[check_line]:
                         in_type_checking = True
                         break
@@ -1183,7 +1195,7 @@ class TestConfigModelBoundaryComprehensive:
                         break
                 if not in_type_checking:
                     violations.append(
-                        f"{rel}:{lineno}: top-level import of {mod} "
+                        f"{rel}:{r.lineno}: top-level import of {r.module} "
                         "(must be under TYPE_CHECKING or deferred)"
                     )
 
@@ -1243,24 +1255,22 @@ class TestReusableAdapterModuleBoundary:
 
         # Gather top-level vs nested imports
         all_imports_list = _all_imports(source, file_path=str(py_file))
-        top_imports = _top_level_imports(source, file_path=str(py_file))
+        top_imports = top_level_imports(source, file_path=str(py_file))
 
         # 1. Check all imports for banned prefixes (runtime, cli, core.engine, core.storage)
-        for mod, lineno in all_imports_list:
-            for prefix in self._BANNED_PREFIXES:
-                if mod == prefix or mod.startswith(prefix + "."):
-                    violations.append(
-                        f"{rel}:{lineno}: imports {mod} (banned: {prefix})"
-                    )
-                    break
+        for r in all_imports_list:
+            if import_matches(r.module, self._BANNED_PREFIXES):
+                violations.append(
+                    f"{rel}:{r.lineno}: imports {r.module} (banned: {self._BANNED_PREFIXES[0]}...)"
+                )
 
         # 2. Check own-adapter.module import (e.g. matrix/codec.py importing matrix/adapter)
         if transport:
             own_adapter = f"medre.adapters.{transport}.adapter"
-            for mod, lineno in all_imports_list:
-                if mod == own_adapter or mod.startswith(own_adapter + "."):
+            for r in all_imports_list:
+                if r.module == own_adapter or r.module.startswith(own_adapter + "."):
                     violations.append(
-                        f"{rel}:{lineno}: imports {mod} "
+                        f"{rel}:{r.lineno}: imports {r.module} "
                         f"(circular: reusable module importing own adapter)"
                     )
 
@@ -1268,27 +1278,27 @@ class TestReusableAdapterModuleBoundary:
         #     other transport adapter packages (e.g. matrix/codec importing
         #     meshtastic/*).  interop modules are exempt.
         if transport:
-            for mod, lineno in all_imports_list:
-                if not mod.startswith("medre.adapters."):
+            for r in all_imports_list:
+                if not r.module.startswith("medre.adapters."):
                     continue
                 # e.g. "medre.adapters.meshtastic.codec"
-                parts = mod.split(".")
+                parts = r.module.split(".")
                 if len(parts) >= 3:
                     other_transport = parts[2]
                     if other_transport != transport and other_transport != "":
                         violations.append(
-                            f"{rel}:{lineno}: imports {mod} "
+                            f"{rel}:{r.lineno}: imports {r.module} "
                             f"(cross-adapter: {transport} module importing "
                             f"{other_transport})"
                         )
 
         # 3. Codec/renderer must NOT have top-level heavy SDK imports
         if is_codec_or_renderer:
-            for mod, lineno in top_imports:
+            for r in top_imports:
                 for sdk in self._HEAVY_SDKS:
-                    if mod == sdk or mod.startswith(sdk + "."):
+                    if r.module == sdk or r.module.startswith(sdk + "."):
                         violations.append(
-                            f"{rel}:{lineno}: top-level SDK import {mod} "
+                            f"{rel}:{r.lineno}: top-level SDK import {r.module} "
                             "(codec/renderer must not import heavy SDKs)"
                         )
                         break

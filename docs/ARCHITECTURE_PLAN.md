@@ -1,6 +1,9 @@
 # MEDRE Architecture
 
 > **Status**: Current architecture record.
+>
+> **No stable public API.** All import paths are internal and may change
+> until a deliberate public facade is introduced.
 
 ## 0. Canonical Layout
 
@@ -86,7 +89,7 @@ These are adapter runtime errors — NOT config validation errors.
 
 **Hard rule**: `config/` MUST NOT import from `adapters/`.
 
-**Documented runtime exceptions** (core -> outside core):
+**Documented intra-core coupling** (acceptable, no runtime cross-boundary dependency):
 
 | Source                          | Import                                                       | Reason                                |
 | ------------------------------- | ------------------------------------------------------------ | ------------------------------------- |
@@ -110,7 +113,7 @@ medre/
 ├── __main__.py              # delegates to cli:main
 ├── py.typed
 ├── adapters/                # concrete adapter implementations only
-│   ├── __init__.py          # re-exports all fakes (no AdapterContract re-export)
+│   ├── __init__.py          # lightweight package marker / docstring only
 │   ├── fake_lxmf.py
 │   ├── fake_matrix.py
 │   ├── fake_meshcore.py
@@ -123,9 +126,9 @@ medre/
 │   └── meshcore/
 ├── cli/                     # 18 command modules + main + __main__
 ├── config/
-│   ├── __init__.py          # PEP 562 deferred-import dict (_DEFERRED)
+│   ├── __init__.py          # lightweight package marker / docstring only
 │   ├── adapters/
-│   │   ├── __init__.py      # re-exports *Config and *ConfigError classes
+│   │   ├── __init__.py      # lightweight package marker / docstring only
 │   │   ├── errors.py        # AdapterConfigError hierarchy (ValueError subclasses)
 │   │   ├── matrix.py        # MatrixConfig dataclass with validate()
 │   │   ├── matrix_credentials.py  # credential sidecar helpers
@@ -157,7 +160,6 @@ medre/
 │   ├── storage/             # backend, replay, sqlite
 │   └── transforms/          # empty
 ├── interop/                 # mmrelay wire-format constants
-├── observability/           # classification, logging, summaries
 ├── plugins/                 # scaffolding only: Plugin protocol, PluginCapability enum
 └── runtime/                 # app, builder, capacity, retry, routes, route_engine,
                              # boot_summary, drill, smoke, snapshot, timeline, trace,

@@ -3,8 +3,8 @@
 Provides structured logging helpers and lightweight metrics counters
 for tracking pipeline event flow.
 
-Re-exported symbols
--------------------
+Package-level imports
+---------------------
 * :func:`~medre.core.observability.logging.setup_logging`
   – configure the root framework logger.
 * :func:`~medre.core.observability.logging.get_logger`
