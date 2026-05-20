@@ -55,8 +55,8 @@ def _all_doc_text() -> str:
 
 class TestNoPrivateCliImports:
     """Docs must not reference private CLI module paths (e.g.
-    ``medre.cli._internal``).  Only public package-level imports
-    (``from medre.adapters.matrix import ...``) should appear."""
+    ``medre.cli._internal``).  Docs should use concrete module imports
+    and avoid private CLI internals."""
 
     def test_no_private_cli_imports_in_docs(self) -> None:
         _all_doc_text()

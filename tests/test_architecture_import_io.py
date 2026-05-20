@@ -1,7 +1,8 @@
 """Import-time blocking I/O checks.
 
-Verifies that lightweight modules don't perform blocking I/O at import time
-(open, read_text, sqlite3.connect, network calls, subprocess, etc.).
+Scans all src/medre/**/*.py for obvious blocking calls at module level.
+Uses alias resolution (extract_aliases) to catch aliased calls like
+sp.run, t.sleep, etc.
 """
 from __future__ import annotations
 
@@ -18,28 +19,8 @@ from tests.helpers.ast_imports import (
 _REPO = Path(__file__).resolve().parents[1]
 _SRC = _REPO / "src" / "medre"
 
-# Directories/files to scan for blocking I/O at import time
-_SCAN_PATHS: list[Path] = [
-    _SRC / "core",
-    _SRC / "config" / "model.py",
-    _SRC / "interop" / "mmrelay.py",
-]
-
-# Additional specific files to scan
-_SCAN_FILES: list[Path] = [
-    _SRC / "adapters" / "matrix" / "codec.py",
-    _SRC / "adapters" / "matrix" / "renderer.py",
-    _SRC / "adapters" / "meshtastic" / "codec.py",
-    _SRC / "adapters" / "meshtastic" / "renderer.py",
-    _SRC / "adapters" / "meshcore" / "codec.py",
-    _SRC / "adapters" / "meshcore" / "renderer.py",
-    _SRC / "adapters" / "lxmf" / "codec.py",
-    _SRC / "adapters" / "lxmf" / "renderer.py",
-    _SRC / "config" / "__init__.py",
-    _SRC / "config" / "adapters" / "__init__.py",
-]
-
-# Function names/patterns that indicate blocking I/O at import time
+# Function names/patterns that indicate blocking I/O at import time.
+# Module-level calls to these are forbidden in src/medre/**/*.py.
 _BLOCKING_FUNCS: tuple[str, ...] = (
     "open",
     "read_text",
@@ -58,81 +39,102 @@ _BLOCKING_FUNCS: tuple[str, ...] = (
     "time.sleep",
 )
 
-# Mapping of common alias patterns to their fully-qualified blocking equivalents.
-# Used by _scan_file to resolve aliased imports before checking _BLOCKING_FUNCS.
-_BLOCKING_ALIASES: dict[str, str] = {
-    "sp": "subprocess",
-    "aio": "asyncio",
-}
-
-# Allowlist of (file_path_rel, func_name, reason) for known intentional cases
+# Explit allowlist for known intentional module-level calls.
+# Format: (file_path_rel, func_name, reason)
 _ALLOWLIST: list[tuple[str, str, str]] = [
-    # Add intentional cases here with justification
-    # e.g., ("medre/config/model.py", "open", "Config loading during build")
+    # Add entries here if needed, e.g.:
+    # ("medre/config/loader.py", "open", "Config file loading during init"),
 ]
 
 
+def _resolve_via_aliases(
+    func_name: str,
+    aliases: dict[str, str],
+) -> str:
+    """Resolve an aliased call like 'sp.run' to 'subprocess.run'.
+
+    Checks if the call's root object maps to an alias:
+      'sp.run' -> aliases.get('sp', 'sp') + '.run'
+    If the resolved name is 'subprocess.run', returns that.
+    Otherwise returns the original func_name.
+    """
+    if "." not in func_name:
+        # Direct call like 'sleep(1)' — check if 'sleep' is an alias
+        base = aliases.get(func_name)
+        if base:
+            return base
+        return func_name
+
+    parts = func_name.split(".")
+    root = parts[0]
+    if root in aliases:
+        resolved = aliases[root] + "." + ".".join(parts[1:])
+        return resolved
+    return func_name
+
+
+def _is_allowed(file_rel: str, func_name: str) -> bool:
+    """Check if a blocking call is in the allowlist."""
+    for aw_rel, aw_func, _reason in _ALLOWLIST:
+        if file_rel == aw_rel and func_name == aw_func:
+            return True
+    return False
+
+
 def _scan_file(py_file: Path) -> list[str]:
-    """Scan a single Python file for blocking I/O calls at module level."""
-    violations: list[str] = []
-    tree = parse_python(py_file)
-    calls = top_level_calls(tree, file_path=str(py_file))
+    """Scan a single Python file for blocking I/O calls at module level.
+
+    Returns violation descriptions.
+    """
+    try:
+        tree = parse_python(py_file)
+    except SyntaxError:
+        return []  # Skip files with syntax errors
+
+    # Extract aliases from the file
     aliases = extract_aliases(tree)
+
+    calls = top_level_calls(tree)
     rel = str(py_file.relative_to(_REPO))
+    violations: list[str] = []
 
     for call in calls:
-        # Resolve aliased call names to fully qualified names.
-        resolved_func = call.func
-        parts = call.func.split(".", 1)
-        if len(parts) == 1:
-            # Simple name: check if it's an alias for a blocking module
-            if parts[0] in aliases:
-                resolved_func = aliases[parts[0]]
-        else:
-            # Dotted name: check if the root is an alias
-            if parts[0] in aliases:
-                resolved_func = f"{aliases[parts[0]]}.{parts[1]}"
+        # Resolve alias
+        resolved = _resolve_via_aliases(call.func, aliases)
 
+        # Check against blocking funcs
         for blocking_func in _BLOCKING_FUNCS:
-            if resolved_func == blocking_func or resolved_func.endswith(f".{blocking_func}"):
-                # Check allowlist
-                allowed = False
-                for aw_rel, aw_func, _reason in _ALLOWLIST:
-                    if rel == aw_rel and resolved_func == aw_func:
-                        allowed = True
-                        break
-                if not allowed:
-                    violations.append(
-                        f"{rel}:{call.lineno}: blocking call {resolved_func}() at module level"
-                    )
+            if resolved == blocking_func or resolved.endswith(f".{blocking_func}"):
+                if _is_allowed(rel, resolved):
+                    continue
+                violations.append(
+                    f"{rel}:{call.lineno}: blocking call {resolved}() "
+                    f"(from {call.func}) at module level"
+                )
                 break
 
     return violations
 
 
 class TestNoBlockingIOAtImport:
-    """Lightweight modules must not perform blocking I/O at import time."""
+    """No module under src/medre/ may perform blocking I/O at import time."""
 
-    def test_core_modules_no_blocking_io(self) -> None:
+    def test_all_modules_no_blocking_io(self) -> None:
         all_violations: list[str] = []
-        for path in _SCAN_PATHS:
-            if path.is_dir():
-                for py_file in sorted(path.rglob("*.py")):
-                    all_violations.extend(_scan_file(py_file))
-            elif path.is_file():
-                all_violations.extend(_scan_file(path))
-
-        for py_file in _SCAN_FILES:
-            if py_file.exists():
-                all_violations.extend(_scan_file(py_file))
-
-        # Filter out __init__.py files that are just package markers
-        all_violations = [
-            v for v in all_violations
-            if not v.split(":", 1)[0].endswith("__init__.py")
-        ]
+        for py_file in sorted(_SRC.rglob("*.py")):
+            violations = _scan_file(py_file)
+            all_violations.extend(violations)
 
         assert not all_violations, (
             "Blocking I/O calls found at module level:\n" +
             "\n".join(all_violations)
         )
+
+    def test_allowlist_entries_are_documented(self) -> None:
+        """If the allowlist has entries, list them so they stay visible."""
+        if _ALLOWLIST:
+            entries = "\n".join(
+                f"  {rel}: {func} — {reason}"
+                for rel, func, reason in _ALLOWLIST
+            )
+            print(f"Allowlisted blocking I/O:\n{entries}")

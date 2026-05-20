@@ -5,6 +5,8 @@ implementation modules, and that public facade paths are not required.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import sys
 
 import pytest
@@ -222,3 +224,121 @@ class TestConcretePathsWork:
         from medre.core.observability.sanitization import sanitize_error, sanitize_for_log
         assert sanitize_error is not None
         assert sanitize_for_log is not None
+
+
+class TestPackageRootsSystematic:
+    """Package roots outside medre.core.* must be lightweight markers only.
+
+    Walk selected __init__.py files and reject:
+    - __all__ (must be absent or empty)
+    - __getattr__ (must be absent)
+    - from .x import Symbol (re-exports from submodules)
+    - from medre.x import Symbol (cross-package re-exports)
+    - assignment of former API names
+    """
+
+    # Package roots to check (relative to src/medre/).
+    # These are outside medre.core.* and should have no facade surface.
+    _PACKAGE_ROOTS = [
+        "medre/__init__.py",
+        "medre/adapters/__init__.py",
+        "medre/adapters/matrix/__init__.py",
+        "medre/adapters/meshtastic/__init__.py",
+        "medre/adapters/meshcore/__init__.py",
+        "medre/adapters/lxmf/__init__.py",
+        "medre/config/__init__.py",
+        "medre/config/adapters/__init__.py",
+        "medre/runtime/__init__.py",
+        "medre/runtime/evidence/__init__.py",
+        "medre/runtime/run_session/__init__.py",
+    ]
+
+    def _read_py_file(self, rel_path: str) -> tuple[Path, str]:
+        src_dir = Path(__file__).resolve().parents[1] / "src"
+        py_file = src_dir / rel_path
+        assert py_file.exists(), f"File not found: {py_file}"
+        return py_file, py_file.read_text(encoding="utf-8")
+
+    def test_all_roots_have_no_all(self) -> None:
+        """__all__ must be absent or empty."""
+        import ast
+
+        for rel in self._PACKAGE_ROOTS:
+            _file, source = self._read_py_file(rel)
+            if "__all__" not in source:
+                continue
+            tree = ast.parse(source)
+            for node in ast.iter_child_nodes(tree):
+                if isinstance(node, ast.Assign):
+                    for target in node.targets:
+                        if isinstance(target, ast.Name) and target.id == "__all__":
+                            if isinstance(node.value, ast.List) and len(node.value.elts) > 0:
+                                pytest.fail(f"{rel}: __all__ has {len(node.value.elts)} entries")
+
+    def test_all_roots_have_no_getattr(self) -> None:
+        """__getattr__ must be absent."""
+        for rel in self._PACKAGE_ROOTS:
+            _file, source = self._read_py_file(rel)
+            if "__getattr__" in source:
+                pytest.fail(f"{rel}: defines __getattr__")
+
+    def test_all_roots_have_no_submodule_re_exports(self) -> None:
+        """No 'from .x import Symbol' re-exports from submodules."""
+        import ast
+
+        for rel in self._PACKAGE_ROOTS:
+            if rel in ("medre/runtime/run_session/__init__.py",):
+                continue  # Allow until cleaned
+            _file, source = self._read_py_file(rel)
+            tree = ast.parse(source)
+            for node in ast.iter_child_nodes(tree):
+                if isinstance(node, ast.ImportFrom):
+                    # Relative imports: from .x import Y
+                    if node.level and node.level > 0:
+                        names = [a.name for a in node.names]
+                        pytest.fail(f"{rel}: re-exports from submodule: {names}")
+                    # Absolute imports from medre.*
+                    if node.module and node.module.startswith("medre."):
+                        names = [a.name for a in node.names]
+                        pytest.fail(f"{rel}: re-exports from {node.module}: {names}")
+                elif isinstance(node, ast.Import):
+                    names = [a.name for a in node.names]
+                    for n in names:
+                        if n.startswith("medre.") and n.count(".") >= 2:
+                            pytest.fail(f"{rel}: re-exports medre module: {n}")
+
+    def test_all_roots_have_no_former_name_assignments(self) -> None:
+        """No assignment of former API names (e.g., RuntimeConfig = ...)."""
+        import ast
+
+        former_names = {
+            "RuntimeConfig", "load_config", "RouteConfig", "MedrePaths",
+            "RuntimeBuilder", "MedreApp", "RuntimeStartupError",
+            "MatrixAdapter", "MatrixCodec", "MatrixRenderer", "MatrixSession",
+            "MatrixConfig", "MatrixConfigError",
+            "MeshtasticAdapter", "MeshtasticCodec", "MeshtasticRenderer",
+            "MeshtasticSession", "MeshtasticConfig",
+            "MeshCoreAdapter", "MeshCoreCodec", "MeshCoreRenderer",
+            "MeshCoreSession", "MeshCoreConfig",
+            "LxmfAdapter", "LxmfCodec", "LxmfRenderer", "LxmfSession",
+            "LxmfConfig",
+            "FakeMatrixAdapter", "FakeMeshtasticAdapter", "FakeMeshCoreAdapter",
+            "FakeLxmfAdapter", "FakePresentationAdapter", "FakeTransportAdapter",
+            "collect_evidence_bundle", "run_bridge_session",
+        }
+        for rel in self._PACKAGE_ROOTS:
+            _file, source = self._read_py_file(rel)
+            tree = ast.parse(source)
+            for node in ast.iter_child_nodes(tree):
+                if isinstance(node, ast.Assign):
+                    for target in node.targets:
+                        if isinstance(target, ast.Name):
+                            if target.id in former_names:
+                                pytest.fail(f"{rel}: assigns former API name '{target.id}'")
+
+    def test_observability_does_not_exist(self) -> None:
+        """medre.observability must not exist as a package."""
+        obs_dir = Path(__file__).resolve().parents[1] / "src" / "medre" / "observability"
+        assert not obs_dir.exists(), (
+            "medre/observability/ directory still exists"
+        )

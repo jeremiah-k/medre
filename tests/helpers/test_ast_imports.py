@@ -249,7 +249,8 @@ class TestTopLevelCallsNested:
         source = 'Path("file").read_text()\n'
         tree = ast.parse(source)
         calls = top_level_calls(tree)
-        assert len(calls) >= 1
+        funcs = {c.func for c in calls}
+        assert "read_text" in funcs or "Path.read_text" in funcs
 
     def test_call_in_function_ignored(self) -> None:
         source = """

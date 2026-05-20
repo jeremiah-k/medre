@@ -16,14 +16,22 @@ from pathlib import Path
 import pytest
 
 # Modules to test for import side effects.
-# Adapter package __init__.py files are lightweight docstring-only markers,
-# so importing codec/renderer modules no longer pulls in sibling submodules.
 _LIGHTWEIGHT_MODULES: list[str] = [
-    # Package roots are intentionally excluded: _import_fresh() removes ALL
+    # Package roots are intentionally excluded: _import_fresh() removes all
     # submodules from sys.modules, poisoning cached imports for subsequent
-    # tests. Only truly leaf modules with no submodule dependencies are safe.
+    # tests. A subprocess-based check could test them in isolation.
+    # Individual submodules are tested here: codec/renderer leaf modules
+    # have no submodule children, so _import_fresh is safe.
     "medre.interop.mmrelay",
     "medre.core.observability.sanitization",
+    "medre.adapters.matrix.codec",
+    "medre.adapters.matrix.renderer",
+    "medre.adapters.meshtastic.codec",
+    "medre.adapters.meshtastic.renderer",
+    "medre.adapters.meshcore.codec",
+    "medre.adapters.meshcore.renderer",
+    "medre.adapters.lxmf.codec",
+    "medre.adapters.lxmf.renderer",
 ]
 
 # Modules that should NOT be imported as a side effect
