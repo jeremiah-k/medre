@@ -172,7 +172,17 @@ class MatrixSession:
         # Part D — auto-join
         "_auto_join_rooms",
         "_joining_rooms",
+        # Sync boundary / history suppression
+        "_live_sync_started",
+        "_suppressed_backlog_undecryptable",
+        # Live undecryptable dedup
+        "_undecryptable_dedup",
+        "_suppressed_rate_limited_undecryptable",
+        # RoomEncryptionEvent logging dedup
+        "_encryption_event_seen_rooms",
     )
+
+    _UNDECRYPTABLE_DEDUP_WINDOW_SECS: float = 60.0
 
     def __init__(
         self,
@@ -205,6 +215,14 @@ class MatrixSession:
         # Part D — auto-join
         self._auto_join_rooms = auto_join_rooms
         self._joining_rooms: dict[str, asyncio.Task[bool]] = {}
+        # Sync boundary / history suppression
+        self._live_sync_started: bool = False
+        self._suppressed_backlog_undecryptable: int = 0
+        # Live undecryptable dedup
+        self._undecryptable_dedup: dict[str, float] = {}
+        self._suppressed_rate_limited_undecryptable: int = 0
+        # RoomEncryptionEvent logging dedup
+        self._encryption_event_seen_rooms: set[str] = set()
 
     # -- Properties -----------------------------------------------------------
 
@@ -280,6 +298,15 @@ class MatrixSession:
         """Monotonic time of last successful sync, or ``None``."""
         return self._last_successful_sync
 
+    @property
+    def is_live(self) -> bool:
+        """``True`` after the first successful sync with a ``next_batch`` token.
+
+        Before this point, inbound events are considered backlog / history
+        and are suppressed from the adapter pipeline.
+        """
+        return self._live_sync_started
+
     # Track 2 — crypto-store continuity
 
     @property
@@ -349,6 +376,13 @@ class MatrixSession:
         self._crypto_store_loaded = False
         # Track 4 — reset room states
         self._room_states = {}
+        # Sync boundary / history suppression
+        self._live_sync_started = False
+        self._suppressed_backlog_undecryptable = 0
+        self._undecryptable_dedup = {}
+        self._suppressed_rate_limited_undecryptable = 0
+        # RoomEncryptionEvent logging dedup
+        self._encryption_event_seen_rooms = set()
 
         mode = self._config.encryption_mode
         if mode == "e2ee_required":
@@ -752,6 +786,12 @@ class MatrixSession:
 
         Counts the event, records the last crypto error, logs a warning,
         but does NOT crash or forward to the adapter message callback.
+
+        History suppression: before the first successful sync
+        (``is_live`` is ``False``), events are considered backlog and
+        logged at DEBUG only.  After going live, a 60-second dedup
+        window suppresses repeated warnings for the same room+session
+        key.
         """
         self._undecryptable_event_count += 1
         event_id = getattr(event, "event_id", "<unknown>")
@@ -760,15 +800,66 @@ class MatrixSession:
         self._last_crypto_error = f"Undecryptable MegolmEvent {event_id} in {room_id}"
 
         self._encrypted_room_seen = True
+
+        # Track 4 — mark room as encrypted (shared helper)
+        self._track_room_encrypted(room, room_id)
+
+        # History suppression: suppress backlog undecryptable events.
+        if not self.is_live:
+            self._suppressed_backlog_undecryptable += 1
+            self._logger.debug(
+                "Suppressed backlog undecryptable MegolmEvent %s in room %s",
+                event_id,
+                room_id,
+            )
+            return
+
+        # Live undecryptable dedup (60-second window per room:session_id).
+        session_id = getattr(event, "session_id", "?")
+        key = f"{room_id}:{session_id}"
+        now = time.monotonic()
+        self._prune_undecryptable_dedup(now)
+        prev = self._undecryptable_dedup.get(key)
+        if prev is not None and now - prev < self._UNDECRYPTABLE_DEDUP_WINDOW_SECS:
+            self._suppressed_rate_limited_undecryptable += 1
+            self._logger.debug(
+                "Rate-limited undecryptable MegolmEvent %s in room %s "
+                "(dedup key %s, %.1fs since last)",
+                event_id,
+                room_id,
+                key,
+                now - prev,
+            )
+            return
+
         self._logger.warning(
             "Undecryptable MegolmEvent %s in room %s",
             event_id,
             room_id,
         )
+        self._undecryptable_dedup[key] = now
 
-        # Track 4 — mark room as encrypted
+    def _prune_undecryptable_dedup(self, now: float) -> None:
+        """Evict expired entries from the live undecryptable dedup cache.
+
+        Removes entries older than ``_UNDECRYPTABLE_DEDUP_WINDOW_SECS``
+        to prevent unbounded growth over long-lived sessions.
+        """
+        cutoff = now - self._UNDECRYPTABLE_DEDUP_WINDOW_SECS
+        self._undecryptable_dedup = {
+            key: ts
+            for key, ts in self._undecryptable_dedup.items()
+            if ts >= cutoff
+        }
+
+    def _track_room_encrypted(self, room: Any, room_id: str) -> None:
+        """Mark a room as encrypted in the room-state tracking cache.
+
+        Extracted from _on_megolm_event / _on_room_encryption_event to
+        avoid duplication.
+        """
         if room is not None:
-            rid = getattr(room, "room_id", None)
+            rid = getattr(room, "room_id", None) or room_id
             if rid is not None:
                 if (
                     len(self._room_states) >= _MAX_ROOM_STATES
@@ -790,32 +881,24 @@ class MatrixSession:
 
         Sets ``_encrypted_room_seen`` and logs.  Does NOT forward to the
         canonical event pipeline — this is a state-tracking callback only.
+
+        Logging is deduplicated per room_id: the first event for a given
+        room emits a DEBUG record; subsequent events for the same room
+        are silently suppressed.  No INFO record is emitted by default.
         """
         self._encrypted_room_seen = True
         room_id = getattr(room, "room_id", "<unknown>") if room else "<unknown>"
-        self._logger.info(
-            "RoomEncryptionEvent received for room %s — room encryption enabled",
-            room_id,
-        )
 
-        # Track 4 — mark room as encrypted
-        if room is not None:
-            rid = getattr(room, "room_id", None)
-            if rid is not None:
-                if (
-                    len(self._room_states) >= _MAX_ROOM_STATES
-                    and rid not in self._room_states
-                ):
-                    oldest = next(iter(self._room_states))
-                    del self._room_states[oldest]
-                    self._logger.warning(
-                        "MatrixSession: room-state tracking hit cap (%d); "
-                        "evicted room %s for encrypted room %s",
-                        _MAX_ROOM_STATES,
-                        oldest,
-                        rid,
-                    )
-                self._room_states[rid] = "encrypted"
+        # Track 4 — mark room as encrypted (always, regardless of logging)
+        self._track_room_encrypted(room, room_id)
+
+        # Deduped logging: first event per room at DEBUG, rest silent.
+        if room_id not in self._encryption_event_seen_rooms:
+            self._encryption_event_seen_rooms.add(room_id)
+            self._logger.debug(
+                "RoomEncryptionEvent received for room %s — room encryption enabled",
+                room_id,
+            )
 
     # Track 4 — track rooms seen via sync (called by message callback wrapper)
     def _track_room(self, room_id: str) -> None:
@@ -849,7 +932,11 @@ class MatrixSession:
             return
 
     async def _sync_with_reconnect(self) -> None:
-        """Bounded reconnect loop around ``sync_forever``.
+        """Bounded reconnect loop around ``sync()``.
+
+        Uses a manual sync loop instead of ``sync_forever`` so that
+        the sync boundary (``_live_sync_started``) can be set between
+        the first successful sync (backlog) and subsequent live syncs.
 
         On sync failure (transient), initiates reconnect with exponential
         backoff (1s, 2s, 4s, 8s, 16s capped at 60s) with +-25% jitter.
@@ -863,18 +950,46 @@ class MatrixSession:
             try:
                 self._reconnecting = False
 
-                await self._client.sync_forever(
-                    timeout=self._config.sync_timeout_ms,
-                )
-                # sync_forever returned normally (clean shutdown / unusual)
-                if self._reconnect_attempts > 0:
-                    self._logger.info(
-                        "Sync recovered after %d reconnect attempts",
-                        self._reconnect_attempts,
+                # Manual sync loop — replaces sync_forever so we can
+                # control the live boundary.
+                while not self._stop_requested:
+                    resp = await self._client.sync(
+                        timeout=self._config.sync_timeout_ms,
                     )
-                self._reconnect_attempts = 0
-                self._last_reconnect_error = None
-                self._last_successful_sync = time.monotonic()
+
+                    # nio returns SyncResponse on success, ErrorResponse
+                    # or similar on failure.
+                    if hasattr(resp, "next_batch") and resp.next_batch:
+                        self._last_successful_sync = time.monotonic()
+
+                        if not self._live_sync_started:
+                            self._live_sync_started = True
+                            if self._suppressed_backlog_undecryptable > 0:
+                                self._logger.debug(
+                                    "Sync boundary reached — suppressed "
+                                    "%d undecryptable backlog events",
+                                    self._suppressed_backlog_undecryptable,
+                                )
+
+                        if self._reconnect_attempts > 0:
+                            self._logger.info(
+                                "Sync recovered after %d reconnect attempts",
+                                self._reconnect_attempts,
+                            )
+                        self._reconnect_attempts = 0
+                        self._last_reconnect_error = None
+
+                        # Real nio sync long-polls; this yield prevents
+                        # tight loops with immediate-return test fakes.
+                        await asyncio.sleep(0)
+                    else:
+                        # Error response from server
+                        error_msg = str(resp)
+                        raise RuntimeError(
+                            f"sync returned error: {error_msg}"
+                        )
+
+                # Loop exited because _stop_requested
                 return
             except asyncio.CancelledError:
                 self._reconnecting = False
@@ -963,13 +1078,13 @@ class MatrixSession:
             self._sync_task = None
 
         if self._client is not None:
+            # Vestigial: production code now uses manual sync loop, not
+            # sync_forever.  Kept for safety in case any code path or
+            # third-party wrapper still triggers sync_forever.
             try:
                 self._client.stop_sync_forever()
-            except Exception as exc:
-                self._logger.warning(
-                    "Error stopping sync_forever: %s",
-                    exc,
-                )
+            except Exception:
+                pass
             try:
                 await self._client.close()
             except Exception as exc:
@@ -987,6 +1102,7 @@ class MatrixSession:
 
         self._closed = True
         self._reconnecting = False
+        self._live_sync_started = False
         # Track 3 — reset reconnect counter so diagnostics are truthful after stop
         self._reconnect_attempts = 0
 

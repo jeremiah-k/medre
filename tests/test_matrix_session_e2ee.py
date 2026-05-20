@@ -408,7 +408,7 @@ class TestBlocker4RoomEncryptionEvent:
             await session.stop()
 
     async def test_room_encryption_event_logs_info(self, mock_nio, caplog) -> None:
-        """_on_room_encryption_event logs an info message."""
+        """_on_room_encryption_event logs a debug message."""
         config = make_matrix_config()
         session = MatrixSession(config)
         try:
@@ -417,7 +417,7 @@ class TestBlocker4RoomEncryptionEvent:
             room.room_id = "!encrypted:example.com"
             event = MagicMock(name="encryption_event")
 
-            with caplog.at_level(logging.INFO):
+            with caplog.at_level(logging.DEBUG):
                 await session._on_room_encryption_event(room, event)
 
             assert any(

@@ -85,6 +85,17 @@ def build_mock_nio_module() -> MagicMock:
     client.stop_sync_forever = MagicMock()
     client.close = AsyncMock()
     client.sync_forever = sync_forever_stub
+    # sync returns a fake SyncResponse with next_batch for the manual
+    # sync loop used in _sync_with_reconnect.  Uses a real async stub
+    # that yields once so the event loop can schedule other tasks
+    # (prevents hot loops with immediate-return fakes).
+    async def _sync_stub(*args: object, **kwargs: object) -> MagicMock:
+        await asyncio.sleep(0)
+        resp = MagicMock(name="SyncResponse")
+        resp.next_batch = "batch_token_123"
+        return resp
+
+    client.sync = _sync_stub
     client.room_send = AsyncMock()
     client.rooms = {}
     # whoami() returns a response with device_id for device discovery.

@@ -21,8 +21,10 @@ name = "live-matrix-meshtastic"
 shutdown_timeout_seconds = 30   # give adapters time to drain on Ctrl-C
 
 [logging]
-level = "INFO"  # use DEBUG for bring-up visibility
+level = "INFO"  # controls MEDRE namespace only; use DEBUG for bring-up visibility
 format = "text" # "text" for humans, "json" for log aggregation
+# Dependency loggers stay quiet by default (root WARNING).
+# Use [logging.overrides] only when troubleshooting integrations — see docs/runbooks/configuration.md.
 
 [storage]
 backend = "sqlite"

@@ -5,6 +5,12 @@ Covers:
   - Adapter start behavior per encryption_mode
   - Adapter diagnostics with crypto scaffold fields
   - Adapter delegates lifecycle to MatrixSession
+  - Reaction callback registration and event class discovery
+  - ensure_joined / ensure_joined_rooms / invite handling
+  - Concurrent join deduplication and cancellation safety
+
+Sync-boundary, undecryptable dedup, and RoomEncryptionEvent logging tests
+live in test_matrix_session_sync_boundary.py.
 
 No test requires mindroom-nio[e2e].
 """
@@ -109,7 +115,7 @@ class TestMatrixSessionLifecycle:
             await asyncio.sleep(0)
             raise RuntimeError("sync died")
 
-        mock_nio.AsyncClient.return_value.sync_forever = _failing_sync
+        mock_nio.AsyncClient.return_value.sync = _failing_sync
         config = make_matrix_config()
         logger = logging.getLogger("test.sync_failure")
         session = MatrixSession(config, logger=logger)

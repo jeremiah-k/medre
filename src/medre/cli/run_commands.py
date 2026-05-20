@@ -114,9 +114,9 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
     _setup_logging(config)
 
     adapter_ids = [aid for aid, _rtc in enabled_adapters]
-    logger.info("MEDRE starting — config source: %s", source.value)
-    logger.info("Config path: %s", paths.config_file)
-    logger.info("State dir:   %s", paths.state_dir)
+    logger.debug("Config source: %s", source.value)
+    logger.debug("Config path: %s", paths.config_file)
+    logger.debug("State dir:   %s", paths.state_dir)
 
     # Print one concise console header; detailed construction/start timing
     # belongs in the logger and the post-start summary below.
@@ -295,8 +295,8 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
             if bs.adapters_disabled > 0:
                 _print(f"  Disabled adapters: {bs.adapters_disabled}")
 
-        # Log structured startup
-        logger.info(
+        # Log structured startup (stdout summary already printed above)
+        logger.debug(
             "Runtime started — %d adapter(s) in %s",
             len(app.started_adapter_ids),
             format_duration_ms(run_start),

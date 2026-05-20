@@ -345,7 +345,7 @@ class PipelineRunner:
         list[DeliveryOutcome]
             Per-target delivery outcomes.  Empty when no routes matched.
         """
-        self._log.info(
+        self._log.debug(
             "Ingress: event_id=%s kind=%s source=%s",
             event.event_id,
             event.event_kind,

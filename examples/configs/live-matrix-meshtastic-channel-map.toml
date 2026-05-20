@@ -19,8 +19,10 @@ name = "live-channel-map"
 shutdown_timeout_seconds = 30
 
 [logging]
-level = "INFO"
+level = "INFO"  # controls MEDRE namespace only; use DEBUG for bring-up visibility
 format = "text"
+# Dependency loggers stay quiet by default (root WARNING).
+# Use [logging.overrides] only when troubleshooting integrations — see docs/runbooks/configuration.md.
 
 [storage]
 backend = "sqlite"

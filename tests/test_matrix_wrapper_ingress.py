@@ -70,6 +70,7 @@ class TestMatrixWrapperCallbackPath:
         ctx = make_adapter_context("matrix-cb", runner)
         await matrix_adapter.start(ctx)
         await fake_target.start(make_adapter_context("fake-cb-target", runner))
+        matrix_adapter._session._live_sync_started = True
 
         try:
             room = make_nio_room("!cb_room:example.com")
@@ -136,6 +137,7 @@ class TestMatrixWrapperCallbackPath:
 
         await matrix_adapter.start(make_adapter_context("matrix-stale-cb", runner))
         await fake_target.start(make_adapter_context("fake-stale-target", runner))
+        matrix_adapter._session._live_sync_started = True
 
         try:
             room = make_nio_room("!stale_room:example.com")
@@ -186,6 +188,7 @@ class TestMatrixWrapperCallbackPath:
 
         ctx = make_adapter_context("matrix-nref-cb", runner)
         await matrix_adapter.start(ctx)
+        matrix_adapter._session._live_sync_started = True
 
         try:
             room = make_nio_room("!nref_room:example.com")
@@ -252,6 +255,7 @@ class TestMatrixWrapperCallbackPath:
 
         await matrix_adapter.start(make_adapter_context("mx-bridge-src", runner))
         await fake_mesh.start(make_adapter_context("mesh-bridge-dst", runner))
+        matrix_adapter._session._live_sync_started = True
 
         try:
             room = make_nio_room("!bridge_room:example.com")
