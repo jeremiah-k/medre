@@ -29,6 +29,7 @@ from medre.runtime.architecture_report import (
     check_forbidden_imports,
     check_forbidden_imports_by_module,
     extract_dynamic_adapter_imports,
+    module_matches,
     module_path_for,
     parse_file,
     render_boundary_report,
@@ -1438,3 +1439,163 @@ class TestRealGraphBoundaryReport:
         assert (
             self.report.allowed_runtime_adapter.count >= 4
         ), f"Expected ≥4 allowed adapter refs, got {self.report.allowed_runtime_adapter.count}"
+
+    def test_no_route_engine_forbidden(self):
+        assert self.report.route_engine_forbidden.count == 0, (
+            f"Route engine violations: "
+            f"{[f'{v.source}→{v.target}' for v in self.report.route_engine_forbidden.violations]}"
+        )
+
+    def test_no_adapter_to_runtime(self):
+        assert self.report.adapter_to_runtime.count == 0, (
+            f"Adapter→runtime violations: "
+            f"{[f'{v.source}→{v.target}' for v in self.report.adapter_to_runtime.violations]}"
+        )
+
+    def test_no_config_to_adapter_impl(self):
+        assert self.report.config_to_adapter_impl.count == 0, (
+            f"Config→adapter impl violations: "
+            f"{[f'{v.source}→{v.target}' for v in self.report.config_to_adapter_impl.violations]}"
+        )
+
+    def test_no_codec_renderer_forbidden(self):
+        assert self.report.codec_renderer_forbidden.count == 0, (
+            f"Codec/renderer violations: "
+            f"{[f'{v.source}→{v.target}' for v in self.report.codec_renderer_forbidden.violations]}"
+        )
+
+    def test_no_session_foreign_sdk(self):
+        assert self.report.session_foreign_sdk.count == 0, (
+            f"Session foreign SDK violations: "
+            f"{[f'{v.source}→{v.target}' for v in self.report.session_foreign_sdk.violations]}"
+        )
+
+    def test_no_adapter_wrapper_foreign_transport(self):
+        assert self.report.adapter_wrapper_foreign_transport.count == 0, (
+            f"Adapter wrapper cross-transport: "
+            f"{[f'{v.source}→{v.target}' for v in self.report.adapter_wrapper_foreign_transport.violations]}"
+        )
+
+    def test_allowed_includes_all_four_adapters(self):
+        targets = {v.target for v in self.report.allowed_runtime_adapter.violations}
+        for adapter in (
+            "medre.adapters.matrix.adapter",
+            "medre.adapters.meshtastic.adapter",
+            "medre.adapters.meshcore.adapter",
+            "medre.adapters.lxmf.adapter",
+        ):
+            assert adapter in targets, f"Missing allowed adapter: {adapter}"
+
+
+# ---------------------------------------------------------------------------
+# Item 4: Dynamic adapter detection outside RuntimeBuilder
+# ---------------------------------------------------------------------------
+
+
+class TestDynamicAdapterDetectionOutsideBuilder:
+    """Dynamic adapter strings in non-builder runtime modules are forbidden."""
+
+    def test_builder_importlib_import_module_allowed(self):
+        """importlib.import_module("medre.adapters....") in builder is allowed."""
+        graph = build_dependency_graph(_SRC)
+        report = build_route_adapter_boundary_report(graph, src_root=_SRC)
+        # Builder dynamic imports should be in allowed section
+        [
+            v
+            for v in report.allowed_runtime_adapter.violations
+            if v.source == "medre.runtime.builder" and "import_module" in v.rule
+        ]
+        # Builder may or may not use importlib.import_module, but if it does
+        # it must be in allowed.  Verify builder never appears in forbidden.
+        builder_forbidden = [
+            v
+            for v in report.forbidden_runtime_adapter.violations
+            if v.source == "medre.runtime.builder"
+        ]
+        assert (
+            not builder_forbidden
+        ), f"Builder should not appear in forbidden: {builder_forbidden}"
+
+    def test_non_builder_importlib_import_module_forbidden(self):
+        """importlib.import_module("medre.adapters....") in non-builder is forbidden."""
+        source = 'importlib.import_module("medre.adapters.matrix.adapter")\n'
+        results = extract_dynamic_adapter_imports(source)
+        modules = [r[0] for r in results]
+        assert "medre.adapters.matrix.adapter" in modules
+
+    def test_non_builder_dunder_import_forbidden(self):
+        """__import__("medre.adapters....") is detected."""
+        source = '__import__("medre.adapters.lxmf.adapter", fromlist=["LxmfAdapter"])\n'
+        results = extract_dynamic_adapter_imports(source)
+        modules = [r[0] for r in results]
+        assert "medre.adapters.lxmf.adapter" in modules
+
+    def test_real_graph_no_non_builder_dynamic_violations(self):
+        """Real graph has zero forbidden dynamic adapter refs outside builder."""
+        graph = build_dependency_graph(_SRC)
+        report = build_route_adapter_boundary_report(graph, src_root=_SRC)
+        dynamic_forbidden = [
+            v
+            for v in report.forbidden_runtime_adapter.violations
+            if "dynamic" in v.rule.lower()
+        ]
+        assert (
+            dynamic_forbidden == []
+        ), f"Non-builder dynamic violations: {dynamic_forbidden}"
+
+
+# ---------------------------------------------------------------------------
+# Item 5: Runtime Assembly Points include both allowed and forbidden
+# ---------------------------------------------------------------------------
+
+
+class TestRuntimeAssemblyPointsComplete:
+    """runtime_assembly_points includes both allowed and forbidden."""
+
+    def test_real_graph_assembly_includes_builder(self):
+        """Builder appears in runtime_assembly_points."""
+        graph = build_dependency_graph(_SRC)
+        report = build_route_adapter_boundary_report(graph, src_root=_SRC)
+        builder_entries = [
+            v
+            for v in report.runtime_assembly_points.violations
+            if v.source == "medre.runtime.builder"
+        ]
+        assert (
+            len(builder_entries) > 0
+        ), "Builder should appear in runtime_assembly_points"
+
+    def test_assembly_points_count_entries_not_violations(self):
+        """render_boundary_report uses 'entries' for assembly points."""
+        graph = build_dependency_graph(_SRC)
+        report = build_route_adapter_boundary_report(graph, src_root=_SRC)
+        rendered = render_boundary_report(report)
+        assert "Runtime Assembly Points" in rendered
+        assert "entries" in rendered.split("Runtime Assembly Points")[1].split("\n")[0]
+
+
+# ---------------------------------------------------------------------------
+# Item 10: module_matches() helper
+# ---------------------------------------------------------------------------
+
+
+class TestModuleMatches:
+    """Tests for module_matches() helper."""
+
+    def test_exact_match(self):
+        assert module_matches("medre.core", "medre.core") is True
+
+    def test_child_match(self):
+        assert module_matches("medre.core.events", "medre.core") is True
+
+    def test_no_partial_match(self):
+        """Prefix must match at a dot boundary."""
+        assert module_matches("medre.corex", "medre.core") is False
+
+    def test_no_match_unrelated(self):
+        assert module_matches("os.path", "medre.core") is False
+
+    def test_empty_prefix(self):
+        """Empty prefix only matches the empty string itself."""
+        assert module_matches("", "") is True
+        assert module_matches("medre.core", "") is False

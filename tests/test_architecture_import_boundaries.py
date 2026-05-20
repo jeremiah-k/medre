@@ -32,6 +32,7 @@ _CORE_FORBIDDEN: tuple[str, ...] = (
     "meshcore",
     "RNS",
     "lxmf",
+    "LXMF",
 )
 
 # Forbidden for route_engine (may import medre.runtime.errors, routes)
@@ -46,6 +47,7 @@ _ROUTE_ENGINE_FORBIDDEN: tuple[str, ...] = (
     "meshcore",
     "RNS",
     "lxmf",
+    "LXMF",
 )
 
 # Allowed adapter-specific prefixes for config/model.py
@@ -70,6 +72,7 @@ _CONFIG_FORBIDDEN: tuple[str, ...] = (
     "meshcore",
     "RNS",
     "lxmf",
+    "LXMF",
 )
 
 

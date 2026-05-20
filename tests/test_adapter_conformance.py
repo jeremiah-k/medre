@@ -106,6 +106,18 @@ class TestRealAdapterContractImports:
         ), f"{class_name} is not a subclass of AdapterContract"
 
 
+_FORBIDDEN_ADAPTER_ROOTS = frozenset(
+    {
+        "medre.adapters",
+        "medre.adapters.matrix",
+        "medre.adapters.meshtastic",
+        "medre.adapters.meshcore",
+        "medre.adapters.lxmf",
+    }
+)
+"""Adapter package roots that must not be used as import sources."""
+
+
 class TestNoPackageRootAdapterImports:
     """Conformance tests must not import from package-root facades.
 
@@ -131,7 +143,8 @@ class TestNoPackageRootAdapterImports:
         type-checking only.  Concrete submodule imports (e.g.
         ``from medre.adapters.matrix.adapter import MatrixAdapter``) are
         fine; only bare package-root facades like
-        ``from medre.adapters import MatrixAdapter`` are forbidden.
+        ``from medre.adapters import MatrixAdapter`` or
+        ``from medre.adapters.matrix import MatrixAdapter`` are forbidden.
         """
         source = Path(__file__).read_text(encoding="utf-8")
         tree = ast.parse(source)
@@ -152,27 +165,59 @@ class TestNoPackageRootAdapterImports:
                         return True
             return False
 
+        violations: list[str] = []
         for node in ast.walk(tree):
-            if not isinstance(node, ast.ImportFrom):
-                continue
-            module = node.module or ""
-            # Only look at imports from medre.adapters
-            if not module.startswith("medre.adapters"):
-                continue
-            # Concrete submodule imports are fine (e.g. medre.adapters.matrix.adapter)
-            parts = module.split(".")
-            # medre.adapters has 2 parts; anything deeper is a concrete submodule
-            if len(parts) > 2:
-                continue
-            # Skip if this import is inside a TYPE_CHECKING guard
-            if _inside_type_checking(node):
-                continue
-            # This is a package-root facade import
-            names = ", ".join(alias.name for alias in (node.names or []))
-            pytest.fail(
-                f"Conformance test uses package-root import: "
-                f"from {module} import {names}"
-            )
+            if isinstance(node, ast.ImportFrom) and node.module:
+                # Only flag forbidden package-root imports
+                if node.module in _FORBIDDEN_ADAPTER_ROOTS:
+                    # Skip if this import is inside a TYPE_CHECKING guard
+                    if not _inside_type_checking(node):
+                        names = ", ".join(alias.name for alias in (node.names or []))
+                        violations.append(
+                            f"  line {node.lineno}: from {node.module} import {names}"
+                        )
+            elif isinstance(node, ast.Import):
+                # Also check bare "import medre.adapters.matrix" form
+                for alias in node.names:
+                    if alias.name in _FORBIDDEN_ADAPTER_ROOTS:
+                        if not _inside_type_checking(node):
+                            violations.append(
+                                f"  line {node.lineno}: import {alias.name}"
+                            )
+
+        assert (
+            violations == []
+        ), "Conformance test uses package-root import(s):\n" + "\n".join(violations)
+
+    def test_forbids_transport_package_root_import(self) -> None:
+        """from medre.adapters.matrix import MatrixAdapter must be rejected."""
+        source = "from medre.adapters.matrix import MatrixAdapter\n"
+        tree = ast.parse(source)
+        violations = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                if node.module in _FORBIDDEN_ADAPTER_ROOTS:
+                    names = ", ".join(a.name for a in node.names)
+                    violations.append(
+                        f"line {node.lineno}: from {node.module} import {names}"
+                    )
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name in _FORBIDDEN_ADAPTER_ROOTS:
+                        violations.append(f"line {node.lineno}: import {alias.name}")
+        assert violations, "Should flag medre.adapters.matrix package-root import"
+
+    def test_forbids_bare_import_adapter_root(self) -> None:
+        """import medre.adapters.matrix must also be rejected."""
+        source = "import medre.adapters.matrix\n"
+        tree = ast.parse(source)
+        violations = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name in _FORBIDDEN_ADAPTER_ROOTS:
+                        violations.append(f"line {node.lineno}: import {alias.name}")
+        assert violations, "Should flag bare import medre.adapters.matrix"
 
     @pytest.mark.parametrize("module_name", _ADAPTER_MODULES)
     def test_adapter_module_imports_without_sdk(self, module_name: str) -> None:

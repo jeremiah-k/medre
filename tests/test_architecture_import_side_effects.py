@@ -44,7 +44,17 @@ _FORBIDDEN_SIDE_EFFECTS: tuple[str, ...] = (
 )
 
 # SDK packages that should not be pulled in by codec/renderer imports
-_FORBIDDEN_SDKS: tuple[str, ...] = ("nio", "meshtastic", "meshcore", "RNS", "lxmf")
+_FORBIDDEN_SDKS: tuple[str, ...] = (
+    "nio",
+    "meshtastic",
+    "meshcore",
+    "RNS",
+    "lxmf",
+    "LXMF",
+    "aiohttp",
+    "serial",
+    "serial_asyncio",
+)
 
 
 def _import_fresh(module_name: str) -> None:

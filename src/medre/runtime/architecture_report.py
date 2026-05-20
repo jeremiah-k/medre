@@ -15,6 +15,11 @@ from medre.runtime.architecture_ast import (
 )
 
 
+def module_matches(module: str, prefix: str) -> bool:
+    """Check if module equals prefix or is a direct child (prefix.xxx)."""
+    return module == prefix or module.startswith(prefix + ".")
+
+
 @dataclass
 class ImportEdge:
     """A single import edge from one module to another."""
@@ -267,6 +272,7 @@ _CORE_FORBIDDEN = (
     "meshcore",
     "RNS",
     "lxmf",
+    "LXMF",
 )
 
 _ROUTE_ENGINE_FORBIDDEN = (
@@ -276,6 +282,10 @@ _ROUTE_ENGINE_FORBIDDEN = (
     "aiohttp",
     "serial",
     "serial_asyncio",
+    "meshcore",
+    "RNS",
+    "lxmf",
+    "LXMF",
     "medre.runtime.builder",
 )
 
@@ -292,6 +302,7 @@ _CONFIG_FORBIDDEN = (
     "meshcore",
     "RNS",
     "lxmf",
+    "LXMF",
 )
 
 # Forbidden prefixes for codec/renderer modules
@@ -304,6 +315,7 @@ _CODEC_RENDERER_FORBIDDEN = (
     "meshcore",
     "RNS",
     "lxmf",
+    "LXMF",
     "medre.runtime",
     "medre.core.engine",
     "medre.core.storage",
@@ -407,8 +419,12 @@ def _extract_string_kwargs(call_node: _ast.Call, param_name: str) -> str | None:
 def extract_dynamic_adapter_imports(source: str) -> list[tuple[str, int, str]]:
     """Extract dynamic adapter module strings from builder source.
 
-    Parses AST for ``_AdapterFactory(module="medre.adapters....")`` calls
-    and ``_ADAPTER_RENDERER_SPECS`` list literals.
+    Parses AST for ``_AdapterFactory(module="medre.adapters....")`` calls,
+    ``_ADAPTER_RENDERER_SPECS`` list literals, ``importlib.import_module()``
+    calls, and ``__import__()`` calls.
+
+    Only string-literal arguments are detected; variable or concatenated
+    arguments are invisible to this static analysis.
 
     Returns list of ``(module_path, line_number, reason)``.
     """
@@ -424,6 +440,39 @@ def extract_dynamic_adapter_imports(source: str) -> list[tuple[str, int, str]]:
                 if module:
                     results.append(
                         (module, node.lineno, f"dynamic builder assembly: {module}")
+                    )
+            # __import__("medre.adapters....", ...)
+            elif isinstance(func, _ast.Name) and func.id == "__import__":
+                if (
+                    node.args
+                    and isinstance(node.args[0], _ast.Constant)
+                    and isinstance(node.args[0].value, str)
+                    and node.args[0].value.startswith("medre.adapters.")
+                ):
+                    mod_name = node.args[0].value
+                    results.append(
+                        (mod_name, node.lineno, f"dynamic __import__: {mod_name}")
+                    )
+            # importlib.import_module("medre.adapters....")
+            elif (
+                isinstance(func, _ast.Attribute)
+                and func.attr == "import_module"
+                and isinstance(func.value, _ast.Name)
+                and func.value.id == "importlib"
+            ) or (
+                # from importlib import import_module; import_module("...")
+                isinstance(func, _ast.Name)
+                and func.id == "import_module"
+            ):
+                if (
+                    node.args
+                    and isinstance(node.args[0], _ast.Constant)
+                    and isinstance(node.args[0].value, str)
+                    and node.args[0].value.startswith("medre.adapters.")
+                ):
+                    mod_name = node.args[0].value
+                    results.append(
+                        (mod_name, node.lineno, f"dynamic import_module: {mod_name}")
                     )
 
     # Also find _ADAPTER_RENDERER_SPECS tuples (can be Assign or AnnAssign)
@@ -522,6 +571,28 @@ def build_route_adapter_boundary_report(
                     )
                 )
 
+    # --- Non-builder runtime dynamic adapter refs ---
+    if src_root is not None:
+        for mod, info in graph.modules.items():
+            if not mod.startswith("medre.runtime.") or mod == "medre.runtime.builder":
+                continue
+            mod_file = src_root / info.file
+            if mod_file.exists():
+                try:
+                    source = mod_file.read_text(encoding="utf-8")
+                    dynamic = extract_dynamic_adapter_imports(source)
+                    for target, line, reason in dynamic:
+                        forbidden.append(
+                            BoundaryViolation(
+                                source=mod,
+                                target=target,
+                                line=line,
+                                rule=f"forbidden dynamic: {reason}",
+                            )
+                        )
+                except (SyntaxError, OSError):
+                    pass
+
     # --- Route Engine → Adapter/SDK Imports ---
     route_engine_violations: list[BoundaryViolation] = []
     route_engine = graph.modules.get("medre.runtime.route_engine")
@@ -531,7 +602,7 @@ def build_route_adapter_boundary_report(
                 continue
             for f in _ROUTE_ENGINE_FORBIDDEN:
                 target = edge.target
-                if target == f or target.startswith(f + "."):
+                if module_matches(target, f):
                     route_engine_violations.append(
                         BoundaryViolation(
                             source="medre.runtime.route_engine",
@@ -614,7 +685,7 @@ def build_route_adapter_boundary_report(
                 continue
             for f in _CODEC_RENDERER_FORBIDDEN:
                 target = edge.target
-                if target == f or target.startswith(f + "."):
+                if module_matches(target, f):
                     codec_renderer_violations.append(
                         BoundaryViolation(
                             source=mod,
@@ -636,13 +707,14 @@ def build_route_adapter_boundary_report(
         "meshcore",
         "RNS",
         "lxmf",
+        "LXMF",
     )
     # Per-transport allowed SDKs
     session_allowed_sdks = {
-        "matrix": ("nio",),
+        "matrix": ("nio", "aiohttp"),
         "meshtastic": ("meshtastic", "serial", "serial_asyncio"),
-        "meshcore": ("meshcore",),
-        "lxmf": ("RNS", "lxmf"),
+        "meshcore": ("meshcore", "serial", "serial_asyncio"),
+        "lxmf": ("RNS", "LXMF", "lxmf"),
     }
     for mod, info in graph.modules.items():
         if not mod.endswith(".session") or not mod.startswith("medre.adapters."):
@@ -655,11 +727,10 @@ def build_route_adapter_boundary_report(
             target = edge.target
             # Check SDK imports from other transports
             for sdk in _SDK_PREFIXES:
-                if target == sdk or target.startswith(sdk + "."):
+                if module_matches(target, sdk):
                     # Allow if SDK belongs to own transport
                     if not any(
-                        target == allowed or target.startswith(allowed + ".")
-                        for allowed in allowed_sdks
+                        module_matches(target, allowed) for allowed in allowed_sdks
                     ):
                         session_foreign.append(
                             BoundaryViolation(
@@ -708,20 +779,24 @@ def build_route_adapter_boundary_report(
 
     # --- Runtime Assembly Points ---
     assembly: list[BoundaryViolation] = []
-    for mod, info in graph.modules.items():
-        if not mod.startswith("medre.runtime."):
-            continue
-        for edge in info.imports:
-            if edge.target.startswith("medre.adapters.") and not edge.is_type_checking:
-                if mod != "medre.runtime.builder":
-                    assembly.append(
-                        BoundaryViolation(
-                            source=mod,
-                            target=edge.target,
-                            line=edge.line,
-                            rule="violation: non-builder runtime assembly point",
-                        )
-                    )
+    for v in allowed:
+        assembly.append(
+            BoundaryViolation(
+                source=v.source,
+                target=v.target,
+                line=v.line,
+                rule="allowed: RuntimeBuilder adapter assembly",
+            )
+        )
+    for v in forbidden:
+        assembly.append(
+            BoundaryViolation(
+                source=v.source,
+                target=v.target,
+                line=v.line,
+                rule="violation: non-builder runtime assembly point",
+            )
+        )
 
     def sort_key(v):
         return (v.source, v.target, v.line)
@@ -790,7 +865,7 @@ def render_boundary_report(report: RouteAdapterBoundaryReport) -> str:
     ]
 
     # Track which sections represent allowed (not violations) entries
-    allowed_titles = {"Allowed Runtime → Adapter Assembly"}
+    allowed_titles = {"Allowed Runtime → Adapter Assembly", "Runtime Assembly Points"}
 
     for section in sections:
         count_label = "entries" if section.title in allowed_titles else "violations"
@@ -818,14 +893,14 @@ def check_forbidden_imports(
     """
     violations: list[tuple[str, str, int]] = []
     for mod, info in graph.modules.items():
-        if not mod.startswith(module_prefix):
+        if not module_matches(mod, module_prefix):
             continue
         for edge in info.imports:
             if allow_type_checking and edge.is_type_checking:
                 continue
             for forbidden in forbidden_prefixes:
                 target = edge.target
-                if target == forbidden or target.startswith(forbidden + "."):
+                if module_matches(target, forbidden):
                     violations.append((mod, target, edge.line))
                     break
     return violations
@@ -841,14 +916,14 @@ def check_forbidden_imports_by_module(
     """Like check_forbidden_imports but grouped by violating module."""
     violations: dict[str, list[BoundaryViolation]] = {}
     for mod, info in graph.modules.items():
-        if not mod.startswith(module_prefix):
+        if not module_matches(mod, module_prefix):
             continue
         for edge in info.imports:
             if allow_type_checking and edge.is_type_checking:
                 continue
             for forbidden in forbidden_prefixes:
                 target = edge.target
-                if target == forbidden or target.startswith(forbidden + "."):
+                if module_matches(target, forbidden):
                     violations.setdefault(mod, []).append(
                         BoundaryViolation(
                             source=mod,

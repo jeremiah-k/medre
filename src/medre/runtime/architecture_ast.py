@@ -277,6 +277,18 @@ def top_level_calls(
             parts.insert(0, _get_call_name(current))
         return ".".join(parts)
 
+    def _process_node(node: ast.AST) -> None:
+        """Process a single node: record if it's a Call, then recurse into it."""
+        if isinstance(node, ast.Call):
+            result.append(
+                CallRecord(
+                    func=_get_call_name(node),
+                    lineno=node.lineno,
+                    file=file_path,
+                )
+            )
+        _walk(node)
+
     def _walk(node: ast.AST) -> None:
         for child in ast.iter_child_nodes(node):
             if isinstance(child, ast.Call):
@@ -293,7 +305,17 @@ def top_level_calls(
                 for stmt in child.orelse:
                     _walk(stmt)
                 continue
-            elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                # Function bodies are NOT import-time, but decorators and defaults ARE.
+                for dec in child.decorator_list:
+                    _process_node(dec)
+                for default in child.args.defaults:
+                    _process_node(default)
+                for default in child.args.kw_defaults:
+                    if default is not None:  # kw_defaults can have None entries
+                        _process_node(default)
+                # Do NOT walk function body
+            elif isinstance(child, ast.Lambda):
                 continue
             else:
                 _walk(child)

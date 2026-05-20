@@ -51,12 +51,25 @@ _SESSION_BASELINE_SDK_MODULES: frozenset[str] = frozenset(
     if sdk in _sys.modules
 )
 
+_SRC = Path(__file__).resolve().parents[1] / "src" / "medre"
+"""Root of the medre source tree (for direct path resolution)."""
+
 
 # ---------------------------------------------------------------------------
 # Shared helpers (same pattern as test_deployment_boundaries.py)
 # ---------------------------------------------------------------------------
 
-_SDK_PACKAGES = ("nio", "meshtastic", "meshcore", "RNS", "lxmf")
+_SDK_PACKAGES = (
+    "nio",
+    "meshtastic",
+    "meshcore",
+    "RNS",
+    "lxmf",
+    "LXMF",
+    "aiohttp",
+    "serial",
+    "serial_asyncio",
+)
 """Third-party transport SDK package names."""
 
 _ADAPTER_PREFIXES = (
@@ -81,11 +94,19 @@ _BANNED_SDK_IMPORT_PREFIXES = (
     "import meshcore",
     "import RNS",
     "import lxmf",
+    "import LXMF",
+    "import aiohttp",
+    "import serial",
+    "import serial_asyncio",
     "from nio",
     "from meshtastic",
     "from meshcore",
     "from RNS",
     "from lxmf",
+    "from LXMF",
+    "from aiohttp",
+    "from serial",
+    "from serial_asyncio",
 )
 
 # Adapter runtime module imports banned in runtime core contexts.
@@ -108,15 +129,20 @@ _BANNED_ADAPTER_RUNTIME_IMPORTS = (
 
 
 def _source_of(module_name: str) -> str:
-    """Resolve module to source file and return its text (no import)."""
-    import importlib.util
-
-    spec = importlib.util.find_spec(module_name)
-    if spec is None:
-        raise ModuleNotFoundError(f"{module_name} not found")
-    if spec.origin is None:
-        raise ModuleNotFoundError(f"{module_name} has no origin")
-    return Path(spec.origin).read_text()
+    """Resolve module name to source file path and read text (no import machinery)."""
+    assert module_name.startswith(
+        "medre."
+    ), f"Expected medre.* module, got {module_name}"
+    rel = module_name.removeprefix("medre.").replace(".", "/")
+    py = _SRC / f"{rel}.py"
+    pkg = _SRC / rel / "__init__.py"
+    if py.exists():
+        return py.read_text(encoding="utf-8")
+    if pkg.exists():
+        return pkg.read_text(encoding="utf-8")
+    raise ModuleNotFoundError(
+        f"Cannot resolve {module_name} to a source file under {_SRC}"
+    )
 
 
 def _import_lines(source: str) -> list[str]:
@@ -409,15 +435,18 @@ class TestRuntimeCoreNoAdapterRuntime:
             pytest.skip(f"{module_name} not importable")
         lines = _import_lines(source)
 
-        # Filter out config imports and base imports — those are allowed.
+        # Filter out allowed adapter imports.
         allowed_lines = []
         for line in lines:
             if line.startswith("from medre.adapters."):
-                # Allow base imports and config imports
-                if ".base " in line or ".config " in line:
-                    continue
-                # Allow fake_adapter imports
+                # Allow fake_adapter imports (test doubles)
                 if "fake_adapter" in line:
+                    continue
+                # Allow imports from fake_* modules (test doubles for real transports)
+                if any(
+                    f"from medre.adapters.fake_{t}." in line
+                    for t in ("matrix", "meshtastic", "meshcore", "lxmf")
+                ):
                     continue
             allowed_lines.append(line)
 
@@ -425,6 +454,27 @@ class TestRuntimeCoreNoAdapterRuntime:
         assert (
             banned == []
         ), f"{module_name} imports concrete adapter runtime modules: {banned}"
+
+    def test_old_adapter_config_import_flagged(self) -> None:
+        """from medre.adapters.matrix.config must be flagged, not allowed."""
+        source = "from medre.adapters.matrix.config import MatrixConfig\n"
+        lines = source.strip().split("\n")
+        # Apply the same filter logic
+        allowed_lines = []
+        for line in lines:
+            if line.startswith("from medre.adapters."):
+                if "fake_adapter" in line:
+                    continue
+                if any(
+                    f"from medre.adapters.fake_{t}." in line
+                    for t in ("matrix", "meshtastic", "meshcore", "lxmf")
+                ):
+                    continue
+            allowed_lines.append(line)
+        # The old config import should NOT be filtered out
+        assert (
+            len(allowed_lines) == 1
+        ), "Old medre.adapters.*.config import should be flagged"
 
 
 # ===================================================================

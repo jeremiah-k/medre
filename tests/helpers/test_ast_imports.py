@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+from textwrap import dedent
 
 from tests.helpers.ast_imports import (
     all_imports,
@@ -388,3 +389,83 @@ class TestCallNameResolution:
         calls = top_level_calls(tree)
         funcs = {c.func for c in calls}
         assert "socket.create_connection" in funcs
+
+
+class TestTopLevelCallsDecoratorsAndDefaults:
+    """Import-time calls in decorators and defaults must be detected."""
+
+    def test_decorator_call_captured(self):
+        source = dedent("""\
+            def deco(fn): return fn
+            @deco(open("x"))
+            def f(): pass
+        """)
+        tree = ast.parse(source)
+        calls = top_level_calls(tree)
+        names = [c.func for c in calls]
+        assert "deco" in names
+        assert "open" in names
+
+    def test_default_argument_captured(self):
+        source = dedent("""\
+            def f(x=open("data")): pass
+        """)
+        tree = ast.parse(source)
+        calls = top_level_calls(tree)
+        names = [c.func for c in calls]
+        assert "open" in names
+
+    def test_kw_default_captured(self):
+        source = dedent("""\
+            def f(*, x=Path("f").read_text()): pass
+        """)
+        tree = ast.parse(source)
+        calls = top_level_calls(tree)
+        names = [c.func for c in calls]
+        assert "Path.read_text" in names
+
+    def test_function_body_calls_ignored(self):
+        source = dedent("""\
+            def f():
+                open("body_call")
+        """)
+        tree = ast.parse(source)
+        calls = top_level_calls(tree)
+        names = [c.func for c in calls]
+        assert "open" not in names
+
+    def test_async_def_decorator_captured(self):
+        source = dedent("""\
+            @deco(open("x"))
+            async def f(): pass
+        """)
+        tree = ast.parse(source)
+        calls = top_level_calls(tree)
+        names = [c.func for c in calls]
+        assert "open" in names
+
+    def test_type_checking_body_decorator_ignored(self):
+        source = dedent("""\
+            from typing import TYPE_CHECKING
+            if TYPE_CHECKING:
+                @deco(open("x"))
+                def f(): pass
+        """)
+        tree = ast.parse(source)
+        calls = top_level_calls(tree)
+        names = [c.func for c in calls]
+        assert "open" not in names
+
+    def test_type_checking_else_branch_decorator_captured(self):
+        source = dedent("""\
+            from typing import TYPE_CHECKING
+            if TYPE_CHECKING:
+                pass
+            else:
+                @deco(open("x"))
+                def f(): pass
+        """)
+        tree = ast.parse(source)
+        calls = top_level_calls(tree)
+        names = [c.func for c in calls]
+        assert "open" in names

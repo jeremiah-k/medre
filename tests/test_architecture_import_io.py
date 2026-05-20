@@ -11,6 +11,7 @@ to resolve the actual type of the receiver object.
 
 from __future__ import annotations
 
+import ast
 import tempfile
 from pathlib import Path
 
@@ -32,9 +33,9 @@ _SRC = _REPO / "src" / "medre"
 #   (e.g. sp.run -> subprocess.run matches; foo.subprocess.run does not)
 #
 # _BLOCKING_BARE — bare function/method names like "open" or "urlopen".
-#   Matched via **suffix match**.  Only real bare builtins/helpers
-#   belong here.  pathlib.Path.* calls are matched exactly in
-#   _BLOCKING_DOTTED after resolve_call_name() resolves the full path.
+#   Matched via **exact equality**.  Only real bare builtins/helpers
+#   belong here.  Dotted forms (e.g. pathlib.Path.open) must go in
+#   _BLOCKING_DOTTED for precise matching.
 # ---------------------------------------------------------------------------
 
 _BLOCKING_DOTTED: tuple[str, ...] = (
@@ -72,6 +73,11 @@ _BLOCKING_DOTTED: tuple[str, ...] = (
     "pathlib.Path.write_text",
     "pathlib.Path.read_bytes",
     "pathlib.Path.write_bytes",
+    "pathlib.Path.open",
+    "urllib.request.urlopen",
+    # builtins.open / io.open aliases
+    "builtins.open",
+    "io.open",
     # aiohttp
     "aiohttp.ClientSession",
 )
@@ -138,9 +144,9 @@ def _scan_file(py_file: Path) -> list[str]:
                 )
                 break
         else:
-            # 2. Suffix match against bare blocking names
+            # 2. Exact match against bare blocking names
             for bare in _BLOCKING_BARE:
-                if resolved == bare or resolved.endswith(f".{bare}"):
+                if resolved == bare:
                     if _is_allowed(rel, resolved):
                         continue
                     violations.append(
@@ -305,3 +311,43 @@ class TestResolveCallName:
     def test_single_alias(self) -> None:
         """Single-level alias still works."""
         assert resolve_call_name("sp.run", {"sp": "subprocess"}) == "subprocess.run"
+
+
+# ---------------------------------------------------------------------------
+# Bare matching precision — no false positives from suffix matching
+# ---------------------------------------------------------------------------
+
+
+class TestBareMatchingPrecision:
+    """Bare matching must not suffix-match arbitrary obj.method() calls."""
+
+    def test_bare_open_is_flagged(self) -> None:
+        """Builtin open() at module level is flagged."""
+        source = 'x = open("f")\n'
+        tree = ast.parse(source)
+        aliases = extract_aliases(tree)
+        calls = top_level_calls(tree)
+        resolved = [resolve_call_name(c.func, aliases) for c in calls]
+        assert "open" in resolved
+
+    def test_obj_open_not_flagged(self) -> None:
+        """obj.open() should NOT be flagged by bare matching."""
+        source = 'x = obj.open("f")\n'
+        tree = ast.parse(source)
+        aliases = extract_aliases(tree)
+        calls = top_level_calls(tree)
+        resolved = [resolve_call_name(c.func, aliases) for c in calls]
+        # obj.open resolves to "obj.open" — must NOT match bare "open"
+        assert resolved == ["obj.open"]
+        for bare in _BLOCKING_BARE:
+            assert resolved[0] != bare, f"obj.open should not match bare '{bare}'"
+
+    def test_obj_read_text_not_flagged(self) -> None:
+        """obj.read_text() should NOT be flagged."""
+        source = "x = obj.read_text()\n"
+        tree = ast.parse(source)
+        aliases = extract_aliases(tree)
+        calls = top_level_calls(tree)
+        resolved_calls = [resolve_call_name(c.func, aliases) for c in calls]
+        assert "obj.read_text" in resolved_calls
+        assert "pathlib.Path.read_text" not in resolved_calls

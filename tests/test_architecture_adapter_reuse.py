@@ -47,10 +47,24 @@ _CODEC_RENDERER_FORBIDDEN: tuple[str, ...] = (
     "aiohttp",
     "serial",
     "serial_asyncio",
+    "meshcore",
+    "RNS",
+    "lxmf",
+    "LXMF",
 )
 
 # SDKs that codec/renderer must not import
-_HEAVY_SDKS: tuple[str, ...] = ("nio", "meshtastic", "meshcore", "RNS", "lxmf")
+_HEAVY_SDKS: tuple[str, ...] = (
+    "nio",
+    "meshtastic",
+    "meshcore",
+    "RNS",
+    "lxmf",
+    "LXMF",
+    "aiohttp",
+    "serial",
+    "serial_asyncio",
+)
 
 # Session modules may import their own SDK but not others
 _SESSION_FORBIDDEN: tuple[str, ...] = (
@@ -62,10 +76,10 @@ _SESSION_FORBIDDEN: tuple[str, ...] = (
 
 # Per-transport SDK allowlists for session modules
 _TRANSPORT_SDKS: dict[str, tuple[str, ...]] = {
-    "matrix": ("nio",),
+    "matrix": ("nio", "aiohttp"),
     "meshtastic": ("meshtastic", "serial", "serial_asyncio"),
-    "meshcore": ("meshcore",),
-    "lxmf": ("RNS", "lxmf"),
+    "meshcore": ("meshcore", "serial", "serial_asyncio"),
+    "lxmf": ("RNS", "LXMF", "lxmf"),
 }
 
 

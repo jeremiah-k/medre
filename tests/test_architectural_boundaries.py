@@ -31,7 +31,17 @@ from tests.helpers.ast_imports import runtime_scope_imports as _runtime_scope_ne
 # Shared constants
 # ---------------------------------------------------------------------------
 
-_SDK_PACKAGES = ("nio", "meshtastic", "meshcore", "RNS", "lxmf")
+_SDK_PACKAGES = (
+    "nio",
+    "meshtastic",
+    "meshcore",
+    "RNS",
+    "lxmf",
+    "LXMF",
+    "aiohttp",
+    "serial",
+    "serial_asyncio",
+)
 """Third-party transport SDK package names."""
 
 _ADAPTER_PREFIXES = (
@@ -1064,9 +1074,11 @@ class TestCoreBoundaryComprehensive:
         "meshtastic",
         "aiohttp",
         "serial",
+        "serial_asyncio",
         "meshcore",
         "RNS",
         "lxmf",
+        "LXMF",
     )
 
     def test_core_files_have_no_banned_imports(self) -> None:
@@ -1112,6 +1124,11 @@ class TestRouteEngineBoundaryComprehensive:
         "meshtastic",
         "aiohttp",
         "serial",
+        "serial_asyncio",
+        "meshcore",
+        "RNS",
+        "lxmf",
+        "LXMF",
         "medre.runtime.builder",
         "medre.runtime.app",
         "medre.cli",
@@ -1164,6 +1181,11 @@ class TestConfigModelBoundaryComprehensive:
         "meshtastic",
         "aiohttp",
         "serial",
+        "serial_asyncio",
+        "meshcore",
+        "RNS",
+        "lxmf",
+        "LXMF",
     )
 
     # medre.runtime.routes is allowed ONLY under TYPE_CHECKING or deferred
@@ -1229,7 +1251,17 @@ class TestReusableAdapterModuleBoundary:
     )
 
     # Heavy SDK packages banned at top-level for codec/renderer files.
-    _HEAVY_SDKS: tuple[str, ...] = ("nio", "meshtastic", "meshcore", "RNS", "lxmf")
+    _HEAVY_SDKS: tuple[str, ...] = (
+        "nio",
+        "meshtastic",
+        "meshcore",
+        "RNS",
+        "lxmf",
+        "LXMF",
+        "aiohttp",
+        "serial",
+        "serial_asyncio",
+    )
 
     # Modules to scan.  Tuple of (path_suffix, transport_name).
     _MODULE_SPECS: list[tuple[str, str]] = [
