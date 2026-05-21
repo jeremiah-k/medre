@@ -107,6 +107,14 @@ def _is_allowed(file_rel: str, func_name: str) -> bool:
     return False
 
 
+def _rel_for_allowlist(py_file: Path) -> str:
+    """Normalize file path for allowlist matching — relative to src/."""
+    try:
+        return str(py_file.relative_to(_REPO / "src"))
+    except ValueError:
+        return str(py_file.relative_to(_REPO))
+
+
 def _scan_file(py_file: Path) -> list[str]:
     """Scan a single Python file for blocking I/O calls at module level.
 
@@ -115,7 +123,7 @@ def _scan_file(py_file: Path) -> list[str]:
     try:
         tree = parse_python(py_file)
     except SyntaxError as exc:
-        rel = str(py_file.relative_to(_REPO))
+        rel = _rel_for_allowlist(py_file)
         return [
             f"{rel}:{getattr(exc, 'lineno', '?')}: SyntaxError while scanning "
             f"import-time I/O: {exc}"
@@ -125,7 +133,7 @@ def _scan_file(py_file: Path) -> list[str]:
     aliases = extract_aliases(tree)
 
     calls = top_level_calls(tree)
-    rel = str(py_file.relative_to(_REPO))
+    rel = _rel_for_allowlist(py_file)
     violations: list[str] = []
 
     for call in calls:

@@ -39,7 +39,7 @@ def resolve_relative(level: int, module: str | None, file_path: str | None) -> s
         fpath = Path(file_path).resolve()
         parts = list(fpath.parent.parts)
         try:
-            src_idx = parts.index("src")
+            src_idx = len(parts) - 1 - parts[::-1].index("src")
         except ValueError:
             return module or ""
         if src_idx + 1 < len(parts):

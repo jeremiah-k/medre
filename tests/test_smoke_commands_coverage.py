@@ -88,7 +88,7 @@ class TestRunSessionTempStorage:
             passed_path = mock_bridge.call_args.kwargs["storage_path"]
 
             try:
-                assert passed_path.startswith("/")
+                assert os.path.isabs(passed_path)
                 assert passed_path.endswith(".db")
                 assert os.path.exists(passed_path)
             finally:

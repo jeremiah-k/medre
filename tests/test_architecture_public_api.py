@@ -340,7 +340,7 @@ class TestPackageRootsSystematic:
         for rel in self._PACKAGE_ROOTS:
             _file, source = self._read_py_file(rel)
             tree = ast.parse(source)
-            for node in ast.iter_child_nodes(tree):
+            for node in ast.walk(tree):
                 if isinstance(node, ast.Assign):
                     for target in node.targets:
                         if isinstance(target, ast.Name) and target.id == "__all__":
@@ -348,6 +348,14 @@ class TestPackageRootsSystematic:
                                 f"{rel}: defines __all__ — package roots outside "
                                 f"medre.core.* must not declare __all__"
                             )
+                elif isinstance(node, ast.AnnAssign) and isinstance(
+                    node.target, ast.Name
+                ):
+                    if node.target.id == "__all__":
+                        pytest.fail(
+                            f"{rel}: defines __all__ — package roots outside "
+                            f"medre.core.* must not declare __all__"
+                        )
 
     def test_all_roots_have_no_getattr(self) -> None:
         """__getattr__ must be absent (AST-based, avoids docstring false positives)."""
@@ -356,7 +364,7 @@ class TestPackageRootsSystematic:
         for rel in self._PACKAGE_ROOTS:
             _file, source = self._read_py_file(rel)
             tree = ast.parse(source)
-            for node in ast.iter_child_nodes(tree):
+            for node in ast.walk(tree):
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     if node.name == "__getattr__":
                         pytest.fail(f"{rel}: defines __getattr__")
@@ -364,6 +372,11 @@ class TestPackageRootsSystematic:
                     for target in node.targets:
                         if isinstance(target, ast.Name) and target.id == "__getattr__":
                             pytest.fail(f"{rel}: assigns __getattr__")
+                elif isinstance(node, ast.AnnAssign) and isinstance(
+                    node.target, ast.Name
+                ):
+                    if node.target.id == "__getattr__":
+                        pytest.fail(f"{rel}: assigns __getattr__")
 
     def test_all_roots_have_no_submodule_re_exports(self) -> None:
         """No 'from .x import Symbol' re-exports from submodules."""
@@ -372,7 +385,7 @@ class TestPackageRootsSystematic:
         for rel in self._PACKAGE_ROOTS:
             _file, source = self._read_py_file(rel)
             tree = ast.parse(source)
-            for node in ast.iter_child_nodes(tree):
+            for node in ast.walk(tree):
                 if isinstance(node, ast.ImportFrom):
                     # Relative imports: from .x import Y
                     if node.level and node.level > 0:
@@ -433,7 +446,7 @@ class TestPackageRootsSystematic:
         for rel in self._PACKAGE_ROOTS:
             _file, source = self._read_py_file(rel)
             tree = ast.parse(source)
-            for node in ast.iter_child_nodes(tree):
+            for node in ast.walk(tree):
                 if isinstance(node, ast.Assign):
                     for target in node.targets:
                         if isinstance(target, ast.Name):
@@ -441,6 +454,13 @@ class TestPackageRootsSystematic:
                                 pytest.fail(
                                     f"{rel}: assigns former API name '{target.id}'"
                                 )
+                elif isinstance(node, ast.AnnAssign) and isinstance(
+                    node.target, ast.Name
+                ):
+                    if node.target.id in former_names:
+                        pytest.fail(
+                            f"{rel}: assigns former API name '{node.target.id}'"
+                        )
 
     def test_observability_does_not_exist(self) -> None:
         """medre.observability must not exist as a package."""

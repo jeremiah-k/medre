@@ -93,15 +93,20 @@ class TestNoForbiddenTransitiveImports:
 
     @pytest.mark.parametrize("module_name", _LIGHTWEIGHT_MODULES)
     def test_no_forbidden_transitive_imports(self, module_name: str) -> None:
-        # Snapshot already-loaded modules before import.
-        # Do NOT pop from sys.modules — that would poison cached state
-        # for subsequent tests.
-        already = {m for m in self._FORBIDDEN if m in sys.modules}
-        _import_fresh(module_name)
-        newly = [m for m in self._FORBIDDEN if m in sys.modules and m not in already]
+        # Clear ALL medre submodules *and* third-party SDK packages so the
+        # import is truly fresh and cannot pick up modules left behind by
+        # test collection or earlier parametrised cases.
+        for name in [k for k in sys.modules if k.startswith("medre.")]:
+            sys.modules.pop(name, None)
+        for sdk in _FORBIDDEN_SDKS:
+            for name in [k for k in sys.modules if k == sdk or k.startswith(f"{sdk}.")]:
+                sys.modules.pop(name, None)
+        importlib.invalidate_caches()
+        importlib.import_module(module_name)
+        present = [m for m in self._FORBIDDEN if m in sys.modules]
         assert (
-            not newly
-        ), f"Importing {module_name} pulled in forbidden modules: {newly}"
+            not present
+        ), f"Importing {module_name} pulled in forbidden modules: {present}"
 
 
 # ---------------------------------------------------------------------------

@@ -1184,30 +1184,16 @@ class TestConfigModelBoundaryComprehensive:
         rt_imports = _runtime_imports(source, file_path=str(model_file))
         violations = _check_banned_ast(rt_imports, self._BANNED_TOP_LEVEL, rel_path=rel)
 
-        # Also check that medre.runtime.routes is NOT a bare runtime-scope import
-        # (it must be under TYPE_CHECKING or deferred inside a function body)
+        # rt_imports already excludes TYPE_CHECKING body imports (via AST),
+        # so any match here IS a genuine runtime-scope violation.
         for r in rt_imports:
             if r.module == self._RUNTIME_ROUTES_MODULE or r.module.startswith(
                 self._RUNTIME_ROUTES_MODULE + "."
             ):
-                # Verify it is inside an `if TYPE_CHECKING:` block
-                # by checking the source line context
-                lines = source.splitlines()
-                # Look backward from lineno for `if TYPE_CHECKING`
-                in_type_checking = False
-                for check_line in range(r.lineno - 1, max(0, r.lineno - 10), -1):
-                    if "TYPE_CHECKING" in lines[check_line]:
-                        in_type_checking = True
-                        break
-                    if lines[check_line].strip() and not lines[
-                        check_line
-                    ].strip().startswith(("from ", "import ")):
-                        break
-                if not in_type_checking:
-                    violations.append(
-                        f"{rel}:{r.lineno}: top-level import of {r.module} "
-                        "(must be under TYPE_CHECKING or deferred)"
-                    )
+                violations.append(
+                    f"{rel}:{r.lineno}: top-level import of {r.module} "
+                    "(must be under TYPE_CHECKING or deferred)"
+                )
 
         assert (
             violations == []

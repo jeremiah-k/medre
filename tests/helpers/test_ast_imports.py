@@ -10,6 +10,7 @@ from tests.helpers.ast_imports import (
     extract_aliases,
     find_relative_imports,
     import_matches,
+    resolve_relative,
     runtime_scope_imports,
     top_level_calls,
 )
@@ -211,6 +212,20 @@ class TestFindRelativeImports:
         tree = _parse(source)
         records = find_relative_imports(tree)
         assert len(records) == 0
+
+    def test_nested_src_directory(self) -> None:
+        """resolve_relative finds the last 'src' segment in nested paths."""
+        result = resolve_relative(
+            1, "model", "/tmp/src/project/src/medre/config/model.py"
+        )
+        assert result == "medre.config.model"
+
+    def test_no_src_in_path_returns_module(self) -> None:
+        """Path without 'src' segment falls back gracefully."""
+        result = resolve_relative(
+            1, "model", "/home/user/project/medre/config/model.py"
+        )
+        assert result == "model"
 
     def test_mixed_absolute_and_relative(self) -> None:
         source = """
