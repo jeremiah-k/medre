@@ -35,22 +35,12 @@ from pathlib import Path
 
 import pytest
 
+from medre.runtime.architecture_report import _SDK_PACKAGES
+from tests.helpers.source_reader import source_of as _source_of
+
 # ---------------------------------------------------------------------------
 # Shared helpers (reused from test_operational_boundaries.py)
 # ---------------------------------------------------------------------------
-
-_SDK_PACKAGES = (
-    "nio",
-    "meshtastic",
-    "meshcore",
-    "RNS",
-    "lxmf",
-    "LXMF",
-    "aiohttp",
-    "serial",
-    "serial_asyncio",
-)
-"""Third-party transport SDK package names."""
 
 _ADAPTER_PREFIXES = (
     "medre.adapters.matrix",
@@ -94,51 +84,11 @@ _DISTRIBUTED_PACKAGES = (
 )
 """Third-party distributed-infrastructure package names."""
 
-_BANNED_SDK_IMPORT_PREFIXES = (
-    "import nio",
-    "import meshtastic",
-    "import meshcore",
-    "import RNS",
-    "import lxmf",
-    "import LXMF",
-    "import aiohttp",
-    "import serial",
-    "import serial_asyncio",
-    "from nio",
-    "from meshtastic",
-    "from meshcore",
-    "from RNS",
-    "from lxmf",
-    "from LXMF",
-    "from aiohttp",
-    "from serial",
-    "from serial_asyncio",
-)
-
 _TESTS_DIR = Path(__file__).parent
 """Root tests directory."""
 
 _SRC_ROOT = _TESTS_DIR.parent / "src" / "medre"
 """Root source directory for medre package."""
-
-_SRC = _SRC_ROOT
-
-
-def _source_of(module_name: str) -> str:
-    """Resolve module to source file and return its text (no import)."""
-    assert module_name == "medre" or module_name.startswith("medre.")
-    rel = module_name.removeprefix("medre").strip(".").replace(".", "/")
-    if not rel:
-        pkg = _SRC / "__init__.py"
-        if pkg.exists():
-            return pkg.read_text(encoding="utf-8")
-    py = _SRC / f"{rel}.py"
-    pkg = _SRC / rel / "__init__.py"
-    if py.exists():
-        return py.read_text(encoding="utf-8")
-    if pkg.exists():
-        return pkg.read_text(encoding="utf-8")
-    raise ModuleNotFoundError(module_name)
 
 
 def _import_lines(source: str) -> list[str]:

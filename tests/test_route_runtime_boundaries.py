@@ -25,22 +25,11 @@ from pathlib import Path
 
 import pytest
 
+from medre.runtime.architecture_report import _SDK_PACKAGES
+
 # ---------------------------------------------------------------------------
 # Helpers (mirroring test_cross_transport_boundaries style)
 # ---------------------------------------------------------------------------
-
-_SDK_PACKAGES = (
-    "nio",
-    "meshtastic",
-    "meshcore",
-    "RNS",
-    "lxmf",
-    "LXMF",
-    "aiohttp",
-    "serial",
-    "serial_asyncio",
-)
-"""Third-party transport SDK package names."""
 
 _ADAPTER_TRANSPORTS = ("matrix", "meshtastic", "meshcore", "lxmf")
 

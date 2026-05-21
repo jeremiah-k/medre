@@ -32,22 +32,13 @@ from typing import Any
 
 import pytest
 
+from medre.runtime.architecture_report import _BANNED_SDK_IMPORT_PREFIXES, _SDK_PACKAGES
+from tests.helpers.sdk_constants import _SDK_INSTANTIATION_PATTERNS
+from tests.helpers.source_reader import source_of as _source_of
+
 # ---------------------------------------------------------------------------
 # Shared helpers (same pattern as test_architectural_boundaries.py)
 # ---------------------------------------------------------------------------
-
-_SDK_PACKAGES = (
-    "nio",
-    "meshtastic",
-    "meshcore",
-    "RNS",
-    "lxmf",
-    "LXMF",
-    "aiohttp",
-    "serial",
-    "serial_asyncio",
-)
-"""Third-party transport SDK package names."""
 
 _ADAPTER_PREFIXES = (
     "medre.adapters.matrix",
@@ -71,30 +62,6 @@ _TESTS_DIR = Path(__file__).parent
 _REPO_ROOT = _TESTS_DIR.parent
 """Repository root directory."""
 
-_SRC = _REPO_ROOT / "src" / "medre"
-"""Root source directory for medre package."""
-
-# Banned import-line prefixes for SDK packages.
-_BANNED_SDK_IMPORT_PREFIXES = (
-    "import nio",
-    "import meshtastic",
-    "import meshcore",
-    "import RNS",
-    "import lxmf",
-    "import LXMF",
-    "import aiohttp",
-    "import serial",
-    "import serial_asyncio",
-    "from nio",
-    "from meshtastic",
-    "from meshcore",
-    "from RNS",
-    "from lxmf",
-    "from LXMF",
-    "from aiohttp",
-    "from serial",
-    "from serial_asyncio",
-)
 
 # Adapter runtime module imports banned in deployment/clean-env contexts.
 # Config imports (medre.config.adapters.*) are pure dataclasses — permitted.
@@ -113,23 +80,6 @@ _BANNED_ADAPTER_RUNTIME_IMPORTS = (
     "from medre.adapters.lxmf.session",
     "from medre.adapters.lxmf.codec",
 )
-
-
-def _source_of(module_name: str) -> str:
-    """Resolve module to source file and return its text (no import)."""
-    assert module_name == "medre" or module_name.startswith("medre.")
-    rel = module_name.removeprefix("medre").strip(".").replace(".", "/")
-    if not rel:
-        pkg = _SRC / "__init__.py"
-        if pkg.exists():
-            return pkg.read_text(encoding="utf-8")
-    py = _SRC / f"{rel}.py"
-    pkg = _SRC / rel / "__init__.py"
-    if py.exists():
-        return py.read_text(encoding="utf-8")
-    if pkg.exists():
-        return pkg.read_text(encoding="utf-8")
-    raise ModuleNotFoundError(module_name)
 
 
 def _import_lines(source: str) -> list[str]:
@@ -331,14 +281,7 @@ class TestConfigSubsystemNoSdk:
         """Config modules must not directly instantiate SDK objects."""
         source = _source_of(module_name)
 
-        instantiation_patterns = (
-            "nio.AsyncClient(",
-            "MeshtasticClient(",
-            "MeshCore(",
-            "RNS.Reticulum(",
-            "LXMF.LXMF(",
-            "lxmf.LXMF(",
-        )
+        instantiation_patterns = _SDK_INSTANTIATION_PATTERNS
         violations: list[str] = []
         for i, line in enumerate(source.splitlines(), 1):
             stripped = line.strip()
@@ -374,14 +317,7 @@ class TestDeploymentHelpersNoSdkInstantiation:
         "medre.config.sample",
     ]
 
-    _SDK_INSTANTIATION_PATTERNS = (
-        "nio.AsyncClient(",
-        "MeshtasticClient(",
-        "MeshCore(",
-        "RNS.Reticulum(",
-        "LXMF.LXMF(",
-        "lxmf.LXMF(",
-    )
+    _SDK_INSTANTIATION_PATTERNS = _SDK_INSTANTIATION_PATTERNS
 
     @pytest.mark.parametrize(
         "module_name",
@@ -505,12 +441,9 @@ class TestCliTransportAgnostic:
             "importlib.import_module" in source
         ), "CLI should use importlib.import_module for SDK probing"
 
-        direct_instantiation_patterns = (
-            "nio.AsyncClient(",
-            "MeshtasticClient(",
-            "MeshCore(",
-            "RNS.Reticulum(",
-        )
+        direct_instantiation_patterns = _SDK_INSTANTIATION_PATTERNS[
+            :4
+        ]  # subset for CLI
         violations: list[str] = []
         for i, line in enumerate(source.splitlines(), 1):
             stripped = line.strip()

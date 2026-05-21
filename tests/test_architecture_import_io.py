@@ -354,10 +354,15 @@ class TestBareMatchingPrecision:
     def test_from_import_urlopen_flagged_via_dotted(self) -> None:
         """from urllib.request import urlopen; urlopen() caught via dotted alias."""
         tmp = tempfile.NamedTemporaryFile(
-            suffix=".py", delete=False, prefix="test_urlopen_from_", dir=_SRC,
+            suffix=".py",
+            delete=False,
+            prefix="test_urlopen_from_",
+            dir=_SRC,
         )
         try:
-            tmp.write(b"from urllib.request import urlopen\nurlopen('https://example.com')\n")
+            tmp.write(
+                b"from urllib.request import urlopen\nurlopen('https://example.com')\n"
+            )
             tmp.flush()
             tmp.close()
             violations = _scan_file(Path(tmp.name))
@@ -372,10 +377,15 @@ class TestBareMatchingPrecision:
     def test_dotted_urllib_request_urlopen_flagged(self) -> None:
         """urllib.request.urlopen() caught by _BLOCKING_DOTTED directly."""
         tmp = tempfile.NamedTemporaryFile(
-            suffix=".py", delete=False, prefix="test_urlopen_dotted_", dir=_SRC,
+            suffix=".py",
+            delete=False,
+            prefix="test_urlopen_dotted_",
+            dir=_SRC,
         )
         try:
-            tmp.write(b"import urllib.request\nurllib.request.urlopen('https://example.com')\n")
+            tmp.write(
+                b"import urllib.request\nurllib.request.urlopen('https://example.com')\n"
+            )
             tmp.flush()
             tmp.close()
             violations = _scan_file(Path(tmp.name))

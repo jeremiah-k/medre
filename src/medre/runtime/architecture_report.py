@@ -10,7 +10,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from medre.runtime.architecture_ast import (
+    extract_aliases,
     normalize_import_records_for_graph,
+    resolve_call_name,
     runtime_scope_imports,
 )
 
@@ -322,6 +324,24 @@ _CODEC_RENDERER_FORBIDDEN = (
     "medre.cli",
 )
 
+# Canonical set of transport SDK package names — single source of truth.
+_SDK_PACKAGES = (
+    "nio",
+    "meshtastic",
+    "meshcore",
+    "RNS",
+    "lxmf",
+    "LXMF",
+    "aiohttp",
+    "serial",
+    "serial_asyncio",
+)
+
+# Import-line prefixes derived from _SDK_PACKAGES.
+_BANNED_SDK_IMPORT_PREFIXES = tuple(
+    s for sdk in _SDK_PACKAGES for s in (f"import {sdk}", f"from {sdk}")
+)
+
 
 @dataclass
 class BoundaryViolation:
@@ -370,12 +390,21 @@ class RouteAdapterBoundaryReport:
     session_foreign_sdk: BoundarySection
     adapter_wrapper_foreign_transport: BoundarySection
     runtime_assembly_points: BoundarySection
+    dynamic_scan_errors: BoundarySection
 
     # Backward-compatible aliases
     @property
     def runtime_to_adapter(self) -> BoundarySection:
         return self.forbidden_runtime_adapter
 
+
+# Per-transport allowed SDKs for session modules.
+SESSION_ALLOWED_SDKS: dict[str, tuple[str, ...]] = {
+    "matrix": ("nio", "aiohttp"),
+    "meshtastic": ("meshtastic", "serial", "serial_asyncio"),
+    "meshcore": ("meshcore", "serial", "serial_asyncio"),
+    "lxmf": ("RNS", "LXMF", "lxmf"),
+}
 
 _FAKE_TO_TRANSPORT = {
     "fake_matrix": "matrix",
@@ -416,6 +445,26 @@ def _extract_string_kwargs(call_node: _ast.Call, param_name: str) -> str | None:
     return None
 
 
+def _collect_adapter_strings(
+    node: _ast.AST, lineno: int, results: list[tuple[str, int, str]]
+) -> None:
+    """Recursively collect medre.adapters.* string constants from an AST node."""
+    if isinstance(node, _ast.Constant) and isinstance(node.value, str):
+        if node.value.startswith("medre.adapters."):
+            results.append(
+                (node.value, lineno, f"dynamic registry literal: {node.value}")
+            )
+    elif isinstance(node, (_ast.List, _ast.Tuple, _ast.Set)):
+        for elt in node.elts:
+            _collect_adapter_strings(elt, lineno, results)
+    elif isinstance(node, _ast.Dict):
+        for key in node.keys:
+            if key is not None:
+                _collect_adapter_strings(key, lineno, results)
+        for val in node.values:
+            _collect_adapter_strings(val, lineno, results)
+
+
 def extract_dynamic_adapter_imports(source: str) -> list[tuple[str, int, str]]:
     """Extract dynamic adapter module strings from builder source.
 
@@ -423,12 +472,19 @@ def extract_dynamic_adapter_imports(source: str) -> list[tuple[str, int, str]]:
     ``_ADAPTER_RENDERER_SPECS`` list literals, ``importlib.import_module()``
     calls, and ``__import__()`` calls.
 
+    Alias-aware: recognizes aliased imports such as
+    ``import importlib as il`` or ``from importlib import import_module as im``.
+
     Only string-literal arguments are detected; variable or concatenated
     arguments are invisible to this static analysis.
+
+    Conservatively detects bare ``import_module(...)`` calls without import
+    context — these may be false positives if a local function shadows the name.
 
     Returns list of ``(module_path, line_number, reason)``.
     """
     tree = _ast.parse(source)
+    aliases = extract_aliases(tree)
     results: list[tuple[str, int, str]] = []
 
     for node in _ast.walk(tree):
@@ -442,7 +498,10 @@ def extract_dynamic_adapter_imports(source: str) -> list[tuple[str, int, str]]:
                         (module, node.lineno, f"dynamic builder assembly: {module}")
                     )
             # __import__("medre.adapters....", ...)
-            elif isinstance(func, _ast.Name) and func.id == "__import__":
+            elif (
+                isinstance(func, _ast.Name)
+                and resolve_call_name(func.id, aliases) == "__import__"
+            ):
                 if (
                     node.args
                     and isinstance(node.args[0], _ast.Constant)
@@ -458,11 +517,11 @@ def extract_dynamic_adapter_imports(source: str) -> list[tuple[str, int, str]]:
                 isinstance(func, _ast.Attribute)
                 and func.attr == "import_module"
                 and isinstance(func.value, _ast.Name)
-                and func.value.id == "importlib"
+                and resolve_call_name(func.value.id, aliases) == "importlib"
             ) or (
                 # from importlib import import_module; import_module("...")
                 isinstance(func, _ast.Name)
-                and func.id == "import_module"
+                and resolve_call_name(func.id, aliases) == "importlib.import_module"
             ):
                 if (
                     node.args
@@ -498,8 +557,10 @@ def extract_dynamic_adapter_imports(source: str) -> list[tuple[str, int, str]]:
         if target_name and value_node and isinstance(value_node, _ast.List):
             for elt in value_node.elts:
                 if isinstance(elt, _ast.Tuple) and len(elt.elts) >= 1:
-                    if isinstance(elt.elts[0], _ast.Constant) and isinstance(
-                        elt.elts[0].value, str
+                    if (
+                        isinstance(elt.elts[0], _ast.Constant)
+                        and isinstance(elt.elts[0].value, str)
+                        and elt.elts[0].value.startswith("medre.adapters.")
                     ):
                         results.append(
                             (
@@ -508,6 +569,48 @@ def extract_dynamic_adapter_imports(source: str) -> list[tuple[str, int, str]]:
                                 f"dynamic renderer spec: {elt.elts[0].value}",
                             )
                         )
+
+    # Detect adapter module strings in registry-like assignments
+    _REGISTRY_NAME_PARTS = frozenset(
+        {
+            "ADAPTER",
+            "RENDERER",
+            "FACTORY",
+            "REGISTRY",
+            "SPEC",
+            "SPECS",
+            "BUILDER",
+        }
+    )
+
+    for node in _ast.walk(tree):
+        target_name = None
+        value_node = None
+        node_lineno = 0
+        if isinstance(node, _ast.Assign):
+            node_lineno = node.lineno
+            for target in node.targets:
+                if isinstance(target, _ast.Name):
+                    upper = target.id.upper()
+                    if (
+                        any(part in upper for part in _REGISTRY_NAME_PARTS)
+                        and target.id != "_ADAPTER_RENDERER_SPECS"
+                        and target.id != "_AdapterFactory"
+                    ):
+                        target_name = target.id
+                        value_node = node.value
+                        break
+        elif isinstance(node, _ast.AnnAssign) and isinstance(node.target, _ast.Name):
+            node_lineno = node.lineno
+            upper = node.target.id.upper()
+            if (
+                any(part in upper for part in _REGISTRY_NAME_PARTS)
+                and node.target.id != "_ADAPTER_RENDERER_SPECS"
+            ):
+                target_name = node.target.id
+                value_node = node.value
+        if target_name and value_node is not None:
+            _collect_adapter_strings(value_node, node_lineno, results)
 
     return results
 
@@ -520,6 +623,7 @@ def build_route_adapter_boundary_report(
     """Build a v2 structured report of route/adapter boundary violations."""
     # --- Allowed Runtime → Adapter Assembly ---
     allowed: list[BoundaryViolation] = []
+    scan_errors: list[BoundaryViolation] = []
     builder_info = graph.modules.get("medre.runtime.builder")
     if builder_info:
         for edge in builder_info.imports:
@@ -550,8 +654,15 @@ def build_route_adapter_boundary_report(
                             rule=reason,
                         )
                     )
-            except (SyntaxError, OSError):
-                pass
+            except (SyntaxError, OSError) as exc:
+                scan_errors.append(
+                    BoundaryViolation(
+                        source="medre.runtime.builder",
+                        target=f"<scan error: {builder_file}>",
+                        line=0,
+                        rule=f"dynamic scan error: {exc}",
+                    )
+                )
 
     # --- Forbidden Runtime → Adapter Imports ---
     forbidden: list[BoundaryViolation] = []
@@ -590,8 +701,15 @@ def build_route_adapter_boundary_report(
                                 rule=f"forbidden dynamic: {reason}",
                             )
                         )
-                except (SyntaxError, OSError):
-                    pass
+                except (SyntaxError, OSError) as exc:
+                    scan_errors.append(
+                        BoundaryViolation(
+                            source=mod,
+                            target=f"<scan error: {mod_file}>",
+                            line=0,
+                            rule=f"dynamic scan error: {exc}",
+                        )
+                    )
 
     # --- Route Engine → Adapter/SDK Imports ---
     route_engine_violations: list[BoundaryViolation] = []
@@ -698,35 +816,17 @@ def build_route_adapter_boundary_report(
 
     # --- Session → Foreign SDK/Transport Imports ---
     session_foreign: list[BoundaryViolation] = []
-    _SDK_PREFIXES = (
-        "nio",
-        "meshtastic",
-        "aiohttp",
-        "serial",
-        "serial_asyncio",
-        "meshcore",
-        "RNS",
-        "lxmf",
-        "LXMF",
-    )
-    # Per-transport allowed SDKs
-    session_allowed_sdks = {
-        "matrix": ("nio", "aiohttp"),
-        "meshtastic": ("meshtastic", "serial", "serial_asyncio"),
-        "meshcore": ("meshcore", "serial", "serial_asyncio"),
-        "lxmf": ("RNS", "LXMF", "lxmf"),
-    }
     for mod, info in graph.modules.items():
         if not mod.endswith(".session") or not mod.startswith("medre.adapters."):
             continue
         own_transport = _transport_for(mod)
-        allowed_sdks = session_allowed_sdks.get(own_transport or "", ())
+        allowed_sdks = SESSION_ALLOWED_SDKS.get(own_transport or "", ())
         for edge in info.imports:
             if edge.is_type_checking:
                 continue
             target = edge.target
             # Check SDK imports from other transports
-            for sdk in _SDK_PREFIXES:
+            for sdk in _SDK_PACKAGES:
                 if module_matches(target, sdk):
                     # Allow if SDK belongs to own transport
                     if not any(
@@ -842,6 +942,10 @@ def build_route_adapter_boundary_report(
             title="Runtime Assembly Points",
             violations=sorted(assembly, key=sort_key),
         ),
+        dynamic_scan_errors=BoundarySection(
+            title="Dynamic Scan Errors",
+            violations=sorted(scan_errors, key=sort_key),
+        ),
     )
 
 
@@ -862,10 +966,15 @@ def render_boundary_report(report: RouteAdapterBoundaryReport) -> str:
         report.session_foreign_sdk,
         report.adapter_wrapper_foreign_transport,
         report.runtime_assembly_points,
+        report.dynamic_scan_errors,
     ]
 
     # Track which sections represent allowed (not violations) entries
-    allowed_titles = {"Allowed Runtime → Adapter Assembly", "Runtime Assembly Points"}
+    allowed_titles = {
+        "Allowed Runtime → Adapter Assembly",
+        "Runtime Assembly Points",
+        "Dynamic Scan Errors",
+    }
 
     for section in sections:
         count_label = "entries" if section.title in allowed_titles else "violations"

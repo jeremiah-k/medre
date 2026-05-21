@@ -15,6 +15,8 @@ import sys
 
 import pytest
 
+from medre.runtime.architecture_report import _SDK_PACKAGES as _FORBIDDEN_SDKS
+
 # Modules to test for import side effects.
 _LIGHTWEIGHT_MODULES: list[str] = [
     # Package roots are covered separately by subprocess-based tests below;
@@ -44,17 +46,7 @@ _FORBIDDEN_SIDE_EFFECTS: tuple[str, ...] = (
 )
 
 # SDK packages that should not be pulled in by codec/renderer imports
-_FORBIDDEN_SDKS: tuple[str, ...] = (
-    "nio",
-    "meshtastic",
-    "meshcore",
-    "RNS",
-    "lxmf",
-    "LXMF",
-    "aiohttp",
-    "serial",
-    "serial_asyncio",
-)
+# (imported as _FORBIDDEN_SDKS from architecture_report._SDK_PACKAGES above)
 
 
 def _import_fresh(module_name: str) -> None:

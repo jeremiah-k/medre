@@ -10,6 +10,11 @@ from pathlib import Path
 
 import pytest
 
+from medre.runtime.architecture_report import (
+    _CONFIG_FORBIDDEN,
+    _CORE_FORBIDDEN,
+    _ROUTE_ENGINE_FORBIDDEN,
+)
 from tests.helpers.ast_imports import (
     import_matches,
     parse_python,
@@ -19,60 +24,12 @@ from tests.helpers.ast_imports import (
 _REPO = Path(__file__).resolve().parents[1]
 _SRC = _REPO / "src" / "medre"
 
-# Forbidden prefixes for core modules
-_CORE_FORBIDDEN: tuple[str, ...] = (
-    "medre.runtime",
-    "medre.adapters",
-    "medre.cli",
-    "nio",
-    "meshtastic",
-    "aiohttp",
-    "serial",
-    "serial_asyncio",
-    "meshcore",
-    "RNS",
-    "lxmf",
-    "LXMF",
-)
-
-# Forbidden for route_engine (may import medre.runtime.errors, routes)
-_ROUTE_ENGINE_FORBIDDEN: tuple[str, ...] = (
-    "medre.runtime.builder",
-    "medre.adapters",
-    "nio",
-    "meshtastic",
-    "aiohttp",
-    "serial",
-    "serial_asyncio",
-    "meshcore",
-    "RNS",
-    "lxmf",
-    "LXMF",
-)
-
 # Allowed adapter-specific prefixes for config/model.py
 _CONFIG_ALLOWED_ADAPTER: tuple[str, ...] = (
     "medre.config.adapters.matrix",
     "medre.config.adapters.meshtastic",
     "medre.config.adapters.meshcore",
     "medre.config.adapters.lxmf",
-)
-
-# Forbidden for config/model.py
-_CONFIG_FORBIDDEN: tuple[str, ...] = (
-    "medre.adapters",
-    "medre.runtime.builder",
-    "medre.runtime.route_engine",
-    "medre.core.engine",
-    "nio",
-    "meshtastic",
-    "aiohttp",
-    "serial",
-    "serial_asyncio",
-    "meshcore",
-    "RNS",
-    "lxmf",
-    "LXMF",
 )
 
 

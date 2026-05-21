@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
 
 import pytest
@@ -91,6 +92,46 @@ class TestExtractDynamicAdapterImports:
         """Source with no _AdapterFactory or _ADAPTER_RENDERER_SPECS."""
         source = "x = 1\ny = 2\n"
         assert extract_dynamic_adapter_imports(source) == []
+
+    def test_import_alias_detected(self) -> None:
+        """import importlib as il; il.import_module(...) is detected."""
+        source = (
+            "import importlib as il\n"
+            'il.import_module("medre.adapters.matrix.adapter")\n'
+        )
+        results = extract_dynamic_adapter_imports(source)
+        modules = [r[0] for r in results]
+        assert "medre.adapters.matrix.adapter" in modules
+
+    def test_from_import_alias_detected(self) -> None:
+        """from importlib import import_module as im; im(...) is detected."""
+        source = (
+            "from importlib import import_module as im\n"
+            'im("medre.adapters.lxmf.adapter")\n'
+        )
+        results = extract_dynamic_adapter_imports(source)
+        modules = [r[0] for r in results]
+        assert "medre.adapters.lxmf.adapter" in modules
+
+    def test_aliased_non_adapter_not_detected(self) -> None:
+        """import importlib as il; il.import_module("other.module") is not detected."""
+        source = "import importlib as il\n" 'il.import_module("other.module")\n'
+        results = extract_dynamic_adapter_imports(source)
+        modules = [r[0] for r in results]
+        assert all(not m.startswith("medre.adapters.") for m in modules)
+
+    def test_renderer_spec_non_adapter_filtered(self) -> None:
+        """Non-adapter renderer spec strings are not detected."""
+        source = (
+            "_ADAPTER_RENDERER_SPECS = [\n"
+            '    ("not.an.adapter", "Thing"),\n'
+            '    ("medre.adapters.matrix.renderer", "MatrixRenderer"),\n'
+            "]\n"
+        )
+        results = extract_dynamic_adapter_imports(source)
+        modules = [r[0] for r in results]
+        assert "not.an.adapter" not in modules
+        assert "medre.adapters.matrix.renderer" in modules
 
 
 class TestDynamicBuilderAssembly:
@@ -205,6 +246,10 @@ class TestRealGraphBoundaryReport:
             f"{[f'{v.source}→{v.target}' for v in self.report.adapter_wrapper_foreign_transport.violations]}"
         )
 
+    def test_no_dynamic_scan_errors(self):
+        """Real graph has zero dynamic scan errors."""
+        assert self.report.dynamic_scan_errors.count == 0
+
     def test_allowed_includes_all_four_adapters(self):
         targets = {v.target for v in self.report.allowed_runtime_adapter.violations}
         for adapter in (
@@ -245,15 +290,23 @@ class TestDynamicAdapterDetectionOutsideBuilder:
             not builder_forbidden
         ), f"Builder should not appear in forbidden: {builder_forbidden}"
 
-    def test_non_builder_importlib_import_module_forbidden(self):
-        """importlib.import_module("medre.adapters....") in non-builder is forbidden."""
+    def test_extracts_importlib_import_module(self):
+        """Extraction detects importlib.import_module("medre.adapters....") in source.
+
+        Note: this tests extraction only, not forbidden classification.
+        See TestNonBuilderBoundaryClassification for report-level tests.
+        """
         source = 'importlib.import_module("medre.adapters.matrix.adapter")\n'
         results = extract_dynamic_adapter_imports(source)
         modules = [r[0] for r in results]
         assert "medre.adapters.matrix.adapter" in modules
 
-    def test_non_builder_dunder_import_forbidden(self):
-        """__import__("medre.adapters....") is detected."""
+    def test_extracts_dunder_import(self):
+        """Extraction detects __import__("medre.adapters....") in source.
+
+        Note: this tests extraction only, not forbidden classification.
+        See TestNonBuilderBoundaryClassification for report-level tests.
+        """
         source = '__import__("medre.adapters.lxmf.adapter", fromlist=["LxmfAdapter"])\n'
         results = extract_dynamic_adapter_imports(source)
         modules = [r[0] for r in results]
@@ -328,3 +381,214 @@ class TestModuleMatches:
         """Empty prefix only matches the empty string itself."""
         assert module_matches("", "") is True
         assert module_matches("medre.core", "") is False
+
+
+# ---------------------------------------------------------------------------
+# Registry literal detection
+# ---------------------------------------------------------------------------
+
+
+class TestRegistryLiteralDetection:
+    """Tests for registry literal detection in extract_dynamic_adapter_imports()."""
+
+    def test_dict_value_detected(self) -> None:
+        """ADAPTER_SPECS = {"x": "medre.adapters.x.adapter"} is detected."""
+        source = 'ADAPTER_SPECS = {"matrix": "medre.adapters.matrix.adapter"}\n'
+        results = extract_dynamic_adapter_imports(source)
+        modules = [r[0] for r in results]
+        assert "medre.adapters.matrix.adapter" in modules
+
+    def test_list_value_detected(self) -> None:
+        """_ADAPTER_REGISTRY = [("m", "medre.adapters.x.adapter")] is detected."""
+        source = '_ADAPTER_REGISTRY = [("matrix", "medre.adapters.matrix.adapter")]\n'
+        results = extract_dynamic_adapter_imports(source)
+        modules = [r[0] for r in results]
+        assert "medre.adapters.matrix.adapter" in modules
+
+    def test_non_registry_name_not_detected(self) -> None:
+        """ROUTE_DOC = "medre.adapters.x.adapter" is NOT detected (no keyword in name)."""
+        source = 'ROUTE_DOC = "medre.adapters.matrix.adapter"\n'
+        results = extract_dynamic_adapter_imports(source)
+        modules = [r[0] for r in results]
+        assert "medre.adapters.matrix.adapter" not in modules
+
+    def test_non_adapter_string_not_detected(self) -> None:
+        """_MY_SPEC = "other.module" is not detected (doesn't start with medre.adapters.)."""
+        source = '_MY_SPEC = "other.module"\n'
+        results = extract_dynamic_adapter_imports(source)
+        assert results == []
+
+    def test_renderer_specs_not_double_counted(self) -> None:
+        """_ADAPTER_RENDERER_SPECS is NOT double-counted by registry detection."""
+        source = '_ADAPTER_RENDERER_SPECS = [("medre.adapters.matrix.renderer", "X")]\n'
+        results = extract_dynamic_adapter_imports(source)
+        # Should be detected exactly once (by the renderer specs walker, not registry)
+        modules = [r[0] for r in results]
+        assert modules.count("medre.adapters.matrix.renderer") == 1
+
+    def test_ann_assign_detected(self) -> None:
+        """Annotated assignment _BUILDER_SPEC: str = "medre.adapters.x.adapter" detected."""
+        source = '_BUILDER_SPEC: str = "medre.adapters.matrix.adapter"\n'
+        results = extract_dynamic_adapter_imports(source)
+        modules = [r[0] for r in results]
+        assert "medre.adapters.matrix.adapter" in modules
+
+
+# ---------------------------------------------------------------------------
+# Synthetic source tree helper
+# ---------------------------------------------------------------------------
+
+
+@contextlib.contextmanager
+def _synthetic_src(
+    tmp_path: Path, *, builder_source: str, other_source: str | None = None
+):
+    """Create a minimal synthetic medre source tree for boundary report testing.
+
+    Creates:
+        tmp_path/src/medre/__init__.py
+        tmp_path/src/medre/adapters/__init__.py
+        tmp_path/src/medre/adapters/x/__init__.py
+        tmp_path/src/medre/adapters/x/adapter.py  (class XAdapter: pass)
+        tmp_path/src/medre/runtime/__init__.py
+        tmp_path/src/medre/runtime/builder.py     (builder_source)
+        tmp_path/src/medre/runtime/other.py        (other_source, if provided)
+
+    Yields the medre/ directory Path.
+    """
+    src = tmp_path / "src" / "medre"
+    (src / "adapters" / "x").mkdir(parents=True)
+    (src / "runtime").mkdir(parents=True)
+
+    (src / "__init__.py").write_text("")
+    (src / "adapters" / "__init__.py").write_text("")
+    (src / "adapters" / "x" / "__init__.py").write_text("")
+    (src / "adapters" / "x" / "adapter.py").write_text("class XAdapter: pass\n")
+    (src / "runtime" / "__init__.py").write_text("")
+    (src / "runtime" / "builder.py").write_text(builder_source)
+
+    if other_source is not None:
+        (src / "runtime" / "other.py").write_text(other_source)
+
+    yield src
+
+
+# ---------------------------------------------------------------------------
+# Non-builder boundary classification via synthetic trees
+# ---------------------------------------------------------------------------
+
+
+class TestNonBuilderBoundaryClassification:
+    """Tests that build_route_adapter_boundary_report() classifies
+    non-builder runtime modules as forbidden and builder as allowed."""
+
+    def test_builder_importlib_in_allowed(self, tmp_path: Path) -> None:
+        """Builder's importlib.import_module("medre.adapters.x.adapter") appears in allowed."""
+        builder = (
+            "import importlib\n" 'importlib.import_module("medre.adapters.x.adapter")\n'
+        )
+        with _synthetic_src(tmp_path, builder_source=builder) as src:
+            graph = build_dependency_graph(src)
+            report = build_route_adapter_boundary_report(graph, src_root=src)
+            targets = {v.target for v in report.allowed_runtime_adapter.violations}
+            assert "medre.adapters.x.adapter" in targets
+
+    def test_non_builder_importlib_in_forbidden(self, tmp_path: Path) -> None:
+        """Non-builder's importlib.import_module("medre.adapters.x.adapter") appears in forbidden."""
+        builder = "pass\n"
+        other = (
+            "import importlib\n" 'importlib.import_module("medre.adapters.x.adapter")\n'
+        )
+        with _synthetic_src(
+            tmp_path, builder_source=builder, other_source=other
+        ) as src:
+            graph = build_dependency_graph(src)
+            report = build_route_adapter_boundary_report(graph, src_root=src)
+            sources = {v.source for v in report.forbidden_runtime_adapter.violations}
+            assert "medre.runtime.other" in sources
+
+    def test_non_builder_dunder_import_in_forbidden(self, tmp_path: Path) -> None:
+        """Non-builder's __import__("medre.adapters.x.adapter") appears in forbidden."""
+        builder = "pass\n"
+        other = '__import__("medre.adapters.x.adapter")\n'
+        with _synthetic_src(
+            tmp_path, builder_source=builder, other_source=other
+        ) as src:
+            graph = build_dependency_graph(src)
+            report = build_route_adapter_boundary_report(graph, src_root=src)
+            sources = {v.source for v in report.forbidden_runtime_adapter.violations}
+            assert "medre.runtime.other" in sources
+
+    def test_non_builder_adapter_factory_in_forbidden(self, tmp_path: Path) -> None:
+        """Non-builder's _AdapterFactory(module="medre.adapters.x.adapter") appears in forbidden."""
+        builder = "pass\n"
+        other = (
+            "class _AdapterFactory:\n"
+            "    def __init__(self, module, cls_name): pass\n"
+            '_AdapterFactory(module="medre.adapters.x.adapter", cls_name="XAdapter")\n'
+        )
+        with _synthetic_src(
+            tmp_path, builder_source=builder, other_source=other
+        ) as src:
+            graph = build_dependency_graph(src)
+            report = build_route_adapter_boundary_report(graph, src_root=src)
+            sources = {v.source for v in report.forbidden_runtime_adapter.violations}
+            assert "medre.runtime.other" in sources
+
+    def test_builder_not_in_forbidden(self, tmp_path: Path) -> None:
+        """Builder with dynamic imports never appears in forbidden_runtime_adapter."""
+        builder = (
+            "import importlib\n" 'importlib.import_module("medre.adapters.x.adapter")\n'
+        )
+        with _synthetic_src(tmp_path, builder_source=builder) as src:
+            graph = build_dependency_graph(src)
+            report = build_route_adapter_boundary_report(graph, src_root=src)
+            builder_in_forbidden = [
+                v
+                for v in report.forbidden_runtime_adapter.violations
+                if v.source == "medre.runtime.builder"
+            ]
+            assert not builder_in_forbidden
+
+    def test_assembly_points_includes_both(self, tmp_path: Path) -> None:
+        """runtime_assembly_points includes both builder and non-builder entries."""
+        builder = (
+            "import importlib\n" 'importlib.import_module("medre.adapters.x.adapter")\n'
+        )
+        other = (
+            "import importlib\n" 'importlib.import_module("medre.adapters.x.adapter")\n'
+        )
+        with _synthetic_src(
+            tmp_path, builder_source=builder, other_source=other
+        ) as src:
+            graph = build_dependency_graph(src)
+            report = build_route_adapter_boundary_report(graph, src_root=src)
+            sources = {v.source for v in report.runtime_assembly_points.violations}
+            assert "medre.runtime.builder" in sources
+            assert "medre.runtime.other" in sources
+
+    def test_syntax_error_populates_scan_errors(self, tmp_path: Path) -> None:
+        """A syntax-error runtime file populates dynamic_scan_errors."""
+        builder = "pass\n"
+        src = tmp_path / "src" / "medre"
+        (src / "adapters" / "x").mkdir(parents=True)
+        (src / "runtime").mkdir(parents=True)
+        (src / "__init__.py").write_text("")
+        (src / "adapters" / "__init__.py").write_text("")
+        (src / "adapters" / "x" / "__init__.py").write_text("")
+        (src / "adapters" / "x" / "adapter.py").write_text("class XAdapter: pass\n")
+        (src / "runtime" / "__init__.py").write_text("")
+        (src / "runtime" / "builder.py").write_text(builder)
+        (src / "runtime" / "broken.py").write_text("def (broken syntax\n")
+
+        graph = build_dependency_graph(src)
+        report = build_route_adapter_boundary_report(graph, src_root=src)
+        assert report.dynamic_scan_errors.count >= 1
+
+    def test_no_dynamic_scan_errors_for_valid_tree(self, tmp_path: Path) -> None:
+        """A valid synthetic tree produces zero dynamic scan errors."""
+        builder = "pass\n"
+        with _synthetic_src(tmp_path, builder_source=builder) as src:
+            graph = build_dependency_graph(src)
+            report = build_route_adapter_boundary_report(graph, src_root=src)
+            assert report.dynamic_scan_errors.count == 0

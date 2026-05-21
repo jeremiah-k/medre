@@ -10,6 +10,11 @@ from pathlib import Path
 
 import pytest
 
+from medre.runtime.architecture_report import (
+    _CODEC_RENDERER_FORBIDDEN,
+    _SDK_PACKAGES,
+    SESSION_ALLOWED_SDKS,
+)
 from tests.helpers.ast_imports import (
     import_matches,
     parse_python,
@@ -36,35 +41,8 @@ _REUSABLE_MODULES: list[tuple[str, str]] = [
     ("src/medre/interop/mmrelay.py", ""),
 ]
 
-# Forbidden for codec/renderer modules
-_CODEC_RENDERER_FORBIDDEN: tuple[str, ...] = (
-    "medre.runtime",
-    "medre.cli",
-    "medre.core.engine",
-    "medre.core.storage",
-    "nio",
-    "meshtastic",
-    "aiohttp",
-    "serial",
-    "serial_asyncio",
-    "meshcore",
-    "RNS",
-    "lxmf",
-    "LXMF",
-)
-
-# SDKs that codec/renderer must not import
-_HEAVY_SDKS: tuple[str, ...] = (
-    "nio",
-    "meshtastic",
-    "meshcore",
-    "RNS",
-    "lxmf",
-    "LXMF",
-    "aiohttp",
-    "serial",
-    "serial_asyncio",
-)
+# Heavy SDKs — codec/renderer must not import these at module level.
+_HEAVY_SDKS = _SDK_PACKAGES
 
 # Session modules may import their own SDK but not others
 _SESSION_FORBIDDEN: tuple[str, ...] = (
@@ -75,12 +53,7 @@ _SESSION_FORBIDDEN: tuple[str, ...] = (
 )
 
 # Per-transport SDK allowlists for session modules
-_TRANSPORT_SDKS: dict[str, tuple[str, ...]] = {
-    "matrix": ("nio", "aiohttp"),
-    "meshtastic": ("meshtastic", "serial", "serial_asyncio"),
-    "meshcore": ("meshcore", "serial", "serial_asyncio"),
-    "lxmf": ("RNS", "LXMF", "lxmf"),
-}
+_TRANSPORT_SDKS = SESSION_ALLOWED_SDKS
 
 
 def _check_module(
