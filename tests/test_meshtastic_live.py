@@ -130,7 +130,6 @@ import pytest
 
 from tests.helpers.live_harness import (
     LiveRequirement,
-    LiveSmokeResult,
     assert_no_secret_leak,
     bounded,
     live_env_status,
@@ -153,9 +152,15 @@ MESHTASTIC_BLE_ADDRESS = os.environ.get("MESHTASTIC_BLE_ADDRESS")
 MESHTASTIC_CHANNEL_INDEX = os.environ.get("MESHTASTIC_CHANNEL_INDEX", "0")
 
 
+_VALID_CONNECTION_TYPES = frozenset({"tcp", "serial", "ble", "fake"})
+
 def _get_live_requirements() -> list[LiveRequirement]:
     """Build the list of env var requirements for Meshtastic live tests."""
     ct = os.environ.get("MESHTASTIC_CONNECTION_TYPE", "").lower()
+    if ct and ct not in _VALID_CONNECTION_TYPES:
+        # Unknown type — produce a clear skip reason rather than failing
+        # with a confusing error later.
+        ct = ""  # force missing, so tests skip
     reqs = [LiveRequirement("MESHTASTIC_CONNECTION_TYPE", description="Connection mode: tcp, serial, or ble")]
     if ct == "tcp":
         reqs.append(LiveRequirement("MESHTASTIC_HOST", description="Node hostname or IP for TCP"))
@@ -171,7 +176,10 @@ _LIVE_ENV_SET = _LIVE_STATUS.enabled
 
 require_live = pytest.mark.skipif(
     not _LIVE_ENV_SET,
-    reason=f"Missing env vars: {', '.join(_LIVE_STATUS.missing)}",
+    reason=(
+        f"Live Meshtastic tests require MESHTASTIC_CONNECTION_TYPE "
+        f"(tcp/serial/ble). Missing: {', '.join(_LIVE_STATUS.missing)}"
+    ),
 )
 
 
@@ -745,7 +753,7 @@ class TestMeshtasticBoundedLiveTests:
             # Idempotent third stop
             await bounded(adapter.stop(), 10.0, "test_live_stop_idempotency: adapter.stop() #3")
 
-        assert adapter._started is False
+        assert adapter.diagnostics()["started"] is False
 
     async def test_live_diagnostics_shape(self):
         """diagnostics() returns expected shape against live hardware."""

@@ -287,13 +287,15 @@ See `docs/runbooks/meshtastic-live-smoke.md` for full smoke test documentation.
 
 ### 6.1 Startup sequence
 
-When `start(ctx)` is called on a non-fake adapter:
+When ``start(ctx)`` is called on a non-fake adapter:
 
-1. The adapter checks `HAS_MESHTASTIC` (the `mtjk` import guard). If `mtjk` is not installed and connection_type is not `"fake"`, raises `MeshtasticConnectionError`.
-2. `_create_client()` is called. This creates the appropriate interface (`TCPInterface`, `SerialInterface`, or `BLEInterface`). This call is **synchronous and blocking** — it waits for the initial device config.
-3. `_subscribe_callbacks()` subscribes to the `meshtastic.receive` pubsub topic.
-4. `_started` is set to `True`.
-5. A startup log line is emitted: `"MeshtasticAdapter mesh-alpha started (mode=tcp)"`.
+1. The adapter checks ``HAS_MESHTASTIC`` (the ``mtjk`` import guard). If ``mtjk`` is not installed and connection_type is not ``"fake"``, raises ``MeshtasticConnectionError``.
+2. A :class:`~medre.adapters.meshtastic.session.MeshtasticSession` is created, which delegates raw transport lifecycle to the session boundary.
+3. ``session.start(message_callback=self._on_packet)`` is called. The session internally creates the appropriate interface (``TCPInterface``, ``SerialInterface``, or ``BLEInterface``) and subscribes to ``meshtastic.receive`` pubsub callbacks. The client creation is **synchronous and blocking** — it waits for the initial device config.
+4. The adapter mirrors ``self._client = self._session.client`` for diagnostics access.
+5. A background ``_drain_task`` is created via ``asyncio.create_task(self._process_queue())`` to continuously drain the outbound queue.
+6. ``_started`` is set to ``True``.
+7. A startup log line is emitted: ``"MeshtasticAdapter mesh-alpha started (mode=tcp)"``.
 
 ### 6.2 Expected startup output
 
@@ -309,13 +311,13 @@ If startup fails, you will see one of:
 
 ### 6.3 Shutdown sequence
 
-When `stop()` is called:
+When ``stop()`` is called:
 
-1. All tracked background tasks (from inbound packet processing) are cancelled and drained (with a 5-second timeout).
-2. Pubsub callbacks are unsubscribed.
-3. The client's `close()` method is called (if it exists).
-4. `_client` is set to `None`, `_started` is set to `False`.
-5. A shutdown log line is emitted: `"MeshtasticAdapter mesh-alpha stopped"`.
+1. The ``_drain_task`` (background queue processor) is cancelled and awaited with a 5-second timeout. If the drain task is mid-send, the send is aborted and the dequeued item is dropped (no automatic requeue).
+2. All tracked background tasks (from inbound packet processing) are cancelled and drained.
+3. ``session.stop()`` is called, which unsubscribes pubsub callbacks and closes the underlying client interface.
+4. ``_client`` is set to ``None``, ``_session`` is set to ``None``, ``_started`` is set to ``False``.
+5. A shutdown log line is emitted: ``"MeshtasticAdapter mesh-alpha stopped"``.
 
 Shutdown is **idempotent** — calling `stop()` on an already-stopped adapter is a no-op.
 
@@ -344,7 +346,14 @@ The adapter's `health_check()` returns an `AdapterInfo` with a `health` field:
 | `healthy` | Adapter has started successfully; client is connected           |
 | `failed`  | Client exists but start did not complete (subscription failure) |
 
-There are no intermediate states. There is no `degraded` or `reconnecting` state. The Meshtastic adapter does not implement automatic reconnection (unlike the Matrix adapter which has `healthy` / `degraded` / `failed` transitions).
+.. note::
+
+   The adapter code at ``MeshtasticAdapter.health_check()`` does handle
+   a ``"degraded"`` health state when ``self._session.reconnecting`` is
+   ``True``.  However, the current session implementation does not
+   automatically enter the reconnecting state — this path is reserved for
+   a future automatic reconnection feature.  In practice, the adapter
+   reports ``"healthy"`` or ``"unknown"`` only.
 
 ### 7.2 Queue diagnostics
 
@@ -368,7 +377,12 @@ health = adapter.queue_health
 | `total_failed`           | int   | Cumulative count of send failures since adapter creation    |
 | `delay_between_messages` | float | Configured minimum pacing delay in seconds                  |
 | `last_send_time`         | float | `time.monotonic()` of the last successful send              |
-| `drain_task_running`     | bool  | Whether the background queue-drain task is active           |
+
+.. note::
+
+   ``drain_task_running`` is an adapter-level diagnostics field, not a
+   queue-level field.  Query it via ``adapter.diagnostics()["drain_task_running"]``
+   instead of ``adapter.queue_health["drain_task_running"]``.
 
 These counters are cumulative for the lifetime of the adapter instance (not reset on stop/start).
 

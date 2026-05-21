@@ -127,7 +127,7 @@ class TestMeshtasticNoSdkLifecycle:
 
         try:
             await _bounded(adapter.start(ctx))
-            assert adapter._started is True
+            assert adapter.diagnostics()["started"] is True
             info = await _bounded(adapter.health_check())
             assert info.health == "healthy"
         finally:
@@ -145,7 +145,7 @@ class TestMeshtasticNoSdkLifecycle:
         with patch("medre.adapters.meshtastic.session.HAS_MESHTASTIC", False):
             try:
                 await _bounded(adapter.start(ctx))
-                assert adapter._started is True
+                assert adapter.diagnostics()["started"] is True
             finally:
                 await _bounded(adapter.stop())
 
@@ -270,7 +270,7 @@ class TestMeshtasticNoSdkLifecycle:
             await _bounded(adapter.stop())
             # Third stop (still safe)
             await _bounded(adapter.stop())
-            assert adapter._started is False
+            assert adapter.diagnostics()["started"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -487,7 +487,7 @@ class TestMeshtasticDrainLifecycle:
 
         await _bounded(adapter.stop())
         assert adapter._drain_task is None
-        assert adapter._started is False
+        assert adapter.diagnostics()["started"] is False
         diag = adapter.diagnostics()
         assert diag["drain_task_running"] is False
 
@@ -510,7 +510,7 @@ class TestMeshtasticDrainLifecycle:
         # Third stop
         await _bounded(adapter.stop())
         assert adapter._drain_task is None
-        assert adapter._started is False
+        assert adapter.diagnostics()["started"] is False
 
     async def test_diagnostics_includes_drain_task_running(self):
         """diagnostics() dict contains drain_task_running as a bool."""
