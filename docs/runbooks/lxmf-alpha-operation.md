@@ -679,6 +679,35 @@ GENERATING → OUTBOUND → SENDING → SENT → DELIVERED
 
 `delivery_state_counts()` returns counts of tracked outbound deliveries per state. These are snapshots at call time. Terminal deliveries (`DELIVERED`, `FAILED`, `REJECTED`, `CANCELLED`) are cleaned up after processing, so the count reflects active/pending deliveries predominantly.
 
+The ``delivery_state_counts()`` method returns a ``dict[str, int]`` where keys are delivery state names (e.g. ``"outbound"``, ``"sending"``, ``"sent"``, ``"delivered"``, ``"failed"``) and values are the count of outbound deliveries in each state. This is useful for monitoring pending deliveries and detecting stuck messages.
+
+Example usage:
+
+```python
+counts = adapter.session.delivery_state_counts()
+# {"outbound": 2, "delivered": 5, "failed": 0}
+```
+
+### 14.6 Two-Process Topology Testing
+
+Two-process topology tests validate LXMF adapter behaviour in a real
+two-node Reticulum network. Each process runs in a separate terminal
+with its own identity and role (sender or receiver).
+
+For detailed setup instructions, required environment variables, and
+step-by-step procedures, see the **Two-Process Topology Testing** section
+in `docs/runbooks/lxmf-live-smoke.md`.
+
+Key points:
+
+- **Process B (receiver) must be started first** so the sender can
+  discover it via AutoInterface announce propagation.
+- Both processes need `LXMF_TOPOLOGY_LIVE=1` and `LXMF_CONNECTION_TYPE=reticulum`.
+- The sender needs `LXMF_DESTINATION_HASH` set to the receiver's identity hash.
+- The sender's send tests require `LXMF_LIVE_SEND=1`.
+- Tests are in the `TestLxmfTopologyLive` class in `tests/test_lxmf_live.py`.
+- All topology tests are skipped by default unless `LXMF_TOPOLOGY_LIVE=1`.
+
 ## 15. Troubleshooting
 
 ### 15.1 Common Failures

@@ -172,6 +172,210 @@ export MESHCORE_BLE_PIN="123456"     # optional
 - BLE testing requires BLE-capable hardware and OS support (BlueZ on Linux).
 - **Not exercised in any existing harness.** Documented for reference.
 
+## BLE Setup and Testing
+
+This section covers BLE-specific setup, testing, and troubleshooting for MeshCore live smoke tests.
+
+### BLE Prerequisites
+
+1. **BLE-capable hardware**: A Bluetooth adapter (e.g. `hci0` on Linux).
+2. **BlueZ**: The Linux Bluetooth stack must be running.
+3. **`bleak` library**: Installed automatically with `pip install meshcore`.
+4. **MeshCore node**: Powered on and advertising via BLE.
+
+### BLE Environment Variables
+
+| Variable                  | Required | Example               | Description                                  |
+| ------------------------- | -------- | --------------------- | -------------------------------------------- |
+| `MESHCORE_CONNECTION_TYPE` | Yes     | `ble`                 | Must be set to `ble` for BLE mode            |
+| `MESHCORE_BLE_ADDRESS`    | Yes      | `C4:4F:33:6A:B0:23`  | BLE MAC address of the target node           |
+| `MESHCORE_BLE_PIN`        | No       | `123456`              | BLE pairing PIN (if device requires pairing) |
+| `MESHCORE_CHANNEL_INDEX`  | No       | `0`                   | Channel for test messages (default `0`)      |
+| `MESHCORE_LIVE_SEND`      | No       | `1`                   | Must be `1` to enable actual radio transmit  |
+
+> **Note**: The MAC address `C4:4F:33:6A:B0:23` is an example from hardware probe findings (MeshCore-B4C6ED2C). Use the actual MAC address of your node obtained via `bluetoothctl scan on`.
+
+### Finding Your BLE Device
+
+```bash
+# Verify Bluetooth adapter is up
+rfkill list
+# Should show hci0: unblocked
+
+# Scan for BLE devices
+bluetoothctl scan on
+# Look for devices advertising with name starting "MeshCore"
+# Note the MAC address (format: XX:XX:XX:XX:XX:XX)
+
+# Verify device is advertising
+bluetoothctl info C4:4F:33:6A:B0:23
+```
+
+### Running BLE Tests
+
+```bash
+# Install MeshCore SDK
+pip install meshcore
+
+# Set required environment variables
+export MESHCORE_CONNECTION_TYPE="ble"
+export MESHCORE_BLE_ADDRESS="C4:4F:33:6A:B0:23"  # your device's MAC
+export MESHCORE_CHANNEL_INDEX="0"
+
+# Run live smoke tests
+pytest tests/test_meshcore_live.py -m live -v
+
+# Run BLE-specific mock-based tests (no hardware needed)
+pytest tests/test_meshcore_live.py::TestMeshCoreBLEValidation -v
+
+# Run with live send enabled (actual radio transmission)
+export MESHCORE_LIVE_SEND=1
+pytest tests/test_meshcore_live.py -m live -v
+```
+
+### Expected BLE Output
+
+**Successful BLE connection:**
+
+```console
+INFO  MeshCoreSession meshcore-live-smoke started (mode=ble, connected=True)
+INFO  MeshCoreAdapter meshcore-live-smoke started (mode=ble)
+PASSED
+```
+
+**Failed BLE connection (device not found):**
+
+```console
+MeshCoreConnectionError: Failed to connect (ble): BLE device not found
+FAILED
+```
+
+**Failed BLE connection (appstart failure):**
+
+```console
+MeshCoreConnectionError: No response from MeshCore node (BLE)
+FAILED
+```
+
+**BLE tests skipped (env vars not set):**
+
+```console
+SKIPPED [ reason: Set MESHCORE_CONNECTION_TYPE (tcp/serial/ble) to run live MeshCore tests ]
+```
+
+### BLE Sanitized Evidence Template
+
+When recording BLE test results, use this template with sensitive values redacted:
+
+```
+## BLE Live Smoke Evidence
+
+- **Date:** YYYY-MM-DD
+- **Executor:** <name>
+- **MEDRE commit:** <hash>
+- **meshcore version:** <version>
+- **Connection type:** ble
+- **BLE adapter:** hci0 (UP RUNNING)
+- **Target device:** MeshCore-<REDACTED> at <REDACTED_MAC_ADDRESS>
+- **BLE pairing:** Yes/No
+- **Result:** PASS/FAIL/SKIP
+
+### Test Results
+
+- Adapter start: PASS/FAIL
+- Health check → healthy: PASS/FAIL
+- Send text → success: PASS/FAIL (requires MESHCORE_LIVE_SEND=1)
+- Diagnostics snapshot: PASS/FAIL
+- Stop → clean teardown: PASS/FAIL
+
+### Diagnostics Snapshot (sanitized)
+
+```json
+{
+  "adapter_id": "meshcore-live-smoke",
+  "platform": "meshcore",
+  "started": true,
+  "mode": "ble",
+  "session": {
+    "connected": true,
+    "mode": "ble",
+    "reconnect_attempts": 0,
+    "transient_delivery_failures": 0,
+    "permanent_delivery_failures": 0
+  }
+}
+```
+
+### Notes
+
+- <Any observations, issues, or anomalies>
+```
+
+### BLE Troubleshooting: "Advertising but Not Connecting"
+
+If `bluetoothctl scan on` shows the MeshCore device but `MeshCore.create_ble()` fails:
+
+1. **Check BLE adapter status:**
+
+   ```bash
+   hciconfig hci0
+   # Should show: UP RUNNING
+   # If DOWN: sudo hciconfig hci0 up
+   ```
+
+2. **Check rfkill (Bluetooth blocked):**
+
+   ```bash
+   rfkill list
+   # If "Soft blocked: yes": rfkill unblock bluetooth
+   # If "Hard blocked: yes": physical switch or BIOS setting
+   ```
+
+3. **Check BlueZ service:**
+
+   ```bash
+   systemctl status bluetooth
+   # If inactive: sudo systemctl start bluetooth
+   ```
+
+4. **Try manual BLE connection:**
+
+   ```bash
+   bluetoothctl
+   [bluetooth]# connect C4:4F:33:6A:B0:23
+   # If this fails, the issue is OS/BlueZ level, not MEDRE
+   ```
+
+5. **Check for BLE PIN pairing requirement:**
+
+   ```python
+   # If the device requires PIN pairing, pass the pin parameter:
+   mc = await MeshCore.create_ble("C4:4F:33:6A:B0:23", pin="123456")
+   ```
+
+6. **Check for multiple Bluetooth adapters:**
+
+   ```bash
+   hciconfig -a
+   # If multiple adapters, specify the correct one
+   # The SDK uses the default adapter via bleak
+   ```
+
+7. **Try removing paired device and reconnecting:**
+
+   ```bash
+   bluetoothctl remove C4:4F:33:6A:B0:23
+   bluetoothctl scan on
+   # Then retry the connection
+   ```
+
+8. **Check kernel logs for BLE errors:**
+
+   ```bash
+   dmesg | grep -i bluetooth | tail -20
+   journalctl -u bluetooth -n 50
+   ```
+
 ## Required Environment Variables
 
 | Variable                   | Required for   | Example             | Description                                 |
