@@ -139,6 +139,15 @@ import pytest
 pytestmark = pytest.mark.live
 
 # ---------------------------------------------------------------------------
+# Timeout bounds for live async operations (seconds).
+# These prevent live tests from hanging indefinitely when the homeserver
+# is unreachable or slow.  Individual tests may use tighter bounds.
+# ---------------------------------------------------------------------------
+_ADAPTER_START_TIMEOUT: float = 30.0
+_ADAPTER_STOP_TIMEOUT: float = 10.0
+_DELIVER_TIMEOUT: float = 15.0
+
+# ---------------------------------------------------------------------------
 # Environment variable gate — every test in this file skips unless all four
 # required variables are set, so CI and local runs never fail noisily.
 # ---------------------------------------------------------------------------
@@ -164,7 +173,12 @@ require_live = pytest.mark.skipif(
 # Helpers
 # ---------------------------------------------------------------------------
 def _make_config():
-    """Build a MatrixConfig from the live environment variables."""
+    """Build a MatrixConfig from the live environment variables.
+
+    Sets ``room_allowlist`` to ``{MATRIX_ROOM_ID}`` when available so the
+    default adapter only processes events in the designated test room,
+    preventing unrelated traffic from a bot in multiple rooms.
+    """
     from medre.config.adapters.matrix import MatrixConfig
 
     assert MATRIX_HOMESERVER and MATRIX_USER_ID and MATRIX_ACCESS_TOKEN
@@ -173,6 +187,7 @@ def _make_config():
         homeserver=MATRIX_HOMESERVER,
         user_id=MATRIX_USER_ID,
         access_token=MATRIX_ACCESS_TOKEN,
+        room_allowlist={MATRIX_ROOM_ID} if MATRIX_ROOM_ID else None,
     )
 
 
@@ -202,6 +217,16 @@ def _make_config_with_allowlist(allowlist: set[str] | None):
         access_token=MATRIX_ACCESS_TOKEN,
         room_allowlist=allowlist,
     )
+
+
+def _payload_text(payload: dict) -> str | None:
+    """Extract human-readable text from a Matrix event payload.
+
+    MatrixCodec puts text in ``payload["body"]``; some legacy codecs
+    use ``payload["text"]``.  This helper checks both so tests are
+    resilient regardless of which field is populated.
+    """
+    return payload.get("body") or payload.get("text")
 
 
 # ---------------------------------------------------------------------------
@@ -243,7 +268,7 @@ class TestMatrixLiveSmoke:
 
         adapter = MatrixAdapter(_make_config())
         ctx = _make_context()
-        await adapter.start(ctx)
+        await asyncio.wait_for(adapter.start(ctx), timeout=_ADAPTER_START_TIMEOUT)
         try:
             info = await adapter.health_check()
             assert (
@@ -251,7 +276,7 @@ class TestMatrixLiveSmoke:
             ), f"Expected healthy after start, got {info.health!r}"
             assert info.platform == "matrix"
         finally:
-            await adapter.stop()
+            await asyncio.wait_for(adapter.stop(), timeout=_ADAPTER_STOP_TIMEOUT)
 
     async def test_adapter_health_unknown_after_stop(self):
         """Stop the adapter and verify health_check reports unknown.
@@ -263,8 +288,8 @@ class TestMatrixLiveSmoke:
 
         adapter = MatrixAdapter(_make_config())
         ctx = _make_context()
-        await adapter.start(ctx)
-        await adapter.stop()
+        await asyncio.wait_for(adapter.start(ctx), timeout=_ADAPTER_START_TIMEOUT)
+        await asyncio.wait_for(adapter.stop(), timeout=_ADAPTER_STOP_TIMEOUT)
         info = await adapter.health_check()
         assert (
             info.health == "unknown"
@@ -295,7 +320,7 @@ class TestMatrixLiveSmoke:
 
         adapter = MatrixAdapter(_make_config())
         ctx = _make_context()
-        await adapter.start(ctx)
+        await asyncio.wait_for(adapter.start(ctx), timeout=_ADAPTER_START_TIMEOUT)
         try:
             ts = int(time.time())
             result = RenderingResult(
@@ -308,7 +333,9 @@ class TestMatrixLiveSmoke:
                 },
                 metadata={"renderer": "matrix", "test": "live-smoke"},
             )
-            delivery = await adapter.deliver(result)
+            delivery = await asyncio.wait_for(
+                adapter.deliver(result), timeout=_DELIVER_TIMEOUT
+            )
             assert delivery is not None, "deliver() returned None"
             assert (
                 delivery.native_message_id is not None
@@ -322,7 +349,7 @@ class TestMatrixLiveSmoke:
                 f"got {delivery.native_channel_id!r}"
             )
         finally:
-            await adapter.stop()
+            await asyncio.wait_for(adapter.stop(), timeout=_ADAPTER_STOP_TIMEOUT)
 
     # -- Full lifecycle round-trip ------------------------------------------
 
@@ -339,7 +366,7 @@ class TestMatrixLiveSmoke:
         ctx = _make_context()
 
         # 1. Start
-        await adapter.start(ctx)
+        await asyncio.wait_for(adapter.start(ctx), timeout=_ADAPTER_START_TIMEOUT)
         info = await adapter.health_check()
         assert info.health == "healthy"
 
@@ -355,7 +382,9 @@ class TestMatrixLiveSmoke:
             },
             metadata={"renderer": "matrix", "test": "lifecycle"},
         )
-        delivery = await adapter.deliver(result)
+        delivery = await asyncio.wait_for(
+            adapter.deliver(result), timeout=_DELIVER_TIMEOUT
+        )
         assert delivery is not None
         assert delivery.native_message_id is not None
 
@@ -364,7 +393,7 @@ class TestMatrixLiveSmoke:
         assert info.health == "healthy"
 
         # 4. Stop
-        await adapter.stop()
+        await asyncio.wait_for(adapter.stop(), timeout=_ADAPTER_STOP_TIMEOUT)
 
         # 5. Now unknown
         info = await adapter.health_check()
@@ -426,27 +455,39 @@ class TestMatrixLiveSmoke:
         # Deterministic coverage: tests/test_matrix_adapter.py.
         pass
 
-    # -- Send and verify: echo suppression round-trip ------------------------
+    # -- Send and verify: echo suppression diagnostics ------------------------
 
-    async def test_live_send_and_receive(self):
-        """Send a message via deliver(), wait for sync, verify echo suppression.
+    async def test_live_send_does_not_publish_self_echo_when_observed(self):
+        """Send a message, observe sync echo, verify self-echo suppression via diagnostics.
 
-        Validates the complete send → sync → suppress pipeline:
+        Validates the send → sync → suppress pipeline using the adapter's
+        diagnostics counters rather than relying solely on publish_inbound
+        call inspection (which is timing-dependent):
 
-        1. ``deliver()`` sends an ``m.text`` message to ``MATRIX_ROOM_ID``.
+        1. ``deliver()`` sends an ``m.text`` message to ``MATRIX_ROOM_ID``
+           and returns a ``native_message_id``.
         2. The nio sync loop receives the echo event from the homeserver.
         3. ``_on_room_message`` suppresses the self-echo because
-           ``event.sender == config.user_id``.
+           ``event.sender == config.user_id``, incrementing
+           ``inbound_suppressed_self`` in diagnostics.
         4. ``publish_inbound`` is never called with the echo event.
 
-        The test waits 5 seconds to give the sync loop time to process
-        the echo.  In a quiet room ``publish_inbound`` should have zero
-        calls; in an active room none of the calls should correspond to
-        our sent message.
+        After the send, the test waits 5 seconds for the sync loop to
+        process the echo, then checks:
 
-        **Caveat**: without a second Matrix account we cannot verify that
-        non-self messages *are* published.  Unit tests in
-        ``test_matrix_lifecycle.py`` cover the non-self path.
+        - ``adapter.diagnostics()["inbound_suppressed_self"]`` is an integer
+          (its value depends on room activity and sync timing).
+        - No published event's ``source_native_ref.native_message_id``
+          matches the sent ``event_id`` (native_message_id self-echo check).
+        - No published event's payload text matches our test message body.
+
+        **Caveat**: ``inbound_suppressed_self >= 1`` can only be asserted
+        if the sync loop delivers the echo within the 5 s window.  The
+        diagnostic counter is checked regardless; if it is zero the test
+        still passes because suppression may have been handled by the
+        MEDRE-origin envelope path instead.  Unit tests in
+        ``test_matrix_lifecycle.py`` provide deterministic coverage of the
+        sender-check suppression path.
         """
         from medre.adapters.matrix.adapter import MatrixAdapter
         from medre.core.contracts.adapter import AdapterContext
@@ -463,7 +504,7 @@ class TestMatrixLiveSmoke:
         )
 
         adapter = MatrixAdapter(_make_config())
-        await adapter.start(ctx)
+        await asyncio.wait_for(adapter.start(ctx), timeout=_ADAPTER_START_TIMEOUT)
         try:
             ts = int(time.time())
             body_text = f"MEDRE echo-suppression live test (ts={ts}) — safe to ignore"
@@ -477,7 +518,9 @@ class TestMatrixLiveSmoke:
                 },
                 metadata={"renderer": "matrix", "test": "echo-suppression"},
             )
-            delivery = await adapter.deliver(result)
+            delivery = await asyncio.wait_for(
+                adapter.deliver(result), timeout=_DELIVER_TIMEOUT
+            )
             assert delivery is not None, "deliver() returned None"
             assert (
                 delivery.native_message_id is not None
@@ -486,6 +529,18 @@ class TestMatrixLiveSmoke:
 
             # Give the sync loop time to process the echo event.
             await asyncio.sleep(5.0)
+
+            # Check diagnostics for self-echo suppression counter.
+            # If the sync loop delivered the echo within the window,
+            # inbound_suppressed_self should be >= 1.  If zero, suppression
+            # may have been handled by the MEDRE-origin envelope path or
+            # the echo simply hasn't arrived yet — neither is a failure
+            # for this live smoke test.
+            diag = adapter.diagnostics()
+            assert isinstance(diag["inbound_suppressed_self"], int), (
+                f"Expected int for inbound_suppressed_self, "
+                f"got {type(diag['inbound_suppressed_self']).__name__}"
+            )
 
             # Self-message suppression should have blocked the echo.
             # Verify no published event contains our sent event_id or body.
@@ -501,14 +556,15 @@ class TestMatrixLiveSmoke:
                             f"message id {event_id_sent!r} was published "
                             f"inbound"
                         )
-                    # Check payload body doesn't match our test message
+                    # Check payload text doesn't match our test message.
+                    # MatrixCodec uses "body", but check both for defense-in-depth.
                     if hasattr(event, "payload") and isinstance(event.payload, dict):
-                        assert event.payload.get("text") != body_text, (
-                            "Self-echo leaked through: payload body matches "
+                        assert _payload_text(event.payload) != body_text, (
+                            "Self-echo leaked through: payload text matches "
                             "our sent message"
                         )
         finally:
-            await adapter.stop()
+            await asyncio.wait_for(adapter.stop(), timeout=_ADAPTER_STOP_TIMEOUT)
 
     # -- Allowlist enforcement -----------------------------------------------
 
@@ -552,7 +608,9 @@ class TestMatrixLiveSmoke:
             shutdown_event=asyncio.Event(),
         )
         adapter_blocked = MatrixAdapter(config_blocked)
-        await adapter_blocked.start(ctx_blocked)
+        await asyncio.wait_for(
+            adapter_blocked.start(ctx_blocked), timeout=_ADAPTER_START_TIMEOUT
+        )
         try:
             info = await adapter_blocked.health_check()
             assert info.health == "healthy", (
@@ -577,7 +635,9 @@ class TestMatrixLiveSmoke:
                     "test": "allowlist-blocked",
                 },
             )
-            delivery = await adapter_blocked.deliver(result)
+            delivery = await asyncio.wait_for(
+                adapter_blocked.deliver(result), timeout=_DELIVER_TIMEOUT
+            )
             assert delivery is not None, "deliver() returned None"
             assert (
                 delivery.native_message_id is not None
@@ -596,7 +656,7 @@ class TestMatrixLiveSmoke:
                     event = args[0]
                     if hasattr(event, "payload") and isinstance(event.payload, dict):
                         assert (
-                            event.payload.get("text")
+                            _payload_text(event.payload)
                             != f"MEDRE allowlist blocked test (ts={ts}) "
                             f"— safe to ignore"
                         ), (
@@ -604,7 +664,9 @@ class TestMatrixLiveSmoke:
                             "non-allowlisted room was published inbound"
                         )
         finally:
-            await adapter_blocked.stop()
+            await asyncio.wait_for(
+                adapter_blocked.stop(), timeout=_ADAPTER_STOP_TIMEOUT
+            )
 
         # --- Phase 2: correct allowlist ---
         assert MATRIX_ROOM_ID is not None  # narrowed by @require_live gate
@@ -618,14 +680,18 @@ class TestMatrixLiveSmoke:
             shutdown_event=asyncio.Event(),
         )
         adapter_allowed = MatrixAdapter(config_allowed)
-        await adapter_allowed.start(ctx_allowed)
+        await asyncio.wait_for(
+            adapter_allowed.start(ctx_allowed), timeout=_ADAPTER_START_TIMEOUT
+        )
         try:
             info = await adapter_allowed.health_check()
             assert info.health == "healthy", (
                 f"Expected healthy with correct allowlist, " f"got {info.health!r}"
             )
         finally:
-            await adapter_allowed.stop()
+            await asyncio.wait_for(
+                adapter_allowed.stop(), timeout=_ADAPTER_STOP_TIMEOUT
+            )
 
     # -- Health check operational --------------------------------------------
 
@@ -663,7 +729,7 @@ class TestMatrixLiveSmoke:
         assert info.platform == "matrix"
 
         # After start — full operational state
-        await adapter.start(ctx)
+        await asyncio.wait_for(adapter.start(ctx), timeout=_ADAPTER_START_TIMEOUT)
         try:
             info = await adapter.health_check()
             assert info.health == "healthy"
@@ -671,7 +737,7 @@ class TestMatrixLiveSmoke:
             assert info.role == AdapterRole.PRESENTATION
             assert info.adapter_id == "matrix-live-smoke"
         finally:
-            await adapter.stop()
+            await asyncio.wait_for(adapter.stop(), timeout=_ADAPTER_STOP_TIMEOUT)
 
         # After stop — back to unknown
         info = await adapter.health_check()
@@ -708,12 +774,12 @@ class TestMatrixLiveSmoke:
             shutdown_event=asyncio.Event(),
         )
         adapter = MatrixAdapter(config)
-        await adapter.start(ctx1)
+        await asyncio.wait_for(adapter.start(ctx1), timeout=_ADAPTER_START_TIMEOUT)
         info = await adapter.health_check()
         assert (
             info.health == "healthy"
         ), f"Cycle 1 start: expected healthy, got {info.health!r}"
-        await adapter.stop()
+        await asyncio.wait_for(adapter.stop(), timeout=_ADAPTER_STOP_TIMEOUT)
         info = await adapter.health_check()
         assert (
             info.health == "unknown"
@@ -728,12 +794,12 @@ class TestMatrixLiveSmoke:
             clock=lambda: datetime.now(timezone.utc),
             shutdown_event=asyncio.Event(),
         )
-        await adapter.start(ctx2)
+        await asyncio.wait_for(adapter.start(ctx2), timeout=_ADAPTER_START_TIMEOUT)
         info = await adapter.health_check()
         assert (
             info.health == "healthy"
         ), f"Cycle 2 start: expected healthy, got {info.health!r}"
-        await adapter.stop()
+        await asyncio.wait_for(adapter.stop(), timeout=_ADAPTER_STOP_TIMEOUT)
         info = await adapter.health_check()
         assert (
             info.health == "unknown"
@@ -771,7 +837,7 @@ class TestMatrixLiveSmoke:
             clock=lambda: datetime.now(timezone.utc),
             shutdown_event=asyncio.Event(),
         )
-        await adapter.start(ctx)
+        await asyncio.wait_for(adapter.start(ctx), timeout=_ADAPTER_START_TIMEOUT)
         try:
             ts = int(time.time())
             canonical_id = f"live-redelivery-{ts}"
@@ -787,7 +853,9 @@ class TestMatrixLiveSmoke:
                 },
                 metadata={"renderer": "matrix", "test": "redelivery-smoke"},
             )
-            delivery1 = await adapter.deliver(result1)
+            delivery1 = await asyncio.wait_for(
+                adapter.deliver(result1), timeout=_DELIVER_TIMEOUT
+            )
             assert delivery1 is not None, "First deliver() returned None"
             assert (
                 delivery1.native_message_id is not None
@@ -805,7 +873,9 @@ class TestMatrixLiveSmoke:
                 },
                 metadata={"renderer": "matrix", "test": "redelivery-smoke"},
             )
-            delivery2 = await adapter.deliver(result2)
+            delivery2 = await asyncio.wait_for(
+                adapter.deliver(result2), timeout=_DELIVER_TIMEOUT
+            )
             assert delivery2 is not None, "Second deliver() returned None"
             assert (
                 delivery2.native_message_id is not None
@@ -822,7 +892,7 @@ class TestMatrixLiveSmoke:
             assert delivery1.native_channel_id == MATRIX_ROOM_ID
             assert delivery2.native_channel_id == MATRIX_ROOM_ID
         finally:
-            await adapter.stop()
+            await asyncio.wait_for(adapter.stop(), timeout=_ADAPTER_STOP_TIMEOUT)
 
     # -- Inbound third-party message reception --------------------------------
 
@@ -870,7 +940,7 @@ class TestMatrixLiveSmoke:
         )
 
         adapter = MatrixAdapter(_make_config())
-        await adapter.start(ctx)
+        await asyncio.wait_for(adapter.start(ctx), timeout=_ADAPTER_START_TIMEOUT)
         try:
             # Wait up to 30 seconds for a third-party message to arrive.
             # Poll publish_mock every 0.5 s so we exit early on success.
@@ -885,11 +955,13 @@ class TestMatrixLiveSmoke:
                     # Sender is stored as source_transport_id on the
                     # canonical event (set by MatrixCodec.decode).
                     sender = getattr(event, "source_transport_id", None)
+                    if sender is None:
+                        continue
                     if sender == MATRIX_USER_ID:
                         continue
 
                     # If MATRIX_INBOUND_SENDER is set, filter to that sender.
-                    if inbound_sender and sender and sender != inbound_sender:
+                    if inbound_sender and sender != inbound_sender:
                         continue
 
                     found_event = event
@@ -951,4 +1023,148 @@ class TestMatrixLiveSmoke:
                 f"got {diag['inbound_published']}"
             )
         finally:
-            await adapter.stop()
+            await asyncio.wait_for(adapter.stop(), timeout=_ADAPTER_STOP_TIMEOUT)
+
+    # -- Diagnostics snapshot verification -----------------------------------
+
+    async def test_live_diagnostics_snapshot_after_send(self):
+        """Verify adapter.diagnostics() returns Matrix-specific fields after a send.
+
+        After ``start()`` and a successful ``deliver()``, the diagnostics
+        dict must include all expected Matrix-specific operational fields:
+        sync state, room tracking, delivery counters, and inbound counters.
+
+        This test does NOT depend on a second user — it only verifies that
+        the diagnostics snapshot is structurally complete and consistent.
+        """
+        from medre.adapters.matrix.adapter import MatrixAdapter
+        from medre.core.contracts.adapter import AdapterContext
+        from medre.core.rendering.renderer import RenderingResult
+
+        adapter = MatrixAdapter(_make_config())
+        ctx = AdapterContext(
+            adapter_id="matrix-live-smoke",
+            event_bus=None,
+            publish_inbound=AsyncMock(),
+            logger=logging.getLogger("test.matrix-live.diagnostics"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+        )
+        await asyncio.wait_for(adapter.start(ctx), timeout=_ADAPTER_START_TIMEOUT)
+        try:
+            # Send a message to populate delivery counters.
+            ts = int(time.time())
+            result = RenderingResult(
+                event_id=f"live-diagnostics-{ts}",
+                target_adapter="matrix-live-smoke",
+                target_channel=MATRIX_ROOM_ID,
+                payload={
+                    "msgtype": "m.text",
+                    "body": f"MEDRE diagnostics snapshot test (ts={ts}) — safe to ignore",
+                },
+                metadata={"renderer": "matrix", "test": "diagnostics-snapshot"},
+            )
+            delivery = await asyncio.wait_for(
+                adapter.deliver(result), timeout=_DELIVER_TIMEOUT
+            )
+            assert delivery is not None
+
+            diag = adapter.diagnostics()
+
+            # -- Required Matrix-specific fields --------------------------------
+            required_fields = (
+                "connected",
+                "logged_in",
+                "sync_task_running",
+                "last_sync_error",
+                "store_path_configured",
+                "device_id_configured",
+                "encryption_mode",
+                "crypto_enabled",
+                "last_crypto_error",
+                "encrypted_room_seen",
+                "undecryptable_event_count",
+                "sync_running",
+                "reconnecting",
+                "reconnect_attempts",
+                "last_successful_sync",
+                "crypto_store_loaded",
+                "encrypted_room_count",
+                "plaintext_room_count",
+                "transient_delivery_failures",
+                "permanent_delivery_failures",
+                "inbound_published",
+                "inbound_suppressed_self",
+                "inbound_suppressed_envelope",
+                "inbound_filtered_allowlist",
+                "inbound_suppressed_startup",
+            )
+            for field in required_fields:
+                assert field in diag, (
+                    f"diagnostics() missing required field {field!r}. "
+                    f"Available fields: {sorted(diag.keys())}"
+                )
+
+            # -- Operational consistency checks ----------------------------------
+            assert diag["connected"] is True, "Expected connected=True after start"
+            assert diag["logged_in"] is True, "Expected logged_in=True after start"
+            assert (
+                diag["sync_task_running"] is True
+            ), "Expected sync_task_running=True after start"
+            assert diag["encryption_mode"] == "plaintext"
+            assert diag["crypto_enabled"] is False
+            assert isinstance(diag["transient_delivery_failures"], int)
+            assert isinstance(diag["permanent_delivery_failures"], int)
+            # At least one successful send means no permanent failures.
+            assert diag["permanent_delivery_failures"] == 0, (
+                f"Unexpected permanent_delivery_failures={diag['permanent_delivery_failures']} "
+                f"after successful delivery"
+            )
+            # Inbound counters should be integers (zero or more).
+            assert isinstance(diag["inbound_published"], int)
+            assert isinstance(diag["inbound_suppressed_self"], int)
+            assert isinstance(diag["inbound_suppressed_envelope"], int)
+            assert isinstance(diag["inbound_filtered_allowlist"], int)
+            assert isinstance(diag["inbound_suppressed_startup"], int)
+
+            # -- No secrets in diagnostics output --------------------------------
+            diag_str = str(diag)
+            assert MATRIX_ACCESS_TOKEN is not None
+            assert (
+                MATRIX_ACCESS_TOKEN not in diag_str
+            ), "Access token leaked into diagnostics output"
+        finally:
+            await asyncio.wait_for(adapter.stop(), timeout=_ADAPTER_STOP_TIMEOUT)
+
+    # -- Bounded shutdown verification ----------------------------------------
+
+    async def test_live_bounded_shutdown_after_start(self):
+        """Verify adapter.stop() completes within the timeout bound.
+
+        After ``start()``, ``stop()`` must complete within the configured
+        timeout (default 5.0s).  This catches resource leaks (e.g. unclosed
+        aiohttp sessions, dangling sync tasks) that prevent clean shutdown.
+        """
+        from medre.adapters.matrix.adapter import MatrixAdapter
+        from medre.core.contracts.adapter import AdapterContext
+
+        adapter = MatrixAdapter(_make_config())
+        ctx = AdapterContext(
+            adapter_id="matrix-live-smoke",
+            event_bus=None,
+            publish_inbound=AsyncMock(),
+            logger=logging.getLogger("test.matrix-live.shutdown"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+        )
+        await asyncio.wait_for(adapter.start(ctx), timeout=_ADAPTER_START_TIMEOUT)
+        # stop() itself has an internal timeout of 5.0s; wrap with our
+        # slightly larger bound to catch hangs without racing the internal
+        # timeout.
+        await asyncio.wait_for(adapter.stop(), timeout=_ADAPTER_STOP_TIMEOUT)
+
+        # After stop, diagnostics should report disconnected state.
+        diag = adapter.diagnostics()
+        assert diag["connected"] is False
+        assert diag["logged_in"] is False
+        assert diag["sync_task_running"] is False
