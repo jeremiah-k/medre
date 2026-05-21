@@ -668,8 +668,13 @@ def apply_instance_env_overrides(
     ------
     ConfigValidationError
         If a token doesn't match any adapter, a field is unsupported,
-        or type coercion fails.
+        type coercion fails, or two adapters normalize to the same token.
     """
+    refs = _collect_configured_adapter_refs(config)
+    collision_err = _check_token_collisions(refs)
+    if collision_err:
+        raise ConfigValidationError(collision_err)
+
     if not instance_overrides:
         return config
 

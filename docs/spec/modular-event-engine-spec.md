@@ -1937,12 +1937,11 @@ Core overrides:
 - `MEDRE_DB_PATH` → `config.storage.path`
 - `MEDRE_LOG_LEVEL` → `config.logging.level`
 
-Adapter overrides map to a virtual `"env"` adapter instance within each transport type:
+Adapter overrides target configured adapter instances by normalized adapter token using `MEDRE_ADAPTER__<TOKEN>__<FIELD>`. The token is derived from the TOML `adapter_id` by uppercasing and replacing non-alphanumeric characters with underscores. Env overrides do not create virtual adapter instances in v1; the target adapter must already exist in TOML.
 
-- **Matrix** (legacy unsupported — use `MEDRE_ADAPTER__<TOKEN>__<FIELD>`): `MEDRE_MATRIX_HOMESERVER`, `MEDRE_MATRIX_USER_ID`, `MEDRE_MATRIX_ACCESS_TOKEN`, `MEDRE_MATRIX_ENCRYPTION_MODE`, `MEDRE_MATRIX_ROOM_ALLOWLIST`, `MEDRE_MATRIX_DEVICE_ID`, `MEDRE_MATRIX_STORE_PATH`
-- **Meshtastic** (legacy unsupported — use `MEDRE_ADAPTER__<TOKEN>__<FIELD>`): `MEDRE_MESHTASTIC_CONNECTION_TYPE`, `MEDRE_MESHTASTIC_SERIAL_PORT`, `MEDRE_MESHTASTIC_HOST`, `MEDRE_MESHTASTIC_PORT`
-- **MeshCore** (legacy unsupported — use `MEDRE_ADAPTER__<TOKEN>__<FIELD>`): `MEDRE_MESHCORE_CONNECTION_TYPE`, `MEDRE_MESHCORE_SERIAL_PORT`, `MEDRE_MESHCORE_HOST`, `MEDRE_MESHCORE_PORT`, `MEDRE_MESHCORE_BLE_ADDRESS`
-- **LXMF** (legacy unsupported — use `MEDRE_ADAPTER__<TOKEN>__<FIELD>`): `MEDRE_LXMF_CONNECTION_TYPE`, `MEDRE_LXMF_IDENTITY_PATH`, `MEDRE_LXMF_DISPLAY_NAME`, `MEDRE_LXMF_DESTINATION_HASH`
+Examples: `MEDRE_ADAPTER__MATRIX_PRIMARY__ACCESS_TOKEN`, `MEDRE_ADAPTER__RADIO_A__SERIAL_PORT`, `MEDRE_ADAPTER__MESHCORE_TBEAM__BLE_ADDRESS`, `MEDRE_ADAPTER__LXMF_RECEIVER__IDENTITY_PATH`.
+
+Legacy transport-prefixed variables such as `MEDRE_MATRIX_*`, `MEDRE_MESHTASTIC_*`, `MEDRE_MESHCORE_*`, and `MEDRE_LXMF_*` are unsupported and rejected with migration guidance.
 
 Type coercion is explicit (bool/int/list). Secrets are redacted in log output.
 
