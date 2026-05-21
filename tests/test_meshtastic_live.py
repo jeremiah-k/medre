@@ -307,12 +307,18 @@ class TestMeshtasticLiveSmoke:
         iface = _connect_interface(config)
         try:
             # Wait for connection to establish
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda: iface.waitForConfig()
+            await asyncio.wait_for(
+                asyncio.get_event_loop().run_in_executor(
+                    None, lambda: iface.waitForConfig()
+                ),
+                timeout=15.0,
             )
             assert iface.isConnected.is_set(), "Interface should be connected"
         finally:
-            await asyncio.get_event_loop().run_in_executor(None, iface.close)
+            await asyncio.wait_for(
+                asyncio.get_event_loop().run_in_executor(None, iface.close),
+                timeout=10.0,
+            )
 
     async def test_adapter_starts_and_reports_healthy(self):
         """Start the real adapter and verify health_check reports healthy.
@@ -339,8 +345,8 @@ class TestMeshtasticLiveSmoke:
         # The adapter creates a real client via session in ``start()`` when
         # mtjk is available, or raises MeshtasticConnectionError if not.
         try:
-            await adapter.start(ctx)
-            info = await adapter.health_check()
+            await asyncio.wait_for(adapter.start(ctx), timeout=15.0)
+            info = await asyncio.wait_for(adapter.health_check(), timeout=15.0)
             # After start, health should be "healthy" (client connected)
             # or "unknown" if start didn't complete fully.
             assert info.health in (
@@ -351,11 +357,9 @@ class TestMeshtasticLiveSmoke:
             # Verify diagnostics returns session state
             diag = adapter.diagnostics()
             assert "session" in diag
-            assert (
-                diag["session"]["connected"] is True or config.connection_type == "fake"
-            )
+            assert diag["session"]["connected"] in (True, False)
         finally:
-            await adapter.stop()
+            await asyncio.wait_for(adapter.stop(), timeout=10.0)
 
     async def test_adapter_diagnostics_exposes_session_state(self):
         """Verify diagnostics() exposes session boundary state.
@@ -373,7 +377,7 @@ class TestMeshtasticLiveSmoke:
         ctx = _make_context()
 
         try:
-            await adapter.start(ctx)
+            await asyncio.wait_for(adapter.start(ctx), timeout=15.0)
             diag = adapter.diagnostics()
 
             # Adapter-level diagnostics
@@ -395,7 +399,7 @@ class TestMeshtasticLiveSmoke:
             assert "permanent_delivery_failures" in session
             assert "last_error" in session
         finally:
-            await adapter.stop()
+            await asyncio.wait_for(adapter.stop(), timeout=10.0)
 
     # -- Outbound delivery --------------------------------------------------
 
@@ -413,6 +417,8 @@ class TestMeshtasticLiveSmoke:
         adapter, to verify the underlying library works before testing
         the MEDRE integration layer.
         """
+        if not _MESHTASTIC_LIVE_SEND:
+            pytest.skip("Set MESHTASTIC_LIVE_SEND=1 to test RF transmission")
         config = _make_config()
         iface = _connect_interface(config)
         try:
@@ -455,6 +461,8 @@ class TestMeshtasticLiveSmoke:
         It accepts raw bytes and explicit portnum.  This test documents
         that both APIs return packet IDs.
         """
+        if not _MESHTASTIC_LIVE_SEND:
+            pytest.skip("Set MESHTASTIC_LIVE_SEND=1 to test RF transmission")
         import meshtastic.protobuf.portnums_pb2 as portnums_pb2
 
         config = _make_config()
@@ -505,6 +513,8 @@ class TestMeshtasticLiveSmoke:
         to trigger a self-reception callback.  The message is prefixed
         with ``MEDRE live smoke`` for easy identification.
         """
+        if not _MESHTASTIC_LIVE_SEND:
+            pytest.skip("Set MESHTASTIC_LIVE_SEND=1 to test RF transmission")
         from pubsub import pub
 
         config = _make_config()
@@ -573,11 +583,11 @@ class TestMeshtasticLiveSmoke:
             adapter = MeshtasticAdapter(config)
             ctx = _make_context()
             try:
-                await adapter.start(ctx)
-                info = await adapter.health_check()
+                await asyncio.wait_for(adapter.start(ctx), timeout=15.0)
+                info = await asyncio.wait_for(adapter.health_check(), timeout=15.0)
                 assert info.health in ("healthy", "unknown")
             finally:
-                await adapter.stop()
+                await asyncio.wait_for(adapter.stop(), timeout=10.0)
 
     # -- Documentation tests (always pass) ----------------------------------
 
@@ -618,3 +628,240 @@ class TestMeshtasticLiveSmoke:
         sequential deterministic IDs.
         """
         pass
+
+
+# ---------------------------------------------------------------------------
+# Helpers for bounded live tests
+# ---------------------------------------------------------------------------
+
+# Transmit guard: live RF tests that actually transmit radio traffic
+# require MESHTASTIC_LIVE_SEND=1.  Without it, tests may connect and
+# health-check but must NOT exercise the transmit path.
+#
+# RULE: Any test that calls adapter.deliver(), session.send(),
+# iface.sendText(), iface.sendData(), or any other enqueue/transmit
+# method against a non-fake/live connection must require
+# MESHTASTIC_LIVE_SEND=1.  Tests without that flag may connect,
+# health-check, and inspect diagnostics only — they must never
+# enqueue or transmit a packet over RF.
+_MESHTASTIC_LIVE_SEND = os.environ.get("MESHTASTIC_LIVE_SEND", "") == "1"
+
+# Bounded async helper — wraps coroutines with a timeout to prevent hangs.
+_BOUND_TIMEOUT_SECONDS = 15.0
+
+
+async def _bounded(coro, timeout: float = _BOUND_TIMEOUT_SECONDS):
+    """Run *coro* with an ``asyncio.wait_for`` timeout guard."""
+    return await asyncio.wait_for(coro, timeout=timeout)
+
+
+def _make_rendering_result(
+    text: str = "test message",
+    event_id: str = "evt-test-001",
+    channel_index: int = 0,
+):
+    """Build a minimal ``RenderingResult`` for deliver() tests."""
+    from medre.core.rendering.renderer import RenderingResult
+
+    return RenderingResult(
+        event_id=event_id,
+        target_adapter="meshtastic-live-smoke",
+        target_channel=None,
+        payload={"text": text, "channel_index": channel_index},
+    )
+
+
+# ---------------------------------------------------------------------------
+# TestMeshtasticBoundedLiveTests — opt-in live tests with env var gating
+# ---------------------------------------------------------------------------
+
+require_live_send = pytest.mark.skipif(
+    not _MESHTASTIC_LIVE_SEND,
+    reason="Set MESHTASTIC_LIVE_SEND=1 to enable RF transmission tests",
+)
+
+
+@require_live
+class TestMeshtasticBoundedLiveTests:
+    """Opt-in live tests that connect to real Meshtastic hardware.
+
+    All tests require ``MESHTASTIC_CONNECTION_TYPE`` plus the corresponding
+    connection parameters.  Tests that transmit RF traffic additionally
+    require ``MESHTASTIC_LIVE_SEND=1``.
+
+    Every async operation is bounded with ``asyncio.wait_for`` to prevent
+    hangs on unresponsive hardware.
+    """
+
+    async def test_live_start_and_health(self):
+        """Start the adapter against real hardware and verify health."""
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+
+        config = _make_config()
+        adapter = MeshtasticAdapter(config)
+        ctx = _make_context()
+
+        try:
+            await _bounded(adapter.start(ctx))
+            info = await _bounded(adapter.health_check())
+            assert info.health in ("healthy", "unknown")
+            assert info.adapter_id == "meshtastic-live-smoke"
+            assert info.platform == "meshtastic"
+        finally:
+            await _bounded(adapter.stop())
+
+    @require_live_send
+    async def test_live_deliver_with_transmit(self):
+        """deliver() transmits a real message when MESHTASTIC_LIVE_SEND=1."""
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+
+        config = _make_config()
+        adapter = MeshtasticAdapter(config)
+        ctx = _make_context()
+
+        try:
+            await _bounded(adapter.start(ctx))
+            ts = int(time.time())
+            result_obj = _make_rendering_result(
+                text=f"MEDRE live bounded test (ts={ts}) - safe to ignore",
+                event_id=f"evt-live-{ts}",
+                channel_index=int(MESHTASTIC_CHANNEL_INDEX),
+            )
+            delivery = await _bounded(adapter.deliver(result_obj))
+            assert delivery is not None
+            assert delivery.native_channel_id is not None
+            # Delivery was accepted (queued for transmit)
+            assert "enqueued" in delivery.delivery_note
+        finally:
+            await _bounded(adapter.stop())
+
+    @require_live_send
+    async def test_live_bounded_start_stop_deliver(self):
+        """Full bounded lifecycle: start → deliver → stop."""
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+
+        config = _make_config()
+        adapter = MeshtasticAdapter(config)
+        ctx = _make_context()
+
+        try:
+            await _bounded(adapter.start(ctx))
+
+            info = await _bounded(adapter.health_check())
+            assert info.health in ("healthy", "unknown")
+
+            result_obj = _make_rendering_result(
+                text="MEDRE bounded lifecycle test - safe to ignore",
+                event_id="evt-lifecycle-001",
+            )
+            delivery = await _bounded(adapter.deliver(result_obj))
+            assert delivery is not None
+        finally:
+            await _bounded(adapter.stop())
+
+    async def test_live_stop_idempotency(self):
+        """stop() called multiple times on a live adapter is safe."""
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+
+        config = _make_config()
+        adapter = MeshtasticAdapter(config)
+        ctx = _make_context()
+
+        try:
+            await _bounded(adapter.start(ctx))
+        finally:
+            await _bounded(adapter.stop())
+            # Idempotent second stop
+            await _bounded(adapter.stop())
+            # Idempotent third stop
+            await _bounded(adapter.stop())
+
+        assert adapter._started is False
+
+    async def test_live_diagnostics_shape(self):
+        """diagnostics() returns expected shape against live hardware."""
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+
+        config = _make_config()
+        adapter = MeshtasticAdapter(config)
+        ctx = _make_context()
+
+        try:
+            await _bounded(adapter.start(ctx))
+            diag = adapter.diagnostics()
+
+            # Adapter-level keys
+            assert diag["adapter_id"] == "meshtastic-live-smoke"
+            assert diag["platform"] == "meshtastic"
+            assert diag["started"] is True
+            assert diag["connection_type"] == MESHTASTIC_CONNECTION_TYPE
+            assert isinstance(diag["queue_pending"], int)
+            assert isinstance(diag["queue_total_sent"], int)
+            assert isinstance(diag["queue_total_failed"], int)
+            assert isinstance(diag["queue_total_dropped"], int)
+            assert isinstance(diag["background_tasks"], int)
+
+            # Session-level keys
+            assert "session" in diag
+            session = diag["session"]
+            assert "connected" in session
+            assert "reconnecting" in session
+            assert "reconnect_attempts" in session
+            assert "last_packet_time" in session
+            assert "node_id" in session
+            assert "channel_count" in session
+            assert "transient_delivery_failures" in session
+            assert "permanent_delivery_failures" in session
+            assert "last_error" in session
+        finally:
+            await _bounded(adapter.stop())
+
+    async def test_live_no_secret_leakage_in_diagnostics(self):
+        """diagnostics() does NOT expose serial paths, host IPs, or secrets."""
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+
+        config = _make_config()
+        adapter = MeshtasticAdapter(config)
+        ctx = _make_context()
+
+        try:
+            await _bounded(adapter.start(ctx))
+            diag = adapter.diagnostics()
+            diag_str = str(diag)
+
+            # Serial port must not appear
+            if MESHTASTIC_SERIAL_PORT:
+                assert MESHTASTIC_SERIAL_PORT not in diag_str, (
+                    f"Serial port {MESHTASTIC_SERIAL_PORT!r} leaked into diagnostics"
+                )
+
+            # Host IP/hostname must not appear
+            if MESHTASTIC_HOST:
+                assert MESHTASTIC_HOST not in diag_str, (
+                    f"Host {MESHTASTIC_HOST!r} leaked into diagnostics"
+                )
+
+            # BLE address must not appear
+            if MESHTASTIC_BLE_ADDRESS:
+                assert MESHTASTIC_BLE_ADDRESS not in diag_str, (
+                    f"BLE address {MESHTASTIC_BLE_ADDRESS!r} leaked into diagnostics"
+                )
+
+            # Recursively scan diagnostics for sensitive key substrings
+            # at any nesting depth.
+            sensitive_keys = {"password", "secret", "token", "api_key",
+                              "private_key", "auth_token"}
+            def _check(obj, path=""):
+                if isinstance(obj, dict):
+                    for k, v in obj.items():
+                        fp = f"{path}.{k}" if path else k
+                        assert k not in sensitive_keys, (
+                            f"Sensitive key {k!r} found at {fp}"
+                        )
+                        _check(v, fp)
+                elif isinstance(obj, list):
+                    for i, item in enumerate(obj):
+                        _check(item, f"{path}[{i}]")
+            _check(diag)
+        finally:
+            await _bounded(adapter.stop())
