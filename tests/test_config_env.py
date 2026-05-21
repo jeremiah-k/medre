@@ -396,7 +396,7 @@ class TestTokenCollisions:
     def test_collision_detected(self) -> None:
         """radio-a and radio_a both normalize to RADIO_A — must raise."""
         adapters = {"radio-a": object(), "radio_a": object()}
-        with pytest.raises(ConfigValidationError, match="normalize to the same token"):
+        with pytest.raises(ConfigValidationError, match="normalize to RADIO_A"):
             detect_token_collisions(adapters)
 
     def test_no_collision_different_tokens(self) -> None:
@@ -415,12 +415,55 @@ class TestTokenCollisions:
                 monkeypatch.delenv(key, raising=False)
         base = _make_config_with_colliding_adapters()
         with pytest.raises(
-            ConfigValidationError, match="normalize to the same token"
+            ConfigValidationError, match="token collision for RADIO_A"
         ) as exc_info:
             apply_env_overrides(base)
         msg = str(exc_info.value)
         assert "radio-a" in msg
         assert "radio_a" in msg
+
+    def test_exact_duplicate_cross_transport(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Same adapter_id across matrix and meshtastic raises collision."""
+        import os
+
+        for key in list(os.environ):
+            if key.startswith("MEDRE_"):
+                monkeypatch.delenv(key, raising=False)
+
+        matrix_cfg = MatrixConfig(
+            adapter_id="shared",
+            homeserver="https://matrix.test",
+            user_id="@bot:test",
+            access_token="tok",
+            encryption_mode="plaintext",
+        )
+        meshtastic_cfg = MeshtasticConfig(
+            adapter_id="shared",
+            connection_type="fake",
+        )
+        config = RuntimeConfig(
+            runtime=RuntimeOptions(name="test"),
+            logging=LoggingConfig(level="INFO"),
+            storage=StorageConfig(backend="sqlite", path="/tmp/test.db"),
+            adapters=AdapterConfigSet(
+                matrix={
+                    "shared": MatrixRuntimeConfig(
+                        adapter_id="shared",
+                        config=matrix_cfg,
+                    ),
+                },
+                meshtastic={
+                    "shared": MeshtasticRuntimeConfig(
+                        adapter_id="shared",
+                        config=meshtastic_cfg,
+                    ),
+                },
+            ),
+        )
+        with pytest.raises(ConfigValidationError, match="SHARED"):
+            apply_env_overrides(config)
 
 
 # ---------------------------------------------------------------------------

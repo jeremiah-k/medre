@@ -1,7 +1,9 @@
 # MEDRE Transport Capability Status
 
 > **Generated:** 2026-05-21
+>
 > **Context:** This is a living document. It tracks which MEDRE capabilities are implemented, tested, and validated across each transport adapter. It exists so operators and developers can see, at a glance, what works and what does not.
+>
 > **Policy:** No capability is marked `live-validated` unless there is recorded live evidence in the repository (test results, runbook logs, or CI artifacts). No `ready` labels. No aspirational statuses. If it has not been tested and confirmed, it says so.
 
 This document is the single source of truth for per-transport capability tracking. The operator workflows runbook (`docs/runbooks/operator-workflows.md`) references this file for capability status.

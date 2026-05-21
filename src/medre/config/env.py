@@ -326,8 +326,8 @@ def detect_token_collisions(adapters_dict: dict[str, Any]) -> None:
         msgs: list[str] = []
         for _tok, ids in collisions.items():
             msgs.append(
-                f"Adapter IDs {ids} both normalize to the same token "
-                f"— rename one adapter_id"
+                f"Adapter IDs {ids} both normalize to {_tok}; "
+                f"rename one adapter_id."
             )
         raise ConfigValidationError("; ".join(msgs))
 
@@ -618,6 +618,34 @@ def _iter_configured_adapters(
     return result
 
 
+def _collect_configured_adapter_refs(config: RuntimeConfig) -> list[tuple[str, str, str]]:
+    """Return list of (transport, adapter_key, adapter_id) for all configured adapters."""
+    refs: list[tuple[str, str, str]] = []
+    for transport in ("matrix", "meshtastic", "meshcore", "lxmf"):
+        group = getattr(config.adapters, transport, {})
+        for key, rtc in group.items():
+            refs.append((transport, key, rtc.adapter_id))
+    return refs
+
+
+def _check_token_collisions(refs: list[tuple[str, str, str]]) -> str | None:
+    """Check for duplicate normalized tokens. Returns error message or None."""
+    token_groups: dict[str, list[tuple[str, str, str]]] = {}
+    for transport, key, adapter_id in refs:
+        token = normalize_adapter_id(adapter_id)
+        token_groups.setdefault(token, []).append((transport, key, adapter_id))
+    for token, adapters in token_groups.items():
+        if len(adapters) > 1:
+            details = "; ".join(
+                f"{t}.{k} adapter_id={a!r}" for t, k, a in adapters
+            )
+            return (
+                f"Adapter env token collision for {token}: {details}. "
+                f"Rename one adapter_id."
+            )
+    return None
+
+
 def apply_instance_env_overrides(
     config: RuntimeConfig,
     instance_overrides: dict[str, dict[str, ParsedAdapterEnvValue]],
@@ -804,10 +832,10 @@ def apply_env_overrides(
     # Detect token collisions early — even before checking if any env vars
     # are set.  Two adapters normalizing to the same token is a config error
     # regardless of env overrides.
-    all_adapters_by_id: dict[str, Any] = {}
-    for _transport, _key, adapter_id, rtc in _iter_configured_adapters(config):
-        all_adapters_by_id[adapter_id] = rtc
-    detect_token_collisions(all_adapters_by_id)
+    refs = _collect_configured_adapter_refs(config)
+    collision_err = _check_token_collisions(refs)
+    if collision_err:
+        raise ConfigValidationError(collision_err)
 
     env = MedreEnvConfig.from_environ()
 

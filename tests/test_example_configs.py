@@ -530,15 +530,15 @@ class TestDockerEnvExample:
 
     def test_matrix_vars_present(self) -> None:
         text = _read(DOCKER_ENV)
-        assert "MEDRE_MATRIX_HOMESERVER" in text
-        assert "MEDRE_MATRIX_USER_ID" in text
-        assert "MEDRE_MATRIX_ACCESS_TOKEN" in text
+        assert "MEDRE_ADAPTER__MAIN__HOMESERVER" in text
+        assert "MEDRE_ADAPTER__MAIN__USER_ID" in text
+        assert "MEDRE_ADAPTER__MAIN__ACCESS_TOKEN" in text
 
     def test_meshtastic_vars_present(self) -> None:
         text = _read(DOCKER_ENV)
-        assert "MEDRE_MESHTASTIC_ENABLED" in text
-        assert "MEDRE_MESHTASTIC_CONNECTION_TYPE" in text
-        assert "MEDRE_MESHTASTIC_SERIAL_PORT" in text
+        assert "MEDRE_ADAPTER__RADIO__ENABLED" in text
+        assert "MEDRE_ADAPTER__RADIO__CONNECTION_TYPE" in text
+        assert "MEDRE_ADAPTER__RADIO__SERIAL_PORT" in text
 
     def test_medre_home_var_present(self) -> None:
         text = _read(DOCKER_ENV)
