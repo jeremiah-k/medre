@@ -57,6 +57,7 @@ __all__ = [
     "detect_token_collisions",
     "MedreEnvConfig",
     "normalize_adapter_id",
+    "ProvenanceEntry",
 ]
 
 # ---------------------------------------------------------------------------
@@ -78,12 +79,34 @@ CORE_ENV_NAMES: frozenset[str] = frozenset(
 
 _ADAPTER_ENV_PREFIX = "MEDRE_ADAPTER__"
 
+_REJECTED_LEGACY_PREFIXES: tuple[str, ...] = (
+    "MEDRE_MATRIX_",
+    "MEDRE_MESHTASTIC_",
+    "MEDRE_MESHCORE_",
+    "MEDRE_LXMF_",
+)
+
 # ---------------------------------------------------------------------------
 # Type-coercion helpers
 # ---------------------------------------------------------------------------
 
 _TRUE_VALUES: frozenset[str] = frozenset({"1", "true", "yes"})
 _FALSE_VALUES: frozenset[str] = frozenset({"0", "false", "no"})
+
+
+def _unwrap_optional_type(hint: Any) -> Any:
+    """Unwrap ``Optional[X]`` / ``X | None`` to the concrete type ``X``.
+
+    Handles both ``typing.Optional[X]`` and PEP-604 ``X | None`` syntax.
+    Returns *hint* unchanged if it is not an Optional wrapper.
+    """
+    origin = getattr(hint, "__origin__", None)
+    if origin is not None:
+        args = get_args(hint)
+        non_none = [a for a in args if a is not type(None)]
+        if len(non_none) == 1 and len(args) == 2:
+            return non_none[0]
+    return hint
 
 
 def _coerce_bool(raw: str, env_name: str) -> bool:
@@ -143,7 +166,8 @@ def _coerce_set(raw: str) -> set[str]:
 # ---------------------------------------------------------------------------
 
 _SECRET_FIELD_RE = re.compile(
-    r"TOKEN|SECRET|PASSWORD|KEY|AUTH|CREDENTIAL", re.IGNORECASE
+    r"TOKEN|SECRET|PASSWORD|KEY|AUTH|CREDENTIAL|BLE|IDENTITY",
+    re.IGNORECASE,
 )
 
 
@@ -157,29 +181,61 @@ def _is_secret_field(field_name: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
+@dataclass
+class ProvenanceEntry:
+    """Structured metadata for a single env-var override."""
+
+    env_var_name: str
+    source_kind: str  # "core" or "instance"
+    raw_value: str
+    target_adapter_id: str | None = None
+    target_transport: str | None = None
+    target_field: str | None = None
+
+
 class EnvProvenance:
     """Tracks which env vars were actually read and their raw values.
 
     Used for diagnostics / logging.  Secret values are redacted in repr.
+    Each entry carries structured metadata (source kind, target adapter,
+    transport, and field).
     """
 
     def __init__(self) -> None:
-        self._entries: dict[str, str] = {}
+        self._entries: dict[str, ProvenanceEntry] = {}
 
-    def record(self, name: str, value: str) -> None:
+    def record(
+        self,
+        name: str,
+        value: str,
+        *,
+        source_kind: str = "core",
+        target_adapter_id: str | None = None,
+        target_transport: str | None = None,
+        target_field: str | None = None,
+    ) -> None:
         """Record that *name* was found in the environment with *value*."""
-        self._entries[name] = value
+        self._entries[name] = ProvenanceEntry(
+            env_var_name=name,
+            source_kind=source_kind,
+            raw_value=value,
+            target_adapter_id=target_adapter_id,
+            target_transport=target_transport,
+            target_field=target_field,
+        )
 
     def redacted_items(self) -> list[tuple[str, str]]:
         """Return recorded entries with secrets redacted.
 
         Secret detection is heuristic: any env var whose final segment
         (after the last ``__`` for adapter vars, or whose name for core
-        vars) matches ``TOKEN|SECRET|PASSWORD|KEY|AUTH|CREDENTIAL`` is
-        redacted.
+        vars) matches ``TOKEN|SECRET|PASSWORD|KEY|AUTH|CREDENTIAL|BLE|IDENTITY``
+        is redacted.
         """
         result: list[tuple[str, str]] = []
-        for name, value in self._entries.items():
+        for entry in self._entries.values():
+            name = entry.env_var_name
+            value = entry.raw_value
             # For MEDRE_ADAPTER__TOKEN__FIELD, extract FIELD.
             if name.startswith(_ADAPTER_ENV_PREFIX):
                 parts = name.split("__", 2)
@@ -197,6 +253,11 @@ class EnvProvenance:
     def set_names(self) -> frozenset[str]:
         """Names of all env vars that were recorded."""
         return frozenset(self._entries.keys())
+
+    @property
+    def entries(self) -> list[ProvenanceEntry]:
+        """All recorded provenance entries in insertion order."""
+        return list(self._entries.values())
 
     def __repr__(self) -> str:
         items = dict(self.redacted_items())
@@ -301,25 +362,18 @@ def _get_field_type(transport: str, field_name: str) -> type | None:
     hint = hints.get(field_name)
     if hint is None:
         return None
-    # Unwrap Optional / X | None to get the concrete type.
-    origin = getattr(hint, "__origin__", None)
-    if origin is not None:
-        # For Union types, pick the first non-None arg.
-        args = get_args(hint)
-        non_none = [a for a in args if a is not type(None)]
-        if non_none:
-            return non_none[0]
-    return hint
+    return _unwrap_optional_type(hint)
 
 
 def _is_set_type(hint: type | None) -> bool:
     """Return ``True`` if *hint* looks like ``set[...]``."""
     if hint is None:
         return False
-    origin = getattr(hint, "__origin__", None)
+    unwrapped = _unwrap_optional_type(hint)
+    origin = getattr(unwrapped, "__origin__", None)
     if origin is set or origin is frozenset:
         return True
-    args = getattr(hint, "__args__", None)
+    args = getattr(unwrapped, "__args__", None)
     if args is not None:
         return any(_is_set_type(a) for a in args)
     return False
@@ -327,17 +381,17 @@ def _is_set_type(hint: type | None) -> bool:
 
 def _is_int_type(hint: type | None) -> bool:
     """Return ``True`` if *hint* is ``int`` (unwrapped)."""
-    return hint is int
+    return _unwrap_optional_type(hint) is int
 
 
 def _is_float_type(hint: type | None) -> bool:
     """Return ``True`` if *hint* is ``float`` (unwrapped)."""
-    return hint is float
+    return _unwrap_optional_type(hint) is float
 
 
 def _is_bool_type(hint: type | None) -> bool:
     """Return ``True`` if *hint* is ``bool`` (unwrapped)."""
-    return hint is bool
+    return _unwrap_optional_type(hint) is bool
 
 
 def _coerce_field_value(
@@ -370,21 +424,36 @@ def _parse_adapter_env_vars(
     """Parse ``MEDRE_ADAPTER__<TOKEN>__<FIELD>`` vars from *environ*.
 
     Returns a nested dict: ``{token: {field: raw_value}}``.
+
+    Raises :class:`~medre.config.errors.ConfigValidationError` if any
+    ``MEDRE_ADAPTER__`` variable has a malformed shape (wrong number of
+    segments, empty token, or empty field).
     """
     result: dict[str, dict[str, str]] = {}
     prefix = _ADAPTER_ENV_PREFIX
+    malformed: list[str] = []
+    _valid_shape = re.compile(r"^[A-Za-z0-9_]+__[A-Za-z0-9_]+$")
+
     for name, value in environ.items():
         if not name.startswith(prefix):
             continue
         remainder = name[len(prefix):]
-        # Split on double-underscore: TOKEN__FIELD
-        parts = remainder.split("__", 1)
-        if len(parts) != 2:
+        if not remainder or not _valid_shape.match(remainder):
+            malformed.append(name)
             continue
-        token, field_name = parts
+        parts = remainder.split("__", 1)
+        token, field_name = parts[0].upper(), parts[1].lower()
         if not token or not field_name:
+            malformed.append(name)
             continue
         result.setdefault(token, {})[field_name] = value
+
+    if malformed:
+        raise ConfigValidationError(
+            f"Malformed MEDRE_ADAPTER__ environment variable(s): "
+            f"{sorted(malformed)}. Expected shape: "
+            f"MEDRE_ADAPTER__<TOKEN>__<FIELD> with non-empty TOKEN and FIELD."
+        )
     return result
 
 
@@ -436,12 +505,29 @@ class MedreEnvConfig:
         instance = cls()
         provenance = EnvProvenance()
 
+        # Reject legacy transport-specific env var prefixes.
+        legacy_found: list[str] = []
+        for key in source:
+            if key.startswith(_ADAPTER_ENV_PREFIX):
+                continue
+            for prefix in _REJECTED_LEGACY_PREFIXES:
+                if key.startswith(prefix):
+                    legacy_found.append(key)
+                    break
+        if legacy_found:
+            raise ConfigValidationError(
+                f"Legacy transport env variable(s) detected: "
+                f"{sorted(legacy_found)}. "
+                f"These are no longer supported. Use instance-scoped "
+                f"MEDRE_ADAPTER__<TOKEN>__<FIELD> variables instead."
+            )
+
         # Core env vars.
         for env_name, field_name in _ENV_FIELD_MAP.items():
             value = source.get(env_name)
             if value is not None:
                 object.__setattr__(instance, field_name, value)
-                provenance.record(env_name, value)
+                provenance.record(env_name, value, source_kind="core")
 
         # Instance-scoped adapter overrides.
         adapter_overrides = _parse_adapter_env_vars(source)
@@ -450,7 +536,13 @@ class MedreEnvConfig:
             for token, field_map in adapter_overrides.items():
                 for field_name, value in field_map.items():
                     env_var = f"{_ADAPTER_ENV_PREFIX}{token}__{field_name}"
-                    provenance.record(env_var, value)
+                    provenance.record(
+                        env_var,
+                        value,
+                        source_kind="instance",
+                        target_adapter_id=token,
+                        target_field=field_name,
+                    )
 
         object.__setattr__(instance, "provenance", provenance)
         return instance
@@ -478,7 +570,7 @@ class MedreEnvConfig:
         Secret values are included unredacted — this is intended for
         programmatic use, not for logging.
         """
-        return dict(self.provenance._entries)
+        return {e.env_var_name: e.raw_value for e in self.provenance.entries}
 
 
 # ---------------------------------------------------------------------------
@@ -641,6 +733,18 @@ def apply_instance_env_overrides(
                         f"{normalize_adapter_id(new_adapter_id)}__{field_name}"
                     )
                     field_type = _get_field_type(transport, field_name)
+
+                    # Reject dict/tuple fields — they cannot be set via env.
+                    unwrapped = _unwrap_optional_type(field_type) if field_type else None
+                    unwrapped_origin = getattr(unwrapped, "__origin__", None) if unwrapped else None
+                    if unwrapped_origin is dict or unwrapped_origin is tuple:
+                        raise ConfigValidationError(
+                            f"Field {field_name!r} has type "
+                            f"{'dict' if unwrapped_origin is dict else 'tuple'}"
+                            f" and cannot be set through env; "
+                            f"configure it in TOML."
+                        )
+
                     coerced = _coerce_field_value(
                         raw_value, field_name, field_type, env_var
                     )
@@ -694,6 +798,20 @@ def apply_env_overrides(
     RuntimeConfig
         A new frozen config instance with env-var overrides applied.
     """
+    # Detect token collisions early — even before checking if any env vars
+    # are set.  Two adapters normalizing to the same token is a config error
+    # regardless of env overrides.
+    all_adapters_by_id: dict[str, Any] = {}
+    for transport, group in (
+        ("matrix", config.adapters.matrix),
+        ("meshtastic", config.adapters.meshtastic),
+        ("meshcore", config.adapters.meshcore),
+        ("lxmf", config.adapters.lxmf),
+    ):
+        for _key, rtc in group.items():
+            all_adapters_by_id[rtc.adapter_id] = rtc
+    detect_token_collisions(all_adapters_by_id)
+
     env = MedreEnvConfig.from_environ()
 
     if not env.has_any_set():
