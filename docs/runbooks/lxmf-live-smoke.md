@@ -451,7 +451,7 @@ link establishment, and message delivery.
 | ---------------- | ------------------------------------------- | ---------------------------------- |
 | `PROCESS_ROLE`   | `sender`                                    | `receiver`                         |
 | Identity         | Own identity file                           | Own identity file                  |
-| `DESTINATION_HASH` | Hash of Process B's identity              | Not required                       |
+| `LXMF_DESTINATION_HASH` | Hash of Process B's identity | Not required                       |
 | Responsibility   | Starts adapter, sends messages              | Starts adapter, receives messages  |
 
 ### Required Environment Variables
@@ -539,7 +539,7 @@ Record the receiver's hash — it becomes `LXMF_DESTINATION_HASH` for the sender
 | ----------------------------------- | -------------------------------------------------------------------------------------------- |
 | All tests pass                      | Two-process topology works end-to-end. Path discovery and delivery succeed.                  |
 | `test_topology_start_bounded` skip  | `LXMF_PROCESS_ROLE` is not `sender`, or connection unavailable.                              |
-| `test_topology_send_with_live_send` skip | `LXMF_LIVE_SEND` not set or `LXMF_DESTINATION_HASH` missing.                          |
+| `test_topology_send_with_live_send` skip | `LXMF_LIVE_SEND` not set or `LXMF_DESTINATION_HASH` missing. |
 | Connection unavailable skip         | Reticulum SDK not installed, identity file missing, or Reticulum singleton conflict.         |
 | Timeout                             | Path discovery did not complete. Check that both processes are on the same LAN with AutoInterface. |
 

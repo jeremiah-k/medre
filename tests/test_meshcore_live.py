@@ -604,7 +604,15 @@ class TestMeshCoreBLEValidation:
         mock_import.assert_called_once_with("meshcore")
         fake_create_ble.assert_called_once_with(address="C4:4F:33:6A:B0:23")
 
+        # Verify subscription wiring was exercised.
+        assert mock_mc_instance.subscribe.call_count >= 1, (
+            "Expected at least one event subscription after BLE start"
+        )
+
         await session.stop()
+
+        # Verify disconnect was called during stop.
+        mock_mc_instance.disconnect.assert_awaited_once()
 
     # -- c) Failed connect diagnostics ----------------------------------------
 

@@ -1042,12 +1042,7 @@ class TestLxmfLiveSmoke:
     # ===================================================================
 
     async def test_stop_safety_never_started_and_clean_cycle(self):
-        """stop() is safe on never-started adapter and after start/stop cycle.
-
-        If ``start()`` is called with a config that has missing or
-        invalid fields (e.g. ``storage_path`` not writable), ``stop()``
-        must still be safe to call without raising.
-        """
+        """stop() is safe on a never-started adapter and after a clean fake-mode start/stop cycle."""
         from medre.adapters.lxmf.adapter import LxmfAdapter
         from medre.config.adapters.lxmf import LxmfConfig
 
@@ -1207,6 +1202,12 @@ class TestLxmfTopologyLive:
         - Receiver requires all env vars except LXMF_DESTINATION_HASH.
         """
         role = os.environ.get("LXMF_PROCESS_ROLE", "").lower()
+        valid_roles = {"sender", "receiver"}
+        assert role in valid_roles, (
+            "Invalid LXMF_PROCESS_ROLE for topology live tests; expected "
+            "'sender' or 'receiver' but got "
+            f"{os.environ.get('LXMF_PROCESS_ROLE')!r}."
+        )
         required = list(_TOPOLOGY_ENV_VARS)
         if role != "sender":
             required = [v for v in required if v != "LXMF_DESTINATION_HASH"]
@@ -1261,9 +1262,7 @@ class TestLxmfTopologyLive:
         if not LXMF_DESTINATION_HASH:
             pytest.skip("LXMF_DESTINATION_HASH required for real send test")
 
-        dest_hash = os.environ.get("LXMF_DESTINATION_HASH", "")
-        if not dest_hash:
-            pytest.skip("LXMF_DESTINATION_HASH required for topology send")
+        dest_hash = LXMF_DESTINATION_HASH
 
         from medre.adapters.lxmf.adapter import LxmfAdapter
         from medre.adapters.lxmf.errors import LxmfConnectionError
