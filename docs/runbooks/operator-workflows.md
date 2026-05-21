@@ -4,9 +4,11 @@
 > Scope: Day-to-day MEDRE operation for a single operator
 > Status: **Alpha. Not production. Not hardened. Not complete.** Everything here is subject to change without notice.
 
-This runbook covers the practical side of running MEDRE: installing it, running a quick smoke test, validating against a real Matrix homeserver, collecting evidence when something goes wrong, and reading diagnostic output. It is written for a single operator on a single machine. It does not cover deployment, scaling, monitoring, or multi-node setups, because none of those exist yet.
+This runbook covers the practical side of running MEDRE: installing it, running a quick smoke test, validating against a real Matrix homeserver or Meshtastic node, collecting evidence when something goes wrong, and reading diagnostic output. It is written for a single operator on a single machine. It does not cover deployment, scaling, monitoring, or multi-node setups, because none of those exist yet.
 
 If something has not been tested and confirmed working, this document says so. If something is known to be broken or missing, this document says that too.
+
+For per-transport capability tracking, see `docs/STATUS.md`. That file is the single source of truth for what works, what is fake-tested, and what has live validation evidence.
 
 Test developers should read `docs/dev/live-test-harness.md` for the live test patterns and conventions. This document is for operators.
 
@@ -14,12 +16,13 @@ Test developers should read `docs/dev/live-test-harness.md` for the live test pa
 
 | Requirement | Details |
 |---|---|
-| Python | 3.11 or later |
+| Python | 3.11 or later (3.12 for LXMF) |
 | pip | Recent enough to handle extras (`pip >= 21.3`) |
 | Git | For cloning the repo |
 | Matrix homeserver (optional) | Synapse or Conduit, local or reachable. Only needed for live Matrix sessions. |
+| Meshtastic node (optional) | A real radio node accessible via TCP or serial. Only needed for live Meshtastic sessions. |
 
-You do not need Docker for the basic workflow. You do not need any Matrix credentials to run the fake local smoke test.
+You do not need Docker for the basic workflow. You do not need any transport credentials to run the fake local smoke test.
 
 ## 2. Setup
 
@@ -30,16 +33,17 @@ git clone <repo-url> && cd medre
 pip install -e ".[dev]"
 ```
 
-This installs MEDRE and all dev dependencies. For Matrix live sessions, you also need the Matrix extra:
+This installs MEDRE and all dev dependencies. For transport-specific live sessions, install the corresponding extras:
 
 ```bash
+# Matrix (plaintext alpha)
 pip install -e ".[matrix]"
-```
 
-For E2EE text alpha (encrypted rooms, text only):
-
-```bash
+# Matrix (E2EE text alpha, encrypted rooms)
 pip install -e ".[matrix-e2e]"
+
+# Meshtastic (real radio)
+pip install -e ".[meshtastic]"
 ```
 
 ### 2.2 Verify the install
@@ -59,11 +63,13 @@ MEDRE reads configuration from environment variables. The variables you need dep
 | Fake local smoke | None | Runs entirely with fake adapters, no network |
 | Matrix live session | `MATRIX_HOMESERVER`, `MATRIX_USER_ID`, `MATRIX_ACCESS_TOKEN`, `MATRIX_ROOM_ALLOWLIST` | See `docs/runbooks/matrix-alpha-operation.md` for full details |
 | E2EE text alpha | All Matrix vars plus `MATRIX_ENCRYPTION_MODE` | Set to `e2ee_required` or `e2ee_optional` |
-| Meshtastic live | `MESHTASTIC_*` vars | Not covered in this runbook. See `docs/runbooks/meshtastic-alpha-operation.md` |
+| Meshtastic live | `MESHTASTIC_HOST` or `MESHTASTIC_SERIAL_PORT`, plus `MESHTASTIC_CHANNEL_INDEX` | See `docs/runbooks/meshtastic-alpha-operation.md` for full details |
+| MeshCore live | `MESHCORE_HOST` or `MESHCORE_SERIAL_PORT` | See `docs/runbooks/meshcore-alpha-operation.md` |
+| LXMF live | Reticulum config file, identity path | See `docs/runbooks/lxmf-alpha-operation.md` |
 
-The transport-prefixed convention is consistent: Matrix vars start with `MATRIX_`, Meshtastic vars start with `MESHTASTIC_`, and so on.
+The transport-prefixed convention is consistent: Matrix vars start with `MATRIX_`, Meshtastic vars start with `MESHTASTIC_`, MeshCore vars start with `MESHCORE_`, and so on.
 
-## 3. Fake Local Run Session
+## 3. End-to-End Fake Local Run Session
 
 The fastest way to confirm MEDRE works on your machine. No network, no credentials, no external services.
 
@@ -106,6 +112,54 @@ The `evidence_level` field will say `fake_bridge`. That is honest. A fake smoke 
 4. Meshtastic radio or serial communication.
 5. Anything beyond a single event on a single fake adapter.
 
+### 3.4 Full fake run-session walkthrough
+
+For a more complete fake validation that exercises the run-session path:
+
+1. Create a minimal config file pointing to fake adapters (no env vars needed):
+
+```bash
+cat > /tmp/medre-fake.toml <<'EOF'
+[storage]
+backend = "sqlite"
+path = "/tmp/medre-fake.db"
+
+[adapters.fake_a]
+type = "fake"
+adapter_id = "fake-source"
+
+[adapters.fake_b]
+type = "fake"
+adapter_id = "fake-target"
+
+[[routes]]
+source = "fake-source"
+target = "fake-target"
+EOF
+```
+
+2. Run the pipeline:
+
+```bash
+PYTHONPATH=src medre run --config /tmp/medre-fake.toml
+```
+
+3. Check the database for stored events:
+
+```bash
+PYTHONPATH=src medre inspect event --storage-path /tmp/medre-fake.db --timeline
+```
+
+4. Collect evidence from the fake session:
+
+```bash
+PYTHONPATH=src medre evidence --storage-path /tmp/medre-fake.db --json
+```
+
+5. Verify the evidence bundle contains `config_source: "storage_path"` and `evidence_level: "fake_bridge"`.
+
+This walkthrough confirms the full pipeline path (config load, adapter wire, codec, storage, diagnostics) without touching any network. The `config_source` field in the evidence report confirms where the data came from. See `docs/STATUS.md` for the "Fake lifecycle" capability row.
+
 ## 4. Matrix Live Run Session
 
 If you have `MATRIX_*` environment variables set, you can validate MEDRE against a real homeserver. This section assumes you have already set up a homeserver and bot account. If you have not, the full setup instructions are in `docs/runbooks/matrix-alpha-operation.md`.
@@ -143,13 +197,94 @@ If you see that, the runner validated all env vars, initialized storage, started
 4. Confirm it appears in the room via Element or another client.
 5. Stop the runner with Ctrl+C. Confirm clean shutdown.
 
-If all five steps pass, the Matrix live path is working. If any step fails, see section 8 for diagnosis and `docs/runbooks/matrix-alpha-operation.md` for troubleshooting.
+If all five steps pass, the Matrix live path is working. If any step fails, see section 10 for diagnosis and `docs/runbooks/matrix-alpha-operation.md` for troubleshooting.
 
-## 5. Collect Evidence
+### 4.4 Matrix live evidence schema fields
+
+When you collect evidence from a live Matrix session, the report includes these canonical fields:
+
+| Field | Description |
+|---|---|
+| `config_source` | How the bundle was collected (`"config"` or `"storage_path"`) |
+| `collected_at` | ISO 8601 timestamp of collection |
+| `evidence_level` | `fake_bridge` or `live_bridge` depending on adapter type |
+| `diagnostics.connected` | Whether the nio client has an active connection |
+| `diagnostics.logged_in` | Whether the client is authenticated |
+| `diagnostics.sync_task_running` | Whether the sync loop is active |
+| `diagnostics.rooms_tracked` | Number of rooms being tracked |
+| `diagnostics.delivery_attempts` | Cumulative outbound delivery count |
+| `diagnostics.delivery_successes` | Successful deliveries |
+| `diagnostics.delivery_failures` | Failed deliveries |
+
+See `docs/runbooks/matrix-alpha-operation.md` section 9 for the full diagnostics schema.
+
+## 5. Meshtastic Live Health Workflow
+
+If you have `MESHTASTIC_*` environment variables set, you can validate the Meshtastic adapter against a real radio node. Fake mode is the default and recommended path. Real connectivity is opt-in for live validation.
+
+### 5.1 Prerequisites
+
+1. A Meshtastic radio node powered on and accessible via TCP (port 4403) or serial.
+2. The `meshtastic` extra installed: `pip install -e ".[meshtastic]"`.
+3. The node on a non-critical channel (do not use emergency or default channel 0 for testing).
+
+### 5.2 Set environment variables
+
+```bash
+# TCP mode (recommended)
+export MESHTASTIC_HOST="meshtastic.local"
+export MESHTASTIC_CHANNEL_INDEX="0"
+
+# Or serial mode
+export MESHTASTIC_SERIAL_PORT="/dev/ttyUSB0"
+export MESHTASTIC_CHANNEL_INDEX="0"
+```
+
+### 5.3 Start the Meshtastic runner
+
+```bash
+PYTHONPATH=src medre run --config /path/to/meshtastic-bridge.toml
+```
+
+Or use the adapter directly in a test script. See `docs/runbooks/meshtastic-alpha-operation.md` for the full wiring instructions.
+
+### 5.4 Live health check
+
+1. Confirm the adapter starts and reports `healthy`:
+
+```bash
+PYTHONPATH=src medre evidence --config /path/to/meshtastic-bridge.toml --include-refresh-health --json
+```
+
+2. Check the diagnostics section of the output:
+   - `connected`: should be `true`
+   - `node_info_present`: should be `true`
+   - `last_received_at`: should be a recent timestamp
+
+3. Send a test message from another Meshtastic node or the Meshtastic phone app.
+4. Confirm the adapter receives it (check logs or storage).
+
+### 5.5 What Meshtastic live validates
+
+1. TCP or serial connection to the node.
+2. Pubsub callback registration for inbound messages.
+3. Outbound message queueing via `send_one`.
+4. Codec translation between Meshtastic packets and canonical events.
+
+### 5.6 What Meshtastic live does NOT validate
+
+1. Multi-hop delivery across the mesh.
+2. Telemetry, position, or nodeinfo portnum types (inbound processing is text only).
+3. Encryption or key management beyond what the Meshtastic firmware handles.
+4. Reliable delivery at the mesh layer.
+
+See `docs/STATUS.md` for the current Meshtastic capability status. As of this writing, Meshtastic has fake-tested lifecycle and opt-in live test harness, but no recorded live validation evidence.
+
+## 6. Collect Evidence
 
 When something goes wrong, the `evidence` command collects a bundle of diagnostic data. The bundle is safe to paste into a GitHub issue. It does not contain secrets.
 
-### 5.1 Offline mode (from storage)
+### 6.1 Offline mode (from storage)
 
 If you have a storage path (SQLite database file) from a previous run:
 
@@ -165,7 +300,7 @@ For JSON output:
 PYTHONPATH=src medre evidence --storage-path /path/to/medre.db --json
 ```
 
-### 5.2 Live mode (from config)
+### 6.2 Live mode (from config)
 
 If you have a config file that points to a running setup:
 
@@ -175,7 +310,7 @@ PYTHONPATH=src medre evidence --config /path/to/medre.yaml
 
 This starts a runtime, collects a full evidence bundle including live health checks, and then shuts down. The `--include-refresh-health` flag forces a fresh health check (incompatible with `--storage-path`).
 
-### 5.3 What is in the bundle
+### 6.3 What is in the bundle
 
 | Section | Contents |
 |---|---|
@@ -199,7 +334,7 @@ PYTHONPATH=src medre evidence --storage-path /path/to/medre.db --replay-run-id <
 
 The `config_source` field tells you whether the bundle came from a config file or a storage path. The `collected_at` timestamp tells you when.
 
-### 5.4 Safety
+### 6.4 Safety
 
 The evidence bundle is designed to be safe to share:
 
@@ -209,11 +344,39 @@ The evidence bundle is designed to be safe to share:
 
 If you are unsure, review the JSON output before pasting it into an issue. Look for any field containing your actual access token. If you find one, that is a bug. Report it.
 
-## 6. Trace an Event
+### 6.5 Canonical report schema fields
+
+The evidence report is a single JSON object. These are the top-level keys you will see:
+
+| Field | Type | Description |
+|---|---|---|
+| `schema_version` | string | Bundle schema version for forward compatibility |
+| `medre_version` | string | Version of the MEDRE runtime that produced the bundle |
+| `command` | string | Always `"evidence"` |
+| `status` | string | Overall result: `"passed"`, `"partial"`, or `"error"` |
+| `collected_at` | string | ISO 8601 timestamp when collection started |
+| `generated_at` | string | ISO 8601 timestamp when the bundle was finalized |
+| `config_source` | string | `"config"` or `"storage_path"`, depending on how the bundle was produced |
+| `runtime_started` | boolean | `true` if the runtime was booted for a live health check |
+| `errors` | array\<string\> | Accumulated error messages from any section |
+| `limitations` | array\<string\> | Known limitations or caveats about the collected data |
+| `sections` | object | Nested data sections (see below) |
+
+The `sections` object contains the actual diagnostic data:
+
+| Path | Description |
+|---|---|
+| `sections.config_summary` | Redacted runtime config and resolved paths |
+| `sections.route_validation` | Route definitions and validation status |
+| `sections.diagnostics_snapshot` | Per-adapter health and counters without starting the runtime |
+| `sections.live_health` | Live adapter health (requires `--include-refresh-health`) |
+| `sections.storage` | Event and delivery records from the SQLite store (scoped by `--event-id` or `--replay-run-id` when provided) |
+
+## 7. Trace an Event
 
 The `trace` command assembles a chronological timeline for a single event. It shows what happened to the event, when, and through which adapters.
 
-### 6.1 Basic trace
+### 7.1 Basic trace
 
 ```bash
 PYTHONPATH=src medre trace event <event_id> --storage-path /path/to/medre.db
@@ -227,7 +390,7 @@ For JSON output:
 PYTHONPATH=src medre trace event <event_id> --storage-path /path/to/medre.db --json
 ```
 
-### 6.2 Timeline entry types
+### 7.2 Timeline entry types
 
 | Entry type | What it shows |
 |---|---|
@@ -236,7 +399,7 @@ PYTHONPATH=src medre trace event <event_id> --storage-path /path/to/medre.db --j
 | `native_ref` | Native transport references (Matrix event IDs, Meshtastic message IDs) |
 | `receipt` | Delivery receipts (status, target adapter, attempt count) |
 
-### 6.3 Interpreting the timeline
+### 7.3 Interpreting the timeline
 
 A healthy event trace looks something like this:
 
@@ -250,13 +413,71 @@ Timeline (4 entries):
   2026-05-21T10:00:01Z  [native_ref] outbound via meshtastic-alpha: msg_456
 ```
 
-An event that failed delivery will show a receipt with a failure status and an error message. See section 8 for reading failure details.
+An event that failed delivery will show a receipt with a failure status and an error message. See section 10 for reading failure details.
 
-## 7. Inspect Storage
+### 7.4 Trace replay
 
-The `inspect` command queries stored data directly from a SQLite database. It is read-only and never modifies the database.
+If an event was replayed (see `docs/runbooks/replay-operation.md`), the trace output includes replay receipts alongside live receipts. Replay receipts have `source='replay'` attribution and a `replay_run_id` grouping them together.
 
-### 7.1 Inspect a single event
+To see both live and replay delivery paths:
+
+```bash
+PYTHONPATH=src medre trace event <event_id> --config /path/to/bridge.toml --json
+```
+
+Look for receipt entries where `source` is `"replay"` vs `"live"`. The `replay_run_id` groups all receipts from a single replay invocation.
+
+## 8. Trace Replay
+
+Replay re-processes historical events through the pipeline. It is a specialized recovery and verification tool, not part of day-to-day operation.
+
+### 8.1 When to use replay
+
+- An adapter was offline during a critical window and events were not delivered.
+- You changed routing config and want to re-evaluate which routes match historical events.
+- You need to verify that a config change produces correct behavior on past data.
+
+### 8.2 Replay modes
+
+| Mode | Delivers? | Side effects | Use case |
+|---|---|---|---|
+| `DRY_RUN` | No | None | Preview what replay would do |
+| `RE_ROUTE` | No | None | Re-evaluate route matching after config change |
+| `BEST_EFFORT` | Yes | Real adapter delivery | Re-deliver historical events |
+
+**Always run `DRY_RUN` first.** Only use `BEST_EFFORT` when you have verified the route matching preview and accept the duplicate delivery risk.
+
+### 8.3 Replay workflow
+
+1. Run a dry run to preview:
+
+```bash
+PYTHONPATH=src medre replay --mode DRY_RUN --config /path/to/bridge.toml
+```
+
+2. Review the output. Check which routes match and which events would be re-delivered.
+
+3. If the preview looks correct, run best-effort replay:
+
+```bash
+PYTHONPATH=src medre replay --mode BEST_EFFORT --config /path/to/bridge.toml
+```
+
+4. Trace the replayed events to verify delivery:
+
+```bash
+PYTHONPATH=src medre trace event <event_id> --config /path/to/bridge.toml
+```
+
+5. Check that replay receipts have `source='replay'` and the expected `replay_run_id`.
+
+See `docs/runbooks/replay-operation.md` for full replay documentation including mode details, risk assessment, and result interpretation.
+
+## 9. Inspect Event
+
+The `inspect` command queries stored data directly from a SQLite database. It is read-only and never modifies the database. For day-to-day investigation, `medre inspect event --timeline` is the preferred operator command.
+
+### 9.1 Inspect a single event
 
 ```bash
 PYTHONPATH=src medre inspect event <event_id> --storage-path /path/to/medre.db
@@ -264,59 +485,68 @@ PYTHONPATH=src medre inspect event <event_id> --storage-path /path/to/medre.db
 
 This prints the canonical event as JSON. The output includes all fields: event ID, kind, source adapter, payload, timestamps, and metadata.
 
-### 7.2 Inspect with timeline
+### 9.2 Inspect with --timeline
 
 ```bash
 PYTHONPATH=src medre inspect event <event_id> --storage-path /path/to/medre.db --timeline
 ```
 
-Adds a `timeline` section to the output with all chronological entries.
+Adds a `timeline` section to the output with all chronological entries. This produces the same enriched timeline as `medre trace event` within a unified command surface.
 
-### 7.3 Inspect with evidence
+### 9.3 Inspect with --evidence
 
 ```bash
 PYTHONPATH=src medre inspect event <event_id> --storage-path /path/to/medre.db --evidence
 ```
 
-Adds an `evidence` section with a full evidence bundle scoped to that event.
+Adds an `evidence` section with a full evidence bundle scoped to that event. This covers `medre evidence --event-id` in a single command.
 
-### 7.4 Inspect with both
+### 9.4 Inspect with --recovery
 
 ```bash
-PYTHONPATH=src medre inspect event <event_id> --storage-path /path/to/medre.db --timeline --evidence
+PYTHONPATH=src medre inspect event <event_id> --storage-path /path/to/medre.db --recovery
 ```
 
-This is the most detailed inspection available. It shows the event, its full timeline, and the evidence bundle. The output is deterministic JSON, suitable for diffing or pasting into reports.
+Adds recovery context: receipt lineage, retry history, and replay attribution. Useful for understanding why an event was re-delivered or what recovery actions were taken.
 
-### 7.5 What inspect does NOT do
+### 9.5 Combine flags
+
+```bash
+PYTHONPATH=src medre inspect event <event_id> --storage-path /path/to/medre.db --timeline --evidence --recovery
+```
+
+This is the most detailed inspection available. It shows the event, its full timeline, the evidence bundle, and recovery context. The output is deterministic JSON, suitable for diffing or pasting into reports.
+
+### 9.6 What inspect does NOT do
 
 - It does not start a runtime.
 - It does not connect to any network service.
 - It does not modify the database.
 - It does not require any environment variables beyond the storage path.
 
-## 8. Interpreting Delivery Failures
+## 10. Interpreting Delivery Failures
 
 When a message fails to reach its destination, the evidence is in the receipts and timeline entries. Here is how to read them.
 
-### 8.1 Receipt status values
+### 10.1 Receipt status values
 
 | Status | Meaning |
 |---|---|
 | `delivered` | The target adapter confirmed successful delivery |
+| `sent` | The adapter sent the message but has not received transport-level confirmation |
 | `failed` | Delivery attempted and failed. Check the error message. |
 | `pending` | Delivery has not been attempted yet |
 | `skipped` | Delivery was not attempted (e.g., route was degraded or disabled) |
 
-### 8.2 Reading a failure timeline
+### 10.2 Reading a failure timeline
 
-Trace the event (section 6) or inspect it with `--timeline --evidence` (section 7). Look for:
+Trace the event (section 7) or inspect it with `--timeline --evidence` (section 9). Look for:
 
 1. **The event entry.** Confirms the event exists and shows its kind and source.
 2. **The receipt entries.** Show delivery attempts, statuses, and error messages.
 3. **The evidence section.** Shows adapter health at the time of collection, which may reveal why delivery failed (adapter in `degraded` or `failed` state, for example).
 
-### 8.3 Common failure patterns
+### 10.3 Common failure patterns
 
 | Pattern | Likely cause | What to check |
 |---|---|---|
@@ -324,9 +554,11 @@ Trace the event (section 6) or inspect it with `--timeline --evidence` (section 
 | Receipt says `failed` with `AdapterSendError` (transient) | Temporary network or homeserver error | Check network connectivity, homeserver health |
 | No receipt at all | Event never reached delivery stage | Check routing config, adapter health, pipeline logs |
 | Receipt says `skipped` | Route was degraded or disabled | Check route status in evidence bundle |
-| Multiple receipts with alternating `failed` and `delivered` | Intermittent failures during retry | Check network stability, homeserver load |
+| Multiple receipts with alternating `failed` and `delivered` | Intermittent failures during retry | Check network stability, adapter load |
+| Receipt with `source='replay'` and `failed` | Replay re-delivery failed | Check that the target adapter was healthy during the replay run |
+| Receipt with `attempt_number` > 1 | Retried delivery | Check the `parent_receipt_id` for the original failure reason |
 
-### 8.4 Incident summary
+### 10.4 Incident summary
 
 When filing an issue or asking for help, include:
 
@@ -337,16 +569,52 @@ When filing an issue or asking for help, include:
 
 Do not include your access token, password, or any credential. The evidence bundle redacts them, but double-check before pasting.
 
-## 9. Security
+## 11. Attach Sanitized Output to Issues
 
-### 9.1 Token handling
+When you file a GitHub issue, the evidence bundle is designed to be safe to paste directly. But always review before sharing. Here is the redaction checklist.
+
+### 11.1 Redaction checklist
+
+Review the JSON output line by line before pasting. Check for each of these:
+
+- [ ] **Access tokens.** Search for `syt_`, `token`, `access_token`. The evidence bundle should redact these, but verify.
+- [ ] **User IDs.** If you do not want your Matrix user ID public, replace `@bot:localhost` with `@redacted:example.com`.
+- [ ] **Room IDs.** If the room is private, replace `!opaque:server` with `!redacted:server`.
+- [ ] **Homeserver URLs.** These are not usually sensitive, but replace if yours is internal-only.
+- [ ] **IP addresses.** The bundle should not contain IPs, but check the `diagnostics` section for any connection details.
+- [ ] **Message content.** The bundle should contain only metadata, not message bodies. Verify that no `body` or `content` fields contain your actual messages.
+- [ ] **Meshtastic node info.** Node numbers and hardware IDs may be present in diagnostics. Redact if you consider them sensitive.
+
+### 11.2 What is safe to share
+
+The following fields are safe and expected in issue reports:
+
+- `event_id` (MEDRE canonical UUID)
+- `event_kind` (e.g., `message.created`)
+- `source_adapter` (e.g., `matrix-alpha`)
+- `receipt.status` (e.g., `delivered`, `failed`)
+- `receipt.target_adapter` (e.g., `meshtastic-alpha`)
+- `native_ref` transport IDs (Matrix `$event_id`, Meshtastic message IDs)
+- `diagnostics.health` (e.g., `healthy`, `degraded`)
+- `config_source` and `collected_at` timestamps
+- `evidence_level`
+
+### 11.3 What to redact or omit
+
+- Any field containing a value that starts with `syt_` or looks like a token.
+- Your actual homeserver URL if it is internal or contains identifying information.
+- Any field you are not sure about. When in doubt, redact.
+
+## 12. Security
+
+### 12.1 Token handling
 
 - **Never print your access token.** The adapter's `__repr__` method redacts it. Your code might not.
 - **Never commit credentials.** Not in `.env` files, not in scripts, not in config files checked into git.
 - **Never paste credentials into chat or issues.** If you accidentally do, rotate the token immediately.
 - **Unset env vars when done.** `unset MATRIX_ACCESS_TOKEN` after testing.
 
-### 9.2 Safe-to-paste reports
+### 12.2 Safe-to-paste reports
 
 The `evidence`, `trace`, and `inspect` commands produce output designed to be shareable. They redact secrets and include only metadata. But:
 
@@ -354,13 +622,13 @@ The `evidence`, `trace`, and `inspect` commands produce output designed to be sh
 - If you find a secret in the output, that is a bug. File an issue.
 - The `collected_at` and `config_source` fields are metadata about the report itself, not secrets.
 
-### 9.3 What is logged
+### 12.3 What is logged
 
 The runner logs to stderr at INFO level. Logs include adapter IDs, room IDs, event IDs, and health status. They do not include access tokens (the adapter redacts them in `__repr__`). They may include error messages from the Matrix SDK, which could contain homeserver URLs but not credentials.
 
 If you are sharing log output, review it first. Redact anything you are unsure about.
 
-## 10. Alpha Status
+## 13. Alpha Status
 
 This entire system is alpha software. Specific things that are not true:
 
@@ -371,13 +639,22 @@ This entire system is alpha software. Specific things that are not true:
 5. **It is not fast.** Performance has not been optimized. The sync loop is a single long-polling HTTP connection. Delivery is sequential within a single adapter.
 6. **It is not documented completely.** This runbook covers the main workflows. Edge cases, error recovery, and advanced configuration are documented elsewhere or not at all.
 
-If you find a bug, file an issue with the evidence bundle (section 5) and the event trace (section 6). Include what you expected and what actually happened.
+For per-transport capability tracking, see `docs/STATUS.md`. That document tracks which capabilities are fake-tested, which have opt-in live tests, and which have recorded live validation evidence. No capability is marked "live-validated" without recorded evidence.
 
-## 11. Related Documentation
+If you find a bug, file an issue with the evidence bundle (section 6) and the event trace (section 7). Include what you expected and what actually happened.
+
+## 14. Related Documentation
 
 | Document | What it covers |
 |---|---|
+| `docs/STATUS.md` | Per-transport capability dashboard (the single source of truth for what works) |
 | `docs/runbooks/matrix-alpha-operation.md` | Full Matrix alpha operation guide (setup, validation, troubleshooting, E2EE) |
 | `docs/runbooks/matrix-live-smoke.md` | Matrix live smoke test instructions |
+| `docs/runbooks/meshtastic-alpha-operation.md` | Full Meshtastic alpha operation guide |
+| `docs/runbooks/meshtastic-live-smoke.md` | Meshtastic live smoke test instructions |
+| `docs/runbooks/meshcore-alpha-operation.md` | Full MeshCore alpha operation guide |
+| `docs/runbooks/lxmf-alpha-operation.md` | Full LXMF/Reticulum alpha operation guide |
+| `docs/runbooks/replay-operation.md` | Replay modes, commands, and risk assessment |
+| `docs/runbooks/event-tracing.md` | Detailed event tracing and timeline interpretation |
 | `docs/dev/live-test-harness.md` | Live test patterns and conventions for test developers |
 | `docs/dev/TESTING_GUIDE.md` | General testing guide (tiers, style, patterns) |

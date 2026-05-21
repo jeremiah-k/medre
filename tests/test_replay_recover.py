@@ -104,6 +104,7 @@ class _FakeReceipt:
         self.delivery_plan_id = "plan-1"
         self.route_id = "route-1"
         self.adapter_message_id = None
+        self.target_channel = None
         self.source = source
         self.replay_run_id = replay_run_id
         self.sequence = 1

@@ -37,6 +37,7 @@ from medre.config.loader import load_config
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.observability.sanitization import sanitize_error
 from medre.runtime.builder import RuntimeBuilder
+from medre.runtime.reporting import delivery_receipt_to_report_dict
 from medre.runtime.snapshot import SCHEMA_VERSION, build_runtime_snapshot
 
 from .evidence import (
@@ -421,13 +422,7 @@ async def run_bridge_session(
 
     # Receipt summaries
     receipt_summaries = [
-        {
-            "receipt_id": r.receipt_id,
-            "target_adapter": r.target_adapter,
-            "status": r.status,
-            "source": r.source,
-            "route_id": r.route_id,
-        }
+        delivery_receipt_to_report_dict(r)
         for r in all_receipts
     ]
 
