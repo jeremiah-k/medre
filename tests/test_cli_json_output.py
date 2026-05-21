@@ -297,8 +297,21 @@ class TestEvidenceStoragePathJsonOutput:
             "native_channel_id",
             "native_message_id",
             "direction",
+            "resolves_to",
         ):
             assert key in nref, f"Canonical key {key!r} missing from native ref"
+
+        # resolves_to must be present and populated.
+        resolves_to = nref["resolves_to"]
+        if isinstance(resolves_to, dict):
+            assert resolves_to.get("type") == "event", (
+                f"resolves_to dict should have type='event', got {resolves_to.get('type')!r}"
+            )
+        else:
+            # String form: should resolve to the known event_id.
+            assert resolves_to == _EVENT_ID, (
+                f"resolves_to should be {_EVENT_ID!r}, got {resolves_to!r}"
+            )
 
 
 # ---------------------------------------------------------------------------

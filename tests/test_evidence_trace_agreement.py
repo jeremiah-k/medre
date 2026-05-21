@@ -23,6 +23,7 @@ from medre.core.storage.sqlite import SQLiteStorage
 from medre.runtime.evidence._storage_sections import _collect_storage_data_from_backend
 from medre.runtime.timeline import assemble_event_timeline
 from medre.runtime.trace import assemble_event_timeline as assemble_trace_entries
+from medre.runtime.trace import assemble_replay_timeline
 
 # ---------------------------------------------------------------------------
 # Shared seed data
@@ -403,3 +404,58 @@ async def test_orchestration_report_delivery_receipts_include_expanded_keys(
             f"Required key {key!r} missing from delivery_receipts entry. "
             f"Available keys: {sorted(first.keys())}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Tests: replay timeline receipt schema
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_replay_timeline_receipt_includes_failure_kind_and_native_channel_id(
+    tmp_path: Path,
+) -> None:
+    """assemble_replay_timeline receipt entries include failure_kind and native_channel_id."""
+    event = _make_event()
+    receipt = DeliveryReceipt(
+        sequence=1,
+        receipt_id="rcpt-replay-fk-001",
+        event_id=_EVENT_ID,
+        delivery_plan_id="plan-replay-fk-001",
+        target_adapter=_ADAPTER,
+        target_channel=_NATIVE_CHANNEL_ID,
+        route_id="route-replay-fk-001",
+        status="failed",
+        failure_kind="adapter_permanent_failure",
+        error="simulated replay failure",
+        adapter_message_id=None,
+        source="replay",
+        replay_run_id="run-replay-fk-001",
+        created_at=_TS_RECEIPT,
+    )
+
+    result = assemble_replay_timeline(
+        "run-replay-fk-001", [receipt], {_EVENT_ID: event}
+    )
+
+    assert result["status"] == "complete"
+    assert result["receipt_count"] == 1
+
+    receipt_entries = [
+        e for e in result["timeline"] if e["entry_type"] == "receipt"
+    ]
+    assert len(receipt_entries) == 1, "Expected exactly one receipt timeline entry"
+
+    # entry_type (kind/type field) must be present on the entry.
+    assert "entry_type" in receipt_entries[0]
+
+    data = receipt_entries[0]["data"]
+
+    # failure_kind must be present and match the receipt.
+    assert data["failure_kind"] == "adapter_permanent_failure", (
+        f"Expected failure_kind='adapter_permanent_failure', got {data['failure_kind']!r}"
+    )
+    # native_channel_id must be present and populated from target_channel.
+    assert data["native_channel_id"] == _NATIVE_CHANNEL_ID, (
+        f"Expected native_channel_id={_NATIVE_CHANNEL_ID!r}, got {data['native_channel_id']!r}"
+    )

@@ -14,6 +14,7 @@ from typing import Any
 from medre.core.events.canonical import CanonicalEvent, NativeMessageRef
 from medre.core.events.kinds import EventKind
 from medre.runtime.app import MedreApp
+from medre.runtime.reporting import native_ref_to_report_dict
 
 _logger = logging.getLogger(__name__)
 
@@ -175,18 +176,10 @@ async def _collect_native_refs(
             )
             continue
         refs.append(
-            {
-                "adapter": nref.adapter,
-                "native_channel_id": nref.native_channel_id or "",
-                "channel": nref.native_channel_id or "",
-                "native_id": nref.native_message_id,
-                "native_message_id": nref.native_message_id,
-                "direction": nref.direction,
-                # Fallback to nref.event_id when resolve_native_ref returns
-                # None (e.g. the native ref has not yet been resolved to a
-                # separate canonical event).
-                "resolves_to": resolved or nref.event_id,
-            }
+            native_ref_to_report_dict(
+                nref,
+                resolved_to_event_id=resolved or nref.event_id,
+            )
         )
 
     return refs

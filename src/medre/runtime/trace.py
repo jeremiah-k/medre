@@ -22,6 +22,10 @@ from medre.core.events import (
     EventRelation,
     NativeMessageRef,
 )
+from medre.runtime.reporting import (
+    delivery_receipt_to_report_dict,
+    native_ref_to_report_dict,
+)
 
 # Maximum timeline entries returned by assembly functions.
 _MAX_TIMELINE_ENTRIES: int = 1000
@@ -144,39 +148,25 @@ def assemble_event_timeline(
                 ordinal=i + 1,
                 entry_type="native_ref",
                 data={
+                    **native_ref_to_report_dict(nref),
                     "id": nref.id,
                     "event_id": nref.event_id,
-                    "adapter": nref.adapter,
-                    "native_channel_id": nref.native_channel_id,
-                    "native_message_id": nref.native_message_id,
                     "native_thread_id": nref.native_thread_id,
-                    "direction": nref.direction,
-                    "resolves_to": nref.event_id,
                 },
             )
         )
 
     # Delivery receipts — outbound delivery evidence.
     for receipt in receipts:
+        receipt_data = delivery_receipt_to_report_dict(receipt)
         entries.append(
             _timeline_entry(
                 timestamp=receipt.created_at,
                 ordinal=receipt.sequence,
                 entry_type="receipt",
                 data={
-                    "receipt_id": receipt.receipt_id,
-                    "event_id": receipt.event_id,
-                    "route_id": receipt.route_id,
-                    "delivery_plan_id": receipt.delivery_plan_id,
-                    "target_adapter": receipt.target_adapter,
-                    "status": receipt.status,
-                    "failure_kind": receipt.failure_kind,
-                    "error": receipt.error,
-                    "attempt_number": receipt.attempt_number,
-                    "source": receipt.source,
+                    **receipt_data,
                     "replay_run_id": receipt.replay_run_id,
-                    "native_message_id": receipt.adapter_message_id,
-                    "native_channel_id": receipt.target_channel,
                 },
             )
         )
@@ -247,24 +237,14 @@ def assemble_replay_timeline(
     timeline_entries: list[dict[str, Any]] = []
 
     for receipt in receipts:
+        receipt_data = delivery_receipt_to_report_dict(receipt)
         entry: dict[str, Any] = {
             "timestamp": _to_iso(receipt.created_at),
             "ordinal": receipt.sequence,
             "entry_type": "receipt",
             "data": {
-                "receipt_id": receipt.receipt_id,
-                "event_id": receipt.event_id,
-                "route_id": receipt.route_id,
-                "delivery_plan_id": receipt.delivery_plan_id,
-                "target_adapter": receipt.target_adapter,
-                "status": receipt.status,
-                "failure_kind": receipt.failure_kind,
-                "error": receipt.error,
-                "attempt_number": receipt.attempt_number,
-                "source": receipt.source,
+                **receipt_data,
                 "replay_run_id": receipt.replay_run_id,
-                "native_message_id": receipt.adapter_message_id,
-                "native_channel_id": receipt.target_channel,
             },
         }
         timeline_entries.append(entry)

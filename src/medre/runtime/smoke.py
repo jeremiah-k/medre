@@ -60,6 +60,7 @@ from medre.core.events.kinds import EventKind
 from medre.core.observability.sanitization import sanitize_error
 from medre.runtime.app import MedreApp
 from medre.runtime.builder import RuntimeBuilder
+from medre.runtime.reporting import native_ref_to_report_dict
 from medre.runtime.snapshot import SCHEMA_VERSION, build_runtime_snapshot
 
 __all__ = ["run_fake_bridge_smoke"]
@@ -247,15 +248,10 @@ async def _collect_native_refs(
             except Exception:
                 continue
             refs.append(
-                {
-                    "adapter": target,
-                    "native_channel_id": native_channel_id,
-                    "channel": native_channel_id,
-                    "native_id": native_message_id,
-                    "native_message_id": native_message_id,
-                    "direction": getattr(nref, "direction", ""),
-                    "resolves_to": resolved or getattr(nref, "event_id", ""),
-                }
+                native_ref_to_report_dict(
+                    nref,
+                    resolved_to_event_id=resolved or nref.event_id,
+                )
             )
     return refs
 

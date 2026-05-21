@@ -197,7 +197,7 @@ If you see that, the runner validated all env vars, initialized storage, started
 4. Confirm it appears in the room via Element or another client.
 5. Stop the runner with Ctrl+C. Confirm clean shutdown.
 
-If all five steps pass, the Matrix live path is working. If any step fails, see section 8 for diagnosis and `docs/runbooks/matrix-alpha-operation.md` for troubleshooting.
+If all five steps pass, the Matrix live path is working. If any step fails, see section 10 for diagnosis and `docs/runbooks/matrix-alpha-operation.md` for troubleshooting.
 
 ### 4.4 Matrix live evidence schema fields
 
@@ -413,7 +413,7 @@ Timeline (4 entries):
   2026-05-21T10:00:01Z  [native_ref] outbound via meshtastic-alpha: msg_456
 ```
 
-An event that failed delivery will show a receipt with a failure status and an error message. See section 9 for reading failure details.
+An event that failed delivery will show a receipt with a failure status and an error message. See section 10 for reading failure details.
 
 ### 7.4 Trace replay
 

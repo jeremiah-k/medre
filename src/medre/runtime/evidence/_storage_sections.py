@@ -75,7 +75,11 @@ async def _collect_storage_data_from_backend(
 
                 data["event"] = _json.loads(msgspec.json.encode(event))
                 data["native_refs_for_event"] = [
-                    _json.loads(msgspec.json.encode(r)) for r in native_refs
+                    {
+                        **_json.loads(msgspec.json.encode(r)),
+                        "resolves_to": r.event_id,
+                    }
+                    for r in native_refs
                 ]
 
                 data["timeline"] = tl_result["timeline_entries"]
