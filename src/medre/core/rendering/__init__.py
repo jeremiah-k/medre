@@ -3,8 +3,13 @@
 This package separates target-specific *rendering* (converting a canonical
 event into an adapter-ready payload) from both transforms and adapters.
 
-Package-level imports
----------------------
+Convenience re-exports
+----------------------
+These names are re-exported from their canonical submodules for
+ergonomic import paths (``from medre.core.rendering import Renderer``).
+Importers may also use the longer submodule form directly.
+
+Exported names
 * :class:`~medre.core.rendering.renderer.Renderer` – protocol
   every renderer must satisfy.
 * :class:`~medre.core.rendering.renderer.RenderingPipeline` –

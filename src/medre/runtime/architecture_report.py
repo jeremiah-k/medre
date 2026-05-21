@@ -58,7 +58,7 @@ _LAYER_ORDER = [
 
 def _classify_layer(module: str) -> str:
     """Classify a medre.* module into a layer."""
-    parts = module.split(".") if module.startswith("medre.") else module.split(".")
+    parts = module.split(".")
     if len(parts) >= 2:
         top = parts[1]
         if top in _LAYER_ORDER:
@@ -794,9 +794,9 @@ def build_route_adapter_boundary_report(
     # --- Codec/Renderer → Forbidden Imports ---
     codec_renderer_violations: list[BoundaryViolation] = []
     for mod, info in graph.modules.items():
-        if not (
-            mod.endswith(".codec") or mod.endswith(".renderer")
-        ) or not mod.startswith("medre.adapters."):
+        if not mod.endswith((".codec", ".renderer")) or not mod.startswith(
+            "medre.adapters."
+        ):
             continue
         for edge in info.imports:
             if edge.is_type_checking:

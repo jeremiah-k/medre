@@ -178,8 +178,8 @@ class TestResolveRelativeValueError:
 
     def test_path_without_src_returns_module_or_empty(self) -> None:
         """When file_path has no 'src' in its path parts, returns module or ''."""
-        # level > 0, no 'src' in path
-        fake_path = "sandbox/foo/bar.py"
+        # Use a guaranteed absolute path that cannot contain 'src'.
+        fake_path = "/tmp/sandbox/foo/bar.py"
         assert resolve_relative(1, None, fake_path) == ""
         assert resolve_relative(1, "somemod", fake_path) == "somemod"
 

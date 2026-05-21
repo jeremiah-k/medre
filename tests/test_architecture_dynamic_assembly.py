@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -183,7 +184,7 @@ class TestRealGraphBoundaryReport:
     """Comprehensive assertions on the real repository's boundary report."""
 
     @pytest.fixture(autouse=True)
-    def _setup(self):
+    def _setup(self) -> None:
         self.graph = build_dependency_graph(_SRC)
         self.report = build_route_adapter_boundary_report(self.graph, src_root=_SRC)
 
@@ -442,7 +443,7 @@ class TestRegistryLiteralDetection:
 @contextlib.contextmanager
 def _synthetic_src(
     tmp_path: Path, *, builder_source: str, other_source: str | None = None
-):
+) -> Iterator[Path]:
     """Create a minimal synthetic medre source tree for boundary report testing.
 
     Creates:

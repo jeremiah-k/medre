@@ -228,9 +228,9 @@ class TestStorageNoRuntimeInternals:
             "from medre.core.runtime.accounting import RuntimeAccounting",
         ]
         disallowed = [line for line in core_runtime_imports if line not in allowed]
-        assert disallowed == [], (
-            f"replay.py imports disallowed medre.core.runtime modules: " f"{disallowed}"
-        )
+        assert (
+            disallowed == []
+        ), f"replay.py imports disallowed medre.core.runtime modules: {disallowed}"
 
 
 # ===================================================================
