@@ -14,6 +14,7 @@ Matrix-specific checks:
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from medre.runtime.evidence._bundle import collect_evidence_bundle
@@ -36,7 +37,7 @@ format = "text"
 
 [storage]
 backend = "sqlite"
-path = "{tmp_path / "test.db"}"
+path = "{(tmp_path / "test.db").as_posix()}"
 
 [adapters.matrix.test_matrix]
 enabled = true
@@ -187,9 +188,7 @@ class TestEvidenceBundleWithMatrixAdapter:
                 event_id="mx-evt-001",
                 event_kind="message.created",
                 schema_version=1,
-                timestamp=__import__("datetime").datetime.now(
-                    __import__("datetime").timezone.utc
-                ),
+                timestamp=datetime.now(timezone.utc),
                 source_adapter="matrix-alpha",
                 source_transport_id="@alice:example.com",
                 source_channel_id="!room:example.com",
@@ -252,6 +251,29 @@ class TestEvidenceBundleWithMatrixAdapter:
         # Native refs should include the Matrix native ref
         native_refs = data.get("native_refs_for_event", [])
         assert len(native_refs) >= 1, "Expected at least one native ref"
+
+        # At least one native ref must match the stored Matrix ref fields
+        match = any(
+            nr.get("adapter") == "matrix-alpha"
+            and nr.get("native_channel_id") == "!room:example.com"
+            and nr.get("native_message_id") == "$mx001:example.com"
+            and nr.get("direction") == "inbound"
+            for nr in native_refs
+        )
+        assert match, (
+            f"No native ref matched expected Matrix inbound ref. "
+            f"native_refs={native_refs}"
+        )
+
+        # Storage event should include source_native_ref or native metadata
+        # with the Matrix event_id
+        assert stored_event.get("source_native_ref") is not None or (
+            stored_event.get("metadata", {})
+            .get("native", {})
+            .get("data", {})
+            .get("event_id")
+            == "$mx001:example.com"
+        ), "Storage event missing source_native_ref and native metadata event_id"
 
         # Verify incident summary
         incident = data.get("incident_summary")

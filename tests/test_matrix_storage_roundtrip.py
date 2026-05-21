@@ -280,12 +280,7 @@ class TestMatrixNativeRefStorage:
         self, temp_storage
     ) -> None:
         """A Matrix reply event with a native target ref stores correctly."""
-        _make_matrix_canonical_event(
-            event_id="ce-reply-1",
-            room_id="!reply_room:example.com",
-            mx_event_id="$reply_mx:example.com",
-        )
-        # Replace relations with a reply
+        # Build reply event with a native target relation
         reply_event = CanonicalEvent(
             event_id="ce-reply-1",
             event_kind="message.created",

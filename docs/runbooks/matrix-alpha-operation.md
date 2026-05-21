@@ -651,7 +651,7 @@ The following test modules verify Matrix alpha operational readiness:
 
 **Live test hardening (v1):** All async operations in `test_matrix_live.py` are bounded by `asyncio.wait_for` with explicit timeout constants (`_ADAPTER_START_TIMEOUT=30s`, `_ADAPTER_STOP_TIMEOUT=10s`, `_DELIVER_TIMEOUT=15s`). Every test uses `try/finally` with `adapter.stop()` in the `finally` block.
 
-**Next logical tranche — Meshtastic live harness:** The Matrix alpha operational readiness is now verified at the unit, storage, evidence, and live levels. The next transport for live harness validation is Meshtastic, following the same pattern: opt-in env vars, bounded async operations, `try/finally` cleanup, codec/storage round-trip tests, evidence bundle integration, and alpha run-session smoke tests. See `docs/runbooks/meshtastic-alpha-operation.md` and `docs/runbooks/meshtastic-live-smoke.md` for the target state.
+**Next logical tranche — Meshtastic live harness:** Matrix alpha operational-readiness coverage now exists at the unit, storage, evidence, and opt-in live-test levels. Live validation requires the `MATRIX_*` environment variables and should be recorded separately when run. The next logical tranche is Meshtastic live harness work once Matrix live validation has been run and recorded, or if Matrix live validation is intentionally deferred. The same pattern applies: opt-in env vars, bounded async operations, `try/finally` cleanup, codec/storage round-trip tests, evidence bundle integration, and alpha run-session smoke tests. See `docs/runbooks/meshtastic-alpha-operation.md` and `docs/runbooks/meshtastic-live-smoke.md` for the target state.
 
 ## 13. Explicit Unsupported Features
 

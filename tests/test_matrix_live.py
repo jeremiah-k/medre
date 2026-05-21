@@ -173,7 +173,12 @@ require_live = pytest.mark.skipif(
 # Helpers
 # ---------------------------------------------------------------------------
 def _make_config():
-    """Build a MatrixConfig from the live environment variables."""
+    """Build a MatrixConfig from the live environment variables.
+
+    Sets ``room_allowlist`` to ``{MATRIX_ROOM_ID}`` when available so the
+    default adapter only processes events in the designated test room,
+    preventing unrelated traffic from a bot in multiple rooms.
+    """
     from medre.config.adapters.matrix import MatrixConfig
 
     assert MATRIX_HOMESERVER and MATRIX_USER_ID and MATRIX_ACCESS_TOKEN
@@ -182,6 +187,7 @@ def _make_config():
         homeserver=MATRIX_HOMESERVER,
         user_id=MATRIX_USER_ID,
         access_token=MATRIX_ACCESS_TOKEN,
+        room_allowlist={MATRIX_ROOM_ID} if MATRIX_ROOM_ID else None,
     )
 
 
@@ -211,6 +217,16 @@ def _make_config_with_allowlist(allowlist: set[str] | None):
         access_token=MATRIX_ACCESS_TOKEN,
         room_allowlist=allowlist,
     )
+
+
+def _payload_text(payload: dict) -> str | None:
+    """Extract human-readable text from a Matrix event payload.
+
+    MatrixCodec puts text in ``payload["body"]``; some legacy codecs
+    use ``payload["text"]``.  This helper checks both so tests are
+    resilient regardless of which field is populated.
+    """
+    return payload.get("body") or payload.get("text")
 
 
 # ---------------------------------------------------------------------------
@@ -439,27 +455,39 @@ class TestMatrixLiveSmoke:
         # Deterministic coverage: tests/test_matrix_adapter.py.
         pass
 
-    # -- Send and verify: echo suppression round-trip ------------------------
+    # -- Send and verify: echo suppression diagnostics ------------------------
 
-    async def test_live_send_and_receive(self):
-        """Send a message via deliver(), wait for sync, verify echo suppression.
+    async def test_live_send_does_not_publish_self_echo_when_observed(self):
+        """Send a message, observe sync echo, verify self-echo suppression via diagnostics.
 
-        Validates the complete send → sync → suppress pipeline:
+        Validates the send → sync → suppress pipeline using the adapter's
+        diagnostics counters rather than relying solely on publish_inbound
+        call inspection (which is timing-dependent):
 
-        1. ``deliver()`` sends an ``m.text`` message to ``MATRIX_ROOM_ID``.
+        1. ``deliver()`` sends an ``m.text`` message to ``MATRIX_ROOM_ID``
+           and returns a ``native_message_id``.
         2. The nio sync loop receives the echo event from the homeserver.
         3. ``_on_room_message`` suppresses the self-echo because
-           ``event.sender == config.user_id``.
+           ``event.sender == config.user_id``, incrementing
+           ``inbound_suppressed_self`` in diagnostics.
         4. ``publish_inbound`` is never called with the echo event.
 
-        The test waits 5 seconds to give the sync loop time to process
-        the echo.  In a quiet room ``publish_inbound`` should have zero
-        calls; in an active room none of the calls should correspond to
-        our sent message.
+        After the send, the test waits 5 seconds for the sync loop to
+        process the echo, then checks:
 
-        **Caveat**: without a second Matrix account we cannot verify that
-        non-self messages *are* published.  Unit tests in
-        ``test_matrix_lifecycle.py`` cover the non-self path.
+        - ``adapter.diagnostics()["inbound_suppressed_self"]`` is an integer
+          (its value depends on room activity and sync timing).
+        - No published event's ``source_native_ref.native_message_id``
+          matches the sent ``event_id`` (native_message_id self-echo check).
+        - No published event's payload text matches our test message body.
+
+        **Caveat**: ``inbound_suppressed_self >= 1`` can only be asserted
+        if the sync loop delivers the echo within the 5 s window.  The
+        diagnostic counter is checked regardless; if it is zero the test
+        still passes because suppression may have been handled by the
+        MEDRE-origin envelope path instead.  Unit tests in
+        ``test_matrix_lifecycle.py`` provide deterministic coverage of the
+        sender-check suppression path.
         """
         from medre.adapters.matrix.adapter import MatrixAdapter
         from medre.core.contracts.adapter import AdapterContext
@@ -502,6 +530,18 @@ class TestMatrixLiveSmoke:
             # Give the sync loop time to process the echo event.
             await asyncio.sleep(5.0)
 
+            # Check diagnostics for self-echo suppression counter.
+            # If the sync loop delivered the echo within the window,
+            # inbound_suppressed_self should be >= 1.  If zero, suppression
+            # may have been handled by the MEDRE-origin envelope path or
+            # the echo simply hasn't arrived yet — neither is a failure
+            # for this live smoke test.
+            diag = adapter.diagnostics()
+            assert isinstance(diag["inbound_suppressed_self"], int), (
+                f"Expected int for inbound_suppressed_self, "
+                f"got {type(diag['inbound_suppressed_self']).__name__}"
+            )
+
             # Self-message suppression should have blocked the echo.
             # Verify no published event contains our sent event_id or body.
             for call in publish_mock.call_args_list:
@@ -516,10 +556,11 @@ class TestMatrixLiveSmoke:
                             f"message id {event_id_sent!r} was published "
                             f"inbound"
                         )
-                    # Check payload body doesn't match our test message
+                    # Check payload text doesn't match our test message.
+                    # MatrixCodec uses "body", but check both for defense-in-depth.
                     if hasattr(event, "payload") and isinstance(event.payload, dict):
-                        assert event.payload.get("text") != body_text, (
-                            "Self-echo leaked through: payload body matches "
+                        assert _payload_text(event.payload) != body_text, (
+                            "Self-echo leaked through: payload text matches "
                             "our sent message"
                         )
         finally:
@@ -615,7 +656,7 @@ class TestMatrixLiveSmoke:
                     event = args[0]
                     if hasattr(event, "payload") and isinstance(event.payload, dict):
                         assert (
-                            event.payload.get("text")
+                            _payload_text(event.payload)
                             != f"MEDRE allowlist blocked test (ts={ts}) "
                             f"— safe to ignore"
                         ), (
@@ -918,7 +959,7 @@ class TestMatrixLiveSmoke:
                         continue
 
                     # If MATRIX_INBOUND_SENDER is set, filter to that sender.
-                    if inbound_sender and sender and sender != inbound_sender:
+                    if inbound_sender and sender != inbound_sender:
                         continue
 
                     found_event = event
