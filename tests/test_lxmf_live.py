@@ -1041,8 +1041,8 @@ class TestLxmfLiveSmoke:
     # 8d4. Stop after partial start
     # ===================================================================
 
-    async def test_stop_after_partial_start(self):
-        """stop() is safe even if start() was called without proper config.
+    async def test_stop_safety_never_started_and_clean_cycle(self):
+        """stop() is safe on never-started adapter and after start/stop cycle.
 
         If ``start()`` is called with a config that has missing or
         invalid fields (e.g. ``storage_path`` not writable), ``stop()``
@@ -1200,20 +1200,21 @@ class TestLxmfTopologyLive:
     """
 
     async def test_topology_env_completeness(self):
-        """Verify all required topology env vars are present and non-empty.
+        """All required topology env vars are present.
 
-        Uses the shared ``live_env_status`` helper to check that every
-        required topology variable is set.  Missing variables cause the
-        test to fail with a clear list.
+        Checks role-specific requirements:
+        - Sender requires all 5 env vars including LXMF_DESTINATION_HASH.
+        - Receiver requires all env vars except LXMF_DESTINATION_HASH.
         """
-        requirements = [
-            LiveRequirement(env_name=var, description=f"Topology test variable {var}")
-            for var in _TOPOLOGY_ENV_VARS
-        ]
+        role = os.environ.get("LXMF_PROCESS_ROLE", "").lower()
+        required = list(_TOPOLOGY_ENV_VARS)
+        if role != "sender":
+            required = [v for v in required if v != "LXMF_DESTINATION_HASH"]
+
+        requirements = [LiveRequirement(v, description="") for v in required]
         status = live_env_status(requirements)
         assert status.enabled, (
-            f"Missing topology env vars: {', '.join(status.missing)}. "
-            f"Set all of: {', '.join(_TOPOLOGY_ENV_VARS)}"
+            f"Missing topology env vars: {status.missing}"
         )
 
     async def test_topology_start_bounded(self):
@@ -1246,12 +1247,20 @@ class TestLxmfTopologyLive:
 
     @require_live_send
     async def test_topology_send_with_live_send(self):
-        """Send a real LXMF message in topology mode (requires LXMF_LIVE_SEND=1).
+        """Send a real LXMF message (requires LXMF_LIVE_SEND=1).
 
-        Uses ``adapter.deliver()`` to send a message to the peer
-        identified by ``LXMF_DESTINATION_HASH``.  Wrapped in bounded
-        to prevent hangs during path discovery.
+        Only runs for LXMF_PROCESS_ROLE=sender.
         """
+        role = os.environ.get("LXMF_PROCESS_ROLE", "").lower()
+        if role != "sender":
+            pytest.skip(
+                "test_topology_send_with_live_send only runs for "
+                "LXMF_PROCESS_ROLE=sender"
+            )
+
+        if not LXMF_DESTINATION_HASH:
+            pytest.skip("LXMF_DESTINATION_HASH required for real send test")
+
         dest_hash = os.environ.get("LXMF_DESTINATION_HASH", "")
         if not dest_hash:
             pytest.skip("LXMF_DESTINATION_HASH required for topology send")

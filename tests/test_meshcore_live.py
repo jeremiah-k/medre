@@ -81,7 +81,7 @@ import asyncio
 import logging
 import os
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -566,8 +566,6 @@ class TestMeshCoreBLEValidation:
 
     async def test_ble_start_calls_factory_path(self):
         """BLE session.start() calls MeshCore.create_ble with correct address."""
-        from unittest.mock import AsyncMock, MagicMock, patch
-
         from medre.adapters.meshcore.session import MeshCoreSession
         from medre.config.adapters.meshcore import MeshCoreConfig
 
@@ -581,8 +579,7 @@ class TestMeshCoreBLEValidation:
         mock_mc_instance.subscribe = MagicMock()
         mock_mc_instance.disconnect = AsyncMock()
 
-        async def fake_create_ble(address=None, **kwargs):
-            return mock_mc_instance
+        fake_create_ble = AsyncMock(return_value=mock_mc_instance)
 
         mock_meshcore_module = MagicMock()
         mock_meshcore_module.MeshCore.create_ble = fake_create_ble
@@ -605,6 +602,7 @@ class TestMeshCoreBLEValidation:
 
         assert session.connected is True
         mock_import.assert_called_once_with("meshcore")
+        fake_create_ble.assert_called_once_with(address="C4:4F:33:6A:B0:23")
 
         await session.stop()
 
@@ -612,8 +610,6 @@ class TestMeshCoreBLEValidation:
 
     async def test_ble_failed_connect_diagnostics(self):
         """When BLE connection fails, diagnostics still capture useful fields."""
-        from unittest.mock import AsyncMock, MagicMock, patch
-
         from medre.adapters.meshcore.errors import MeshCoreConnectionError
         from medre.adapters.meshcore.session import MeshCoreSession
         from medre.config.adapters.meshcore import MeshCoreConfig
@@ -652,57 +648,65 @@ class TestMeshCoreBLEValidation:
     # -- d) Send requires live send -------------------------------------------
 
     async def test_ble_send_requires_live_send(self):
-        """BLE adapter deliver() does not transmit when LIVE_SEND is unset."""
-        from unittest.mock import AsyncMock
+        """Document: MESHCORE_LIVE_SEND gates real radio transmission.
+
+        The @require_live_send marker (used in TestMeshCoreLiveSmoke)
+        gates real transmit tests. This test documents the gate pattern.
+        When MESHCORE_LIVE_SEND is unset, live-send tests skip.
+        Fake-mode deliver() does not check LIVE_SEND.
+        """
+        import time
 
         from medre.adapters.meshcore.adapter import MeshCoreAdapter
         from medre.config.adapters.meshcore import MeshCoreConfig
         from medre.core.rendering.renderer import RenderingResult
 
         config = MeshCoreConfig(
-            adapter_id="ble-send-gate-test",
-            connection_type="ble",
-            ble_address="AA:BB:CC:DD:EE:FF",
+            adapter_id="ble-send-gate",
+            connection_type="fake",
         )
-
         adapter = MeshCoreAdapter(config)
         ctx = _make_context()
-
-        # Patch MESHCORE_LIVE_SEND to ensure it's unset.
-        with patch(
-            "medre.adapters.meshcore.compat.HAS_MESHCORE", False
-        ):
-            # BLE config with fake session: use fake mode to test gate logic.
-            # The adapter creates a real MeshCoreSession, but since we're
-            # testing at the test level, we verify the env var gate pattern.
-            # MESHCORE_LIVE_SEND is False by default (unset).
-            assert not MESHCORE_LIVE_SEND, (
-                "MESHCORE_LIVE_SEND should be unset for this test"
+        await bounded(adapter.start(ctx), 5.0, "ble send gate start")
+        try:
+            ts = int(time.time())
+            result = RenderingResult(
+                event_id=f"ble-send-gate-{ts}",
+                target_adapter="ble-send-gate",
+                target_channel="0",
+                payload={"text": "BLE send gate test"},
+                metadata={"test": "ble-send-gate"},
             )
+            # In fake mode, deliver() returns None (no real transmit)
+            # regardless of MESHCORE_LIVE_SEND.
+            delivery = await bounded(adapter.deliver(result), 5.0, "ble send gate deliver")
+            # Fake mode returns None — no real transmission occurred.
+            assert delivery is None, "Fake-mode deliver should return None"
+        finally:
+            await bounded(adapter.stop(), 5.0, "ble send gate stop")
 
     # -- e) Bounded start/stop cycle ------------------------------------------
 
-    async def test_ble_start_stop_bounded(self):
-        """BLE config start/stop cycle completes within timeout bounds (fake mode)."""
+    async def test_ble_config_bounded_start_stop(self):
+        """BLE-named adapter config start/stop works bounded in fake mode.
+
+        Uses connection_type='fake' to avoid needing real BLE hardware.
+        The bounded() wrapper ensures no infinite hangs.
+        """
         from medre.adapters.meshcore.adapter import MeshCoreAdapter
         from medre.config.adapters.meshcore import MeshCoreConfig
 
         config = MeshCoreConfig(
             adapter_id="ble-bounded-test",
-            connection_type="ble",
-            ble_address="AA:BB:CC:DD:EE:FF",
-        )
-        # Fake mode: swap to fake to avoid needing real BLE hardware.
-        # BLE address is still validated at config level.
-        config_fake = MeshCoreConfig(
-            adapter_id="ble-bounded-test",
             connection_type="fake",
         )
-        adapter = MeshCoreAdapter(config_fake)
+        adapter = MeshCoreAdapter(config)
         ctx = _make_context()
 
-        await bounded(adapter.start(ctx), timeout=_ADAPTER_START_TIMEOUT, label="ble-bounded-start")
-        await bounded(adapter.stop(), timeout=_ADAPTER_STOP_TIMEOUT, label="ble-bounded-stop")
+        await bounded(adapter.start(ctx), 5.0, "ble bounded start")
+        info = await bounded(adapter.health_check(), 5.0, "ble bounded health")
+        assert info.health in ("healthy",)
+        await bounded(adapter.stop(), 5.0, "ble bounded stop")
 
         diag = adapter.diagnostics()
         assert diag["started"] is False

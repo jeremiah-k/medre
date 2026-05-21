@@ -487,10 +487,10 @@ Each process needs its own identity file. Create two identities:
 
 ```bash
 # Process A identity
-python -c "import RNS; i = RNS.Identity(); i.to_file('/tmp/lxmf topo_identity_a'); print(f'Sender hash: {i.hexhash}')"
+python -c "import RNS; i = RNS.Identity(); i.to_file('/tmp/lxmf_topo_identity_a'); print(f'Sender hash: {i.hexhash}')"
 
 # Process B identity
-python -c "import RNS; i = RNS.Identity(); i.to_file('/tmp/lxmf topo_identity_b'); print(f'Receiver hash: {i.hexhash}')"
+python -c "import RNS; i = RNS.Identity(); i.to_file('/tmp/lxmf_topo_identity_b'); print(f'Receiver hash: {i.hexhash}')"
 ```
 
 Record the receiver's hash — it becomes `LXMF_DESTINATION_HASH` for the sender.
