@@ -74,20 +74,20 @@ PYTHONPATH=src pytest tests/test_matrix_live.py -m live -v
 PYTHONPATH=src pytest tests/test_matrix_live.py::TestMatrixLiveSmoke::test_outbound_delivery -m live -v
 ```
 
-## 2. Transport-Prefixed Environment Variables
+## 2. Instance-Scoped Environment Variables
 
-Each transport uses its own prefix for environment variables. This prevents collisions and makes it clear which transport a test is exercising.
+Live test adapters are configured using MEDRE's instance-scoped env var format. Every adapter override follows `MEDRE_ADAPTER__<TOKEN>__<FIELD>`, where `<TOKEN>` is the uppercased, normalised adapter ID.
 
-| Transport | Prefix | Example variables |
+| Transport | Token example | Example variables |
 |---|---|---|
-| Matrix | `MATRIX_` | `MATRIX_HOMESERVER`, `MATRIX_USER_ID`, `MATRIX_ACCESS_TOKEN`, `MATRIX_ROOM_ID`, `MATRIX_ROOM_ALLOWLIST` |
-| Meshtastic | `MESHTASTIC_` | `MESHTASTIC_PORT`, `MESHTASTIC_HOST`, `MESHTASTIC_CHANNEL` |
-| MeshCore | `MESHCORE_` | (to be defined) |
-| LXMF | `LXMF_` | (to be defined) |
+| Matrix | `MAIN` | `MEDRE_ADAPTER__MAIN__HOMESERVER`, `MEDRE_ADAPTER__MAIN__USER_ID`, `MEDRE_ADAPTER__MAIN__ACCESS_TOKEN`, `MEDRE_ADAPTER__MAIN__ROOM_ALLOWLIST` |
+| Meshtastic | `RADIO` | `MEDRE_ADAPTER__RADIO__HOST`, `MEDRE_ADAPTER__RADIO__PORT`, `MEDRE_ADAPTER__RADIO__CONNECTION_TYPE` |
+| MeshCore | `MESHCORE_RADIO` | `MEDRE_ADAPTER__MESHCORE_RADIO__HOST`, `MEDRE_ADAPTER__MESHCORE_RADIO__CONNECTION_TYPE` |
+| LXMF | `LOCAL` | `MEDRE_ADAPTER__LOCAL__CONNECTION_TYPE`, `MEDRE_ADAPTER__LOCAL__IDENTITY_PATH` |
 
-The convention is consistent: the prefix matches the transport name in uppercase, followed by an underscore, followed by the variable name.
+The token is derived from the adapter's `adapter_id` by stripping non-alphanumeric characters (replaced with `_`), collapsing consecutive underscores, and uppercasing. See `docs/runbooks/configuration.md` for the full normalisation table.
 
-When adding a new transport, define its prefix and document the required variables in the test module's docstring and in the skipif reason string.
+When adding a new transport, define its adapter ID and document the required `MEDRE_ADAPTER__<TOKEN>__<FIELD>` variables in the test module's docstring and in the skipif reason string.
 
 ## 3. Live Test Helpers
 
@@ -345,7 +345,7 @@ The `medre evidence` command produces bundles that redact secrets. Live tests th
 3. **Always use `try/finally` for cleanup.** Every adapter must be stopped, every client closed.
 4. **Never print secrets.** Use redaction helpers. Review output before sharing.
 5. **Never run live tests in CI without explicit credentials.** The skipif guard prevents this, but do not override it.
-6. **Use transport-prefixed env vars.** `MATRIX_*` for Matrix, `MESHTASTIC_*` for Meshtastic.
+6. **Use instance-scoped env vars.** `MEDRE_ADAPTER__<TOKEN>__<FIELD>` for all adapter overrides.
 7. **Keep tests independent.** Each test should work in isolation. Do not depend on state from a previous test.
 8. **Be honest about what the test proves.** A live test proves the adapter works against a real endpoint. It does not prove the system is production-ready.
 

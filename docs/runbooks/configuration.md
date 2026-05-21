@@ -1,6 +1,6 @@
 # MEDRE Configuration
 
-> Last updated: 2026-05-16
+> Last updated: 2026-05-21
 
 ## Overview
 
@@ -597,87 +597,188 @@ Unrecognised placeholders cause a `MedrePathsError` at startup.
 
 ## Environment Variable Overrides
 
-Environment variables override TOML values. They always win.
+Environment variables override TOML values. They always win. The original TOML config is never mutated; a new frozen config is returned with overrides applied.
 
-Adapter env vars target a specific adapter instance via target resolution:
+MEDRE uses two categories of environment variables:
 
-1. **`MEDRE_<TRANSPORT>_ADAPTER_ID` is set** — targets the named adapter.
-   Overrides its fields if it exists in the config; creates it if not.
-2. **Exactly one adapter of that transport configured** — targets it
-   automatically (no `ADAPTER_ID` needed).
-3. **No adapters of that transport configured** — creates a new default
-   adapter sourced entirely from env vars.
-4. **Multiple adapters and no `ADAPTER_ID` specified** — raises
-   `ConfigValidationError`. You must specify which adapter to target.
+1. **Core env vars** control global runtime behaviour (paths, logging, limits).
+2. **Instance-scoped adapter overrides** target a specific adapter instance by its normalised ID.
 
-Boolean env vars accept: `1`, `true`, `yes` (truthy) and `0`, `false`, `no`
-(falsy). List env vars are comma-separated.
+There are no transport-prefixed env vars. All adapter overrides use the same `MEDRE_ADAPTER__<TOKEN>__<FIELD>` pattern regardless of transport type.
 
-### Core
+### Core Environment Variables
 
-| Variable          | Type   | Maps to                    | Default                |
-| ----------------- | ------ | -------------------------- | ---------------------- |
-| `MEDRE_HOME`      | string | Single-directory root path | _(not set)_            |
-| `MEDRE_CONFIG`    | string | Config file path           | _(not set)_            |
-| `MEDRE_DB_PATH`   | string | `storage.path`             | `{state}/medre.sqlite` |
-| `MEDRE_LOG_LEVEL` | string | `logging.level`            | `INFO`                 |
+| Variable                                         | Type   | Maps to                               | Default                |
+| ------------------------------------------------ | ------ | ------------------------------------- | ---------------------- |
+| `MEDRE_HOME`                                     | string | Single-directory root path            | _(not set)_            |
+| `MEDRE_CONFIG`                                   | string | Config file path                      | _(not set)_            |
+| `MEDRE_DB_PATH`                                  | string | `storage.path`                        | `{state}/medre.sqlite` |
+| `MEDRE_LOG_LEVEL`                                | string | `logging.level`                       | `INFO`                 |
+| `MEDRE_RUNTIME_MAX_INFLIGHT_DELIVERIES`          | int    | `limits.max_inflight_deliveries`      | _(TOML default)_       |
+| `MEDRE_RUNTIME_MAX_INFLIGHT_REPLAY_EVENTS`       | int    | `limits.max_inflight_replay_events`   | _(TOML default)_       |
+| `MEDRE_RUNTIME_SHUTDOWN_DRAIN_TIMEOUT_SECONDS`   | int    | `limits.shutdown_drain_timeout_seconds` | _(TOML default)_    |
+| `MEDRE_RUNTIME_DELIVERY_ACQUIRE_TIMEOUT_SECONDS` | float  | `limits.delivery_acquire_timeout_seconds` | _(TOML default)_   |
 
-### Matrix
+### Instance-Scoped Adapter Overrides
 
-| Variable                       | Type                 | Target field             | Default            |
-| ------------------------------ | -------------------- | ------------------------ | ------------------ |
-| `MEDRE_MATRIX_ENABLED`         | bool                 | `enabled`                | `true`             |
-| `MEDRE_MATRIX_ADAPTER_ID`      | string               | Target adapter selection | _(auto)_           |
-| `MEDRE_MATRIX_HOMESERVER`      | string               | `homeserver`             | _(required)_       |
-| `MEDRE_MATRIX_USER_ID`         | string               | `user_id`                | _(required)_       |
-| `MEDRE_MATRIX_ACCESS_TOKEN`    | string               | `access_token`           | `""`               |
-| `MEDRE_MATRIX_ROOM_ALLOWLIST`  | comma-separated list | `room_allowlist`         | `None` (all rooms) |
-| `MEDRE_MATRIX_ENCRYPTION_MODE` | string               | `encryption_mode`        | `"plaintext"`      |
+Adapter overrides use the format:
 
-#### Internal/test-only overrides
+```
+MEDRE_ADAPTER__<TOKEN>__<FIELD>=<value>
+```
 
-The following Matrix environment variables exist for test harnesses and
-internal use. Normal runtime operation derives these automatically and
-operators should not set them.
+- **`<TOKEN>`** is the uppercased, normalised form of the adapter's `adapter_id`. Non-alphanumeric characters are replaced with `_`, consecutive underscores are collapsed, and leading/trailing underscores are stripped.
+- **`<FIELD>`** is a field name from the transport's config dataclass, or `enabled` to toggle the adapter on or off.
+- The env var targets the adapter whose `adapter_id` normalises to `<TOKEN>`. If no adapter matches, MEDRE raises `ConfigValidationError` at startup.
 
-| Variable                  | Type   | Target field | Default                          |
-| ------------------------- | ------ | ------------ | -------------------------------- |
-| `MEDRE_MATRIX_DEVICE_ID`  | string | `device_id`  | `None` (derived via `whoami()`)  |
-| `MEDRE_MATRIX_STORE_PATH` | string | `store_path` | `None` (derived under state dir) |
+#### Token Normalisation
 
-### Meshtastic
+The normalisation function (`normalize_adapter_id`) transforms an adapter ID into an env token:
 
-| Variable                           | Type   | Target field             | Default  |
-| ---------------------------------- | ------ | ------------------------ | -------- |
-| `MEDRE_MESHTASTIC_ENABLED`         | bool   | `enabled`                | `true`   |
-| `MEDRE_MESHTASTIC_ADAPTER_ID`      | string | Target adapter selection | _(auto)_ |
-| `MEDRE_MESHTASTIC_CONNECTION_TYPE` | string | `connection_type`        | `"fake"` |
-| `MEDRE_MESHTASTIC_SERIAL_PORT`     | string | `serial_port`            | `None`   |
-| `MEDRE_MESHTASTIC_HOST`            | string | `host`                   | `None`   |
-| `MEDRE_MESHTASTIC_PORT`            | int    | `port`                   | `None`   |
+| `adapter_id`       | Normalised token |
+| ------------------ | ---------------- |
+| `main`             | `MAIN`           |
+| `matrix-primary`   | `MATRIX_PRIMARY` |
+| `matrix_primary`   | `MATRIX_PRIMARY` |
+| `radio.a`          | `RADIO_A`        |
+| `meshcore/tbeam`   | `MESHCORE_TBEAM` |
+| `my.adapter-1`     | `MY_ADAPTER_1`   |
 
-### MeshCore
+Token collisions are detected at startup. If two adapter IDs normalise to the same token (e.g. `radio-a` and `radio_a` both become `RADIO_A`), MEDRE raises `ConfigValidationError`.
 
-| Variable                         | Type   | Target field             | Default  |
-| -------------------------------- | ------ | ------------------------ | -------- |
-| `MEDRE_MESHCORE_ENABLED`         | bool   | `enabled`                | `true`   |
-| `MEDRE_MESHCORE_ADAPTER_ID`      | string | Target adapter selection | _(auto)_ |
-| `MEDRE_MESHCORE_CONNECTION_TYPE` | string | `connection_type`        | `"fake"` |
-| `MEDRE_MESHCORE_SERIAL_PORT`     | string | `serial_port`            | `None`   |
-| `MEDRE_MESHCORE_HOST`            | string | `host`                   | `None`   |
-| `MEDRE_MESHCORE_PORT`            | int    | `port`                   | `None`   |
-| `MEDRE_MESHCORE_BLE_ADDRESS`     | string | `ble_address`            | `None`   |
+#### Boolean and Collection Values
 
-### LXMF
+- **Boolean** fields accept: `1`, `true`, `yes` (truthy) and `0`, `false`, `no` (falsy). Case-insensitive.
+- **Integer** and **float** fields are parsed from the raw string value.
+- **Set** fields (e.g. `room_allowlist`) accept comma-separated values.
+- All other fields are treated as strings.
 
-| Variable                      | Type   | Target field             | Default  |
-| ----------------------------- | ------ | ------------------------ | -------- |
-| `MEDRE_LXMF_ENABLED`          | bool   | `enabled`                | `true`   |
-| `MEDRE_LXMF_ADAPTER_ID`       | string | Target adapter selection | _(auto)_ |
-| `MEDRE_LXMF_CONNECTION_TYPE`  | string | `connection_type`        | `"fake"` |
-| `MEDRE_LXMF_IDENTITY_PATH`    | string | `identity_path`          | `None`   |
-| `MEDRE_LXMF_DISPLAY_NAME`     | string | `display_name`           | `""`     |
-| `MEDRE_LXMF_DESTINATION_HASH` | string | _(reserved)_             | `None`   |
+#### Per-Transport Field Reference
+
+Each transport exposes its config dataclass fields as override targets. The `enabled` field is available on all transports.
+
+**Matrix** (fields from `MatrixConfig`):
+
+| Field                      | Type           | Env var example                                                    |
+| -------------------------- | -------------- | ------------------------------------------------------------------ |
+| `enabled`                  | bool           | `MEDRE_ADAPTER__MAIN__ENABLED=true`                                |
+| `homeserver`               | string         | `MEDRE_ADAPTER__MAIN__HOMESERVER=https://matrix.example.com`       |
+| `user_id`                  | string         | `MEDRE_ADAPTER__MAIN__USER_ID=@bot:example.com`                    |
+| `access_token`             | string         | `MEDRE_ADAPTER__MAIN__ACCESS_TOKEN=syt_...`                        |
+| `room_allowlist`           | set of string  | `MEDRE_ADAPTER__MAIN__ROOM_ALLOWLIST=!room:example.com,!other:...` |
+| `metadata_embedding_mode`  | string         | `MEDRE_ADAPTER__MAIN__METADATA_EMBEDDING_MODE=safe`                |
+| `sync_timeout_ms`          | int            | `MEDRE_ADAPTER__MAIN__SYNC_TIMEOUT_MS=30000`                       |
+| `encryption_mode`          | string         | `MEDRE_ADAPTER__MAIN__ENCRYPTION_MODE=plaintext`                   |
+| `require_encrypted_rooms`  | bool           | `MEDRE_ADAPTER__MAIN__REQUIRE_ENCRYPTED_ROOMS=false`               |
+| `auto_join_rooms`          | tuple of string | `MEDRE_ADAPTER__MAIN__AUTO_JOIN_ROOMS=!room:example.com`          |
+| `device_id`                | string         | `MEDRE_ADAPTER__MAIN__DEVICE_ID=...`                               |
+| `store_path`               | string         | `MEDRE_ADAPTER__MAIN__STORE_PATH=/path/to/store`                   |
+
+> `device_id` and `store_path` are internal/test-only fields. The runtime derives them automatically. Only set them for test harnesses or when you need explicit control.
+
+**Meshtastic** (fields from `MeshtasticConfig`):
+
+| Field                              | Type           | Env var example                                                    |
+| ---------------------------------- | -------------- | ------------------------------------------------------------------ |
+| `enabled`                          | bool           | `MEDRE_ADAPTER__RADIO__ENABLED=true`                               |
+| `connection_type`                  | string         | `MEDRE_ADAPTER__RADIO__CONNECTION_TYPE=tcp`                        |
+| `host`                             | string         | `MEDRE_ADAPTER__RADIO__HOST=meshtastic.local`                      |
+| `port`                             | int            | `MEDRE_ADAPTER__RADIO__PORT=4403`                                  |
+| `serial_port`                      | string         | `MEDRE_ADAPTER__RADIO__SERIAL_PORT=/dev/ttyACM0`                   |
+| `ble_address`                      | string         | `MEDRE_ADAPTER__RADIO__BLE_ADDRESS=...`                            |
+| `meshnet_name`                     | string         | `MEDRE_ADAPTER__RADIO__MESHNET_NAME=MyMesh`                        |
+| `default_channel`                  | int            | `MEDRE_ADAPTER__RADIO__DEFAULT_CHANNEL=0`                          |
+| `channel_mapping`                  | dict           | _(not settable via env)_                                           |
+| `message_delay_seconds`            | float          | `MEDRE_ADAPTER__RADIO__MESSAGE_DELAY_SECONDS=0.5`                  |
+| `startup_backlog_suppress_seconds` | float          | `MEDRE_ADAPTER__RADIO__STARTUP_BACKLOG_SUPPRESS_SECONDS=5.0`       |
+| `sync_timeout_ms`                  | int            | `MEDRE_ADAPTER__RADIO__SYNC_TIMEOUT_MS=30000`                      |
+| `matrix_relay_prefix`              | string         | `MEDRE_ADAPTER__RADIO__MATRIX_RELAY_PREFIX=[{longname}]: `         |
+| `radio_relay_prefix`               | string         | `MEDRE_ADAPTER__RADIO__RADIO_RELAY_PREFIX={shortname5}[M]: `       |
+| `mmrelay_compatibility`            | bool           | `MEDRE_ADAPTER__RADIO__MMRELAY_COMPATIBILITY=false`                |
+
+**MeshCore** (fields from `MeshCoreConfig`):
+
+| Field                              | Type           | Env var example                                                    |
+| ---------------------------------- | -------------- | ------------------------------------------------------------------ |
+| `enabled`                          | bool           | `MEDRE_ADAPTER__RADIO__ENABLED=true`                               |
+| `connection_type`                  | string         | `MEDRE_ADAPTER__RADIO__CONNECTION_TYPE=tcp`                        |
+| `host`                             | string         | `MEDRE_ADAPTER__RADIO__HOST=meshcore.local`                        |
+| `port`                             | int            | `MEDRE_ADAPTER__RADIO__PORT=4403`                                  |
+| `serial_port`                      | string         | `MEDRE_ADAPTER__RADIO__SERIAL_PORT=/dev/ttyUSB0`                   |
+| `serial_baudrate`                  | int            | `MEDRE_ADAPTER__RADIO__SERIAL_BAUDRATE=115200`                     |
+| `ble_address`                      | string         | `MEDRE_ADAPTER__RADIO__BLE_ADDRESS=...`                            |
+| `meshnet_name`                     | string         | `MEDRE_ADAPTER__RADIO__MESHNET_NAME=MyMesh`                        |
+| `default_channel`                  | int            | `MEDRE_ADAPTER__RADIO__DEFAULT_CHANNEL=0`                          |
+| `channel_mapping`                  | dict           | _(not settable via env)_                                           |
+| `message_delay_seconds`            | float          | `MEDRE_ADAPTER__RADIO__MESSAGE_DELAY_SECONDS=0.5`                  |
+| `startup_backlog_suppress_seconds` | float          | `MEDRE_ADAPTER__RADIO__STARTUP_BACKLOG_SUPPRESS_SECONDS=5.0`       |
+| `sync_timeout_ms`                  | int            | `MEDRE_ADAPTER__RADIO__SYNC_TIMEOUT_MS=30000`                      |
+| `identity`                         | string         | `MEDRE_ADAPTER__RADIO__IDENTITY=my-node`                           |
+| `pubkey`                           | string         | `MEDRE_ADAPTER__RADIO__PUBKEY=abcdef0123456789`                    |
+| `node_config`                      | dict           | _(not settable via env)_                                           |
+
+**LXMF** (fields from `LxmfConfig`):
+
+| Field                     | Type   | Env var example                                                  |
+| ------------------------- | ------ | ---------------------------------------------------------------- |
+| `enabled`                 | bool   | `MEDRE_ADAPTER__LOCAL__ENABLED=true`                             |
+| `connection_type`         | string | `MEDRE_ADAPTER__LOCAL__CONNECTION_TYPE=reticulum`                |
+| `display_name`            | string | `MEDRE_ADAPTER__LOCAL__DISPLAY_NAME=MEDRE`                       |
+| `stamp_cost`              | int    | `MEDRE_ADAPTER__LOCAL__STAMP_COST=8`                             |
+| `default_delivery_method` | string | `MEDRE_ADAPTER__LOCAL__DEFAULT_DELIVERY_METHOD=direct`           |
+| `meshnet_name`            | string | `MEDRE_ADAPTER__LOCAL__MESHNET_NAME=MyMesh`                      |
+| `default_channel`         | int    | `MEDRE_ADAPTER__LOCAL__DEFAULT_CHANNEL=0`                        |
+| `message_delay_seconds`   | float  | `MEDRE_ADAPTER__LOCAL__MESSAGE_DELAY_SECONDS=0.5`                |
+| `metadata_embedding`      | bool   | `MEDRE_ADAPTER__LOCAL__METADATA_EMBEDDING=true`                  |
+| `identity_path`           | string | `MEDRE_ADAPTER__LOCAL__IDENTITY_PATH={state}/lxmf/identity`      |
+| `storage_path`            | string | `MEDRE_ADAPTER__LOCAL__STORAGE_PATH={state}/lxmf/storage`        |
+
+> Dict fields (`channel_mapping`, `node_config`) and tuple fields (`auto_join_rooms`) cannot be set via environment variables. Set them in TOML instead.
+
+#### Secret Handling
+
+Fields whose names match the pattern `TOKEN`, `SECRET`, `PASSWORD`, `KEY`, `AUTH`, or `CREDENTIAL` (case-insensitive) are treated as secrets. Their values are redacted to `***REDACTED***` in provenance logs and diagnostic output. The raw values are still applied to the config.
+
+For example, `MEDRE_ADAPTER__MAIN__ACCESS_TOKEN` is redacted in provenance because `ACCESS_TOKEN` matches the `TOKEN` pattern.
+
+#### Unsupported Fields
+
+Setting a field name that does not exist on the transport's config dataclass raises `ConfigValidationError` at startup with a message listing the valid fields for that transport.
+
+#### Examples
+
+Single Matrix adapter with `adapter_id = "main"`:
+
+```bash
+export MEDRE_ADAPTER__MAIN__HOMESERVER=https://matrix.example.com
+export MEDRE_ADAPTER__MAIN__USER_ID=@bot:example.com
+export MEDRE_ADAPTER__MAIN__ACCESS_TOKEN=syt_secret_token_here
+export MEDRE_ADAPTER__MAIN__ENCRYPTION_MODE=plaintext
+```
+
+Multiple adapters of the same transport:
+
+```bash
+# adapter_id = "matrix-primary"
+export MEDRE_ADAPTER__MATRIX_PRIMARY__HOMESERVER=https://matrix.example.com
+export MEDRE_ADAPTER__MATRIX_PRIMARY__USER_ID=@bot1:example.com
+export MEDRE_ADAPTER__MATRIX_PRIMARY__ACCESS_TOKEN=syt_...
+
+# adapter_id = "matrix-secondary"
+export MEDRE_ADAPTER__MATRIX_SECONDARY__HOMESERVER=https://matrix.other.com
+export MEDRE_ADAPTER__MATRIX_SECONDARY__USER_ID=@bot2:other.com
+export MEDRE_ADAPTER__MATRIX_SECONDARY__ACCESS_TOKEN=syt_...
+```
+
+Meshtastic TCP adapter:
+
+```bash
+# adapter_id = "radio"
+export MEDRE_ADAPTER__RADIO__CONNECTION_TYPE=tcp
+export MEDRE_ADAPTER__RADIO__HOST=meshtastic.local
+export MEDRE_ADAPTER__RADIO__PORT=4403
+export MEDRE_ADAPTER__RADIO__ENABLED=true
+```
 
 ## Environment Variable `.env` Files
 
@@ -691,10 +792,10 @@ With Docker Compose or Podman:
 # .env file
 MEDRE_HOME=/opt/medre
 MEDRE_LOG_LEVEL=DEBUG
-MEDRE_MATRIX_ENABLED=true
-MEDRE_MATRIX_HOMESERVER=https://matrix.example.com
-MEDRE_MATRIX_USER_ID=@bot:example.com
-MEDRE_MATRIX_ACCESS_TOKEN=syt_...
+MEDRE_ADAPTER__MAIN__HOMESERVER=https://matrix.example.com
+MEDRE_ADAPTER__MAIN__USER_ID=@bot:example.com
+MEDRE_ADAPTER__MAIN__ACCESS_TOKEN=syt_...
+MEDRE_ADAPTER__MAIN__ENABLED=true
 ```
 
 ```yaml
@@ -714,8 +815,7 @@ starting MEDRE. MEDRE sees the variables as regular environment variables.
 
 ## Secrets Management
 
-- **Access tokens are secrets.** `MEDRE_MATRIX_ACCESS_TOKEN` is redacted in log
-  output and diagnostics (`***REDACTED***`).
+- **Access tokens are secrets.** Any env var whose field name matches `TOKEN`, `SECRET`, `PASSWORD`, `KEY`, `AUTH`, or `CREDENTIAL` (case-insensitive) is automatically redacted in provenance logs and diagnostics (`***REDACTED***`). For example, `MEDRE_ADAPTER__MAIN__ACCESS_TOKEN` is redacted.
 - **Prefer environment variables for tokens** over embedding them in TOML files.
   Environment variables are harder to accidentally commit to version control.
 - **Prefer Docker secrets or mounted secret files** in production deployments.
@@ -757,10 +857,10 @@ docker run -d \
 docker run -d \
   --name medre \
   -e MEDRE_HOME=/opt/medre \
-  -e MEDRE_MATRIX_ENABLED=true \
-  -e MEDRE_MATRIX_HOMESERVER=https://matrix.example.com \
-  -e MEDRE_MATRIX_USER_ID=@bot:example.com \
-  -e MEDRE_MATRIX_ACCESS_TOKEN=syt_... \
+  -e MEDRE_ADAPTER__MAIN__HOMESERVER=https://matrix.example.com \
+  -e MEDRE_ADAPTER__MAIN__USER_ID=@bot:example.com \
+  -e MEDRE_ADAPTER__MAIN__ACCESS_TOKEN=syt_... \
+  -e MEDRE_ADAPTER__MAIN__ENABLED=true \
   -v medre-state:/opt/medre \
   medre run
 ```

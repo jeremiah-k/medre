@@ -1,7 +1,6 @@
 # MEDRE Transport Capability Status
 
-> **Generated:** 2026-05-21
-> **Context:** This is a living document. It tracks which MEDRE capabilities are implemented, tested, and validated across each transport adapter. It exists so operators and developers can see, at a glance, what works and what does not.
+> **Generated:** 2026-05-21> **Context:** This is a living document. It tracks which MEDRE capabilities are implemented, tested, and validated across each transport adapter. It exists so operators and developers can see, at a glance, what works and what does not.
 > **Policy:** No capability is marked `live-validated` unless there is recorded live evidence in the repository (test results, runbook logs, or CI artifacts). No `ready` labels. No aspirational statuses. If it has not been tested and confirmed, it says so.
 
 This document is the single source of truth for per-transport capability tracking. The operator workflows runbook (`docs/runbooks/operator-workflows.md`) references this file for capability status.
@@ -11,6 +10,7 @@ This document is the single source of truth for per-transport capability trackin
 | Capability | Matrix | Meshtastic | MeshCore | LXMF |
 |---|---|---|---|---|
 | Config load | live-validated | fake-tested | fake-tested | fake-tested |
+| Instance-scoped env overrides | live-validated | fake-tested | fake-tested | fake-tested |
 | Fake lifecycle | live-validated | fake-tested | fake-tested | fake-tested |
 | Real adapter import safe | live-validated | opt-in live test exists | designed | designed |
 | Live start/health | live-validated | opt-in live test exists | not started | not started |
@@ -43,13 +43,13 @@ Matrix is the most mature transport. Live validation was recorded on 2026-05-10 
 
 The Matrix adapter supports plaintext and E2EE text alpha. E2EE supports encrypted rooms for text messages only. See the alpha operation runbook for the full unsupported features list.
 
-Live tests are gated by `MATRIX_*` environment variables and the `live` pytest marker.
+Live tests are gated by `MEDRE_ADAPTER__MAIN__*` environment variables (instance-scoped adapter overrides) and the `live` pytest marker.
 
 ### Meshtastic
 
 Meshtastic has a complete alpha operation runbook and a live smoke test harness. Real connectivity (TCP and serial) is implemented. The adapter uses pubsub callbacks for inbound and queued `send_one` for outbound.
 
-As of this writing, no live validation against a physical radio has been recorded in the repository. The harness exists. An operator with a Meshtastic node needs to set the `MESHTASTIC_*` environment variables and run the live smoke tests. See `docs/runbooks/meshtastic-live-smoke.md`.
+As of this writing, no live validation against a physical radio has been recorded in the repository. The harness exists. An operator with a Meshtastic node needs to set the `MEDRE_ADAPTER__RADIO__*` environment variables and run the live smoke tests. See `docs/runbooks/meshtastic-live-smoke.md`.
 
 ### MeshCore
 

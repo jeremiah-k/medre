@@ -1,23 +1,31 @@
 """Tests for medre.config.env: env var parsing, type coercion,
-override application, secrets redaction."""
+instance-scoped adapter overrides, token normalization, secrets redaction."""
 
 from __future__ import annotations
 
 import pytest
 
+from medre.config.adapters.lxmf import LxmfConfig
 from medre.config.adapters.matrix import MatrixConfig
+from medre.config.adapters.meshcore import MeshCoreConfig
+from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.config.env import (
     MedreEnvConfig,
     _coerce_bool,
     _coerce_int,
     _coerce_set,
     apply_env_overrides,
+    detect_token_collisions,
+    normalize_adapter_id,
 )
 from medre.config.errors import ConfigValidationError
 from medre.config.model import (
     AdapterConfigSet,
     LoggingConfig,
+    LxmfRuntimeConfig,
     MatrixRuntimeConfig,
+    MeshCoreRuntimeConfig,
+    MeshtasticRuntimeConfig,
     RuntimeConfig,
     RuntimeOptions,
     StorageConfig,
@@ -68,6 +76,143 @@ def _make_config_with_matrix() -> RuntimeConfig:
         storage=StorageConfig(backend="sqlite", path="/tmp/test.db"),
         adapters=AdapterConfigSet(
             matrix={"from-toml": matrix_rt},
+        ),
+    )
+
+
+def _make_config_with_two_matrix() -> RuntimeConfig:
+    """RuntimeConfig with two Matrix adapters (primary and secondary)."""
+    primary_cfg = MatrixConfig(
+        adapter_id="matrix-primary",
+        homeserver="https://primary.toml",
+        user_id="@bot:primary",
+        access_token="primary-token",
+        encryption_mode="plaintext",
+    )
+    secondary_cfg = MatrixConfig(
+        adapter_id="matrix-secondary",
+        homeserver="https://secondary.toml",
+        user_id="@bot:secondary",
+        access_token="secondary-token",
+        encryption_mode="plaintext",
+    )
+    return RuntimeConfig(
+        runtime=RuntimeOptions(name="test"),
+        logging=LoggingConfig(level="INFO"),
+        storage=StorageConfig(backend="sqlite", path="/tmp/test.db"),
+        adapters=AdapterConfigSet(
+            matrix={
+                "matrix-primary": MatrixRuntimeConfig(
+                    adapter_id="matrix-primary",
+                    enabled=True,
+                    config=primary_cfg,
+                ),
+                "matrix-secondary": MatrixRuntimeConfig(
+                    adapter_id="matrix-secondary",
+                    enabled=True,
+                    config=secondary_cfg,
+                ),
+            },
+        ),
+    )
+
+
+def _make_config_with_matrix_and_meshtastic() -> RuntimeConfig:
+    """RuntimeConfig with one Matrix and one Meshtastic adapter."""
+    matrix_cfg = MatrixConfig(
+        adapter_id="matrix-main",
+        homeserver="https://matrix.toml",
+        user_id="@bot:toml",
+        access_token="mat-token",
+        encryption_mode="plaintext",
+    )
+    meshtastic_cfg = MeshtasticConfig(
+        adapter_id="radio-a",
+        connection_type="tcp",
+        host="192.168.1.100",
+    )
+    return RuntimeConfig(
+        runtime=RuntimeOptions(name="test"),
+        logging=LoggingConfig(level="INFO"),
+        storage=StorageConfig(backend="sqlite", path="/tmp/test.db"),
+        adapters=AdapterConfigSet(
+            matrix={
+                "matrix-main": MatrixRuntimeConfig(
+                    adapter_id="matrix-main",
+                    config=matrix_cfg,
+                ),
+            },
+            meshtastic={
+                "radio-a": MeshtasticRuntimeConfig(
+                    adapter_id="radio-a",
+                    config=meshtastic_cfg,
+                ),
+            },
+        ),
+    )
+
+
+def _make_config_with_meshcore() -> RuntimeConfig:
+    """RuntimeConfig with a MeshCore adapter using BLE."""
+    meshcore_cfg = MeshCoreConfig(
+        adapter_id="mc-ble",
+        connection_type="ble",
+        ble_address="AA:BB:CC:DD:EE:FF",
+    )
+    return RuntimeConfig(
+        runtime=RuntimeOptions(name="test"),
+        logging=LoggingConfig(level="INFO"),
+        storage=StorageConfig(backend="sqlite", path="/tmp/test.db"),
+        adapters=AdapterConfigSet(
+            meshcore={
+                "mc-ble": MeshCoreRuntimeConfig(
+                    adapter_id="mc-ble",
+                    config=meshcore_cfg,
+                ),
+            },
+        ),
+    )
+
+
+def _make_config_with_lxmf() -> RuntimeConfig:
+    """RuntimeConfig with an LXMF adapter."""
+    lxmf_cfg = LxmfConfig(
+        adapter_id="lxmf-receiver",
+    )
+    return RuntimeConfig(
+        runtime=RuntimeOptions(name="test"),
+        logging=LoggingConfig(level="INFO"),
+        storage=StorageConfig(backend="sqlite", path="/tmp/test.db"),
+        adapters=AdapterConfigSet(
+            lxmf={
+                "lxmf-receiver": LxmfRuntimeConfig(
+                    adapter_id="lxmf-receiver",
+                    config=lxmf_cfg,
+                ),
+            },
+        ),
+    )
+
+
+def _make_config_with_meshtastic_tcp() -> RuntimeConfig:
+    """RuntimeConfig with a Meshtastic TCP adapter (has port field)."""
+    meshtastic_cfg = MeshtasticConfig(
+        adapter_id="radio-tcp",
+        connection_type="tcp",
+        host="192.168.1.50",
+        port=4403,
+    )
+    return RuntimeConfig(
+        runtime=RuntimeOptions(name="test"),
+        logging=LoggingConfig(level="INFO"),
+        storage=StorageConfig(backend="sqlite", path="/tmp/test.db"),
+        adapters=AdapterConfigSet(
+            meshtastic={
+                "radio-tcp": MeshtasticRuntimeConfig(
+                    adapter_id="radio-tcp",
+                    config=meshtastic_cfg,
+                ),
+            },
         ),
     )
 
@@ -200,65 +345,329 @@ class TestCoreOverrides:
 
 
 # ---------------------------------------------------------------------------
-# Matrix adapter overrides
+# Adapter token normalization
+# ---------------------------------------------------------------------------
+
+
+class TestNormalizeAdapterId:
+    """normalize_adapter_id converts adapter_id strings to env tokens."""
+
+    @pytest.mark.parametrize(
+        "adapter_id, expected",
+        [
+            ("matrix-primary", "MATRIX_PRIMARY"),
+            ("matrix_primary", "MATRIX_PRIMARY"),
+            ("radio.a", "RADIO_A"),
+            ("meshcore/tbeam", "MESHCORE_TBEAM"),
+            ("lxmf_receiver", "LXMF_RECEIVER"),
+            ("simple", "SIMPLE"),
+            ("already_upper", "ALREADY_UPPER"),
+        ],
+    )
+    def test_normalization(self, adapter_id: str, expected: str) -> None:
+        assert normalize_adapter_id(adapter_id) == expected
+
+
+# ---------------------------------------------------------------------------
+# Token collisions
+# ---------------------------------------------------------------------------
+
+
+class TestTokenCollisions:
+    """detect_token_collisions raises on ambiguous adapter IDs."""
+
+    def test_collision_detected(self) -> None:
+        """radio-a and radio_a both normalize to RADIO_A — must raise."""
+        adapters = {"radio-a": object(), "radio_a": object()}
+        with pytest.raises(ConfigValidationError, match="normalize to the same token"):
+            detect_token_collisions(adapters)
+
+    def test_no_collision_different_tokens(self) -> None:
+        """radio-a and radio_b produce different tokens — no error."""
+        adapters = {"radio-a": object(), "radio_b": object()}
+        detect_token_collisions(adapters)  # should not raise
+
+
+# ---------------------------------------------------------------------------
+# Matrix adapter overrides (instance-scoped)
 # ---------------------------------------------------------------------------
 
 
 class TestMatrixOverrides:
-    """MEDRE_MATRIX_* env vars override or create Matrix adapter config."""
+    """MEDRE_ADAPTER__FROM_TOML__<FIELD> overrides existing Matrix adapter."""
 
     def test_homeserver_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("MEDRE_MATRIX_HOMESERVER", "https://env.matrix.org")
-        monkeypatch.setenv("MEDRE_MATRIX_USER_ID", "@env:matrix.org")
-        monkeypatch.setenv("MEDRE_MATRIX_ACCESS_TOKEN", "env-tok")
+        monkeypatch.setenv("MEDRE_ADAPTER__FROM_TOML__homeserver", "https://env.matrix.org")
         base = _make_config_with_matrix()
         result = apply_env_overrides(base)
 
-        # Single adapter: env overrides the existing adapter by its key
         assert "from-toml" in result.adapters.matrix
         env_matrix = result.adapters.matrix["from-toml"]
         assert env_matrix.config is not None
         assert env_matrix.config.homeserver == "https://env.matrix.org"
 
-    def test_room_allowlist_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("MEDRE_MATRIX_HOMESERVER", "https://matrix.test")
-        monkeypatch.setenv("MEDRE_MATRIX_USER_ID", "@bot:test")
-        monkeypatch.setenv("MEDRE_MATRIX_ACCESS_TOKEN", "tok")
-        monkeypatch.setenv("MEDRE_MATRIX_ROOM_ALLOWLIST", "!room1:test,!room2:test")
-        base = _make_base_config()
+    def test_room_allowlist_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv(
+            "MEDRE_ADAPTER__FROM_TOML__room_allowlist",
+            "!roomA:example.com,!roomB:example.com",
+        )
+        base = _make_config_with_matrix()
         result = apply_env_overrides(base)
 
-        env_adapter = result.adapters.matrix["default"]
+        env_adapter = result.adapters.matrix["from-toml"]
         assert env_adapter.config is not None
         assert isinstance(env_adapter.config.room_allowlist, set)
-        assert "!room1:test" in env_adapter.config.room_allowlist
-        assert "!room2:test" in env_adapter.config.room_allowlist
-
-    def test_adapter_env_creates_new_instance_when_none_in_toml(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """If no Matrix adapter in TOML, env vars create a new 'default' instance."""
-        monkeypatch.setenv("MEDRE_MATRIX_HOMESERVER", "https://new.test")
-        monkeypatch.setenv("MEDRE_MATRIX_USER_ID", "@new:test")
-        monkeypatch.setenv("MEDRE_MATRIX_ACCESS_TOKEN", "new-tok")
-        base = _make_base_config()  # No adapters
-        result = apply_env_overrides(base)
-
-        assert "default" in result.adapters.matrix
-        env_adapter = result.adapters.matrix["default"]
-        assert env_adapter.config is not None
-        assert env_adapter.config.homeserver == "https://new.test"
+        assert "!roomA:example.com" in env_adapter.config.room_allowlist
+        assert "!roomB:example.com" in env_adapter.config.room_allowlist
 
     def test_enabled_false_via_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("MEDRE_MATRIX_ENABLED", "false")
-        monkeypatch.setenv("MEDRE_MATRIX_HOMESERVER", "https://matrix.test")
-        monkeypatch.setenv("MEDRE_MATRIX_USER_ID", "@bot:test")
-        monkeypatch.setenv("MEDRE_MATRIX_ACCESS_TOKEN", "tok")
-        base = _make_base_config()
+        monkeypatch.setenv("MEDRE_ADAPTER__FROM_TOML__enabled", "false")
+        base = _make_config_with_matrix()
         result = apply_env_overrides(base)
 
-        env_adapter = result.adapters.matrix["default"]
+        env_adapter = result.adapters.matrix["from-toml"]
         assert env_adapter.enabled is False
+
+    def test_access_token_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("MEDRE_ADAPTER__FROM_TOML__access_token", "syt_new_token")
+        base = _make_config_with_matrix()
+        result = apply_env_overrides(base)
+
+        env_adapter = result.adapters.matrix["from-toml"]
+        assert env_adapter.config is not None
+        assert env_adapter.config.access_token == "syt_new_token"
+
+
+# ---------------------------------------------------------------------------
+# Instance-scoped overrides
+# ---------------------------------------------------------------------------
+
+
+class TestInstanceScopedOverrides:
+    """MEDRE_ADAPTER__<TOKEN>__<FIELD> overrides per adapter instance."""
+
+    def test_one_adapter_one_field_override(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Single adapter, single field override."""
+        monkeypatch.setenv("MEDRE_ADAPTER__FROM_TOML__homeserver", "https://override.test")
+        base = _make_config_with_matrix()
+        result = apply_env_overrides(base)
+
+        assert result.adapters.matrix["from-toml"].config.homeserver == "https://override.test"
+        # Other fields unchanged
+        assert result.adapters.matrix["from-toml"].config.user_id == "@bot:toml"
+
+    def test_two_adapters_same_transport(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Two Matrix adapters, each gets its own override."""
+        monkeypatch.setenv("MEDRE_ADAPTER__MATRIX_PRIMARY__homeserver", "https://primary-env.test")
+        monkeypatch.setenv("MEDRE_ADAPTER__MATRIX_SECONDARY__homeserver", "https://secondary-env.test")
+        base = _make_config_with_two_matrix()
+        result = apply_env_overrides(base)
+
+        assert result.adapters.matrix["matrix-primary"].config.homeserver == "https://primary-env.test"
+        assert result.adapters.matrix["matrix-secondary"].config.homeserver == "https://secondary-env.test"
+
+    def test_two_adapters_different_transports(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Matrix and Meshtastic adapters, each with own override."""
+        monkeypatch.setenv("MEDRE_ADAPTER__MATRIX_MAIN__homeserver", "https://env-matrix.test")
+        monkeypatch.setenv("MEDRE_ADAPTER__RADIO_A__host", "10.0.0.1")
+        base = _make_config_with_matrix_and_meshtastic()
+        result = apply_env_overrides(base)
+
+        assert result.adapters.matrix["matrix-main"].config.homeserver == "https://env-matrix.test"
+        assert result.adapters.meshtastic["radio-a"].config.host == "10.0.0.1"
+
+    def test_meshcore_ble_address_override(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """MeshCore BLE address override via env var."""
+        monkeypatch.setenv("MEDRE_ADAPTER__MC_BLE__ble_address", "11:22:33:44:55:66")
+        base = _make_config_with_meshcore()
+        result = apply_env_overrides(base)
+
+        assert result.adapters.meshcore["mc-ble"].config.ble_address == "11:22:33:44:55:66"
+
+    def test_lxmf_identity_path_override(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """LXMF identity path override via env var."""
+        monkeypatch.setenv("MEDRE_ADAPTER__LXMF_RECEIVER__identity_path", "/path/to/identity")
+        base = _make_config_with_lxmf()
+        result = apply_env_overrides(base)
+
+        assert result.adapters.lxmf["lxmf-receiver"].config.identity_path == "/path/to/identity"
+
+    def test_set_field_override_room_allowlist(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """set[str] field (room_allowlist) parsed from comma-separated value."""
+        monkeypatch.setenv(
+            "MEDRE_ADAPTER__FROM_TOML__room_allowlist",
+            "!roomA:example.com,!roomB:example.com",
+        )
+        base = _make_config_with_matrix()
+        result = apply_env_overrides(base)
+
+        allowlist = result.adapters.matrix["from-toml"].config.room_allowlist
+        assert allowlist == {"!roomA:example.com", "!roomB:example.com"}
+
+    def test_bool_field_override_enabled(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Boolean enabled field parsed from env var."""
+        base = _make_config_with_matrix()
+
+        monkeypatch.setenv("MEDRE_ADAPTER__FROM_TOML__enabled", "false")
+        result = apply_env_overrides(base)
+        assert result.adapters.matrix["from-toml"].enabled is False
+
+        monkeypatch.setenv("MEDRE_ADAPTER__FROM_TOML__enabled", "true")
+        result = apply_env_overrides(base)
+        assert result.adapters.matrix["from-toml"].enabled is True
+
+    def test_int_field_override_sync_timeout_ms(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Integer sync_timeout_ms field parsed from env var."""
+        monkeypatch.setenv("MEDRE_ADAPTER__FROM_TOML__sync_timeout_ms", "60000")
+        base = _make_config_with_matrix()
+        result = apply_env_overrides(base)
+
+        assert result.adapters.matrix["from-toml"].config.sync_timeout_ms == 60000
+
+
+# ---------------------------------------------------------------------------
+# Error handling
+# ---------------------------------------------------------------------------
+
+
+class TestErrors:
+    """Instance-scoped env var errors raise ConfigValidationError."""
+
+    def test_unknown_token_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Token with no matching adapter lists known tokens."""
+        monkeypatch.setenv("MEDRE_ADAPTER__NONEXISTENT__homeserver", "https://nope.test")
+        base = _make_config_with_matrix()
+
+        with pytest.raises(ConfigValidationError, match="Unknown adapter tokens"):
+            apply_env_overrides(base)
+
+    def test_unknown_token_error_lists_known_tokens(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Error message includes known tokens for diagnostics."""
+        monkeypatch.setenv("MEDRE_ADAPTER__NONEXISTENT__homeserver", "x")
+        base = _make_config_with_matrix()
+
+        with pytest.raises(ConfigValidationError, match="Known tokens.*FROM_TOML"):
+            apply_env_overrides(base)
+
+    def test_unsupported_field_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Unknown field name on a valid adapter raises with valid field names."""
+        monkeypatch.setenv("MEDRE_ADAPTER__FROM_TOML__totally_fake_field", "x")
+        base = _make_config_with_matrix()
+
+        with pytest.raises(ConfigValidationError, match="Unsupported fields"):
+            apply_env_overrides(base)
+
+    def test_unsupported_field_error_lists_valid_fields(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Error message includes valid fields for the transport."""
+        monkeypatch.setenv("MEDRE_ADAPTER__FROM_TOML__totally_fake_field", "x")
+        base = _make_config_with_matrix()
+
+        with pytest.raises(ConfigValidationError, match="Valid fields"):
+            apply_env_overrides(base)
+
+    def test_invalid_bool_coercion_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Invalid bool value includes env var name in error."""
+        monkeypatch.setenv("MEDRE_ADAPTER__FROM_TOML__enabled", "maybe")
+        base = _make_config_with_matrix()
+
+        with pytest.raises(
+            ConfigValidationError, match="MEDRE_ADAPTER__FROM_TOML__enabled"
+        ):
+            apply_env_overrides(base)
+
+    def test_invalid_int_coercion_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Invalid int value includes env var name in error."""
+        monkeypatch.setenv("MEDRE_ADAPTER__FROM_TOML__sync_timeout_ms", "not-a-number")
+        base = _make_config_with_matrix()
+
+        with pytest.raises(
+            ConfigValidationError, match="MEDRE_ADAPTER__FROM_TOML__sync_timeout_ms"
+        ):
+            apply_env_overrides(base)
+
+
+# ---------------------------------------------------------------------------
+# Provenance and redaction
+# ---------------------------------------------------------------------------
+
+
+class TestProvenanceAndRedaction:
+    """EnvProvenance tracks env vars and redacts secret fields."""
+
+    def test_access_token_redacted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """access_token is redacted in provenance output."""
+        monkeypatch.setenv("MEDRE_ADAPTER__FROM_TOML__access_token", "syt_super_secret")
+        monkeypatch.setenv("MEDRE_ADAPTER__FROM_TOML__homeserver", "https://matrix.test")
+        env = MedreEnvConfig.from_environ()
+
+        redacted = dict(env.provenance.redacted_items())
+        assert redacted["MEDRE_ADAPTER__FROM_TOML__access_token"] == "***REDACTED***"
+
+    def test_secret_field_patterns_redacted(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Fields matching TOKEN/SECRET/PASSWORD/KEY/AUTH/CREDENTIAL are redacted."""
+        for field_name in ("access_token", "SECRET", "PASSWORD", "KEY", "AUTH", "CREDENTIAL"):
+            monkeypatch.setenv(f"MEDRE_ADAPTER__FROM_TOML__{field_name}", "secret-val")
+        env = MedreEnvConfig.from_environ()
+
+        redacted = dict(env.provenance.redacted_items())
+        for field_name in ("access_token", "SECRET", "PASSWORD", "KEY", "AUTH", "CREDENTIAL"):
+            assert redacted[f"MEDRE_ADAPTER__FROM_TOML__{field_name}"] == "***REDACTED***"
+
+    def test_homeserver_not_redacted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Non-secret fields remain visible."""
+        monkeypatch.setenv("MEDRE_ADAPTER__FROM_TOML__homeserver", "https://matrix.test")
+        env = MedreEnvConfig.from_environ()
+
+        redacted = dict(env.provenance.redacted_items())
+        assert redacted["MEDRE_ADAPTER__FROM_TOML__homeserver"] == "https://matrix.test"
+
+    def test_redacted_repr(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """redacted_repr() hides secrets but shows non-secret values."""
+        monkeypatch.setenv("MEDRE_ADAPTER__FROM_TOML__access_token", "secret123")
+        monkeypatch.setenv("MEDRE_ADAPTER__FROM_TOML__homeserver", "https://matrix.test")
+        env = MedreEnvConfig.from_environ()
+
+        r = env.redacted_repr()
+        assert "secret123" not in r
+        assert "***REDACTED***" in r
+        assert "https://matrix.test" in r
+
+    def test_to_dict_contains_unredacted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """to_dict returns raw values (unredacted) for programmatic use."""
+        monkeypatch.setenv("MEDRE_ADAPTER__FROM_TOML__access_token", "secret123")
+        monkeypatch.setenv("MEDRE_ADAPTER__FROM_TOML__homeserver", "https://matrix.test")
+        env = MedreEnvConfig.from_environ()
+
+        raw = env.to_dict()
+        assert raw["MEDRE_ADAPTER__FROM_TOML__access_token"] == "secret123"
 
 
 # ---------------------------------------------------------------------------
@@ -287,16 +696,14 @@ class TestImmutability:
     def test_original_adapters_not_mutated(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setenv("MEDRE_MATRIX_HOMESERVER", "https://env.test")
-        monkeypatch.setenv("MEDRE_MATRIX_USER_ID", "@env:test")
-        monkeypatch.setenv("MEDRE_MATRIX_ACCESS_TOKEN", "env-tok")
-        base = _make_base_config()
-        original_matrix_keys = set(base.adapters.matrix.keys())
+        monkeypatch.setenv("MEDRE_ADAPTER__FROM_TOML__homeserver", "https://env.test")
+        base = _make_config_with_matrix()
+        original_hs = base.adapters.matrix["from-toml"].config.homeserver
 
         result = apply_env_overrides(base)
 
-        assert set(base.adapters.matrix.keys()) == original_matrix_keys
-        assert "default" in result.adapters.matrix
+        assert base.adapters.matrix["from-toml"].config.homeserver == original_hs
+        assert result.adapters.matrix["from-toml"].config.homeserver == "https://env.test"
 
 
 # ---------------------------------------------------------------------------
@@ -316,13 +723,41 @@ class TestMedreEnvConfig:
         assert env.db_path == "/test.db"
         assert env.log_level == "DEBUG"
 
-    def test_from_environ_ignores_unknown_vars(
+    def test_core_vars_still_work(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Core vars (MEDRE_HOME, MEDRE_CONFIG, MEDRE_DB_PATH, etc.) captured."""
+        monkeypatch.setenv("MEDRE_HOME", "/opt/medre")
+        monkeypatch.setenv("MEDRE_CONFIG", "/etc/medre/medre.toml")
+        monkeypatch.setenv("MEDRE_DB_PATH", "/data/medre.db")
+        monkeypatch.setenv("MEDRE_LOG_LEVEL", "TRACE")
+        env = MedreEnvConfig.from_environ()
+        assert env.home == "/opt/medre"
+        assert env.config_path == "/etc/medre/medre.toml"
+        assert env.db_path == "/data/medre.db"
+        assert env.log_level == "TRACE"
+
+    def test_adapter_token_field_vars_in_instance_overrides(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setenv("MEDRE_UNKNOWN_VAR", "whatever")
+        """ADAPTER__TOKEN__FIELD vars stored in instance_overrides."""
+        monkeypatch.setenv("MEDRE_ADAPTER__FROM_TOML__homeserver", "https://env.test")
+        monkeypatch.setenv("MEDRE_ADAPTER__FROM_TOML__access_token", "tok")
+        env = MedreEnvConfig.from_environ()
+        assert env.instance_overrides == {
+            "FROM_TOML": {
+                "homeserver": "https://env.test",
+                "access_token": "tok",
+            }
+        }
+
+    def test_unknown_medre_vars_ignored(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Unknown MEDRE_* vars don't crash and aren't captured."""
+        monkeypatch.setenv("MEDRE_FUTURE_FEATURE", "some-value")
         env = MedreEnvConfig.from_environ()
         assert env.db_path is None
         assert env.log_level is None
+        assert env.instance_overrides == {}
 
     def test_has_any_set_false_when_empty(
         self, monkeypatch: pytest.MonkeyPatch
@@ -348,48 +783,15 @@ class TestMedreEnvConfig:
         assert env.db_path == "/custom.db"
         assert env.log_level == "TRACE"
 
-
-# ---------------------------------------------------------------------------
-# Secrets redaction
-# ---------------------------------------------------------------------------
-
-
-class TestSecretsRedaction:
-    """Secret values are redacted in diagnostic output."""
-
-    def test_access_token_redacted_in_provenance(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("MEDRE_MATRIX_ACCESS_TOKEN", "super-secret-token")
-        monkeypatch.setenv("MEDRE_MATRIX_HOMESERVER", "https://matrix.test")
-        monkeypatch.setenv("MEDRE_MATRIX_USER_ID", "@bot:test")
-        env = MedreEnvConfig.from_environ()
-
-        redacted = dict(env.provenance.redacted_items())
-        assert redacted["MEDRE_MATRIX_ACCESS_TOKEN"] == "***REDACTED***"
-        # Non-secret values remain visible
-        assert redacted["MEDRE_MATRIX_HOMESERVER"] == "https://matrix.test"
-
-    def test_redacted_repr(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("MEDRE_MATRIX_ACCESS_TOKEN", "secret123")
-        monkeypatch.setenv("MEDRE_MATRIX_HOMESERVER", "https://matrix.test")
-        monkeypatch.setenv("MEDRE_MATRIX_USER_ID", "@bot:test")
-        env = MedreEnvConfig.from_environ()
-
-        r = env.redacted_repr()
-        assert "secret123" not in r
-        assert "***REDACTED***" in r
-        assert "https://matrix.test" in r
-
-    def test_to_dict_contains_unredacted(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """to_dict returns raw values (unredacted) for programmatic use."""
-        monkeypatch.setenv("MEDRE_MATRIX_ACCESS_TOKEN", "secret123")
-        monkeypatch.setenv("MEDRE_MATRIX_HOMESERVER", "https://matrix.test")
-        monkeypatch.setenv("MEDRE_MATRIX_USER_ID", "@bot:test")
-        env = MedreEnvConfig.from_environ()
-
-        raw = env.to_dict()
-        assert raw["MEDRE_MATRIX_ACCESS_TOKEN"] == "secret123"
+    def test_from_environ_custom_source_with_adapter_vars(self) -> None:
+        custom = {
+            "MEDRE_ADAPTER__RADIO_A__host": "10.0.0.1",
+            "MEDRE_ADAPTER__RADIO_A__port": "4403",
+        }
+        env = MedreEnvConfig.from_environ(custom)
+        assert env.instance_overrides == {
+            "RADIO_A": {"host": "10.0.0.1", "port": "4403"},
+        }
 
 
 # ---------------------------------------------------------------------------
