@@ -151,7 +151,7 @@ When set explicitly (non-`None`), the provided path is used unchanged. This is p
 
 ### 8.2 Environment Variables
 
-Environment variables like `MEDRE_MATRIX_STORE_PATH` and `MEDRE_MATRIX_DEVICE_ID` are reserved for internal/testing use only. They are not operator-facing configuration.
+Environment variables like `MEDRE_ADAPTER__<TOKEN>__STORE_PATH` and `MEDRE_ADAPTER__<TOKEN>__DEVICE_ID` (formerly `MEDRE_MATRIX_STORE_PATH` and `MEDRE_MATRIX_DEVICE_ID`) are reserved for internal/testing use only. They are not operator-facing configuration.
 
 ## 9. Matrix E2EE Identity
 

@@ -60,7 +60,7 @@ path = "{state}/medre.sqlite"
 # To use a real Matrix homeserver, change adapter_kind to "real" and set:
 #   homeserver = "https://your-homeserver.org"
 #   user_id = "@bot:your-homeserver.org"
-#   access_token = ""  (or set MEDRE_MATRIX_ACCESS_TOKEN env var)
+#   access_token = ""  (or set MEDRE_ADAPTER__MAIN__ACCESS_TOKEN)
 [adapters.matrix.main]
 enabled = true
 adapter_kind = "fake"
@@ -68,7 +68,7 @@ adapter_kind = "fake"
 #                         # you need an ID that differs from the section name.
 homeserver = "https://matrix.example.com"
 user_id = "@bot:example.com"
-# Prefer using MEDRE_MATRIX_ACCESS_TOKEN env var over embedding tokens
+# Prefer MEDRE_ADAPTER__MAIN__ACCESS_TOKEN over embedding tokens
 access_token = "fake_sample_token"
 room_allowlist = ["!room:example.com"]
 # device_id and store_path are derived internally (whoami + state dir).

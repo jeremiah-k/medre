@@ -38,7 +38,7 @@ from pathlib import Path
 import pytest
 
 from medre.config.env import (
-    _SECRET_ENV_NAMES,
+    _SECRET_FIELD_RE,
     EnvProvenance,
     MedreEnvConfig,
     _coerce_bool,
@@ -54,6 +54,7 @@ from medre.config.loader import load_config
 from medre.config.model import (
     AdapterConfigSet,
     LoggingConfig,
+    MatrixConfig,
     MatrixRuntimeConfig,
     MeshtasticRuntimeConfig,
     RuntimeConfig,
@@ -727,7 +728,7 @@ class TestSecretRedaction:
     def test_env_config_redacted_repr(self) -> None:
         env = MedreEnvConfig.from_environ(
             {
-                "MEDRE_MATRIX_ACCESS_TOKEN": "s3cret",
+                "MEDRE_ADAPTER__MAIN__access_token": "s3cret",
                 "MEDRE_LOG_LEVEL": "INFO",
             }
         )
@@ -736,9 +737,10 @@ class TestSecretRedaction:
         assert "s3cret" not in repr_str
         assert "INFO" in repr_str
 
-    def test_secret_env_names_is_frozen(self) -> None:
-        """The secret env names set should not be accidentally mutated."""
-        assert "MEDRE_MATRIX_ACCESS_TOKEN" in _SECRET_ENV_NAMES
+    def test_secret_env_is_detected_by_regex(self) -> None:
+        """Secret env var names are detected by the heuristic regex."""
+        assert _SECRET_FIELD_RE.search("MEDRE_MATRIX_ACCESS_TOKEN") is not None
+        assert _SECRET_FIELD_RE.search("MEDRE_MATRIX_HOMESERVER") is None
 
 
 # ---------------------------------------------------------------------------
@@ -1068,10 +1070,26 @@ class TestEnvRuntimeLimitsValidation:
     ) -> None:
         from medre.config.env import apply_env_overrides
 
-        monkeypatch.setenv("MEDRE_MATRIX_ENABLED", "maybe")
-        config = RuntimeConfig()
+        monkeypatch.setenv("MEDRE_ADAPTER__MAIN__enabled", "maybe")
+        config = RuntimeConfig(
+            runtime=RuntimeOptions(name="test"),
+            logging=LoggingConfig(level="INFO"),
+            storage=StorageConfig(backend="sqlite", path="/tmp/test.db"),
+            adapters=AdapterConfigSet(
+                matrix={
+                    "main": MatrixRuntimeConfig(
+                        adapter_id="main",
+                        config=MatrixConfig(
+                            adapter_id="main",
+                            homeserver="https://matrix.test",
+                            user_id="@bot:test",
+                        ),
+                    ),
+                },
+            ),
+        )
         with pytest.raises(ConfigValidationError) as exc_info:
             apply_env_overrides(config)
         msg = str(exc_info.value)
-        assert "MEDRE_MATRIX_ENABLED" in msg
-        assert "must be a boolean" in msg
+        assert "MEDRE_ADAPTER__MAIN__enabled" in msg
+        assert "boolean" in msg

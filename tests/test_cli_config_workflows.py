@@ -109,7 +109,7 @@ class TestConfigSampleWorkflow:
     def test_sample_includes_env_var_guidance(self) -> None:
         """Sample mentions env var usage for secrets."""
         output = _run_cli("config", "sample")
-        assert "MEDRE_MATRIX_ACCESS_TOKEN" in output or "env" in output.lower()
+        assert "MEDRE_ADAPTER__MAIN__ACCESS_TOKEN" in output or "env" in output.lower()
 
 
 # ===================================================================

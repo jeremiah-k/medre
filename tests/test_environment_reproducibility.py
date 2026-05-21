@@ -536,9 +536,25 @@ class TestDockerEnvKeyCoverage:
                 if key.startswith("MEDRE_") and key.isupper():
                     env_keys.add(key)
 
-        # All extracted keys should be recognized
+        # All extracted keys should be recognized — either as fixed core names,
+        # as dynamically-prefixed MEDRE_ADAPTER__<TOKEN>__<FIELD> vars, or as
+        # legacy transport-specific vars (MEDRE_MATRIX_*, MEDRE_MESHTASTIC_*,
+        # etc.) which are documented for migration reference.
+        _REJECTED_LEGACY_PREFIXES = (
+            "MEDRE_MATRIX_",
+            "MEDRE_MESHTASTIC_",
+            "MEDRE_MESHCORE_",
+            "MEDRE_LXMF_",
+        )
         unrecognized = env_keys - ALL_RECOGNIZED_ENV_NAMES
-        # MEDRE_HOME and MEDRE_LOG_LEVEL are in CORE_ENV_NAMES
+        unrecognized = {
+            k for k in unrecognized if not k.startswith("MEDRE_ADAPTER__")
+        }
+        unrecognized = {
+            k
+            for k in unrecognized
+            if not any(k.startswith(p) for p in _REJECTED_LEGACY_PREFIXES)
+        }
         assert (
             not unrecognized
         ), f"docker.env.example has unrecognized MEDRE_ keys: {sorted(unrecognized)}"

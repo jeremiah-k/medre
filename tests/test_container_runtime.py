@@ -612,18 +612,18 @@ class TestDockerEnvExampleStructure:
         """Matrix adapter env vars should be documented."""
         text = _DOCKER_ENV.read_text()
         for key in (
-            "MEDRE_MATRIX_ENABLED",
-            "MEDRE_MATRIX_HOMESERVER",
-            "MEDRE_MATRIX_USER_ID",
-            "MEDRE_MATRIX_ACCESS_TOKEN",
+            "MEDRE_ADAPTER__MAIN__ENABLED",
+            "MEDRE_ADAPTER__MAIN__HOMESERVER",
+            "MEDRE_ADAPTER__MAIN__USER_ID",
+            "MEDRE_ADAPTER__MAIN__ACCESS_TOKEN",
         ):
             assert key in text, f"docker.env.example missing {key}"
 
     def test_meshtastic_adapter_keys_present(self) -> None:
         """Meshtastic adapter env vars should be documented."""
         text = _DOCKER_ENV.read_text()
-        assert "MEDRE_MESHTASTIC_ENABLED" in text
-        assert "MEDRE_MESHTASTIC_CONNECTION_TYPE" in text
+        assert "MEDRE_ADAPTER__RADIO__ENABLED" in text
+        assert "MEDRE_ADAPTER__RADIO__CONNECTION_TYPE" in text
 
     def test_no_real_secrets(self) -> None:
         """docker.env.example must not contain real secret patterns."""
@@ -638,7 +638,7 @@ class TestDockerEnvExampleStructure:
     def test_placeholder_token_is_safe(self) -> None:
         """Access token placeholder should be clearly fake."""
         text = _DOCKER_ENV.read_text()
-        match = re.search(r"MEDRE_MATRIX_ACCESS_TOKEN\s*=\s*(.+)", text)
+        match = re.search(r"MEDRE_ADAPTER__MAIN__ACCESS_TOKEN\s*=\s*(.+)", text)
         if match:
             value = match.group(1).strip()
             # Should not be a real-looking token
