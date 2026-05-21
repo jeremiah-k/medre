@@ -127,6 +127,7 @@ encryption_mode = "plaintext"
 source_adapters = ["fake_matrix"]
 dest_adapters = ["matrix_alpha"]
 directionality = "source_to_dest"
+dest_room = "{MATRIX_ROOM_ID}"
 enabled = true
 """
     config_file = tmp_path / "alpha-run-session.toml"
@@ -210,20 +211,41 @@ class TestMatrixAlphaRunSession:
         from medre.runtime.run_session.orchestration import run_bridge_session
 
         config_path = _write_run_session_config(tmp_path)
+        storage_path = tmp_path / "matrix-alpha-session.db"
 
         report = await asyncio.wait_for(
-            run_bridge_session(config_path=config_path),
+            run_bridge_session(
+                config_path=config_path,
+                storage_path=str(storage_path),
+                snapshot_dir=str(tmp_path),
+                message_text="MEDRE Matrix run-session test — safe to ignore",
+                message_count=1,
+                scenario="happy_path",
+            ),
             timeout=_RUN_SESSION_TIMEOUT,
         )
 
-        # Validate report status
+        # --- Core report shape ---
         assert report["status"] == "passed", (
             f"run_bridge_session failed: "
             f"{json.dumps(report, default=str, indent=2)}"
         )
+        assert report["command"] == "run_session"
+        assert report["source_adapter"] == "fake_matrix"
+        assert "matrix_alpha" in report["target_adapters"]
+        assert report["message_count"] == 1
+        assert report["event_ids"]
 
-        # Validate delivery receipts contain a sent receipt for matrix_alpha
-        receipts = report.get("delivery_receipts", [])
+        # --- Storage assertions ---
+        assert Path(report["storage_path"]).exists()
+        assert report["storage_path"] == str(storage_path)
+        if report["final_snapshot_path"]:
+            assert Path(report["final_snapshot_path"]).exists()
+        assert report["storage_ephemeral"] is False
+
+        # --- Delivery receipts ---
+        receipts = report["delivery_receipts"]
+        assert receipts, "No delivery_receipts in report"
         matrix_receipts = [
             r for r in receipts if r.get("target_adapter") == "matrix_alpha"
         ]
@@ -234,8 +256,9 @@ class TestMatrixAlphaRunSession:
             f"No 'sent' receipt for matrix_alpha: {matrix_receipts}"
         )
 
-        # Validate native_refs contain a Matrix native id (event_id starting with $)
-        native_refs = report.get("native_refs", [])
+        # --- Native refs ---
+        native_refs = report["native_refs"]
+        assert native_refs, "No native_refs in report"
         matrix_refs = [
             r for r in native_refs if r.get("adapter") == "matrix_alpha"
         ]
@@ -243,12 +266,16 @@ class TestMatrixAlphaRunSession:
             f"No matrix_alpha entries in native_refs: {native_refs}"
         )
         for ref in matrix_refs:
-            native_id = ref.get("native_message_id", "")
+            native_id = ref.get("native_message_id") or ref.get("native_id", "")
             assert native_id.startswith("$"), (
                 f"Expected Matrix event_id starting with '$', got: {native_id!r}"
             )
+            channel = ref.get("native_channel_id") or ref.get("channel", "")
+            assert channel == MATRIX_ROOM_ID, (
+                f"Expected channel {MATRIX_ROOM_ID!r}, got: {channel!r}"
+            )
 
-        # Validate access token never appears in serialized report
+        # --- Redaction: access token must not appear in serialized report ---
         assert MATRIX_ACCESS_TOKEN is not None
         report_json = json.dumps(report, default=str)
         assert MATRIX_ACCESS_TOKEN not in report_json, (
@@ -369,12 +396,14 @@ class TestMatrixAlphaDirectAdapter:
         assert MATRIX_HOMESERVER is not None
         assert MATRIX_USER_ID is not None
         assert MATRIX_ACCESS_TOKEN is not None
+        assert MATRIX_ROOM_ID is not None
 
         config = MatrixConfig(
             adapter_id="matrix-alpha-diag",
             homeserver=MATRIX_HOMESERVER,
             user_id=MATRIX_USER_ID,
             access_token=MATRIX_ACCESS_TOKEN,
+            room_allowlist={MATRIX_ROOM_ID},
         )
 
         ctx = AdapterContext(

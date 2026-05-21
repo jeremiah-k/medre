@@ -177,8 +177,10 @@ async def _collect_native_refs(
         refs.append(
             {
                 "adapter": nref.adapter,
+                "native_channel_id": nref.native_channel_id or "",
                 "channel": nref.native_channel_id or "",
                 "native_id": nref.native_message_id,
+                "native_message_id": nref.native_message_id,
                 "resolves_to": resolved or nref.event_id,
             }
         )

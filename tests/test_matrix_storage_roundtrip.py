@@ -18,6 +18,7 @@ from medre.adapters.matrix.codec import MatrixCodec
 from medre.config.adapters.matrix import MatrixConfig
 from medre.core.events import (
     CanonicalEvent,
+    DeliveryReceipt,
     EventMetadata,
     EventRelation,
     NativeMessageRef,
@@ -103,7 +104,7 @@ def _make_matrix_canonical_event(
         event_id=event_id,
         event_kind="message.created",
         schema_version=1,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
         source_adapter="matrix-test",
         source_transport_id=sender,
         source_channel_id=room_id,
@@ -350,8 +351,6 @@ class TestMatrixStorageCounts:
 
     async def test_receipt_count_with_matrix_delivery(self, temp_storage) -> None:
         """Receipt count reflects Matrix delivery receipts."""
-        from medre.core.events.canonical import DeliveryReceipt
-
         event = _make_matrix_canonical_event(event_id="ce-rcpt-1")
         await temp_storage.append(event)
 
