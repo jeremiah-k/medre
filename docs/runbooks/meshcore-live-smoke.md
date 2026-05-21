@@ -184,6 +184,7 @@ export MESHCORE_BLE_PIN="123456"     # optional
 | `MESHCORE_BLE_PIN`         | BLE (optional) | `123456`            | BLE pairing PIN                             |
 | `MESHCORE_CHANNEL_INDEX`   | All            | `0`                 | Channel for test messages (default `0`)     |
 | `MESHCORE_DESTINATION`     | DM tests       | `a1b2c3...`         | Hex pubkey prefix for direct message target |
+| `MESHCORE_LIVE_SEND`       | Send tests     | `1`                 | Must be `1` to enable actual radio transmission. Without it, real-mode send tests skip. Fake-mode sends are unaffected. |
 
 If any required variable is unset, all live tests should skip with a descriptive message.
 
@@ -417,6 +418,24 @@ For full details, see `docs/contracts/19-meshcore-connectivity-readiness.md` Sec
 
 **Key point for future implementers:** `expected_ack` is the candidate for MEDRE's `native_message_id`. It is a CRC-like token, not an incrementing ID. Two identical sends could produce the same `expected_ack`. This needs hardware verification before relying on it as a unique identifier.
 
+### Send Opt-In Safety: `MESHCORE_LIVE_SEND`
+
+Actual radio transmission (real-mode sends) requires `MESHCORE_LIVE_SEND=1`. This is a safety gate to prevent accidental transmission during development or CI.
+
+- **`MESHCORE_LIVE_SEND=1`**: Real-mode send tests execute actual transmissions via the MeshCore radio node.
+- **`MESHCORE_LIVE_SEND` unset or any other value**: Real-mode send tests skip with a descriptive message. The test harness logs that the send opt-in is not set.
+- **Fake-mode sends**: Unaffected. Fake-mode tests never transmit and do not check `MESHCORE_LIVE_SEND`.
+
+This applies to `send_msg`, `send_chan_msg`, and `send_msg_with_retry` when running in real mode (non-fake `connection_type`).
+
+**Important distinctions:**
+
+1. **Connection and health tests run without LIVE_SEND.** Adapter lifecycle tests (start, stop, health_check, diagnostics) do not transmit radio traffic and are gated only by the standard `MESHCORE_CONNECTION_TYPE` env vars. These can be run without the live-send opt-in.
+
+2. **Any real transmit requires `MESHCORE_LIVE_SEND=1`.** Sending a message to the mesh — whether via `send_msg`, `send_chan_msg`, `send_msg_with_retry`, or `adapter.deliver()` in real mode — is blocked unless this variable is explicitly set to `1`. No accidental RF emissions.
+
+3. **Live send evidence should be recorded separately and sanitized.** When live send tests are run against real hardware, the output (diagnostics, message IDs, health snapshots) must be recorded in a separate evidence document. Before sharing, sanitize any sensitive fields: radio coordinates, BLE MAC addresses, serial port paths, and mesh node public keys.
+
 ## What It Proves / Does Not Prove
 
 ### Would Prove (when harness is built)
@@ -499,7 +518,7 @@ After running tests:
    ```bash
    unset MESHCORE_CONNECTION_TYPE MESHCORE_HOST MESHCORE_PORT
    unset MESHCORE_SERIAL_PORT MESHCORE_BLE_ADDRESS MESHCORE_BLE_PIN
-   unset MESHCORE_CHANNEL_INDEX MESHCORE_DESTINATION
+   unset MESHCORE_CHANNEL_INDEX MESHCORE_DESTINATION MESHCORE_LIVE_SEND
    ```
 
 4. **Disconnect the node** if it was powered on only for testing.

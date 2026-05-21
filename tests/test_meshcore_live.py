@@ -94,6 +94,13 @@ from medre.adapters.meshcore.compat import HAS_MESHCORE
 pytestmark = [pytest.mark.live]
 
 # ---------------------------------------------------------------------------
+# Timeout bounds for live async operations (seconds).
+# ---------------------------------------------------------------------------
+_ADAPTER_START_TIMEOUT: float = 30.0
+_ADAPTER_STOP_TIMEOUT: float = 10.0
+_DELIVER_TIMEOUT: float = 15.0
+
+# ---------------------------------------------------------------------------
 # Environment variable gate
 # ---------------------------------------------------------------------------
 MESHCORE_CONNECTION_TYPE = os.environ.get("MESHCORE_CONNECTION_TYPE", "").lower()
@@ -102,6 +109,7 @@ MESHCORE_PORT = os.environ.get("MESHCORE_PORT", "4403")
 MESHCORE_SERIAL_PORT = os.environ.get("MESHCORE_SERIAL_PORT")
 MESHCORE_BLE_ADDRESS = os.environ.get("MESHCORE_BLE_ADDRESS")
 MESHCORE_CHANNEL_INDEX = os.environ.get("MESHCORE_CHANNEL_INDEX", "0")
+MESHCORE_LIVE_SEND = os.environ.get("MESHCORE_LIVE_SEND", "").strip() == "1"
 
 
 def _validate_env() -> tuple[str, str]:
@@ -152,6 +160,15 @@ require_live = pytest.mark.skipif(
         _LIVE_SKIP_REASON
         if not _LIVE_ENV_SET
         else "meshcore SDK not installed; pip install meshcore"
+    ),
+)
+
+# Additional gate for tests that actually send/transmit on the radio.
+# These tests are opt-in: MESHCORE_LIVE_SEND=1 must be set explicitly.
+require_live_send = pytest.mark.skipif(
+    not MESHCORE_LIVE_SEND,
+    reason=(
+        "Set MESHCORE_LIVE_SEND=1 to enable live send/transmit tests"
     ),
 )
 
@@ -241,14 +258,14 @@ class TestMeshCoreLiveSmoke:
         ctx = _make_context()
 
         try:
-            await adapter.start(ctx)
+            await asyncio.wait_for(adapter.start(ctx), timeout=_ADAPTER_START_TIMEOUT)
             info = await adapter.health_check()
             assert info.health in (
                 "healthy",
                 "degraded",
             ), f"Expected healthy or degraded, got {info.health!r}"
         finally:
-            await adapter.stop()
+            await asyncio.wait_for(adapter.stop(), timeout=_ADAPTER_STOP_TIMEOUT)
 
     async def test_session_connected_after_start(self):
         """Verify session reports connected after adapter start."""
@@ -259,11 +276,11 @@ class TestMeshCoreLiveSmoke:
         ctx = _make_context()
 
         try:
-            await adapter.start(ctx)
+            await asyncio.wait_for(adapter.start(ctx), timeout=_ADAPTER_START_TIMEOUT)
             assert adapter._session is not None
             assert adapter._session.connected is True
         finally:
-            await adapter.stop()
+            await asyncio.wait_for(adapter.stop(), timeout=_ADAPTER_STOP_TIMEOUT)
 
     async def test_session_disconnected_after_stop(self):
         """Verify session reports disconnected after adapter stop."""
@@ -274,11 +291,11 @@ class TestMeshCoreLiveSmoke:
         ctx = _make_context()
 
         try:
-            await adapter.start(ctx)
-            await adapter.stop()
+            await asyncio.wait_for(adapter.start(ctx), timeout=_ADAPTER_START_TIMEOUT)
+            await asyncio.wait_for(adapter.stop(), timeout=_ADAPTER_STOP_TIMEOUT)
             assert adapter._session is None
         finally:
-            await adapter.stop()
+            await asyncio.wait_for(adapter.stop(), timeout=_ADAPTER_STOP_TIMEOUT)
 
     # -- Diagnostics --------------------------------------------------------
 
@@ -291,14 +308,14 @@ class TestMeshCoreLiveSmoke:
         ctx = _make_context()
 
         try:
-            await adapter.start(ctx)
+            await asyncio.wait_for(adapter.start(ctx), timeout=_ADAPTER_START_TIMEOUT)
             diag = adapter.diagnostics()
             assert diag["started"] is True
             assert "session" in diag
             assert diag["session"]["connected"] is True
             assert diag["session"]["mode"] in ("tcp", "serial", "ble")
         finally:
-            await adapter.stop()
+            await asyncio.wait_for(adapter.stop(), timeout=_ADAPTER_STOP_TIMEOUT)
 
     async def test_diagnostics_no_secrets(self):
         """Diagnostics never expose secrets."""
@@ -309,19 +326,22 @@ class TestMeshCoreLiveSmoke:
         ctx = _make_context()
 
         try:
-            await adapter.start(ctx)
+            await asyncio.wait_for(adapter.start(ctx), timeout=_ADAPTER_START_TIMEOUT)
             diag = adapter.diagnostics()
             diag_str = str(diag)
             assert "private_key" not in diag_str
             assert "secret" not in diag_str
             assert "password" not in diag_str
         finally:
-            await adapter.stop()
+            await asyncio.wait_for(adapter.stop(), timeout=_ADAPTER_STOP_TIMEOUT)
 
-    # -- Outbound send ------------------------------------------------------
+    async def test_diagnostics_shape_useful_fields(self):
+        """Diagnostics contain useful operational fields with correct shape.
 
-    async def test_send_channel_message(self):
-        """Send a channel message and verify no error is raised."""
+        Verifies the diagnostics snapshot includes all expected
+        MeshCore-specific fields: adapter metadata, session state,
+        and no secrets.
+        """
         from medre.adapters.meshcore.adapter import MeshCoreAdapter
 
         config = _make_config()
@@ -329,25 +349,85 @@ class TestMeshCoreLiveSmoke:
         ctx = _make_context()
 
         try:
-            await adapter.start(ctx)
+            await asyncio.wait_for(adapter.start(ctx), timeout=_ADAPTER_START_TIMEOUT)
+            diag = adapter.diagnostics()
+
+            # -- Required MeshCore-specific fields --------------------------------
+            required_fields = (
+                "adapter_id",
+                "platform",
+                "started",
+                "mode",
+            )
+            for field in required_fields:
+                assert field in diag, (
+                    f"diagnostics() missing required field {field!r}. "
+                    f"Available fields: {sorted(diag.keys())}"
+                )
+
+            assert diag["adapter_id"] == "meshcore-live-smoke"
+            assert diag["platform"] == "meshcore"
+            assert diag["started"] is True
+            assert diag["mode"] in ("tcp", "serial", "ble")
+
+            # -- Session diagnostics shape ----------------------------------------
+            assert "session" in diag
+            session_diag = diag["session"]
+            assert session_diag["connected"] is True
+            assert isinstance(session_diag.get("reconnecting"), bool)
+            assert isinstance(session_diag.get("reconnect_attempts"), int)
+            assert isinstance(session_diag.get("transient_delivery_failures"), int)
+            assert isinstance(session_diag.get("permanent_delivery_failures"), int)
+
+            # -- No secrets in diagnostics output --------------------------------
+            diag_str = str(diag)
+            assert "private_key" not in diag_str
+            assert "secret" not in diag_str
+            assert "password" not in diag_str
+        finally:
+            await asyncio.wait_for(adapter.stop(), timeout=_ADAPTER_STOP_TIMEOUT)
+
+    # -- Outbound send ------------------------------------------------------
+
+    @require_live_send
+    async def test_send_channel_message(self):
+        """Send a channel message and verify no error is raised.
+
+        Requires MESHCORE_LIVE_SEND=1 to actually transmit on the radio.
+        """
+        from medre.adapters.meshcore.adapter import MeshCoreAdapter
+
+        config = _make_config()
+        adapter = MeshCoreAdapter(config)
+        ctx = _make_context()
+
+        try:
+            await asyncio.wait_for(adapter.start(ctx), timeout=_ADAPTER_START_TIMEOUT)
             assert adapter._session is not None
-            await adapter._session.send_text(
-                contact_id="",
-                text="MEDRE live smoke: send test",
-                channel_index=int(MESHCORE_CHANNEL_INDEX),
+            await asyncio.wait_for(
+                adapter._session.send_text(
+                    contact_id="",
+                    text="MEDRE live smoke: send test",
+                    channel_index=int(MESHCORE_CHANNEL_INDEX),
+                ),
+                timeout=_DELIVER_TIMEOUT,
             )
             # Result may be None or a native message ID.
             # The important thing is no exception was raised.
         finally:
-            await adapter.stop()
+            await asyncio.wait_for(adapter.stop(), timeout=_ADAPTER_STOP_TIMEOUT)
 
     # -- Inbound receive ----------------------------------------------------
 
+    @require_live_send
     async def test_inbound_callback_receives_messages(self):
         """Subscribe to inbound messages and wait for one.
 
         This test waits up to 30 seconds for an inbound message.
         It will pass if any message is received during the wait period.
+
+        Requires MESHCORE_LIVE_SEND=1 because it depends on active radio
+        traffic.
         """
         from medre.adapters.meshcore.adapter import MeshCoreAdapter
 
@@ -361,7 +441,7 @@ class TestMeshCoreLiveSmoke:
             received.append(pkt)
 
         try:
-            await adapter.start(ctx)
+            await asyncio.wait_for(adapter.start(ctx), timeout=_ADAPTER_START_TIMEOUT)
             # Wire the session callback to our capture function.
             if adapter._session is not None:
                 adapter._session._message_callback = capture
@@ -377,7 +457,7 @@ class TestMeshCoreLiveSmoke:
             if received:
                 assert "text" in received[0]
         finally:
-            await adapter.stop()
+            await asyncio.wait_for(adapter.stop(), timeout=_ADAPTER_STOP_TIMEOUT)
 
     # -- Repeated start/stop ------------------------------------------------
 
@@ -391,10 +471,69 @@ class TestMeshCoreLiveSmoke:
 
         try:
             for _i in range(3):
-                await adapter.start(ctx)
+                await asyncio.wait_for(
+                    adapter.start(ctx), timeout=_ADAPTER_START_TIMEOUT
+                )
                 assert adapter._session is not None
                 assert adapter._session.connected is True
-                await adapter.stop()
+                await asyncio.wait_for(adapter.stop(), timeout=_ADAPTER_STOP_TIMEOUT)
                 assert adapter._session is None
         finally:
-            await adapter.stop()
+            await asyncio.wait_for(adapter.stop(), timeout=_ADAPTER_STOP_TIMEOUT)
+
+    # -- Bounded async ops --------------------------------------------------
+
+    async def test_bounded_start_stop(self):
+        """start() and stop() complete within timeout bounds.
+
+        This catches resource leaks (unclosed sessions, dangling tasks)
+        that would prevent clean shutdown.
+        """
+        from medre.adapters.meshcore.adapter import MeshCoreAdapter
+
+        config = _make_config()
+        adapter = MeshCoreAdapter(config)
+        ctx = _make_context()
+
+        await asyncio.wait_for(adapter.start(ctx), timeout=_ADAPTER_START_TIMEOUT)
+        await asyncio.wait_for(adapter.stop(), timeout=_ADAPTER_STOP_TIMEOUT)
+
+        # After stop, diagnostics should report disconnected state.
+        diag = adapter.diagnostics()
+        assert diag["started"] is False
+        assert "session" not in diag
+
+    # -- Stop idempotency ---------------------------------------------------
+
+    async def test_stop_idempotency(self):
+        """Calling stop() multiple times is safe and idempotent.
+
+        Verifies:
+        - stop() on a never-started adapter is a no-op.
+        - stop() after stop() is a no-op.
+        - Health remains 'unknown' throughout.
+        """
+        from medre.adapters.meshcore.adapter import MeshCoreAdapter
+
+        config = _make_config()
+        adapter = MeshCoreAdapter(config)
+
+        # stop() on never-started adapter — no-op
+        await asyncio.wait_for(adapter.stop(), timeout=_ADAPTER_STOP_TIMEOUT)
+        info = await adapter.health_check()
+        assert info.health == "unknown"
+
+        # Start, then stop twice
+        ctx = _make_context()
+        await asyncio.wait_for(adapter.start(ctx), timeout=_ADAPTER_START_TIMEOUT)
+        info = await adapter.health_check()
+        assert info.health in ("healthy", "degraded")
+
+        await asyncio.wait_for(adapter.stop(), timeout=_ADAPTER_STOP_TIMEOUT)
+        info = await adapter.health_check()
+        assert info.health == "unknown"
+
+        # Second stop — no-op
+        await asyncio.wait_for(adapter.stop(), timeout=_ADAPTER_STOP_TIMEOUT)
+        info = await adapter.health_check()
+        assert info.health == "unknown"

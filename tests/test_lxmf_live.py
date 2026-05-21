@@ -52,6 +52,11 @@ Variable                    Description
 ``LXMF_DISPLAY_NAME``       Optional display name for LXMF announces.
 ``LXMF_DESTINATION_HASH``   Optional destination hexhash for outbound send
                             tests (32-char hex string).
+``LXMF_STORAGE_PATH``       Optional path for LXMF router storage.  Defaults
+                            to ``/tmp/medre-live-lxmf-router``.
+``LXMF_LIVE_SEND``          Set to ``1`` to enable real outbound send tests.
+                            Without this, tests that transmit real messages
+                            are skipped.
 =========================== =====================================================
 
 At minimum, ``LXMF_CONNECTION_TYPE`` and ``LXMF_IDENTITY_PATH`` must
@@ -121,12 +126,29 @@ import pytest
 pytestmark = pytest.mark.live
 
 # ---------------------------------------------------------------------------
+# Bounded-async timeouts and helper
+# ---------------------------------------------------------------------------
+_ADAPTER_START_TIMEOUT: float = 30.0
+_ADAPTER_STOP_TIMEOUT: float = 10.0
+_DELIVER_TIMEOUT: float = 15.0
+
+
+async def _bounded(coro, timeout: float, label: str):
+    try:
+        return await asyncio.wait_for(coro, timeout=timeout)
+    except asyncio.TimeoutError:
+        raise AssertionError(f"Timed out after {timeout}s: {label}") from None
+
+
+# ---------------------------------------------------------------------------
 # Environment variable gate
 # ---------------------------------------------------------------------------
 LXMF_CONNECTION_TYPE = os.environ.get("LXMF_CONNECTION_TYPE", "").lower()
 LXMF_IDENTITY_PATH = os.environ.get("LXMF_IDENTITY_PATH", "")
 LXMF_DISPLAY_NAME = os.environ.get("LXMF_DISPLAY_NAME", "")
 LXMF_DESTINATION_HASH = os.environ.get("LXMF_DESTINATION_HASH", "")
+LXMF_STORAGE_PATH = os.environ.get("LXMF_STORAGE_PATH", "")
+LXMF_LIVE_SEND = os.environ.get("LXMF_LIVE_SEND", "").strip() == "1"
 
 
 def _validate_env() -> tuple[str, str]:
@@ -164,9 +186,9 @@ require_live = pytest.mark.skipif(
     reason=_LIVE_SKIP_REASON,
 )
 
-require_lxmf_sdk = pytest.mark.skipif(
-    not _LIVE_ENV_SET,
-    reason=_LIVE_SKIP_REASON,
+require_live_send = pytest.mark.skipif(
+    not LXMF_LIVE_SEND,
+    reason="Set LXMF_LIVE_SEND=1 to enable real outbound send tests",
 )
 
 
@@ -182,7 +204,7 @@ def _make_config():
         connection_type="reticulum",
         identity_path=LXMF_IDENTITY_PATH or None,
         display_name=LXMF_DISPLAY_NAME,
-        storage_path="/tmp/medre-live-lxmf-router",
+        storage_path=LXMF_STORAGE_PATH or "/tmp/medre-live-lxmf-router",
     )
 
 
@@ -302,8 +324,8 @@ class TestLxmfLiveSmoke:
         ctx = _make_context()
 
         try:
-            await adapter.start(ctx)
-            info = await adapter.health_check()
+            await _bounded(adapter.start(ctx), _ADAPTER_START_TIMEOUT, "lxmf adapter start")
+            info = await _bounded(adapter.health_check(), 10.0, "lxmf health_check")
             assert (
                 info.health == "healthy"
             ), f"Expected healthy after start, got {info.health!r}"
@@ -312,7 +334,7 @@ class TestLxmfLiveSmoke:
         except LxmfConnectionError as exc:
             pytest.skip(f"LXMF connection unavailable: {exc}")
         finally:
-            await adapter.stop()
+            await _bounded(adapter.stop(), _ADAPTER_STOP_TIMEOUT, "lxmf adapter stop")
 
     async def test_adapter_health_unknown_before_start(self):
         """Health check on a never-started adapter returns unknown.
@@ -349,12 +371,12 @@ class TestLxmfLiveSmoke:
         ctx = _make_context()
 
         try:
-            await adapter.start(ctx)
+            await _bounded(adapter.start(ctx), _ADAPTER_START_TIMEOUT, "lxmf start")
         except LxmfConnectionError as exc:
             pytest.skip(f"LXMF connection unavailable: {exc}")
 
-        await adapter.stop()
-        info = await adapter.health_check()
+        await _bounded(adapter.stop(), _ADAPTER_STOP_TIMEOUT, "lxmf stop")
+        info = await _bounded(adapter.health_check(), 10.0, "lxmf health_check after stop")
         assert (
             info.health == "unknown"
         ), f"Expected unknown after stop, got {info.health!r}"
@@ -371,7 +393,7 @@ class TestLxmfLiveSmoke:
         adapter = LxmfAdapter(config)
 
         # Should not raise.
-        await adapter.stop()
+        await _bounded(adapter.stop(), _ADAPTER_STOP_TIMEOUT, "lxmf stop (never started)")
 
         info = await adapter.health_check()
         assert info.health == "unknown"
@@ -393,7 +415,7 @@ class TestLxmfLiveSmoke:
         config = _make_fake_config()
         adapter = LxmfAdapter(config)
         ctx = _make_context()
-        await adapter.start(ctx)
+        await _bounded(adapter.start(ctx), 5.0, "fake start (send result)")
         try:
             from medre.core.rendering.renderer import RenderingResult
 
@@ -410,7 +432,7 @@ class TestLxmfLiveSmoke:
                 },
                 metadata={"renderer": "lxmf", "test": "send-smoke"},
             )
-            delivery = await adapter.deliver(result)
+            delivery = await _bounded(adapter.deliver(result), 5.0, "fake deliver (send result)")
             assert (
                 delivery is not None
             ), "deliver() returned None — expected AdapterDeliveryResult"
@@ -428,7 +450,7 @@ class TestLxmfLiveSmoke:
                 f"got {lxmf_meta['delivery_state']!r}"
             )
         finally:
-            await adapter.stop()
+            await _bounded(adapter.stop(), 5.0, "fake stop (send result)")
 
     async def test_outbound_send_unique_ids_fake(self):
         """Two sends produce distinct native_message_ids.
@@ -442,7 +464,7 @@ class TestLxmfLiveSmoke:
         config = _make_fake_config()
         adapter = LxmfAdapter(config)
         ctx = _make_context()
-        await adapter.start(ctx)
+        await _bounded(adapter.start(ctx), 5.0, "fake start (unique ids)")
         try:
             ts = int(time.time())
             for i in range(2):
@@ -456,7 +478,7 @@ class TestLxmfLiveSmoke:
                     },
                     metadata={"renderer": "lxmf", "test": "unique-ids"},
                 )
-                delivery = await adapter.deliver(result)
+                delivery = await _bounded(adapter.deliver(result), 5.0, "fake deliver (unique loop)")
                 assert delivery is not None
                 assert delivery.native_message_id is not None
 
@@ -475,8 +497,8 @@ class TestLxmfLiveSmoke:
                 payload={"content": "msg b", "destination_hash": "ab" * 16},
                 metadata={"test": "unique-ids"},
             )
-            d1 = await adapter.deliver(r1)
-            d2 = await adapter.deliver(r2)
+            d1 = await _bounded(adapter.deliver(r1), 5.0, "fake deliver (unique d1)")
+            d2 = await _bounded(adapter.deliver(r2), 5.0, "fake deliver (unique d2)")
             assert d1 is not None and d2 is not None
             assert d1.native_message_id is not None
             assert d2.native_message_id is not None
@@ -484,7 +506,7 @@ class TestLxmfLiveSmoke:
                 d1.native_message_id != d2.native_message_id
             ), "Two sends produced the same native_message_id"
         finally:
-            await adapter.stop()
+            await _bounded(adapter.stop(), 5.0, "fake stop (unique ids)")
 
     async def test_outbound_send_type_validation(self):
         """deliver() raises AdapterPermanentError for non-RenderingResult input.
@@ -499,12 +521,12 @@ class TestLxmfLiveSmoke:
         config = _make_fake_config()
         adapter = LxmfAdapter(config)
         ctx = _make_context()
-        await adapter.start(ctx)
+        await _bounded(adapter.start(ctx), 5.0, "fake start (type validation)")
         try:
             with pytest.raises(AdapterPermanentError, match="RenderingResult"):
                 await adapter.deliver("not a rendering result")  # type: ignore[arg-type]
         finally:
-            await adapter.stop()
+            await _bounded(adapter.stop(), 5.0, "fake stop (type validation)")
 
     # ===================================================================
     # 4. Delivery callback validation (inbound path)
@@ -543,7 +565,7 @@ class TestLxmfLiveSmoke:
         config = _make_fake_config()
         adapter = LxmfAdapter(config)
         ctx = _make_context(publish_inbound=publish_mock)
-        await adapter.start(ctx)
+        await _bounded(adapter.start(ctx), 5.0, "fake start (inbound)")
         try:
             packet = make_lxmf_text_packet(
                 content="MEDRE live smoke inbound test",
@@ -555,7 +577,7 @@ class TestLxmfLiveSmoke:
             event = publish_mock.call_args.args[0]
             assert event.payload.get("body") == "MEDRE live smoke inbound test"
         finally:
-            await adapter.stop()
+            await _bounded(adapter.stop(), 5.0, "fake stop (inbound)")
 
     # ===================================================================
     # 5. Restart validation
@@ -585,16 +607,16 @@ class TestLxmfLiveSmoke:
         ctx1 = _make_context()
         adapter = LxmfAdapter(config)
         try:
-            await adapter.start(ctx1)
+            await _bounded(adapter.start(ctx1), _ADAPTER_START_TIMEOUT, "lxmf start cycle 1")
         except LxmfConnectionError as exc:
             pytest.skip(f"LXMF connection unavailable: {exc}")
 
-        info = await adapter.health_check()
+        info = await _bounded(adapter.health_check(), 10.0, "lxmf health_check cycle 1 start")
         assert (
             info.health == "healthy"
         ), f"Cycle 1 start: expected healthy, got {info.health!r}"
-        await adapter.stop()
-        info = await adapter.health_check()
+        await _bounded(adapter.stop(), _ADAPTER_STOP_TIMEOUT, "lxmf stop cycle 1")
+        info = await _bounded(adapter.health_check(), 10.0, "lxmf health_check cycle 1 stop")
         assert (
             info.health == "unknown"
         ), f"Cycle 1 stop: expected unknown, got {info.health!r}"
@@ -602,16 +624,16 @@ class TestLxmfLiveSmoke:
         # Cycle 2 — same adapter instance, new context
         ctx2 = _make_context()
         try:
-            await adapter.start(ctx2)
+            await _bounded(adapter.start(ctx2), _ADAPTER_START_TIMEOUT, "lxmf start cycle 2")
         except LxmfConnectionError as exc:
             pytest.skip(f"LXMF connection unavailable on restart: {exc}")
 
-        info = await adapter.health_check()
+        info = await _bounded(adapter.health_check(), 10.0, "lxmf health_check cycle 2 start")
         assert (
             info.health == "healthy"
         ), f"Cycle 2 start: expected healthy, got {info.health!r}"
-        await adapter.stop()
-        info = await adapter.health_check()
+        await _bounded(adapter.stop(), _ADAPTER_STOP_TIMEOUT, "lxmf stop cycle 2")
+        info = await _bounded(adapter.health_check(), 10.0, "lxmf health_check cycle 2 stop")
         assert (
             info.health == "unknown"
         ), f"Cycle 2 stop: expected unknown, got {info.health!r}"
@@ -631,28 +653,28 @@ class TestLxmfLiveSmoke:
 
         # Cycle 1
         ctx1 = _make_context()
-        await adapter.start(ctx1)
+        await _bounded(adapter.start(ctx1), 5.0, "fake start cycle 1")
         info = await adapter.health_check()
         assert info.health == "healthy"
-        await adapter.stop()
+        await _bounded(adapter.stop(), 5.0, "fake stop cycle 1")
         info = await adapter.health_check()
         assert info.health == "unknown"
 
         # Cycle 2
         ctx2 = _make_context()
-        await adapter.start(ctx2)
+        await _bounded(adapter.start(ctx2), 5.0, "fake start cycle 2")
         info = await adapter.health_check()
         assert info.health == "healthy"
-        await adapter.stop()
+        await _bounded(adapter.stop(), 5.0, "fake stop cycle 2")
         info = await adapter.health_check()
         assert info.health == "unknown"
 
         # Cycle 3 — one more for good measure
         ctx3 = _make_context()
-        await adapter.start(ctx3)
+        await _bounded(adapter.start(ctx3), 5.0, "fake start cycle 3")
         info = await adapter.health_check()
         assert info.health == "healthy"
-        await adapter.stop()
+        await _bounded(adapter.stop(), 5.0, "fake stop cycle 3")
         info = await adapter.health_check()
         assert info.health == "unknown"
 
@@ -672,12 +694,12 @@ class TestLxmfLiveSmoke:
         adapter = LxmfAdapter(config)
         ctx = _make_context()
 
-        await adapter.start(ctx)
+        await _bounded(adapter.start(ctx), 5.0, "fake start (double start 1)")
         # Second start — must not raise.
-        await adapter.start(ctx)
+        await _bounded(adapter.start(ctx), 5.0, "fake start (double start 2)")
         info = await adapter.health_check()
         assert info.health == "healthy"
-        await adapter.stop()
+        await _bounded(adapter.stop(), 5.0, "fake stop (double start)")
 
     async def test_double_stop_idempotent_fake(self):
         """Calling stop() twice is idempotent (fake mode).
@@ -690,10 +712,10 @@ class TestLxmfLiveSmoke:
         adapter = LxmfAdapter(config)
         ctx = _make_context()
 
-        await adapter.start(ctx)
-        await adapter.stop()
+        await _bounded(adapter.start(ctx), 5.0, "fake start (double stop)")
+        await _bounded(adapter.stop(), 5.0, "fake stop (double stop 1)")
         # Second stop — must not raise.
-        await adapter.stop()
+        await _bounded(adapter.stop(), 5.0, "fake stop (double stop 2)")
         info = await adapter.health_check()
         assert info.health == "unknown"
 
@@ -710,12 +732,12 @@ class TestLxmfLiveSmoke:
 
         for i in range(5):
             ctx = _make_context()
-            await adapter.start(ctx)
+            await _bounded(adapter.start(ctx), 5.0, f"fake start cycle {i + 1}")
             info = await adapter.health_check()
             assert (
                 info.health == "healthy"
             ), f"Cycle {i + 1}: expected healthy, got {info.health!r}"
-            await adapter.stop()
+            await _bounded(adapter.stop(), 5.0, f"fake stop cycle {i + 1}")
             info = await adapter.health_check()
             assert info.health == "unknown", (
                 f"Cycle {i + 1}: expected unknown after stop, " f"got {info.health!r}"
@@ -742,7 +764,7 @@ class TestLxmfLiveSmoke:
         ctx = _make_context()
 
         # 1. Start
-        await adapter.start(ctx)
+        await _bounded(adapter.start(ctx), 5.0, "fake start (lifecycle)")
         info = await adapter.health_check()
         assert info.health == "healthy"
 
@@ -759,7 +781,7 @@ class TestLxmfLiveSmoke:
             },
             metadata={"renderer": "lxmf", "test": "lifecycle"},
         )
-        delivery = await adapter.deliver(result)
+        delivery = await _bounded(adapter.deliver(result), 5.0, "fake deliver (lifecycle)")
         assert delivery is not None, "deliver() returned None"
         assert isinstance(delivery, AdapterDeliveryResult)
         assert delivery.native_message_id is not None, "native_message_id is None"
@@ -772,7 +794,7 @@ class TestLxmfLiveSmoke:
         assert info.health == "healthy"
 
         # 4. Stop
-        await adapter.stop()
+        await _bounded(adapter.stop(), 5.0, "fake stop (lifecycle)")
 
         # 5. Now unknown
         info = await adapter.health_check()
@@ -795,17 +817,225 @@ class TestLxmfLiveSmoke:
         adapter = LxmfAdapter(config)
         ctx = _make_context()
 
-        await adapter.start(ctx)
+        await _bounded(adapter.start(ctx), 5.0, "fake start (diagnostics)")
         diag = adapter.session.diagnostics()
         assert (
             diag.connected is True
         ), f"Expected connected=True after start, got {diag.connected}"
 
-        await adapter.stop()
+        await _bounded(adapter.stop(), 5.0, "fake stop (diagnostics)")
         diag = adapter.session.diagnostics()
         assert (
             diag.connected is False
         ), f"Expected connected=False after stop, got {diag.connected}"
+
+    # ===================================================================
+    # 8b. Bounded async operations (fake mode)
+    # ===================================================================
+
+    async def test_bounded_async_start_stop_deliver(self):
+        """start/stop/deliver complete within bounded timeouts (fake mode).
+
+        Wraps the core async operations in ``asyncio.wait_for`` to verify
+        they do not hang or deadlock.
+        """
+        from medre.adapters.lxmf.adapter import LxmfAdapter
+        from medre.core.contracts.adapter import AdapterDeliveryResult
+        from medre.core.rendering.renderer import RenderingResult
+
+        config = _make_fake_config()
+        adapter = LxmfAdapter(config)
+        ctx = _make_context()
+
+        # Bounded start
+        await _bounded(adapter.start(ctx), 5.0, "fake start (bounded)")
+        info = await adapter.health_check()
+        assert info.health == "healthy"
+
+        # Bounded deliver
+        ts = int(time.time())
+        result = RenderingResult(
+            event_id=f"bounded-{ts}",
+            target_adapter="lxmf-live-smoke",
+            target_channel="0",
+            payload={
+                "content": f"Bounded async test (ts={ts})",
+                "destination_hash": "ab" * 16,
+            },
+            metadata={"renderer": "lxmf", "test": "bounded-async"},
+        )
+        delivery = await _bounded(adapter.deliver(result), 5.0, "fake deliver (bounded)")
+        assert delivery is not None
+        assert isinstance(delivery, AdapterDeliveryResult)
+
+        # Bounded stop
+        await _bounded(adapter.stop(), 5.0, "fake stop (bounded)")
+        info = await adapter.health_check()
+        assert info.health == "unknown"
+
+    # ===================================================================
+    # 8c. Storage native refs — diagnostics expose pending_delivery_count
+    # ===================================================================
+
+    async def test_session_diagnostics_show_pending_delivery_count(self):
+        """Session diagnostics include pending_delivery_count after sends.
+
+        After delivering a message in fake mode, the session diagnostics
+        must expose ``pending_delivery_count`` as a non-negative integer.
+        """
+        from medre.adapters.lxmf.adapter import LxmfAdapter
+        from medre.core.rendering.renderer import RenderingResult
+
+        config = _make_fake_config()
+        adapter = LxmfAdapter(config)
+        ctx = _make_context()
+        await _bounded(adapter.start(ctx), 5.0, "fake start (pending count)")
+        try:
+            ts = int(time.time())
+            result = RenderingResult(
+                event_id=f"pending-{ts}",
+                target_adapter="lxmf-live-smoke",
+                target_channel="0",
+                payload={
+                    "content": f"Pending count test (ts={ts})",
+                    "destination_hash": "ab" * 16,
+                },
+                metadata={"renderer": "lxmf", "test": "pending-count"},
+            )
+            await _bounded(adapter.deliver(result), 5.0, "fake deliver (pending count)")
+
+            diag = adapter.session.diagnostics()
+            assert hasattr(diag, "pending_delivery_count"), (
+                "Session diagnostics missing pending_delivery_count field"
+            )
+            assert diag.pending_delivery_count >= 0, (
+                f"Expected pending_delivery_count >= 0, "
+                f"got {diag.pending_delivery_count}"
+            )
+        finally:
+            await _bounded(adapter.stop(), 5.0, "fake stop (pending count)")
+
+    # ===================================================================
+    # 8d. Diagnostics no-secret-leakage validation
+    # ===================================================================
+
+    async def test_diagnostics_no_secrets_leaked(self):
+        """Diagnostics snapshot exposes useful fields with no secret leakage.
+
+        Verifies that ``adapter.diagnostics()`` includes standard
+        operational fields (adapter_id, platform, started, session state)
+        and does NOT contain any identity_path, private keys, or other
+        secret material.
+        """
+        from medre.adapters.lxmf.adapter import LxmfAdapter
+
+        config = _make_fake_config()
+        adapter = LxmfAdapter(config)
+        ctx = _make_context()
+
+        await _bounded(adapter.start(ctx), 5.0, "fake start (no secrets)")
+        try:
+            diag = adapter.diagnostics()
+
+            # Standard fields must be present
+            assert diag["adapter_id"] == "lxmf-live-smoke"
+            assert diag["platform"] == "lxmf"
+            assert diag["started"] is True
+            assert diag["mode"] == "fake"
+
+            # Session sub-dict must be present with standard fields
+            session_diag = diag.get("session", {})
+            assert "connected" in session_diag
+            assert "router_running" in session_diag
+            assert "reconnecting" in session_diag
+            assert "reconnect_attempts" in session_diag
+            assert "transient_delivery_failures" in session_diag
+            assert "permanent_delivery_failures" in session_diag
+
+            # No identity or secret material in diagnostics
+            diag_str = str(diag)
+            secret_markers = (
+                "identity_path",
+                "private_key",
+                "identity_file",
+                "proving_key",
+                "seed",
+            )
+            for marker in secret_markers:
+                assert marker not in diag_str.lower(), (
+                    f"Diagnostics contains secret marker {marker!r}: "
+                    f"{diag_str[:500]}"
+                )
+        finally:
+            await _bounded(adapter.stop(), 5.0, "fake stop (no secrets)")
+
+    # ===================================================================
+    # 8e. Real outbound send (gated by LXMF_LIVE_SEND=1)
+    # ===================================================================
+
+    @require_live_send
+    async def test_outbound_send_real_with_live_send(self):
+        """Send a real LXMF message via reticulum (requires LXMF_LIVE_SEND=1).
+
+        This test performs a **real** outbound send through the Reticulum
+        LXMF router.  It is gated by ``LXMF_LIVE_SEND=1`` to prevent
+        accidental transmissions during development.
+
+        Requires:
+        - ``LXMF_CONNECTION_TYPE=reticulum``
+        - ``LXMF_IDENTITY_PATH`` pointing to a valid identity file
+        - ``LXMF_DESTINATION_HASH`` (32-char hex) for the recipient
+        - ``LXMF_LIVE_SEND=1`` explicit opt-in
+
+        Skips if any required variable is missing or the SDK is unavailable.
+        """
+        from medre.adapters.lxmf.adapter import LxmfAdapter
+        from medre.adapters.lxmf.errors import LxmfConnectionError
+        from medre.core.contracts.adapter import AdapterDeliveryResult
+        from medre.core.rendering.renderer import RenderingResult
+
+        if not LXMF_DESTINATION_HASH:
+            pytest.skip(
+                "LXMF_DESTINATION_HASH required for real send test"
+            )
+
+        config = _make_config()
+        adapter = LxmfAdapter(config)
+        ctx = _make_context()
+
+        try:
+            await _bounded(adapter.start(ctx), _ADAPTER_START_TIMEOUT, "lxmf start live send")
+        except LxmfConnectionError as exc:
+            pytest.skip(f"LXMF connection unavailable: {exc}")
+
+        try:
+            ts = int(time.time())
+            result = RenderingResult(
+                event_id=f"live-send-{ts}",
+                target_adapter="lxmf-live-smoke",
+                target_channel="0",
+                payload={
+                    "content": f"MEDRE live send test (ts={ts}) — safe to ignore",
+                    "destination_hash": LXMF_DESTINATION_HASH,
+                    "delivery_method": "direct",
+                },
+                metadata={"renderer": "lxmf", "test": "live-send"},
+            )
+            delivery = await _bounded(
+                adapter.deliver(result), _DELIVER_TIMEOUT, "lxmf deliver live send",
+            )
+            assert delivery is not None, "deliver() returned None"
+            assert isinstance(delivery, AdapterDeliveryResult)
+            assert delivery.native_message_id is not None, (
+                "native_message_id is None — send did not produce an ID"
+            )
+            lxmf_meta = delivery.metadata.get("lxmf", {})
+            assert isinstance(lxmf_meta, dict), "Expected lxmf metadata to be a dict"
+            assert "delivery_state" in lxmf_meta, (
+                "Expected 'delivery_state' in lxmf delivery metadata"
+            )
+        finally:
+            await _bounded(adapter.stop(), _ADAPTER_STOP_TIMEOUT, "lxmf stop live send")
 
     # ===================================================================
     # 9. Documentation notes
