@@ -20,7 +20,6 @@ from medre.core.events import (
     CanonicalEvent,
     DeliveryReceipt,
     EventMetadata,
-    EventRelation,
     NativeMessageRef,
     NativeRef,
 )

@@ -848,7 +848,7 @@ class TestLxmfLiveSmoke:
         ctx = _make_context()
 
         # Bounded start
-        await asyncio.wait_for(adapter.start(ctx), timeout=5.0)
+        await _bounded(adapter.start(ctx), 5.0, "fake start (bounded)")
         info = await adapter.health_check()
         assert info.health == "healthy"
 
@@ -864,12 +864,12 @@ class TestLxmfLiveSmoke:
             },
             metadata={"renderer": "lxmf", "test": "bounded-async"},
         )
-        delivery = await asyncio.wait_for(adapter.deliver(result), timeout=5.0)
+        delivery = await _bounded(adapter.deliver(result), 5.0, "fake deliver (bounded)")
         assert delivery is not None
         assert isinstance(delivery, AdapterDeliveryResult)
 
         # Bounded stop
-        await asyncio.wait_for(adapter.stop(), timeout=5.0)
+        await _bounded(adapter.stop(), 5.0, "fake stop (bounded)")
         info = await adapter.health_check()
         assert info.health == "unknown"
 
