@@ -14,14 +14,9 @@ Matrix-specific checks:
 from __future__ import annotations
 
 import json
-import os
-import tempfile
 from pathlib import Path
 
-import pytest
-
 from medre.runtime.evidence._bundle import collect_evidence_bundle
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -109,9 +104,9 @@ class TestEvidenceBundleWithMatrixAdapter:
 
         # Should include the matrix adapter
         adapter_ids = [a.get("adapter_id", "") for a in adapters]
-        assert "test_matrix" in adapter_ids, (
-            f"Matrix adapter not found in enabled adapters: {adapter_ids}"
-        )
+        assert (
+            "test_matrix" in adapter_ids
+        ), f"Matrix adapter not found in enabled adapters: {adapter_ids}"
 
     async def test_evidence_bundle_diagnostics_includes_matrix_adapter(
         self, tmp_path
@@ -128,9 +123,9 @@ class TestEvidenceBundleWithMatrixAdapter:
 
         data = diag_section.get("data", {})
         adapters = data.get("adapters", {})
-        assert "test_matrix" in adapters, (
-            f"Matrix adapter not in diagnostics adapters: {list(adapters.keys())}"
-        )
+        assert (
+            "test_matrix" in adapters
+        ), f"Matrix adapter not in diagnostics adapters: {list(adapters.keys())}"
 
         matrix_adapter = adapters["test_matrix"]
         # The fake adapter may not report platform="matrix" — it reports
@@ -161,12 +156,12 @@ class TestEvidenceBundleWithMatrixAdapter:
         bundle = await collect_evidence_bundle(config_path)
 
         bundle_json = json.dumps(bundle, default=str)
-        assert "fake_test_token" not in bundle_json, (
-            "Access token leaked into evidence bundle output"
-        )
-        assert "syt_" not in bundle_json, (
-            "Token prefix leaked into evidence bundle output"
-        )
+        assert (
+            "fake_test_token" not in bundle_json
+        ), "Access token leaked into evidence bundle output"
+        assert (
+            "syt_" not in bundle_json
+        ), "Token prefix leaked into evidence bundle output"
 
     async def test_evidence_bundle_storage_path_mode_with_matrix_event(
         self, tmp_path

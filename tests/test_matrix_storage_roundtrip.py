@@ -14,8 +14,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-import pytest
-
 from medre.adapters.matrix.codec import MatrixCodec
 from medre.config.adapters.matrix import MatrixConfig
 from medre.core.events import (
@@ -26,7 +24,6 @@ from medre.core.events import (
     NativeRef,
 )
 from medre.core.events.metadata import NativeMetadata
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -58,7 +55,14 @@ def _make_fake_matrix_event(
     """
 
     class FakeEvent:
-        __slots__ = ("sender", "body", "event_id", "msgtype", "source", "server_timestamp")
+        __slots__ = (
+            "sender",
+            "body",
+            "event_id",
+            "msgtype",
+            "source",
+            "server_timestamp",
+        )
 
         def __init__(self) -> None:
             self.sender: str = ""
@@ -167,9 +171,7 @@ class TestMatrixCodecEventStorageRoundtrip:
         assert retrieved.payload.get("body") == "Storage round-trip test"
         assert retrieved.payload.get("msgtype") == "m.text"
 
-    async def test_codec_event_native_metadata_preserved(
-        self, temp_storage
-    ) -> None:
+    async def test_codec_event_native_metadata_preserved(self, temp_storage) -> None:
         """Matrix-specific native metadata (room_id, event_id, sender) survives storage."""
         config = _matrix_config()
         codec = MatrixCodec("matrix-test", config)
@@ -190,9 +192,7 @@ class TestMatrixCodecEventStorageRoundtrip:
         assert ndata["event_id"] == "$meta_test:example.com"
         assert ndata["sender"] == "@carol:example.com"
 
-    async def test_codec_event_source_native_ref_stored(
-        self, temp_storage
-    ) -> None:
+    async def test_codec_event_source_native_ref_stored(self, temp_storage) -> None:
         """source_native_ref from MatrixCodec survives storage round-trip."""
         config = _matrix_config()
         codec = MatrixCodec("matrix-test", config)
@@ -223,9 +223,7 @@ class TestMatrixCodecEventStorageRoundtrip:
 class TestMatrixNativeRefStorage:
     """NativeMessageRef for Matrix events can be stored and resolved."""
 
-    async def test_matrix_native_ref_stored_and_resolved(
-        self, temp_storage
-    ) -> None:
+    async def test_matrix_native_ref_stored_and_resolved(self, temp_storage) -> None:
         """A Matrix NativeMessageRef stores and resolves correctly."""
         event = _make_matrix_canonical_event(
             event_id="ce-nref-1",
@@ -251,9 +249,7 @@ class TestMatrixNativeRefStorage:
         )
         assert resolved == "ce-nref-1"
 
-    async def test_matrix_inbound_native_ref_resolves(
-        self, temp_storage
-    ) -> None:
+    async def test_matrix_inbound_native_ref_resolves(self, temp_storage) -> None:
         """An inbound Matrix native ref resolves to the correct event."""
         event = _make_matrix_canonical_event(
             event_id="ce-inbound-1",
@@ -284,7 +280,7 @@ class TestMatrixNativeRefStorage:
         self, temp_storage
     ) -> None:
         """A Matrix reply event with a native target ref stores correctly."""
-        event = _make_matrix_canonical_event(
+        _make_matrix_canonical_event(
             event_id="ce-reply-1",
             room_id="!reply_room:example.com",
             mx_event_id="$reply_mx:example.com",
@@ -357,9 +353,7 @@ class TestMatrixStorageCounts:
         count = await temp_storage.count_events()
         assert count == 5
 
-    async def test_receipt_count_with_matrix_delivery(
-        self, temp_storage
-    ) -> None:
+    async def test_receipt_count_with_matrix_delivery(self, temp_storage) -> None:
         """Receipt count reflects Matrix delivery receipts."""
         from medre.core.events.canonical import DeliveryReceipt
 

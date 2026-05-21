@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -123,8 +122,8 @@ class TestMatrixAlphaRunSession:
 
     async def test_alpha_session_config_builds_and_starts(self, tmp_path) -> None:
         """Config with adapter_kind='real' for Matrix builds and starts."""
-        from medre.config.loader import load_config
         from medre.config.env import apply_env_overrides
+        from medre.config.loader import load_config
         from medre.runtime.builder import RuntimeBuilder
 
         config_path = _write_matrix_config(tmp_path)
@@ -134,12 +133,12 @@ class TestMatrixAlphaRunSession:
         builder = RuntimeBuilder(config, paths)
         app = builder.build()
 
-        assert len(app.adapters) > 0, (
-            f"No adapters built. Build failures: {app.build_failures}"
-        )
-        assert "matrix_alpha" in app.adapters, (
-            f"Matrix adapter not built. Available: {list(app.adapters.keys())}"
-        )
+        assert (
+            len(app.adapters) > 0
+        ), f"No adapters built. Build failures: {app.build_failures}"
+        assert (
+            "matrix_alpha" in app.adapters
+        ), f"Matrix adapter not built. Available: {list(app.adapters.keys())}"
 
         try:
             await asyncio.wait_for(app.start(), timeout=_START_TIMEOUT)
@@ -147,21 +146,21 @@ class TestMatrixAlphaRunSession:
             # Verify adapter is healthy
             adapter = app.adapters["matrix_alpha"]
             info = await adapter.health_check()
-            assert info.health == "healthy", (
-                f"Matrix adapter not healthy after start: {info.health!r}"
-            )
+            assert (
+                info.health == "healthy"
+            ), f"Matrix adapter not healthy after start: {info.health!r}"
         finally:
             await asyncio.wait_for(app.stop(), timeout=_STOP_TIMEOUT)
 
     async def test_alpha_session_send_and_verify_event_id(self, tmp_path) -> None:
         """Send a message through the real Matrix adapter and verify event_id."""
+        import time
+        from unittest.mock import AsyncMock
+
         from medre.adapters.matrix.adapter import MatrixAdapter
         from medre.config.adapters.matrix import MatrixConfig
         from medre.core.contracts.adapter import AdapterContext
         from medre.core.rendering.renderer import RenderingResult
-        from unittest.mock import AsyncMock
-
-        import time
 
         assert MATRIX_HOMESERVER is not None
         assert MATRIX_USER_ID is not None
@@ -203,25 +202,23 @@ class TestMatrixAlphaRunSession:
                 adapter.deliver(result), timeout=_DELIVER_TIMEOUT
             )
             assert delivery is not None, "deliver() returned None"
-            assert delivery.native_message_id is not None, (
-                "native_message_id is None"
-            )
-            assert delivery.native_message_id.startswith("$"), (
-                f"Expected event_id starting with '$', got {delivery.native_message_id!r}"
-            )
+            assert delivery.native_message_id is not None, "native_message_id is None"
+            assert delivery.native_message_id.startswith(
+                "$"
+            ), f"Expected event_id starting with '$', got {delivery.native_message_id!r}"
             assert delivery.native_channel_id == MATRIX_ROOM_ID
         finally:
             await asyncio.wait_for(adapter.stop(), timeout=_STOP_TIMEOUT)
 
     async def test_alpha_session_diagnostics_after_send(self, tmp_path) -> None:
         """Verify Matrix adapter diagnostics are complete after a send operation."""
+        import time
+        from unittest.mock import AsyncMock
+
         from medre.adapters.matrix.adapter import MatrixAdapter
         from medre.config.adapters.matrix import MatrixConfig
         from medre.core.contracts.adapter import AdapterContext
         from medre.core.rendering.renderer import RenderingResult
-        from unittest.mock import AsyncMock
-
-        import time
 
         assert MATRIX_HOMESERVER is not None
         assert MATRIX_USER_ID is not None
@@ -257,9 +254,7 @@ class TestMatrixAlphaRunSession:
                 },
                 metadata={"renderer": "matrix", "test": "alpha-diag"},
             )
-            await asyncio.wait_for(
-                adapter.deliver(result), timeout=_DELIVER_TIMEOUT
-            )
+            await asyncio.wait_for(adapter.deliver(result), timeout=_DELIVER_TIMEOUT)
 
             diag = adapter.diagnostics()
 

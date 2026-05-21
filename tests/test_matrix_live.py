@@ -1087,9 +1087,9 @@ class TestMatrixLiveSmoke:
             # -- No secrets in diagnostics output --------------------------------
             diag_str = str(diag)
             assert MATRIX_ACCESS_TOKEN is not None
-            assert MATRIX_ACCESS_TOKEN not in diag_str, (
-                "Access token leaked into diagnostics output"
-            )
+            assert (
+                MATRIX_ACCESS_TOKEN not in diag_str
+            ), "Access token leaked into diagnostics output"
         finally:
             await asyncio.wait_for(adapter.stop(), timeout=_ADAPTER_STOP_TIMEOUT)
 

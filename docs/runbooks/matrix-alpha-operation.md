@@ -639,15 +639,15 @@ docker run -d --name medre-matrix \
 
 The following test modules verify Matrix alpha operational readiness:
 
-| Test module | Tests | Live? | Coverage |
-|---|---|---|---|
-| `tests/test_matrix_live.py` | 15 tests | Yes (opt-in) | Lifecycle, delivery, echo suppression, allowlist, health, restart idempotency, redelivery, inbound reception, diagnostics snapshot, bounded shutdown |
-| `tests/test_matrix_alpha_run_session.py` | 3 tests | Yes (opt-in) | Config→build→start→send→stop pipeline with real Matrix adapter, diagnostics after send |
-| `tests/test_matrix_storage_roundtrip.py` | 8 tests | No | Codec events round-trip through storage, native metadata preservation, source_native_ref, NativeMessageRef resolve, reply relation, event/receipt counts |
-| `tests/test_matrix_evidence_diagnostics.py` | 6 tests | No | Evidence bundle config/diagnostics/route sections with Matrix adapter, no-secrets verification, storage-path mode with Matrix events |
-| `tests/test_matrix_adapter.py` | 50+ tests | No | Adapter lifecycle, inbound/outbound, suppression, allowlist, diagnostics counters |
-| `tests/test_matrix_codec.py` | 20+ tests | No | Codec decode: reactions, MMRelay emotes, replies, regular messages, timestamps |
-| `tests/test_matrix_relations.py` | 15+ tests | No | Reply/reaction relation extraction, fallback body stripping |
+| Test module                                 | Tests     | Live?        | Coverage                                                                                                                                                 |
+| ------------------------------------------- | --------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tests/test_matrix_live.py`                 | 15 tests  | Yes (opt-in) | Lifecycle, delivery, echo suppression, allowlist, health, restart idempotency, redelivery, inbound reception, diagnostics snapshot, bounded shutdown     |
+| `tests/test_matrix_alpha_run_session.py`    | 3 tests   | Yes (opt-in) | Config→build→start→send→stop pipeline with real Matrix adapter, diagnostics after send                                                                   |
+| `tests/test_matrix_storage_roundtrip.py`    | 8 tests   | No           | Codec events round-trip through storage, native metadata preservation, source_native_ref, NativeMessageRef resolve, reply relation, event/receipt counts |
+| `tests/test_matrix_evidence_diagnostics.py` | 6 tests   | No           | Evidence bundle config/diagnostics/route sections with Matrix adapter, no-secrets verification, storage-path mode with Matrix events                     |
+| `tests/test_matrix_adapter.py`              | 50+ tests | No           | Adapter lifecycle, inbound/outbound, suppression, allowlist, diagnostics counters                                                                        |
+| `tests/test_matrix_codec.py`                | 20+ tests | No           | Codec decode: reactions, MMRelay emotes, replies, regular messages, timestamps                                                                           |
+| `tests/test_matrix_relations.py`            | 15+ tests | No           | Reply/reaction relation extraction, fallback body stripping                                                                                              |
 
 **Live test hardening (v1):** All async operations in `test_matrix_live.py` are bounded by `asyncio.wait_for` with explicit timeout constants (`_ADAPTER_START_TIMEOUT=30s`, `_ADAPTER_STOP_TIMEOUT=10s`, `_DELIVER_TIMEOUT=15s`). Every test uses `try/finally` with `adapter.stop()` in the `finally` block.
 
