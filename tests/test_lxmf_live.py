@@ -52,6 +52,11 @@ Variable                    Description
 ``LXMF_DISPLAY_NAME``       Optional display name for LXMF announces.
 ``LXMF_DESTINATION_HASH``   Optional destination hexhash for outbound send
                             tests (32-char hex string).
+``LXMF_STORAGE_PATH``       Optional path for LXMF router storage.  Defaults
+                            to ``/tmp/medre-live-lxmf-router``.
+``LXMF_LIVE_SEND``          Set to ``1`` to enable real outbound send tests.
+                            Without this, tests that transmit real messages
+                            are skipped.
 =========================== =====================================================
 
 At minimum, ``LXMF_CONNECTION_TYPE`` and ``LXMF_IDENTITY_PATH`` must
@@ -127,6 +132,8 @@ LXMF_CONNECTION_TYPE = os.environ.get("LXMF_CONNECTION_TYPE", "").lower()
 LXMF_IDENTITY_PATH = os.environ.get("LXMF_IDENTITY_PATH", "")
 LXMF_DISPLAY_NAME = os.environ.get("LXMF_DISPLAY_NAME", "")
 LXMF_DESTINATION_HASH = os.environ.get("LXMF_DESTINATION_HASH", "")
+LXMF_STORAGE_PATH = os.environ.get("LXMF_STORAGE_PATH", "")
+LXMF_LIVE_SEND = os.environ.get("LXMF_LIVE_SEND", "").strip() == "1"
 
 
 def _validate_env() -> tuple[str, str]:
@@ -164,9 +171,9 @@ require_live = pytest.mark.skipif(
     reason=_LIVE_SKIP_REASON,
 )
 
-require_lxmf_sdk = pytest.mark.skipif(
-    not _LIVE_ENV_SET,
-    reason=_LIVE_SKIP_REASON,
+require_live_send = pytest.mark.skipif(
+    not LXMF_LIVE_SEND,
+    reason="Set LXMF_LIVE_SEND=1 to enable real outbound send tests",
 )
 
 
@@ -182,7 +189,7 @@ def _make_config():
         connection_type="reticulum",
         identity_path=LXMF_IDENTITY_PATH or None,
         display_name=LXMF_DISPLAY_NAME,
-        storage_path="/tmp/medre-live-lxmf-router",
+        storage_path=LXMF_STORAGE_PATH or "/tmp/medre-live-lxmf-router",
     )
 
 
@@ -806,6 +813,214 @@ class TestLxmfLiveSmoke:
         assert (
             diag.connected is False
         ), f"Expected connected=False after stop, got {diag.connected}"
+
+    # ===================================================================
+    # 8b. Bounded async operations (fake mode)
+    # ===================================================================
+
+    async def test_bounded_async_start_stop_deliver(self):
+        """start/stop/deliver complete within bounded timeouts (fake mode).
+
+        Wraps the core async operations in ``asyncio.wait_for`` to verify
+        they do not hang or deadlock.
+        """
+        from medre.adapters.lxmf.adapter import LxmfAdapter
+        from medre.core.contracts.adapter import AdapterDeliveryResult
+        from medre.core.rendering.renderer import RenderingResult
+
+        config = _make_fake_config()
+        adapter = LxmfAdapter(config)
+        ctx = _make_context()
+
+        # Bounded start
+        await asyncio.wait_for(adapter.start(ctx), timeout=5.0)
+        info = await adapter.health_check()
+        assert info.health == "healthy"
+
+        # Bounded deliver
+        ts = int(time.time())
+        result = RenderingResult(
+            event_id=f"bounded-{ts}",
+            target_adapter="lxmf-live-smoke",
+            target_channel="0",
+            payload={
+                "content": f"Bounded async test (ts={ts})",
+                "destination_hash": "ab" * 16,
+            },
+            metadata={"renderer": "lxmf", "test": "bounded-async"},
+        )
+        delivery = await asyncio.wait_for(adapter.deliver(result), timeout=5.0)
+        assert delivery is not None
+        assert isinstance(delivery, AdapterDeliveryResult)
+
+        # Bounded stop
+        await asyncio.wait_for(adapter.stop(), timeout=5.0)
+        info = await adapter.health_check()
+        assert info.health == "unknown"
+
+    # ===================================================================
+    # 8c. Storage native refs — diagnostics expose pending_delivery_count
+    # ===================================================================
+
+    async def test_session_diagnostics_show_pending_delivery_count(self):
+        """Session diagnostics include pending_delivery_count after sends.
+
+        After delivering a message in fake mode, the session diagnostics
+        must expose ``pending_delivery_count`` as a non-negative integer.
+        """
+        from medre.adapters.lxmf.adapter import LxmfAdapter
+        from medre.core.rendering.renderer import RenderingResult
+
+        config = _make_fake_config()
+        adapter = LxmfAdapter(config)
+        ctx = _make_context()
+        await adapter.start(ctx)
+        try:
+            ts = int(time.time())
+            result = RenderingResult(
+                event_id=f"pending-{ts}",
+                target_adapter="lxmf-live-smoke",
+                target_channel="0",
+                payload={
+                    "content": f"Pending count test (ts={ts})",
+                    "destination_hash": "ab" * 16,
+                },
+                metadata={"renderer": "lxmf", "test": "pending-count"},
+            )
+            await adapter.deliver(result)
+
+            diag = adapter.session.diagnostics()
+            assert hasattr(diag, "pending_delivery_count"), (
+                "Session diagnostics missing pending_delivery_count field"
+            )
+            assert diag.pending_delivery_count >= 0, (
+                f"Expected pending_delivery_count >= 0, "
+                f"got {diag.pending_delivery_count}"
+            )
+        finally:
+            await adapter.stop()
+
+    # ===================================================================
+    # 8d. Diagnostics no-secret-leakage validation
+    # ===================================================================
+
+    async def test_diagnostics_no_secrets_leaked(self):
+        """Diagnostics snapshot exposes useful fields with no secret leakage.
+
+        Verifies that ``adapter.diagnostics()`` includes standard
+        operational fields (adapter_id, platform, started, session state)
+        and does NOT contain any identity_path, private keys, or other
+        secret material.
+        """
+        from medre.adapters.lxmf.adapter import LxmfAdapter
+
+        config = _make_fake_config()
+        adapter = LxmfAdapter(config)
+        ctx = _make_context()
+
+        await adapter.start(ctx)
+        try:
+            diag = adapter.diagnostics()
+
+            # Standard fields must be present
+            assert diag["adapter_id"] == "lxmf-live-smoke"
+            assert diag["platform"] == "lxmf"
+            assert diag["started"] is True
+            assert diag["mode"] == "fake"
+
+            # Session sub-dict must be present with standard fields
+            session_diag = diag.get("session", {})
+            assert "connected" in session_diag
+            assert "router_running" in session_diag
+            assert "reconnecting" in session_diag
+            assert "reconnect_attempts" in session_diag
+            assert "transient_delivery_failures" in session_diag
+            assert "permanent_delivery_failures" in session_diag
+
+            # No identity or secret material in diagnostics
+            diag_str = str(diag)
+            secret_markers = (
+                "identity_path",
+                "private_key",
+                "identity_file",
+                "proving_key",
+                "seed",
+            )
+            for marker in secret_markers:
+                assert marker not in diag_str.lower(), (
+                    f"Diagnostics contains secret marker {marker!r}: "
+                    f"{diag_str[:500]}"
+                )
+        finally:
+            await adapter.stop()
+
+    # ===================================================================
+    # 8e. Real outbound send (gated by LXMF_LIVE_SEND=1)
+    # ===================================================================
+
+    @require_live_send
+    async def test_outbound_send_real_with_live_send(self):
+        """Send a real LXMF message via reticulum (requires LXMF_LIVE_SEND=1).
+
+        This test performs a **real** outbound send through the Reticulum
+        LXMF router.  It is gated by ``LXMF_LIVE_SEND=1`` to prevent
+        accidental transmissions during development.
+
+        Requires:
+        - ``LXMF_CONNECTION_TYPE=reticulum``
+        - ``LXMF_IDENTITY_PATH`` pointing to a valid identity file
+        - ``LXMF_DESTINATION_HASH`` (32-char hex) for the recipient
+        - ``LXMF_LIVE_SEND=1`` explicit opt-in
+
+        Skips if any required variable is missing or the SDK is unavailable.
+        """
+        from medre.adapters.lxmf.adapter import LxmfAdapter
+        from medre.adapters.lxmf.errors import LxmfConnectionError
+        from medre.core.contracts.adapter import AdapterDeliveryResult
+        from medre.core.rendering.renderer import RenderingResult
+
+        if not LXMF_DESTINATION_HASH:
+            pytest.skip(
+                "LXMF_DESTINATION_HASH required for real send test"
+            )
+
+        config = _make_config()
+        adapter = LxmfAdapter(config)
+        ctx = _make_context()
+
+        try:
+            await adapter.start(ctx)
+        except LxmfConnectionError as exc:
+            pytest.skip(f"LXMF connection unavailable: {exc}")
+
+        try:
+            ts = int(time.time())
+            result = RenderingResult(
+                event_id=f"live-send-{ts}",
+                target_adapter="lxmf-live-smoke",
+                target_channel="0",
+                payload={
+                    "content": f"MEDRE live send test (ts={ts}) — safe to ignore",
+                    "destination_hash": LXMF_DESTINATION_HASH,
+                    "delivery_method": "direct",
+                },
+                metadata={"renderer": "lxmf", "test": "live-send"},
+            )
+            delivery = await asyncio.wait_for(
+                adapter.deliver(result), timeout=15.0,
+            )
+            assert delivery is not None, "deliver() returned None"
+            assert isinstance(delivery, AdapterDeliveryResult)
+            assert delivery.native_message_id is not None, (
+                "native_message_id is None — send did not produce an ID"
+            )
+            lxmf_meta = delivery.metadata.get("lxmf", {})
+            assert isinstance(lxmf_meta, dict), "Expected lxmf metadata to be a dict"
+            assert "delivery_state" in lxmf_meta, (
+                "Expected 'delivery_state' in lxmf delivery metadata"
+            )
+        finally:
+            await adapter.stop()
 
     # ===================================================================
     # 9. Documentation notes
