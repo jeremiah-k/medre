@@ -1,4 +1,4 @@
-"""Meshtastic run-session smoke test.
+"""Meshtastic RuntimeBuilder pipeline smoke test (not operator CLI run-session).
 
 Builds a runtime with two fake Meshtastic adapters (mesh_source → mesh_dest),
 injects a text event through the pipeline, and verifies end-to-end routing,

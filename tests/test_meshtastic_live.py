@@ -637,6 +637,13 @@ class TestMeshtasticLiveSmoke:
 # Transmit guard: live RF tests that actually transmit radio traffic
 # require MESHTASTIC_LIVE_SEND=1.  Without it, tests may connect and
 # health-check but must NOT exercise the transmit path.
+#
+# RULE: Any test that calls adapter.deliver(), session.send(),
+# iface.sendText(), iface.sendData(), or any other enqueue/transmit
+# method against a non-fake/live connection must require
+# MESHTASTIC_LIVE_SEND=1.  Tests without that flag may connect,
+# health-check, and inspect diagnostics only — they must never
+# enqueue or transmit a packet over RF.
 _MESHTASTIC_LIVE_SEND = os.environ.get("MESHTASTIC_LIVE_SEND", "") == "1"
 
 # Bounded async helper — wraps coroutines with a timeout to prevent hangs.
@@ -725,54 +732,6 @@ class TestMeshtasticBoundedLiveTests:
             assert delivery.native_channel_id is not None
             # Delivery was accepted (queued for transmit)
             assert "enqueued" in delivery.delivery_note
-        finally:
-            await _bounded(adapter.stop())
-
-    async def test_live_deliver_blocked_without_send_flag(self):
-        """Without MESHTASTIC_LIVE_SEND, deliver enqueues but does not
-        exercise the actual transmit path.
-
-        The adapter's deliver() always returns AdapterDeliveryResult with
-        ``delivery_note="locally enqueued"``, indicating the payload was
-        accepted into the local queue but not yet transmitted over RF.
-        This test verifies the transmit guard: when MESHTASTIC_LIVE_SEND
-        is not set, the test exercises deliver() to confirm the local
-        enqueue behavior WITHOUT triggering real RF transmission.
-        """
-        if _MESHTASTIC_LIVE_SEND:
-            pytest.skip(
-                "This test verifies the non-transmit path; "
-                "skipped when MESHTASTIC_LIVE_SEND=1"
-            )
-
-        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
-
-        config = _make_config()
-        adapter = MeshtasticAdapter(config)
-        ctx = _make_context()
-
-        try:
-            await _bounded(adapter.start(ctx))
-            result_obj = _make_rendering_result(
-                text="MEDRE transmit-blocked test - safe to ignore",
-                event_id="evt-blocked-001",
-                channel_index=int(MESHTASTIC_CHANNEL_INDEX),
-            )
-            delivery = await _bounded(adapter.deliver(result_obj))
-            # Cancel the background drain task to prevent any RF transmission
-            if adapter._drain_task is not None:
-                adapter._drain_task.cancel()
-                try:
-                    await asyncio.wait_for(adapter._drain_task, timeout=5.0)
-                except (asyncio.CancelledError, asyncio.TimeoutError):
-                    pass
-                adapter._drain_task = None
-            # deliver returns AdapterDeliveryResult with local enqueue note
-            assert delivery is not None
-            assert delivery.delivery_note == "locally enqueued"
-            assert delivery.native_message_id is None
-            # The payload was accepted into the queue
-            assert adapter.queue.pending_count > 0
         finally:
             await _bounded(adapter.stop())
 
