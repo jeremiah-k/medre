@@ -233,7 +233,7 @@ The Matrix adapter manages device identity and crypto store paths internally. Op
 
 **Plaintext mode.** In `plaintext` mode the adapter does not initialise the crypto subsystem. No device ID discovery or store path is needed.
 
-**Advanced/internal overrides.** `device_id` and `store_path` exist as fields on `MatrixConfig` for test harnesses and advanced internal use. They are not operator-facing configuration. The `MEDRE_MATRIX_DEVICE_ID` and `MEDRE_MATRIX_STORE_PATH` environment variables exist in the env mapping but are not documented as operator configuration — they are reserved for internal/testing use only.
+**Advanced/internal overrides.** `device_id` and `store_path` exist as fields on `MatrixConfig` for test harnesses and advanced internal use. They are not operator-facing configuration. The `MEDRE_ADAPTER__<TOKEN>__DEVICE_ID` and `MEDRE_ADAPTER__<TOKEN>__STORE_PATH` environment variables exist in the env mapping but are not documented as operator configuration — they are reserved for internal/testing use only.
 
 ### 8.1 Docker deployments and E2EE dependencies
 
@@ -599,10 +599,10 @@ For operators running the adapter as a long-lived process (e.g., a persistent bo
 docker run -d --name medre-matrix \
   --restart unless-stopped \
   -e MEDRE_HOME=/opt/medre \
-  -e MEDRE_MATRIX_HOMESERVER=http://homeserver:8008 \
-  -e MEDRE_MATRIX_USER_ID=@bot:server \
-  -e MEDRE_MATRIX_ACCESS_TOKEN=syt_... \
-  -e MEDRE_MATRIX_ROOM_ALLOWLIST=!room:server \
+  -e MEDRE_ADAPTER__MAIN__HOMESERVER=http://homeserver:8008 \
+  -e MEDRE_ADAPTER__MAIN__USER_ID=@bot:server \
+  -e MEDRE_ADAPTER__MAIN__ACCESS_TOKEN=syt_... \
+  -e MEDRE_ADAPTER__MAIN__ROOM_ALLOWLIST=!room:server \
   -v medre-data:/opt/medre \
   medre-matrix:latest
 ```

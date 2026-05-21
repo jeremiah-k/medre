@@ -10,8 +10,9 @@ instance-scoped env vars of the form::
 
     MEDRE_ADAPTER__<TOKEN>__<FIELD>=<value>
 
-where ``<TOKEN>`` is the uppercased, non-alphanumeric-stripped form of the
-adapter's ``adapter_id`` (see :func:`normalize_adapter_id`) and ``<FIELD>`` is
+where ``<TOKEN>`` is the uppercased form of the adapter's ``adapter_id``
+with non-alphanumeric characters replaced with underscores
+(see :func:`normalize_adapter_id`) and ``<FIELD>`` is
 a field name on the adapter's config dataclass (or ``enabled``).
 
 Quick reference
@@ -36,7 +37,7 @@ import dataclasses
 import os
 import re
 from dataclasses import dataclass, field, fields
-from typing import Any, Self, get_args, get_type_hints
+from typing import Any, Self, get_args, get_origin, get_type_hints
 
 from medre.config.adapters.lxmf import LxmfConfig
 from medre.config.adapters.matrix import MatrixConfig
@@ -57,6 +58,7 @@ __all__ = [
     "detect_token_collisions",
     "MedreEnvConfig",
     "normalize_adapter_id",
+    "ParsedAdapterEnvValue",
     "ProvenanceEntry",
 ]
 
@@ -76,6 +78,8 @@ CORE_ENV_NAMES: frozenset[str] = frozenset(
         "MEDRE_RUNTIME_DELIVERY_ACQUIRE_TIMEOUT_SECONDS",
     }
 )
+
+ALL_RECOGNIZED_ENV_NAMES: frozenset[str] = CORE_ENV_NAMES
 
 _ADAPTER_ENV_PREFIX = "MEDRE_ADAPTER__"
 
@@ -100,11 +104,10 @@ def _unwrap_optional_type(hint: Any) -> Any:
     Handles both ``typing.Optional[X]`` and PEP-604 ``X | None`` syntax.
     Returns *hint* unchanged if it is not an Optional wrapper.
     """
-    origin = getattr(hint, "__origin__", None)
-    if origin is not None:
-        args = get_args(hint)
+    args = get_args(hint)
+    if args:
         non_none = [a for a in args if a is not type(None)]
-        if len(non_none) == 1 and len(args) == 2:
+        if len(non_none) == 1 and len(non_none) != len(args):
             return non_none[0]
     return hint
 
@@ -188,7 +191,7 @@ class ProvenanceEntry:
     env_var_name: str
     source_kind: str  # "core" or "instance"
     raw_value: str
-    target_adapter_id: str | None = None
+    target_adapter_token: str | None = None
     target_transport: str | None = None
     target_field: str | None = None
 
@@ -210,7 +213,7 @@ class EnvProvenance:
         value: str,
         *,
         source_kind: str = "core",
-        target_adapter_id: str | None = None,
+        target_adapter_token: str | None = None,
         target_transport: str | None = None,
         target_field: str | None = None,
     ) -> None:
@@ -219,7 +222,7 @@ class EnvProvenance:
             env_var_name=name,
             source_kind=source_kind,
             raw_value=value,
-            target_adapter_id=target_adapter_id,
+            target_adapter_token=target_adapter_token,
             target_transport=target_transport,
             target_field=target_field,
         )
@@ -370,11 +373,11 @@ def _is_set_type(hint: type | None) -> bool:
     if hint is None:
         return False
     unwrapped = _unwrap_optional_type(hint)
-    origin = getattr(unwrapped, "__origin__", None)
+    origin = get_origin(unwrapped)
     if origin is set or origin is frozenset:
         return True
-    args = getattr(unwrapped, "__args__", None)
-    if args is not None:
+    args = get_args(unwrapped)
+    if args:
         return any(_is_set_type(a) for a in args)
     return False
 
@@ -418,41 +421,63 @@ def _coerce_field_value(
 # ---------------------------------------------------------------------------
 
 
+@dataclass
+class ParsedAdapterEnvValue:
+    """A single parsed ``MEDRE_ADAPTER__<TOKEN>__<FIELD>`` value."""
+
+    env_var_name: str
+    raw_value: str
+
+
 def _parse_adapter_env_vars(
     environ: dict[str, str] | os._Environ[str],  # type: ignore[attr-defined]
-) -> dict[str, dict[str, str]]:
+) -> dict[str, dict[str, ParsedAdapterEnvValue]]:
     """Parse ``MEDRE_ADAPTER__<TOKEN>__<FIELD>`` vars from *environ*.
 
-    Returns a nested dict: ``{token: {field: raw_value}}``.
+    Returns a nested dict: ``{token: {field: ParsedAdapterEnvValue}}``.
 
     Raises :class:`~medre.config.errors.ConfigValidationError` if any
     ``MEDRE_ADAPTER__`` variable has a malformed shape (wrong number of
-    segments, empty token, or empty field).
+    segments, empty token, or empty field) or if duplicate normalized
+    fields are found (same token+field from different env var names).
     """
-    result: dict[str, dict[str, str]] = {}
+    result: dict[str, dict[str, ParsedAdapterEnvValue]] = {}
     prefix = _ADAPTER_ENV_PREFIX
     malformed: list[str] = []
-    _valid_shape = re.compile(r"^[A-Za-z0-9_]+__[A-Za-z0-9_]+$")
+    duplicates: list[str] = []
 
     for name, value in environ.items():
         if not name.startswith(prefix):
             continue
         remainder = name[len(prefix):]
-        if not remainder or not _valid_shape.match(remainder):
+        if not remainder:
             malformed.append(name)
             continue
-        parts = remainder.split("__", 1)
-        token, field_name = parts[0].upper(), parts[1].lower()
-        if not token or not field_name:
+        parts = remainder.split("__")
+        if len(parts) != 2 or not parts[0] or not parts[1]:
             malformed.append(name)
             continue
-        result.setdefault(token, {})[field_name] = value
+        token = parts[0].upper()
+        field_name = parts[1].lower()
+        parsed = ParsedAdapterEnvValue(env_var_name=name, raw_value=value)
+        field_map = result.setdefault(token, {})
+        if field_name in field_map:
+            duplicates.append(
+                f"{field_map[field_name].env_var_name} and {name} both "
+                f"normalize to token={token!r} field={field_name!r}"
+            )
+        field_map[field_name] = parsed
 
     if malformed:
         raise ConfigValidationError(
             f"Malformed MEDRE_ADAPTER__ environment variable(s): "
             f"{sorted(malformed)}. Expected shape: "
             f"MEDRE_ADAPTER__<TOKEN>__<FIELD> with non-empty TOKEN and FIELD."
+        )
+    if duplicates:
+        raise ConfigValidationError(
+            f"Duplicate normalized adapter fields: {'; '.join(duplicates)}. "
+            f"Each token/field combination must come from exactly one env var."
         )
     return result
 
@@ -486,7 +511,7 @@ class MedreEnvConfig:
     delivery_acquire_timeout_seconds: str | None = None
 
     # -- Instance-scoped adapter overrides --
-    instance_overrides: dict[str, dict[str, str]] = field(default_factory=dict)
+    instance_overrides: dict[str, dict[str, ParsedAdapterEnvValue]] = field(default_factory=dict)
 
     # -- Construction -------------------------------------------------------
 
@@ -534,13 +559,12 @@ class MedreEnvConfig:
         if adapter_overrides:
             object.__setattr__(instance, "instance_overrides", adapter_overrides)
             for token, field_map in adapter_overrides.items():
-                for field_name, value in field_map.items():
-                    env_var = f"{_ADAPTER_ENV_PREFIX}{token}__{field_name}"
+                for field_name, parsed in field_map.items():
                     provenance.record(
-                        env_var,
-                        value,
+                        parsed.env_var_name,
+                        parsed.raw_value,
                         source_kind="instance",
-                        target_adapter_id=token,
+                        target_adapter_token=token,
                         target_field=field_name,
                     )
 
@@ -578,9 +602,25 @@ class MedreEnvConfig:
 # ---------------------------------------------------------------------------
 
 
+def _iter_configured_adapters(
+    config: RuntimeConfig,
+) -> list[tuple[str, str, str, Any]]:
+    """Return ``(transport, key, adapter_id, runtime_config)`` for all adapters."""
+    result: list[tuple[str, str, str, Any]] = []
+    for transport, group in (
+        ("matrix", config.adapters.matrix),
+        ("meshtastic", config.adapters.meshtastic),
+        ("meshcore", config.adapters.meshcore),
+        ("lxmf", config.adapters.lxmf),
+    ):
+        for key, rtc in group.items():
+            result.append((transport, key, rtc.adapter_id, rtc))
+    return result
+
+
 def apply_instance_env_overrides(
     config: RuntimeConfig,
-    instance_overrides: dict[str, dict[str, str]],
+    instance_overrides: dict[str, dict[str, ParsedAdapterEnvValue]],
 ) -> RuntimeConfig:
     """Apply ``MEDRE_ADAPTER__<TOKEN>__<FIELD>`` overrides to *config*.
 
@@ -589,7 +629,7 @@ def apply_instance_env_overrides(
     config:
         The base configuration.
     instance_overrides:
-        Parsed adapter env vars as ``{token: {field: raw_value}}``.
+        Parsed adapter env vars as ``{token: {field: ParsedAdapterEnvValue}}``.
 
     Returns
     -------
@@ -606,34 +646,13 @@ def apply_instance_env_overrides(
         return config
 
     # Build global mapping: token → (transport, adapter_key).
-    # adapter_key is the dict key in the transport's adapter dict (usually
-    # matches adapter_id unless the TOML instance name differs).
     token_to_adapter: dict[str, tuple[str, str]] = {}
-    for transport, group in (
-        ("matrix", config.adapters.matrix),
-        ("meshtastic", config.adapters.meshtastic),
-        ("meshcore", config.adapters.meshcore),
-        ("lxmf", config.adapters.lxmf),
-    ):
-        for adapter_key, rtc in group.items():
-            token = normalize_adapter_id(rtc.adapter_id)
-            token_to_adapter[token] = (transport, adapter_key)
-
-    # Check for collisions in the global token space.
-    # Rebuild a dict suitable for detect_token_collisions.
-    all_adapters_by_id: dict[str, Any] = {}
-    for transport, group in (
-        ("matrix", config.adapters.matrix),
-        ("meshtastic", config.adapters.meshtastic),
-        ("meshcore", config.adapters.meshcore),
-        ("lxmf", config.adapters.lxmf),
-    ):
-        for _key, rtc in group.items():
-            all_adapters_by_id[rtc.adapter_id] = rtc
-    detect_token_collisions(all_adapters_by_id)
+    for transport, adapter_key, adapter_id, _rtc in _iter_configured_adapters(config):
+        token = normalize_adapter_id(adapter_id)
+        token_to_adapter[token] = (transport, adapter_key)
 
     # Collect overrides by transport for batch application.
-    transport_overrides: dict[str, dict[str, dict[str, str]]] = {}
+    transport_overrides: dict[str, dict[str, dict[str, ParsedAdapterEnvValue]]] = {}
     unknown_tokens: list[str] = []
 
     for token, field_map in instance_overrides.items():
@@ -678,75 +697,59 @@ def apply_instance_env_overrides(
                     f"Valid fields: {sorted(valid_fields)}"
                 )
 
-            existing = transport_dict.get(adapter_key)
-            # Build new runtime config from existing.
-            if existing is not None:
-                new_enabled = existing.enabled
-                new_config = existing.config
-                new_adapter_id = existing.adapter_id
-                new_adapter_kind = existing.adapter_kind
-            else:
-                new_enabled = True
-                new_config = None
-                new_adapter_id = adapter_key
-                new_adapter_kind = "real"
-
-            # Separate enabled/adapter_id overrides from config-field overrides
-            # so we can build config_kwargs once.
-            for field_name, raw_value in field_map.items():
-                env_var = (
-                    f"{_ADAPTER_ENV_PREFIX}"
-                    f"{normalize_adapter_id(new_adapter_id)}__{field_name}"
+            # Reject adapter_id overrides — cannot be changed through env.
+            if "adapter_id" in field_map:
+                raise ConfigValidationError(
+                    "adapter_id cannot be changed through env; "
+                    "rename the adapter in TOML."
                 )
 
-                if field_name == "enabled":
-                    new_enabled = _coerce_bool(raw_value, env_var)
-                elif field_name == "adapter_id":
-                    new_adapter_id = raw_value
+            existing = transport_dict.get(adapter_key)
+            if existing is None:
+                raise ConfigValidationError(
+                    f"Adapter {adapter_key!r} not found in {transport} config. "
+                    f"Env overrides can only modify adapters defined in TOML."
+                )
 
-            # Apply config-field overrides (fields other than enabled/adapter_id).
+            new_enabled = existing.enabled
+            new_config = existing.config
+            new_adapter_id = existing.adapter_id
+            new_adapter_kind = existing.adapter_kind
+
+            # Separate enabled override from config-field overrides
+            # so we can build config_kwargs once.
+            if "enabled" in field_map:
+                parsed = field_map["enabled"]
+                new_enabled = _coerce_bool(parsed.raw_value, parsed.env_var_name)
+
+            # Apply config-field overrides (fields other than enabled).
             config_field_names = {
-                k for k in field_map if k not in ("enabled", "adapter_id")
+                k for k in field_map if k != "enabled"
             }
             if config_field_names:
-                # Start from existing config values or fresh defaults.
-                if new_config is not None:
-                    config_kwargs = {
-                        f.name: getattr(new_config, f.name)
-                        for f in fields(config_cls)
-                    }
-                else:
-                    config_kwargs: dict[str, Any] = {"adapter_id": new_adapter_id}
-                    for f in fields(config_cls):
-                        if f.name == "adapter_id":
-                            continue
-                        if f.default is not dataclasses.MISSING:
-                            config_kwargs[f.name] = f.default
-                        elif f.default_factory is not dataclasses.MISSING:
-                            config_kwargs[f.name] = f.default_factory()
+                # Start from existing config values.
+                config_kwargs = {
+                    f.name: getattr(new_config, f.name)
+                    for f in fields(config_cls)
+                }
 
-                config_kwargs["adapter_id"] = new_adapter_id
                 for field_name in config_field_names:
-                    raw_value = field_map[field_name]
-                    env_var = (
-                        f"{_ADAPTER_ENV_PREFIX}"
-                        f"{normalize_adapter_id(new_adapter_id)}__{field_name}"
-                    )
+                    parsed = field_map[field_name]
                     field_type = _get_field_type(transport, field_name)
 
                     # Reject dict/tuple fields — they cannot be set via env.
                     unwrapped = _unwrap_optional_type(field_type) if field_type else None
-                    unwrapped_origin = getattr(unwrapped, "__origin__", None) if unwrapped else None
-                    if unwrapped_origin is dict or unwrapped_origin is tuple:
+                    origin = get_origin(unwrapped) if unwrapped else None
+                    if unwrapped in (dict, tuple) or origin in (dict, tuple):
                         raise ConfigValidationError(
                             f"Field {field_name!r} has type "
-                            f"{'dict' if unwrapped_origin is dict else 'tuple'}"
+                            f"{'dict' if (unwrapped is dict or origin is dict) else 'tuple'}"
                             f" and cannot be set through env; "
                             f"configure it in TOML."
                         )
 
                     coerced = _coerce_field_value(
-                        raw_value, field_name, field_type, env_var
+                        parsed.raw_value, field_name, field_type, parsed.env_var_name
                     )
                     config_kwargs[field_name] = coerced
                 new_config = config_cls(**config_kwargs).validate()
@@ -802,14 +805,8 @@ def apply_env_overrides(
     # are set.  Two adapters normalizing to the same token is a config error
     # regardless of env overrides.
     all_adapters_by_id: dict[str, Any] = {}
-    for transport, group in (
-        ("matrix", config.adapters.matrix),
-        ("meshtastic", config.adapters.meshtastic),
-        ("meshcore", config.adapters.meshcore),
-        ("lxmf", config.adapters.lxmf),
-    ):
-        for _key, rtc in group.items():
-            all_adapters_by_id[rtc.adapter_id] = rtc
+    for _transport, _key, adapter_id, rtc in _iter_configured_adapters(config):
+        all_adapters_by_id[adapter_id] = rtc
     detect_token_collisions(all_adapters_by_id)
 
     env = MedreEnvConfig.from_environ()

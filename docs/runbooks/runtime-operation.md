@@ -330,18 +330,18 @@ cp examples/env/docker.env.example .env
 
 Key variables:
 
-| Variable                           | Purpose                                             |
-| ---------------------------------- | --------------------------------------------------- |
-| `MEDRE_HOME`                       | Root data directory inside container (`/opt/medre`) |
-| `MEDRE_LOG_LEVEL`                  | Log verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR`  |
-| `MEDRE_MATRIX_ENABLED`             | Enable Matrix adapter                               |
-| `MEDRE_MATRIX_HOMESERVER`          | Matrix homeserver URL                               |
-| `MEDRE_MATRIX_USER_ID`             | Matrix user ID                                      |
-| `MEDRE_MATRIX_ACCESS_TOKEN`        | Matrix access token                                 |
-| `MEDRE_MATRIX_ROOM_ALLOWLIST`      | Comma-separated room IDs                            |
-| `MEDRE_MESHTASTIC_ENABLED`         | Enable Meshtastic adapter                           |
-| `MEDRE_MESHTASTIC_CONNECTION_TYPE` | Connection mode: `serial`, `tcp`, `ble`, `fake`     |
-| `MEDRE_MESHTASTIC_SERIAL_PORT`     | Serial device path                                  |
+| Variable                                      | Purpose                                             |
+| --------------------------------------------- | --------------------------------------------------- |
+| `MEDRE_HOME`                                  | Root data directory inside container (`/opt/medre`) |
+| `MEDRE_LOG_LEVEL`                             | Log verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR`  |
+| `MEDRE_ADAPTER__MAIN__ENABLED`                | Enable Matrix adapter                               |
+| `MEDRE_ADAPTER__MAIN__HOMESERVER`             | Matrix homeserver URL                               |
+| `MEDRE_ADAPTER__MAIN__USER_ID`                | Matrix user ID                                      |
+| `MEDRE_ADAPTER__MAIN__ACCESS_TOKEN`           | Matrix access token                                 |
+| `MEDRE_ADAPTER__MAIN__ROOM_ALLOWLIST`         | Comma-separated room IDs                            |
+| `MEDRE_ADAPTER__RADIO__ENABLED`               | Enable Meshtastic adapter                           |
+| `MEDRE_ADAPTER__RADIO__CONNECTION_TYPE`       | Connection mode: `serial`, `tcp`, `ble`, `fake`     |
+| `MEDRE_ADAPTER__RADIO__SERIAL_PORT`           | Serial device path                                  |
 
 Mount a volume at `MEDRE_HOME` for persistent state:
 
@@ -479,7 +479,7 @@ The container's runtime user must have read/write access to the device. On most 
 - Use `--group-add dialout` if the container runtime supports it.
 - Set `udev` rules on the host to adjust permissions.
 
-The serial port path is configured via `MEDRE_MESHTASTIC_SERIAL_PORT` (default: `/dev/ttyACM0`). The path inside the container must match the `--device` mapping.
+The serial port path is configured via `MEDRE_ADAPTER__RADIO__SERIAL_PORT` (default: `/dev/ttyACM0`). The path inside the container must match the `--device` mapping.
 
 ### Deterministic Path Resolution
 

@@ -238,7 +238,7 @@ find / -newer /opt/medre/config.toml -not -path "/opt/medre/*" -not -path "/proc
 The Meshtastic serial adapter expects the configured serial device to exist and be accessible:
 
 ```text
-MEDRE_MESHTASTIC_SERIAL_PORT=/dev/ttyACM0
+MEDRE_ADAPTER__RADIO__SERIAL_PORT=/dev/ttyACM0
 ```
 
 In Docker, this requires device passthrough:

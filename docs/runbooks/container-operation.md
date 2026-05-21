@@ -42,22 +42,22 @@ Reference: `examples/env/docker.env.example`
 
 ### 2.2 Matrix Adapter Variables
 
-| Variable                       | Description                                             |
-| ------------------------------ | ------------------------------------------------------- |
-| `MEDRE_MATRIX_ENABLED`         | `true` / `false`                                        |
-| `MEDRE_MATRIX_HOMESERVER`      | Matrix homeserver URL                                   |
-| `MEDRE_MATRIX_USER_ID`         | Bot user ID (e.g., `@bot:example.com`)                  |
-| `MEDRE_MATRIX_ACCESS_TOKEN`    | Access token (generate via Matrix API)                  |
-| `MEDRE_MATRIX_ROOM_ALLOWLIST`  | Comma-separated room IDs                                |
-| `MEDRE_MATRIX_ENCRYPTION_MODE` | `plaintext` (default), `e2ee_required`, `e2ee_optional` |
+| Variable                                | Description                                             |
+| --------------------------------------- | ------------------------------------------------------- |
+| `MEDRE_ADAPTER__MAIN__ENABLED`          | `true` / `false`                                        |
+| `MEDRE_ADAPTER__MAIN__HOMESERVER`       | Matrix homeserver URL                                   |
+| `MEDRE_ADAPTER__MAIN__USER_ID`          | Bot user ID (e.g., `@bot:example.com`)                  |
+| `MEDRE_ADAPTER__MAIN__ACCESS_TOKEN`     | Access token (generate via Matrix API)                  |
+| `MEDRE_ADAPTER__MAIN__ROOM_ALLOWLIST`   | Comma-separated room IDs                                |
+| `MEDRE_ADAPTER__MAIN__ENCRYPTION_MODE`  | `plaintext` (default), `e2ee_required`, `e2ee_optional` |
 
 ### 2.3 Meshtastic Adapter Variables
 
-| Variable                           | Description                               |
-| ---------------------------------- | ----------------------------------------- |
-| `MEDRE_MESHTASTIC_ENABLED`         | `true` / `false`                          |
-| `MEDRE_MESHTASTIC_CONNECTION_TYPE` | `serial`, `tcp`, `ble`, `fake`            |
-| `MEDRE_MESHTASTIC_SERIAL_PORT`     | Serial device path (e.g., `/dev/ttyACM0`) |
+| Variable                                    | Description                               |
+| ------------------------------------------- | ----------------------------------------- |
+| `MEDRE_ADAPTER__RADIO__ENABLED`             | `true` / `false`                          |
+| `MEDRE_ADAPTER__RADIO__CONNECTION_TYPE`     | `serial`, `tcp`, `ble`, `fake`            |
+| `MEDRE_ADAPTER__RADIO__SERIAL_PORT`         | Serial device path (e.g., `/dev/ttyACM0`) |
 
 ### 2.4 Path Derivation from MEDRE_HOME
 
@@ -139,8 +139,8 @@ For Meshtastic adapters with `connection_type=serial`, the host serial device mu
 ```bash
 docker run \
   --device /dev/ttyACM0:/dev/ttyACM0 \
-  --env MEDRE_MESHTASTIC_CONNECTION_TYPE=serial \
-  --env MEDRE_MESHTASTIC_SERIAL_PORT=/dev/ttyACM0 \
+  --env MEDRE_ADAPTER__RADIO__CONNECTION_TYPE=serial \
+  --env MEDRE_ADAPTER__RADIO__SERIAL_PORT=/dev/ttyACM0 \
   medre
 ```
 
@@ -148,7 +148,7 @@ docker run \
 
 - The device must exist on the host (`/dev/ttyACM0`)
 - The container process must have read/write access to the device
-- The device path inside the container must match `MEDRE_MESHTASTIC_SERIAL_PORT`
+- The device path inside the container must match `MEDRE_ADAPTER__RADIO__SERIAL_PORT`
 - If the device is not available, the Meshtastic adapter will fail to start (non-fatal — other adapters continue)
 
 ### 4.3 Alternative: TCP Connection
@@ -156,9 +156,9 @@ docker run \
 To avoid serial passthrough complexity, use TCP connection type:
 
 ```bash
---env MEDRE_MESHTASTIC_CONNECTION_TYPE=tcp
---env MEDRE_MESHTASTIC_HOST=meshtastic-radio.local
---env MEDRE_MESHTASTIC_PORT=4403
+--env MEDRE_ADAPTER__RADIO__CONNECTION_TYPE=tcp
+--env MEDRE_ADAPTER__RADIO__HOST=meshtastic-radio.local
+--env MEDRE_ADAPTER__RADIO__PORT=4403
 ```
 
 This requires a Meshtastic device with IP connectivity (e.g., via a host serial-to-TCP bridge like `meshtasticd`).

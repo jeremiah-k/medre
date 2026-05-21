@@ -673,9 +673,8 @@ class TestProvenanceAndRedaction:
         env = MedreEnvConfig.from_environ()
 
         redacted = dict(env.provenance.redacted_items())
-        # FIX 1: field names are lowered, so provenance keys use lowercase.
         for field_name in ("access_token", "SECRET", "PASSWORD", "KEY", "AUTH", "CREDENTIAL"):
-            assert redacted[f"MEDRE_ADAPTER__FROM_TOML__{field_name.lower()}"] == "***REDACTED***"
+            assert redacted[f"MEDRE_ADAPTER__FROM_TOML__{field_name}"] == "***REDACTED***"
 
     def test_homeserver_not_redacted(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Non-secret fields remain visible."""
@@ -718,7 +717,7 @@ class TestProvenanceAndRedaction:
         ]
         assert len(instance_entries) == 1
         entry = instance_entries[0]
-        assert entry.target_adapter_id == "FROM_TOML"
+        assert entry.target_adapter_token == "FROM_TOML"
         assert entry.target_field == "homeserver"
 
     def test_core_env_provenance_no_transport_or_field(
@@ -732,7 +731,7 @@ class TestProvenanceAndRedaction:
         ]
         assert len(core_entries) == 1
         entry = core_entries[0]
-        assert entry.target_adapter_id is None
+        assert entry.target_adapter_token is None
         assert entry.target_transport is None
         assert entry.target_field is None
 
@@ -843,12 +842,9 @@ class TestMedreEnvConfig:
         monkeypatch.setenv("MEDRE_ADAPTER__FROM_TOML__homeserver", "https://env.test")
         monkeypatch.setenv("MEDRE_ADAPTER__FROM_TOML__access_token", "tok")
         env = MedreEnvConfig.from_environ()
-        assert env.instance_overrides == {
-            "FROM_TOML": {
-                "homeserver": "https://env.test",
-                "access_token": "tok",
-            }
-        }
+        overrides = env.instance_overrides["FROM_TOML"]
+        assert overrides["homeserver"].raw_value == "https://env.test"
+        assert overrides["access_token"].raw_value == "tok"
 
     def test_unknown_medre_vars_ignored(
         self, monkeypatch: pytest.MonkeyPatch
@@ -890,9 +886,9 @@ class TestMedreEnvConfig:
             "MEDRE_ADAPTER__RADIO_A__port": "4403",
         }
         env = MedreEnvConfig.from_environ(custom)
-        assert env.instance_overrides == {
-            "RADIO_A": {"host": "10.0.0.1", "port": "4403"},
-        }
+        overrides = env.instance_overrides["RADIO_A"]
+        assert overrides["host"].raw_value == "10.0.0.1"
+        assert overrides["port"].raw_value == "4403"
 
 
 # ---------------------------------------------------------------------------
@@ -1012,7 +1008,8 @@ class TestOptionalTypeCoercion:
         coerced_port = result.adapters.meshtastic["radio-tcp"].config.port
         # Verify the override was applied (coercion depends on
         # _unwrap_optional_type handling PEP-604 X | None).
-        assert coerced_port == 5503 or coerced_port == "5503"
+        assert coerced_port == 5503
+        assert isinstance(coerced_port, int)
 
     def test_meshcore_port_int_from_env(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1022,7 +1019,8 @@ class TestOptionalTypeCoercion:
         base = _make_config_with_meshcore()
         result = apply_env_overrides(base)
         coerced_port = result.adapters.meshcore["mc-ble"].config.port
-        assert coerced_port == 8080 or coerced_port == "8080"
+        assert coerced_port == 8080
+        assert isinstance(coerced_port, int)
 
     def test_matrix_room_allowlist_set_from_env(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1044,17 +1042,11 @@ class TestOptionalTypeCoercion:
     def test_invalid_optional_int_raises(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Invalid int value for optional int field raises ConfigValidationError
-        when PEP-604 unwrap is handled; otherwise stored as-is string."""
+        """Invalid int value for optional int field raises ConfigValidationError."""
         monkeypatch.setenv("MEDRE_ADAPTER__RADIO_TCP__port", "not-a-number")
         base = _make_config_with_meshtastic_tcp()
-        # If unwrap works: raises. If not: string is stored silently.
-        try:
-            result = apply_env_overrides(base)
-            # PEP-604 not unwrapped — value stored as string.
-            assert result.adapters.meshtastic["radio-tcp"].config.port == "not-a-number"
-        except ConfigValidationError:
-            pass  # PEP-604 unwrapped correctly — raises on invalid int.
+        with pytest.raises(ConfigValidationError):
+            apply_env_overrides(base)
 
 
 # ---------------------------------------------------------------------------

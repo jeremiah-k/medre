@@ -677,12 +677,12 @@ Each transport exposes its config dataclass fields as override targets. The `ena
 | `homeserver`               | string         | `MEDRE_ADAPTER__MAIN__HOMESERVER=https://matrix.example.com`       |
 | `user_id`                  | string         | `MEDRE_ADAPTER__MAIN__USER_ID=@bot:example.com`                    |
 | `access_token`             | string         | `MEDRE_ADAPTER__MAIN__ACCESS_TOKEN=syt_...`                        |
-| `room_allowlist`           | set of string  | `MEDRE_ADAPTER__MAIN__ROOM_ALLOWLIST=!room:example.com,!other:...` |
+| `room_allowlist`           | set of strings  | `MEDRE_ADAPTER__MAIN__ROOM_ALLOWLIST=!room:example.com,!other:...` |
 | `metadata_embedding_mode`  | string         | `MEDRE_ADAPTER__MAIN__METADATA_EMBEDDING_MODE=safe`                |
 | `sync_timeout_ms`          | int            | `MEDRE_ADAPTER__MAIN__SYNC_TIMEOUT_MS=30000`                       |
 | `encryption_mode`          | string         | `MEDRE_ADAPTER__MAIN__ENCRYPTION_MODE=plaintext`                   |
 | `require_encrypted_rooms`  | bool           | `MEDRE_ADAPTER__MAIN__REQUIRE_ENCRYPTED_ROOMS=false`               |
-| `auto_join_rooms`          | tuple of string | `MEDRE_ADAPTER__MAIN__AUTO_JOIN_ROOMS=!room:example.com`          |
+| `auto_join_rooms`          | tuple of strings \| TOML-only |                                                                    |
 | `device_id`                | string         | `MEDRE_ADAPTER__MAIN__DEVICE_ID=...`                               |
 | `store_path`               | string         | `MEDRE_ADAPTER__MAIN__STORE_PATH=/path/to/store`                   |
 
@@ -745,7 +745,7 @@ Each transport exposes its config dataclass fields as override targets. The `ena
 | `identity_path`           | string | `MEDRE_ADAPTER__LOCAL__IDENTITY_PATH={state}/lxmf/identity`      |
 | `storage_path`            | string | `MEDRE_ADAPTER__LOCAL__STORAGE_PATH={state}/lxmf/storage`        |
 
-> **TOML-only fields.** Dict fields (`channel_mapping`, `node_config`) and tuple fields (`auto_join_rooms`) cannot be set via environment variables. They require structured data that the flat string format of env vars cannot represent. Set them in TOML instead. The env override system will reject these fields with a clear error message.
+> **TOML-only fields.** `adapter_id`, dict fields (`channel_mapping`, `node_config`), and tuple fields (`auto_join_rooms`) cannot be set via environment variables. `adapter_id` defaults to the TOML instance name and cannot be overridden through env. Dict and tuple fields require structured data that the flat string format of env vars cannot represent. Set them in TOML instead. The env override system will reject these fields with a clear error message.
 
 #### Secret Handling
 
