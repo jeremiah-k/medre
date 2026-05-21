@@ -21,19 +21,18 @@ and works in environments where some or all SDKs are not installed.
 
 from __future__ import annotations
 
-import importlib
 import re
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from medre.runtime.architecture_report import _SDK_PACKAGES
+from tests.helpers.source_reader import source_of as _source_of
+
 # ---------------------------------------------------------------------------
 # Shared helpers (same pattern as test_architectural_boundaries.py)
 # ---------------------------------------------------------------------------
-
-_SDK_PACKAGES = ("nio", "meshtastic", "meshcore", "RNS", "lxmf")
-"""Third-party transport SDK package names."""
 
 _ADAPTER_PREFIXES = (
     "medre.adapters.matrix",
@@ -68,14 +67,6 @@ _ADAPTER_FACTORIES = (
     "medre.adapters.lxmf.",
 )
 """Concrete adapter factory/module prefixes."""
-
-
-def _source_of(module_name: str) -> str:
-    """Import module and return its source text."""
-    mod = importlib.import_module(module_name)
-    assert mod.__file__ is not None, f"{module_name} has no __file__"
-    with open(mod.__file__) as f:
-        return f.read()
 
 
 def _import_lines(source: str) -> list[str]:
@@ -225,9 +216,9 @@ class TestStorageNoRuntimeInternals:
 
         # Check classic runtime prefixes (app, builder, route_engine, etc.).
         runtime_imports = _banned_imports(lines, _RUNTIME_PREFIXES)
-        assert runtime_imports == [], (
-            f"replay.py imports banned runtime modules: {runtime_imports}"
-        )
+        assert (
+            runtime_imports == []
+        ), f"replay.py imports banned runtime modules: {runtime_imports}"
 
         # Also check medre.core.runtime.* — both TYPE_CHECKING-guarded
         # imports (accounting, capacity) are allowed; any other would be banned.
@@ -236,13 +227,10 @@ class TestStorageNoRuntimeInternals:
             "from medre.core.runtime.capacity import CapacityController",
             "from medre.core.runtime.accounting import RuntimeAccounting",
         ]
-        disallowed = [
-            line for line in core_runtime_imports if line not in allowed
-        ]
-        assert disallowed == [], (
-            f"replay.py imports disallowed medre.core.runtime modules: "
-            f"{disallowed}"
-        )
+        disallowed = [line for line in core_runtime_imports if line not in allowed]
+        assert (
+            disallowed == []
+        ), f"replay.py imports disallowed medre.core.runtime modules: {disallowed}"
 
 
 # ===================================================================

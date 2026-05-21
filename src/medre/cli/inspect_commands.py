@@ -13,8 +13,8 @@ from typing import Any
 
 import msgspec
 
-from medre.runtime import timeline as _timeline
-from medre.runtime.evidence import collect_evidence_bundle
+import medre.runtime.timeline as _timeline
+from medre.runtime.evidence._bundle import collect_evidence_bundle
 from medre.runtime.trace import timeline_to_json
 
 from .exit_codes import EXIT_CONFIG, EXIT_NOT_FOUND

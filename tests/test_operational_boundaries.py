@@ -20,19 +20,19 @@ all SDKs are not installed.
 
 from __future__ import annotations
 
-import importlib
 import re
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from medre.runtime.architecture_report import _BANNED_SDK_IMPORT_PREFIXES, _SDK_PACKAGES
+from tests.helpers.sdk_constants import _SDK_INSTANTIATION_PATTERNS
+from tests.helpers.source_reader import source_of as _source_of
+
 # ---------------------------------------------------------------------------
 # Shared helpers (same pattern as test_architectural_boundaries.py)
 # ---------------------------------------------------------------------------
-
-_SDK_PACKAGES = ("nio", "meshtastic", "meshcore", "RNS", "lxmf")
-"""Third-party transport SDK package names."""
 
 _ADAPTER_PREFIXES = (
     "medre.adapters.matrix",
@@ -53,21 +53,8 @@ _ADAPTER_COMPAT_MODULES = (
 _TESTS_DIR = Path(__file__).parent
 """Root tests directory."""
 
-# Banned import-line prefixes for SDK packages — used for file-level
-# scanning where we want to match actual import statements, not comments
-# or string literals in boundary test files.
-_BANNED_SDK_IMPORT_PREFIXES = (
-    "import nio",
-    "import meshtastic",
-    "import meshcore",
-    "import RNS",
-    "import lxmf",
-    "from nio",
-    "from meshtastic",
-    "from meshcore",
-    "from RNS",
-    "from lxmf",
-)
+_REPO_ROOT = _TESTS_DIR.parent
+"""Repository root directory."""
 
 _BANNED_ADAPTER_IMPORT_PREFIXES = (
     "from medre.adapters.matrix",
@@ -77,16 +64,12 @@ _BANNED_ADAPTER_IMPORT_PREFIXES = (
 )
 
 
-def _source_of(module_name: str) -> str:
-    """Import module and return its source text."""
-    mod = importlib.import_module(module_name)
-    assert mod.__file__ is not None, f"{module_name} has no __file__"
-    with open(mod.__file__) as f:
-        return f.read()
-
-
 def _import_lines(source: str) -> list[str]:
-    """Extract all import/from-import lines from source text."""
+    """Extract all import/from-import lines from source text.
+
+    See also: architecture_ast.runtime_scope_imports() for AST-based
+    import extraction (returns ImportRecord objects with resolved names).
+    """
     return [
         line.strip()
         for line in source.splitlines()
@@ -95,7 +78,11 @@ def _import_lines(source: str) -> list[str]:
 
 
 def _banned_imports(lines: list[str], banned: tuple[str, ...]) -> list[str]:
-    """Return import lines referencing any banned package."""
+    """Return import lines referencing any banned package.
+
+    See also: architecture_ast.import_matches() for module-prefix matching
+    on resolved module names (AST-level, not text-level).
+    """
     found: list[str] = []
     for line in lines:
         for b in banned:
@@ -391,7 +378,7 @@ class TestCliWorkflowsRuntimeLayerOnly:
     ) -> None:
         """CLI test files must not import concrete adapter runtime modules.
 
-        Config imports (``medre.adapters.*.config``) are permitted — they
+        Config imports (``medre.config.adapters.*``) are permitted — they
         are pure data classes with no SDK dependency.
         """
         violations = _scan_file_for_banned_imports(
@@ -670,14 +657,7 @@ class TestDeploymentHelpersNoSdkInstantiation:
         "medre.config.sample",
     ]
 
-    _SDK_INSTANTIATION_PATTERNS = (
-        "nio.AsyncClient(",
-        "MeshtasticClient(",
-        "MeshCore(",
-        "RNS.Reticulum(",
-        "LXMF.LXMF(",
-        "lxmf.LXMF(",
-    )
+    _SDK_INSTANTIATION_PATTERNS = _SDK_INSTANTIATION_PATTERNS
 
     @pytest.mark.parametrize(
         "module_name",

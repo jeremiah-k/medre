@@ -41,7 +41,7 @@ class TestScenarioCrossCheck:
     @pytest.mark.asyncio
     async def test_status_is_passed(self, scenario: str, tmp_path: Path) -> None:
         """Every scenario produces status='passed'."""
-        from medre.runtime.run_session import run_bridge_session
+        from medre.runtime.run_session.orchestration import run_bridge_session
 
         db_path = str(tmp_path / f"scenario-{scenario}.db")
         report = await run_bridge_session(
@@ -60,7 +60,7 @@ class TestScenarioCrossCheck:
         tmp_path: Path,
     ) -> None:
         """Report has command='run_session'."""
-        from medre.runtime.run_session import run_bridge_session
+        from medre.runtime.run_session.orchestration import run_bridge_session
 
         db_path = str(tmp_path / f"cmd-{scenario}.db")
         report = await run_bridge_session(
@@ -78,10 +78,8 @@ class TestScenarioCrossCheck:
         tmp_path: Path,
     ) -> None:
         """Report scenario_category matches expected category."""
-        from medre.runtime.run_session import (
-            run_bridge_session,
-            scenario_category,
-        )
+        from medre.runtime.run_session.orchestration import run_bridge_session
+        from medre.runtime.run_session.scenario import scenario_category
 
         db_path = str(tmp_path / f"cat-{scenario}.db")
         report = await run_bridge_session(
@@ -103,7 +101,7 @@ class TestScenarioCrossCheck:
         tmp_path: Path,
     ) -> None:
         """Failure scenarios have simulated=True and simulation_method present."""
-        from medre.runtime.run_session import run_bridge_session
+        from medre.runtime.run_session.orchestration import run_bridge_session
 
         db_path = str(tmp_path / f"sim-{scenario}.db")
         report = await run_bridge_session(
@@ -118,7 +116,7 @@ class TestScenarioCrossCheck:
     @pytest.mark.asyncio
     async def test_degraded_health_fields(self, tmp_path: Path) -> None:
         """degraded_live_health scenario has expected/observed health fields."""
-        from medre.runtime.run_session import run_bridge_session
+        from medre.runtime.run_session.orchestration import run_bridge_session
 
         db_path = str(tmp_path / "degraded-health.db")
         report = await run_bridge_session(
@@ -138,7 +136,7 @@ class TestScenarioCrossCheck:
         tmp_path: Path,
     ) -> None:
         """Delivery failure scenarios have expected/observed failure_kind."""
-        from medre.runtime.run_session import run_bridge_session
+        from medre.runtime.run_session.orchestration import run_bridge_session
 
         db_path = str(tmp_path / f"fk-{scenario}.db")
         report = await run_bridge_session(
@@ -158,7 +156,7 @@ class TestScenarioCrossCheck:
         tmp_path: Path,
     ) -> None:
         """Report commands dict has commands_argv and commands_text with primary/specialized."""
-        from medre.runtime.run_session import run_bridge_session
+        from medre.runtime.run_session.orchestration import run_bridge_session
 
         db_path = str(tmp_path / f"cmds-{scenario}.db")
         report = await run_bridge_session(
@@ -186,7 +184,7 @@ class TestScenarioCrossCheck:
         tmp_path: Path,
     ) -> None:
         """commands_argv entries are proper lists; read-only use --storage-path, recover uses --config."""
-        from medre.runtime.run_session import run_bridge_session
+        from medre.runtime.run_session.orchestration import run_bridge_session
 
         db_path = str(tmp_path / f"argv-{scenario}.db")
         report = await run_bridge_session(
@@ -235,7 +233,7 @@ class TestScenarioCrossCheck:
         tmp_path: Path,
     ) -> None:
         """Report has operator_interpretation (non-empty)."""
-        from medre.runtime.run_session import run_bridge_session
+        from medre.runtime.run_session.orchestration import run_bridge_session
 
         db_path = str(tmp_path / f"interp-{scenario}.db")
         report = await run_bridge_session(
@@ -256,7 +254,7 @@ class TestScenarioCrossCheck:
         tmp_path: Path,
     ) -> None:
         """Report has 'errors' list (may be empty)."""
-        from medre.runtime.run_session import run_bridge_session
+        from medre.runtime.run_session.orchestration import run_bridge_session
 
         db_path = str(tmp_path / f"errors-{scenario}.db")
         report = await run_bridge_session(
@@ -275,7 +273,7 @@ class TestScenarioCrossCheck:
         tmp_path: Path,
     ) -> None:
         """Report has 'limitations' list."""
-        from medre.runtime.run_session import run_bridge_session
+        from medre.runtime.run_session.orchestration import run_bridge_session
 
         db_path = str(tmp_path / f"lim-{scenario}.db")
         report = await run_bridge_session(
@@ -295,7 +293,7 @@ class TestScenarioCrossCheck:
         tmp_path: Path,
     ) -> None:
         """Report primary commands are inspect-first; specialized are lower-level."""
-        from medre.runtime.run_session import run_bridge_session
+        from medre.runtime.run_session.orchestration import run_bridge_session
 
         db_path = str(tmp_path / f"inspect-first-{scenario}.db")
         report = await run_bridge_session(
@@ -364,7 +362,7 @@ class TestStoragePathInCommands:
     @pytest.mark.asyncio
     async def test_primary_commands_use_storage_path_argv(self, tmp_path: Path) -> None:
         """Primary commands_argv use --storage-path with exact DB path when storage is overridden."""
-        from medre.runtime.run_session import run_bridge_session
+        from medre.runtime.run_session.orchestration import run_bridge_session
 
         db_path = str(tmp_path / "storage-argv.db")
         report = await run_bridge_session(
@@ -393,7 +391,7 @@ class TestStoragePathInCommands:
     @pytest.mark.asyncio
     async def test_specialized_readonly_use_storage_path(self, tmp_path: Path) -> None:
         """Specialized trace/evidence commands use --storage-path."""
-        from medre.runtime.run_session import run_bridge_session
+        from medre.runtime.run_session.orchestration import run_bridge_session
 
         db_path = str(tmp_path / "spec-ro.db")
         report = await run_bridge_session(
@@ -414,7 +412,7 @@ class TestStoragePathInCommands:
     @pytest.mark.asyncio
     async def test_recover_remains_config_based(self, tmp_path: Path) -> None:
         """recover_event uses --config, not --storage-path."""
-        from medre.runtime.run_session import run_bridge_session
+        from medre.runtime.run_session.orchestration import run_bridge_session
 
         db_path = str(tmp_path / "recover-cfg.db")
         report = await run_bridge_session(
@@ -490,7 +488,7 @@ class TestStoragePathInCommands:
         from contextlib import redirect_stdout
 
         from medre.cli.inspect_commands import _inspect_event
-        from medre.runtime.run_session import run_bridge_session
+        from medre.runtime.run_session.orchestration import run_bridge_session
 
         db_path = str(tmp_path / "cli-exec.db")
         report = await run_bridge_session(

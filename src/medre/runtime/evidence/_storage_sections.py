@@ -39,7 +39,7 @@ async def _collect_storage_data_from_backend(
 
     The caller is responsible for opening and closing the storage backend.
     """
-    from medre.runtime import timeline as _timeline
+    import medre.runtime.timeline as _timeline
 
     data: dict[str, Any] = {
         "db_exists": True,
@@ -81,7 +81,7 @@ async def _collect_storage_data_from_backend(
                 data["timeline"] = tl_result["timeline_entries"]
 
                 # Compact incident summary using shared classification.
-                from medre.observability.classification import (
+                from medre.core.observability.classification import (
                     failure_category,
                     infer_failure_kind,
                     recommended_commands,

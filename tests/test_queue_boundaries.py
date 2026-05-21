@@ -12,7 +12,6 @@ Verifies that:
 from __future__ import annotations
 
 import asyncio
-import importlib
 import logging
 import re
 import time as _time
@@ -39,14 +38,16 @@ from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.core.runtime.capacity import CapacityController
 from medre.runtime.app import RuntimeState
 from medre.runtime.builder import RuntimeBuilder
+from tests.helpers.source_reader import source_of as _source_of
 
 # ---------------------------------------------------------------------------
 # Shared constants & helpers
 # ---------------------------------------------------------------------------
 
-_SRC = Path(__file__).resolve().parent.parent / "src"
-
-_SDK_PACKAGES = (
+# Queue-specific SDK packages — uses dist/package names (mindroom, reticulum)
+# rather than PyPI names (nio, RNS).  Intentionally NOT the canonical _SDK_PACKAGES
+# from architecture_report — those use PyPI import names.
+_QUEUE_SDK_PACKAGES = (
     "mindroom",
     "meshtastic",
     "meshcore",
@@ -138,13 +139,6 @@ def _make_config_with_fake_matrix(
             },
         ),
     )
-
-
-def _source_of(module_name: str) -> str:
-    mod = importlib.import_module(module_name)
-    assert mod.__file__ is not None, f"{module_name} has no __file__"
-    with open(mod.__file__) as f:
-        return f.read()
 
 
 def _import_lines(source: str) -> list[str]:
@@ -536,7 +530,7 @@ class TestNoTransportSDKImports:
             pytest.skip(f"Module {module_name} not importable")
 
         lines = _import_lines(source)
-        for sdk in _SDK_PACKAGES:
+        for sdk in _QUEUE_SDK_PACKAGES:
             for line in lines:
                 assert not re.search(
                     rf"\b{re.escape(sdk)}\b", line
@@ -562,14 +556,14 @@ class TestNoTransportSDKImports:
         # only check import lines (not full source text).
         if module_name in _SDK_IMPORT_ONLY_MODULES:
             lines = _import_lines(source)
-            for sdk in _SDK_PACKAGES:
+            for sdk in _QUEUE_SDK_PACKAGES:
                 for line in lines:
                     assert not re.search(
                         rf"\b{re.escape(sdk)}\b", line
                     ), f"{module_name} imports SDK '{sdk}': {line}"
             return
 
-        for sdk in _SDK_PACKAGES:
+        for sdk in _QUEUE_SDK_PACKAGES:
             assert (
                 sdk not in source
             ), f"{module_name} references SDK '{sdk}' in source text"

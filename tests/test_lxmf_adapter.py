@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from medre.adapters import FakeLxmfAdapter
+from medre.adapters.fake_lxmf import FakeLxmfAdapter
 from medre.adapters.lxmf.adapter import LxmfAdapter
 from medre.adapters.lxmf.compat import HAS_LXMF
 from medre.adapters.lxmf.errors import LxmfConnectionError
@@ -693,6 +693,7 @@ class TestLxmfCompat:
     def test_has_lxmf_is_bool(self) -> None:
         assert isinstance(HAS_LXMF, bool)
 
+    @pytest.mark.live
     def test_has_lxmf_value_consistent_with_import(self) -> None:
         """HAS_LXMF is True when LXMF imports successfully, False otherwise."""
         try:

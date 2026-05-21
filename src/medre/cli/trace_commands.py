@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 
-from medre.runtime import timeline as _timeline
+import medre.runtime.timeline as _timeline
 from medre.runtime.trace import timeline_to_json
 
 from .exit_codes import EXIT_NOT_FOUND

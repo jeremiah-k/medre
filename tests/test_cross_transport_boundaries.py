@@ -36,6 +36,7 @@ import pytest
 
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.rendering.renderer import RenderingResult
+from medre.runtime.architecture_report import _SDK_PACKAGES
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -43,9 +44,6 @@ from medre.core.rendering.renderer import RenderingResult
 
 _ADAPTER_TRANSPORTS = ("matrix", "meshtastic", "meshcore", "lxmf")
 """Four alpha transport names."""
-
-_SDK_PACKAGES = ("nio", "meshtastic", "meshcore", "RNS", "lxmf")
-"""Third-party transport SDK package names that must not appear in core."""
 
 _CONCRETE_ADAPTER_PREFIXES = tuple(f"medre.adapters.{t}" for t in _ADAPTER_TRANSPORTS)
 """Fully-qualified concrete adapter package prefixes."""

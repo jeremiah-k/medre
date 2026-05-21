@@ -1,7 +1,7 @@
 """Runtime diagnostics, health, supervision, and accounting subsystem.
 
-Re-exported symbols
--------------------
+Package-level imports
+---------------------
 * From :mod:`~medre.core.runtime.accounting`:
   ``RuntimeAccounting``, ``RuntimeCounters``.
 * From :mod:`~medre.core.runtime.capacity`:

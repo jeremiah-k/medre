@@ -11,18 +11,17 @@ TRACK 9 — Resource Boundary Tests
 
 from __future__ import annotations
 
-import importlib
 import re
 from pathlib import Path
+
+from medre.runtime.architecture_report import _SDK_PACKAGES
+from tests.helpers.source_reader import source_of as _source_of
 
 # ---------------------------------------------------------------------------
 # Shared constants & helpers
 # ---------------------------------------------------------------------------
 
 _SRC = Path(__file__).resolve().parent.parent / "src"
-
-_SDK_PACKAGES = ("nio", "meshtastic", "meshcore", "RNS", "lxmf", "LXMF")
-"""Third-party transport SDK package names as they appear in import statements."""
 
 _ADAPTER_PREFIXES = (
     "medre.adapters.matrix",
@@ -33,15 +32,8 @@ _ADAPTER_PREFIXES = (
 """Concrete adapter package prefixes (excludes medre.core.contracts.adapter and fake_*)."""
 
 _RESOURCE_CONTROL_MODULES = ("medre.core.runtime.capacity",)
+
 """Runtime resource-control modules that must stay transport-agnostic."""
-
-
-def _source_of(module_name: str) -> str:
-    """Import module and return its source text."""
-    mod = importlib.import_module(module_name)
-    assert mod.__file__ is not None, f"{module_name} has no __file__"
-    with open(mod.__file__) as f:
-        return f.read()
 
 
 def _import_lines(source: str) -> list[str]:

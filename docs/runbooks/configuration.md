@@ -87,23 +87,23 @@ Per-logger level overrides for dependency libraries. Each key is a Python
 logger name and the value is a log level string (`"DEBUG"`, `"INFO"`,
 `"WARNING"`, `"ERROR"`).
 
-| Key                | Value  | Description                                              |
-| ------------------ | ------ | -------------------------------------------------------- |
-| _(logger name)_    | string | Log level to force for this logger.                      |
+| Key             | Value  | Description                         |
+| --------------- | ------ | ----------------------------------- |
+| _(logger name)_ | string | Log level to force for this logger. |
 
 **Default dependency log levels** (applied automatically — no config needed):
 
-| Logger             | Default Level | Reason                                              |
-| ------------------ | ------------- | --------------------------------------------------- |
-| `nio`              | `WARNING`     | Crypto key and sync noise at INFO                   |
-| `nio.crypto.log`   | `ERROR`       | Olm/Megolm session warnings; extremely noisy at lower levels |
-| `meshtastic`       | `WARNING`     | SDK prints every radio packet at INFO               |
-| `aiohttp`          | `WARNING`     | HTTP access logs at INFO                            |
-| `peewee`           | `WARNING`     | Query logging at DEBUG, noisy at INFO               |
-| `urllib3`          | `WARNING`     | Noisy HTTP/retry logs                                |
-| `serial`           | `WARNING`     | Verbose device I/O                                   |
-| `serial_asyncio`   | `WARNING`     | Verbose async serial/device I/O                      |
-| `asyncio`          | `WARNING`     | Event-loop/debug chatter                             |
+| Logger           | Default Level | Reason                                                       |
+| ---------------- | ------------- | ------------------------------------------------------------ |
+| `nio`            | `WARNING`     | Crypto key and sync noise at INFO                            |
+| `nio.crypto.log` | `ERROR`       | Olm/Megolm session warnings; extremely noisy at lower levels |
+| `meshtastic`     | `WARNING`     | SDK prints every radio packet at INFO                        |
+| `aiohttp`        | `WARNING`     | HTTP access logs at INFO                                     |
+| `peewee`         | `WARNING`     | Query logging at DEBUG, noisy at INFO                        |
+| `urllib3`        | `WARNING`     | Noisy HTTP/retry logs                                        |
+| `serial`         | `WARNING`     | Verbose device I/O                                           |
+| `serial_asyncio` | `WARNING`     | Verbose async serial/device I/O                              |
+| `asyncio`        | `WARNING`     | Event-loop/debug chatter                                     |
 
 > Any dependency logger **not** listed above (or in `[logging.overrides]`)
 > inherits the root logger's `WARNING` level. Add an entry to
@@ -137,7 +137,7 @@ namespaces. These CLI flags are not yet implemented — use `[logging.overrides]
 for now.
 
 > **Matrix room history before startup is suppressed.** The Matrix adapter
-> processes only events received *after* the sync connection is established.
+> processes only events received _after_ the sync connection is established.
 > Messages that arrived in bridged rooms while MEDRE was stopped are not
 > replayed or relayed. This is by design — it prevents message duplication
 > and stale relays on restart. If you need to bridge historical messages,
@@ -793,7 +793,8 @@ MEDRE's adapter configs are plain Python dataclasses. Import and construct them
 directly:
 
 ```python
-from medre.adapters.matrix import MatrixAdapter, MatrixConfig
+from medre.adapters.matrix.adapter import MatrixAdapter
+from medre.config.adapters.matrix import MatrixConfig
 
 config = MatrixConfig(
     adapter_id="my-bot",

@@ -3,8 +3,13 @@
 Provides structured logging helpers and lightweight metrics counters
 for tracking pipeline event flow.
 
-Re-exported symbols
--------------------
+Convenience re-exports
+----------------------
+These names are re-exported from their canonical submodules for
+ergonomic import paths (``from medre.core.observability import get_logger``).
+Importers may also use the longer submodule form directly.
+
+Exported names
 * :func:`~medre.core.observability.logging.setup_logging`
   – configure the root framework logger.
 * :func:`~medre.core.observability.logging.get_logger`

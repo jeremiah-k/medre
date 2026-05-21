@@ -24,7 +24,7 @@ from typing import Any
 import pytest
 
 from medre.cli import main
-from medre.runtime.evidence import collect_evidence_bundle
+from medre.runtime.evidence._bundle import collect_evidence_bundle
 
 # ---------------------------------------------------------------------------
 # Sample TOML configs

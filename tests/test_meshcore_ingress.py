@@ -8,7 +8,7 @@ import asyncio
 
 import pytest
 
-from medre.adapters import FakeMeshCoreAdapter
+from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
 from medre.adapters.meshcore.adapter import MeshCoreAdapter
 from medre.adapters.meshcore.session import MeshCoreSession
 from medre.config.adapters.meshcore import MeshCoreConfig

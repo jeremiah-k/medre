@@ -1,6 +1,6 @@
 """Core adapter contract package.
 
-Re-exports all adapter contract types from
+Package-level imports of all adapter contract types from
 :mod:`medre.core.contracts.adapter`.
 """
 

@@ -1,7 +1,7 @@
 """Core event routing package for the medre.
 
 This package provides the routing layer that determines which events flow
-to which adapters.  Public symbols:
+to which adapters.  Package-level imports:
 
 * From :mod:`~medre.core.routing.models`:
   ``RouteSource``, ``RouteDestination``, ``RouteTarget``, ``Route``.

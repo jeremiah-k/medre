@@ -3,8 +3,8 @@
 This package provides adapter lifecycle tracking with a formal state
 machine defining legal transitions between adapter states.
 
-Re-exported symbols
--------------------
+Package-level imports
+---------------------
 * From :mod:`~medre.core.lifecycle.states`:
   ``AdapterState``, ``VALID_TRANSITIONS``, ``InvalidStateTransition``,
   ``is_valid_transition``, ``require_valid_transition``.

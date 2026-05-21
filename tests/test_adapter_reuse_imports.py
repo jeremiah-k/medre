@@ -11,6 +11,7 @@ Part F — Logging Boundary Tests
 
 from __future__ import annotations
 
+import ast
 import importlib
 import logging
 import sys
@@ -18,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.helpers.import_ast import runtime_imports
+from tests.helpers.ast_imports import runtime_scope_imports
 
 # Modules to test — these should be importable without side effects.
 _REUSABLE_MODULES = [
@@ -124,8 +125,7 @@ class TestSetupLoggingNotCalledOnImport:
         MEDRE-managed handler — which would indicate setup_logging was called."""
         root = logging.getLogger()
         before = {
-            id(h) for h in root.handlers
-            if getattr(h, "_medre_console_handler", False)
+            id(h) for h in root.handlers if getattr(h, "_medre_console_handler", False)
         }
 
         # Import all reusable modules explicitly (self-contained, no ordering dependency).
@@ -133,12 +133,11 @@ class TestSetupLoggingNotCalledOnImport:
             _import_fresh(module_name)
 
         after = {
-            id(h) for h in root.handlers
-            if getattr(h, "_medre_console_handler", False)
+            id(h) for h in root.handlers if getattr(h, "_medre_console_handler", False)
         }
-        assert after == before, (
-            "Importing reusable modules attached MEDRE-managed root handlers"
-        )
+        assert (
+            after == before
+        ), "Importing reusable modules attached MEDRE-managed root handlers"
 
 
 class TestCodecRendererSdkFree:
@@ -168,8 +167,9 @@ class TestCodecRendererSdkFree:
 
         # Collect runtime-scope imports (catches module-level try/with/for blocks)
         runtime_import_names = set()
-        for mod_name, _lineno in runtime_imports(source):
-            top = mod_name.split(".")[0] if "." in mod_name else mod_name
+        tree = ast.parse(source)
+        for r in runtime_scope_imports(tree):
+            top = r.module.split(".")[0] if "." in r.module else r.module
             runtime_import_names.add(top)
 
         sdk_found = runtime_import_names & set(self._SDK_MODULES)

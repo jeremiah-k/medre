@@ -9,7 +9,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from medre.adapters import FakePresentationAdapter, FakeTransportAdapter
+from medre.adapters.fake_presentation import FakePresentationAdapter
+from medre.adapters.fake_transport import FakeTransportAdapter
 from medre.core.contracts.adapter import (
     AdapterInfo,
     AdapterPermanentError,
@@ -468,7 +469,7 @@ class TestDeliveryContract:
 
     async def test_fake_matrix_rejects_canonical_event(self) -> None:
         """FakeMatrixAdapter.deliver raises AdapterPermanentError on CanonicalEvent."""
-        from medre.adapters import FakeMatrixAdapter
+        from medre.adapters.fake_matrix import FakeMatrixAdapter
 
         adapter = FakeMatrixAdapter("test_m")
         event = _make_event()

@@ -30,18 +30,17 @@ The helper functions and scanning patterns are reused from
 
 from __future__ import annotations
 
-import importlib
 import re
 from pathlib import Path
 
 import pytest
 
+from medre.runtime.architecture_report import _SDK_PACKAGES
+from tests.helpers.source_reader import source_of as _source_of
+
 # ---------------------------------------------------------------------------
 # Shared helpers (reused from test_operational_boundaries.py)
 # ---------------------------------------------------------------------------
-
-_SDK_PACKAGES = ("nio", "meshtastic", "meshcore", "RNS", "lxmf")
-"""Third-party transport SDK package names."""
 
 _ADAPTER_PREFIXES = (
     "medre.adapters.matrix",
@@ -85,19 +84,6 @@ _DISTRIBUTED_PACKAGES = (
 )
 """Third-party distributed-infrastructure package names."""
 
-_BANNED_SDK_IMPORT_PREFIXES = (
-    "import nio",
-    "import meshtastic",
-    "import meshcore",
-    "import RNS",
-    "import lxmf",
-    "from nio",
-    "from meshtastic",
-    "from meshcore",
-    "from RNS",
-    "from lxmf",
-)
-
 _TESTS_DIR = Path(__file__).parent
 """Root tests directory."""
 
@@ -105,16 +91,12 @@ _SRC_ROOT = _TESTS_DIR.parent / "src" / "medre"
 """Root source directory for medre package."""
 
 
-def _source_of(module_name: str) -> str:
-    """Import module and return its source text."""
-    mod = importlib.import_module(module_name)
-    assert mod.__file__ is not None, f"{module_name} has no __file__"
-    with open(mod.__file__) as f:
-        return f.read()
-
-
 def _import_lines(source: str) -> list[str]:
-    """Extract all import/from-import lines from source text."""
+    """Extract all import/from-import lines from source text.
+
+    See also: architecture_ast.runtime_scope_imports() for AST-based
+    import extraction (returns ImportRecord objects with resolved names).
+    """
     return [
         line.strip()
         for line in source.splitlines()
@@ -123,7 +105,11 @@ def _import_lines(source: str) -> list[str]:
 
 
 def _banned_imports(lines: list[str], banned: tuple[str, ...]) -> list[str]:
-    """Return import lines referencing any banned package."""
+    """Return import lines referencing any banned package.
+
+    See also: architecture_ast.import_matches() for module-prefix matching
+    on resolved module names (AST-level, not text-level).
+    """
     found: list[str] = []
     for line in lines:
         for b in banned:
@@ -211,7 +197,7 @@ class TestNoTransportSdkInRuntimeCore:
     (``medre.core.*``) must remain transport-agnostic.  Only adapter
     compat modules (``medre.adapters.*.compat``) may import SDKs.
 
-    Adapter config dataclasses (``medre.adapters.*.config``) are pure
+    Adapter config dataclasses (``medre.config.adapters.*``) are pure
     data — they import no SDKs and are excluded from this check.
     """
 
@@ -285,7 +271,7 @@ class TestNoTransportSdkInRuntimeCore:
         """Module must not import any transport SDK package."""
         try:
             source = _source_of(module_name)
-        except (ImportError, ModuleNotFoundError):
+        except (FileNotFoundError, ModuleNotFoundError):
             pytest.skip(f"{module_name} not importable")
         lines = _import_lines(source)
 
@@ -305,7 +291,7 @@ class TestNoTransportSdkInRuntimeCore:
         """
         try:
             source = _source_of(module_name)
-        except (ImportError, ModuleNotFoundError):
+        except (FileNotFoundError, ModuleNotFoundError):
             pytest.skip(f"{module_name} not importable")
         lines = _import_lines(source)
 
@@ -739,7 +725,7 @@ class TestNoReplayDeduplication:
         """replay.py must not implement deduplication beyond run_id tracking."""
         try:
             source = _source_of("medre.core.storage.replay")
-        except (ImportError, ModuleNotFoundError):
+        except (FileNotFoundError, ModuleNotFoundError):
             pytest.skip("medre.core.storage.replay not importable")
 
         # "deduplicate" may appear in docstrings/comments only.

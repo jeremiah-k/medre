@@ -106,7 +106,7 @@ The extras protect against two things:
 
 ### 4.3 What extras don't do
 
-Extras don't prevent code from being importable. `from medre.adapters.lxmf import LxmfAdapter` works whether or not `lxmf` is installed. The adapter code itself imports from `medre.core.contracts.adapter` and `medre.core.events`, which are always available. Only the SDK-specific imports inside `session.py` are gated by the compat guard.
+Optional extras must not make the concrete adapter module import fail unnecessarily. SDK-specific imports should remain guarded behind compat/session boundaries. Concrete adapter paths (e.g. `from medre.adapters.lxmf.adapter import LxmfAdapter`), not package-root facades, are the supported current import shape. The adapter code itself imports from `medre.core.contracts.adapter` and `medre.core.events`, which are always available.
 
 This is a feature, not a bug. It means tests can import adapter modules without installing SDKs, as long as they use fake mode.
 

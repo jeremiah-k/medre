@@ -1,7 +1,7 @@
 """Storage subsystem for the medre.
 
-Re-exported symbols
--------------------
+Package-level imports
+---------------------
 * :class:`StorageBackend` – protocol that all backends implement.
 * :class:`SQLiteStorage` – built-in SQLite-backed implementation.
 * :class:`EventFilter` – filter criteria for event queries.

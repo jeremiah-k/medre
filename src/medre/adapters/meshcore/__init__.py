@@ -1,54 +1,12 @@
-"""MeshCore adapter package for the MEDRE framework.
+"""MeshCore adapter — codec, renderer, session, and adapter wrapper.
 
-This package provides a MeshCore transport adapter that connects to
-radio nodes and bridges event payloads into the canonical event stream.
+This package does not expose a stable public API.
+Import directly from submodules.
 
-Public symbols
---------------
-* :class:`~medre.adapters.meshcore.adapter.MeshCoreAdapter` — the adapter
-  itself.
-* :class:`~medre.adapters.meshcore.session.MeshCoreSession` — session
-  boundary that owns the SDK client lifecycle.
-* :class:`~medre.adapters.meshcore.codec.MeshCoreCodec` — decode helper.
-* :class:`~medre.adapters.meshcore.renderer.MeshCoreRenderer` — platform
-  renderer for MeshCore content payloads.
-* :class:`~medre.adapters.meshcore.packet_classifier.MeshCorePacketClassifier` —
-  packet classification helper.
-* :class:`~medre.adapters.fake_meshcore.FakeMeshCoreAdapter` —
-  fake adapter for testing.
-* Exception hierarchy: :class:`~medre.adapters.meshcore.errors.MeshCoreError`,
-  :class:`~medre.adapters.meshcore.errors.MeshCoreConnectionError`,
-  :class:`~medre.adapters.meshcore.errors.MeshCoreSendError`,
-  :class:`~medre.adapters.meshcore.errors.MeshCoreCodecError`,
-  :class:`~medre.adapters.meshcore.errors.MeshCorePacketError`.
+Concrete import paths::
+
+  from medre.adapters.meshcore.codec import MeshCoreCodec
+  from medre.adapters.meshcore.renderer import MeshCoreRenderer
+  from medre.adapters.meshcore.session import MeshCoreSession
+  from medre.adapters.meshcore.adapter import MeshCoreAdapter
 """
-
-from medre.adapters.meshcore.adapter import MeshCoreAdapter
-from medre.adapters.meshcore.codec import MeshCoreCodec
-from medre.adapters.meshcore.compat import HAS_MESHCORE
-from medre.adapters.meshcore.errors import (
-    MeshCoreCodecError,
-    MeshCoreConnectionError,
-    MeshCoreError,
-    MeshCorePacketError,
-    MeshCoreSendError,
-)
-from medre.adapters.meshcore.packet_classifier import (
-    MeshCorePacketClassifier,
-)
-from medre.adapters.meshcore.renderer import MeshCoreRenderer
-from medre.adapters.meshcore.session import MeshCoreSession
-
-__all__ = [
-    "HAS_MESHCORE",
-    "MeshCoreAdapter",
-    "MeshCoreCodec",
-    "MeshCoreCodecError",
-    "MeshCoreConnectionError",
-    "MeshCoreError",
-    "MeshCorePacketClassifier",
-    "MeshCorePacketError",
-    "MeshCoreRenderer",
-    "MeshCoreSendError",
-    "MeshCoreSession",
-]

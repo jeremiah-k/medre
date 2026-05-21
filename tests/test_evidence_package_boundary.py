@@ -1,7 +1,7 @@
 """Package-boundary tests for ``medre.runtime.evidence``.
 
-Ensures the package exports only its intended public API and does not
-re-export private helpers or constants from internal modules.
+Ensures the package root remains marker-only and does not re-export
+helpers or constants from internal modules.
 """
 
 import importlib
@@ -15,15 +15,19 @@ def evidence_pkg():
 
 
 class TestEvidencePackageBoundary:
-    """The evidence package must expose only its declared public API."""
+    """The evidence package root must remain marker-only."""
 
-    def test_all_exports_only_collect_evidence_bundle(self, evidence_pkg) -> None:
-        """``__all__`` lists exactly ``["collect_evidence_bundle"]``."""
-        assert evidence_pkg.__all__ == ["collect_evidence_bundle"]
+    def test_no_all_at_package_root(self, evidence_pkg) -> None:
+        """The package root must not expose ``__all__`` convenience exports."""
+        assert (
+            not hasattr(evidence_pkg, "__all__") or len(evidence_pkg.__all__) == 0
+        ), "medre.runtime.evidence should not expose __all__"
 
-    def test_collect_evidence_bundle_is_callable(self, evidence_pkg) -> None:
-        """Public entry point is present and callable."""
-        assert callable(evidence_pkg.collect_evidence_bundle)
+    def test_collect_evidence_bundle_from_concrete_path(self) -> None:
+        """``collect_evidence_bundle`` must be imported from concrete submodule."""
+        from medre.runtime.evidence._bundle import collect_evidence_bundle
+
+        assert callable(collect_evidence_bundle)
 
     PRIVATE_NAMES = [
         "_section_ok",

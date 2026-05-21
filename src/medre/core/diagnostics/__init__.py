@@ -4,8 +4,8 @@ Provides structured, deterministic snapshots of route-level and replay-level
 counters for observability.  All snapshots are JSON-safe, sorted, and free
 of secrets or raw SDK objects.
 
-Public symbols
---------------
+Package-level imports
+---------------------
 * :class:`~medre.core.diagnostics.replay_metrics.ReplayMetrics`
   – mutable collector for replay-specific counters with per-route breakdown.
 * :class:`~medre.core.diagnostics.replay_metrics.ReplayRouteCounters`

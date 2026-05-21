@@ -1,6 +1,10 @@
 # MEDRE Architecture
 
 > **Status**: Current architecture record.
+>
+> **No stable public API.** All import paths are internal and may change.
+> Public facades/shim modules have been removed during the early architecture
+> phase and may be reintroduced deliberately after the API design settles.
 
 ## 0. Canonical Layout
 
@@ -73,11 +77,11 @@ These are adapter runtime errors — NOT config validation errors.
 
 ## 1. Layer Ownership Rules
 
-| Layer            | May Import From                                                              | Must Not Import From             |
-| ---------------- | ---------------------------------------------------------------------------- | -------------------------------- |
-| `medre.core`     | `medre.core` only (with narrowly scoped internal dependency notes)           | `medre.adapters`, `medre.config` |
-| `medre.config`   | `medre.config` (including `config.adapters`)                                 | `medre.adapters`                 |
-| `medre.adapters` | `medre.core.contracts.adapter`, `medre.config.adapters.*`, `medre.core.*`    | —                                |
+| Layer            | May Import From                                                           | Must Not Import From             |
+| ---------------- | ------------------------------------------------------------------------- | -------------------------------- |
+| `medre.core`     | `medre.core` only (with narrowly scoped internal dependency notes)        | `medre.adapters`, `medre.config` |
+| `medre.config`   | `medre.config` (including `config.adapters`)                              | `medre.adapters`                 |
+| `medre.adapters` | `medre.core.contracts.adapter`, `medre.config.adapters.*`, `medre.core.*` | —                                |
 
 - Concrete adapters depend inward on core contracts and config models.
 - `medre.config.adapters.matrix_credentials` is the canonical owner of credential file operations.
@@ -86,7 +90,7 @@ These are adapter runtime errors — NOT config validation errors.
 
 **Hard rule**: `config/` MUST NOT import from `adapters/`.
 
-**Documented runtime exceptions** (core -> outside core):
+**Documented intra-core coupling** (acceptable, no runtime cross-boundary dependency):
 
 | Source                          | Import                                                       | Reason                                |
 | ------------------------------- | ------------------------------------------------------------ | ------------------------------------- |
@@ -110,7 +114,7 @@ medre/
 ├── __main__.py              # delegates to cli:main
 ├── py.typed
 ├── adapters/                # concrete adapter implementations only
-│   ├── __init__.py          # re-exports all fakes (no AdapterContract re-export)
+│   ├── __init__.py          # lightweight package marker / docstring only
 │   ├── fake_lxmf.py
 │   ├── fake_matrix.py
 │   ├── fake_meshcore.py
@@ -123,9 +127,9 @@ medre/
 │   └── meshcore/
 ├── cli/                     # 18 command modules + main + __main__
 ├── config/
-│   ├── __init__.py          # PEP 562 deferred-import dict (_DEFERRED)
+│   ├── __init__.py          # lightweight package marker / docstring only
 │   ├── adapters/
-│   │   ├── __init__.py      # re-exports *Config and *ConfigError classes
+│   │   ├── __init__.py      # lightweight package marker / docstring only
 │   │   ├── errors.py        # AdapterConfigError hierarchy (ValueError subclasses)
 │   │   ├── matrix.py        # MatrixConfig dataclass with validate()
 │   │   ├── matrix_credentials.py  # credential sidecar helpers
@@ -140,7 +144,7 @@ medre/
 │   └── sample.py
 ├── core/
 │   ├── contracts/
-│   │   ├── __init__.py      # re-exports AdapterContract, AdapterRole, etc.
+│   │   ├── __init__.py      # package-level imports of AdapterContract, AdapterRole, etc.
 │   │   └── adapter.py       # AdapterContract and contract types
 │   ├── diagnostics/         # replay_metrics, snapshot
 │   ├── engine/              # pipeline.py (orchestration)
@@ -152,14 +156,13 @@ medre/
 │   ├── policies/            # empty
 │   ├── rendering/           # renderer, text
 │   ├── routing/             # models, router, stats
-│   ├── runtime/             # accounting, capabilities, diagnostic_contract,
-│   │                        # diagnostics, health, supervision
+│   ├── runtime/             # accounting, capabilities, capacity,
+│   │                        # diagnostic_contract, diagnostics, health, supervision
 │   ├── storage/             # backend, replay, sqlite
 │   └── transforms/          # empty
 ├── interop/                 # mmrelay wire-format constants
-├── observability/           # classification, logging, sanitization, summaries
 ├── plugins/                 # scaffolding only: Plugin protocol, PluginCapability enum
-└── runtime/                 # app, builder, capacity, retry, routes, route_engine,
+└── runtime/                 # app, builder, retry, routes, route_engine,
                              # boot_summary, drill, smoke, snapshot, timeline, trace,
                              # errors, events, observability, docker_bridge_artifacts,
                              # evidence/, run_session/
@@ -176,7 +179,7 @@ The following modules do not exist and must not be imported:
 - `medre.adapters.base` does not exist.
 - `medre.core.ports` does not exist.
 - `medre.core.adapter_base` does not exist.
-- `medre.adapters.*.config` modules do not exist.
+- `medre.adapters.*.config` modules do not exist (now `medre.config.adapters.*`).
 
 ## 4. Remaining Follow-Up Work
 

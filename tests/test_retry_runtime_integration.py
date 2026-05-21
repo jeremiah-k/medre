@@ -27,6 +27,7 @@ from medre.core.events.canonical import (
     DeliveryReceipt,
 )
 from medre.core.events.metadata import EventMetadata
+from medre.core.observability.classification import infer_failure_kind
 from medre.core.observability.metrics import Diagnostician
 from medre.core.planning.delivery_plan import (
     DeliveryPlan,
@@ -43,7 +44,6 @@ from medre.core.routing.router import Router
 from medre.core.routing.stats import RouteStats
 from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage.sqlite import SQLiteStorage
-from medre.observability.classification import infer_failure_kind
 
 # ---------------------------------------------------------------------------
 # FallbackResolver that injects a retry_policy into every plan

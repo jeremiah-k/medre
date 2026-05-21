@@ -1,13 +1,13 @@
 """Core event model package for the medre.
 
 This package defines the foundational types that every other subsystem
-depends on.  All public symbols are re-exported here for convenient
+depends on.  Internal package-level imports for convenient
 imports::
 
     from medre.core.events import CanonicalEvent, EventKind
 
-Re-exported symbols
--------------------
+Package-level imports
+---------------------
 * From :mod:`~medre.core.events.canonical`:
   ``CanonicalEvent``, ``EventRelation``, ``NativeRef``,
   ``NativeMessageRef``, ``DeliveryReceipt``, ``EventRecordKind``.

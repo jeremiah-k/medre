@@ -1,7 +1,7 @@
 """Core delivery planning package for the medre.
 
 This package provides the planning layer that determines *how* routed
-events are delivered to adapters.  Public symbols:
+events are delivered to adapters.  Package-level imports:
 
 * From :mod:`~medre.core.planning.delivery_plan`:
   ``DeliveryPlan``, ``DeliveryStrategy``, ``RetryPolicy``,

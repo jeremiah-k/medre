@@ -13,7 +13,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from medre.adapters import FakeMatrixAdapter, FakePresentationAdapter
+from medre.adapters.fake_matrix import FakeMatrixAdapter
+from medre.adapters.fake_presentation import FakePresentationAdapter
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.codec import MatrixCodec
 from medre.adapters.matrix.errors import MatrixSendError

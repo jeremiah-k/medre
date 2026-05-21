@@ -26,7 +26,7 @@ All tests use source-level text inspection.  This avoids triggering SDK
 imports at test collection time and works in environments where some or
 all SDKs are not installed.
 
-Adapter config dataclasses (``medre.adapters.*.config``) are pure frozen
+Adapter config dataclasses (``medre.config.adapters.*``) are pure frozen
 dataclasses with no SDK dependency.  Imports of these modules are **not**
 flagged as violations — only runtime modules (adapter, session, codec)
 and direct SDK imports are banned.
@@ -34,7 +34,6 @@ and direct SDK imports are banned.
 
 from __future__ import annotations
 
-import importlib
 import re
 
 # Capture SDK presence in sys.modules at module-load time, BEFORE any
@@ -46,6 +45,9 @@ from pathlib import Path
 
 import pytest
 
+from medre.runtime.architecture_report import _BANNED_SDK_IMPORT_PREFIXES, _SDK_PACKAGES
+from tests.helpers.source_reader import source_of as _source_of
+
 _SESSION_BASELINE_SDK_MODULES: frozenset[str] = frozenset(
     sdk
     for sdk in ("nio", "meshtastic", "meshcore", "RNS", "lxmf", "LXMF")
@@ -56,9 +58,6 @@ _SESSION_BASELINE_SDK_MODULES: frozenset[str] = frozenset(
 # ---------------------------------------------------------------------------
 # Shared helpers (same pattern as test_deployment_boundaries.py)
 # ---------------------------------------------------------------------------
-
-_SDK_PACKAGES = ("nio", "meshtastic", "meshcore", "RNS", "lxmf")
-"""Third-party transport SDK package names."""
 
 _ADAPTER_PREFIXES = (
     "medre.adapters.matrix",
@@ -76,21 +75,8 @@ _ADAPTER_CONFIG_ALLOWED = (
 )
 """Adapter config modules that ARE allowed — pure dataclasses, no SDK."""
 
-_BANNED_SDK_IMPORT_PREFIXES = (
-    "import nio",
-    "import meshtastic",
-    "import meshcore",
-    "import RNS",
-    "import lxmf",
-    "from nio",
-    "from meshtastic",
-    "from meshcore",
-    "from RNS",
-    "from lxmf",
-)
-
 # Adapter runtime module imports banned in runtime core contexts.
-# Config imports (medre.adapters.*.config) are pure dataclasses — permitted.
+# Config imports (medre.config.adapters.*) are pure dataclasses — permitted.
 _BANNED_ADAPTER_RUNTIME_IMPORTS = (
     "from medre.adapters.matrix.adapter",
     "from medre.adapters.matrix.session",
@@ -108,16 +94,12 @@ _BANNED_ADAPTER_RUNTIME_IMPORTS = (
 )
 
 
-def _source_of(module_name: str) -> str:
-    """Import module and return its source text."""
-    mod = importlib.import_module(module_name)
-    assert mod.__file__ is not None, f"{module_name} has no __file__"
-    with open(mod.__file__) as f:
-        return f.read()
-
-
 def _import_lines(source: str) -> list[str]:
-    """Extract all import/from-import lines from source text."""
+    """Extract all import/from-import lines from source text.
+
+    See also: architecture_ast.runtime_scope_imports() for AST-based
+    import extraction (returns ImportRecord objects with resolved names).
+    """
     return [
         line.strip()
         for line in source.splitlines()
@@ -126,7 +108,11 @@ def _import_lines(source: str) -> list[str]:
 
 
 def _banned_imports(lines: list[str], banned: tuple[str, ...]) -> list[str]:
-    """Return import lines referencing any banned package."""
+    """Return import lines referencing any banned package.
+
+    See also: architecture_ast.import_matches() for module-prefix matching
+    on resolved module names (AST-level, not text-level).
+    """
     found: list[str] = []
     for line in lines:
         for b in banned:
@@ -155,7 +141,7 @@ class TestRuntimeCoreNoSdk:
     transport SDK packages.
 
     Note: ``medre.runtime.builder`` imports adapter config dataclasses
-    (``medre.adapters.*.config``) and the abstract ``AdapterContract``.
+    (``medre.config.adapters.*``) and the abstract ``AdapterContract``.
     These are pure dataclasses / abstract base with no SDK dependency
     and are excluded from the SDK ban.
 
@@ -189,12 +175,12 @@ class TestRuntimeCoreNoSdk:
         """Runtime modules must not have top-level SDK imports."""
         try:
             source = _source_of(module_name)
-        except ImportError:
+        except ModuleNotFoundError:
             pytest.skip(f"{module_name} not importable")
         lines = _import_lines(source)
 
         banned = _banned_imports(lines, _SDK_PACKAGES)
-        # Config imports (medre.adapters.*.config) are pure dataclasses,
+        # Config imports (medre.config.adapters.*) are pure dataclasses,
         # not third-party SDK packages — explicitly permitted per the test
         # docstring and _ADAPTER_CONFIG_ALLOWED.
         banned = [
@@ -217,7 +203,7 @@ class TestRuntimeCoreNoSdk:
         """Runtime modules must not directly instantiate SDK objects."""
         try:
             source = _source_of(module_name)
-        except ImportError:
+        except ModuleNotFoundError:
             pytest.skip(f"{module_name} not importable")
 
         instantiation_patterns = (
@@ -267,7 +253,9 @@ class TestRuntimeCoreModuleGuard:
     enforcement on MeshCore/LXMF axes.
     """
 
-    _SDK_PACKAGES = ("meshcore", "RNS", "lxmf", "LXMF")
+    # Radio-only SDK subset — intentionally scoped to mesh transport SDKs.
+    # NOT the canonical _SDK_PACKAGES (which includes aiohttp, serial, etc.).
+    _RADIO_SDK_PACKAGES = ("meshcore", "RNS", "lxmf", "LXMF")
 
     _GUARDED_MODULES = [
         "medre.runtime",
@@ -306,23 +294,41 @@ class TestRuntimeCoreModuleGuard:
         importing ``medre.runtime.app``, it means the runtime has a
         transitive dependency on the SDK — the source scan would miss this
         but CI would fail in clean environments.
+
+        HOW: Uses subprocess isolation so sys.modules pollution from other
+        tests in the same session does not produce false positives.
         """
+        import subprocess
         import sys
 
-        try:
-            importlib.import_module(module_name)
-        except ImportError:
-            pytest.skip(f"{module_name} not importable")
+        script = (
+            "import importlib, sys;\n"
+            f"target = {module_name!r};\n"
+            "mod = importlib.import_module(target);\n"
+            f"leaked = [s for s in {self._RADIO_SDK_PACKAGES!r} if s in sys.modules];\n"
+            "sys.stdout.write(','.join(leaked) if leaked else 'CLEAN');\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            stderr = result.stderr.strip()
+            # If the module exists but fails due to an SDK dependency,
+            # that is a hard boundary violation — fail, don't skip.
+            if any(sdk in stderr for sdk in self._RADIO_SDK_PACKAGES):
+                pytest.fail(
+                    f"{module_name} failed to import due to SDK dependency: "
+                    f"{stderr}"
+                )
+            pytest.fail(f"{module_name} failed to import: {stderr}")
 
-        # Check for new SDK entries in sys.modules (relative to session baseline).
-        new_sdk_modules = []
-        for sdk in self._SDK_PACKAGES:
-            if sdk in sys.modules and sdk not in _SESSION_BASELINE_SDK_MODULES:
-                new_sdk_modules.append(sdk)
-
-        assert new_sdk_modules == [], (
+        leaked = result.stdout.strip()
+        assert leaked == "CLEAN", (
             f"Importing {module_name} leaked SDK packages into sys.modules: "
-            f"{new_sdk_modules}"
+            f"{leaked}"
         )
 
 
@@ -370,25 +376,28 @@ class TestRuntimeCoreNoAdapterRuntime:
     ) -> None:
         """Runtime modules must not import adapter runtime modules.
 
-        Config dataclass imports (``medre.adapters.*.config``) are
+        Config dataclass imports (``medre.config.adapters.*``) are
         permitted — they are pure frozen dataclasses with no SDK
         dependency.
         """
         try:
             source = _source_of(module_name)
-        except ImportError:
+        except ModuleNotFoundError:
             pytest.skip(f"{module_name} not importable")
         lines = _import_lines(source)
 
-        # Filter out config imports and base imports — those are allowed.
+        # Filter out allowed adapter imports.
         allowed_lines = []
         for line in lines:
             if line.startswith("from medre.adapters."):
-                # Allow base imports and config imports
-                if ".base " in line or ".config " in line:
-                    continue
-                # Allow fake_adapter imports
+                # Allow fake_adapter imports (test doubles)
                 if "fake_adapter" in line:
+                    continue
+                # Allow imports from fake_* modules (test doubles for real transports)
+                if any(
+                    f"from medre.adapters.fake_{t}." in line
+                    for t in ("matrix", "meshtastic", "meshcore", "lxmf")
+                ):
                     continue
             allowed_lines.append(line)
 
@@ -396,6 +405,27 @@ class TestRuntimeCoreNoAdapterRuntime:
         assert (
             banned == []
         ), f"{module_name} imports concrete adapter runtime modules: {banned}"
+
+    def test_old_adapter_config_import_flagged(self) -> None:
+        """from medre.adapters.matrix.config must be flagged, not allowed."""
+        source = "from medre.adapters.matrix.config import MatrixConfig\n"
+        lines = source.strip().split("\n")
+        # Apply the same filter logic
+        allowed_lines = []
+        for line in lines:
+            if line.startswith("from medre.adapters."):
+                if "fake_adapter" in line:
+                    continue
+                if any(
+                    f"from medre.adapters.fake_{t}." in line
+                    for t in ("matrix", "meshtastic", "meshcore", "lxmf")
+                ):
+                    continue
+            allowed_lines.append(line)
+        # The old config import should NOT be filtered out
+        assert len(allowed_lines) == 1
+        banned = _banned_imports(allowed_lines, _ADAPTER_PREFIXES)
+        assert banned == [source.strip()]
 
 
 # ===================================================================
@@ -433,7 +463,7 @@ class TestSnapshotModulesSdkFree:
         """Snapshot modules must not import transport SDKs."""
         try:
             source = _source_of(module_name)
-        except ImportError:
+        except ModuleNotFoundError:
             pytest.skip(f"{module_name} not importable")
         lines = _import_lines(source)
 
@@ -451,7 +481,7 @@ class TestSnapshotModulesSdkFree:
         """Snapshot modules must not import concrete adapter packages."""
         try:
             source = _source_of(module_name)
-        except ImportError:
+        except ModuleNotFoundError:
             pytest.skip(f"{module_name} not importable")
         lines = _import_lines(source)
 
@@ -464,7 +494,7 @@ class TestSnapshotModulesSdkFree:
         """runtime/snapshot.py must reference plain-dict guarantees."""
         try:
             source = _source_of("medre.runtime.snapshot")
-        except ImportError:
+        except ModuleNotFoundError:
             pytest.skip("medre.runtime.snapshot not importable")
 
         assert (
@@ -478,7 +508,7 @@ class TestSnapshotModulesSdkFree:
         """core/diagnostics/snapshot.py must reference plain-dict guarantees."""
         try:
             source = _source_of("medre.core.diagnostics.snapshot")
-        except ImportError:
+        except ModuleNotFoundError:
             pytest.skip("medre.core.diagnostics.snapshot not importable")
 
         assert (
@@ -524,7 +554,7 @@ class TestObservabilityModulesSdkFree:
         """Observability modules must not import transport SDKs."""
         try:
             source = _source_of(module_name)
-        except ImportError:
+        except ModuleNotFoundError:
             pytest.skip(f"{module_name} not importable")
         lines = _import_lines(source)
 
@@ -554,7 +584,7 @@ class TestBuilderAbstraction:
         """builder.py must import AdapterContract from the base module."""
         try:
             source = _source_of("medre.runtime.builder")
-        except ImportError:
+        except ModuleNotFoundError:
             pytest.skip("medre.runtime.builder not importable")
 
         assert (
@@ -571,7 +601,7 @@ class TestBuilderAbstraction:
         """
         try:
             source = _source_of("medre.runtime.builder")
-        except ImportError:
+        except ModuleNotFoundError:
             pytest.skip("medre.runtime.builder not importable")
 
         # Direct construction patterns banned:
@@ -605,16 +635,18 @@ class TestBuilderAbstraction:
         )
 
     def test_builder_imports_config_dataclasses(self) -> None:
-        """builder.py must import adapter config dataclasses (allowed pattern)."""
+        """builder.py imports RuntimeConfig and StorageConfig for actual use."""
         try:
             source = _source_of("medre.runtime.builder")
-        except ImportError:
+        except ModuleNotFoundError:
             pytest.skip("medre.runtime.builder not importable")
 
-        # Builder should import config dataclasses — this is the permitted pattern
         assert (
-            "MatrixRuntimeConfig" in source or "matrix.config" in source
-        ), "medre.runtime.builder should import adapter config dataclasses"
+            "RuntimeConfig" in source
+        ), "medre.runtime.builder should import RuntimeConfig"
+        assert (
+            "StorageConfig" in source
+        ), "medre.runtime.builder should import StorageConfig"
 
 
 # ===================================================================
@@ -674,7 +706,7 @@ class TestCoreModulesTransportAgnostic:
         """Core modules must not have top-level SDK imports."""
         try:
             source = _source_of(module_name)
-        except ImportError:
+        except ModuleNotFoundError:
             pytest.skip(f"{module_name} not importable")
         lines = _import_lines(source)
 

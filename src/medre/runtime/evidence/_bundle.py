@@ -1,4 +1,4 @@
-"""Public entry point: :func:`collect_evidence_bundle`."""
+"""Concrete entry point: :func:`collect_evidence_bundle`."""
 
 from __future__ import annotations
 

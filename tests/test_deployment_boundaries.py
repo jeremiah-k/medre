@@ -18,7 +18,7 @@ All tests use source-level text inspection.  This avoids triggering SDK
 imports at test collection time and works in environments where some or
 all SDKs are not installed.
 
-Adapter config dataclasses (``medre.adapters.*.config``) are pure frozen
+Adapter config dataclasses (``medre.config.adapters.*``) are pure frozen
 dataclasses with no SDK dependency.  Imports of these modules are **not**
 flagged as violations — only runtime modules (adapter, session, codec)
 and direct SDK imports are banned.
@@ -26,19 +26,19 @@ and direct SDK imports are banned.
 
 from __future__ import annotations
 
-import importlib
 import re
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from medre.runtime.architecture_report import _BANNED_SDK_IMPORT_PREFIXES, _SDK_PACKAGES
+from tests.helpers.sdk_constants import _SDK_INSTANTIATION_PATTERNS
+from tests.helpers.source_reader import source_of as _source_of
+
 # ---------------------------------------------------------------------------
 # Shared helpers (same pattern as test_architectural_boundaries.py)
 # ---------------------------------------------------------------------------
-
-_SDK_PACKAGES = ("nio", "meshtastic", "meshcore", "RNS", "lxmf")
-"""Third-party transport SDK package names."""
 
 _ADAPTER_PREFIXES = (
     "medre.adapters.matrix",
@@ -62,22 +62,9 @@ _TESTS_DIR = Path(__file__).parent
 _REPO_ROOT = _TESTS_DIR.parent
 """Repository root directory."""
 
-# Banned import-line prefixes for SDK packages.
-_BANNED_SDK_IMPORT_PREFIXES = (
-    "import nio",
-    "import meshtastic",
-    "import meshcore",
-    "import RNS",
-    "import lxmf",
-    "from nio",
-    "from meshtastic",
-    "from meshcore",
-    "from RNS",
-    "from lxmf",
-)
 
 # Adapter runtime module imports banned in deployment/clean-env contexts.
-# Config imports (medre.adapters.*.config) are pure dataclasses — permitted.
+# Config imports (medre.config.adapters.*) are pure dataclasses — permitted.
 _BANNED_ADAPTER_RUNTIME_IMPORTS = (
     "from medre.adapters.matrix.adapter",
     "from medre.adapters.matrix.session",
@@ -95,16 +82,12 @@ _BANNED_ADAPTER_RUNTIME_IMPORTS = (
 )
 
 
-def _source_of(module_name: str) -> str:
-    """Import module and return its source text."""
-    mod = importlib.import_module(module_name)
-    assert mod.__file__ is not None, f"{module_name} has no __file__"
-    with open(mod.__file__) as f:
-        return f.read()
-
-
 def _import_lines(source: str) -> list[str]:
-    """Extract all import/from-import lines from source text."""
+    """Extract all import/from-import lines from source text.
+
+    See also: architecture_ast.runtime_scope_imports() for AST-based
+    import extraction (returns ImportRecord objects with resolved names).
+    """
     return [
         line.strip()
         for line in source.splitlines()
@@ -113,7 +96,11 @@ def _import_lines(source: str) -> list[str]:
 
 
 def _banned_imports(lines: list[str], banned: tuple[str, ...]) -> list[str]:
-    """Return import lines referencing any banned package."""
+    """Return import lines referencing any banned package.
+
+    See also: architecture_ast.import_matches() for module-prefix matching
+    on resolved module names (AST-level, not text-level).
+    """
     found: list[str] = []
     for line in lines:
         for b in banned:
@@ -215,7 +202,7 @@ class TestCleanEnvTestsNoLiveSdk:
     ) -> None:
         """Clean-env test files must not import concrete adapter runtime modules.
 
-        Config dataclass imports (``medre.adapters.*.config``) are
+        Config dataclass imports (``medre.config.adapters.*``) are
         permitted — they are pure data with no SDK dependency.
         """
         violations = _scan_file_for_banned_imports(
@@ -240,7 +227,7 @@ class TestConfigSubsystemNoSdk:
     depend on optional transport SDK packages.
 
     Note: ``medre.config.model`` and ``medre.config.env`` import adapter
-    config dataclasses (``medre.adapters.*.config``).  These are pure
+    config dataclasses (``medre.config.adapters.*``).  These are pure
     frozen dataclasses with no SDK dependency and are excluded from the
     concrete adapter ban.
     """
@@ -264,7 +251,7 @@ class TestConfigSubsystemNoSdk:
     ) -> None:
         """Config modules must not have top-level SDK imports.
 
-        Adapter config dataclass imports (``medre.adapters.*.config``)
+        Adapter config dataclass imports (``medre.config.adapters.*``)
         are excluded — they are pure frozen dataclasses with no SDK
         dependency.
         """
@@ -294,14 +281,7 @@ class TestConfigSubsystemNoSdk:
         """Config modules must not directly instantiate SDK objects."""
         source = _source_of(module_name)
 
-        instantiation_patterns = (
-            "nio.AsyncClient(",
-            "MeshtasticClient(",
-            "MeshCore(",
-            "RNS.Reticulum(",
-            "LXMF.LXMF(",
-            "lxmf.LXMF(",
-        )
+        instantiation_patterns = _SDK_INSTANTIATION_PATTERNS
         violations: list[str] = []
         for i, line in enumerate(source.splitlines(), 1):
             stripped = line.strip()
@@ -337,14 +317,7 @@ class TestDeploymentHelpersNoSdkInstantiation:
         "medre.config.sample",
     ]
 
-    _SDK_INSTANTIATION_PATTERNS = (
-        "nio.AsyncClient(",
-        "MeshtasticClient(",
-        "MeshCore(",
-        "RNS.Reticulum(",
-        "LXMF.LXMF(",
-        "lxmf.LXMF(",
-    )
+    _SDK_INSTANTIATION_PATTERNS = _SDK_INSTANTIATION_PATTERNS
 
     @pytest.mark.parametrize(
         "module_name",
@@ -371,7 +344,7 @@ class TestDeploymentHelpersNoSdkInstantiation:
     ) -> None:
         """Deployment modules must not import concrete adapter packages.
 
-        Config dataclass imports (``medre.adapters.*.config``) are
+        Config dataclass imports (``medre.config.adapters.*``) are
         excluded from this check — they carry no SDK dependency.
         """
         source = _source_of(module_name)
@@ -470,9 +443,9 @@ class TestCliTransportAgnostic:
 
         direct_instantiation_patterns = (
             "nio.AsyncClient(",
-            "MeshtasticClient(",
-            "MeshCore(",
-            "RNS.Reticulum(",
+            "meshtastic.SerialInterface(",
+            "meshtastic.tcp_interface.TCPInterface(",
+            "RNS.Transport(",
         )
         violations: list[str] = []
         for i, line in enumerate(source.splitlines(), 1):
