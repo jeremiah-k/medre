@@ -604,7 +604,7 @@ MEDRE uses two categories of environment variables:
 1. **Core env vars** control global runtime behaviour (paths, logging, limits).
 2. **Instance-scoped adapter overrides** target a specific adapter instance by its normalised ID.
 
-There are no transport-prefixed env vars. All adapter overrides use the same `MEDRE_ADAPTER__<TOKEN>__<FIELD>` pattern regardless of transport type.
+`MEDRE_ADAPTER__<TOKEN>__<FIELD>` is the **only** adapter override surface. There are no transport-prefixed shortcuts. Env vars with legacy prefixes like `MEDRE_MATRIX_*`, `MEDRE_MESHTASTIC_*`, `MEDRE_MESHCORE_*`, or `MEDRE_LXMF_*` are rejected at startup with migration guidance. See [Unsupported Legacy Prefixes](#unsupported-legacy-prefixes) below.
 
 ### Core Environment Variables
 
@@ -645,6 +645,18 @@ The normalisation function (`normalize_adapter_id`) transforms an adapter ID int
 | `my.adapter-1`     | `MY_ADAPTER_1`   |
 
 Token collisions are detected at startup. If two adapter IDs normalise to the same token (e.g. `radio-a` and `radio_a` both become `RADIO_A`), MEDRE raises `ConfigValidationError`.
+
+#### Case-Insensitive Field Names
+
+Field names in env vars are matched case-insensitively against the config dataclass fields. All of these are equivalent:
+
+```bash
+MEDRE_ADAPTER__MAIN__ACCESS_TOKEN=syt_...
+MEDRE_ADAPTER__MAIN__access_token=syt_...
+MEDRE_ADAPTER__MAIN__Access_Token=syt_...
+```
+
+The normalised (lowercase) form is conventional and used throughout this documentation, but uppercase or mixed-case will also work. This applies to field names only; the `MEDRE_ADAPTER__` prefix and the `<TOKEN>` segment must be uppercase.
 
 #### Boolean and Collection Values
 
@@ -733,7 +745,7 @@ Each transport exposes its config dataclass fields as override targets. The `ena
 | `identity_path`           | string | `MEDRE_ADAPTER__LOCAL__IDENTITY_PATH={state}/lxmf/identity`      |
 | `storage_path`            | string | `MEDRE_ADAPTER__LOCAL__STORAGE_PATH={state}/lxmf/storage`        |
 
-> Dict fields (`channel_mapping`, `node_config`) and tuple fields (`auto_join_rooms`) cannot be set via environment variables. Set them in TOML instead.
+> **TOML-only fields.** Dict fields (`channel_mapping`, `node_config`) and tuple fields (`auto_join_rooms`) cannot be set via environment variables. They require structured data that the flat string format of env vars cannot represent. Set them in TOML instead. The env override system will reject these fields with a clear error message.
 
 #### Secret Handling
 
@@ -744,6 +756,75 @@ For example, `MEDRE_ADAPTER__MAIN__ACCESS_TOKEN` is redacted in provenance becau
 #### Unsupported Fields
 
 Setting a field name that does not exist on the transport's config dataclass raises `ConfigValidationError` at startup with a message listing the valid fields for that transport.
+
+#### Unsupported Legacy Prefixes
+
+Environment variables using transport-prefixed patterns are **intentionally unsupported** and will be rejected at startup. MEDRE logs a clear error and prints migration guidance showing the correct `MEDRE_ADAPTER__<TOKEN>__<FIELD>` form.
+
+The following prefix patterns are rejected:
+
+| Rejected pattern | Why |
+|---|---|
+| `MEDRE_MATRIX_*` | Use `MEDRE_ADAPTER__<TOKEN>__<FIELD>` with the adapter's normalised token |
+| `MEDRE_MESHTASTIC_*` | Use `MEDRE_ADAPTER__<TOKEN>__<FIELD>` with the adapter's normalised token |
+| `MEDRE_MESHCORE_*` | Use `MEDRE_ADAPTER__<TOKEN>__<FIELD>` with the adapter's normalised token |
+| `MEDRE_LXMF_*` | Use `MEDRE_ADAPTER__<TOKEN>__<FIELD>` with the adapter's normalised token |
+
+This rejection is by design. The instance-scoped `MEDRE_ADAPTER__` pattern is the single override surface for all transport types. Transport-prefixed vars would create ambiguity when multiple adapters of the same transport type exist, and would not compose with the token normalisation rules.
+
+#### Migration Examples
+
+If you previously used transport-prefixed env vars, migrate them as follows:
+
+**Matrix:**
+
+```bash
+# Old (no longer supported):
+export MEDRE_MATRIX_ACCESS_TOKEN=syt_...
+export MEDRE_MATRIX_HOMESERVER=https://matrix.example.com
+export MEDRE_MATRIX_USER_ID=@bot:example.com
+
+# New:
+export MEDRE_ADAPTER__MAIN__ACCESS_TOKEN=syt_...
+export MEDRE_ADAPTER__MAIN__HOMESERVER=https://matrix.example.com
+export MEDRE_ADAPTER__MAIN__USER_ID=@bot:example.com
+```
+
+Replace `MAIN` with the normalised token of your adapter's `adapter_id`. For an adapter with `adapter_id = "matrix-primary"`, the token is `MATRIX_PRIMARY`.
+
+**Meshtastic:**
+
+```bash
+# Old (no longer supported):
+export MEDRE_MESHTASTIC_CONNECTION_TYPE=tcp
+export MEDRE_MESHTASTIC_HOST=meshtastic.local
+
+# New:
+export MEDRE_ADAPTER__RADIO__CONNECTION_TYPE=tcp
+export MEDRE_ADAPTER__RADIO__HOST=meshtastic.local
+```
+
+**MeshCore:**
+
+```bash
+# Old (no longer supported):
+export MEDRE_MESHCORE_HOST=meshcore.local
+
+# New:
+export MEDRE_ADAPTER__MESHCORE_RADIO__HOST=meshcore.local
+```
+
+**LXMF:**
+
+```bash
+# Old (no longer supported):
+export MEDRE_LXMF_CONNECTION_TYPE=reticulum
+
+# New:
+export MEDRE_ADAPTER__LOCAL__CONNECTION_TYPE=reticulum
+```
+
+> **Note:** The pytest live-test harness uses convenience variables like `MATRIX_ACCESS_TOKEN` or `MESHTASTIC_CONNECTION_TYPE` (without the `MEDRE_` prefix) for test runner configuration. Those are test-only variables and are not processed by MEDRE's runtime config system. See `docs/dev/live-test-harness.md` for details.
 
 #### Examples
 

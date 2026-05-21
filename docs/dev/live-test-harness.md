@@ -78,6 +78,8 @@ PYTHONPATH=src pytest tests/test_matrix_live.py::TestMatrixLiveSmoke::test_outbo
 
 Live test adapters are configured using MEDRE's instance-scoped env var format. Every adapter override follows `MEDRE_ADAPTER__<TOKEN>__<FIELD>`, where `<TOKEN>` is the uppercased, normalised adapter ID.
 
+> **Runtime config vs. test convenience vars.** This section describes environment variables used by the live test harness. MEDRE's runtime config system uses `MEDRE_ADAPTER__<TOKEN>__<FIELD>` as its only adapter override surface (see `docs/runbooks/configuration.md`). Some test modules may also read convenience variables like `MATRIX_HOMESERVER` or `MESHTASTIC_CONNECTION_TYPE` (without the `MEDRE_` prefix) for constructing test fixtures. These convenience vars are **test-only**. They are consumed by pytest test code, not by MEDRE's runtime config loader. If you need to override adapter config at runtime (in production or in a Docker container), always use `MEDRE_ADAPTER__<TOKEN>__<FIELD>`.
+
 | Transport | Token example | Example variables |
 |---|---|---|
 | Matrix | `MAIN` | `MEDRE_ADAPTER__MAIN__HOMESERVER`, `MEDRE_ADAPTER__MAIN__USER_ID`, `MEDRE_ADAPTER__MAIN__ACCESS_TOKEN`, `MEDRE_ADAPTER__MAIN__ROOM_ALLOWLIST` |
@@ -290,7 +292,7 @@ Live tests handle real credentials. They must never print them.
 
 ### 7.1 What counts as a secret
 
-- Access tokens (`MATRIX_ACCESS_TOKEN`)
+- Access tokens (e.g. `MATRIX_ACCESS_TOKEN` in test convenience vars, or `MEDRE_ADAPTER__MAIN__ACCESS_TOKEN` at runtime)
 - Passwords
 - API keys
 - Any value that could be used to impersonate the bot or access the service
