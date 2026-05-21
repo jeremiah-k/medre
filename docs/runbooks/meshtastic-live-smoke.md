@@ -104,6 +104,7 @@ The adapter's fake mode is designed for zero-dependency development and testing:
 | `tests/test_meshtastic_live.py`                       | Live smoke tests (Categories A & B), no-SDK lifecycle (C), bounded live (D) |
 | `tests/test_meshtastic_storage_roundtrip.py`          | Storage roundtrip tests — validate Meshtastic events survive the full encode → store → decode cycle |
 | `tests/test_meshtastic_evidence_diagnostics.py`       | Evidence diagnostics tests — validate diagnostic metadata collection and reporting |
+| `tests/test_meshtastic_nosdk.py`                       | Drain lifecycle, queue metrics, delivery lifecycle, and failure classification tests |
 
 ## Dependency Installation
 
@@ -461,6 +462,69 @@ iface.sendData(
 - BLE connectivity (documented but not tested).
 - Real-time performance under load.
 - Compatibility with all firmware versions.
+
+## Recorded Validation Template
+
+Use this template when running live tests against real hardware. Fill in values
+and remove any lines that contain secrets before committing.
+
+| Field | Value |
+|-------|-------|
+| Date | YYYY-MM-DD |
+| Connection type | `tcp` / `serial` / `ble` |
+| Device type | e.g. LilyGO T-LORA V2.1, RAK4631, Heltec v3 |
+| Test command | `pytest tests/test_meshtastic_live.py -m live -v` |
+| MESHTASTIC_CONNECTION_TYPE | `<redacted>` |
+| MESHTASTIC_HOST | `<redacted>` (if TCP) |
+| MESHTASTIC_SERIAL_PORT | `<redacted>` (if serial) |
+| MESHTASTIC_CHANNEL_INDEX | `<integer>` |
+| MESHTASTIC_LIVE_SEND | `1` (only if transmit tested) |
+| Node firmware version | e.g. 2.7.19 |
+| Health result | `healthy` / `degraded` |
+| Send result | `passed` / `blocked` / `not tested` |
+| Native packet ID behavior | e.g. `sequential integers, unique per send` |
+| Known failure modes observed | e.g. None / describe |
+| Architecture report | `73 passed, 0 failed` |
+| Notes | |
+
+If no hardware was available during this tranche, leave this template
+unfilled as a checklist for the next operator.
+
+## Diagnostics Reference
+
+The Meshtastic adapter exposes the following fields in ``diagnostics()``:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `adapter_id` | str | Adapter identifier |
+| `platform` | str | Always `"meshtastic"` |
+| `started` | bool | Whether the adapter has been started |
+| `connection_type` | str | `fake`, `tcp`, `serial`, or `ble` |
+| `queue_pending` | int | Items currently in the outbound queue |
+| `queue_total_sent` | int | Cumulative successful sends |
+| `queue_total_failed` | int | Cumulative send failures |
+| `queue_total_dropped` | int | Cumulative items dropped from queue |
+| `drain_task_running` | bool | Whether the background queue-drain task is active |
+| `background_tasks` | int | Number of tracked background tasks |
+
+**Session diagnostics** (present when adapter has been started):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `connected` | bool | SDK client is created and session is started |
+| `reconnecting` | bool | Session is in reconnect backoff |
+| `reconnect_attempts` | int | Consecutive reconnect attempts |
+| `last_packet_time` | float or null | Monotonic time of last received packet |
+| `node_id` | str or null | Our node ID |
+| `channel_count` | int | Number of known channels |
+| `transient_delivery_failures` | int | Count of transient send failures |
+| `permanent_delivery_failures` | int | Count of permanent send failures |
+| `last_error` | str or null | Most recent error description |
+
+**Secret safety:** Diagnostics intentionally excludes serial port paths,
+hostnames, IP addresses, BLE MAC addresses, tokens, passwords, and keys.
+See ``test_meshtastic_nosdk.py::TestMeshtasticDiagnostics::test_diagnostics_no_secrets_after_start``
+for the recursive no-leak assertion.
 
 ## Cleanup
 

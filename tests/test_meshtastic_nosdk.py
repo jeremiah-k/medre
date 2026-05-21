@@ -13,6 +13,14 @@ These tests always run (no env vars required, no radio hardware needed).
   import safety, diagnostics shape, idempotent stop.
 - ``TestMeshtasticDiagnostics`` — focused diagnostics contract tests: shape,
   no secret leakage, connection type, queue fields, session keys.
+- ``TestMeshtasticDrainLifecycle`` — drain task creation, idempotent start,
+  stop cancellation, diagnostics ``drain_task_running`` field.
+- ``TestMeshtasticDeliverLifecycle`` — deliver() at different lifecycle stages
+  in fake mode (before start, after stop, multiple stops).
+- ``TestMeshtasticQueueMetrics`` — queue counter accuracy, diagnostics key
+  presence, metric stability across lifecycle.
+- ``TestMeshtasticFailureClassification`` — scaffold tests verifying failure
+  classification fields exist in session diagnostics.
 """
 
 import asyncio
@@ -119,7 +127,7 @@ class TestMeshtasticNoSdkLifecycle:
 
         try:
             await _bounded(adapter.start(ctx))
-            assert adapter._started is True
+            assert adapter.diagnostics()["started"] is True
             info = await _bounded(adapter.health_check())
             assert info.health == "healthy"
         finally:
@@ -137,7 +145,7 @@ class TestMeshtasticNoSdkLifecycle:
         with patch("medre.adapters.meshtastic.session.HAS_MESHTASTIC", False):
             try:
                 await _bounded(adapter.start(ctx))
-                assert adapter._started is True
+                assert adapter.diagnostics()["started"] is True
             finally:
                 await _bounded(adapter.stop())
 
@@ -262,7 +270,7 @@ class TestMeshtasticNoSdkLifecycle:
             await _bounded(adapter.stop())
             # Third stop (still safe)
             await _bounded(adapter.stop())
-            assert adapter._started is False
+            assert adapter.diagnostics()["started"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -412,6 +420,374 @@ class TestMeshtasticDiagnostics:
             assert session["reconnecting"] is False
             assert session["reconnect_attempts"] == 0
             assert session["transient_delivery_failures"] == 0
+            assert session["permanent_delivery_failures"] == 0
+        finally:
+            await _bounded(adapter.stop())
+
+
+# ---------------------------------------------------------------------------
+# TestMeshtasticDrainLifecycle — drain task lifecycle tests (no SDK required)
+# ---------------------------------------------------------------------------
+
+
+class TestMeshtasticDrainLifecycle:
+    """Drain task lifecycle tests in fake mode.
+
+    Validates that ``start()`` creates a drain task, ``stop()`` cancels
+    it, repeated starts don't duplicate tasks, and diagnostics reports
+    the correct ``drain_task_running`` state.
+    """
+
+    async def test_start_creates_drain_task(self):
+        """After start(), drain task is running and diagnostics confirms it."""
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+
+        config = _make_fake_config()
+        adapter = MeshtasticAdapter(config)
+        ctx = _make_context()
+
+        try:
+            await _bounded(adapter.start(ctx))
+            assert adapter._drain_task is not None
+            assert not adapter._drain_task.done()
+            diag = adapter.diagnostics()
+            assert diag["drain_task_running"] is True
+        finally:
+            await _bounded(adapter.stop())
+
+    async def test_repeated_start_no_duplicate_drain(self):
+        """Calling start() twice does not create a second drain task."""
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+
+        config = _make_fake_config()
+        adapter = MeshtasticAdapter(config)
+        ctx = _make_context()
+
+        try:
+            await _bounded(adapter.start(ctx))
+            first_task = adapter._drain_task
+            assert first_task is not None
+
+            # Second start is a no-op (idempotent)
+            await _bounded(adapter.start(ctx))
+            assert adapter._drain_task is first_task
+        finally:
+            await _bounded(adapter.stop())
+
+    async def test_stop_cancels_drain_task(self):
+        """After stop(), drain task is cancelled and diagnostics reports False."""
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+
+        config = _make_fake_config()
+        adapter = MeshtasticAdapter(config)
+        ctx = _make_context()
+
+        await _bounded(adapter.start(ctx))
+        assert adapter._drain_task is not None
+
+        await _bounded(adapter.stop())
+        assert adapter._drain_task is None
+        assert adapter.diagnostics()["started"] is False
+        diag = adapter.diagnostics()
+        assert diag["drain_task_running"] is False
+
+    async def test_stop_idempotent_drain(self):
+        """Calling stop() multiple times is safe; drain_task stays None/done."""
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+
+        config = _make_fake_config()
+        adapter = MeshtasticAdapter(config)
+        ctx = _make_context()
+
+        await _bounded(adapter.start(ctx))
+        await _bounded(adapter.stop())
+        assert adapter._drain_task is None
+
+        # Second stop
+        await _bounded(adapter.stop())
+        assert adapter._drain_task is None
+
+        # Third stop
+        await _bounded(adapter.stop())
+        assert adapter._drain_task is None
+        assert adapter.diagnostics()["started"] is False
+
+    async def test_diagnostics_includes_drain_task_running(self):
+        """diagnostics() dict contains drain_task_running as a bool."""
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+
+        config = _make_fake_config()
+        adapter = MeshtasticAdapter(config)
+
+        # Before start
+        diag = adapter.diagnostics()
+        assert "drain_task_running" in diag
+        assert isinstance(diag["drain_task_running"], bool)
+        assert diag["drain_task_running"] is False
+
+        ctx = _make_context()
+        try:
+            await _bounded(adapter.start(ctx))
+            diag = adapter.diagnostics()
+            assert "drain_task_running" in diag
+            assert isinstance(diag["drain_task_running"], bool)
+            assert diag["drain_task_running"] is True
+        finally:
+            await _bounded(adapter.stop())
+
+
+# ---------------------------------------------------------------------------
+# TestMeshtasticDeliverLifecycle — deliver() lifecycle stage tests
+# ---------------------------------------------------------------------------
+
+
+class TestMeshtasticDeliverLifecycle:
+    """Tests for deliver() behaviour at different lifecycle stages in fake mode.
+
+    In fake mode, deliver() does not require start() — the queue is always
+    available.  These tests document and verify that fake-mode deliver()
+    works before start, after stop, and across multiple stop cycles.
+    """
+
+    async def test_deliver_before_start_works_in_fake_mode(self):
+        """In fake mode, deliver() works before start().
+
+        The adapter's deliver() guards against non-started state only for
+        non-fake connection types.  Fake mode bypasses this check because
+        the queue is created in __init__ and does not depend on start().
+        """
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+
+        config = _make_fake_config()
+        adapter = MeshtasticAdapter(config)
+
+        result_obj = _make_rendering_result(text="pre-start deliver")
+        delivery = await _bounded(adapter.deliver(result_obj))
+        assert delivery is not None
+        assert delivery.delivery_note == "locally enqueued"
+
+    async def test_deliver_after_stop_still_works_fake(self):
+        """In fake mode, deliver() after stop() still enqueues.
+
+        The queue is an __init__-created object independent of the session
+        lifecycle, so stopping the adapter does not destroy the queue.
+        """
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+
+        config = _make_fake_config()
+        adapter = MeshtasticAdapter(config)
+        ctx = _make_context()
+
+        try:
+            await _bounded(adapter.start(ctx))
+        finally:
+            await _bounded(adapter.stop())
+
+        # Queue still exists after stop
+        result_obj = _make_rendering_result(text="post-stop deliver")
+        delivery = await _bounded(adapter.deliver(result_obj))
+        assert delivery is not None
+        assert delivery.delivery_note == "locally enqueued"
+
+    async def test_deliver_increments_queue_pending(self):
+        """After deliver(), queue_pending reflects the enqueued items."""
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+
+        config = _make_fake_config()
+        adapter = MeshtasticAdapter(config)
+
+        # Before any deliver
+        assert adapter.diagnostics()["queue_pending"] == 0
+
+        result1 = _make_rendering_result(text="msg-1", event_id="e1")
+        await _bounded(adapter.deliver(result1))
+        assert adapter.diagnostics()["queue_pending"] == 1
+
+        result2 = _make_rendering_result(text="msg-2", event_id="e2")
+        await _bounded(adapter.deliver(result2))
+        assert adapter.diagnostics()["queue_pending"] == 2
+
+    async def test_deliver_after_multiple_stops(self):
+        """Multiple stop() calls don't break deliver() in fake mode."""
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+
+        config = _make_fake_config()
+        adapter = MeshtasticAdapter(config)
+        ctx = _make_context()
+
+        await _bounded(adapter.start(ctx))
+        await _bounded(adapter.stop())
+        await _bounded(adapter.stop())
+        await _bounded(adapter.stop())
+
+        result_obj = _make_rendering_result(text="after multi-stop")
+        delivery = await _bounded(adapter.deliver(result_obj))
+        assert delivery is not None
+        assert delivery.delivery_note == "locally enqueued"
+
+
+# ---------------------------------------------------------------------------
+# TestMeshtasticQueueMetrics — queue counter accuracy tests
+# ---------------------------------------------------------------------------
+
+
+class TestMeshtasticQueueMetrics:
+    """Tests for queue metric accuracy and diagnostics key presence.
+
+    Validates that all queue counters start at zero, reflect deliver()
+    operations, and survive the adapter lifecycle (start/stop).
+    """
+
+    async def test_initial_queue_metrics_zero(self):
+        """After construction but before any operations, all counters are 0."""
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+
+        config = _make_fake_config()
+        adapter = MeshtasticAdapter(config)
+
+        diag = adapter.diagnostics()
+        assert diag["queue_pending"] == 0
+        assert diag["queue_total_sent"] == 0
+        assert diag["queue_total_failed"] == 0
+        assert diag["queue_total_dropped"] == 0
+
+    async def test_queue_metrics_after_deliver(self):
+        """After multiple deliver() calls, queue_pending reflects count."""
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+
+        config = _make_fake_config()
+        adapter = MeshtasticAdapter(config)
+
+        for i in range(5):
+            result_obj = _make_rendering_result(
+                text=f"msg-{i}", event_id=f"e-{i}",
+            )
+            await _bounded(adapter.deliver(result_obj))
+
+        diag = adapter.diagnostics()
+        assert diag["queue_pending"] == 5
+
+    async def test_diagnostics_queue_keys_present(self):
+        """diagnostics() always has the four queue metric keys."""
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+
+        config = _make_fake_config()
+        adapter = MeshtasticAdapter(config)
+
+        diag = adapter.diagnostics()
+        required_keys = (
+            "queue_pending",
+            "queue_total_sent",
+            "queue_total_failed",
+            "queue_total_dropped",
+        )
+        for key in required_keys:
+            assert key in diag, f"Missing key {key!r} in diagnostics"
+            assert isinstance(diag[key], int), (
+                f"Key {key!r} should be int, got {type(diag[key]).__name__}"
+            )
+
+    async def test_drain_task_running_false_before_start(self):
+        """Before start(), diagnostics shows drain_task_running=False."""
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+
+        config = _make_fake_config()
+        adapter = MeshtasticAdapter(config)
+
+        diag = adapter.diagnostics()
+        assert "drain_task_running" in diag
+        assert diag["drain_task_running"] is False
+
+    async def test_queue_metrics_after_stop(self):
+        """After stop(), diagnostics still has valid queue metrics.
+
+        Enqueued items persist in the queue across the stop boundary
+        because the queue is an __init__-created object.
+        """
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+
+        config = _make_fake_config()
+        adapter = MeshtasticAdapter(config)
+        ctx = _make_context()
+
+        # Enqueue before start
+        result_obj = _make_rendering_result(text="persistent msg")
+        await _bounded(adapter.deliver(result_obj))
+        assert adapter.diagnostics()["queue_pending"] == 1
+
+        try:
+            await _bounded(adapter.start(ctx))
+        finally:
+            await _bounded(adapter.stop())
+
+        # Queue metrics still present and accurate after stop
+        diag = adapter.diagnostics()
+        assert diag["queue_pending"] == 1
+        assert diag["queue_total_sent"] >= 0
+        assert diag["queue_total_failed"] >= 0
+        assert diag["queue_total_dropped"] >= 0
+
+
+# ---------------------------------------------------------------------------
+# TestMeshtasticFailureClassification — failure classification scaffold tests
+# ---------------------------------------------------------------------------
+
+
+class TestMeshtasticFailureClassification:
+    """Scaffold tests for failure classification field presence.
+
+    Full failure-classification testing requires a real SDK client or
+    carefully mocked session.send() to exercise the transient/permanent
+    error paths.  These tests verify that the diagnostic fields exist
+    and start at zero, confirming the plumbing is in place.
+    """
+
+    async def test_transient_failure_field_exists_and_starts_zero(self):
+        """Session diagnostics contains transient_delivery_failures starting at 0.
+
+        The ``transient_delivery_failures`` counter is tracked by
+        :class:`~medre.adapters.meshtastic.session.MeshtasticSession`.
+        Incrementing it requires ``session.send()`` to be exercised with
+        a transient error (e.g. timeout, connection reset).  This scaffold
+        test only confirms the field exists and initializes correctly.
+        """
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+
+        config = _make_fake_config()
+        adapter = MeshtasticAdapter(config)
+        ctx = _make_context()
+
+        try:
+            await _bounded(adapter.start(ctx))
+            diag = adapter.diagnostics()
+            assert "session" in diag
+            session = diag["session"]
+            assert "transient_delivery_failures" in session
+            assert session["transient_delivery_failures"] == 0
+        finally:
+            await _bounded(adapter.stop())
+
+    async def test_permanent_failure_field_exists_and_starts_zero(self):
+        """Session diagnostics contains permanent_delivery_failures starting at 0.
+
+        The ``permanent_delivery_failures`` counter is tracked by
+        :class:`~medre.adapters.meshtastic.session.MeshtasticSession`.
+        Incrementing it requires ``session.send()`` to be exercised with
+        a permanent error (e.g. invalid payload, encoding failure).  This
+        scaffold test only confirms the field exists and initializes correctly.
+        """
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+
+        config = _make_fake_config()
+        adapter = MeshtasticAdapter(config)
+        ctx = _make_context()
+
+        try:
+            await _bounded(adapter.start(ctx))
+            diag = adapter.diagnostics()
+            assert "session" in diag
+            session = diag["session"]
+            assert "permanent_delivery_failures" in session
             assert session["permanent_delivery_failures"] == 0
         finally:
             await _bounded(adapter.stop())

@@ -123,16 +123,23 @@ import asyncio
 import logging
 import os
 import time
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
 import pytest
 
+from tests.helpers.live_harness import (
+    LiveRequirement,
+    assert_no_secret_leak,
+    bounded,
+    live_env_status,
+)
+
 # ---------------------------------------------------------------------------
-# Module-level marker — entire file is tagged "live" so it is excluded by the
-# default ``addopts = "-m 'not live'"`` in pyproject.toml.
+# Module-level marker removed — live marker applied per-class instead so that
+# TestMeshtasticEnvValidation can opt out and run by default.
 # ---------------------------------------------------------------------------
-pytestmark = pytest.mark.live
 
 # ---------------------------------------------------------------------------
 # Environment variable gate
@@ -145,54 +152,75 @@ MESHTASTIC_BLE_ADDRESS = os.environ.get("MESHTASTIC_BLE_ADDRESS")
 MESHTASTIC_CHANNEL_INDEX = os.environ.get("MESHTASTIC_CHANNEL_INDEX", "0")
 
 
-def _validate_env() -> tuple[str, str]:
-    """Validate env vars and return (reason, connection_type).
+_VALID_CONNECTION_TYPES = frozenset({"tcp", "serial", "ble"})
 
-    Returns ("", connection_type) if valid, or (skip_reason, "") if not.
+
+def _validate_live_env_from(
+    environ: Mapping[str, str],
+) -> tuple[bool, str, list[LiveRequirement]]:
+    """Validate Meshtastic live-test environment variables.
+
+    Returns (enabled, skip_reason, requirements).
+    ``enabled`` is True only when all required vars are present and valid.
     """
-    ct = MESHTASTIC_CONNECTION_TYPE
+    ct = environ.get("MESHTASTIC_CONNECTION_TYPE", "").lower().strip()
+
     if not ct:
         return (
+            False,
             "Set MESHTASTIC_CONNECTION_TYPE (tcp/serial/ble) to run live Meshtastic tests",
-            "",
+            [],
         )
+
+    if ct not in _VALID_CONNECTION_TYPES:
+        return (
+            False,
+            f"Invalid MESHTASTIC_CONNECTION_TYPE={ct!r}; not a valid connection type (use tcp, serial, or ble)",
+            [],
+        )
+
+    reqs: list[LiveRequirement] = [
+        LiveRequirement(
+            "MESHTASTIC_CONNECTION_TYPE",
+            description="Connection mode: tcp, serial, or ble",
+        ),
+    ]
 
     if ct == "tcp":
-        if not MESHTASTIC_HOST:
-            return (
-                "MESHTASTIC_HOST is required for TCP connection type",
-                "",
-            )
+        reqs.append(
+            LiveRequirement("MESHTASTIC_HOST", description="Node hostname or IP for TCP")
+        )
     elif ct == "serial":
-        if not MESHTASTIC_SERIAL_PORT:
-            return (
-                "MESHTASTIC_SERIAL_PORT is required for serial connection type",
-                "",
-            )
+        reqs.append(
+            LiveRequirement("MESHTASTIC_SERIAL_PORT", description="Serial device path")
+        )
     elif ct == "ble":
-        if not MESHTASTIC_BLE_ADDRESS:
-            return (
-                "MESHTASTIC_BLE_ADDRESS is required for BLE connection type",
-                "",
+        reqs.append(
+            LiveRequirement(
+                "MESHTASTIC_BLE_ADDRESS",
+                secret=True,
+                description="BLE MAC address",
             )
-    else:
-        return (
-            f"Unknown MESHTASTIC_CONNECTION_TYPE {ct!r}; use tcp, serial, or ble",
-            "",
         )
 
-    return ("", ct)
+    # Check that all required vars are present in the provided environ
+    # (not os.environ) so _validate_live_env_from is a pure function.
+    missing = [req.env_name for req in reqs if not environ.get(req.env_name)]
+    if missing:
+        return (
+            False,
+            f"Missing env vars for {ct}: {', '.join(missing)}",
+            reqs,
+        )
+
+    return True, "", reqs
 
 
-_LIVE_SKIP_REASON, _CONNECTION_TYPE = _validate_env()
-_LIVE_ENV_SET = _CONNECTION_TYPE != ""
-
-require_live = pytest.mark.skipif(
-    not _LIVE_ENV_SET,
-    reason=_LIVE_SKIP_REASON,
+_LIVE_ENV_SET, _LIVE_SKIP_REASON, _LIVE_REQUIREMENTS = _validate_live_env_from(
+    os.environ
 )
 
-require_mtjk = pytest.mark.skipif(
+require_live = pytest.mark.skipif(
     not _LIVE_ENV_SET,
     reason=_LIVE_SKIP_REASON,
 )
@@ -202,7 +230,11 @@ require_mtjk = pytest.mark.skipif(
 # Helpers
 # ---------------------------------------------------------------------------
 def _make_config():
-    """Build a MeshtasticConfig from the live environment variables."""
+    """Build a MeshtasticConfig from the live environment variables.
+
+    Raises AssertionError if the connection type is invalid or unsupported
+    in the live harness (never falls back to a silent default).
+    """
     from medre.config.adapters.meshtastic import MeshtasticConfig
 
     ct = MESHTASTIC_CONNECTION_TYPE
@@ -226,10 +258,10 @@ def _make_config():
             ble_address=MESHTASTIC_BLE_ADDRESS or "",
         )
     else:
-        return MeshtasticConfig(
-            adapter_id="meshtastic-live-smoke",
-            connection_type="tcp",
-            host=MESHTASTIC_HOST or "localhost",
+        raise AssertionError(
+            f"_make_config called with unsupported MESHTASTIC_CONNECTION_TYPE={ct!r}. "
+            f"Use tcp, serial, or ble. Unknown/fake values should be caught by "
+            f"_validate_live_env_from before any live test runs."
         )
 
 
@@ -276,6 +308,7 @@ def _connect_interface(config):
 # ---------------------------------------------------------------------------
 # Live tests
 # ---------------------------------------------------------------------------
+@pytest.mark.live
 @require_live
 class TestMeshtasticLiveSmoke:
     """Live Meshtastic connectivity smoke tests.
@@ -646,14 +679,6 @@ class TestMeshtasticLiveSmoke:
 # enqueue or transmit a packet over RF.
 _MESHTASTIC_LIVE_SEND = os.environ.get("MESHTASTIC_LIVE_SEND", "") == "1"
 
-# Bounded async helper — wraps coroutines with a timeout to prevent hangs.
-_BOUND_TIMEOUT_SECONDS = 15.0
-
-
-async def _bounded(coro, timeout: float = _BOUND_TIMEOUT_SECONDS):
-    """Run *coro* with an ``asyncio.wait_for`` timeout guard."""
-    return await asyncio.wait_for(coro, timeout=timeout)
-
 
 def _make_rendering_result(
     text: str = "test message",
@@ -681,6 +706,93 @@ require_live_send = pytest.mark.skipif(
 )
 
 
+# ---------------------------------------------------------------------------
+# Environment validation tests (pure function, no hardware needed)
+# ---------------------------------------------------------------------------
+
+
+class TestMeshtasticEnvValidation:
+    """Validate _validate_live_env_from() pure-function behaviour.
+
+    These tests do NOT require any hardware or env vars — they call the
+    validation helper directly with synthetic ``environ`` dicts.
+    """
+
+    # Override the module-level ``pytestmark = pytest.mark.live`` so these
+    # pure-function tests run by default.
+    pytestmark = []
+
+    @staticmethod
+    def _check(
+        environ: dict[str, str],
+    ) -> tuple[bool, str, list[LiveRequirement]]:
+        """Shorthand wrapper for the function under test."""
+        return _validate_live_env_from(environ)
+
+    def test_empty_env_disables_with_connection_type_hint(self) -> None:
+        enabled, reason, _ = self._check({})
+        assert not enabled
+        assert "MESHTASTIC_CONNECTION_TYPE" in reason
+
+    def test_invalid_type_disables_with_value_in_reason(self) -> None:
+        enabled, reason, _ = self._check({"MESHTASTIC_CONNECTION_TYPE": "udp+weird"})
+        assert not enabled
+        assert "udp+weird" in reason
+
+    def test_invalid_type_does_not_imply_tcp_fallback(self) -> None:
+        enabled, reason, _ = self._check({"MESHTASTIC_CONNECTION_TYPE": "udp+weird"})
+        assert not enabled
+        assert "tcp" not in reason.lower() or "not" in reason.lower()
+
+    def test_tcp_without_host_disables(self) -> None:
+        enabled, reason, _ = self._check({"MESHTASTIC_CONNECTION_TYPE": "tcp"})
+        assert not enabled
+        assert "MESHTASTIC_HOST" in reason
+
+    def test_tcp_with_host_enables(self) -> None:
+        enabled, reason, _ = self._check(
+            {"MESHTASTIC_CONNECTION_TYPE": "tcp", "MESHTASTIC_HOST": "192.168.1.100"}
+        )
+        assert enabled
+        assert reason == ""
+
+    def test_serial_without_port_disables(self) -> None:
+        enabled, reason, _ = self._check({"MESHTASTIC_CONNECTION_TYPE": "serial"})
+        assert not enabled
+        assert "MESHTASTIC_SERIAL_PORT" in reason
+
+    def test_serial_with_port_enables(self) -> None:
+        enabled, reason, _ = self._check(
+            {
+                "MESHTASTIC_CONNECTION_TYPE": "serial",
+                "MESHTASTIC_SERIAL_PORT": "/dev/ttyUSB0",
+            }
+        )
+        assert enabled
+        assert reason == ""
+
+    def test_ble_without_address_disables(self) -> None:
+        enabled, reason, _ = self._check({"MESHTASTIC_CONNECTION_TYPE": "ble"})
+        assert not enabled
+        assert "MESHTASTIC_BLE_ADDRESS" in reason
+
+    def test_ble_with_address_enables(self) -> None:
+        enabled, reason, _ = self._check(
+            {
+                "MESHTASTIC_CONNECTION_TYPE": "ble",
+                "MESHTASTIC_BLE_ADDRESS": "AA:BB:CC:DD:EE:FF",
+            }
+        )
+        assert enabled
+        assert reason == ""
+
+    def test_fake_disables_with_unsupported_message(self) -> None:
+        enabled, reason, _ = self._check({"MESHTASTIC_CONNECTION_TYPE": "fake"})
+        assert not enabled
+        assert "Invalid" in reason or "fake" in reason
+
+
+@pytest.mark.live
 @require_live
 class TestMeshtasticBoundedLiveTests:
     """Opt-in live tests that connect to real Meshtastic hardware.
@@ -702,13 +814,13 @@ class TestMeshtasticBoundedLiveTests:
         ctx = _make_context()
 
         try:
-            await _bounded(adapter.start(ctx))
-            info = await _bounded(adapter.health_check())
+            await bounded(adapter.start(ctx), 15.0, "test_live_start_and_health: adapter.start()")
+            info = await bounded(adapter.health_check(), 15.0, "test_live_start_and_health: health_check()")
             assert info.health in ("healthy", "unknown")
             assert info.adapter_id == "meshtastic-live-smoke"
             assert info.platform == "meshtastic"
         finally:
-            await _bounded(adapter.stop())
+            await bounded(adapter.stop(), 10.0, "test_live_start_and_health: adapter.stop()")
 
     @require_live_send
     async def test_live_deliver_with_transmit(self):
@@ -720,20 +832,20 @@ class TestMeshtasticBoundedLiveTests:
         ctx = _make_context()
 
         try:
-            await _bounded(adapter.start(ctx))
+            await bounded(adapter.start(ctx), 15.0, "test_live_deliver_with_transmit: adapter.start()")
             ts = int(time.time())
             result_obj = _make_rendering_result(
                 text=f"MEDRE live bounded test (ts={ts}) - safe to ignore",
                 event_id=f"evt-live-{ts}",
                 channel_index=int(MESHTASTIC_CHANNEL_INDEX),
             )
-            delivery = await _bounded(adapter.deliver(result_obj))
+            delivery = await bounded(adapter.deliver(result_obj), 15.0, "test_live_deliver_with_transmit: adapter.deliver()")
             assert delivery is not None
             assert delivery.native_channel_id is not None
             # Delivery was accepted (queued for transmit)
             assert "enqueued" in delivery.delivery_note
         finally:
-            await _bounded(adapter.stop())
+            await bounded(adapter.stop(), 10.0, "test_live_deliver_with_transmit: adapter.stop()")
 
     @require_live_send
     async def test_live_bounded_start_stop_deliver(self):
@@ -745,19 +857,19 @@ class TestMeshtasticBoundedLiveTests:
         ctx = _make_context()
 
         try:
-            await _bounded(adapter.start(ctx))
+            await bounded(adapter.start(ctx), 15.0, "test_live_bounded_start_stop_deliver: adapter.start()")
 
-            info = await _bounded(adapter.health_check())
+            info = await bounded(adapter.health_check(), 15.0, "test_live_bounded_start_stop_deliver: health_check()")
             assert info.health in ("healthy", "unknown")
 
             result_obj = _make_rendering_result(
                 text="MEDRE bounded lifecycle test - safe to ignore",
                 event_id="evt-lifecycle-001",
             )
-            delivery = await _bounded(adapter.deliver(result_obj))
+            delivery = await bounded(adapter.deliver(result_obj), 15.0, "test_live_bounded_start_stop_deliver: adapter.deliver()")
             assert delivery is not None
         finally:
-            await _bounded(adapter.stop())
+            await bounded(adapter.stop(), 10.0, "test_live_bounded_start_stop_deliver: adapter.stop()")
 
     async def test_live_stop_idempotency(self):
         """stop() called multiple times on a live adapter is safe."""
@@ -768,15 +880,15 @@ class TestMeshtasticBoundedLiveTests:
         ctx = _make_context()
 
         try:
-            await _bounded(adapter.start(ctx))
+            await bounded(adapter.start(ctx), 15.0, "test_live_stop_idempotency: adapter.start()")
         finally:
-            await _bounded(adapter.stop())
+            await bounded(adapter.stop(), 10.0, "test_live_stop_idempotency: adapter.stop() #1")
             # Idempotent second stop
-            await _bounded(adapter.stop())
+            await bounded(adapter.stop(), 10.0, "test_live_stop_idempotency: adapter.stop() #2")
             # Idempotent third stop
-            await _bounded(adapter.stop())
+            await bounded(adapter.stop(), 10.0, "test_live_stop_idempotency: adapter.stop() #3")
 
-        assert adapter._started is False
+        assert adapter.diagnostics()["started"] is False
 
     async def test_live_diagnostics_shape(self):
         """diagnostics() returns expected shape against live hardware."""
@@ -787,7 +899,7 @@ class TestMeshtasticBoundedLiveTests:
         ctx = _make_context()
 
         try:
-            await _bounded(adapter.start(ctx))
+            await bounded(adapter.start(ctx), 15.0, "test_live_diagnostics_shape: adapter.start()")
             diag = adapter.diagnostics()
 
             # Adapter-level keys
@@ -814,7 +926,7 @@ class TestMeshtasticBoundedLiveTests:
             assert "permanent_delivery_failures" in session
             assert "last_error" in session
         finally:
-            await _bounded(adapter.stop())
+            await bounded(adapter.stop(), 10.0, "test_live_diagnostics_shape: adapter.stop()")
 
     async def test_live_no_secret_leakage_in_diagnostics(self):
         """diagnostics() does NOT expose serial paths, host IPs, or secrets."""
@@ -825,43 +937,17 @@ class TestMeshtasticBoundedLiveTests:
         ctx = _make_context()
 
         try:
-            await _bounded(adapter.start(ctx))
+            await bounded(adapter.start(ctx), 15.0, "test_live_no_secret_leakage_in_diagnostics: adapter.start()")
             diag = adapter.diagnostics()
-            diag_str = str(diag)
 
-            # Serial port must not appear
+            # Collect secret-like values from env to check against
+            leak_candidates = []
             if MESHTASTIC_SERIAL_PORT:
-                assert MESHTASTIC_SERIAL_PORT not in diag_str, (
-                    f"Serial port {MESHTASTIC_SERIAL_PORT!r} leaked into diagnostics"
-                )
-
-            # Host IP/hostname must not appear
+                leak_candidates.append(MESHTASTIC_SERIAL_PORT)
             if MESHTASTIC_HOST:
-                assert MESHTASTIC_HOST not in diag_str, (
-                    f"Host {MESHTASTIC_HOST!r} leaked into diagnostics"
-                )
-
-            # BLE address must not appear
+                leak_candidates.append(MESHTASTIC_HOST)
             if MESHTASTIC_BLE_ADDRESS:
-                assert MESHTASTIC_BLE_ADDRESS not in diag_str, (
-                    f"BLE address {MESHTASTIC_BLE_ADDRESS!r} leaked into diagnostics"
-                )
-
-            # Recursively scan diagnostics for sensitive key substrings
-            # at any nesting depth.
-            sensitive_keys = {"password", "secret", "token", "api_key",
-                              "private_key", "auth_token"}
-            def _check(obj, path=""):
-                if isinstance(obj, dict):
-                    for k, v in obj.items():
-                        fp = f"{path}.{k}" if path else k
-                        assert k not in sensitive_keys, (
-                            f"Sensitive key {k!r} found at {fp}"
-                        )
-                        _check(v, fp)
-                elif isinstance(obj, list):
-                    for i, item in enumerate(obj):
-                        _check(item, f"{path}[{i}]")
-            _check(diag)
+                leak_candidates.append(MESHTASTIC_BLE_ADDRESS)
+            assert_no_secret_leak(diag, leak_candidates)
         finally:
-            await _bounded(adapter.stop())
+            await bounded(adapter.stop(), 10.0, "test_live_no_secret_leakage_in_diagnostics: adapter.stop()")
