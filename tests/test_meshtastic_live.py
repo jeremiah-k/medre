@@ -847,11 +847,21 @@ class TestMeshtasticBoundedLiveTests:
                     f"BLE address {MESHTASTIC_BLE_ADDRESS!r} leaked into diagnostics"
                 )
 
-            # No "password", "secret", "token", "key" keys
-            for key in diag:
-                assert key not in (
-                    "password", "secret", "token", "api_key",
-                    "private_key", "auth_token",
-                ), f"Sensitive key {key!r} found in diagnostics"
+            # Recursively scan diagnostics for sensitive key substrings
+            # at any nesting depth.
+            sensitive_keys = {"password", "secret", "token", "api_key",
+                              "private_key", "auth_token"}
+            def _check(obj, path=""):
+                if isinstance(obj, dict):
+                    for k, v in obj.items():
+                        fp = f"{path}.{k}" if path else k
+                        assert k not in sensitive_keys, (
+                            f"Sensitive key {k!r} found at {fp}"
+                        )
+                        _check(v, fp)
+                elif isinstance(obj, list):
+                    for i, item in enumerate(obj):
+                        _check(item, f"{path}[{i}]")
+            _check(diag)
         finally:
             await _bounded(adapter.stop())

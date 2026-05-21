@@ -18,7 +18,7 @@ These tests always run (no env vars required, no radio hardware needed).
 import asyncio
 import logging
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -127,7 +127,6 @@ class TestMeshtasticNoSdkLifecycle:
 
     async def test_fake_mode_no_mtjk_import(self):
         """Fake mode works even if ``HAS_MESHTASTIC`` is ``False``."""
-        from unittest.mock import patch
 
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 
@@ -144,7 +143,6 @@ class TestMeshtasticNoSdkLifecycle:
 
     async def test_fake_simulate_inbound_no_mtjk(self):
         """simulate_inbound works without mtjk in fake mode."""
-        from unittest.mock import patch
 
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 
@@ -167,7 +165,6 @@ class TestMeshtasticNoSdkLifecycle:
 
     async def test_fake_deliver_enqueues_no_mtjk(self):
         """deliver() enqueues and returns AdapterDeliveryResult without mtjk."""
-        from unittest.mock import patch
 
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 
@@ -230,7 +227,6 @@ class TestMeshtasticNoSdkLifecycle:
 
         Uses ``unittest.mock.patch`` to simulate a missing SDK.
         """
-        from unittest.mock import patch
 
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
         from medre.adapters.meshtastic.errors import MeshtasticConnectionError
@@ -251,7 +247,6 @@ class TestMeshtasticNoSdkLifecycle:
 
     async def test_stop_idempotency_without_sdk(self):
         """Calling stop() multiple times is safe without mtjk."""
-        from unittest.mock import patch
 
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 
@@ -326,12 +321,23 @@ class TestMeshtasticDiagnostics:
                     f"Sensitive word {sensitive!r} found in diagnostics"
                 )
 
-            # No keys that look like credentials
-            for key in diag:
-                assert key not in (
-                    "password", "secret", "token", "api_key",
-                    "private_key", "auth_token", "host", "serial_port",
-                ), f"Sensitive key {key!r} found in diagnostics"
+            # Recursively scan diagnostics for sensitive key substrings
+            # at any nesting depth.
+            sensitive_keys = {"password", "secret", "token", "api_key",
+                              "private_key", "auth_token", "host",
+                              "serial_port"}
+            def _check(obj, path=""):
+                if isinstance(obj, dict):
+                    for k, v in obj.items():
+                        fp = f"{path}.{k}" if path else k
+                        assert k not in sensitive_keys, (
+                            f"Sensitive key {k!r} found at {fp}"
+                        )
+                        _check(v, fp)
+                elif isinstance(obj, list):
+                    for i, item in enumerate(obj):
+                        _check(item, f"{path}[{i}]")
+            _check(diag)
         finally:
             await _bounded(adapter.stop())
 
@@ -400,14 +406,12 @@ class TestMeshtasticDiagnostics:
                 f"Extra: {actual_keys - expected_keys}"
             )
 
-            # Fake mode: connected should be True (client is None but started)
-            # Actually session.connected = (client is not None and started)
-            # In fake mode, client is None, so connected is False
-            assert isinstance(session["connected"], bool)
-            assert isinstance(session["reconnecting"], bool)
-            assert isinstance(session["reconnect_attempts"], int)
+            # In fake mode, session.connected is False because client is None.
+            # session.connected = (client is not None and started) → False.
+            assert session["connected"] is False
+            assert session["reconnecting"] is False
             assert session["reconnect_attempts"] == 0
-            assert isinstance(session["transient_delivery_failures"], int)
-            assert isinstance(session["permanent_delivery_failures"], int)
+            assert session["transient_delivery_failures"] == 0
+            assert session["permanent_delivery_failures"] == 0
         finally:
             await _bounded(adapter.stop())

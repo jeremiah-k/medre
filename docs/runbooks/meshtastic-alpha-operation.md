@@ -653,9 +653,9 @@ This is an honest list. Everything here is real.
 
 13. **Packet classifier numeric map is scaffold only.** The `_NUMERIC_PORTNUM_MAP` in `packet_classifier.py` is a test fixture approximation, not derived from the real Meshtastic protobuf `PortNum` enum. When the real `mtjk` package is installed, the `compat.get_portnum_table()` function returns authoritative values. See `docs/contracts/10-meshtastic-source-audit.md` for the authoritative table.
 
-14. **RF transmission requires explicit opt-in via `MESHTASTIC_LIVE_SEND`.** The adapter's `send_one()` path checks `MESHTASTIC_LIVE_SEND=1` before transmitting RF. Without this flag, the adapter may connect and health-check but MUST NOT transmit. This is a safety guard, not a bug. If outbound sends silently return `None` in live mode, verify `MESHTASTIC_LIVE_SEND` is set.
+14. **RF transmission requires explicit opt-in via `MESHTASTIC_LIVE_SEND`.** The live test suite enforces `MESHTASTIC_LIVE_SEND=1` before any test may call `sendText`, `sendData`, or `adapter.deliver()` against real radio hardware. Tests without this flag may connect and health-check only — they must never transmit. The adapter code itself does not gate on this env var; the guard is at the test layer.
 
-15. **No-SDK fake mode does not validate real packet shapes.** In `connection_type="fake"` mode, all packet handling is simulated. The adapter does not validate that real `mtjk` protobuf packets match the shapes expected by the codec. discrepancies between fake and real packet shapes will only surface during live testing.
+15. **No-SDK fake mode does not validate real packet shapes.** In `connection_type="fake"` mode, all packet handling is simulated. The adapter does not validate that real `mtjk` protobuf packets match the shapes expected by the codec. Discrepancies between fake and real packet shapes will only surface during live testing.
 
 16. **Storage roundtrip tests are fake-only.** `tests/test_meshtastic_storage_roundtrip.py` validates encode → store → decode cycles using fake packets. These tests do not exercise real radio packet storage. Real packet storage roundtrip fidelity is not yet validated.
 
