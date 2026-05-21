@@ -128,6 +128,14 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from tests.helpers.live_harness import (
+    LiveRequirement,
+    LiveSmokeResult,
+    assert_no_secret_leak,
+    bounded,
+    live_env_status,
+)
+
 # ---------------------------------------------------------------------------
 # Module-level marker — entire file is tagged "live" so it is excluded by the
 # default ``addopts = "-m 'not live'"`` in pyproject.toml.
@@ -145,56 +153,25 @@ MESHTASTIC_BLE_ADDRESS = os.environ.get("MESHTASTIC_BLE_ADDRESS")
 MESHTASTIC_CHANNEL_INDEX = os.environ.get("MESHTASTIC_CHANNEL_INDEX", "0")
 
 
-def _validate_env() -> tuple[str, str]:
-    """Validate env vars and return (reason, connection_type).
-
-    Returns ("", connection_type) if valid, or (skip_reason, "") if not.
-    """
-    ct = MESHTASTIC_CONNECTION_TYPE
-    if not ct:
-        return (
-            "Set MESHTASTIC_CONNECTION_TYPE (tcp/serial/ble) to run live Meshtastic tests",
-            "",
-        )
-
+def _get_live_requirements() -> list[LiveRequirement]:
+    """Build the list of env var requirements for Meshtastic live tests."""
+    ct = os.environ.get("MESHTASTIC_CONNECTION_TYPE", "").lower()
+    reqs = [LiveRequirement("MESHTASTIC_CONNECTION_TYPE", description="Connection mode: tcp, serial, or ble")]
     if ct == "tcp":
-        if not MESHTASTIC_HOST:
-            return (
-                "MESHTASTIC_HOST is required for TCP connection type",
-                "",
-            )
+        reqs.append(LiveRequirement("MESHTASTIC_HOST", description="Node hostname or IP for TCP"))
     elif ct == "serial":
-        if not MESHTASTIC_SERIAL_PORT:
-            return (
-                "MESHTASTIC_SERIAL_PORT is required for serial connection type",
-                "",
-            )
+        reqs.append(LiveRequirement("MESHTASTIC_SERIAL_PORT", description="Serial device path"))
     elif ct == "ble":
-        if not MESHTASTIC_BLE_ADDRESS:
-            return (
-                "MESHTASTIC_BLE_ADDRESS is required for BLE connection type",
-                "",
-            )
-    else:
-        return (
-            f"Unknown MESHTASTIC_CONNECTION_TYPE {ct!r}; use tcp, serial, or ble",
-            "",
-        )
-
-    return ("", ct)
+        reqs.append(LiveRequirement("MESHTASTIC_BLE_ADDRESS", secret=False, description="BLE MAC address"))
+    return reqs
 
 
-_LIVE_SKIP_REASON, _CONNECTION_TYPE = _validate_env()
-_LIVE_ENV_SET = _CONNECTION_TYPE != ""
+_LIVE_STATUS = live_env_status(_get_live_requirements())
+_LIVE_ENV_SET = _LIVE_STATUS.enabled
 
 require_live = pytest.mark.skipif(
     not _LIVE_ENV_SET,
-    reason=_LIVE_SKIP_REASON,
-)
-
-require_mtjk = pytest.mark.skipif(
-    not _LIVE_ENV_SET,
-    reason=_LIVE_SKIP_REASON,
+    reason=f"Missing env vars: {', '.join(_LIVE_STATUS.missing)}",
 )
 
 
@@ -646,14 +623,6 @@ class TestMeshtasticLiveSmoke:
 # enqueue or transmit a packet over RF.
 _MESHTASTIC_LIVE_SEND = os.environ.get("MESHTASTIC_LIVE_SEND", "") == "1"
 
-# Bounded async helper — wraps coroutines with a timeout to prevent hangs.
-_BOUND_TIMEOUT_SECONDS = 15.0
-
-
-async def _bounded(coro, timeout: float = _BOUND_TIMEOUT_SECONDS):
-    """Run *coro* with an ``asyncio.wait_for`` timeout guard."""
-    return await asyncio.wait_for(coro, timeout=timeout)
-
 
 def _make_rendering_result(
     text: str = "test message",
@@ -702,13 +671,13 @@ class TestMeshtasticBoundedLiveTests:
         ctx = _make_context()
 
         try:
-            await _bounded(adapter.start(ctx))
-            info = await _bounded(adapter.health_check())
+            await bounded(adapter.start(ctx), 15.0, "test_live_start_and_health: adapter.start()")
+            info = await bounded(adapter.health_check(), 15.0, "test_live_start_and_health: health_check()")
             assert info.health in ("healthy", "unknown")
             assert info.adapter_id == "meshtastic-live-smoke"
             assert info.platform == "meshtastic"
         finally:
-            await _bounded(adapter.stop())
+            await bounded(adapter.stop(), 10.0, "test_live_start_and_health: adapter.stop()")
 
     @require_live_send
     async def test_live_deliver_with_transmit(self):
@@ -720,20 +689,20 @@ class TestMeshtasticBoundedLiveTests:
         ctx = _make_context()
 
         try:
-            await _bounded(adapter.start(ctx))
+            await bounded(adapter.start(ctx), 15.0, "test_live_deliver_with_transmit: adapter.start()")
             ts = int(time.time())
             result_obj = _make_rendering_result(
                 text=f"MEDRE live bounded test (ts={ts}) - safe to ignore",
                 event_id=f"evt-live-{ts}",
                 channel_index=int(MESHTASTIC_CHANNEL_INDEX),
             )
-            delivery = await _bounded(adapter.deliver(result_obj))
+            delivery = await bounded(adapter.deliver(result_obj), 15.0, "test_live_deliver_with_transmit: adapter.deliver()")
             assert delivery is not None
             assert delivery.native_channel_id is not None
             # Delivery was accepted (queued for transmit)
             assert "enqueued" in delivery.delivery_note
         finally:
-            await _bounded(adapter.stop())
+            await bounded(adapter.stop(), 10.0, "test_live_deliver_with_transmit: adapter.stop()")
 
     @require_live_send
     async def test_live_bounded_start_stop_deliver(self):
@@ -745,19 +714,19 @@ class TestMeshtasticBoundedLiveTests:
         ctx = _make_context()
 
         try:
-            await _bounded(adapter.start(ctx))
+            await bounded(adapter.start(ctx), 15.0, "test_live_bounded_start_stop_deliver: adapter.start()")
 
-            info = await _bounded(adapter.health_check())
+            info = await bounded(adapter.health_check(), 15.0, "test_live_bounded_start_stop_deliver: health_check()")
             assert info.health in ("healthy", "unknown")
 
             result_obj = _make_rendering_result(
                 text="MEDRE bounded lifecycle test - safe to ignore",
                 event_id="evt-lifecycle-001",
             )
-            delivery = await _bounded(adapter.deliver(result_obj))
+            delivery = await bounded(adapter.deliver(result_obj), 15.0, "test_live_bounded_start_stop_deliver: adapter.deliver()")
             assert delivery is not None
         finally:
-            await _bounded(adapter.stop())
+            await bounded(adapter.stop(), 10.0, "test_live_bounded_start_stop_deliver: adapter.stop()")
 
     async def test_live_stop_idempotency(self):
         """stop() called multiple times on a live adapter is safe."""
@@ -768,13 +737,13 @@ class TestMeshtasticBoundedLiveTests:
         ctx = _make_context()
 
         try:
-            await _bounded(adapter.start(ctx))
+            await bounded(adapter.start(ctx), 15.0, "test_live_stop_idempotency: adapter.start()")
         finally:
-            await _bounded(adapter.stop())
+            await bounded(adapter.stop(), 10.0, "test_live_stop_idempotency: adapter.stop() #1")
             # Idempotent second stop
-            await _bounded(adapter.stop())
+            await bounded(adapter.stop(), 10.0, "test_live_stop_idempotency: adapter.stop() #2")
             # Idempotent third stop
-            await _bounded(adapter.stop())
+            await bounded(adapter.stop(), 10.0, "test_live_stop_idempotency: adapter.stop() #3")
 
         assert adapter._started is False
 
@@ -787,7 +756,7 @@ class TestMeshtasticBoundedLiveTests:
         ctx = _make_context()
 
         try:
-            await _bounded(adapter.start(ctx))
+            await bounded(adapter.start(ctx), 15.0, "test_live_diagnostics_shape: adapter.start()")
             diag = adapter.diagnostics()
 
             # Adapter-level keys
@@ -814,7 +783,7 @@ class TestMeshtasticBoundedLiveTests:
             assert "permanent_delivery_failures" in session
             assert "last_error" in session
         finally:
-            await _bounded(adapter.stop())
+            await bounded(adapter.stop(), 10.0, "test_live_diagnostics_shape: adapter.stop()")
 
     async def test_live_no_secret_leakage_in_diagnostics(self):
         """diagnostics() does NOT expose serial paths, host IPs, or secrets."""
@@ -825,43 +794,17 @@ class TestMeshtasticBoundedLiveTests:
         ctx = _make_context()
 
         try:
-            await _bounded(adapter.start(ctx))
+            await bounded(adapter.start(ctx), 15.0, "test_live_no_secret_leakage_in_diagnostics: adapter.start()")
             diag = adapter.diagnostics()
-            diag_str = str(diag)
 
-            # Serial port must not appear
+            # Collect secret-like values from env to check against
+            leak_candidates = []
             if MESHTASTIC_SERIAL_PORT:
-                assert MESHTASTIC_SERIAL_PORT not in diag_str, (
-                    f"Serial port {MESHTASTIC_SERIAL_PORT!r} leaked into diagnostics"
-                )
-
-            # Host IP/hostname must not appear
+                leak_candidates.append(MESHTASTIC_SERIAL_PORT)
             if MESHTASTIC_HOST:
-                assert MESHTASTIC_HOST not in diag_str, (
-                    f"Host {MESHTASTIC_HOST!r} leaked into diagnostics"
-                )
-
-            # BLE address must not appear
+                leak_candidates.append(MESHTASTIC_HOST)
             if MESHTASTIC_BLE_ADDRESS:
-                assert MESHTASTIC_BLE_ADDRESS not in diag_str, (
-                    f"BLE address {MESHTASTIC_BLE_ADDRESS!r} leaked into diagnostics"
-                )
-
-            # Recursively scan diagnostics for sensitive key substrings
-            # at any nesting depth.
-            sensitive_keys = {"password", "secret", "token", "api_key",
-                              "private_key", "auth_token"}
-            def _check(obj, path=""):
-                if isinstance(obj, dict):
-                    for k, v in obj.items():
-                        fp = f"{path}.{k}" if path else k
-                        assert k not in sensitive_keys, (
-                            f"Sensitive key {k!r} found at {fp}"
-                        )
-                        _check(v, fp)
-                elif isinstance(obj, list):
-                    for i, item in enumerate(obj):
-                        _check(item, f"{path}[{i}]")
-            _check(diag)
+                leak_candidates.append(MESHTASTIC_BLE_ADDRESS)
+            assert_no_secret_leak(diag, leak_candidates)
         finally:
-            await _bounded(adapter.stop())
+            await bounded(adapter.stop(), 10.0, "test_live_no_secret_leakage_in_diagnostics: adapter.stop()")

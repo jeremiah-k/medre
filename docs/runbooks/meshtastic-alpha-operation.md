@@ -368,6 +368,7 @@ health = adapter.queue_health
 | `total_failed`           | int   | Cumulative count of send failures since adapter creation    |
 | `delay_between_messages` | float | Configured minimum pacing delay in seconds                  |
 | `last_send_time`         | float | `time.monotonic()` of the last successful send              |
+| `drain_task_running`     | bool  | Whether the background queue-drain task is active           |
 
 These counters are cumulative for the lifetime of the adapter instance (not reset on stop/start).
 
@@ -629,7 +630,7 @@ This is an honest list. Everything here is real.
 
 1. **No automatic reconnection.** If the connection to the node is lost, the adapter does not recover. Manual `stop()` + `start()` is required. See section 12.
 
-2. **No outbound retry.** Failed sends are permanently dropped, not requeued. See section 9.2.
+2. **No outbound retry.** Failed sends are permanently dropped, not requeued. Queue drain is reliably cancelled on stop. See section 9.2.
 
 3. **No inbound persistence.** Inbound events are published directly via `ctx.publish_inbound()`. If the callback is slow or fails, the event is gone. There is no retry, no dead letter queue, no redelivery.
 

@@ -495,6 +495,7 @@ class MeshtasticAdapter(AdapterContract):
         dict
             Combined adapter + session diagnostics.
         """
+        drain_task = self._drain_task
         result: dict[str, Any] = {
             "adapter_id": self.adapter_id,
             "platform": self.platform,
@@ -504,6 +505,9 @@ class MeshtasticAdapter(AdapterContract):
             "queue_total_sent": self._queue.total_sent,
             "queue_total_failed": self._queue.total_failed,
             "queue_total_dropped": self._queue.total_dropped,
+            "drain_task_running": (
+                drain_task is not None and not drain_task.done()
+            ),
             "background_tasks": len(self._background_tasks),
         }
 
