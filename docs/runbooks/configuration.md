@@ -893,12 +893,15 @@ MEDRE_ADAPTER__RADIO_A__SERIAL_PORT=/dev/ttyUSB0
 ```
 
 The `TRANSPORT` field is required for env-created adapters. Accepted values:
-`matrix`, `meshtastic`, `meshcore`, `lxmf`. It must be lowercase. Any field
-available on that transport's config dataclass can be set via env, just like
-overrides on existing adapters.
+`matrix`, `meshtastic`, `meshcore`, `lxmf`. Values are case-insensitive
+(`Matrix`, `MATRIX`, and `matrix` are all equivalent). Any field available on
+that transport's config dataclass can be set via env, just like overrides on
+existing adapters.
 
 Env-created adapters default to `enabled = true` and `adapter_kind = "real"`.
-Set them explicitly if you need different behaviour.
+Set them explicitly if you need different behaviour. See
+[Adapter kind (env-created adapters)](#f-adapter-kind-env-created-adapters)
+below for `ADAPTER_KIND` details.
 
 ### C. Multi-adapter env-only deployment
 
@@ -958,6 +961,28 @@ and cannot be changed via env.
   `node_config`, and `auto_join_rooms` require structured data. They cannot be
   set through the flat string format of environment variables. This is the same
   restriction that applies to overrides on existing adapters.
+
+### F. Adapter kind (env-created adapters)
+
+Env-created adapters accept the `ADAPTER_KIND` field to control whether a
+live or simulated adapter is built:
+
+| Value  | Description                                                                 |
+|--------|-----------------------------------------------------------------------------|
+| `real` | Build the live adapter with optional SDK imports (default).                 |
+| `fake` | Build a simulated adapter without optional SDK imports.                     |
+
+```bash
+MEDRE_ADAPTER__RADIO_A__TRANSPORT=meshtastic
+MEDRE_ADAPTER__RADIO_A__ADAPTER_KIND=fake
+MEDRE_ADAPTER__RADIO_A__CONNECTION_TYPE=serial
+MEDRE_ADAPTER__RADIO_A__SERIAL_PORT=/dev/ttyUSB0
+```
+
+`ADAPTER_KIND` defaults to `"real"` when not specified. Invalid values raise
+`ConfigValidationError` at startup. This field is only available for
+env-created adapters — adapters defined in TOML use the `adapter_kind` key
+in their TOML section (see per-transport schema above).
 
 ## Environment Variable `.env` Files
 
