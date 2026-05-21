@@ -427,6 +427,11 @@ async def run_bridge_session(
             "status": r.status,
             "source": r.source,
             "route_id": r.route_id,
+            "event_id": r.event_id,
+            "delivery_plan_id": r.delivery_plan_id,
+            "error": r.error,
+            "attempt_number": r.attempt_number,
+            "native_message_id": r.adapter_message_id,
         }
         for r in all_receipts
     ]

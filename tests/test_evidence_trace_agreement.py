@@ -301,3 +301,105 @@ async def test_evidence_report_native_ref_canonical_keys(
     assert ref_dict["native_channel_id"] == ref_dict["channel"]
     assert ref_dict["native_message_id"] == ref_dict["native_id"]
     assert ref_dict["resolves_to"] == _EVENT_ID
+
+
+# ---------------------------------------------------------------------------
+# Tests: v2 trace field expansion (failure_kind, native_channel_id, resolves_to)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_trace_receipt_includes_failure_kind_and_native_channel_id(
+    tmp_path: Path,
+) -> None:
+    """Trace timeline receipt entries include failure_kind and native_channel_id."""
+    event = _make_event()
+    receipt = DeliveryReceipt(
+        sequence=1,
+        receipt_id="rcpt-fk-001",
+        event_id=_EVENT_ID,
+        delivery_plan_id="plan-fk-001",
+        target_adapter=_ADAPTER,
+        target_channel=_NATIVE_CHANNEL_ID,
+        route_id="route-fk-001",
+        status="failed",
+        failure_kind="adapter_permanent_failure",
+        error="simulated adapter crash",
+        adapter_message_id=None,
+        created_at=_TS_RECEIPT,
+    )
+    nref = _make_native_ref()
+
+    trace_entries = assemble_trace_entries(event, [receipt], [nref], [])
+
+    receipt_entries = [e for e in trace_entries if e["entry_type"] == "receipt"]
+    assert len(receipt_entries) == 1, "Expected exactly one receipt timeline entry"
+    data = receipt_entries[0]["data"]
+
+    # failure_kind must be present and match what was set on the receipt.
+    assert data["failure_kind"] == "adapter_permanent_failure", (
+        f"Expected failure_kind='adapter_permanent_failure', got {data['failure_kind']!r}"
+    )
+    # native_channel_id must be present and populated from target_channel.
+    assert data["native_channel_id"] == _NATIVE_CHANNEL_ID, (
+        f"Expected native_channel_id={_NATIVE_CHANNEL_ID!r}, got {data['native_channel_id']!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_trace_native_ref_includes_resolves_to(tmp_path: Path) -> None:
+    """Trace timeline native_ref entries include resolves_to field."""
+    event = _make_event()
+    nref = _make_native_ref()
+
+    trace_entries = assemble_trace_entries(event, [], [nref], [])
+
+    nref_entries = [e for e in trace_entries if e["entry_type"] == "native_ref"]
+    assert len(nref_entries) == 1, "Expected exactly one native_ref timeline entry"
+    data = nref_entries[0]["data"]
+
+    # resolves_to must be present and populated with the event_id.
+    assert "resolves_to" in data, "resolves_to key missing from native_ref entry data"
+    assert data["resolves_to"] == _EVENT_ID, (
+        f"Expected resolves_to={_EVENT_ID!r}, got {data['resolves_to']!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_orchestration_report_delivery_receipts_include_expanded_keys(
+    tmp_path: Path,
+) -> None:
+    """Orchestration report delivery_receipts include event_id, delivery_plan_id, error, attempt_number, native_message_id."""
+    from medre.runtime.run_session.orchestration import run_bridge_session
+
+    from tests.test_smoke_cli import _smoke_config_path
+
+    config_path = _smoke_config_path()
+    db_path = str(tmp_path / "orch_receipts.db")
+
+    report = await run_bridge_session(
+        config_path,
+        storage_path=db_path,
+    )
+    assert report["status"] == "passed", (
+        f"Expected passed, got {report['status']}: {report.get('fail_reasons', [])}"
+    )
+
+    receipts = report["delivery_receipts"]
+    assert isinstance(receipts, list) and len(receipts) >= 1, (
+        "Expected at least one delivery receipt in orchestration report"
+    )
+
+    required_keys = (
+        "event_id",
+        "delivery_plan_id",
+        "error",
+        "attempt_number",
+        "native_message_id",
+    )
+    first = receipts[0]
+    for key in required_keys:
+        assert key in first, (
+            f"Required key {key!r} missing from delivery_receipts entry. "
+            f"Available keys: {sorted(first.keys())}"
+        )

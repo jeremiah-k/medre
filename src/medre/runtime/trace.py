@@ -151,6 +151,7 @@ def assemble_event_timeline(
                     "native_message_id": nref.native_message_id,
                     "native_thread_id": nref.native_thread_id,
                     "direction": nref.direction,
+                    "resolves_to": nref.event_id,
                 },
             )
         )
@@ -169,13 +170,13 @@ def assemble_event_timeline(
                     "delivery_plan_id": receipt.delivery_plan_id,
                     "target_adapter": receipt.target_adapter,
                     "status": receipt.status,
-                    "failure_kind": None,
+                    "failure_kind": receipt.failure_kind,
                     "error": receipt.error,
                     "attempt_number": receipt.attempt_number,
                     "source": receipt.source,
                     "replay_run_id": receipt.replay_run_id,
                     "native_message_id": receipt.adapter_message_id,
-                    "native_channel_id": None,
+                    "native_channel_id": receipt.target_channel,
                 },
             )
         )
@@ -257,13 +258,13 @@ def assemble_replay_timeline(
                 "delivery_plan_id": receipt.delivery_plan_id,
                 "target_adapter": receipt.target_adapter,
                 "status": receipt.status,
-                "failure_kind": None,
+                "failure_kind": receipt.failure_kind,
                 "error": receipt.error,
                 "attempt_number": receipt.attempt_number,
                 "source": receipt.source,
                 "replay_run_id": receipt.replay_run_id,
                 "native_message_id": receipt.adapter_message_id,
-                "native_channel_id": None,
+                "native_channel_id": receipt.target_channel,
             },
         }
         timeline_entries.append(entry)

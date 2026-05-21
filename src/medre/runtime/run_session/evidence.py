@@ -182,6 +182,9 @@ async def _collect_native_refs(
                 "native_id": nref.native_message_id,
                 "native_message_id": nref.native_message_id,
                 "direction": nref.direction,
+                # Fallback to nref.event_id when resolve_native_ref returns
+                # None (e.g. the native ref has not yet been resolved to a
+                # separate canonical event).
                 "resolves_to": resolved or nref.event_id,
             }
         )
