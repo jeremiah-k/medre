@@ -861,6 +861,104 @@ export MEDRE_ADAPTER__RADIO__PORT=4403
 export MEDRE_ADAPTER__RADIO__ENABLED=true
 ```
 
+## Env-First Adapter Creation
+
+In addition to overriding fields on adapters declared in TOML, you can create
+entirely new adapters from environment variables alone. Any env var with a
+`TRANSPORT` field under a token that does not match an existing TOML adapter
+triggers adapter creation.
+
+### A. Override an existing TOML adapter
+
+When the token matches an adapter already defined in TOML, env vars override
+its fields as usual. No adapter is created; the existing one is patched.
+
+```bash
+MEDRE_ADAPTER__RADIO_A__SERIAL_PORT=/dev/ttyUSB0
+```
+
+This changes `serial_port` on whatever adapter has `adapter_id` normalising to
+`RADIO_A`. The adapter must already exist in the TOML config.
+
+### B. Create a new adapter from env
+
+When the token does not match any TOML adapter, setting `TRANSPORT` tells
+MEDRE which transport config dataclass to build. All other fields under that
+token populate the new adapter's config.
+
+```bash
+MEDRE_ADAPTER__RADIO_A__TRANSPORT=meshtastic
+MEDRE_ADAPTER__RADIO_A__CONNECTION_TYPE=serial
+MEDRE_ADAPTER__RADIO_A__SERIAL_PORT=/dev/ttyUSB0
+```
+
+The `TRANSPORT` field is required for env-created adapters. Accepted values:
+`matrix`, `meshtastic`, `meshcore`, `lxmf`. It must be lowercase. Any field
+available on that transport's config dataclass can be set via env, just like
+overrides on existing adapters.
+
+Env-created adapters default to `enabled = true` and `adapter_kind = "real"`.
+Set them explicitly if you need different behaviour.
+
+### C. Multi-adapter env-only deployment
+
+You can define multiple adapters entirely from env, with no TOML adapter
+sections at all. You still need a minimal TOML config for routes (see
+Limitations below).
+
+```bash
+# Matrix adapter — token MATRIX_PRIMARY
+MEDRE_ADAPTER__MATRIX_PRIMARY__TRANSPORT=matrix
+MEDRE_ADAPTER__MATRIX_PRIMARY__HOMESERVER=https://matrix.example.com
+MEDRE_ADAPTER__MATRIX_PRIMARY__USER_ID=@bot:example.com
+MEDRE_ADAPTER__MATRIX_PRIMARY__ACCESS_TOKEN=syt_...
+
+# Meshtastic adapter — token RADIO_A
+MEDRE_ADAPTER__RADIO_A__TRANSPORT=meshtastic
+MEDRE_ADAPTER__RADIO_A__CONNECTION_TYPE=serial
+MEDRE_ADAPTER__RADIO_A__SERIAL_PORT=/dev/ttyACM0
+```
+
+Both adapters are created from env. A TOML config with routes referencing
+`matrix-primary` and `radio-a` would wire them together.
+
+### D. Default adapter_id behaviour
+
+For env-created adapters, the token is converted to an adapter_id by
+lowercasing and replacing underscores with hyphens.
+
+| Token | Default `adapter_id` |
+|---|---|
+| `MATRIX_PRIMARY` | `matrix-primary` |
+| `RADIO_A` | `radio-a` |
+| `MESHCORE_TBEAM` | `meshcore-tbeam` |
+
+To override this default, set the `ADAPTER_ID` field explicitly:
+
+```bash
+MEDRE_ADAPTER__MATRIX_PRIMARY__TRANSPORT=matrix
+MEDRE_ADAPTER__MATRIX_PRIMARY__ADAPTER_ID=prod-matrix
+MEDRE_ADAPTER__MATRIX_PRIMARY__HOMESERVER=https://matrix.example.com
+# ...
+```
+
+The `ADAPTER_ID` override only applies to env-created adapters. For adapters
+defined in TOML, the `adapter_id` field in the TOML section is authoritative
+and cannot be changed via env.
+
+### E. Limitations
+
+- **Routes still need TOML.** There is no env-driven route creation. Your TOML
+  config must declare `[routes.*]` sections that reference the adapter IDs
+  (whether those adapters come from TOML or env).
+- **`ADAPTER_ID` override is env-only.** The `ADAPTER_ID` field only works for
+  adapters being created from env. It does not override `adapter_id` on
+  adapters declared in TOML.
+- **Dict and tuple fields remain TOML-only.** Fields like `channel_mapping`,
+  `node_config`, and `auto_join_rooms` require structured data. They cannot be
+  set through the flat string format of environment variables. This is the same
+  restriction that applies to overrides on existing adapters.
+
 ## Environment Variable `.env` Files
 
 `.env` files are a deployment convenience for container runtimes. They are not
