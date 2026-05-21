@@ -846,8 +846,18 @@ def apply_instance_env_overrides(
                 field_map["enabled"].env_var_name,
             )
 
+        # Determine adapter_kind (defaults to "real").
+        adapter_kind = "real"
+        if "adapter_kind" in field_map:
+            adapter_kind = field_map["adapter_kind"].raw_value.strip().lower()
+            if adapter_kind not in ("real", "fake"):
+                raise ConfigValidationError(
+                    f"ADAPTER_KIND for token {token!r} must be 'real' or 'fake', "
+                    f"got {adapter_kind!r}"
+                )
+
         # Build config kwargs from remaining fields (excluding meta-fields).
-        meta_fields = {"transport", "adapter_id", "enabled"}
+        meta_fields = {"transport", "adapter_id", "enabled", "adapter_kind"}
         config_field_names = {k for k in field_map if k not in meta_fields}
 
         # Validate field names against transport's config class.
@@ -886,7 +896,7 @@ def apply_instance_env_overrides(
         new_rtc = runtime_cls(
             adapter_id=adapter_id,
             enabled=enabled,
-            adapter_kind="real",
+            adapter_kind=adapter_kind,
             config=new_config,
         )
         transport_dicts[transport][adapter_id] = new_rtc
@@ -898,22 +908,27 @@ def apply_instance_env_overrides(
                 if entry is not None and entry.target_transport is None:
                     entry.target_transport = transport
 
-    # -- Adapter-ID collision check (existing + newly created) -------------
+    # -- Normalized-token collision check (existing + newly created) --------
 
-    all_adapter_ids: dict[str, list[str]] = {}
+    token_locations: dict[str, list[tuple[str, str, str]]] = {}
     for transport_name, tdict in transport_dicts.items():
         for key, rtc in tdict.items():
-            all_adapter_ids.setdefault(rtc.adapter_id, []).append(
-                f"{transport_name}.{key}"
+            tok = normalize_adapter_id(rtc.adapter_id)
+            token_locations.setdefault(tok, []).append(
+                (transport_name, key, rtc.adapter_id)
             )
-    adapter_collisions = {
-        aid: locs for aid, locs in all_adapter_ids.items() if len(locs) > 1
+    token_collisions = {
+        tok: locs for tok, locs in token_locations.items() if len(locs) > 1
     }
-    if adapter_collisions:
+    if token_collisions:
         collision_msgs: list[str] = []
-        for aid, locs in adapter_collisions.items():
+        for tok, locs in token_collisions.items():
+            details = "; ".join(
+                f"{t}.{k} adapter_id={a!r}" for t, k, a in locs
+            )
             collision_msgs.append(
-                f"adapter_id collision: {aid!r} used by {locs}"
+                f"Adapter env token collision for {tok}: {details}. "
+                f"Rename one adapter_id."
             )
         raise ConfigValidationError("; ".join(collision_msgs))
 
