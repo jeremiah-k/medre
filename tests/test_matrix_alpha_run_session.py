@@ -118,21 +118,21 @@ encryption_mode = "plaintext"
 [adapters.matrix.matrix_alpha]
 enabled = true
 adapter_kind = "real"
-homeserver = "{MATRIX_HOMESERVER}"
-user_id = "{MATRIX_USER_ID}"
-access_token = "placeholder_token_for_validation_only"
-room_allowlist = ["{MATRIX_ROOM_ID}"]
+homeserver = {json.dumps(MATRIX_HOMESERVER)}
+user_id = {json.dumps(MATRIX_USER_ID)}
+access_token = {json.dumps("placeholder_token_for_validation_only")}
+room_allowlist = [{json.dumps(MATRIX_ROOM_ID)}]
 encryption_mode = "plaintext"
 
 [routes.alpha_bridge]
 source_adapters = ["fake_matrix"]
 dest_adapters = ["matrix_alpha"]
 directionality = "source_to_dest"
-dest_room = "{MATRIX_ROOM_ID}"
+dest_room = {json.dumps(MATRIX_ROOM_ID)}
 enabled = true
 """
     config_file = tmp_path / "alpha-run-session.toml"
-    config_file.write_text(config_content)
+    config_file.write_text(config_content, encoding="utf-8")
     return str(config_file)
 
 
@@ -163,10 +163,10 @@ path = "{db_path}"
 [adapters.matrix.matrix_alpha]
 enabled = true
 adapter_kind = "real"
-homeserver = "{MATRIX_HOMESERVER}"
-user_id = "{MATRIX_USER_ID}"
-access_token = "placeholder_token_for_validation_only"
-room_allowlist = ["{MATRIX_ROOM_ID}"]
+homeserver = {json.dumps(MATRIX_HOMESERVER)}
+user_id = {json.dumps(MATRIX_USER_ID)}
+access_token = {json.dumps("placeholder_token_for_validation_only")}
+room_allowlist = [{json.dumps(MATRIX_ROOM_ID)}]
 encryption_mode = "plaintext"
 
 [adapters.meshtastic.fake_mesh]
@@ -180,11 +180,11 @@ source_adapters = ["matrix_alpha"]
 dest_adapters = ["fake_mesh"]
 directionality = "source_to_dest"
 enabled = true
-source_room = "{MATRIX_ROOM_ID}"
+source_room = {json.dumps(MATRIX_ROOM_ID)}
 dest_channel = "1"
 """
     config_file = tmp_path / "alpha-direct-config.toml"
-    config_file.write_text(config_content)
+    config_file.write_text(config_content, encoding="utf-8")
     return str(config_file)
 
 

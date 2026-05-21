@@ -65,7 +65,7 @@ source_room = "!room:example.com"
 dest_channel = "1"
 """
     config_file = tmp_path / "config.toml"
-    config_file.write_text(config_content)
+    config_file.write_text(config_content, encoding="utf-8")
     return str(config_file)
 
 
@@ -219,7 +219,7 @@ class TestEvidenceBundleWithMatrixAdapter:
                 event_id="mx-evt-001",
                 event_kind="message.created",
                 schema_version=1,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
                 source_adapter="matrix-alpha",
                 source_transport_id="@alice:example.com",
                 source_channel_id="!room:example.com",

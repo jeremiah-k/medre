@@ -286,7 +286,7 @@ class TestMatrixNativeRefStorage:
             event_id="ce-reply-1",
             event_kind="message.created",
             schema_version=1,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
             source_adapter="matrix-test",
             source_transport_id="@alice:example.com",
             source_channel_id="!reply_room:example.com",
