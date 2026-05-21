@@ -323,7 +323,7 @@ class TestRuntimeCoreModuleGuard:
                     f"{module_name} failed to import due to SDK dependency: "
                     f"{stderr}"
                 )
-            pytest.skip(f"{module_name} not importable: {stderr}")
+            pytest.fail(f"{module_name} failed to import: {stderr}")
 
         leaked = result.stdout.strip()
         assert leaked == "CLEAN", (

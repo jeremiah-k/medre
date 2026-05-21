@@ -274,14 +274,22 @@ class TestDynamicAdapterDetectionOutsideBuilder:
         """importlib.import_module("medre.adapters....") in builder is allowed."""
         graph = build_dependency_graph(_SRC)
         report = build_route_adapter_boundary_report(graph, src_root=_SRC)
-        # Builder dynamic imports should be in allowed section
-        [
+        builder_dynamic_allowed = [
             v
             for v in report.allowed_runtime_adapter.violations
             if v.source == "medre.runtime.builder" and "import_module" in v.rule
         ]
-        # Builder may or may not use importlib.import_module, but if it does
-        # it must be in allowed.  Verify builder never appears in forbidden.
+        builder_dynamic_points = [
+            v
+            for v in report.runtime_assembly_points.violations
+            if v.source == "medre.runtime.builder" and "import_module" in v.rule
+        ]
+        # Builder may or may not use importlib.import_module, but if it does,
+        # those assembly points must be classified as allowed.
+        assert {(v.target, v.rule) for v in builder_dynamic_points} <= {
+            (v.target, v.rule) for v in builder_dynamic_allowed
+        }, "Builder import_module assembly points must be classified as allowed"
+        # Verify builder never appears in forbidden.
         builder_forbidden = [
             v
             for v in report.forbidden_runtime_adapter.violations

@@ -1,7 +1,7 @@
 """Package-boundary tests for ``medre.runtime.evidence``.
 
-Ensures the package exports only its intended public API and does not
-re-export private helpers or constants from internal modules.
+Ensures the package root remains marker-only and does not re-export
+helpers or constants from internal modules.
 """
 
 import importlib
@@ -15,7 +15,7 @@ def evidence_pkg():
 
 
 class TestEvidencePackageBoundary:
-    """The evidence package must expose only its declared public API."""
+    """The evidence package root must remain marker-only."""
 
     def test_no_all_at_package_root(self, evidence_pkg) -> None:
         """The package root must not expose ``__all__`` convenience exports."""
