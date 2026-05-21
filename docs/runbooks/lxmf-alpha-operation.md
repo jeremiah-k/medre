@@ -688,7 +688,7 @@ counts = adapter.session.delivery_state_counts()
 # {"outbound": 2, "delivered": 5, "failed": 0}
 ```
 
-### 14.5 Two-Process Topology Testing
+### 14.6 Two-Process Topology Testing
 
 Two-process topology tests validate LXMF adapter behaviour in a real
 two-node Reticulum network. Each process runs in a separate terminal
