@@ -418,7 +418,7 @@ For full details, see `docs/contracts/19-meshcore-connectivity-readiness.md` Sec
 
 **Key point for future implementers:** `expected_ack` is the candidate for MEDRE's `native_message_id`. It is a CRC-like token, not an incrementing ID. Two identical sends could produce the same `expected_ack`. This needs hardware verification before relying on it as a unique identifier.
 
-### Send Opt-In: `MESHCORE_LIVE_SEND`
+### Send Opt-In Safety: `MESHCORE_LIVE_SEND`
 
 Actual radio transmission (real-mode sends) requires `MESHCORE_LIVE_SEND=1`. This is a safety gate to prevent accidental transmission during development or CI.
 
@@ -427,6 +427,14 @@ Actual radio transmission (real-mode sends) requires `MESHCORE_LIVE_SEND=1`. Thi
 - **Fake-mode sends**: Unaffected. Fake-mode tests never transmit and do not check `MESHCORE_LIVE_SEND`.
 
 This applies to `send_msg`, `send_chan_msg`, and `send_msg_with_retry` when running in real mode (non-fake `connection_type`).
+
+**Important distinctions:**
+
+1. **Connection and health tests run without LIVE_SEND.** Adapter lifecycle tests (start, stop, health_check, diagnostics) do not transmit radio traffic and are gated only by the standard `MESHCORE_CONNECTION_TYPE` env vars. These can be run without the live-send opt-in.
+
+2. **Any real transmit requires `MESHCORE_LIVE_SEND=1`.** Sending a message to the mesh — whether via `send_msg`, `send_chan_msg`, `send_msg_with_retry`, or `adapter.deliver()` in real mode — is blocked unless this variable is explicitly set to `1`. No accidental RF emissions.
+
+3. **Live send evidence should be recorded separately and sanitized.** When live send tests are run against real hardware, the output (diagnostics, message IDs, health snapshots) must be recorded in a separate evidence document. Before sharing, sanitize any sensitive fields: radio coordinates, BLE MAC addresses, serial port paths, and mesh node public keys.
 
 ## What It Proves / Does Not Prove
 

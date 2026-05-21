@@ -280,6 +280,16 @@ At minimum, `LXMF_CONNECTION_TYPE` and `LXMF_IDENTITY_PATH` must
 be set. If any required variable is missing, every test in the file
 skips with a descriptive reason.
 
+### Send Opt-In Safety: `LXMF_LIVE_SEND`
+
+**Important distinctions for the `LXMF_LIVE_SEND` opt-in:**
+
+1. **Connection and health tests run without LIVE_SEND.** Adapter lifecycle tests (start, stop, health_check, diagnostics, and even fake-mode deliver) do not transmit real Reticulum network traffic. They are gated only by the standard `LXMF_CONNECTION_TYPE` and `LXMF_IDENTITY_PATH` env vars. These can run without the live-send opt-in.
+
+2. **Any real transmit requires `LXMF_LIVE_SEND=1`.** Sending an actual LXMF message over the Reticulum network — whether via `adapter.deliver()` in reticulum mode or direct `router.handle_outbound()` — is blocked unless this variable is explicitly set to `1`. No accidental network emissions.
+
+3. **Live send evidence should be recorded separately and sanitized.** When live send tests are run against a real Reticulum network, the output (delivery state, message hashes, health snapshots) must be recorded in a separate evidence document. Before sharing, sanitize any sensitive fields: identity hashes, destination hashes, identity file paths, and Reticulum transport interface details.
+
 ## How to Run Live Tests [CONFIRMED]
 
 ```bash
