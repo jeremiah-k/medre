@@ -1,6 +1,6 @@
 # Meshtastic Alpha Operation Runbook
 
-> Last updated: 2026-05-09
+> Last updated: 2026-05-21
 > Scope: Real Meshtastic Operation Alpha
 > Status: Alpha. Not production. Not hardened. Not complete. Fake mode is the primary development and testing path. Real connectivity (TCP/serial) is available for live validation.
 
@@ -122,6 +122,27 @@ In fake mode:
 
 **Fake mode is the recommended default for all development and testing.**
 
+### 4.1.1 No-SDK behavior
+
+Fake mode is designed for zero-dependency development:
+
+- **No `mtjk` package required.** The adapter creates no real client
+  (`_client = None`). All adapter submodules (`config`, `codec`,
+  `packet_classifier`, `outbound_queue`) import successfully without `mtjk`.
+- **Default for all tests.** All `pytest` runs use fake mode unless explicitly
+  overridden with live environment variables. No hardware or SDK is needed
+  for the standard test suite.
+- **Import behavior.** The adapter's import guard (`HAS_MESHTASTIC`) is
+  checked only when creating real client instances. Importing
+  `meshtastic.tcp_interface` at module level will fail without `mtjk`, but the
+  adapter defers all such imports behind runtime guards. Concrete import
+  behavior: importing submodules works, but creating real clients fails
+  without `mtjk`.
+- **Concrete limitation.** Without `mtjk`, calling `start()` with
+  `connection_type="tcp"` (or `"serial"`, `"ble"`) raises
+  `MeshtasticConnectionError`. Only `connection_type="fake"` works without
+  the SDK.
+
 ### 4.2 TCP mode
 
 Connects to a Meshtastic node via its TCP API.
@@ -189,14 +210,16 @@ Invalid configurations raise `MeshtasticConfigError` before any connection attem
 
 The live smoke tests use environment variables to configure the connection. The adapter itself is configured via `MeshtasticConfig` (see section 4).
 
-| Variable                     | Required for | Default | Example             | Description                             |
-| ---------------------------- | ------------ | ------- | ------------------- | --------------------------------------- |
-| `MESHTASTIC_CONNECTION_TYPE` | All          |         | `tcp`               | Connection mode: `tcp`, `serial`, `ble` |
-| `MESHTASTIC_HOST`            | TCP          |         | `meshtastic.local`  | Node hostname or IP                     |
-| `MESHTASTIC_PORT`            | TCP          | `4403`  | `4403`              | TCP port                                |
-| `MESHTASTIC_SERIAL_PORT`     | Serial       |         | `/dev/ttyUSB0`      | Serial device path                      |
-| `MESHTASTIC_BLE_ADDRESS`     | BLE          |         | `AA:BB:CC:DD:EE:FF` | BLE MAC address                         |
-| `MESHTASTIC_CHANNEL_INDEX`   | All          | `0`     | `0`                 | Channel for test messages               |
+| Variable                     | Required for | Default | Example             | Description                                          |
+| ---------------------------- | ------------ | ------- | ------------------- | ---------------------------------------------------- |
+| `MESHTASTIC_CONNECTION_TYPE` | All          |         | `tcp`               | Connection mode: `tcp`, `serial`, `ble`              |
+| `MESHTASTIC_HOST`            | TCP          |         | `meshtastic.local`  | Node hostname or IP                                  |
+| `MESHTASTIC_PORT`            | TCP          | `4403`  | `4403`              | TCP port                                             |
+| `MESHTASTIC_SERIAL_PORT`     | Serial       |         | `/dev/ttyUSB0`      | Serial device path                                   |
+| `MESHTASTIC_BLE_ADDRESS`     | BLE          |         | `AA:BB:CC:DD:EE:FF` | BLE MAC address                                      |
+| `MESHTASTIC_CHANNEL_INDEX`   | All          | `0`     | `0`                 | Channel for test messages                            |
+| `MESHTASTIC_NODE_ID`         | All          |         | `!25d6e474`         | Meshtastic node ID for identifying the local node    |
+| `MESHTASTIC_LIVE_SEND`       | Live TX      |         | `1`                 | **Transmit guard.** Must be `1` for RF transmission. Without this flag, the adapter may connect and health-check but MUST NOT transmit. |
 
 ### 5.2 Manual adapter wiring
 
@@ -512,6 +535,21 @@ docker run -d --name medre-meshtastic \
   medre-meshtastic:latest
 ```
 
+**Transmit guard in Docker.** If the container is intended to transmit RF,
+you must pass `MESHTASTIC_LIVE_SEND=1`:
+
+```bash
+docker run -d --name medre-meshtastic \
+  -e MESHTASTIC_LIVE_SEND=1 \
+  --restart unless-stopped \
+  medre-meshtastic:latest
+```
+
+Without this environment variable, the adapter will connect and health-check
+but will **not transmit** any RF messages. This is the safe default for
+containers that may be running in environments where RF transmission is
+unwanted or untested.
+
 Configure via environment variables or mount a config file. The node must be reachable from the container's network.
 
 ### 11.2 Serial passthrough
@@ -615,11 +653,24 @@ This is an honest list. Everything here is real.
 
 13. **Packet classifier numeric map is scaffold only.** The `_NUMERIC_PORTNUM_MAP` in `packet_classifier.py` is a test fixture approximation, not derived from the real Meshtastic protobuf `PortNum` enum. When the real `mtjk` package is installed, the `compat.get_portnum_table()` function returns authoritative values. See `docs/contracts/10-meshtastic-source-audit.md` for the authoritative table.
 
+14. **RF transmission requires explicit opt-in via `MESHTASTIC_LIVE_SEND`.** The adapter's `send_one()` path checks `MESHTASTIC_LIVE_SEND=1` before transmitting RF. Without this flag, the adapter may connect and health-check but MUST NOT transmit. This is a safety guard, not a bug. If outbound sends silently return `None` in live mode, verify `MESHTASTIC_LIVE_SEND` is set.
+
+15. **No-SDK fake mode does not validate real packet shapes.** In `connection_type="fake"` mode, all packet handling is simulated. The adapter does not validate that real `mtjk` protobuf packets match the shapes expected by the codec. discrepancies between fake and real packet shapes will only surface during live testing.
+
+16. **Storage roundtrip tests are fake-only.** `tests/test_meshtastic_storage_roundtrip.py` validates encode → store → decode cycles using fake packets. These tests do not exercise real radio packet storage. Real packet storage roundtrip fidelity is not yet validated.
+
 ## 14. Operational Risks
 
 ### 14.1 Radio traffic
 
 The adapter sends real radio packets. Ensure the configured channel is not used for critical or emergency communications during testing. Meshtastic operates on license-free bands (868 MHz EU / 915 MHz US). Ensure your node is configured for your regional regulations.
+
+**Transmit guard.** RF transmission is gated by the `MESHTASTIC_LIVE_SEND=1` environment variable. Without this flag, the adapter may connect and health-check but **MUST NOT transmit**. This prevents accidental radio transmissions when:
+- Running tests against real hardware without intending to transmit.
+- Operating in CI environments where RF is never wanted.
+- Developing against a real node but only testing connection lifecycle.
+
+Always verify `MESHTASTIC_LIVE_SEND` is unset when RF transmission is unwanted, and set it explicitly to `1` only when intentional RF transmission is desired.
 
 ### 14.2 Connection loss is silent
 
@@ -752,11 +803,51 @@ sudo usermod -aG dialout $USER
 groups  # verify 'dialout' is listed
 ```
 
+### 15.13 Adapter connects but outbound sends return `None` (no RF transmission)
+
+Check the `MESHTASTIC_LIVE_SEND` transmit guard:
+
+```bash
+echo $MESHTASTIC_LIVE_SEND
+# If empty or not "1", RF transmission is intentionally blocked.
+```
+
+To enable RF transmission:
+
+```bash
+export MESHTASTIC_LIVE_SEND=1
+```
+
+This is a safety feature, not a bug. Without `MESHTASTIC_LIVE_SEND=1`, the
+adapter may connect and health-check but MUST NOT transmit RF messages. See
+the "MESHTASTIC_LIVE_SEND Transmit Guard" section in
+`docs/runbooks/meshtastic-live-smoke.md` for full documentation.
+
+### 15.14 `MESHTASTIC_LIVE_SEND` set but sends still fail
+
+If `MESHTASTIC_LIVE_SEND=1` is set but sends still fail, check the underlying
+connection:
+
+1. Is the node reachable? `ping meshtastic.local` or check serial connection.
+2. Is the `mtjk` package installed? `pip show mtjk`.
+3. Is the connection type configured? `MESHTASTIC_CONNECTION_TYPE` must be set
+   to `tcp`, `serial`, or `ble` (not `fake`).
+4. Check `adapter.queue_health` — if `total_failed` is climbing, the
+   underlying `sendText()` call is failing for a connection-level reason.
+
+### 15.15 No-SDK tests fail with `ImportError: No module named 'meshtastic'`
+
+No-SDK lifecycle tests (`TestMeshtasticNoSdkLifecycle`) must use
+`connection_type="fake"`. If a test is trying to import `meshtastic` at the
+module level, that is a bug in the test — the adapter's real-client imports
+are deferred behind runtime guards. Fake mode should never trigger a top-level
+`import meshtastic`.
+
 ## Live Validation Evidence
 
 ### Test Results
 
-- **File:** `tests/test_meshtastic_live.py`
+- **File:** `tests/test_meshtastic_live.py`, `tests/test_meshtastic_storage_roundtrip.py`, `tests/test_meshtastic_evidence_diagnostics.py`
 - **Last run:** Not yet run
 - **Command:** `pytest tests/test_meshtastic_live.py -m live -v`
 - **Result:** Not yet run
@@ -767,6 +858,8 @@ groups  # verify 'dialout' is listed
   - `MESHTASTIC_SERIAL_PORT`: required for serial, not set
   - `MESHTASTIC_BLE_ADDRESS`: required for BLE, not set
   - `MESHTASTIC_CHANNEL_INDEX`: optional (default 0), not set
+  - `MESHTASTIC_NODE_ID`: optional, not set
+  - `MESHTASTIC_LIVE_SEND`: required for RF transmission, not set
 - **Hardware/Network:** Not available (no Meshtastic radio node connected)
 - **Failures/Notes:** Live validation has not been performed in this environment. Alpha operation requires a real Meshtastic radio node with the environment variables configured. Without these, all live tests skip automatically. See the smoke test runbook (`docs/runbooks/meshtastic-live-smoke.md`) for detailed setup and environment variable instructions.
 
@@ -789,5 +882,6 @@ The following features are not supported in alpha mode. Do not attempt to use th
 | Backlog suppression          | Config field exists, not wired | `startup_backlog_suppress_seconds` is accepted but not used for filtering |
 | Store-and-forward            | Not supported                  | No message persistence across restarts                                    |
 | Rate limiting / flow control | Not implemented                | Only basic pacing via `message_delay_seconds`                             |
+| Transmit guard               | Implemented (`MESHTASTIC_LIVE_SEND`) | RF transmission gated by env var; connect/health allowed without it |
 | Non-Meshtastic transports    | Not in scope                   | This runbook covers Meshtastic only                                       |
 | Multi-transport bridging     | Not in scope                   | No bridge between Meshtastic and other transports                         |

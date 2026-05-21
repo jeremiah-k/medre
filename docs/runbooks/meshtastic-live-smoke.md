@@ -1,7 +1,7 @@
 # Meshtastic Live Smoke Test Runbook
 
-> Last updated: 2026-05-10
-> Scope: `tests/test_meshtastic_live.py`
+> Last updated: 2026-05-21
+> Scope: `tests/test_meshtastic_live.py`, `tests/test_meshtastic_storage_roundtrip.py`, `tests/test_meshtastic_evidence_diagnostics.py`
 
 This runbook describes how to run the Meshtastic live smoke tests against
 a real Meshtastic radio node, what the tests cover, and what they do not
@@ -56,6 +56,54 @@ against real hardware is deferred to a future harness.
 
 The harness is **optional** and **skipped by default**. Default `pytest`
 runs remain fake-only.
+
+### Category C: No-SDK Lifecycle Tests (`TestMeshtasticNoSdkLifecycle`)
+
+These tests exercise the MEDRE adapter lifecycle **without the `mtjk` package
+installed**. They validate that:
+
+- The adapter operates in `connection_type="fake"` mode without `mtjk`.
+- `start()`, `health_check()`, and `stop()` all work correctly in fake mode.
+- Importing Meshtastic adapter submodules (config, codec, classifier) works
+  without `mtjk` — only creating real client instances fails.
+- The adapter gracefully handles the no-SDK path without importing errors.
+
+**These tests prove the adapter is safe to develop and test without any
+Meshtastic hardware or SDK dependency.**
+
+### Category D: Bounded Live Tests (`TestMeshtasticBoundedLiveTests`)
+
+These tests exercise live radio functionality **only when** the
+`MESHTASTIC_LIVE_SEND=1` transmit guard is set. They validate that:
+
+- The adapter connects and health-checks against real hardware.
+- RF transmission is guarded by the `MESHTASTIC_LIVE_SEND` flag.
+- Without the flag, the adapter may connect but **MUST NOT transmit**.
+
+### No-SDK Behavior (`connection_type="fake"`)
+
+The adapter's fake mode is designed for zero-dependency development and testing:
+
+- **No `mtjk` package required.** Fake mode creates no real client (`_client = None`).
+- **Default for all tests.** All pytest runs use fake mode unless explicitly
+  overridden with live environment variables.
+- **Import behavior.** Meshtastic adapter submodules (`config`, `codec`,
+  `packet_classifier`, `outbound_queue`) import successfully without `mtjk`.
+  The import guard (`HAS_MESHTASTIC`) is checked only when creating real
+  client instances. Importing `meshtastic.tcp_interface` as a module-level
+  import will fail without `mtjk`, but the adapter defers all such imports
+  behind runtime guards.
+- **Concrete limitation.** Without `mtjk`, calling `start()` with
+  `connection_type="tcp"` (or `"serial"`, `"ble"`) raises
+  `MeshtasticConnectionError`. Only `connection_type="fake"` works.
+
+### New Test Files
+
+| File                                                  | Description                                                         |
+| ----------------------------------------------------- | ------------------------------------------------------------------- |
+| `tests/test_meshtastic_live.py`                       | Live smoke tests (Categories A & B), no-SDK lifecycle (C), bounded live (D) |
+| `tests/test_meshtastic_storage_roundtrip.py`          | Storage roundtrip tests — validates Meshtastic events survive the full encode → store → decode cycle |
+| `tests/test_meshtastic_evidence_diagnostics.py`       | Evidence diagnostics tests — validates diagnostic metadata collection and reporting |
 
 ## Dependency Installation
 
@@ -164,17 +212,51 @@ iface = meshtastic.ble_interface.BLEInterface(
 
 ## Required Environment Variables
 
-| Variable                     | Required for | Example             | Description                             |
-| ---------------------------- | ------------ | ------------------- | --------------------------------------- |
-| `MESHTASTIC_CONNECTION_TYPE` | All          | `tcp`               | Connection mode: `tcp`, `serial`, `ble` |
-| `MESHTASTIC_HOST`            | TCP          | `meshtastic.local`  | Node hostname or IP address             |
-| `MESHTASTIC_PORT`            | TCP          | `4403`              | TCP port (default `4403`)               |
-| `MESHTASTIC_SERIAL_PORT`     | Serial       | `/dev/ttyUSB0`      | Serial device path                      |
-| `MESHTASTIC_BLE_ADDRESS`     | BLE          | `AA:BB:CC:DD:EE:FF` | BLE MAC address                         |
-| `MESHTASTIC_CHANNEL_INDEX`   | All          | `0`                 | Channel for test messages (default `0`) |
+| Variable                     | Required for | Example             | Description                                          |
+| ---------------------------- | ------------ | ------------------- | ---------------------------------------------------- |
+| `MESHTASTIC_CONNECTION_TYPE` | All          | `tcp`               | Connection mode: `tcp`, `serial`, `ble`              |
+| `MESHTASTIC_HOST`            | TCP          | `meshtastic.local`  | Node hostname or IP address                          |
+| `MESHTASTIC_PORT`            | TCP          | `4403`              | TCP port (default `4403`)                            |
+| `MESHTASTIC_SERIAL_PORT`     | Serial       | `/dev/ttyUSB0`      | Serial device path                                   |
+| `MESHTASTIC_BLE_ADDRESS`     | BLE          | `AA:BB:CC:DD:EE:FF` | BLE MAC address                                      |
+| `MESHTASTIC_CHANNEL_INDEX`   | All          | `0`                 | Channel for test messages (default `0`)              |
+| `MESHTASTIC_NODE_ID`         | All          | `!25d6e474`         | Meshtastic node ID for identifying the local node    |
+| `MESHTASTIC_LIVE_SEND`       | Live TX      | `1`                 | **Transmit guard.** Must be `1` for RF transmission. Without this flag, the adapter may connect and health-check but MUST NOT transmit. |
 
 If any required variable is unset, all live tests skip with a descriptive
 message.
+
+## MESHTASTIC_LIVE_SEND Transmit Guard
+
+The `MESHTASTIC_LIVE_SEND` environment variable is a **transmit guard** that
+prevents accidental RF transmission during testing and development.
+
+### Behavior
+
+| `MESHTASTIC_LIVE_SEND` | Connection | Health-Check | Transmit (RF) |
+| ---------------------- | ---------- | ------------ | ------------- |
+| Not set or empty       | Allowed    | Allowed      | **BLOCKED**   |
+| `1`                    | Allowed    | Allowed      | Allowed       |
+| Any other value        | Allowed    | Allowed      | **BLOCKED**   |
+
+### Why This Exists
+
+- **Safety.** Prevents accidental radio transmissions when running tests
+  against real hardware. Connecting and health-checking is benign; transmitting
+  is not.
+- **Default-safe.** Tests that only verify connection lifecycle (start →
+  health → stop) run without the flag. Tests that transmit RF require the
+  flag to be explicitly set.
+- **CI-safe.** CI environments never set `MESHTASTIC_LIVE_SEND`, so even if
+  a real connection is somehow configured, no RF transmission occurs.
+
+### How Tests Use the Guard
+
+- `TestMeshtasticNoSdkLifecycle` — Always uses fake mode, no guard needed.
+- `TestMeshtasticBoundedLiveTests` — Checks `MESHTASTIC_LIVE_SEND` before
+  any RF transmission test. Tests that transmit skip if the flag is not set.
+- `TestMeshtasticLiveSmoke` (Categories A & B) — Uses the guard for tests
+  that call `sendText` or `sendData`.
 
 ## Running the Tests
 
@@ -186,7 +268,11 @@ pip install mtjk
 export MESHTASTIC_CONNECTION_TYPE="tcp"
 export MESHTASTIC_HOST="meshtastic.local"
 
-# Run live tests only
+# Run live tests only (connection + health-check, NO RF transmission)
+pytest tests/test_meshtastic_live.py -m live -v
+
+# Run live tests WITH RF transmission (requires transmit guard)
+export MESHTASTIC_LIVE_SEND=1
 pytest tests/test_meshtastic_live.py -m live -v
 
 # Run all tests EXCEPT live (default behavior)
@@ -194,6 +280,18 @@ pytest
 
 # Run everything including live
 pytest -m ""
+
+# Run no-SDK lifecycle tests (no mtjk required)
+pytest tests/test_meshtastic_live.py -k "NoSdkLifecycle" -v
+
+# Run bounded live tests
+pytest tests/test_meshtastic_live.py -k "BoundedLive" -v
+
+# Run storage roundtrip tests
+pytest tests/test_meshtastic_storage_roundtrip.py -v
+
+# Run evidence diagnostics tests
+pytest tests/test_meshtastic_evidence_diagnostics.py -v
 ```
 
 ### Expected Output (successful run)
@@ -207,6 +305,22 @@ tests/test_meshtastic_live.py::TestMeshtasticLiveSmoke::test_pubsub_callback_rec
 tests/test_meshtastic_live.py::TestMeshtasticLiveSmoke::test_backlog_suppression_not_implemented_note PASSED
 tests/test_meshtastic_live.py::TestMeshtasticLiveSmoke::test_inbound_dm_not_supported_note PASSED
 tests/test_meshtastic_live.py::TestMeshtasticLiveSmoke::test_sendtext_returns_packet_with_id_note PASSED
+```
+
+### Expected Output (no-SDK lifecycle tests)
+
+```text
+tests/test_meshtastic_live.py::TestMeshtasticNoSdkLifecycle::test_fake_mode_start_stop PASSED
+tests/test_meshtastic_live.py::TestMeshtasticNoSdkLifecycle::test_fake_mode_health_check PASSED
+tests/test_meshtastic_live.py::TestMeshtasticNoSdkLifecycle::test_submodules_import_without_sdk PASSED
+tests/test_meshtastic_live.py::TestMeshtasticNoSdkLifecycle::test_real_connection_raises_without_sdk PASSED
+```
+
+### Expected Output (bounded live tests)
+
+```text
+tests/test_meshtastic_live.py::TestMeshtasticBoundedLiveTests::test_connect_and_health_check PASSED
+tests/test_meshtastic_live.py::TestMeshtasticBoundedLiveTests::test_transmit_requires_live_send_flag SKIPPED
 ```
 
 ### Expected Output (missing env vars — skip behavior)
@@ -233,10 +347,19 @@ live Meshtastic tests"_
 | BLE connection fails                                    | BlueZ not running or address wrong             | Verify `bluetoothctl scan on` sees the device; check MAC format           |
 | Pubsub callback never fires                             | Mesh is silent                                 | Send a message from another node or use self-receive test                 |
 | `MeshtasticConnectionError: mtjk library not installed` | `mtjk` missing but `connection_type != "fake"` | `pip install mtjk` or use `connection_type="fake"`                        |
+| Bounded live test skips transmit                        | `MESHTASTIC_LIVE_SEND` not set                    | Set `export MESHTASTIC_LIVE_SEND=1` to enable RF transmission              |
+| No-SDK test fails on real client creation               | `mtjk` not installed but test uses real connection | Use fake mode or install `mtjk`; no-SDK tests must use `connection_type="fake"` |
 
 ## Safety Notes
 
-1. **Radio traffic.** Tests send a small number of text messages (2-3) on
+1. **Transmit guard (`MESHTASTIC_LIVE_SEND`).** RF transmission is gated by
+   the `MESHTASTIC_LIVE_SEND=1` environment variable. Without this flag, the
+   adapter may connect and health-check but **MUST NOT transmit**. This is the
+   primary safety mechanism against accidental radio transmissions. Always
+   verify this flag is unset when running in environments where RF transmission
+   is unwanted.
+
+2. **Radio traffic.** Tests send a small number of text messages (2-3) on
    the configured channel. Ensure the channel is not used for critical or
    emergency communications during testing.
 
@@ -319,6 +442,11 @@ iface.sendData(
 - MEDRE `MeshtasticAdapter.start()` connects to a real node. (Category B)
 - MEDRE `health_check()` reports `"healthy"` after start. (Category B)
 - MEDRE `stop()` disconnects cleanly. (Category B)
+- Adapter lifecycle works without `mtjk` installed (fake mode). (Category C)
+- Adapter submodules import without `mtjk` dependency. (Category C)
+- Real client creation raises `MeshtasticConnectionError` without `mtjk`. (Category C)
+- RF transmission is gated by `MESHTASTIC_LIVE_SEND` flag. (Category D)
+- Adapter connects and health-checks with transmit guard in place. (Category D)
 
 ### Does Not Prove
 
@@ -350,6 +478,7 @@ After running tests:
    ```bash
    unset MESHTASTIC_CONNECTION_TYPE MESHTASTIC_HOST MESHTASTIC_PORT
    unset MESHTASTIC_SERIAL_PORT MESHTASTIC_BLE_ADDRESS MESHTASTIC_CHANNEL_INDEX
+   unset MESHTASTIC_NODE_ID MESHTASTIC_LIVE_SEND
    ```
 
 4. **Disconnect the node** if it was powered on only for testing.
@@ -358,7 +487,7 @@ After running tests:
 
 ### Test Results
 
-- **File:** `tests/test_meshtastic_live.py`, `tests/test_soak.py::TestMeshtasticSoak`
+- **File:** `tests/test_meshtastic_live.py`, `tests/test_soak.py::TestMeshtasticSoak`, `tests/test_meshtastic_storage_roundtrip.py`, `tests/test_meshtastic_evidence_diagnostics.py`
 - **Last run:** 2026-05-10
 - **Executor:** Live agent (automated)
 - **Command:** `pytest tests/test_meshtastic_live.py -m live -v`
@@ -403,3 +532,4 @@ and the Meshtastic tranche 1 adapter:
 - Production reconnection handling
 - Multi-node mesh testing
 - Production deployment instructions
+- Matrix, MeshCore, or LXMF transport testing (out of scope for Meshtastic runbooks)
