@@ -273,6 +273,8 @@ The live smoke tests use these environment variables:
 | `LXMF_IDENTITY_PATH`    | Yes      | `/tmp/lxmf_test_identity` | Path to Reticulum identity file. Created on first run if missing. |
 | `LXMF_DISPLAY_NAME`     | No       | `MEDRE Smoke Test`        | Display name for LXMF announces. Defaults to empty string.        |
 | `LXMF_DESTINATION_HASH` | No       | (32-hex-char hash)        | Destination hexhash for outbound send tests.                      |
+| `LXMF_STORAGE_PATH`     | No       | `/tmp/lxmf_test_storage`  | Storage directory for LXMRouter. Defaults to adapter temp dir.    |
+| `LXMF_LIVE_SEND`        | No       | `1`                       | Must be `1` to enable actual message delivery. Without it, real-mode deliver tests skip. Fake-mode is unaffected. |
 
 At minimum, `LXMF_CONNECTION_TYPE` and `LXMF_IDENTITY_PATH` must
 be set. If any required variable is missing, every test in the file
@@ -289,6 +291,9 @@ export LXMF_CONNECTION_TYPE="reticulum"
 export LXMF_IDENTITY_PATH="/tmp/lxmf_test_identity"
 export LXMF_DISPLAY_NAME="MEDRE Smoke Test"
 # export LXMF_DESTINATION_HASH="6b3362bd2c1dbf87b66a85f79a8d8c75"
+
+# To enable actual message delivery over the Reticulum network:
+# export LXMF_LIVE_SEND=1
 
 # Run live tests only
 pytest tests/test_lxmf_live.py -m live -v
@@ -487,6 +492,19 @@ For smoke testing, `AutoInterface` (LAN) or `TCPClientInterface`
 6. **Signal handlers.** `LXMRouter.__init__` registers SIGINT and
    SIGTERM handlers. This can interfere with test frameworks that
    handle signals. Consider this when designing the live harness.
+
+7. **Send opt-in (`LXMF_LIVE_SEND`).** Actual message delivery over
+   the Reticulum network requires `LXMF_LIVE_SEND=1`. This safety gate
+   prevents accidental transmission during development or CI. Fake-mode
+   tests are unaffected and never check this flag.
+
+8. **Cleanup environment variables** when done testing in a shared
+   environment:
+
+   ```bash
+   unset LXMF_CONNECTION_TYPE LXMF_IDENTITY_PATH LXMF_DISPLAY_NAME
+   unset LXMF_DESTINATION_HASH LXMF_STORAGE_PATH LXMF_LIVE_SEND
+   ```
 
 ## Live Validation Evidence
 
