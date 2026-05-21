@@ -5,22 +5,24 @@ Verifies that importing lightweight/reusable modules does not:
 - Attach root handlers
 - Import runtime.builder, core.engine.pipeline, core.storage
 - Import adapter wrapper modules or protocol SDKs
+
+All tests use **subprocess isolation** to avoid ``sys.modules``
+poisoning that would break subsequent tests in the same process.
 """
 
 from __future__ import annotations
 
-import importlib
-import logging
+import json
+import subprocess
 import sys
+import textwrap
 
 import pytest
 
 from medre.runtime.architecture_report import _SDK_PACKAGES as _FORBIDDEN_SDKS
 
-# Modules to test for import side effects.
+# Leaf modules — codecs, renderers, interop constants.
 _LIGHTWEIGHT_MODULES: list[str] = [
-    # Package roots are covered separately by subprocess-based tests below;
-    # this list covers leaf modules that are safe to import freshly in-process.
     "medre.interop.mmrelay",
     "medre.core.observability.sanitization",
     "medre.adapters.matrix.codec",
@@ -48,78 +50,7 @@ _FORBIDDEN_SIDE_EFFECTS: tuple[str, ...] = (
 # SDK packages that should not be pulled in by codec/renderer imports
 # (imported as _FORBIDDEN_SDKS from architecture_report._SDK_PACKAGES above)
 
-
-def _import_fresh(module_name: str) -> None:
-    """Force a fresh import by removing module+submodules from sys.modules."""
-    to_remove = [
-        name
-        for name in list(sys.modules)
-        if name == module_name or name.startswith(f"{module_name}.")
-    ]
-    for name in to_remove:
-        sys.modules.pop(name, None)
-    importlib.invalidate_caches()
-    importlib.import_module(module_name)
-
-
-class TestNoLoggingSideEffects:
-    """Importing lightweight modules must not configure logging."""
-
-    @pytest.mark.parametrize("module_name", _LIGHTWEIGHT_MODULES)
-    def test_import_does_not_change_root_logger_level(self, module_name: str) -> None:
-        root = logging.getLogger()
-        level_before = root.level
-        _import_fresh(module_name)
-        assert (
-            root.level == level_before
-        ), f"Importing {module_name} changed root logger level"
-
-    @pytest.mark.parametrize("module_name", _LIGHTWEIGHT_MODULES)
-    def test_import_does_not_add_root_handlers(self, module_name: str) -> None:
-        root = logging.getLogger()
-        handler_ids_before = {id(h) for h in root.handlers}
-        _import_fresh(module_name)
-        handler_ids_after = {id(h) for h in root.handlers}
-        new_handlers = handler_ids_after - handler_ids_before
-        assert (
-            not new_handlers
-        ), f"Importing {module_name} added root logger handlers: {new_handlers}"
-
-
-class TestNoForbiddenTransitiveImports:
-    """Lightweight modules must not transitively import forbidden modules.
-
-    Leaf modules (codecs, renderers, interop constants) are checked
-    in-process after clearing ``medre.*`` and SDK packages from
-    ``sys.modules`` so each import is truly fresh.  Package roots are
-    checked in cold subprocesses (see ``_PACKAGE_ROOTS`` below) because
-    root imports are cache-sensitive and cannot be safely isolated
-    within a single process.
-    """
-
-    _FORBIDDEN = _FORBIDDEN_SIDE_EFFECTS + _FORBIDDEN_SDKS
-
-    @pytest.mark.parametrize("module_name", _LIGHTWEIGHT_MODULES)
-    def test_no_forbidden_transitive_imports(self, module_name: str) -> None:
-        # Clear ALL medre submodules *and* third-party SDK packages so the
-        # import is truly fresh and cannot pick up modules left behind by
-        # test collection or earlier parametrised cases.
-        for name in [k for k in sys.modules if k.startswith("medre.")]:
-            sys.modules.pop(name, None)
-        for sdk in _FORBIDDEN_SDKS:
-            for name in [k for k in sys.modules if k == sdk or k.startswith(f"{sdk}.")]:
-                sys.modules.pop(name, None)
-        importlib.invalidate_caches()
-        importlib.import_module(module_name)
-        present = [m for m in self._FORBIDDEN if m in sys.modules]
-        assert (
-            not present
-        ), f"Importing {module_name} pulled in forbidden modules: {present}"
-
-
-# ---------------------------------------------------------------------------
-# Package roots — tested in cold subprocesses to avoid sys.modules poisoning.
-# ---------------------------------------------------------------------------
+# Package roots — heavier modules tested alongside leaf modules.
 _PACKAGE_ROOTS = (
     "medre",
     "medre.adapters",
@@ -135,12 +66,8 @@ _PACKAGE_ROOTS = (
 )
 
 
-def _check_root_in_subprocess(module_name: str) -> dict:
-    """Import module_name in a cold subprocess, return side-effect report."""
-    import json
-    import subprocess
-    import textwrap
-
+def _check_in_subprocess(module_name: str) -> dict:
+    """Import *module_name* in a cold subprocess, return side-effect report."""
     code = textwrap.dedent(f"""\
         import json, sys, logging
         forbidden_side = {list(_FORBIDDEN_SIDE_EFFECTS)!r}
@@ -175,19 +102,60 @@ def _check_root_in_subprocess(module_name: str) -> dict:
     return json.loads(proc.stdout.strip())
 
 
+# ---------------------------------------------------------------------------
+# Leaf modules — codecs, renderers, interop constants
+# ---------------------------------------------------------------------------
+
+
+class TestNoLoggingSideEffects:
+    """Importing lightweight modules must not configure logging."""
+
+    @pytest.mark.parametrize("module_name", _LIGHTWEIGHT_MODULES)
+    def test_import_does_not_change_root_logger_level(self, module_name: str) -> None:
+        result = _check_in_subprocess(module_name)
+        assert not result[
+            "root_level_changed"
+        ], f"importing '{module_name}' changed root logger level"
+
+    @pytest.mark.parametrize("module_name", _LIGHTWEIGHT_MODULES)
+    def test_import_does_not_add_root_handlers(self, module_name: str) -> None:
+        result = _check_in_subprocess(module_name)
+        assert (
+            result["new_handlers"] == 0
+        ), f"importing '{module_name}' added {result['new_handlers']} root handler(s)"
+
+
+class TestNoForbiddenTransitiveImports:
+    """Lightweight modules must not transitively import forbidden modules."""
+
+    _FORBIDDEN = _FORBIDDEN_SIDE_EFFECTS + _FORBIDDEN_SDKS
+
+    @pytest.mark.parametrize("module_name", _LIGHTWEIGHT_MODULES)
+    def test_no_forbidden_transitive_imports(self, module_name: str) -> None:
+        result = _check_in_subprocess(module_name)
+        assert not result[
+            "forbidden_loaded"
+        ], f"importing '{module_name}' pulled in: {result['forbidden_loaded']}"
+
+
+# ---------------------------------------------------------------------------
+# Package roots
+# ---------------------------------------------------------------------------
+
+
 class TestPackageRootImportSideEffects:
     """Package roots must not pull heavy deps — tested in cold subprocesses."""
 
     @pytest.mark.parametrize("module_name", _PACKAGE_ROOTS)
     def test_no_forbidden_transitive_imports(self, module_name: str) -> None:
-        result = _check_root_in_subprocess(module_name)
+        result = _check_in_subprocess(module_name)
         assert not result[
             "forbidden_loaded"
         ], f"importing '{module_name}' pulled in: {result['forbidden_loaded']}"
 
     @pytest.mark.parametrize("module_name", _PACKAGE_ROOTS)
     def test_no_logging_side_effects(self, module_name: str) -> None:
-        result = _check_root_in_subprocess(module_name)
+        result = _check_in_subprocess(module_name)
         assert not result[
             "root_level_changed"
         ], f"importing '{module_name}' changed root logger level"
