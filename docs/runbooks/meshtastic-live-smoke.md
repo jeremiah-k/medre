@@ -104,7 +104,7 @@ The adapter's fake mode is designed for zero-dependency development and testing:
 | `tests/test_meshtastic_live.py`                       | Live smoke tests (Categories A & B), no-SDK lifecycle (C), bounded live (D) |
 | `tests/test_meshtastic_storage_roundtrip.py`          | Storage roundtrip tests — validate Meshtastic events survive the full encode → store → decode cycle |
 | `tests/test_meshtastic_evidence_diagnostics.py`       | Evidence diagnostics tests — validate diagnostic metadata collection and reporting |
-| `tests/test_meshtastic_nosdk.py`                       | Drain lifecycle, queue metrics, deliver lifecycle, and failure classification tests |
+| `tests/test_meshtastic_nosdk.py`                       | Drain lifecycle, queue metrics, delivery lifecycle, and failure classification tests |
 
 ## Dependency Installation
 
