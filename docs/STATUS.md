@@ -13,7 +13,7 @@ This document is the single source of truth for per-transport capability trackin
 | Capability | Matrix | Meshtastic | MeshCore | LXMF |
 |---|---|---|---|---|
 | Config load | live-validated | fake-tested | fake-tested | fake-tested |
-| Instance-scoped env overrides | live-validated | fake-tested | fake-tested | fake-tested |
+| Instance-scoped env overrides | fake-tested | fake-tested | fake-tested | fake-tested |
 | Fake lifecycle | live-validated | fake-tested | fake-tested | fake-tested |
 | Real adapter import safe | live-validated | opt-in live test exists | designed | designed |
 | Live start/health | live-validated | opt-in live test exists | not started | not started |
@@ -46,13 +46,13 @@ Matrix is the most mature transport. Live validation was recorded on 2026-05-10 
 
 The Matrix adapter supports plaintext and E2EE text alpha. E2EE supports encrypted rooms for text messages only. See the alpha operation runbook for the full unsupported features list.
 
-Live tests are gated by `MEDRE_ADAPTER__MAIN__*` environment variables (instance-scoped adapter overrides) and the `live` pytest marker.
+Opt-in Matrix live tests use pytest convenience variables such as MATRIX_HOMESERVER, MATRIX_USER_ID, MATRIX_ACCESS_TOKEN, and MATRIX_ROOM_ID. Runtime adapter config overrides use instance-scoped MEDRE_ADAPTER__<TOKEN>__<FIELD> variables.
 
 ### Meshtastic
 
 Meshtastic has a complete alpha operation runbook and a live smoke test harness. Real connectivity (TCP and serial) is implemented. The adapter uses pubsub callbacks for inbound and queued `send_one` for outbound.
 
-As of this writing, no live validation against a physical radio has been recorded in the repository. The harness exists. An operator with a Meshtastic node needs to set the `MEDRE_ADAPTER__RADIO__*` environment variables and run the live smoke tests. See `docs/runbooks/meshtastic-live-smoke.md`.
+As of this writing, no live validation against a physical radio has been recorded in the repository. The harness exists. An operator with a Meshtastic node needs to set the pytest convenience variables for radio connection settings and run the live smoke tests. Runtime adapter config overrides use instance-scoped MEDRE_ADAPTER__<TOKEN>__<FIELD> variables. See `docs/runbooks/meshtastic-live-smoke.md`.
 
 ### MeshCore
 

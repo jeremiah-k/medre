@@ -1139,14 +1139,11 @@ class TestMalformedAdapterEnvVars:
         with pytest.raises(ConfigValidationError, match="Malformed"):
             MedreEnvConfig.from_environ({"MEDRE_ADAPTER__MAIN__": "v"})
 
-    def test_too_many_parts_raises(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Extra __ segments result in unknown-token or unsupported-field error."""
-        monkeypatch.setenv("MEDRE_ADAPTER__MAIN__HOST__EXTRA", "v")
-        base = _make_base_config()
-        with pytest.raises(ConfigValidationError):
-            apply_env_overrides(base)
+    def test_too_many_parts_raises(self) -> None:
+        with pytest.raises(ConfigValidationError, match="Malformed"):
+            MedreEnvConfig.from_environ(
+                {"MEDRE_ADAPTER__MAIN__HOST__EXTRA": "v"}
+            )
 
     def test_error_includes_expected_shape(self) -> None:
         with pytest.raises(ConfigValidationError, match="Expected shape"):
