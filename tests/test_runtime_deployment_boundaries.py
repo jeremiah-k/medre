@@ -423,17 +423,9 @@ class TestRuntimeCoreNoAdapterRuntime:
                     continue
             allowed_lines.append(line)
         # The old config import should NOT be filtered out
-        assert (
-            len(allowed_lines) == 1
-        ), "Old medre.adapters.*.config import should be flagged"
-        # Verify the line is actually detected as banned
+        assert len(allowed_lines) == 1
         banned = _banned_imports(allowed_lines, _ADAPTER_PREFIXES)
-        assert (
-            len(banned) == 1
-        ), f"Old config import should be detected as banned: {banned}"
-        assert (
-            banned[0].strip() == source.strip()
-        ), f"Expected '{source.strip()}' but got '{banned[0].strip()}'"
+        assert banned == [source.strip()]
 
 
 # ===================================================================

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+from pathlib import Path
 from textwrap import dedent
 
 from tests.helpers.ast_imports import (
@@ -213,11 +214,12 @@ class TestFindRelativeImports:
         records = find_relative_imports(tree)
         assert len(records) == 0
 
-    def test_nested_src_directory(self) -> None:
+    def test_nested_src_directory(self, tmp_path: Path) -> None:
         """resolve_relative finds the last 'src' segment in nested paths."""
-        result = resolve_relative(
-            1, "model", "/tmp/src/project/src/medre/config/model.py"
+        path = str(
+            tmp_path / "src" / "project" / "src" / "medre" / "config" / "model.py"
         )
+        result = resolve_relative(1, "model", path)
         assert result == "medre.config.model"
 
     def test_no_src_in_path_returns_module(self) -> None:

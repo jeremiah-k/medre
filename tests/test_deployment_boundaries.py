@@ -441,9 +441,12 @@ class TestCliTransportAgnostic:
             "importlib.import_module" in source
         ), "CLI should use importlib.import_module for SDK probing"
 
-        direct_instantiation_patterns = _SDK_INSTANTIATION_PATTERNS[
-            :4
-        ]  # subset for CLI
+        direct_instantiation_patterns = (
+            "nio.AsyncClient(",
+            "meshtastic.SerialInterface(",
+            "meshtastic.tcp_interface.TCPInterface(",
+            "RNS.Transport(",
+        )
         violations: list[str] = []
         for i, line in enumerate(source.splitlines(), 1):
             stripped = line.strip()

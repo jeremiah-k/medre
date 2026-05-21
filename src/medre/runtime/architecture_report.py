@@ -669,7 +669,7 @@ def build_route_adapter_boundary_report(
     # --- Forbidden Runtime → Adapter Imports ---
     forbidden: list[BoundaryViolation] = []
     for mod, info in graph.modules.items():
-        if not mod.startswith("medre.runtime."):
+        if mod != "medre.runtime" and not mod.startswith("medre.runtime."):
             continue
         if mod == "medre.runtime.builder":
             continue
@@ -687,7 +687,9 @@ def build_route_adapter_boundary_report(
     # --- Non-builder runtime dynamic adapter refs ---
     if src_root is not None:
         for mod, info in graph.modules.items():
-            if not mod.startswith("medre.runtime.") or mod == "medre.runtime.builder":
+            if (
+                mod != "medre.runtime" and not mod.startswith("medre.runtime.")
+            ) or mod == "medre.runtime.builder":
                 continue
             mod_file = src_root / info.file
             if mod_file.exists():
@@ -975,11 +977,15 @@ def render_boundary_report(report: RouteAdapterBoundaryReport) -> str:
     allowed_titles = {
         "Allowed Runtime → Adapter Assembly",
         "Runtime Assembly Points",
-        "Dynamic Scan Errors",
     }
 
     for section in sections:
-        count_label = "entries" if section.title in allowed_titles else "violations"
+        if section.title == "Dynamic Scan Errors":
+            count_label = "errors"
+        elif section.title in allowed_titles:
+            count_label = "entries"
+        else:
+            count_label = "violations"
         lines.append(f"--- {section.title} ({section.count} {count_label}) ---")
         if section.violations:
             for v in section.violations:
