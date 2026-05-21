@@ -275,6 +275,8 @@ The live smoke tests use these environment variables:
 | `LXMF_DESTINATION_HASH` | No       | (32-hex-char hash)        | Destination hexhash for outbound send tests.                      |
 | `LXMF_STORAGE_PATH`     | No       | `/tmp/lxmf_test_storage`  | Storage directory for LXMRouter. Defaults to adapter temp dir.    |
 | `LXMF_LIVE_SEND`        | No       | `1`                       | Must be `1` to enable actual message delivery. Without it, real-mode deliver tests skip. Fake-mode is unaffected. |
+| `LXMF_TOPOLOGY_LIVE`    | No       | `1`                       | Must be `1` to enable two-process topology tests in `TestLxmfTopologyLive`. |
+| `LXMF_PROCESS_ROLE`     | No       | `sender` or `receiver`    | Role for topology tests. `sender` runs start/send tests; `receiver` validates env only. |
 
 At minimum, `LXMF_CONNECTION_TYPE` and `LXMF_IDENTITY_PATH` must
 be set. If any required variable is missing, every test in the file
@@ -435,6 +437,111 @@ message construction. It does not send anything over a real network
 - Multiple LXMRouter instances in the same process work (they probably
   don't, since Reticulum is a singleton).
 - Performance under load.
+
+## Two-Process Topology Testing
+
+Two-process topology tests validate LXMF message delivery between two
+independent Reticulum instances running in separate processes. This goes
+beyond single-process fake-mode testing and exercises real path discovery,
+link establishment, and message delivery.
+
+### Process Separation Model
+
+| Component        | Process A (Sender)                          | Process B (Receiver)               |
+| ---------------- | ------------------------------------------- | ---------------------------------- |
+| `PROCESS_ROLE`   | `sender`                                    | `receiver`                         |
+| Identity         | Own identity file                           | Own identity file                  |
+| `DESTINATION_HASH` | Hash of Process B's identity              | Not required                       |
+| Responsibility   | Starts adapter, sends messages              | Starts adapter, receives messages  |
+
+### Required Environment Variables
+
+| Variable                | Process A (Sender)          | Process B (Receiver)       |
+| ----------------------- | --------------------------- | -------------------------- |
+| `LXMF_TOPOLOGY_LIVE`    | `1`                         | `1`                        |
+| `LXMF_PROCESS_ROLE`     | `sender`                    | `receiver`                 |
+| `LXMF_IDENTITY_PATH`    | Path to sender identity     | Path to receiver identity  |
+| `LXMF_DESTINATION_HASH` | Receiver's 32-char hex hash | Not required               |
+| `LXMF_STORAGE_PATH`     | Sender storage path         | Receiver storage path      |
+| `LXMF_CONNECTION_TYPE`  | `reticulum`                 | `reticulum`                |
+| `LXMF_LIVE_SEND`        | `1` (for send tests)        | Not required               |
+
+### AutoInterface Setup
+
+Both processes must have Reticulum configured with `AutoInterface` enabled.
+On a shared LAN, the default Reticulum config (`~/.reticulum/config`) with
+the default `AutoInterface` entry is sufficient. No manual interface
+configuration is required.
+
+If using custom config directories, ensure both configs contain:
+
+```ini
+[[Default Interface]]
+  type = AutoInterface
+  enabled = yes
+```
+
+### Identity File Setup
+
+Each process needs its own identity file. Create two identities:
+
+```bash
+# Process A identity
+python -c "import RNS; i = RNS.Identity(); i.to_file('/tmp/lxmf topo_identity_a'); print(f'Sender hash: {i.hexhash}')"
+
+# Process B identity
+python -c "import RNS; i = RNS.Identity(); i.to_file('/tmp/lxmf topo_identity_b'); print(f'Receiver hash: {i.hexhash}')"
+```
+
+Record the receiver's hash — it becomes `LXMF_DESTINATION_HASH` for the sender.
+
+### Step-by-Step Procedure
+
+1. **Start Process B (receiver) first:**
+
+   ```bash
+   # Terminal 1 — Receiver
+   export LXMF_TOPOLOGY_LIVE=1
+   export LXMF_PROCESS_ROLE=receiver
+   export LXMF_CONNECTION_TYPE=reticulum
+   export LXMF_IDENTITY_PATH=/tmp/lxmf_topo_identity_b
+   export LXMF_STORAGE_PATH=/tmp/lxmf_topo_storage_b
+   pytest tests/test_lxmf_live.py -m live -v -k "test_topology"
+   ```
+
+2. **Start Process A (sender):**
+
+   ```bash
+   # Terminal 2 — Sender
+   export LXMF_TOPOLOGY_LIVE=1
+   export LXMF_PROCESS_ROLE=sender
+   export LXMF_CONNECTION_TYPE=reticulum
+   export LXMF_IDENTITY_PATH=/tmp/lxmf_topo_identity_a
+   export LXMF_DESTINATION_HASH=<receiver_hash_from_step_1>
+   export LXMF_STORAGE_PATH=/tmp/lxmf_topo_storage_a
+   export LXMF_LIVE_SEND=1
+   pytest tests/test_lxmf_live.py -m live -v -k "test_topology"
+   ```
+
+3. **Wait for path discovery.** The sender may need several seconds to
+   discover the receiver via AutoInterface announce propagation.
+
+4. **Interpret results.** Both processes report independently:
+   - `test_topology_env_completeness`: Passes if all env vars are set.
+   - `test_topology_start_bounded`: Only runs for sender. Verifies
+     adapter starts and reports healthy.
+   - `test_topology_send_with_live_send`: Only runs if `LXMF_LIVE_SEND=1`.
+     Sends a real message and verifies the delivery result.
+
+### Interpreting Results
+
+| Result                              | Meaning                                                                                      |
+| ----------------------------------- | -------------------------------------------------------------------------------------------- |
+| All tests pass                      | Two-process topology works end-to-end. Path discovery and delivery succeed.                  |
+| `test_topology_start_bounded` skip  | `LXMF_PROCESS_ROLE` is not `sender`, or connection unavailable.                              |
+| `test_topology_send_with_live_send` skip | `LXMF_LIVE_SEND` not set or `LXMF_DESTINATION_HASH` missing.                          |
+| Connection unavailable skip         | Reticulum SDK not installed, identity file missing, or Reticulum singleton conflict.         |
+| Timeout                             | Path discovery did not complete. Check that both processes are on the same LAN with AutoInterface. |
 
 ## Common Failures [CONFIRMED]
 

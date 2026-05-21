@@ -2,7 +2,7 @@
 
 > Last updated: 2026-05-12
 > Scope: Real MeshCore Operation Alpha
-> Status: Alpha. Not production. Not hardened. Not complete. Fake mode is the primary development and testing path. Real connectivity (TCP/serial) is implemented via `MeshCoreSession`; BLE is future.
+> Status: Alpha. Not production. Not hardened. Not complete. Fake mode is the primary development and testing path. Real connectivity (TCP/serial/BLE) is implemented via `MeshCoreSession`; BLE is implemented at session layer, hardware validation pending.
 > SDK version audited: `meshcore` 2.3.7 (PyPI, source-extracted inspection)
 
 This runbook describes how to run the MEDRE MeshCore adapter against a real MeshCore radio node in alpha mode. Alpha mode means the MeshCoreAdapter connects to a real node using TCP, serial, or BLE, receives real events via the SDK's async event dispatcher, and sends real messages via the channel or direct-message send API. It does not mean the system is ready for anything beyond a single operator on a single node.
@@ -100,13 +100,24 @@ sudo usermod -aG dialout $USER
 
 ### 3.3 BLE connectivity
 
-BLE is a supported connection type in the adapter but is **not exercised in the live smoke harness** and has not been validated against real hardware in alpha. It is documented for completeness.
+BLE is a supported connection type in the adapter and is implemented at the session layer. Hardware validation is pending.
 
 ```bash
 # Requires BlueZ on Linux
 bluetoothctl scan on
 # Note the MAC address of your MeshCore node
+# Example: C4:4F:33:6A:B0:23 (MeshCore-B4C6ED2C)
 ```
+
+**BLE-specific environment variables:**
+
+```bash
+export MESHCORE_CONNECTION_TYPE="ble"
+export MESHCORE_BLE_ADDRESS="C4:4F:33:6A:B0:23"  # your device's MAC
+# export MESHCORE_BLE_PIN="123456"  # optional, if device requires pairing
+```
+
+> **Note**: The MAC address `C4:4F:33:6A:B0:23` is an example from hardware probe findings. Use the actual MAC address of your node.
 
 ### 3.4 Firmware compatibility
 
@@ -202,7 +213,7 @@ config = MeshCoreConfig(
 - Requires `bleak` (installed automatically with `meshcore`).
 - BLE testing requires BLE-capable hardware and OS support (BlueZ on Linux).
 
-**Current status:** BLE is not yet implemented in the session. Use TCP or serial for live testing.
+**Current status:** BLE is implemented at the session layer. `MeshCoreSession._connect_real()` calls `MeshCore.create_ble(address)` for BLE configs. Hardware validation against a real BLE node is pending. Mock-based BLE validation tests exist in `tests/test_meshcore_live.py::TestMeshCoreBLEValidation` and pass without hardware.
 
 ### 4.5 Configuration validation
 
@@ -326,7 +337,7 @@ When `start(ctx)` is called:
 6. `_started` is set to `True`.
 7. A startup log line is emitted: `"MeshCoreAdapter meshcore-alpha started (mode=tcp)"`.
 
-**BLE mode:** BLE connectivity is documented from SDK source analysis but not yet implemented in the session. Use TCP or serial for live testing.
+**BLE mode:** BLE connectivity is implemented at the session layer. `MeshCoreSession._connect_real()` calls `MeshCore.create_ble(address)`. Hardware validation is pending. Mock-based tests validate the BLE factory path without hardware.
 
 ### 6.2 Expected startup output
 
@@ -723,7 +734,7 @@ Automatic reconnection with exponential backoff and health state transitions (`h
 
 This is an honest list. Everything here is real.
 
-1. **BLE mode not yet implemented.** TCP and serial real connections work via `MeshCoreSession`. BLE connectivity is documented from SDK source analysis but not wired in the session. See section 6.
+1. **BLE mode implemented at session layer, hardware validation pending.** TCP and serial real connections work via `MeshCoreSession`. BLE connectivity is wired in the session (`MeshCore.create_ble()`), but has not been validated against real BLE hardware. Mock-based tests pass. See section 6.
 
 2. **No automatic reconnection at adapter level.** If the connection to the node is lost, the session attempts bounded reconnect with exponential backoff (up to 10 attempts). See section 12.
 
@@ -946,7 +957,7 @@ The following features are not supported in alpha mode. Do not attempt to use th
 | Position / GPS decoding              | Not supported                    | Non-text events are silently dropped                          |
 | Contact list caching                 | Not supported                    | Contact list available via SDK but not cached by adapter      |
 | Multi-node mesh testing              | Not tested                       | Alpha has only been validated with a single node              |
-| BLE connectivity                     | Documented only                  | BLE is a config option but not validated in alpha             |
+| BLE connectivity                     | Implemented at session layer, hardware validation pending | BLE factory path wired, mock tests pass                      |
 | Backlog suppression                  | Config field exists, not wired   | `startup_backlog_suppress_seconds` accepted but not used      |
 | Store-and-forward                    | Not supported                    | No message persistence across restarts                        |
 | Rate limiting / flow control         | Not implemented                  | Only basic pacing via `message_delay_seconds`                 |
