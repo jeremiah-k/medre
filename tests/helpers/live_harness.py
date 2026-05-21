@@ -112,9 +112,12 @@ def live_env_status(requirements: Iterable[LiveRequirement]) -> LiveEnvStatus:
         if not raw:
             missing.append(req.env_name)
         else:
-            redacted_values[req.env_name] = (
-                "<redacted>" if req.secret else raw
-            )
+            if req.secret:
+                redacted_values[req.env_name] = "<redacted>"
+            else:
+                redacted_values[req.env_name] = redact_env_value(
+                    req.env_name, raw
+                )
 
     return LiveEnvStatus(
         enabled=len(missing) == 0,
@@ -171,6 +174,8 @@ def assert_no_secret_leak(
     """
     serialized = json.dumps(obj, default=str)
     for secret in secret_values:
+        if not secret:
+            continue
         assert secret not in serialized, (
             f"Secret value leaked in serialized output: "
             f"found substring of a protected value "

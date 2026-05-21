@@ -352,6 +352,17 @@ The `medre evidence` command produces bundles that redact secrets. Live tests th
 7. **Keep tests independent.** Each test should work in isolation. Do not depend on state from a previous test.
 8. **Be honest about what the test proves.** A live test proves the adapter works against a real endpoint. It does not prove the system is production-ready.
 
+## Adopting the harness in adapter branches
+
+When porting the live-test harness into a transport-specific adapter branch, follow these conventions to stay consistent with the shared helpers:
+
+- **Use `LiveRequirement` for env var requirements.** Define your transport's requirements as a list of `LiveRequirement` instances and pass them to `live_env_status()`. Mark credentials with `secret=True` for explicit redaction.
+- **Use `bounded()` for async start/stop/deliver operations.** Wrap every `await adapter.start()`, `adapter.stop()`, and `adapter.deliver()` call with `bounded()` and a named timeout constant. Never use unbounded awaits.
+- **Use `assert_no_secret_leak()` against diagnostics/reports.** After capturing any serialisable output (smoke results, evidence bundles, error reports), run `assert_no_secret_leak()` with the raw secret values to confirm nothing leaked into the serialized form.
+- **Radio sends require `TRANSPORT_LIVE_SEND=1` opt-in env var.** Transports that transmit over radio (Meshtastic, MeshCore, LXMF) must gate any outbound radio transmission behind `TRANSPORT_LIVE_SEND=1`. This prevents accidental transmissions during development.
+- **Do not import optional SDKs in shared helpers.** The `tests/helpers/live_harness.py` module is SDK-free by design. Transport-specific SDK imports belong in the per-transport test module or a transport-specific helper, never in the shared harness.
+- **Do not add package-root facades.** Live test helpers live under `tests/helpers/`. Do not create top-level packages or facade modules that re-export harness utilities. Import directly from `tests.helpers.live_harness`.
+
 ## 10. Related Documentation
 
 | Document | What it covers |
