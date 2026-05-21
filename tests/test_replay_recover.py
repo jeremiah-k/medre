@@ -90,6 +90,7 @@ class _FakeReceipt:
         status: str = "sent",
         attempt_number: int = 1,
         error: str | None = None,
+        failure_kind: str | None = None,
         source: str = "live",
         replay_run_id: str | None = None,
     ) -> None:
@@ -99,9 +100,11 @@ class _FakeReceipt:
         self.status = status
         self.attempt_number = attempt_number
         self.error = error
+        self.failure_kind = failure_kind
         self.delivery_plan_id = "plan-1"
         self.route_id = "route-1"
         self.adapter_message_id = None
+        self.target_channel = None
         self.source = source
         self.replay_run_id = replay_run_id
         self.sequence = 1
