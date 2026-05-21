@@ -82,13 +82,14 @@ def _write_run_session_config(tmp_path: Path) -> str:
     it selects ``fake_matrix`` — injecting the event there and routing it
     to the real adapter for actual delivery.
 
-    Token-on-disk is unavoidable here because ``load_config()`` validates
-    :class:`~medre.config.adapters.matrix.MatrixConfig` (requiring
-    non-empty credentials) **before** ``apply_env_overrides`` runs.  The
-    file is written under ``tmp_path`` only and is deleted with the
-    temporary directory.
+    A non-secret placeholder token is sufficient — the real token is
+    injected via environment override at test runtime.  ``load_config()``
+    validates :class:`~medre.config.adapters.matrix.MatrixConfig`
+    (requiring non-empty credentials) **before** ``apply_env_overrides``
+    runs, so the placeholder satisfies validation.  The file is written
+    under ``tmp_path`` only and is deleted with the temporary directory.
     """
-    assert MATRIX_HOMESERVER and MATRIX_USER_ID and MATRIX_ACCESS_TOKEN
+    assert MATRIX_HOMESERVER and MATRIX_USER_ID
     assert MATRIX_ROOM_ID
 
     db_path = (tmp_path / "alpha-session.db").as_posix()
@@ -119,7 +120,7 @@ enabled = true
 adapter_kind = "real"
 homeserver = "{MATRIX_HOMESERVER}"
 user_id = "{MATRIX_USER_ID}"
-access_token = "{MATRIX_ACCESS_TOKEN}"
+access_token = "placeholder_token_for_validation_only"
 room_allowlist = ["{MATRIX_ROOM_ID}"]
 encryption_mode = "plaintext"
 
@@ -139,11 +140,10 @@ def _write_direct_adapter_config(tmp_path: Path) -> str:
     """Write a TOML config for direct adapter tests.
 
     Uses real Matrix + fake Meshtastic with a bridge route.
-    Token-on-disk is required for the same reason as
-    :func:`_write_run_session_config` — ``load_config()`` validates before
-    env overrides apply.
+    A non-secret placeholder token is sufficient — the real token is
+    injected via environment override at test runtime.
     """
-    assert MATRIX_HOMESERVER and MATRIX_USER_ID and MATRIX_ACCESS_TOKEN
+    assert MATRIX_HOMESERVER and MATRIX_USER_ID
     assert MATRIX_ROOM_ID
 
     db_path = (tmp_path / "alpha-direct.db").as_posix()
@@ -165,7 +165,7 @@ enabled = true
 adapter_kind = "real"
 homeserver = "{MATRIX_HOMESERVER}"
 user_id = "{MATRIX_USER_ID}"
-access_token = "{MATRIX_ACCESS_TOKEN}"
+access_token = "placeholder_token_for_validation_only"
 room_allowlist = ["{MATRIX_ROOM_ID}"]
 encryption_mode = "plaintext"
 
@@ -331,7 +331,7 @@ class TestMatrixAlphaDirectAdapter:
         finally:
             await asyncio.wait_for(app.stop(), timeout=_STOP_TIMEOUT)
 
-    async def test_direct_adapter_send_and_verify_event_id(self, tmp_path) -> None:
+    async def test_direct_adapter_send_and_verify_event_id(self) -> None:
         """Send via direct MatrixAdapter.deliver() and verify event_id."""
         from medre.adapters.matrix.adapter import MatrixAdapter
         from medre.config.adapters.matrix import MatrixConfig
@@ -386,7 +386,7 @@ class TestMatrixAlphaDirectAdapter:
         finally:
             await asyncio.wait_for(adapter.stop(), timeout=_STOP_TIMEOUT)
 
-    async def test_direct_adapter_diagnostics_after_send(self, tmp_path) -> None:
+    async def test_direct_adapter_diagnostics_after_send(self) -> None:
         """Verify MatrixAdapter diagnostics are complete after a direct send."""
         from medre.adapters.matrix.adapter import MatrixAdapter
         from medre.config.adapters.matrix import MatrixConfig

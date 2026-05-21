@@ -955,6 +955,8 @@ class TestMatrixLiveSmoke:
                     # Sender is stored as source_transport_id on the
                     # canonical event (set by MatrixCodec.decode).
                     sender = getattr(event, "source_transport_id", None)
+                    if sender is None:
+                        continue
                     if sender == MATRIX_USER_ID:
                         continue
 

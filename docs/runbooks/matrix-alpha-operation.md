@@ -1,6 +1,6 @@
 # Matrix Alpha Operation Runbook
 
-> Last updated: 2026-05-10
+> Last updated: 2026-05-21
 > Scope: Real Matrix Operation Alpha (Track 7)
 > Status: Alpha. Not production. Not hardened. Not complete. Plaintext is the primary alpha path. E2EE text alpha is available as an add-on for encrypted rooms (see section 13).
 

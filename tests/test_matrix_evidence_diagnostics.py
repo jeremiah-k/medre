@@ -13,11 +13,14 @@ Matrix-specific checks:
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime, timezone
 from pathlib import Path
 
 from medre.runtime.evidence._bundle import collect_evidence_bundle
+
+_EVIDENCE_TIMEOUT = 15
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -77,7 +80,9 @@ class TestEvidenceBundleWithMatrixAdapter:
     async def test_evidence_bundle_collects_with_matrix_config(self, tmp_path) -> None:
         """collect_evidence_bundle succeeds with a Matrix adapter in config."""
         config_path = _matrix_fake_config_path(tmp_path)
-        bundle = await collect_evidence_bundle(config_path)
+        bundle = await asyncio.wait_for(
+            collect_evidence_bundle(config_path), timeout=_EVIDENCE_TIMEOUT
+        )
 
         assert bundle["status"] in ("ok", "passed", "partial"), (
             f"Expected ok/passed/partial status, got {bundle['status']!r}. "
@@ -92,7 +97,9 @@ class TestEvidenceBundleWithMatrixAdapter:
     ) -> None:
         """Config summary shows the Matrix adapter in enabled adapters."""
         config_path = _matrix_fake_config_path(tmp_path)
-        bundle = await collect_evidence_bundle(config_path)
+        bundle = await asyncio.wait_for(
+            collect_evidence_bundle(config_path), timeout=_EVIDENCE_TIMEOUT
+        )
 
         config_section = bundle["sections"].get("config_summary", {})
         assert config_section.get("status") in ("ok", "passed"), (
@@ -114,7 +121,9 @@ class TestEvidenceBundleWithMatrixAdapter:
     ) -> None:
         """Diagnostics snapshot includes Matrix adapter metadata."""
         config_path = _matrix_fake_config_path(tmp_path)
-        bundle = await collect_evidence_bundle(config_path)
+        bundle = await asyncio.wait_for(
+            collect_evidence_bundle(config_path), timeout=_EVIDENCE_TIMEOUT
+        )
 
         diag_section = bundle["sections"].get("diagnostics_snapshot", {})
         assert diag_section.get("status") in ("ok", "passed"), (
@@ -143,7 +152,9 @@ class TestEvidenceBundleWithMatrixAdapter:
     ) -> None:
         """Route validation section shows the Matrix→Meshtastic bridge route."""
         config_path = _matrix_fake_config_path(tmp_path)
-        bundle = await collect_evidence_bundle(config_path)
+        bundle = await asyncio.wait_for(
+            collect_evidence_bundle(config_path), timeout=_EVIDENCE_TIMEOUT
+        )
 
         route_section = bundle["sections"].get("route_validation", {})
         assert route_section.get("status") in ("ok", "passed"), (
@@ -151,10 +162,30 @@ class TestEvidenceBundleWithMatrixAdapter:
             f"Error: {route_section.get('error')}"
         )
 
+        route_data = route_section.get("data", {})
+        assert route_data.get("valid") is True, (
+            f"Route validation reports invalid: {route_data}"
+        )
+        assert route_data.get("route_count", 0) >= 1, (
+            f"Expected at least one route: {route_data}"
+        )
+
+        # Verify the Matrix→Meshtastic route exists in config_summary
+        # (route_validation holds metadata; config_summary holds route definitions)
+        config_section = bundle["sections"].get("config_summary", {})
+        routes = config_section.get("data", {}).get("routes", [])
+        assert any(
+            "test_matrix" in r.get("source_adapters", [])
+            and "test_mesh" in r.get("dest_adapters", [])
+            for r in routes
+        ), f"Expected Matrix->Meshtastic route in config_summary routes: {routes}"
+
     async def test_evidence_bundle_no_secrets_in_output(self, tmp_path) -> None:
         """Evidence bundle output does not contain access tokens or secrets."""
         config_path = _matrix_fake_config_path(tmp_path)
-        bundle = await collect_evidence_bundle(config_path)
+        bundle = await asyncio.wait_for(
+            collect_evidence_bundle(config_path), timeout=_EVIDENCE_TIMEOUT
+        )
 
         bundle_json = json.dumps(bundle, default=str)
         assert (
@@ -229,9 +260,12 @@ class TestEvidenceBundleWithMatrixAdapter:
             await storage.close()
 
         # Now collect evidence using storage-path mode
-        bundle = await collect_evidence_bundle(
-            storage_path=db_path,
-            event_id="mx-evt-001",
+        bundle = await asyncio.wait_for(
+            collect_evidence_bundle(
+                storage_path=db_path,
+                event_id="mx-evt-001",
+            ),
+            timeout=_EVIDENCE_TIMEOUT,
         )
 
         assert bundle["status"] in ("ok", "passed", "partial")
