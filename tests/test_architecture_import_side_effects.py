@@ -87,7 +87,15 @@ class TestNoLoggingSideEffects:
 
 
 class TestNoForbiddenTransitiveImports:
-    """Lightweight modules must not transitively import forbidden modules."""
+    """Lightweight modules must not transitively import forbidden modules.
+
+    Leaf modules (codecs, renderers, interop constants) are checked
+    in-process after clearing ``medre.*`` and SDK packages from
+    ``sys.modules`` so each import is truly fresh.  Package roots are
+    checked in cold subprocesses (see ``_PACKAGE_ROOTS`` below) because
+    root imports are cache-sensitive and cannot be safely isolated
+    within a single process.
+    """
 
     _FORBIDDEN = _FORBIDDEN_SIDE_EFFECTS + _FORBIDDEN_SDKS
 

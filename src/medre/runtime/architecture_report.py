@@ -312,6 +312,7 @@ _CODEC_RENDERER_FORBIDDEN = (
     "nio",
     "meshtastic",
     "aiohttp",
+    "bleak",
     "serial",
     "serial_asyncio",
     "meshcore",
@@ -333,6 +334,7 @@ _SDK_PACKAGES = (
     "lxmf",
     "LXMF",
     "aiohttp",
+    "bleak",
     "serial",
     "serial_asyncio",
 )
@@ -402,7 +404,7 @@ class RouteAdapterBoundaryReport:
 SESSION_ALLOWED_SDKS: dict[str, tuple[str, ...]] = {
     "matrix": ("nio", "aiohttp"),
     "meshtastic": ("meshtastic", "serial", "serial_asyncio"),
-    "meshcore": ("meshcore", "serial", "serial_asyncio"),
+    "meshcore": ("meshcore", "bleak", "serial", "serial_asyncio"),
     "lxmf": ("RNS", "LXMF", "lxmf"),
 }
 

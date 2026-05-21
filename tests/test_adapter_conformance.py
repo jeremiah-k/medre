@@ -21,6 +21,7 @@ from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
 from medre.adapters.fake_presentation import FakePresentationAdapter
 from medre.adapters.fake_transport import FakeTransportAdapter
 from medre.core.contracts.adapter import AdapterContract
+from medre.runtime.architecture_ast import runtime_scope_imports
 
 # Fake adapters that can be instantiated without SDKs.
 _FAKE_ADAPTERS: list[type[AdapterContract]] = [
@@ -138,52 +139,21 @@ class TestNoPackageRootAdapterImports:
     def test_not_importing_from_adapters_root(self) -> None:
         """Verify this test file doesn't use package-root facade imports.
 
-        Uses AST parsing to avoid false positives from comments or strings.
-        Imports inside TYPE_CHECKING blocks are allowed since they are
-        type-checking only.  Concrete submodule imports (e.g.
-        ``from medre.adapters.matrix.adapter import MatrixAdapter``) are
-        fine; only bare package-root facades like
-        ``from medre.adapters import MatrixAdapter`` or
-        ``from medre.adapters.matrix import MatrixAdapter`` are forbidden.
+        Uses runtime_scope_imports() to inspect only imports that execute
+        at runtime — imports inside ``if TYPE_CHECKING:`` bodies are
+        correctly excluded while ``else:`` branch imports are flagged.
         """
         source = Path(__file__).read_text(encoding="utf-8")
         tree = ast.parse(source)
 
-        # Build parent map for scope-aware TYPE_CHECKING detection
-        parent: dict[ast.AST, ast.AST] = {}
-        for node in ast.walk(tree):
-            for child in ast.iter_child_nodes(node):
-                parent[child] = node
-
-        def _inside_type_checking(n: ast.AST) -> bool:
-            cur = n
-            while cur in parent:
-                cur = parent[cur]
-                if isinstance(cur, ast.If):
-                    test = cur.test
-                    if isinstance(test, ast.Name) and test.id == "TYPE_CHECKING":
-                        return True
-            return False
-
+        # Use canonical helper: only runtime-scope imports are returned,
+        # so TYPE_CHECKING body imports are automatically excluded.
         violations: list[str] = []
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and node.module:
-                # Only flag forbidden package-root imports
-                if node.module in _FORBIDDEN_ADAPTER_ROOTS:
-                    # Skip if this import is inside a TYPE_CHECKING guard
-                    if not _inside_type_checking(node):
-                        names = ", ".join(alias.name for alias in (node.names or []))
-                        violations.append(
-                            f"  line {node.lineno}: from {node.module} import {names}"
-                        )
-            elif isinstance(node, ast.Import):
-                # Also check bare "import medre.adapters.matrix" form
-                for alias in node.names:
-                    if alias.name in _FORBIDDEN_ADAPTER_ROOTS:
-                        if not _inside_type_checking(node):
-                            violations.append(
-                                f"  line {node.lineno}: import {alias.name}"
-                            )
+        for record in runtime_scope_imports(tree):
+            if record.module in _FORBIDDEN_ADAPTER_ROOTS:
+                violations.append(
+                    f"  line {record.lineno}: {record.kind} {record.module}"
+                )
 
         assert (
             violations == []
@@ -231,3 +201,27 @@ class TestNoPackageRootAdapterImports:
 
         mod = importlib.import_module(module_name)
         assert mod is not None, f"Failed to import {module_name}"
+
+    def test_type_checking_else_branch_flagged(self) -> None:
+        """Imports in TYPE_CHECKING else: branch are runtime-scope and flagged."""
+        source = (
+            "from typing import TYPE_CHECKING\n"
+            "if TYPE_CHECKING:\n"
+            "    from medre.adapters.matrix import MatrixAdapter\n"
+            "else:\n"
+            "    from medre.adapters.matrix import MatrixAdapter\n"
+        )
+        tree = ast.parse(source)
+        violations = [
+            r
+            for r in runtime_scope_imports(tree)
+            if r.module in _FORBIDDEN_ADAPTER_ROOTS
+        ]
+        # The if-body import is excluded (TYPE_CHECKING); the else import
+        # is runtime-scope and must be caught.
+        assert (
+            len(violations) >= 1
+        ), "else-branch import of forbidden root must be flagged"
+        assert any(
+            r.lineno == 5 for r in violations
+        ), "violation should be on line 5 (else branch)"

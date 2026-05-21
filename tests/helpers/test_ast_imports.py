@@ -538,3 +538,49 @@ class TestTopLevelCallsLambdaDefaults:
         calls = top_level_calls(tree)
         funcs = [c.func for c in calls]
         assert "open" in funcs
+
+
+class TestImmediatelyInvokedLambda:
+    """Immediately-invoked lambda bodies are import-time; standalone are not."""
+
+    def test_iife_lambda_body_captured(self) -> None:
+        source = dedent("""\
+            (lambda: open("x"))()
+        """)
+        tree = ast.parse(source)
+        calls = top_level_calls(tree)
+        funcs = [c.func for c in calls]
+        assert "open" in funcs
+
+    def test_standalone_lambda_body_not_captured(self) -> None:
+        source = dedent("""\
+            x = lambda: open("x")
+        """)
+        tree = ast.parse(source)
+        calls = top_level_calls(tree)
+        funcs = [c.func for c in calls]
+        assert "open" not in funcs
+
+    def test_iife_lambda_default_and_body_both_captured(self) -> None:
+        """Default args and body calls both captured for IIFE."""
+        source = dedent("""\
+            (lambda y=open("default"): open("body"))()
+        """)
+        tree = ast.parse(source)
+        calls = top_level_calls(tree)
+        funcs = [c.func for c in calls]
+        assert "open" in funcs
+        # open appears twice: once from default, once from body
+        assert funcs.count("open") == 2
+
+    def test_iife_lambda_in_type_checking_ignored(self) -> None:
+        """IIFE lambda inside TYPE_CHECKING body is correctly skipped."""
+        source = dedent("""\
+            from typing import TYPE_CHECKING
+            if TYPE_CHECKING:
+                (lambda: open("x"))()
+        """)
+        tree = ast.parse(source)
+        calls = top_level_calls(tree)
+        funcs = [c.func for c in calls]
+        assert "open" not in funcs

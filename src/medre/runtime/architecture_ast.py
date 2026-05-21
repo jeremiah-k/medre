@@ -299,6 +299,10 @@ def top_level_calls(
                         file=file_path,
                     )
                 )
+                # Immediately-invoked lambda: the body executes at import
+                # time so its calls must be captured.
+                if isinstance(child.func, ast.Lambda):
+                    _process_node(child.func.body)
                 _walk(child)
             elif isinstance(child, ast.If) and is_type_checking(child):
                 # Ignore TYPE_CHECKING body but keep runtime else-branch
