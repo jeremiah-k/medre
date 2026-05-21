@@ -181,6 +181,7 @@ async def _collect_native_refs(
                 "channel": nref.native_channel_id or "",
                 "native_id": nref.native_message_id,
                 "native_message_id": nref.native_message_id,
+                "direction": nref.direction,
                 "resolves_to": resolved or nref.event_id,
             }
         )
