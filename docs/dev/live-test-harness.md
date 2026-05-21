@@ -40,25 +40,22 @@ Running `pytest` without flags will skip all live tests.
 In addition to the marker, each live test module or class should include a `pytest.importorskip` or manual skip guard that checks for required environment variables. If the variables are not set, the test skips with a clear reason:
 
 ```python
-import os
 import pytest
-
-pytestmark = pytest.mark.live
+from tests.helpers.live_harness import LiveRequirement, live_env_status
 
 # Skip entire module if Matrix vars are not set
-_REQUIRED_VARS = ["MATRIX_HOMESERVER", "MATRIX_USER_ID", "MATRIX_ACCESS_TOKEN", "MATRIX_ROOM_ID"]
+_MATRIX_REQUIREMENTS = [
+    LiveRequirement(env_name="MATRIX_HOMESERVER", secret=False, description="Homeserver URL"),
+    LiveRequirement(env_name="MATRIX_USER_ID", secret=False, description="Bot user ID"),
+    LiveRequirement(env_name="MATRIX_ACCESS_TOKEN", secret=True, description="Bot access token"),
+    LiveRequirement(env_name="MATRIX_ROOM_ID", secret=False, description="Target room for tests"),
+]
 
-
-def _has_matrix_env():
-    return all(os.environ.get(v) for v in _REQUIRED_VARS)
-
+_env = live_env_status(_MATRIX_REQUIREMENTS)
 
 pytestmark = [
     pytest.mark.live,
-    pytest.mark.skipif(not _has_matrix_env(), reason=(
-        "Set MATRIX_HOMESERVER, MATRIX_USER_ID, MATRIX_ACCESS_TOKEN, "
-        "and MATRIX_ROOM_ID env vars to run live Matrix tests"
-    )),
+    pytest.mark.skipif(not _env.ready, reason=_env.skip_reason),
 ]
 ```
 
@@ -183,18 +180,18 @@ Every live test module must have:
 
 Every async operation in a live test must be bounded by an explicit timeout. No unbounded awaits.
 
-### 5.1 Use `asyncio.wait_for` with named constants
+### 5.1 Use `bounded()` for async operations
 
 ```python
-import asyncio
+from tests.helpers.live_harness import bounded
 
 # CORRECT
 async def test_adapter_starts():
     adapter = make_live_adapter()
     try:
-        await asyncio.wait_for(adapter.start(ctx), timeout=_ADAPTER_START_TIMEOUT)
+        await bounded(adapter.start(ctx), timeout=_ADAPTER_START_TIMEOUT, label="adapter start")
     finally:
-        await asyncio.wait_for(adapter.stop(), timeout=_ADAPTER_STOP_TIMEOUT)
+        await bounded(adapter.stop(), timeout=_ADAPTER_STOP_TIMEOUT, label="adapter stop")
 
 
 # WRONG: unbounded await

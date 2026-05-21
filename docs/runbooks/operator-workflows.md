@@ -185,6 +185,18 @@ This starts a runtime, collects a full evidence bundle including live health che
 | Events | Event data if `--event-id` is specified |
 | Replay | Replay run data if `--replay-run-id` is specified |
 
+Use `--event-id` to scope the bundle to a specific event (includes native refs, receipts, and incident summary):
+
+```bash
+PYTHONPATH=src medre evidence --storage-path /path/to/medre.db --event-id <event_id>
+```
+
+Use `--replay-run-id` to scope the bundle to a replay run (includes replay receipt analysis):
+
+```bash
+PYTHONPATH=src medre evidence --storage-path /path/to/medre.db --replay-run-id <replay_run_id>
+```
+
 The `config_source` field tells you whether the bundle came from a config file or a storage path. The `collected_at` timestamp tells you when.
 
 ### 5.4 Safety

@@ -317,6 +317,26 @@ class TestStorageOnlyMissingOrMalformedDb:
         assert len(report["errors"]) > 0
 
 
+class TestStorageOnlyEmptyDb:
+    """Storage-only mode with a valid but empty SQLite DB."""
+
+    @pytest.mark.asyncio
+    async def test_empty_db_returns_zero_counts(self, tmp_path: Path) -> None:
+        db_path = str(tmp_path / "empty.db")
+        from medre.core.storage.sqlite import SQLiteStorage
+
+        storage = SQLiteStorage(db_path)
+        await storage.initialize()
+        await storage.close()
+
+        report = await collect_evidence_bundle(storage_path=db_path)
+        section = report["sections"]["storage"]
+        assert section["status"] == "passed"
+        assert section["data"]["db_exists"] is True
+        assert section["data"]["event_count"] == 0
+        assert section["data"]["receipt_count"] == 0
+
+
 class TestStorageOnlyNoAdapterSdkImports:
     """Storage-only code path does not import any adapter SDKs."""
 

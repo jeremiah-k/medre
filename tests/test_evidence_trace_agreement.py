@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
@@ -95,40 +96,45 @@ async def _seed(storage: SQLiteStorage) -> None:
 
 
 @pytest.mark.asyncio
-async def test_evidence_native_refs_match_trace(temp_storage: SQLiteStorage) -> None:
+async def test_evidence_native_refs_match_trace(tmp_path: Path) -> None:
     """Evidence bundle native refs and trace timeline native_ref entries agree on keys."""
-    await _seed(temp_storage)
+    db_path = str(tmp_path / "agree_trace.db")
+    storage = SQLiteStorage(db_path)
+    await storage.initialize()
+    try:
+        await _seed(storage)
 
-    # -- Trace timeline (raw entries) --
-    trace_entries = assemble_trace_entries(
-        _make_event(),
-        [_make_receipt()],
-        [_make_native_ref()],
-        [],
-    )
-    nref_entries = [e for e in trace_entries if e["entry_type"] == "native_ref"]
-    assert len(nref_entries) == 1, "Expected exactly one native_ref timeline entry"
-    trace_nref = nref_entries[0]["data"]
-
-    # -- Evidence bundle (via storage) --
-    db_path = getattr(temp_storage, "_db_path", ":memory:")
-    section = await _collect_storage_data_from_backend(
-        temp_storage,
-        db_path=db_path,
-        event_id=_EVENT_ID,
-        replay_run_id=None,
-    )
-    assert section["status"] == "passed", f"Unexpected section status: {section}"
-    bundle_nrefs = section["data"]["native_refs_for_event"]
-    assert bundle_nrefs is not None and len(bundle_nrefs) == 1
-    bundle_nref = bundle_nrefs[0]
-
-    # Canonical keys must match across trace and evidence.
-    for key in ("adapter", "native_channel_id", "native_message_id", "direction"):
-        assert trace_nref.get(key) == bundle_nref.get(key), (
-            f"Key {key!r} mismatch: trace={trace_nref.get(key)!r} "
-            f"evidence={bundle_nref.get(key)!r}"
+        # -- Trace timeline (raw entries) --
+        trace_entries = assemble_trace_entries(
+            _make_event(),
+            [_make_receipt()],
+            [_make_native_ref()],
+            [],
         )
+        nref_entries = [e for e in trace_entries if e["entry_type"] == "native_ref"]
+        assert len(nref_entries) == 1, "Expected exactly one native_ref timeline entry"
+        trace_nref = nref_entries[0]["data"]
+
+        # -- Evidence bundle (via storage) --
+        section = await _collect_storage_data_from_backend(
+            storage,
+            db_path=db_path,
+            event_id=_EVENT_ID,
+            replay_run_id=None,
+        )
+        assert section["status"] == "passed", f"Unexpected section status: {section}"
+        bundle_nrefs = section["data"]["native_refs_for_event"]
+        assert bundle_nrefs is not None and len(bundle_nrefs) == 1
+        bundle_nref = bundle_nrefs[0]
+
+        # Canonical keys must match across trace and evidence.
+        for key in ("adapter", "native_channel_id", "native_message_id", "direction"):
+            assert trace_nref.get(key) == bundle_nref.get(key), (
+                f"Key {key!r} mismatch: trace={trace_nref.get(key)!r} "
+                f"evidence={bundle_nref.get(key)!r}"
+            )
+    finally:
+        await storage.close()
 
 
 @pytest.mark.asyncio
@@ -197,57 +203,62 @@ async def test_receipt_and_native_ref_agree(temp_storage: SQLiteStorage) -> None
 
 @pytest.mark.asyncio
 async def test_evidence_commands_reference_existing_cli_names(
-    temp_storage: SQLiteStorage,
+    tmp_path: Path,
 ) -> None:
     """Evidence bundle incident_summary.commands reference real CLI command names."""
-    await _seed(temp_storage)
+    db_path = str(tmp_path / "agree_cmds.db")
+    storage = SQLiteStorage(db_path)
+    await storage.initialize()
+    try:
+        await _seed(storage)
 
-    db_path = getattr(temp_storage, "_db_path", ":memory:")
-    section = await _collect_storage_data_from_backend(
-        temp_storage,
-        db_path=db_path,
-        event_id=_EVENT_ID,
-        replay_run_id=None,
-    )
-    assert section["status"] == "passed"
-    summary = section["data"].get("incident_summary")
-    assert summary is not None, "incident_summary missing from evidence bundle"
-
-    # All events have at least one receipt with status="sent", so classification
-    # is "success".  The recommended commands should include inspect-based commands.
-    cmds_struct = summary["commands"]
-    assert "primary" in cmds_struct
-    assert "specialized" in cmds_struct
-
-    all_commands = cmds_struct["primary"] + cmds_struct["specialized"]
-    assert len(all_commands) >= 1, "Expected at least one command recommendation"
-
-    # Every recommended command should start with "medre " and reference known
-    # subcommands (inspect, evidence, trace, replay, diagnostics, config).
-    known_prefixes = (
-        "medre inspect",
-        "medre evidence",
-        "medre trace",
-        "medre replay",
-        "medre diagnostics",
-        "medre config",
-    )
-    for cmd in all_commands:
-        assert isinstance(cmd, str) and cmd.startswith("medre "), (
-            f"Command {cmd!r} does not start with 'medre '"
+        section = await _collect_storage_data_from_backend(
+            storage,
+            db_path=db_path,
+            event_id=_EVENT_ID,
+            replay_run_id=None,
         )
-        assert cmd.startswith(known_prefixes), (
-            f"Command {cmd!r} does not match any known CLI prefix"
-        )
+        assert section["status"] == "passed"
+        summary = section["data"].get("incident_summary")
+        assert summary is not None, "incident_summary missing from evidence bundle"
 
-    # The specialized list should include the evidence command for this event.
-    evidence_cmds = [c for c in cmds_struct["specialized"] if "evidence" in c]
-    assert len(evidence_cmds) >= 1, (
-        "Expected at least one specialized evidence command"
-    )
-    assert _EVENT_ID in evidence_cmds[0], (
-        f"Specialized evidence command should reference event_id {_EVENT_ID!r}"
-    )
+        # All events have at least one receipt with status="sent", so classification
+        # is "success".  The recommended commands should include inspect-based commands.
+        cmds_struct = summary["commands"]
+        assert "primary" in cmds_struct
+        assert "specialized" in cmds_struct
+
+        all_commands = cmds_struct["primary"] + cmds_struct["specialized"]
+        assert len(all_commands) >= 1, "Expected at least one command recommendation"
+
+        # Every recommended command should start with "medre " and reference known
+        # subcommands (inspect, evidence, trace, replay, diagnostics, config).
+        known_prefixes = (
+            "medre inspect",
+            "medre evidence",
+            "medre trace",
+            "medre replay",
+            "medre diagnostics",
+            "medre config",
+        )
+        for cmd in all_commands:
+            assert isinstance(cmd, str) and cmd.startswith("medre "), (
+                f"Command {cmd!r} does not start with 'medre '"
+            )
+            assert cmd.startswith(known_prefixes), (
+                f"Command {cmd!r} does not match any known CLI prefix"
+            )
+
+        # The specialized list should include the evidence command for this event.
+        evidence_cmds = [c for c in cmds_struct["specialized"] if "evidence" in c]
+        assert len(evidence_cmds) >= 1, (
+            "Expected at least one specialized evidence command"
+        )
+        assert _EVENT_ID in evidence_cmds[0], (
+            f"Specialized evidence command should reference event_id {_EVENT_ID!r}"
+        )
+    finally:
+        await storage.close()
 
 
 @pytest.mark.asyncio

@@ -11,9 +11,9 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from collections.abc import Iterable
+from collections.abc import Awaitable, Iterable
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from typing import Any, TypeVar
 
 # ---------------------------------------------------------------------------
 # Heuristic tokens used by ``redact_env_value`` to detect secret env vars.
@@ -23,6 +23,8 @@ from typing import Any
 _SECRET_NAME_PARTS: frozenset[str] = frozenset(
     {"TOKEN", "SECRET", "PASSWORD", "KEY", "AUTH", "CREDENTIAL"}
 )
+
+_T = TypeVar("_T")
 
 
 # ---------------------------------------------------------------------------
@@ -181,6 +183,14 @@ def assert_no_secret_leak(
             f"found substring of a protected value "
             f"(length {len(secret)})"
         )
+        # Also check JSON-escaped form to catch secrets containing
+        # characters that json.dumps would escape (e.g. " or \).
+        escaped = json.dumps(secret)[1:-1]
+        assert escaped not in serialized, (
+            f"Secret value leaked (escaped form) in serialized output: "
+            f"found substring of a protected value "
+            f"(length {len(secret)})"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -188,7 +198,7 @@ def assert_no_secret_leak(
 # ---------------------------------------------------------------------------
 
 
-async def bounded(coro: Any, timeout: float, label: str) -> Any:
+async def bounded(coro: Awaitable[_T], timeout: float, label: str) -> _T:
     """Await *coro* with a timeout, raising a descriptive error on expiry.
 
     Wraps :func:`asyncio.wait_for` so that timeout failures include the
