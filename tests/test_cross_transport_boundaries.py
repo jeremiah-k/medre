@@ -44,7 +44,17 @@ from medre.core.rendering.renderer import RenderingResult
 _ADAPTER_TRANSPORTS = ("matrix", "meshtastic", "meshcore", "lxmf")
 """Four alpha transport names."""
 
-_SDK_PACKAGES = ("nio", "meshtastic", "meshcore", "RNS", "lxmf")
+_SDK_PACKAGES = (
+    "nio",
+    "meshtastic",
+    "meshcore",
+    "RNS",
+    "lxmf",
+    "LXMF",
+    "aiohttp",
+    "serial",
+    "serial_asyncio",
+)
 """Third-party transport SDK package names that must not appear in core."""
 
 _CONCRETE_ADAPTER_PREFIXES = tuple(f"medre.adapters.{t}" for t in _ADAPTER_TRANSPORTS)

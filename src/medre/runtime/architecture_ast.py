@@ -316,7 +316,11 @@ def top_level_calls(
                         _process_node(default)
                 # Do NOT walk function body
             elif isinstance(child, ast.Lambda):
-                continue
+                for default in child.args.defaults:
+                    _process_node(default)
+                for default in child.args.kw_defaults:
+                    if default is not None:
+                        _process_node(default)
             else:
                 _walk(child)
 

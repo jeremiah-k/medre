@@ -85,7 +85,6 @@ _BLOCKING_DOTTED: tuple[str, ...] = (
 _BLOCKING_BARE: tuple[str, ...] = (
     # builtins / ubiquitous
     "open",
-    "urlopen",
 )
 
 # Explicit allowlist for known intentional module-level calls.
@@ -351,3 +350,35 @@ class TestBareMatchingPrecision:
         resolved_calls = [resolve_call_name(c.func, aliases) for c in calls]
         assert "obj.read_text" in resolved_calls
         assert "pathlib.Path.read_text" not in resolved_calls
+
+    def test_from_import_urlopen_flagged_via_dotted(self) -> None:
+        """from urllib.request import urlopen; urlopen() caught via dotted alias."""
+        tmp = tempfile.NamedTemporaryFile(
+            suffix=".py", delete=False, prefix="test_urlopen_from_", dir=_SRC,
+        )
+        try:
+            tmp.write(b"from urllib.request import urlopen\nurlopen('https://example.com')\n")
+            tmp.flush()
+            tmp.close()
+            violations = _scan_file(Path(tmp.name))
+            assert any("urllib.request.urlopen" in v for v in violations)
+        finally:
+            Path(tmp.name).unlink(missing_ok=True)
+
+    def test_bare_urlopen_not_in_blocking_bare(self) -> None:
+        """urlopen removed from _BLOCKING_BARE to prevent false positives."""
+        assert "urlopen" not in _BLOCKING_BARE
+
+    def test_dotted_urllib_request_urlopen_flagged(self) -> None:
+        """urllib.request.urlopen() caught by _BLOCKING_DOTTED directly."""
+        tmp = tempfile.NamedTemporaryFile(
+            suffix=".py", delete=False, prefix="test_urlopen_dotted_", dir=_SRC,
+        )
+        try:
+            tmp.write(b"import urllib.request\nurllib.request.urlopen('https://example.com')\n")
+            tmp.flush()
+            tmp.close()
+            violations = _scan_file(Path(tmp.name))
+            assert any("urllib.request.urlopen" in v for v in violations)
+        finally:
+            Path(tmp.name).unlink(missing_ok=True)

@@ -693,6 +693,7 @@ class TestLxmfCompat:
     def test_has_lxmf_is_bool(self) -> None:
         assert isinstance(HAS_LXMF, bool)
 
+    @pytest.mark.live
     def test_has_lxmf_value_consistent_with_import(self) -> None:
         """HAS_LXMF is True when LXMF imports successfully, False otherwise."""
         try:

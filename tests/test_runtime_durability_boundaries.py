@@ -32,7 +32,17 @@ import pytest
 # Shared helpers (same pattern as test_architectural_boundaries.py)
 # ---------------------------------------------------------------------------
 
-_SDK_PACKAGES = ("nio", "meshtastic", "meshcore", "RNS", "lxmf")
+_SDK_PACKAGES = (
+    "nio",
+    "meshtastic",
+    "meshcore",
+    "RNS",
+    "lxmf",
+    "LXMF",
+    "aiohttp",
+    "serial",
+    "serial_asyncio",
+)
 """Third-party transport SDK package names."""
 
 _ADAPTER_PREFIXES = (

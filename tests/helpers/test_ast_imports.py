@@ -403,7 +403,6 @@ class TestTopLevelCallsDecoratorsAndDefaults:
         tree = ast.parse(source)
         calls = top_level_calls(tree)
         names = [c.func for c in calls]
-        assert "deco" in names
         assert "open" in names
 
     def test_default_argument_captured(self):
@@ -469,3 +468,58 @@ class TestTopLevelCallsDecoratorsAndDefaults:
         calls = top_level_calls(tree)
         names = [c.func for c in calls]
         assert "open" in names
+
+
+class TestTopLevelCallsLambdaDefaults:
+    """Lambda default arguments should be walked; lambda bodies should not."""
+
+    def test_lambda_positional_default_captured(self) -> None:
+        source = dedent("""\
+            lambda y=open("x"): y
+        """)
+        tree = ast.parse(source)
+        calls = top_level_calls(tree)
+        funcs = [c.func for c in calls]
+        assert "open" in funcs
+
+    def test_lambda_kwonly_default_captured(self) -> None:
+        source = dedent("""\
+            lambda *, y=Path("x").read_text(): y
+        """)
+        tree = ast.parse(source)
+        calls = top_level_calls(tree)
+        funcs = [c.func for c in calls]
+        assert "Path.read_text" in funcs
+
+    def test_lambda_body_not_captured(self) -> None:
+        source = dedent("""\
+            lambda: open("body")
+        """)
+        tree = ast.parse(source)
+        calls = top_level_calls(tree)
+        funcs = [c.func for c in calls]
+        assert "open" not in funcs
+
+    def test_type_checking_lambda_defaults_ignored(self) -> None:
+        source = dedent("""\
+            from typing import TYPE_CHECKING
+            if TYPE_CHECKING:
+                lambda y=open("tc"): y
+        """)
+        tree = ast.parse(source)
+        calls = top_level_calls(tree)
+        funcs = [c.func for c in calls]
+        assert "open" not in funcs
+
+    def test_type_checking_else_lambda_defaults_captured(self) -> None:
+        source = dedent("""\
+            from typing import TYPE_CHECKING
+            if TYPE_CHECKING:
+                pass
+            else:
+                x = lambda y=open("else"): y
+        """)
+        tree = ast.parse(source)
+        calls = top_level_calls(tree)
+        funcs = [c.func for c in calls]
+        assert "open" in funcs

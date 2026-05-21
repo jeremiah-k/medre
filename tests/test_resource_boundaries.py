@@ -21,7 +21,17 @@ from pathlib import Path
 
 _SRC = Path(__file__).resolve().parent.parent / "src"
 
-_SDK_PACKAGES = ("nio", "meshtastic", "meshcore", "RNS", "lxmf", "LXMF")
+_SDK_PACKAGES = (
+    "nio",
+    "meshtastic",
+    "meshcore",
+    "RNS",
+    "lxmf",
+    "LXMF",
+    "aiohttp",
+    "serial",
+    "serial_asyncio",
+)
 """Third-party transport SDK package names as they appear in import statements."""
 
 _ADAPTER_PREFIXES = (

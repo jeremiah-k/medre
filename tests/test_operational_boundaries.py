@@ -30,7 +30,17 @@ import pytest
 # Shared helpers (same pattern as test_architectural_boundaries.py)
 # ---------------------------------------------------------------------------
 
-_SDK_PACKAGES = ("nio", "meshtastic", "meshcore", "RNS", "lxmf")
+_SDK_PACKAGES = (
+    "nio",
+    "meshtastic",
+    "meshcore",
+    "RNS",
+    "lxmf",
+    "LXMF",
+    "aiohttp",
+    "serial",
+    "serial_asyncio",
+)
 """Third-party transport SDK package names."""
 
 _ADAPTER_PREFIXES = (
@@ -52,6 +62,12 @@ _ADAPTER_COMPAT_MODULES = (
 _TESTS_DIR = Path(__file__).parent
 """Root tests directory."""
 
+_REPO_ROOT = _TESTS_DIR.parent
+"""Repository root directory."""
+
+_SRC = _REPO_ROOT / "src" / "medre"
+"""Root source directory for medre package."""
+
 # Banned import-line prefixes for SDK packages — used for file-level
 # scanning where we want to match actual import statements, not comments
 # or string literals in boundary test files.
@@ -61,11 +77,19 @@ _BANNED_SDK_IMPORT_PREFIXES = (
     "import meshcore",
     "import RNS",
     "import lxmf",
+    "import LXMF",
+    "import aiohttp",
+    "import serial",
+    "import serial_asyncio",
     "from nio",
     "from meshtastic",
     "from meshcore",
     "from RNS",
     "from lxmf",
+    "from LXMF",
+    "from aiohttp",
+    "from serial",
+    "from serial_asyncio",
 )
 
 _BANNED_ADAPTER_IMPORT_PREFIXES = (
@@ -78,14 +102,19 @@ _BANNED_ADAPTER_IMPORT_PREFIXES = (
 
 def _source_of(module_name: str) -> str:
     """Resolve module to source file and return its text (no import)."""
-    import importlib.util
-
-    spec = importlib.util.find_spec(module_name)
-    if spec is None:
-        raise ModuleNotFoundError(f"{module_name} not found")
-    if spec.origin is None:
-        raise ModuleNotFoundError(f"{module_name} has no origin")
-    return Path(spec.origin).read_text()
+    assert module_name == "medre" or module_name.startswith("medre.")
+    rel = module_name.removeprefix("medre").strip(".").replace(".", "/")
+    if not rel:
+        pkg = _SRC / "__init__.py"
+        if pkg.exists():
+            return pkg.read_text(encoding="utf-8")
+    py = _SRC / f"{rel}.py"
+    pkg = _SRC / rel / "__init__.py"
+    if py.exists():
+        return py.read_text(encoding="utf-8")
+    if pkg.exists():
+        return pkg.read_text(encoding="utf-8")
+    raise ModuleNotFoundError(module_name)
 
 
 def _import_lines(source: str) -> list[str]:
