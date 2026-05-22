@@ -18,6 +18,7 @@ from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.config.env import (
     MedreEnvConfig,
     apply_env_overrides,
+    apply_instance_env_overrides,
 )
 from medre.config.errors import ConfigValidationError
 from medre.config.model import (
@@ -29,7 +30,13 @@ from medre.config.model import (
     RuntimeOptions,
     StorageConfig,
 )
-from medre.runtime.routes import RouteConfig, RouteConfigSet, RouteDirectionality
+from medre.runtime.routes import (
+    BridgePolicy,
+    RouteConfig,
+    RouteConfigSet,
+    RouteDirectionality,
+    RouteRetryConfig,
+)
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -871,4 +878,226 @@ class TestRouteEnvCreation:
         monkeypatch.setenv("MEDRE_ROUTE__TOML_ROUTE__ROUTE_ID", "renamed")
         base = _make_config_with_route()
         with pytest.raises(ConfigValidationError, match="route_id"):
+            apply_env_overrides(base)
+
+
+# ---------------------------------------------------------------------------
+# Area 1: Provenance back-fill of target_transport for newly created adapters
+# ---------------------------------------------------------------------------
+
+
+class TestProvenanceTargetTransportBackfill:
+    """When apply_instance_env_overrides creates a brand-new adapter via env
+    vars (token with TRANSPORT field), provenance entries get target_transport
+    back-filled (lines 1041-1045 of env.py)."""
+
+    def test_new_adapter_provenance_has_target_transport(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Provenance entries for a newly created adapter get target_transport."""
+        monkeypatch.setenv("MEDRE_ADAPTER__MY_RADIO__TRANSPORT", "meshtastic")
+        monkeypatch.setenv("MEDRE_ADAPTER__MY_RADIO__CONNECTION_TYPE", "fake")
+
+        # Parse env — this records provenance entries with target_transport=None.
+        env = MedreEnvConfig.from_environ()
+        base = _make_base_config()
+
+        # Apply instance overrides directly, passing our provenance so the
+        # back-fill at lines 1041-1045 mutates entries we can inspect.
+        result = apply_instance_env_overrides(
+            base, env.instance_overrides, provenance=env.provenance
+        )
+
+        # Verify the adapter was created.
+        assert "my-radio" in result.adapters.meshtastic
+
+        # Instance entries for the MY_RADIO token should have target_transport
+        # back-filled to "meshtastic".
+        entries = [
+            e
+            for e in env.provenance.entries
+            if e.source_kind == "instance" and e.target_adapter_token == "MY_RADIO"
+        ]
+        assert len(entries) >= 1, (
+            f"Expected at least 1 instance provenance entry for MY_RADIO, "
+            f"got {[e.env_var_name for e in env.provenance.entries]}"
+        )
+        for entry in entries:
+            assert entry.target_transport == "meshtastic", (
+                f"Entry {entry.env_var_name!r} has target_transport="
+                f"{entry.target_transport!r}, expected 'meshtastic'"
+            )
+
+    def test_new_matrix_adapter_provenance_has_target_transport(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Provenance entries for a newly created Matrix adapter get target_transport."""
+        monkeypatch.setenv("MEDRE_ADAPTER__MATRIX_NEW__TRANSPORT", "matrix")
+        monkeypatch.setenv("MEDRE_ADAPTER__MATRIX_NEW__HOMESERVER", "https://env.test")
+        monkeypatch.setenv("MEDRE_ADAPTER__MATRIX_NEW__USER_ID", "@bot:new")
+        monkeypatch.setenv("MEDRE_ADAPTER__MATRIX_NEW__ACCESS_TOKEN", "tok")
+
+        env = MedreEnvConfig.from_environ()
+        base = _make_base_config()
+        result = apply_instance_env_overrides(
+            base, env.instance_overrides, provenance=env.provenance
+        )
+
+        assert "matrix-new" in result.adapters.matrix
+
+        entries = [
+            e
+            for e in env.provenance.entries
+            if e.source_kind == "instance" and e.target_adapter_token == "MATRIX_NEW"
+        ]
+        assert len(entries) >= 1
+        for entry in entries:
+            assert entry.target_transport == "matrix"
+
+
+# ---------------------------------------------------------------------------
+# Area 2: Preserving complex fields when overriding an existing route
+# ---------------------------------------------------------------------------
+
+
+def _make_config_with_route_complex() -> RuntimeConfig:
+    """RuntimeConfig with a route that has channel_room_map, policy, and retry."""
+    route = RouteConfig(
+        route_id="toml-route",
+        source_adapters=("adapter-a",),
+        dest_adapters=("adapter-b",),
+        directionality=RouteDirectionality.SOURCE_TO_DEST,
+        enabled=True,
+        channel_room_map={"0": "!room1:matrix.org"},
+        policy=BridgePolicy(allowed_event_types=("message",)),
+        retry=RouteRetryConfig(enabled=True, max_attempts=5),
+    )
+    return RuntimeConfig(
+        runtime=RuntimeOptions(name="test"),
+        logging=LoggingConfig(level="INFO"),
+        storage=StorageConfig(backend="sqlite", path="/tmp/test.db"),
+        adapters=AdapterConfigSet(),
+        routes=RouteConfigSet(routes=(route,)),
+    )
+
+
+class TestRouteOverridePreservesComplexFields:
+    """When overriding an existing route via env, complex fields (channel_room_map,
+    policy, retry) that cannot be set via env vars are preserved (lines 1102-1107)."""
+
+    def test_channel_room_map_preserved_on_override(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """channel_room_map is preserved when overriding a route via env."""
+        monkeypatch.setenv("MEDRE_ROUTE__TOML_ROUTE__ENABLED", "false")
+        base = _make_config_with_route_complex()
+        result = apply_env_overrides(base)
+
+        assert len(result.routes.routes) == 1
+        route = result.routes.routes[0]
+        assert route.enabled is False
+        assert route.channel_room_map == {"0": "!room1:matrix.org"}
+
+    def test_policy_preserved_on_override(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """policy is preserved when overriding a route via env."""
+        monkeypatch.setenv("MEDRE_ROUTE__TOML_ROUTE__ENABLED", "false")
+        base = _make_config_with_route_complex()
+        result = apply_env_overrides(base)
+
+        route = result.routes.routes[0]
+        assert route.policy is not None
+        assert route.policy.allowed_event_types == ("message",)
+
+    def test_retry_preserved_on_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """retry is preserved when overriding a route via env."""
+        monkeypatch.setenv("MEDRE_ROUTE__TOML_ROUTE__ENABLED", "false")
+        base = _make_config_with_route_complex()
+        result = apply_env_overrides(base)
+
+        route = result.routes.routes[0]
+        assert route.retry is not None
+        assert route.retry.enabled is True
+        assert route.retry.max_attempts == 5
+
+
+# ---------------------------------------------------------------------------
+# Area 3: Normalized-token collision detection for routes
+# ---------------------------------------------------------------------------
+
+
+def _make_config_with_named_route(route_id: str) -> RuntimeConfig:
+    """RuntimeConfig with a single TOML route using the given route_id."""
+    route = RouteConfig(
+        route_id=route_id,
+        source_adapters=("sa",),
+        dest_adapters=("da",),
+        directionality=RouteDirectionality.SOURCE_TO_DEST,
+        enabled=True,
+    )
+    return RuntimeConfig(
+        runtime=RuntimeOptions(name="test"),
+        logging=LoggingConfig(level="INFO"),
+        storage=StorageConfig(backend="sqlite", path="/tmp/test.db"),
+        adapters=AdapterConfigSet(),
+        routes=RouteConfigSet(routes=(route,)),
+    )
+
+
+def _make_config_with_colliding_routes() -> RuntimeConfig:
+    """RuntimeConfig with two routes whose IDs normalize to the same token."""
+    route_a = RouteConfig(
+        route_id="route-a",
+        source_adapters=("sa",),
+        dest_adapters=("da",),
+        directionality=RouteDirectionality.SOURCE_TO_DEST,
+        enabled=True,
+    )
+    route_b = RouteConfig(
+        route_id="route_a",
+        source_adapters=("sb",),
+        dest_adapters=("db",),
+        directionality=RouteDirectionality.SOURCE_TO_DEST,
+        enabled=True,
+    )
+    return RuntimeConfig(
+        runtime=RuntimeOptions(name="test"),
+        logging=LoggingConfig(level="INFO"),
+        storage=StorageConfig(backend="sqlite", path="/tmp/test.db"),
+        adapters=AdapterConfigSet(),
+        routes=RouteConfigSet(routes=(route_a, route_b)),
+    )
+
+
+class TestRouteNormalizedTokenCollision:
+    """Two route IDs that normalize to the same token raise ConfigValidationError
+    (lines 1249-1254 of env.py)."""
+
+    def test_colliding_route_ids_in_toml_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Two TOML routes whose IDs normalize to the same token raise."""
+        # Set a benign route env var so apply_route_overrides is actually
+        # invoked (it returns early when route_overrides is empty).
+        monkeypatch.setenv("MEDRE_ROUTE__ROUTE_A__ENABLED", "true")
+        base = _make_config_with_colliding_routes()
+        with pytest.raises(ConfigValidationError, match="normali"):
+            apply_env_overrides(base)
+
+    def test_env_route_collides_with_toml_route_normalized_token(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Env-created route with route_id that normalizes to same token as
+        a TOML route raises ConfigValidationError (not duplicate-ID check)."""
+        # TOML route with id "route-a" (normalizes to ROUTE_A)
+        base = _make_config_with_named_route("route-a")
+
+        # Env route with explicit route_id "route_a" — different string,
+        # same normalized token (ROUTE_A).  Should hit normalized-token collision.
+        monkeypatch.setenv("MEDRE_ROUTE__NEW__ROUTE_ID", "route_a")
+        monkeypatch.setenv("MEDRE_ROUTE__NEW__SOURCE_ADAPTERS", "c")
+        monkeypatch.setenv("MEDRE_ROUTE__NEW__DEST_ADAPTERS", "d")
+
+        with pytest.raises(ConfigValidationError, match="normali"):
             apply_env_overrides(base)
