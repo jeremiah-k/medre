@@ -1,0 +1,19 @@
+[runtime]
+name = "lxmf-sender"
+
+[storage]
+backend = "sqlite"
+path = "/tmp/medre-lxmf-sender.db"
+
+[adapters.lxmf.lxmf_sender]
+enabled = true
+adapter_kind = "lxmf"
+connection_type = "reticulum"
+# Wire identity and display name via env:
+#   MEDRE_ADAPTER__LXMF_SENDER__IDENTITY_PATH=/safe/path/sender.identity
+#   MEDRE_ADAPTER__LXMF_SENDER__DISPLAY_NAME=sender
+# Or create entirely from env:
+#   MEDRE_ADAPTER__LXMF_SENDER__TRANSPORT=lxmf
+#   MEDRE_ADAPTER__LXMF_SENDER__CONNECTION_TYPE=reticulum
+#   MEDRE_ADAPTER__LXMF_SENDER__IDENTITY_PATH=/safe/path/sender.identity
+#   MEDRE_ADAPTER__LXMF_SENDER__DISPLAY_NAME=sender

@@ -1256,6 +1256,71 @@ class TestEnvCreatedAdapters:
         assert adapter.adapter_id == "lxmf-main"
         assert adapter.config.connection_type == "fake"
 
+    # (i) Two MeshCore adapters created from env (tbeam BLE + lab TCP).
+    def test_create_two_meshcore_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Two MeshCore adapters created from env vars independently."""
+        monkeypatch.setenv("MEDRE_ADAPTER__MESHCORE_TBEAM__TRANSPORT", "meshcore")
+        monkeypatch.setenv("MEDRE_ADAPTER__MESHCORE_TBEAM__CONNECTION_TYPE", "ble")
+        monkeypatch.setenv("MEDRE_ADAPTER__MESHCORE_TBEAM__BLE_ADDRESS", "C4:4F:33:6A:B0:23")
+
+        monkeypatch.setenv("MEDRE_ADAPTER__MESHCORE_LAB__TRANSPORT", "meshcore")
+        monkeypatch.setenv("MEDRE_ADAPTER__MESHCORE_LAB__CONNECTION_TYPE", "tcp")
+        monkeypatch.setenv("MEDRE_ADAPTER__MESHCORE_LAB__HOST", "192.168.1.50")
+        monkeypatch.setenv("MEDRE_ADAPTER__MESHCORE_LAB__PORT", "4403")
+
+        base = _make_base_config()
+        result = apply_env_overrides(base)
+
+        # Both adapters exist with correct IDs
+        assert "meshcore-tbeam" in result.adapters.meshcore
+        assert "meshcore-lab" in result.adapters.meshcore
+
+        tbeam = result.adapters.meshcore["meshcore-tbeam"]
+        assert tbeam.adapter_id == "meshcore-tbeam"
+        assert tbeam.enabled is True
+        assert tbeam.config.connection_type == "ble"
+        assert tbeam.config.ble_address == "C4:4F:33:6A:B0:23"
+
+        lab = result.adapters.meshcore["meshcore-lab"]
+        assert lab.adapter_id == "meshcore-lab"
+        assert lab.config.connection_type == "tcp"
+        assert lab.config.host == "192.168.1.50"
+        assert lab.config.port == 4403
+
+        # No cross-contamination
+        assert getattr(tbeam.config, "host", None) is None
+
+    # (j) Two LXMF adapters created from env (sender + receiver).
+    def test_create_two_lxmf_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Two LXMF adapters created from env vars independently."""
+        monkeypatch.setenv("MEDRE_ADAPTER__LXMF_SENDER__TRANSPORT", "lxmf")
+        monkeypatch.setenv("MEDRE_ADAPTER__LXMF_SENDER__CONNECTION_TYPE", "fake")
+        monkeypatch.setenv("MEDRE_ADAPTER__LXMF_SENDER__DISPLAY_NAME", "sender")
+
+        monkeypatch.setenv("MEDRE_ADAPTER__LXMF_RECEIVER__TRANSPORT", "lxmf")
+        monkeypatch.setenv("MEDRE_ADAPTER__LXMF_RECEIVER__CONNECTION_TYPE", "fake")
+        monkeypatch.setenv("MEDRE_ADAPTER__LXMF_RECEIVER__DISPLAY_NAME", "receiver")
+
+        base = _make_base_config()
+        result = apply_env_overrides(base)
+
+        assert "lxmf-sender" in result.adapters.lxmf
+        assert "lxmf-receiver" in result.adapters.lxmf
+
+        sender = result.adapters.lxmf["lxmf-sender"]
+        assert sender.adapter_id == "lxmf-sender"
+        assert sender.config.connection_type == "fake"
+        assert sender.config.display_name == "sender"
+
+        receiver = result.adapters.lxmf["lxmf-receiver"]
+        assert receiver.adapter_id == "lxmf-receiver"
+        assert receiver.config.connection_type == "fake"
+        assert receiver.config.display_name == "receiver"
+
+        # No cross-contamination
+        assert sender.config.display_name == "sender"
+        assert receiver.config.display_name == "receiver"
+
     # (g) Unknown token without TRANSPORT raises with new error format.
     def test_unknown_token_without_transport_raises(
         self, monkeypatch: pytest.MonkeyPatch

@@ -315,6 +315,22 @@ pytest tests/test_meshcore_live.py -m live -v
 
 See `docs/runbooks/meshcore-live-smoke.md` for full smoke test documentation.
 
+### 5.4 Runtime Configuration via Environment Variables
+
+#### 5.4.1 Env-First Adapter Creation
+
+MeshCore adapters can be created entirely from environment variables:
+
+.. code-block:: bash
+
+    export MEDRE_ADAPTER__MESHCORE_TBEAM__TRANSPORT=meshcore
+    export MEDRE_ADAPTER__MESHCORE_TBEAM__CONNECTION_TYPE=ble
+    export MEDRE_ADAPTER__MESHCORE_TBEAM__BLE_ADDRESS=C4:4F:33:6A:B0:23
+
+The ``<TOKEN>`` becomes the adapter's ``adapter_id``. No TOML section is needed.
+
+Routes still require TOML configuration. Legacy ``MEDRE_MESHCORE_*`` runtime config vars remain unsupported.
+
 ## 6. Startup and Shutdown Behavior
 
 ### 6.1 Startup sequence

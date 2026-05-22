@@ -675,6 +675,33 @@ harness and the LXMF adapter alpha:
   clients (though such integration is a future goal)
 - Reticulum as a standalone MEDRE adapter (not planned)
 
+## Runtime Configuration via Environment Variables
+
+### Env-First Adapter Creation
+
+MEDRE can create LXMF adapters entirely from environment variables, without any TOML config section. Use the ``TRANSPORT`` field to declare the adapter type:
+
+.. code-block:: bash
+
+    # Create an LXMF adapter named lxmf-sender
+    export MEDRE_ADAPTER__LXMF_SENDER__TRANSPORT=lxmf
+    export MEDRE_ADAPTER__LXMF_SENDER__CONNECTION_TYPE=reticulum
+    export MEDRE_ADAPTER__LXMF_SENDER__IDENTITY_PATH=/safe/path/sender.identity
+    export MEDRE_ADAPTER__LXMF_SENDER__DISPLAY_NAME=sender
+
+    # Create an LXMF adapter named lxmf-receiver
+    export MEDRE_ADAPTER__LXMF_RECEIVER__TRANSPORT=lxmf
+    export MEDRE_ADAPTER__LXMF_RECEIVER__CONNECTION_TYPE=reticulum
+    export MEDRE_ADAPTER__LXMF_RECEIVER__IDENTITY_PATH=/safe/path/receiver.identity
+    export MEDRE_ADAPTER__LXMF_RECEIVER__DISPLAY_NAME=receiver
+
+The ``<TOKEN>`` (``LXMF_SENDER``, ``LXMF_RECEIVER``) becomes the adapter's ``adapter_id`` (lowercased, hyphens for underscores).
+
+**Important:**
+- Routes still require TOML configuration. Env-created adapters must be referenced by adapter_id in route definitions.
+- ``MEDRE_LXMF_*`` runtime config variables remain **unsupported**.
+- The live-test convenience vars (``LXMF_CONNECTION_TYPE``, ``LXMF_IDENTITY_PATH``, etc.) are pytest-only and do not affect runtime config.
+
 ## SDK Reality Pass Summary (2026-05-12)
 
 Performed via Python `inspect` module on installed packages in

@@ -709,6 +709,32 @@ All findings labeled CONFIRMED (source-read), INFERRED (pattern-derived), or UNK
 | BLE PIN interaction with Ed25519                                             | How pairing relates to identity                                                                                                                                  | UNKNOWN                                            |
 | Firmware default port                                                        | Is 4000 configurable on device?                                                                                                                                  | UNKNOWN                                            |
 
+## Runtime Configuration via Environment Variables
+
+### Env-First Adapter Creation
+
+MEDRE can create MeshCore adapters entirely from environment variables, without any TOML config section. Use the ``TRANSPORT`` field to declare the adapter type:
+
+.. code-block:: bash
+
+    # Create a BLE MeshCore adapter named meshcore-tbeam
+    export MEDRE_ADAPTER__MESHCORE_TBEAM__TRANSPORT=meshcore
+    export MEDRE_ADAPTER__MESHCORE_TBEAM__CONNECTION_TYPE=ble
+    export MEDRE_ADAPTER__MESHCORE_TBEAM__BLE_ADDRESS=C4:4F:33:6A:B0:23
+
+    # Create a TCP MeshCore adapter named meshcore-lab
+    export MEDRE_ADAPTER__MESHCORE_LAB__TRANSPORT=meshcore
+    export MEDRE_ADAPTER__MESHCORE_LAB__CONNECTION_TYPE=tcp
+    export MEDRE_ADAPTER__MESHCORE_LAB__HOST=192.168.1.50
+    export MEDRE_ADAPTER__MESHCORE_LAB__PORT=4403
+
+The ``<TOKEN>`` (``MESHCORE_TBEAM``, ``MESHCORE_LAB``) becomes the adapter's ``adapter_id`` (lowercased, hyphens for underscores).
+
+**Important:**
+- Routes still require TOML configuration. Env-created adapters must be referenced by adapter_id in route definitions.
+- ``MEDRE_MESHCORE_*`` runtime config variables remain **unsupported**.
+- The live-test convenience vars (``MESHCORE_CONNECTION_TYPE``, ``MESHCORE_BLE_ADDRESS``, etc.) are pytest-only and do not affect runtime config.
+
 ## Cleanup
 
 After running tests:

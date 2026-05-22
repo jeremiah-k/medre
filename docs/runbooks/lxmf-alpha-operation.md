@@ -124,6 +124,23 @@ MEDRE never handles `RNS.Identity` or `RNS.Destination` objects directly. The ad
 - `native_message_id`: the LXMF message hash as a 64-char hex string.
 - Core and pipeline code never import from `lxmf` or `RNS`.
 
+### 4.5 Runtime Configuration via Environment Variables
+
+#### 4.5.1 Env-First Adapter Creation
+
+LXMF adapters can be created entirely from environment variables:
+
+.. code-block:: bash
+
+    export MEDRE_ADAPTER__LXMF_SENDER__TRANSPORT=lxmf
+    export MEDRE_ADAPTER__LXMF_SENDER__CONNECTION_TYPE=reticulum
+    export MEDRE_ADAPTER__LXMF_SENDER__IDENTITY_PATH=/safe/path/sender.identity
+    export MEDRE_ADAPTER__LXMF_SENDER__DISPLAY_NAME=sender
+
+The ``<TOKEN>`` becomes the adapter's ``adapter_id``. No TOML section is needed.
+
+Routes still require TOML configuration. Legacy ``MEDRE_LXMF_*`` runtime config vars remain unsupported.
+
 ## 5. Delivery Mode Semantics [CONFIRMED]
 
 LXMF supports four delivery methods. The semantics are fundamentally asynchronous and store-and-forward. **Do not assume "instant delivered" or "realtime" guarantees.**
