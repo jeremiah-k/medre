@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 
 from medre.config.loader import load_config
-from medre.runtime.routes import RouteConfigSet, RouteDirectionality
+from medre.config.routes import RouteConfigSet, RouteDirectionality
 
 from .exit_codes import EXIT_CONFIG
 

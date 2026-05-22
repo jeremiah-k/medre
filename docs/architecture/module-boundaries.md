@@ -90,7 +90,7 @@ Owns TOML loading, model classes, environment overrides, and path resolution.
 | `runtime/observability` | `core.diagnostics`, `core.routing.stats`                                                                                      | Adapter code                                              |
 | `core/*`                | Other `core/*` sub-packages                                                                                                   | `adapters.*`, `runtime.*`, `cli.*`                        |
 | `adapters/<transport>/` | `core.contracts.adapter`, `core.events`, `core.rendering`                                                                     | Other adapter packages, `runtime.*`                       |
-| `config/`               | `medre.config.*` (own internals), `medre.runtime.routes` (TYPE_CHECKING/deferred only), `medre.core.observability.log_levels` | `medre.adapters.*`, adapter SDKs, `medre.runtime.builder` |
+| `config/`               | `medre.config.*` (own internals including `config.routes`), `medre.core.observability.log_levels` | `medre.adapters.*`, adapter SDKs, `medre.runtime.*` |
 
 Key invariants:
 
@@ -101,10 +101,10 @@ Key invariants:
 - **`core/` is transport-agnostic.** No module under `core/` imports from
   `adapters/` or `runtime/`.
 - **Config package follows the same `no-adapters, no-SDK` rule as core.** It
-  imports from `medre.config.*` (its own internals), `medre.core.observability.log_levels`
-  (lightweight), and `medre.runtime.routes` (route config models — only under
-  `TYPE_CHECKING` or deferred function-local imports). It must **not**
-  import `medre.adapters.*`, protocol SDKs, `medre.runtime.builder`, or `medre.core.engine.*`.
+  imports from `medre.config.*` (its own internals, including `medre.config.routes`
+  for route configuration models), `medre.core.observability.log_levels`
+  (lightweight). It must **not**
+  import `medre.adapters.*`, protocol SDKs, `medre.runtime.*`, or `medre.core.engine.*`.
 
 ## What was removed or moved
 

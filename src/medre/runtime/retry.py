@@ -190,6 +190,7 @@ class RetryWorker:
             return
 
         parent_receipt_id = receipt.receipt_id
+        capacity_acquired = False
 
         # Acquire delivery capacity.
         if self._capacity is not None:
@@ -266,6 +267,7 @@ class RetryWorker:
                     receipt.receipt_id,
                 )
                 return
+            capacity_acquired = True
 
         try:
             # Reconstruct minimal Route and DeliveryPlan from receipt metadata.
@@ -423,7 +425,7 @@ class RetryWorker:
                 exc_info=True,
             )
         finally:
-            if self._capacity is not None:
+            if capacity_acquired and self._capacity is not None:
                 await self._capacity.release_delivery()
 
     async def _check_dead_lettered(

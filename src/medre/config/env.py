@@ -70,7 +70,7 @@ from medre.config.model import (
     RetryConfig,
     RuntimeConfig,
 )
-from medre.runtime.routes import RouteConfig, RouteConfigSet
+from medre.config.routes import RouteConfig, RouteConfigSet
 
 __all__ = [
     "RETRY_ENV_PREFIX",

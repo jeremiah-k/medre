@@ -29,7 +29,7 @@ from medre.runtime.route_engine import (
     register_routes,
     validate_route_adapter_refs,
 )
-from medre.runtime.routes import (
+from medre.config.routes import (
     BridgePolicy,
     RouteConfig,
     RouteConfigSet,

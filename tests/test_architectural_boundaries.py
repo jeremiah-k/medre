@@ -1169,8 +1169,8 @@ class TestConfigModelBoundaryComprehensive:
         "LXMF",
     )
 
-    # medre.runtime.routes is allowed ONLY under TYPE_CHECKING or deferred
-    _RUNTIME_ROUTES_MODULE = "medre.runtime.routes"
+    # medre.config.routes is a same-package config module — allowed at top level
+    _CONFIG_ROUTES_MODULE = "medre.config.routes"
 
     def test_config_model_no_banned_imports(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
@@ -1183,17 +1183,6 @@ class TestConfigModelBoundaryComprehensive:
         # Check runtime-scope imports for banned items
         rt_imports = _runtime_imports(source, file_path=str(model_file))
         violations = _check_banned_ast(rt_imports, self._BANNED_TOP_LEVEL, rel_path=rel)
-
-        # rt_imports already excludes TYPE_CHECKING body imports (via AST),
-        # so any match here IS a genuine runtime-scope violation.
-        for r in rt_imports:
-            if r.module == self._RUNTIME_ROUTES_MODULE or r.module.startswith(
-                self._RUNTIME_ROUTES_MODULE + "."
-            ):
-                violations.append(
-                    f"{rel}:{r.lineno}: top-level import of {r.module} "
-                    "(must be under TYPE_CHECKING or deferred)"
-                )
 
         assert (
             violations == []

@@ -9,7 +9,7 @@ import pytest
 from medre.config.errors import ConfigValidationError
 from medre.config.loader import load_config
 from medre.core.routing.router import Router
-from medre.runtime.routes import (
+from medre.config.routes import (
     RouteConfig,
     RouteConfigSet,
     RouteDirectionality,
@@ -678,7 +678,7 @@ class TestChannelRoomMapExpansion:
         """channel_room_map route with policy.allowed_event_types=["message"]
         produces routes with event_kinds=("message",) (lines 526-527)."""
         from medre.runtime.route_engine import build_runtime_routes
-        from medre.runtime.routes import BridgePolicy
+        from medre.config.routes import BridgePolicy
 
         policy = BridgePolicy(allowed_event_types=("message",))
         rc = RouteConfig(

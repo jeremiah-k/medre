@@ -39,7 +39,7 @@ from medre.runtime.errors import RuntimeConfigError
 
 if TYPE_CHECKING:
     from medre.core.lifecycle.states import AdapterState
-    from medre.runtime.routes import RouteConfig, RouteConfigSet
+    from medre.config.routes import RouteConfig, RouteConfigSet
 
 __all__ = [
     "DegradedRoute",
@@ -466,7 +466,7 @@ def _expand_channel_room_map_route(
     RouteValidationError
         If platform lookup fails for an adapter.
     """
-    from medre.runtime.routes import RouteDirectionality
+    from medre.config.routes import RouteDirectionality
 
     assert rc.channel_room_map is not None  # guarded by caller
 
@@ -606,7 +606,7 @@ def _expand_all_routes(
         A pair of (expanded routes, provenance mapping).
         The provenance dict maps ``expanded_route_id → config_route_id``.
     """
-    from medre.runtime.routes import RouteDirectionality
+    from medre.config.routes import RouteDirectionality
 
     if adapter_platforms is None:
         adapter_platforms = {}

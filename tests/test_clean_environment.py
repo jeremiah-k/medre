@@ -337,7 +337,7 @@ class TestCleanEnvironmentImportBoundaries:
         "medre.runtime.app",
         "medre.runtime.errors",
         "medre.runtime.evidence",
-        "medre.runtime.routes",
+        "medre.config.routes",
         "medre.runtime.snapshot",
         "medre.runtime.boot_summary",
         "medre.core.runtime.capacity",

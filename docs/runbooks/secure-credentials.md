@@ -8,7 +8,7 @@ This runbook provides guidance for handling secret material (access tokens, priv
 
 ## 1. Principles
 
-1. **Environment variables for secrets.** All secret material must be provided via environment variables, not command-line arguments, config files checked into version control, or hardcoded strings.
+1. **Environment variables for secrets.** All secret material must be provided via environment variables, not command-line arguments, config files checked into version control, or hardcoded strings. **Approved exception:** Matrix sidecar auth — `medre adapter matrix auth login` saves credentials to a local sidecar JSON file outside the repo tree (see §2.1).
 2. **Never commit credentials.** Files containing tokens, private keys, or identity data must be excluded from git. Use `.gitignore` patterns.
 3. **Store files outside the repo tree.** If a secret must be stored as a file (e.g., LXMF identity key), store it outside the repository directory or in a path explicitly excluded by `.gitignore`.
 4. **Never log tokens or private keys.** Adapters and tests must not log secret material. Diagnostic output and error messages must exclude raw credentials.
@@ -39,17 +39,15 @@ Never commit config files containing real tokens to version control. MEDRE's
 `.gitignore` excludes `*.toml` files outside `examples/configs/`, but operators
 must verify this before pushing.
 
-**Use `medre adapter matrix auth login` to populate tokens safely.** This command is a
-credential setup utility — it does not start the runtime, mutates the config
-file specified with `--config`, never prints the token to the terminal, and
-prompts for the password securely unless `--password-stdin` is given. It writes
-the `homeserver`, `user_id`, and `access_token` fields into the adapter section
-of the config file:
+**Use `medre adapter matrix auth login` to populate tokens safely.** This command
+is a credential setup utility for Matrix token acquisition. Accepted flags are
+`--homeserver`, `--user`, `--password`, and `--password-stdin`. It prompts
+securely by default, keeps the token out of terminal output, and saves
+credentials to the Matrix sidecar JSON file. The runtime reads credentials from
+this sidecar at startup.
 
 ```bash
 medre adapter matrix auth login \
-  --config /path/to/config.toml \
-  --adapter-id matrix \
   --homeserver https://matrix.example.com \
   --user @bot:example.com
 ```

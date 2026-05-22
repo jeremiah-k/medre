@@ -160,7 +160,7 @@ class TestRuntimeCoreNoSdk:
         "medre.runtime.observability",
         "medre.runtime.boot_summary",
         "medre.runtime.errors",
-        "medre.runtime.routes",
+        "medre.config.routes",
         "medre.runtime.route_engine",
     ]
 
@@ -266,7 +266,7 @@ class TestRuntimeCoreModuleGuard:
         "medre.runtime.observability",
         "medre.runtime.boot_summary",
         "medre.runtime.errors",
-        "medre.runtime.routes",
+        "medre.config.routes",
         "medre.runtime.route_engine",
         "medre.core.engine.pipeline",
         "medre.core.storage.sqlite",

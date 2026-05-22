@@ -6,5 +6,5 @@ Import directly from concrete modules:
   from medre.config.paths import MedrePaths
   from medre.config.loader import load_config
   from medre.config.env import MedreEnvConfig
-  from medre.runtime.routes import RouteConfig
+  from medre.config.routes import RouteConfig
 """

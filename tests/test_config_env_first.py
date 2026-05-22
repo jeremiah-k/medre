@@ -30,7 +30,7 @@ from medre.config.model import (
     RuntimeOptions,
     StorageConfig,
 )
-from medre.runtime.routes import (
+from medre.config.routes import (
     BridgePolicy,
     RouteConfig,
     RouteConfigSet,

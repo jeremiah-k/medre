@@ -40,7 +40,7 @@ from medre.config.model import (
 
 from medre.config.paths import MedrePaths, MedrePathsError, resolve
 from medre.core.observability.log_levels import VALID_LEVEL_NAMES
-from medre.runtime.routes import RouteConfigSet
+from medre.config.routes import RouteConfigSet
 
 # ---------------------------------------------------------------------------
 # Config source enum

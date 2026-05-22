@@ -56,7 +56,7 @@ from medre.core.rendering.renderer import RenderingResult
 from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.runtime.app import MedreApp, RuntimeState
 from medre.runtime.builder import RuntimeBuilder
-from medre.runtime.routes import (
+from medre.config.routes import (
     BridgePolicy,
     RouteConfig,
     RouteConfigSet,

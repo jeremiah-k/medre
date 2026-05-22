@@ -537,6 +537,7 @@ class PipelineRunner:
                 continue
 
             current_rel = rel
+            target_event_id = rel.target_event_id
 
             # -- Phase 1: Native-ref enrichment --------------------------------
             # Only when list_fn is available; otherwise skip native-ref lookup.
@@ -566,7 +567,7 @@ class PipelineRunner:
                             Callable[[str], Awaitable[list[NativeMessageRef]]],
                             list_fn,
                         )
-                        refs = await list_native_refs(current_rel.target_event_id)
+                        refs = await list_native_refs(target_event_id)
                     except Exception:
                         self._log.debug(
                             "Failed to enrich relation native ref for "
@@ -608,7 +609,7 @@ class PipelineRunner:
                         )
                         current_rel = EventRelation(
                             relation_type=current_rel.relation_type,
-                            target_event_id=current_rel.target_event_id,
+                            target_event_id=target_event_id,
                             target_native_ref=enriched_native_ref,
                             key=current_rel.key,
                             fallback_text=current_rel.fallback_text,
@@ -631,7 +632,7 @@ class PipelineRunner:
                         ):
                             current_rel = EventRelation(
                                 relation_type=current_rel.relation_type,
-                                target_event_id=current_rel.target_event_id,
+                                target_event_id=target_event_id,
                                 target_native_ref=None,
                                 key=current_rel.key,
                                 fallback_text=current_rel.fallback_text,
@@ -659,7 +660,7 @@ class PipelineRunner:
                     target_event = await cast(
                         Callable[[str], Awaitable[object]],
                         get_fn,
-                    )(current_rel.target_event_id)
+                    )(target_event_id)
                     if target_event is not None:
                         target_payload = getattr(target_event, "payload", None)
                         extracted_text: str | None = None
@@ -684,7 +685,7 @@ class PipelineRunner:
                                 new_meta["original_text"] = extracted_text
                             current_rel = EventRelation(
                                 relation_type=current_rel.relation_type,
-                                target_event_id=current_rel.target_event_id,
+                                target_event_id=target_event_id,
                                 target_native_ref=current_rel.target_native_ref,
                                 key=current_rel.key,
                                 fallback_text=new_fallback,
@@ -738,7 +739,7 @@ class PipelineRunner:
                         if sender_changed:
                             current_rel = EventRelation(
                                 relation_type=current_rel.relation_type,
-                                target_event_id=current_rel.target_event_id,
+                                target_event_id=target_event_id,
                                 target_native_ref=current_rel.target_native_ref,
                                 key=current_rel.key,
                                 fallback_text=current_rel.fallback_text,
@@ -1606,6 +1607,16 @@ class PipelineRunner:
                 backoff = executor.compute_backoff(attempt_number)
                 _next_retry_at = now + backoff
 
+        # Populate adapter_message_id only when delivery succeeded and
+        # the adapter returned a native_message_id.  Never fabricate IDs.
+        _adapter_message_id: str | None = None
+        if (
+            status == "sent"
+            and adapter_result is not None
+            and adapter_result.native_message_id is not None
+        ):
+            _adapter_message_id = adapter_result.native_message_id
+
         receipt = DeliveryReceipt(
             sequence=0,
             receipt_id=receipt_id,
@@ -1617,7 +1628,7 @@ class PipelineRunner:
             status=status,
             error=error,
             failure_kind=_receipt_failure_kind,
-            adapter_message_id=None,
+            adapter_message_id=_adapter_message_id,
             next_retry_at=_next_retry_at,
             created_at=now,
             attempt_number=attempt_number,

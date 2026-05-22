@@ -26,7 +26,7 @@ from medre.core.routing.router import Router
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.errors import RuntimeConfigError
 from medre.runtime.route_engine import RouteValidationError, register_routes
-from medre.runtime.routes import RouteConfig, RouteConfigSet, RouteDirectionality
+from medre.config.routes import RouteConfig, RouteConfigSet, RouteDirectionality
 from tests.helpers.runtime_builder import (
     clean_path_env,
     make_fake_matrix_config,
@@ -626,7 +626,7 @@ class TestMatrixAutoJoinRoomsDerivation:
         fm gets srcroom from forward source and srcroom from reverse target.
         ft is not a Matrix adapter so it's ignored.
         """
-        from medre.runtime.routes import RouteDirectionality
+        from medre.config.routes import RouteDirectionality
 
         rt_matrix = MatrixRuntimeConfig(
             adapter_id="fm",
@@ -668,7 +668,7 @@ class TestMatrixAutoJoinRoomsDerivation:
     ) -> None:
         """Bidirectional between two Matrix adapters: each gets its source room
         and the other's source room (as target in reverse)."""
-        from medre.runtime.routes import RouteDirectionality
+        from medre.config.routes import RouteDirectionality
 
         rt_matrix_a = MatrixRuntimeConfig(
             adapter_id="ma",

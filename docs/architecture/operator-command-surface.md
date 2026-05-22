@@ -134,7 +134,7 @@ surface.
 
 | Command                           | Classification       | Rationale                                                                                                                                                                                                                                                 |
 | --------------------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `medre adapter matrix auth login` | **Credential setup** | Credential setup utility. Does not start runtime. Mutates config with `--config`. Never prints token. Password prompted securely unless `--password-stdin`. Writes `homeserver`, `user_id`, and `access_token` to the adapter section in the config file. |
+| `medre adapter matrix auth login` | **Credential setup** | Credential setup utility for Matrix token acquisition. Accepted flags: `--homeserver`, `--user`, `--password`, `--password-stdin`. Prompts securely by default, keeps the token out of terminal output, and saves credentials to the Matrix sidecar JSON file. The runtime reads credentials from this sidecar at startup. |
 
 ### Specialized commands (inspect-first guidance)
 

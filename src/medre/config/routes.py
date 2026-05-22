@@ -1,4 +1,4 @@
-"""Static route and bridge-policy models for the MEDRE runtime.
+"""Static route and bridge-policy models for the MEDRE config layer.
 
 This module defines the deterministic, immutable data structures that
 describe named routes between adapters — the configuration-level view
@@ -7,6 +7,11 @@ the runtime builder.
 
 It is deliberately **transport-agnostic**: adapter IDs, event kinds,
 channel IDs, and sender IDs are plain strings with no SDK imports.
+
+This module is the canonical home for route config dataclasses.
+:mod:`medre.runtime.route_engine` owns runtime route expansion and
+topology; it imports from this module.  :mod:`medre.config` must not
+import from :mod:`medre.runtime`.
 
 Public symbols
 --------------

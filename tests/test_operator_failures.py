@@ -72,7 +72,7 @@ from medre.runtime.route_engine import (
     check_route_loops,
     validate_route_adapter_refs,
 )
-from medre.runtime.routes import (
+from medre.config.routes import (
     BridgePolicy,
     RouteConfig,
     RouteConfigSet,
@@ -553,7 +553,7 @@ class TestUnsupportedPolicyFields:
     def test_sender_allowlist_rejected(self) -> None:
         policy = BridgePolicy(sender_allowlist=("alice",))
         with pytest.raises(ConfigValidationError) as exc_info:
-            from medre.runtime.routes import _reject_unsupported_policy_fields
+            from medre.config.routes import _reject_unsupported_policy_fields
 
             _reject_unsupported_policy_fields(
                 policy,
@@ -567,7 +567,7 @@ class TestUnsupportedPolicyFields:
 
     def test_room_allowlist_rejected(self) -> None:
         policy = BridgePolicy(room_allowlist=("!room:t",))
-        from medre.runtime.routes import _reject_unsupported_policy_fields
+        from medre.config.routes import _reject_unsupported_policy_fields
 
         with pytest.raises(ConfigValidationError) as exc_info:
             _reject_unsupported_policy_fields(
@@ -579,7 +579,7 @@ class TestUnsupportedPolicyFields:
 
     def test_channel_allowlist_rejected(self) -> None:
         policy = BridgePolicy(channel_allowlist=("ch1",))
-        from medre.runtime.routes import _reject_unsupported_policy_fields
+        from medre.config.routes import _reject_unsupported_policy_fields
 
         with pytest.raises(ConfigValidationError) as exc_info:
             _reject_unsupported_policy_fields(
@@ -591,7 +591,7 @@ class TestUnsupportedPolicyFields:
 
     def test_allowed_event_types_accepted(self) -> None:
         """The one supported policy field should not raise."""
-        from medre.runtime.routes import _reject_unsupported_policy_fields
+        from medre.config.routes import _reject_unsupported_policy_fields
 
         policy = BridgePolicy(allowed_event_types=("message",))
         # Should not raise.

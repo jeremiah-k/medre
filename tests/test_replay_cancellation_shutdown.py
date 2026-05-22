@@ -39,7 +39,7 @@ from medre.core.storage.replay import (
     collect_replay_summary,
 )
 from medre.runtime.builder import RuntimeBuilder
-from medre.runtime.routes import RouteConfig, RouteConfigSet
+from medre.config.routes import RouteConfig, RouteConfigSet
 
 # ---------------------------------------------------------------------------
 # Helpers
