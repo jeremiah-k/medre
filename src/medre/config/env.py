@@ -712,16 +712,12 @@ def apply_instance_env_overrides(
 
     if unknown_tokens:
         known = sorted(token_to_adapter.keys())
-        msgs: list[str] = []
-        for token in unknown_tokens:
-            msgs.append(
-                f"Unknown adapter token {token!r}: no adapter found in config "
-                f"and no TRANSPORT specified. Set "
-                f"MEDRE_ADAPTER__{token}__TRANSPORT=<transport> to create one, "
-                f"or ensure a TOML adapter with a matching adapter_id exists. "
-                f"Known tokens: {known}"
-            )
-        raise ConfigValidationError("; ".join(msgs))
+        msgs = [
+            f"Unknown adapter token {t!r}: no adapter found and no TRANSPORT specified. "
+            f"Set MEDRE_ADAPTER__{t}__TRANSPORT=<transport> to create one."
+            for t in sorted(unknown_tokens)
+        ]
+        raise ConfigValidationError(f"{'; '.join(msgs)}. Known tokens: {known}")
 
     # Prepare mutable transport dicts.
     new_matrix = dict(config.adapters.matrix)
@@ -899,6 +895,11 @@ def apply_instance_env_overrides(
             adapter_kind=adapter_kind,
             config=new_config,
         )
+        if adapter_id in transport_dicts[transport]:
+            raise ConfigValidationError(
+                f"Adapter ID {adapter_id!r} already exists in {transport} adapters; "
+                f"cannot create duplicate via env"
+            )
         transport_dicts[transport][adapter_id] = new_rtc
 
         # Back-fill target_transport on provenance entries for this token.
@@ -910,27 +911,14 @@ def apply_instance_env_overrides(
 
     # -- Normalized-token collision check (existing + newly created) --------
 
-    token_locations: dict[str, list[tuple[str, str, str]]] = {}
-    for transport_name, tdict in transport_dicts.items():
-        for key, rtc in tdict.items():
-            tok = normalize_adapter_id(rtc.adapter_id)
-            token_locations.setdefault(tok, []).append(
-                (transport_name, key, rtc.adapter_id)
-            )
-    token_collisions = {
-        tok: locs for tok, locs in token_locations.items() if len(locs) > 1
-    }
-    if token_collisions:
-        collision_msgs: list[str] = []
-        for tok, locs in token_collisions.items():
-            details = "; ".join(
-                f"{t}.{k} adapter_id={a!r}" for t, k, a in locs
-            )
-            collision_msgs.append(
-                f"Adapter env token collision for {tok}: {details}. "
-                f"Rename one adapter_id."
-            )
-        raise ConfigValidationError("; ".join(collision_msgs))
+    all_refs = [
+        (t, k, rtc.adapter_id)
+        for t, tdict in transport_dicts.items()
+        for k, rtc in tdict.items()
+    ]
+    collision_err = _check_token_collisions(all_refs)
+    if collision_err:
+        raise ConfigValidationError(collision_err)
 
     from medre.config.model import AdapterConfigSet
 

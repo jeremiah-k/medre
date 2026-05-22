@@ -1470,3 +1470,29 @@ class TestEnvCreatedAdapters:
 
         # Routes are unchanged — no env var can create or modify routes.
         assert result.routes == base.routes
+
+    # (u) Unsupported field validation for env-created adapters.
+    def test_env_created_unsupported_field_validation(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Unsupported fields on env-created adapters raise ConfigValidationError."""
+        monkeypatch.setenv("MEDRE_ADAPTER__MATRIX_BAD__TRANSPORT", "matrix")
+        monkeypatch.setenv("MEDRE_ADAPTER__MATRIX_BAD__UNSUPPORTED_FIELD", "x")
+        base = _make_base_config()
+        with pytest.raises(ConfigValidationError) as excinfo:
+            apply_env_overrides(base)
+        msg = str(excinfo.value)
+        assert "unsupported_field" in msg
+
+    # (v) Dict/tuple field rejection for env-created adapters.
+    def test_env_created_adapter_rejects_dict_tuple_fields(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Dict/tuple fields rejected on env-created adapters."""
+        monkeypatch.setenv("MEDRE_ADAPTER__MATRIX_ENV__TRANSPORT", "matrix")
+        monkeypatch.setenv("MEDRE_ADAPTER__MATRIX_ENV__HOMESERVER", "https://env.test")
+        # auto_join_rooms is a tuple field — should be rejected
+        monkeypatch.setenv("MEDRE_ADAPTER__MATRIX_ENV__auto_join_rooms", "!room:test")
+        base = _make_base_config()
+        with pytest.raises(ConfigValidationError, match="cannot be set through env"):
+            apply_env_overrides(base)
