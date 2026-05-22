@@ -1,6 +1,6 @@
 # MEDRE Transport Capability Status
 
-> **Generated:** 2026-05-21
+> **Generated:** 2026-05-22
 >
 > **Context:** This is a living document. It tracks which MEDRE capabilities are implemented, tested, and validated across each transport adapter. It exists so operators and developers can see, at a glance, what works and what does not.
 >
@@ -11,7 +11,7 @@ This document is the single source of truth for per-transport capability trackin
 ## Capability Matrix
 
 | Capability                          | Matrix                  | Meshtastic              | MeshCore    | LXMF        |
-| ----------------------------------- | ----------------------- | ----------------------- | ----------- | ----------- | --- |
+| ----------------------------------- | ----------------------- | ----------------------- | ----------- | ----------- |
 | Config load                         | live-validated          | fake-tested             | fake-tested | fake-tested |
 | Instance-scoped env overrides       | live-validated          | fake-tested             | fake-tested | fake-tested |
 | Env-first adapter creation          | fake-tested             | fake-tested             | fake-tested | fake-tested |
@@ -26,7 +26,7 @@ This document is the single source of truth for per-transport capability trackin
 | Run-session path                    | live-validated          | not started             | not started | not started |
 | Operator runbook                    | live-validated          | opt-in live test exists | designed    | designed    |
 | Live validation recorded            | live-validated          | not started             | not started | not started |
-| Matrix live adapter (local Synapse) | opt-in live test exists |                         |             |             |     |
+| Matrix live adapter (local Synapse) | live-validated          |                         |             |             |
 
 ## Interpretation
 
@@ -45,11 +45,11 @@ These statuses mean specific things. Do not read between the lines.
 
 ### Matrix
 
-Matrix is the most mature transport. Live validation was recorded on 2026-05-10 (13 plaintext tests passed, 7 E2EE tests passed). See `docs/runbooks/matrix-alpha-operation.md` section "Live Validation Evidence" for details.
+Matrix is the most mature transport. Live validation was recorded on 2026-05-10 (13 plaintext tests passed, 7 E2EE tests passed) and again on 2026-05-22 (15 live tests passed, 1 xfailed against local Docker Synapse). See `docs/runbooks/matrix-alpha-operation.md` section "Live Validation Evidence" for details.
 
 The Matrix adapter supports plaintext and E2EE text alpha. E2EE supports encrypted rooms for text messages only. See the alpha operation runbook for the full unsupported features list.
 
-Opt-in Matrix live tests use pytest convenience variables such as MATRIX_HOMESERVER, MATRIX_USER_ID, MATRIX_ACCESS_TOKEN, and MATRIX_ROOM_ID. The local Synapse test harness additionally requires `MEDRE_MATRIX_LOCAL_SYNAPSE=1`. Runtime adapter config overrides use instance-scoped MEDRE_ADAPTER**<TOKEN>**<FIELD> variables.
+Opt-in Matrix live tests use pytest convenience variables such as MATRIX_HOMESERVER, MATRIX_USER_ID, MATRIX_ACCESS_TOKEN, and MATRIX_ROOM_ID. The local Synapse test harness additionally requires `MATRIX_LOCAL_SYNAPSE=1`. Runtime adapter config overrides use instance-scoped MEDRE_ADAPTER**<TOKEN>**<FIELD> variables.
 
 ### Meshtastic
 

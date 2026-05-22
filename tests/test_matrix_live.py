@@ -168,12 +168,12 @@ require_live = pytest.mark.skipif(
     ),
 )
 
-_MATRIX_LOCAL_SYNAPSE = os.environ.get("MEDRE_MATRIX_LOCAL_SYNAPSE")
+_MATRIX_LOCAL_SYNAPSE = os.environ.get("MATRIX_LOCAL_SYNAPSE")
 
 require_synapse = pytest.mark.skipif(
-    not _LIVE_ENV_SET or not _MATRIX_LOCAL_SYNAPSE,
+    not _LIVE_ENV_SET or _MATRIX_LOCAL_SYNAPSE != "1",
     reason=(
-        "Set MEDRE_MATRIX_LOCAL_SYNAPSE=1 and MATRIX_HOMESERVER, "
+        "Set MATRIX_LOCAL_SYNAPSE=1 and MATRIX_HOMESERVER, "
         "MATRIX_USER_ID, MATRIX_ACCESS_TOKEN, MATRIX_ROOM_ID "
         "to run local Synapse live tests"
     ),
@@ -1182,11 +1182,11 @@ class TestMatrixLiveSmoke:
 
 
 # ---------------------------------------------------------------------------
-# Local Synapse live tests (require MEDRE_MATRIX_LOCAL_SYNAPSE=1)
+# Local Synapse live tests (require MATRIX_LOCAL_SYNAPSE=1)
 # ---------------------------------------------------------------------------
 @require_synapse
 class TestMatrixLiveLocalSynapse:
-    """Local Synapse-specific live tests requiring MEDRE_MATRIX_LOCAL_SYNAPSE=1."""
+    """Local Synapse-specific live tests requiring MATRIX_LOCAL_SYNAPSE=1."""
 
     async def test_synapse_send_captures_event_id(self):
         """Send a message via local Synapse and verify Matrix event_id is captured.

@@ -79,7 +79,7 @@ export MATRIX_HOMESERVER=http://localhost:8008
 export MATRIX_USER_ID=@bot_user:matrix.local
 export MATRIX_ACCESS_TOKEN=syt_<token>
 export MATRIX_ROOM_ID=!abc123:matrix.local
-export MEDRE_MATRIX_LOCAL_SYNAPSE=1
+export MATRIX_LOCAL_SYNAPSE=1
 ```
 
 ## Running Matrix Live Tests
@@ -94,22 +94,22 @@ export MATRIX_HOMESERVER=http://localhost:8008
 export MATRIX_USER_ID=@bot_user:matrix.local
 export MATRIX_ACCESS_TOKEN=syt_<token>
 export MATRIX_ROOM_ID=!abc123:matrix.local
-export MEDRE_MATRIX_LOCAL_SYNAPSE=1
+export MATRIX_LOCAL_SYNAPSE=1
 ```
 
 ### Running the Tests
 
-Local Synapse tests additionally check `MEDRE_MATRIX_LOCAL_SYNAPSE=1`
+Local Synapse tests additionally check `MATRIX_LOCAL_SYNAPSE=1`
 so that they only run when the local Docker Synapse is deliberately
 configured:
 
 ```bash
 # Run only Matrix live tests against local Synapse:
-export MEDRE_MATRIX_LOCAL_SYNAPSE=1
+export MATRIX_LOCAL_SYNAPSE=1
 pytest tests/test_matrix_live.py -v -m live
 
 # Or run all live tests across all transports:
-export MEDRE_MATRIX_LOCAL_SYNAPSE=1
+export MATRIX_LOCAL_SYNAPSE=1
 pytest -v -m live
 ```
 
@@ -143,11 +143,12 @@ rm -rf data
 - This setup is **opt-in only**. CI does not require Docker by default.
 - Matrix live tests use standard `pytest -m live` gating — they are always skipped
   unless `-m live` is passed, the required `MATRIX_*` environment
-  variables are set, **and** `MEDRE_MATRIX_LOCAL_SYNAPSE=1` is exported.
-- The `MATRIX_*` variables shown above are **pytest live-test convenience
-  vars only**. They are not MEDRE runtime config. Runtime config always uses
-  `MEDRE_ADAPTER__<TOKEN>__<FIELD>` and `MEDRE_ROUTE__<TOKEN>__<FIELD>`.
-  Legacy `MEDRE_MATRIX_*` runtime config vars remain unsupported.
-- `MEDRE_MATRIX_LOCAL_SYNAPSE=1` is an additional gate that ensures local
+  variables are set, **and** `MATRIX_LOCAL_SYNAPSE=1` is exported.
+- The `MATRIX_*` variables shown above (including `MATRIX_LOCAL_SYNAPSE`)
+  are **pytest live-test convenience vars only**. They are not MEDRE runtime
+  config. Runtime config always uses `MEDRE_ADAPTER__<TOKEN>__<FIELD>` and
+  `MEDRE_ROUTE__<TOKEN>__<FIELD>`. Legacy `MEDRE_MATRIX_*` runtime config
+  vars remain unsupported.
+- `MATRIX_LOCAL_SYNAPSE=1` is an additional gate that ensures local
   Synapse tests only run when the operator has deliberately started the
   Docker Synapse instance.
