@@ -551,6 +551,9 @@ class TestDockerEnvKeyCoverage:
             k for k in unrecognized if not k.startswith("MEDRE_ADAPTER__")
         }
         unrecognized = {
+            k for k in unrecognized if not k.startswith("MEDRE_ROUTE__")
+        }
+        unrecognized = {
             k
             for k in unrecognized
             if not any(k.startswith(p) for p in _REJECTED_LEGACY_PREFIXES)

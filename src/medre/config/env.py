@@ -217,6 +217,7 @@ class ProvenanceEntry:
     source_kind: str  # "core", "instance", or "route"
     raw_value: str
     target_adapter_token: str | None = None
+    target_route_token: str | None = None
     target_transport: str | None = None
     target_field: str | None = None
 
@@ -239,6 +240,7 @@ class EnvProvenance:
         *,
         source_kind: str = "core",
         target_adapter_token: str | None = None,
+        target_route_token: str | None = None,
         target_transport: str | None = None,
         target_field: str | None = None,
     ) -> None:
@@ -248,6 +250,7 @@ class EnvProvenance:
             source_kind=source_kind,
             raw_value=value,
             target_adapter_token=target_adapter_token,
+            target_route_token=target_route_token,
             target_transport=target_transport,
             target_field=target_field,
         )
@@ -687,7 +690,7 @@ class MedreEnvConfig:
                         parsed.env_var_name,
                         parsed.raw_value,
                         source_kind="route",
-                        target_adapter_token=token,
+                        target_route_token=token,
                         target_field=field_name,
                     )
 
@@ -1065,6 +1068,89 @@ def apply_instance_env_overrides(
 # ---------------------------------------------------------------------------
 
 
+def _build_route_toml_data_from_env_fields(
+    field_map: dict[str, ParsedAdapterEnvValue],
+    route_id: str,
+    existing: RouteConfig | None = None,
+) -> RouteConfig:
+    """Convert env field map to TOML-shaped dict, then validate via from_toml_dict.
+
+    For override mode (existing is not None), starts from existing route data.
+    For creation mode, builds from scratch.
+
+    Returns a validated RouteConfig.
+    """
+    # Start from existing or empty.
+    if existing is not None:
+        toml_data: dict[str, Any] = {
+            "source_adapters": list(existing.source_adapters),
+            "dest_adapters": list(existing.dest_adapters),
+            "directionality": existing.directionality.value,
+            "enabled": existing.enabled,
+            "source_channel": existing.source_channel,
+            "dest_channel": existing.dest_channel,
+            "source_room": existing.source_room,
+            "dest_room": existing.dest_room,
+        }
+        # Preserve complex fields that cannot be set via single env vars.
+        # These would be silently dropped if not carried through the TOML
+        # round-trip inside from_toml_dict.
+        if existing.channel_room_map is not None:
+            toml_data["channel_room_map"] = existing.channel_room_map
+        if existing.policy is not None:
+            toml_data["policy"] = dataclasses.asdict(existing.policy)
+        if existing.retry is not None:
+            toml_data["retry"] = dataclasses.asdict(existing.retry)
+    else:
+        toml_data = {}
+
+    for fname, parsed in field_map.items():
+        if fname == "route_id":
+            route_id = parsed.raw_value.strip()
+        elif fname == "source_adapters":
+            toml_data["source_adapters"] = [
+                s.strip()
+                for s in parsed.raw_value.split(",")
+                if s.strip()
+            ]
+        elif fname == "dest_adapters":
+            toml_data["dest_adapters"] = [
+                s.strip()
+                for s in parsed.raw_value.split(",")
+                if s.strip()
+            ]
+        elif fname == "directionality":
+            toml_data["directionality"] = parsed.raw_value.strip().lower()
+        elif fname == "enabled":
+            toml_data["enabled"] = _coerce_bool(
+                parsed.raw_value, parsed.env_var_name
+            )
+        elif fname in (
+            "source_channel",
+            "dest_channel",
+            "source_room",
+            "dest_room",
+        ):
+            toml_data[fname] = parsed.raw_value.strip()
+        else:
+            extra = ", route_id" if existing is None else ""
+            raise ConfigValidationError(
+                f"Unsupported route field {fname!r} in "
+                f"{parsed.env_var_name!r}. Supported fields: "
+                f"source_adapters, dest_adapters, directionality, "
+                f"enabled, source_channel, dest_channel, "
+                f"source_room, dest_room{extra}."
+            )
+
+    # Validate via from_toml_dict which catches:
+    # - empty source/dest adapters
+    # - room/channel alias conflicts
+    # - invalid directionality
+    # - missing required fields
+    # - unknown keys
+    return RouteConfig.from_toml_dict(route_id, toml_data)
+
+
 def apply_route_overrides(
     config: RuntimeConfig,
     route_overrides: dict[str, dict[str, ParsedAdapterEnvValue]],
@@ -1075,6 +1161,9 @@ def apply_route_overrides(
     fields are overridden on the existing route.  For tokens with **no**
     matching route, a brand-new route is created from environment variables
     (env-first creation).
+
+    Both override and creation modes route through
+    :meth:`RouteConfig.from_toml_dict` for full validation.
 
     Parameters
     ----------
@@ -1112,129 +1201,18 @@ def apply_route_overrides(
         match_idx = token_to_idx.get(token)
 
         if match_idx is not None:
-            # ----------------------------------------------------------
-            # Override mode: merge env fields into existing route.
-            # ----------------------------------------------------------
+            # Override mode.
             existing = existing_routes[match_idx]
-            kwargs = {
-                f.name: getattr(existing, f.name)
-                for f in dataclasses.fields(existing)
-            }
-
-            for fname, parsed in field_map.items():
-                if fname == "route_id":
-                    raise ConfigValidationError(
-                        "route_id cannot be changed through env; "
-                        "rename the route in TOML."
-                    )
-                elif fname == "source_adapters":
-                    kwargs["source_adapters"] = tuple(
-                        s.strip()
-                        for s in parsed.raw_value.split(",")
-                        if s.strip()
-                    )
-                elif fname == "dest_adapters":
-                    kwargs["dest_adapters"] = tuple(
-                        s.strip()
-                        for s in parsed.raw_value.split(",")
-                        if s.strip()
-                    )
-                elif fname == "directionality":
-                    try:
-                        kwargs["directionality"] = RouteDirectionality[
-                            parsed.raw_value.strip().upper()
-                        ]
-                    except KeyError:
-                        valid = ", ".join(d.value for d in RouteDirectionality)
-                        raise ConfigValidationError(
-                            f"Invalid directionality {parsed.raw_value!r} for "
-                            f"route {existing.route_id!r} (valid: {valid})"
-                        ) from None
-                elif fname == "enabled":
-                    kwargs["enabled"] = _coerce_bool(
-                        parsed.raw_value, parsed.env_var_name
-                    )
-                elif fname in (
-                    "source_channel",
-                    "dest_channel",
-                    "source_room",
-                    "dest_room",
-                ):
-                    kwargs[fname] = parsed.raw_value.strip()
-                else:
-                    raise ConfigValidationError(
-                        f"Unsupported route field {fname!r} in "
-                        f"{parsed.env_var_name!r}. Supported fields: "
-                        f"source_adapters, dest_adapters, directionality, "
-                        f"enabled, source_channel, dest_channel, "
-                        f"source_room, dest_room."
-                    )
-
-            route = RouteConfig(**kwargs)
-
-            # Validate invariants that from_toml_dict normally checks.
-            _validate_route_invariants(route)
-
+            route = _build_route_toml_data_from_env_fields(
+                field_map, existing.route_id, existing=existing,
+            )
             replacements[match_idx] = route
-
         else:
-            # ----------------------------------------------------------
-            # Creation mode: build a new route from env fields.
-            # ----------------------------------------------------------
+            # Creation mode.
             route_id = token.lower().replace("_", "-")
-            toml_data: dict[str, Any] = {}
-
-            for fname, parsed in field_map.items():
-                if fname == "route_id":
-                    route_id = parsed.raw_value.strip()
-                elif fname == "source_adapters":
-                    toml_data["source_adapters"] = [
-                        s.strip()
-                        for s in parsed.raw_value.split(",")
-                        if s.strip()
-                    ]
-                elif fname == "dest_adapters":
-                    toml_data["dest_adapters"] = [
-                        s.strip()
-                        for s in parsed.raw_value.split(",")
-                        if s.strip()
-                    ]
-                elif fname == "directionality":
-                    toml_data["directionality"] = parsed.raw_value.strip().lower()
-                elif fname == "enabled":
-                    toml_data["enabled"] = _coerce_bool(
-                        parsed.raw_value, parsed.env_var_name
-                    )
-                elif fname in (
-                    "source_channel",
-                    "dest_channel",
-                    "source_room",
-                    "dest_room",
-                ):
-                    toml_data[fname] = parsed.raw_value.strip()
-                else:
-                    raise ConfigValidationError(
-                        f"Unsupported route field {fname!r} in "
-                        f"{parsed.env_var_name!r}. Supported fields: "
-                        f"source_adapters, dest_adapters, directionality, "
-                        f"enabled, source_channel, dest_channel, "
-                        f"source_room, dest_room, route_id."
-                    )
-
-            if "source_adapters" not in toml_data:
-                raise ConfigValidationError(
-                    f"Route token {token!r} does not match any existing route "
-                    f"and is missing 'source_adapters'. Set "
-                    f"MEDRE_ROUTE__{token}__SOURCE_ADAPTERS=<val>."
-                )
-            if "dest_adapters" not in toml_data:
-                raise ConfigValidationError(
-                    f"Route token {token!r} does not match any existing route "
-                    f"and is missing 'dest_adapters'. Set "
-                    f"MEDRE_ROUTE__{token}__DEST_ADAPTERS=<val>."
-                )
-
-            route = RouteConfig.from_toml_dict(route_id, toml_data)
+            route = _build_route_toml_data_from_env_fields(
+                field_map, route_id, existing=None,
+            )
             additions.append(route)
 
     # -- Build final route list --------------------------------------------
@@ -1273,32 +1251,6 @@ def apply_route_overrides(
     new_route_set.validate()
 
     return dataclasses.replace(config, routes=new_route_set)
-
-
-def _validate_route_invariants(route: RouteConfig) -> None:
-    """Validate route invariants that ``from_toml_dict`` normally checks.
-
-    Called when constructing a route via direct ``RouteConfig()`` (override
-    mode) to ensure the same safety checks as the TOML path.
-    """
-    sources_set = set(route.source_adapters)
-    dests_set = set(route.dest_adapters)
-    overlap = sources_set & dests_set
-    if overlap:
-        raise ConfigValidationError(
-            f"Route {route.route_id!r}: source and destination adapters "
-            f"overlap: {sorted(overlap)}. A route must not bridge an "
-            f"adapter to itself."
-        )
-    if len(set(route.dest_adapters)) != len(route.dest_adapters):
-        raise ConfigValidationError(
-            f"Route {route.route_id!r}: duplicate entries in 'dest_adapters'."
-        )
-    if len(set(route.source_adapters)) != len(route.source_adapters):
-        raise ConfigValidationError(
-            f"Route {route.route_id!r}: duplicate entries in "
-            f"'source_adapters'."
-        )
 
 
 # ---------------------------------------------------------------------------

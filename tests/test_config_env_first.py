@@ -749,12 +749,101 @@ class TestRouteEnvCreation:
         with pytest.raises(ConfigValidationError, match="Duplicate route ID"):
             apply_env_overrides(base)
 
-    # (v) Route provenance records target_adapter_token.
-    def test_route_provenance_includes_token(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    # (v) Route provenance records target_route_token (not adapter_token).
+    def test_route_provenance_includes_route_token(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Route provenance records target_route_token (not adapter_token)."""
         monkeypatch.setenv("MEDRE_ROUTE__MY_ROUTE__SOURCE_ADAPTERS", "a")
         monkeypatch.setenv("MEDRE_ROUTE__MY_ROUTE__DEST_ADAPTERS", "b")
         env = MedreEnvConfig.from_environ()
         route_entries = [e for e in env.provenance.entries if e.source_kind == "route"]
         assert len(route_entries) == 2
         for entry in route_entries:
-            assert entry.target_adapter_token == "MY_ROUTE"
+            assert entry.target_route_token == "MY_ROUTE"
+            # Route entries should NOT set target_adapter_token
+            assert entry.target_adapter_token is None
+
+    # --- Override-mode validation tests ---
+    # These tests override an existing TOML route and verify that
+    # RouteConfig.from_toml_dict validation is applied.
+
+    # (w) Empty source_adapters in override mode raises.
+    def test_route_override_empty_source_adapters_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Empty source_adapters in override mode raises."""
+        monkeypatch.setenv("MEDRE_ROUTE__TOML_ROUTE__SOURCE_ADAPTERS", "")
+        base = _make_config_with_route()
+        with pytest.raises(ConfigValidationError, match="must not be empty"):
+            apply_env_overrides(base)
+
+    # (x) Empty dest_adapters in override mode raises.
+    def test_route_override_empty_dest_adapters_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Empty dest_adapters in override mode raises."""
+        monkeypatch.setenv("MEDRE_ROUTE__TOML_ROUTE__DEST_ADAPTERS", "")
+        base = _make_config_with_route()
+        with pytest.raises(ConfigValidationError, match="must not be empty"):
+            apply_env_overrides(base)
+
+    # (y) Source room/channel alias conflict in override mode raises.
+    def test_route_override_conflicting_source_room_channel_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Source room/channel alias conflict in override mode raises."""
+        monkeypatch.setenv("MEDRE_ROUTE__TOML_ROUTE__SOURCE_CHANNEL", "1")
+        monkeypatch.setenv("MEDRE_ROUTE__TOML_ROUTE__SOURCE_ROOM", "2")
+        base = _make_config_with_route()
+        with pytest.raises(ConfigValidationError, match="source_room"):
+            apply_env_overrides(base)
+
+    # (z) Dest room/channel alias conflict in override mode raises.
+    def test_route_override_conflicting_dest_room_channel_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Dest room/channel alias conflict in override mode raises."""
+        monkeypatch.setenv("MEDRE_ROUTE__TOML_ROUTE__DEST_CHANNEL", "chan-a")
+        monkeypatch.setenv("MEDRE_ROUTE__TOML_ROUTE__DEST_ROOM", "room-b")
+        base = _make_config_with_route()
+        with pytest.raises(ConfigValidationError, match="dest_room"):
+            apply_env_overrides(base)
+
+    # (aa) Source/dest overlap in override mode raises.
+    def test_route_override_source_dest_overlap_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Source/dest overlap in override mode raises."""
+        monkeypatch.setenv("MEDRE_ROUTE__TOML_ROUTE__SOURCE_ADAPTERS", "adapter-a,adapter-b")
+        base = _make_config_with_route()
+        with pytest.raises(ConfigValidationError, match="overlap"):
+            apply_env_overrides(base)
+
+    # (ab) Duplicate source adapters in override mode raises.
+    def test_route_override_duplicate_source_adapters_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Duplicate source adapters in override mode raises."""
+        monkeypatch.setenv("MEDRE_ROUTE__TOML_ROUTE__SOURCE_ADAPTERS", "a,a")
+        base = _make_config_with_route()
+        with pytest.raises(ConfigValidationError, match="duplicate"):
+            apply_env_overrides(base)
+
+    # (ac) Duplicate dest adapters in override mode raises.
+    def test_route_override_duplicate_dest_adapters_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Duplicate dest adapters in override mode raises."""
+        monkeypatch.setenv("MEDRE_ROUTE__TOML_ROUTE__DEST_ADAPTERS", "b,b")
+        base = _make_config_with_route()
+        with pytest.raises(ConfigValidationError, match="duplicate"):
+            apply_env_overrides(base)
+
+    # (ad) Invalid directionality in override mode raises.
+    def test_route_override_invalid_directionality_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Invalid directionality in override mode raises."""
+        monkeypatch.setenv("MEDRE_ROUTE__TOML_ROUTE__DIRECTIONALITY", "sideways")
+        base = _make_config_with_route()
+        with pytest.raises(ConfigValidationError, match="directionality"):
+            apply_env_overrides(base)

@@ -990,9 +990,11 @@ in their TOML section (see per-transport schema above).
 
 ## Env-Driven Route Creation
 
-In addition to creating adapters from env vars, you can create routes
-entirely from environment variables. This lets you deploy a full bridge
-without writing any TOML route sections.
+In addition to creating adapters from env vars, you can create **or
+override** routes entirely from environment variables. This lets you
+deploy a full bridge without writing any TOML route sections, or
+override an existing TOML-defined route's fields. Both creation and
+override use the same validation rules (see below).
 
 ### Syntax
 
@@ -1009,6 +1011,16 @@ MEDRE_ROUTE__<TOKEN>__SOURCE_CHANNEL=1
 `<TOKEN>` is an arbitrary uppercase identifier you choose. It must be
 unique across all route env tokens. Tokens may contain only letters,
 numbers, and underscores (no hyphens, dots, or spaces).
+
+Env route validation follows the same invariants as TOML route validation:
+
+- ``source_adapters`` and ``dest_adapters`` must be non-empty
+- Source and destination adapters must not overlap
+- ``source_room`` / ``source_channel`` are aliases and cannot be set to different values
+- ``dest_room`` / ``dest_channel`` are aliases and cannot be set to different values
+- Duplicate entries in ``source_adapters`` or ``dest_adapters`` are rejected
+- Invalid ``directionality`` values are rejected
+- Unsupported route fields are rejected
 
 ### Field Types
 
