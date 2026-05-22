@@ -219,8 +219,8 @@ class TestEnvOnlyDeployment:
         finally:
             try:
                 await app.stop()
-            except Exception:
-                pass
+            except Exception as exc:
+                pytest.fail(f"app.stop() failed: {exc!r}")
 
     # -- Test 3: Full pipeline with event injection ---------------------------
 
@@ -246,8 +246,8 @@ class TestEnvOnlyDeployment:
         finally:
             try:
                 await app.stop()
-            except Exception:
-                pass
+            except Exception as exc:
+                pytest.fail(f"app.stop() failed: {exc!r}")
 
     # -- Test 4: Secrets not leaked -------------------------------------------
 
@@ -336,8 +336,8 @@ class TestEnvOnlyDeployment:
         finally:
             try:
                 await app.stop()
-            except Exception:
-                pass
+            except Exception as exc:
+                pytest.fail(f"app.stop() failed: {exc!r}")
 
 
 # ---------------------------------------------------------------------------

@@ -213,7 +213,7 @@ Routes reference resolved adapter IDs (`radio-a`, `matrix-fake`), not env tokens
 ### Running
 
 ```bash
-medre run /path/to/config.toml
+medre run --config /path/to/config.toml
 ```
 
 ### Inspecting
@@ -235,7 +235,7 @@ medre inspect event <EVENT_ID> --config /path/to/config.toml
 | -------------------------------------- | -------------------------------------------- |
 | `MEDRE_ADAPTER__<TOKEN>__<FIELD>`      | Runtime adapter config                       |
 | `MEDRE_ROUTE__<TOKEN>__<FIELD>`        | Runtime route config                         |
-| `MESHTASTIC_*`, `MESHCORE_*`, `LXMF_*` | Pytest live-test convenience vars only       |
+| `MATRIX_*`, `MESHTASTIC_*`, `MESHCORE_*`, `LXMF_*` | Pytest live-test convenience vars only       |
 | `MEDRE_MESHTASTIC_*`, etc.             | **Unsupported legacy** — rejected at startup |
 
 ### Sharing Output
@@ -244,7 +244,7 @@ Use `--json` flags for machine-readable output. Sanitize logs and evidence bundl
 
 ## 4. Matrix Live Run Session
 
-If you have `MATRIX_*` environment variables set, you can validate MEDRE against a real homeserver. This section assumes you have already set up a homeserver and bot account. If you have not, the full setup instructions are in `docs/runbooks/matrix-alpha-operation.md`.
+If you have `MEDRE_ADAPTER__<TOKEN>__*` variables set for a Matrix transport, you can validate MEDRE against a real homeserver. This section assumes you have already set up a homeserver and bot account. If you have not, the full setup instructions are in `docs/runbooks/matrix-alpha-operation.md`.
 
 ### 4.1 Set environment variables
 

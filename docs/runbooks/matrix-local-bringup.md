@@ -152,3 +152,17 @@ rm -rf data
 - `MATRIX_LOCAL_SYNAPSE=1` is an additional gate that ensures local
   Synapse tests only run when the operator has deliberately started the
   Docker Synapse instance.
+
+## Live Validation Evidence
+
+| Date       | Environment            | Result                  | Duration |
+| ---------- | ---------------------- | ----------------------- | -------- |
+| 2026-05-22 | local Docker Synapse   | 15 passed, 1 xfailed   | 40.37s   |
+
+**Details:**
+- Command: ``pytest tests/test_matrix_live.py -v -m live``
+- Gate: ``MATRIX_LOCAL_SYNAPSE=1``
+- The single xfailed test (``test_inbound_message_received``) is expected — it requires a second Matrix user to send a message during the test window.
+- The new local-Synapse-specific test ``test_synapse_send_captures_event_id`` passed.
+
+**No tokens are recorded.** The ``MATRIX_ACCESS_TOKEN`` used during validation is intentionally omitted from this document.

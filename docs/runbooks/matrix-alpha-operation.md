@@ -635,6 +635,8 @@ docker run -d --name medre-matrix \
 
 **Previous successful live validation:** 2026-05-10 — 13 passed, 0 failed (plaintext) and 7 passed, 0 failed (E2EE). See `docs/runbooks/matrix-live-smoke.md` for full evidence.
 
+2026-05-22 local Docker Synapse validation is recorded in `docs/runbooks/matrix-local-bringup.md`.
+
 ### Operational Readiness v1 Test Coverage (2026-05-21)
 
 The following test modules verify Matrix alpha operational readiness:
