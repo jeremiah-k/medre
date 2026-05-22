@@ -1169,8 +1169,8 @@ class TestConfigModelBoundaryComprehensive:
         "LXMF",
     )
 
-    # medre.runtime.routes is allowed ONLY under TYPE_CHECKING or deferred
-    _RUNTIME_ROUTES_MODULE = "medre.runtime.routes"
+    # medre.config.routes is allowed ONLY under TYPE_CHECKING or deferred
+    _RUNTIME_ROUTES_MODULE = "medre.config.routes"
 
     def test_config_model_no_banned_imports(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]

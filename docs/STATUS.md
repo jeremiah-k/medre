@@ -50,12 +50,15 @@ Matrix is the most mature transport. Live validation was recorded on 2026-05-10 
 
 The Matrix adapter supports plaintext and E2EE text alpha. E2EE supports encrypted rooms for text messages only. See the alpha operation runbook for the full unsupported features list.
 
-Delivery reliability currently has env-only fake validation — the env-only
-deployment tests (test_env_only_reliability.py) validate successful delivery,
-duplicate suppression, and loop-prevention metadata through RuntimeBuilder +
-fake adapters. Retry and replay mechanisms have existing tests and docs,
-but this tranche did not newly validate them through env-only or live delivery
-reliability tests.
+Delivery reliability has env-only fake validation — the env-only deployment
+tests (test_env_only_reliability.py) validate successful delivery, duplicate
+suppression, and loop-prevention metadata through RuntimeBuilder + fake
+adapters. The pipeline records adapter-level delivery receipts (with
+`adapter_message_id` on success), retry receipts with backoff, and dead-lettered
+receipts when retries exhaust. The RetryWorker processes due retry receipts
+when the `[retry]` section is enabled. Replay and recover commands exist for
+manual re-delivery. Transport-aware rate limiting and a dead-letter admin UI
+are not yet implemented.
 
 Opt-in Matrix live tests use pytest convenience variables such as MATRIX_HOMESERVER, MATRIX_USER_ID, MATRIX_ACCESS_TOKEN, and MATRIX_ROOM_ID. The local Synapse test harness additionally requires `MATRIX_LOCAL_SYNAPSE=1`. Runtime adapter config overrides use instance-scoped `MEDRE_ADAPTER__<TOKEN>__<FIELD>` and `MEDRE_ROUTE__<TOKEN>__<FIELD>` variables.
 
@@ -81,27 +84,29 @@ See `docs/runbooks/lxmf-alpha-operation.md`. As of this writing, most capabiliti
 
 These apply to all transports unless specifically noted.
 
-1. **No delivery guarantees.** Messages can be lost, duplicated, or silently dropped at any stage. There is no exactly-once delivery, no ack-based confirmation beyond adapter-level receipts, and no dead letter queue.
+1. **No exactly-once delivery.** Messages can be lost, duplicated, or dropped at any stage. Adapter-level delivery receipts, retry receipts, and dead-lettered receipts exist and are persisted in storage, but there is no end-to-end exactly-once guarantee. The delivery pipeline is at-least-once with duplicate suppression on inbound native refs.
 
-2. **No graceful shutdown.** The runner cancels in-flight operations on stop. Anything in the sync loop or delivery queue at shutdown time is lost. There is no drain period.
+2. **No dead-letter admin UI or management command.** Dead-lettered receipts are recorded in storage when retries are exhausted, but there is no dedicated CLI command or UI for browsing, replaying, or managing dead-lettered events. Operators can inspect them via `medre inspect receipts --event <id>` or evidence bundles.
 
-3. **No inbound persistence.** Inbound events are published directly to the pipeline. If the pipeline is slow or fails, the event is gone. No retry, no redelivery.
+3. **Capacity control exists but transport-aware rate limiting is not complete.** The runtime enforces a configurable max-inflight-delivery limit via the capacity controller. Transport-aware rate limiting (e.g. respecting Matrix homeserver rate-limit headers, Meshtastic duty-cycle pacing) is not implemented. Adapters send as fast as they are called. Matrix homeservers rate-limit by default. Meshtastic nodes have a built-in duty cycle. Exceeding either produces errors.
 
-4. **No rate limiting.** Adapters send as fast as you call them. Matrix homeservers rate-limit by default. Meshtastic nodes have a built-in duty cycle. Exceeding either produces errors.
+4. **Graceful shutdown is limited.** The runner cancels in-flight operations on stop. Anything in the sync loop or delivery queue at shutdown time is lost. There is no drain period.
 
-5. **No structured logging.** All log output is format-string based. No trace IDs, no correlation across events, no structured fields.
+5. **No inbound persistence.** Inbound events are published directly to the pipeline. If the pipeline is slow or fails, the event is gone. No retry, no redelivery at the inbound stage.
 
-6. **No metrics export.** Diagnostics counters exist in memory but there is no Prometheus endpoint, no statsd, no external export. The only observability is logs, `health_check()`, and `diagnostics()`.
+6. **No structured logging.** All log output is format-string based. No trace IDs, no correlation across events, no structured fields.
 
-7. **Single-operator only.** Everything is tested and documented for a single person on a single machine. Multi-node, multi-operator, and deployment scenarios do not exist.
+7. **No metrics export.** Diagnostics counters exist in memory but there is no Prometheus endpoint, no statsd, no external export. The only observability is logs, `health_check()`, and `diagnostics()`.
 
-8. **Matrix-specific.** Multi-room concurrent inbound has not been tested against a real homeserver. E2EE text alpha does not support reactions, edits, media, cross-signing, or key backup.
+8. **Single-operator only.** Everything is tested and documented for a single person on a single machine. Multi-node, multi-operator, and deployment scenarios do not exist.
 
-9. **Meshtastic-specific.** Inbound processing is text messages only. Telemetry, position, and nodeinfo portnum types are not processed inbound.
+9. **Matrix-specific.** Multi-room concurrent inbound has not been tested against a real homeserver. E2EE text alpha does not support reactions, edits, media, cross-signing, or key backup.
 
-10. **MeshCore-specific.** SDK findings are based on source extraction, not hardware testing. BLE connectivity is not implemented.
+10. **Meshtastic-specific.** Inbound processing is text messages only. Telemetry, position, and nodeinfo portnum types are not processed inbound.
 
-11. **LXMF-specific.** Multi-hop mesh delivery is not tested. E2EE beyond Reticulum's native link-layer encryption is not in scope.
+11. **MeshCore-specific.** SDK findings are based on source extraction, not hardware testing. BLE connectivity is not implemented.
+
+12. **LXMF-specific.** Multi-hop mesh delivery is not tested. E2EE beyond Reticulum's native link-layer encryption is not in scope.
 
 ## How to Update This Document
 

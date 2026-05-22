@@ -87,11 +87,11 @@ class TestAlphaRetryScenario:
                 },
             ),
             routes=__import__(
-                "medre.runtime.routes", fromlist=["RouteConfigSet"]
+                "medre.config.routes", fromlist=["RouteConfigSet"]
             ).RouteConfigSet(
                 routes=(
                     __import__(
-                        "medre.runtime.routes", fromlist=["RouteConfig"]
+                        "medre.config.routes", fromlist=["RouteConfig"]
                     ).RouteConfig(
                         route_id="retry_route",
                         source_adapters=("source",),
@@ -224,11 +224,11 @@ class TestAlphaReplayScenario:
                 },
             ),
             routes=__import__(
-                "medre.runtime.routes", fromlist=["RouteConfigSet"]
+                "medre.config.routes", fromlist=["RouteConfigSet"]
             ).RouteConfigSet(
                 routes=(
                     __import__(
-                        "medre.runtime.routes", fromlist=["RouteConfig"]
+                        "medre.config.routes", fromlist=["RouteConfig"]
                     ).RouteConfig(
                         route_id="walkthrough_route",
                         source_adapters=("main",),

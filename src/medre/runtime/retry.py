@@ -190,6 +190,7 @@ class RetryWorker:
             return
 
         parent_receipt_id = receipt.receipt_id
+        capacity_acquired = False
 
         # Acquire delivery capacity.
         if self._capacity is not None:
@@ -259,6 +260,7 @@ class RetryWorker:
                         },
                     )
                     return
+                capacity_acquired = True
             except Exception:
                 self.state.failed += 1
                 _logger.warning(
@@ -423,7 +425,7 @@ class RetryWorker:
                 exc_info=True,
             )
         finally:
-            if self._capacity is not None:
+            if capacity_acquired and self._capacity is not None:
                 await self._capacity.release_delivery()
 
     async def _check_dead_lettered(

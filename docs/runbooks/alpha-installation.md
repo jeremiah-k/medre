@@ -133,17 +133,17 @@ without manual editing:
 
 ```bash
 medre adapter matrix auth login \
-  --config /tmp/medre-alpha.toml \
-  --adapter-id matrix \
   --homeserver https://matrix.example.com \
   --user @bot:example.com
 ```
 
-This performs an interactive login and writes the `homeserver`, `user_id`, and
-`access_token` directly into the config file. It does not start the runtime,
-never prints the token to the terminal, and prompts for the password securely
-unless `--password-stdin` is given. See `docs/runbooks/secure-credentials.md`
-for full credential handling guidance.
+This performs an interactive login and saves credentials to a sidecar JSON
+file (not the TOML config file). It does not accept `--config` or
+`--adapter-id` flags. It does not start the runtime, never prints the
+token to the terminal, and prompts for the password securely unless
+`--password-stdin` is given. The runtime reads credentials from the sidecar
+at startup. See `docs/runbooks/secure-credentials.md` for full credential
+handling guidance.
 
 Config file locations:
 

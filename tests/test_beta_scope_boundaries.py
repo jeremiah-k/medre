@@ -209,7 +209,7 @@ class TestNoTransportSdkInRuntimeCore:
         "medre.runtime.errors",
         "medre.runtime.observability",
         "medre.runtime.route_engine",
-        "medre.runtime.routes",
+        "medre.config.routes",
         "medre.runtime.snapshot",
         "medre.runtime.boot_summary",
     ]

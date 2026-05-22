@@ -143,7 +143,7 @@ def build_live_bridge_runtime_config(tmp_path: Path) -> "RuntimeConfig":
         RuntimeOptions,
         StorageConfig,
     )
-    from medre.runtime.routes import RouteConfig, RouteConfigSet, RouteDirectionality
+    from medre.config.routes import RouteConfig, RouteConfigSet, RouteDirectionality
 
     # --- Matrix env vars ---
     homeserver, user_id, access_token, room_id = _get_matrix_env()

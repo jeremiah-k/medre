@@ -116,7 +116,7 @@ from medre.runtime.errors import (
     RuntimeStartupError,
 )
 from medre.runtime.route_engine import RouteValidationError
-from medre.runtime.routes import RouteConfig, RouteConfigSet
+from medre.config.routes import RouteConfig, RouteConfigSet
 from medre.runtime.smoke import (
     _default_smoke_config_path,
     _make_smoke_event,

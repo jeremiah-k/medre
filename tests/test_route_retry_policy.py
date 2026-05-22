@@ -36,7 +36,7 @@ from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.core.storage import SQLiteStorage
 from medre.core.storage.backend import StorageBackend
 from medre.runtime.builder import RuntimeBuilder
-from medre.runtime.routes import RouteConfig, RouteConfigSet
+from medre.config.routes import RouteConfig, RouteConfigSet
 
 # ---------------------------------------------------------------------------
 # Helpers

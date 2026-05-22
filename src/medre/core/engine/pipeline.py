@@ -1606,6 +1606,16 @@ class PipelineRunner:
                 backoff = executor.compute_backoff(attempt_number)
                 _next_retry_at = now + backoff
 
+        # Populate adapter_message_id only when delivery succeeded and
+        # the adapter returned a native_message_id.  Never fabricate IDs.
+        _adapter_message_id: str | None = None
+        if (
+            status == "sent"
+            and adapter_result is not None
+            and adapter_result.native_message_id is not None
+        ):
+            _adapter_message_id = adapter_result.native_message_id
+
         receipt = DeliveryReceipt(
             sequence=0,
             receipt_id=receipt_id,
@@ -1617,7 +1627,7 @@ class PipelineRunner:
             status=status,
             error=error,
             failure_kind=_receipt_failure_kind,
-            adapter_message_id=None,
+            adapter_message_id=_adapter_message_id,
             next_retry_at=_next_retry_at,
             created_at=now,
             attempt_number=attempt_number,

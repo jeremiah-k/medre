@@ -78,7 +78,7 @@ from medre.runtime.route_engine import (
     RouteValidationError,
     validate_route_adapter_refs,
 )
-from medre.runtime.routes import (
+from medre.config.routes import (
     RouteConfig,
     RouteConfigSet,
 )

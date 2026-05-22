@@ -25,12 +25,12 @@ from medre.config.errors import ConfigValidationError
 _logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from medre.runtime.routes import RouteConfigSet
+    from medre.config.routes import RouteConfigSet
 
 
 def _default_route_config_set() -> RouteConfigSet:
-    """Deferred import to avoid circular dependency with runtime.routes."""
-    from medre.runtime.routes import RouteConfigSet as _RCS
+    """Construct default empty RouteConfigSet (no deferred import needed)."""
+    from medre.config.routes import RouteConfigSet as _RCS
 
     return _RCS()
 

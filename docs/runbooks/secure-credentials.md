@@ -39,17 +39,15 @@ Never commit config files containing real tokens to version control. MEDRE's
 `.gitignore` excludes `*.toml` files outside `examples/configs/`, but operators
 must verify this before pushing.
 
-**Use `medre adapter matrix auth login` to populate tokens safely.** This command is a
-credential setup utility — it does not start the runtime, mutates the config
-file specified with `--config`, never prints the token to the terminal, and
-prompts for the password securely unless `--password-stdin` is given. It writes
-the `homeserver`, `user_id`, and `access_token` fields into the adapter section
-of the config file:
+**Use `medre adapter matrix auth login` to populate tokens safely.** This command
+is a credential setup utility — it does not start the runtime, does NOT accept
+`--config` or `--adapter-id` flags, never prints the token to the terminal, and
+prompts for the password securely unless `--password-stdin` is given. It saves
+credentials to a sidecar JSON file (not the TOML config). The runtime reads
+credentials from this sidecar at startup.
 
 ```bash
 medre adapter matrix auth login \
-  --config /path/to/config.toml \
-  --adapter-id matrix \
   --homeserver https://matrix.example.com \
   --user @bot:example.com
 ```

@@ -71,19 +71,17 @@ Matrix access token:
 
 ```bash
 medre adapter matrix auth login \
-  --config /tmp/medre-live.toml \
-  --adapter-id matrix \
   --homeserver https://matrix.example.com \
   --user @bot:example.com
 ```
 
-This opens an interactive login flow against the homeserver, writes the
-resulting `homeserver`, `user_id`, and `access_token` directly into the config
-file, and does **not** print the token to the terminal. After this step, all
-credential fields in `[adapters.matrix.matrix]` are populated. You only need to
-edit the remaining fields: `room_allowlist`, route targeting fields
-(`source_room`, `dest_room`, `source_channel`, `dest_channel`), serial/TCP
-connection details for the Meshtastic adapter, and the channel index.
+This opens an interactive login flow against the homeserver, saves the
+resulting credentials to a sidecar JSON file (not the TOML config), and does
+**not** print the token to the terminal. The command does NOT accept `--config`
+or `--adapter-id` flags. After this step, the credentials sidecar is populated.
+You still need to edit the TOML config for: `room_allowlist`, route targeting
+fields (`source_room`, `dest_room`, `source_channel`, `dest_channel`),
+serial/TCP connection details for the Meshtastic adapter, and the channel index.
 
 If the template does not exist, create one from scratch using
 `medre config sample` and modify it, or use the following as a starting
@@ -106,9 +104,9 @@ path = "/tmp/medre-live.sqlite"
 [adapters.matrix.matrix]
 enabled = true
 adapter_kind = "real"
-homeserver = "https://matrix.example.com"   # populated by medre adapter matrix auth login
-user_id = "@bot:example.com"                  # populated by medre adapter matrix auth login
-access_token = ""                             # populated by medre adapter matrix auth login — treat as a secret
+homeserver = "https://matrix.example.com"   # FILL IN — or use medre adapter matrix auth login sidecar
+user_id = "@bot:example.com"                  # FILL IN — or use medre adapter matrix auth login sidecar
+access_token = ""                             # FILL IN — or use medre adapter matrix auth login sidecar — treat as a secret
 room_allowlist = ["!room:example.com"] # FILL IN — your throwaway room
 encryption_mode = "plaintext"
 
@@ -144,13 +142,14 @@ dest_room = "!room:example.com"             # FILL IN — Matrix room to deliver
 EOF
 ```
 
-Edit the following fields in `/tmp/medre-live.toml` (credential fields are
-already populated by `medre adapter matrix auth login`):
+Edit the following fields in `/tmp/medre-live.toml` (credential fields can
+be populated via the sidecar from `medre adapter matrix auth login`, or set
+manually in the TOML):
 
 ### [adapters.matrix.matrix]
 
-> After running `medre adapter matrix auth login`, the `homeserver`, `user_id`, and
-> `access_token` fields are already populated. Edit only the fields below.
+> The `homeserver`, `user_id`, and `access_token` fields can be set either
+> manually in the TOML or via the credentials sidecar. Edit the fields below.
 
 | Field            | Set to                                                            |
 | ---------------- | ----------------------------------------------------------------- |
@@ -396,7 +395,7 @@ output suitable for archival or comparison.
 
 | Symptom                                  | Cause                                | Fix                                                                                                                                                                            |
 | ---------------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `"access_token must be non-empty"`       | Empty access token in config         | Run `medre adapter matrix auth login --config /tmp/medre-live.toml --adapter-id matrix --homeserver ... --user ...` to populate the token, or fill in `access_token` manually. |
+| `"access_token must be non-empty"`       | Empty access token in config         | Run `medre adapter matrix auth login --homeserver ... --user ...` to save credentials to the sidecar, or fill in `access_token` manually in the TOML. |
 | `"serial_port required"`                 | No serial device path configured     | Check USB connection. Run `ls /dev/ttyACM* /dev/ttyUSB*` to find the device. Set `serial_port` in config.                                                                      |
 | Permission denied on serial port         | User not in `dialout` group          | `sudo usermod -aG dialout $USER` then log out and back in.                                                                                                                     |
 | `"host is required"`                     | TCP connection type without host     | Set `host` in `[adapters.meshtastic.radio]`, or switch `connection_type` to `"serial"`.                                                                                        |
@@ -467,9 +466,8 @@ must pass before proceeding to the next.
       `medre adapters` showing both SDKs available.
 - [ ] **Config check.** `medre config check --config /tmp/medre-live.toml`
       reports `Config valid`.
-- [ ] **Auth.** `medre adapter matrix auth login --config /tmp/medre-live.toml
---adapter-id matrix --homeserver ... --user ...` — confirm `access_token`
-      is populated in the config file.
+- [ ] **Auth.** `medre adapter matrix auth login --homeserver ... --user ...`
+      — confirm credentials are saved to the sidecar file.
 - [ ] **Run.** `medre run --config /tmp/medre-live.toml` — both adapters
       report `started` in logs.
 - [ ] **Test messages.** Send a Matrix message and verify delivery on the

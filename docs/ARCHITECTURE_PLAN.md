@@ -3,8 +3,6 @@
 > **Status**: Current architecture record.
 >
 > **No stable public API.** All import paths are internal and may change.
-> Public facades/shim modules have been removed during the early architecture
-> phase and may be reintroduced deliberately after the API design settles.
 
 ## 0. Canonical Layout
 
@@ -49,6 +47,20 @@ Config validation errors live in `medre.config.adapters.errors`:
 
 Config errors are `ValueError` subclasses — they are NOT runtime adapter errors.
 
+### 0.2a Route Configuration — `medre.config.routes`
+
+Route config dataclasses live in `medre.config.routes`:
+
+- `RouteDirectionality` — direction of flow between source/dest
+- `BridgePolicy` — static allowlist policy for a route
+- `RouteRetryConfig` — per-route retry policy for transient failures
+- `RouteConfig` — a single named route definition
+- `RouteConfigSet` — ordered, validated collection of routes
+
+`medre.config.routes` is the canonical home for route configuration models.
+Runtime route expansion and topology live in `medre.runtime.route_engine`.
+`medre.config` must not import from `medre.runtime`.
+
 ### 0.3 Matrix Credential Sidecar — `medre.config.adapters.matrix_credentials`
 
 Canonical home for credential sidecar file operations:
@@ -77,18 +89,20 @@ These are adapter runtime errors — NOT config validation errors.
 
 ## 1. Layer Ownership Rules
 
-| Layer            | May Import From                                                           | Must Not Import From             |
-| ---------------- | ------------------------------------------------------------------------- | -------------------------------- |
-| `medre.core`     | `medre.core` only (with narrowly scoped internal dependency notes)        | `medre.adapters`, `medre.config` |
-| `medre.config`   | `medre.config` (including `config.adapters`)                              | `medre.adapters`                 |
-| `medre.adapters` | `medre.core.contracts.adapter`, `medre.config.adapters.*`, `medre.core.*` | —                                |
+| Layer            | May Import From                                                           | Must Not Import From                        |
+| ---------------- | ------------------------------------------------------------------------- | ------------------------------------------- |
+| `medre.core`     | `medre.core` only (with narrowly scoped internal dependency notes)        | `medre.adapters`, `medre.config`            |
+| `medre.config`   | `medre.config` (including `config.adapters` and `config.routes`)          | `medre.adapters`, `medre.runtime`           |
+| `medre.adapters` | `medre.core.contracts.adapter`, `medre.config.adapters.*`, `medre.core.*` | —                                           |
+| `medre.runtime`  | `medre.core.*`, `medre.config.*`, `medre.adapters.*`                      | —                                           |
 
 - Concrete adapters depend inward on core contracts and config models.
 - `medre.config.adapters.matrix_credentials` is the canonical owner of credential file operations.
+- `medre.config.routes` owns route configuration dataclasses; `medre.runtime.route_engine` owns runtime route expansion, topology, and registration.
 
 **Hard rule**: `core/` MUST NOT import from `adapters/`, `config/`, `cli/`, or top-level `runtime/` at runtime.
 
-**Hard rule**: `config/` MUST NOT import from `adapters/`.
+**Hard rule**: `config/` MUST NOT import from `adapters/` or `runtime/`.
 
 **Documented intra-core coupling** (acceptable, no runtime cross-boundary dependency):
 
@@ -141,6 +155,7 @@ medre/
 │   ├── loader.py
 │   ├── model.py             # imports adapter config dataclasses
 │   ├── paths.py
+│   ├── routes.py            # RouteConfig, RouteConfigSet, RouteDirectionality, etc.
 │   └── sample.py
 ├── core/
 │   ├── contracts/
@@ -162,10 +177,10 @@ medre/
 │   └── transforms/          # empty
 ├── interop/                 # mmrelay wire-format constants
 ├── plugins/                 # scaffolding only: Plugin protocol, PluginCapability enum
-└── runtime/                 # app, builder, retry, routes, route_engine,
-                             # boot_summary, drill, smoke, snapshot, timeline, trace,
-                             # errors, events, observability, docker_bridge_artifacts,
-                             # evidence/, run_session/
+└── runtime/                 # app, builder, retry, route_engine,
+                              # boot_summary, drill, smoke, snapshot, timeline, trace,
+                              # errors, events, observability, docker_bridge_artifacts,
+                              # evidence/, run_session/
 ```
 
 ## 3. Architectural Decisions
@@ -173,13 +188,21 @@ medre/
 - Config validation errors are `ValueError` subclasses, not adapter runtime error subclasses.
 - Matrix credential sidecar helpers are owned by the config layer for testability.
 - `medre.core.runtime/` is distinct from top-level `medre.runtime/`.
+- Route configuration dataclasses are owned by `medre.config.routes`, not `medre.runtime`. Runtime route expansion and topology remain in `medre.runtime.route_engine`.
 
 The following modules do not exist and must not be imported:
 
 - `medre.adapters.base` does not exist.
 - `medre.core.ports` does not exist.
 - `medre.core.adapter_base` does not exist.
-- `medre.adapters.*.config` modules do not exist (now `medre.config.adapters.*`).
+- `medre.adapters.*.config` modules do not exist (config lives in `medre.config.adapters.*`).
+- `medre.runtime.routes` does not exist (route config models live in `medre.config.routes`).
+
+### 3.1 MMRelay Reference Relationship
+
+MMRelay (`meshtastic-matrix-relay`) at `/home/jeremiah/dev/meshtastic-matrix-relay` is an operational reference implementation for Matrix↔Meshtastic relay behavior. MEDRE learns conceptually from MMRelay in areas such as relay behavior, message truncation, outbound queueing, packet classification, Matrix send reliability, and sidecar credentials.
+
+MMRelay is NOT a dependency, import target, vendor source, or copy target for MEDRE. MEDRE does not import, vendor, merge, cherry-pick, or copy files from MMRelay. The relationship is conceptual reference only. `medre.interop` contains wire-format constants derived from open specifications; it does not import MMRelay code.
 
 ## 4. Remaining Follow-Up Work
 
@@ -189,3 +212,13 @@ The following modules do not exist and must not be imported:
 - Evaluate merging `core/diagnostics/` into `core/observability/`
 - Deduplicate `_SECRET_KEY_PATTERNS` between `core/runtime/diagnostic_contract.py` and `core/observability/sanitization.py`
 - Delete empty packages `core/policies/` and `core/transforms/`
+
+## 5. Deferred Tranches
+
+The following tranches are documented for planning but are NOT implemented in `maint-522-1`:
+
+- **docs/mmrelay-reference-map** — Structured documentation mapping MMRelay concepts (truncation, queueing, packet routing, sidecar credentials) to their MEDRE equivalents or gaps.
+- **feat/meshtastic-byte-budget-rendering** — Transport-aware rendering that respects Meshtastic's ~237-byte payload limit with truncation and chunking.
+- **feat/meshtastic-queue-evidence** — Evidence tracking for Meshtastic's queued `send_one` outbound, correlating queue drain events with delivery receipts.
+- **feat/meshtastic-packet-classifier-parity** — Inbound packet type classification matching MMRelay's coverage of telemetry, position, nodeinfo, and text portnum types.
+- **feat/matrix-send-idempotency** — Matrix outbound send deduplication using transaction IDs or event ID caching to prevent duplicate sends on retry.

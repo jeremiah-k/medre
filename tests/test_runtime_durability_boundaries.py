@@ -46,7 +46,7 @@ _RUNTIME_PREFIXES = (
     "medre.runtime.app",
     "medre.runtime.builder",
     "medre.runtime.route_engine",
-    "medre.runtime.routes",
+    "medre.config.routes",
     "medre.runtime.snapshot",
     "medre.runtime.boot_summary",
     "medre.runtime.observability",

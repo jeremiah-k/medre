@@ -1033,7 +1033,7 @@ class TestBootSummaryRouteCountAndBuildFailureIds:
         self, tmp_paths: MedrePaths
     ) -> None:
         """BootSummary.route_count counts only registered (active) routes."""
-        from medre.runtime.routes import RouteConfig, RouteConfigSet
+        from medre.config.routes import RouteConfig, RouteConfigSet
 
         rt_a = _fake_matrix_config(adapter_id="adapter_a")
         rt_b = _fake_matrix_config(adapter_id="adapter_b")
@@ -1149,7 +1149,7 @@ class TestIntegratedBuildStartRouteDegradation:
     ) -> None:
         """Build failure + start failure produces DEGRADED health,
         partial outcome, and route eligibility reflects both."""
-        from medre.runtime.routes import RouteConfig, RouteConfigSet
+        from medre.config.routes import RouteConfig, RouteConfigSet
 
         rt_a = _fake_matrix_config(adapter_id="adapter_a")
         rt_b = _fake_matrix_config(adapter_id="adapter_b")

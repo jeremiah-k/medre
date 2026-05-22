@@ -38,7 +38,7 @@ from medre.runtime.route_engine import (
     compute_startup_readiness,
     register_routes,
 )
-from medre.runtime.routes import (
+from medre.config.routes import (
     BridgePolicy,
     RouteConfig,
     RouteConfigSet,
