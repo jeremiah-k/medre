@@ -172,8 +172,10 @@ class DeliveryFailureKind(Enum):
         Delivery was attempted while the pipeline is shutting down
         (capacity controller no longer accepting work).  Not retryable.
     DUPLICATE_SUPPRESSED:
-        Delivery was suppressed because the event carries a native ref
-        that has already been processed (deduplicated).  Not retryable.
+        Reserved — defined in the enum but not currently emitted as a
+        :class:`DeliveryOutcome` or receipt failure kind.  Duplicate
+        native-ref suppression currently returns an empty outcomes list
+        and does not persist a duplicate receipt.  Not retryable.
     LOOP_SUPPRESSED:
         Delivery was suppressed by a loop-prevention guard
         (self-loop or route-trace).  Not retryable.

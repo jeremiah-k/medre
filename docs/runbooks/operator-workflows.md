@@ -299,6 +299,9 @@ Only `adapter_transient` is retryable.
 - **Retries** are handled by `RetryWorker` — a background task that polls for
   transient-failure receipts and re-attempts delivery with exponential backoff.
   Retries are opt-in (`[retry] enabled = true` in config).
+  Retry is opt-in and can be configured through ``MEDRE_RETRY__`` environment
+  variables (or the ``[retry]`` TOML section).  Retry mechanisms are documented
+  and unit-tested but were not live-validated by this tranche.
 - **Replay** is a separate mechanism that re-processes historical events through
   the pipeline. Replayed deliveries are tagged `source="replay"` with a
   `replay_run_id` for identification.

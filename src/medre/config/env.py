@@ -67,15 +67,18 @@ from medre.config.model import (
     MatrixRuntimeConfig,
     MeshCoreRuntimeConfig,
     MeshtasticRuntimeConfig,
+    RetryConfig,
     RuntimeConfig,
 )
 from medre.runtime.routes import RouteConfig, RouteConfigSet
 
 __all__ = [
+    "RETRY_ENV_PREFIX",
     "ROUTE_ENV_PREFIX",
     "ROUTE_ENV_NAMES",
     "apply_env_overrides",
     "apply_instance_env_overrides",
+    "apply_retry_overrides",
     "apply_route_overrides",
     "detect_token_collisions",
     "MedreEnvConfig",
@@ -107,6 +110,8 @@ _ADAPTER_ENV_PREFIX = "MEDRE_ADAPTER__"
 
 ROUTE_ENV_PREFIX = "MEDRE_ROUTE__"
 ROUTE_ENV_NAMES: frozenset[str] = frozenset()
+
+RETRY_ENV_PREFIX = "MEDRE_RETRY__"
 
 _REJECTED_LEGACY_PREFIXES: tuple[str, ...] = (
     "MEDRE_MATRIX_",
@@ -316,6 +321,13 @@ _ENV_FIELD_MAP: dict[str, str] = {
     "MEDRE_RUNTIME_MAX_INFLIGHT_REPLAY_EVENTS": "max_inflight_replay_events",
     "MEDRE_RUNTIME_SHUTDOWN_DRAIN_TIMEOUT_SECONDS": "shutdown_drain_timeout_seconds",
     "MEDRE_RUNTIME_DELIVERY_ACQUIRE_TIMEOUT_SECONDS": "delivery_acquire_timeout_seconds",
+}
+
+_RETRY_FIELD_MAP: dict[str, str] = {
+    "ENABLED": "enabled",
+    "INTERVAL_SECONDS": "interval_seconds",
+    "BATCH_SIZE": "batch_size",
+    "MAX_ATTEMPTS": "max_attempts",
 }
 
 # ---------------------------------------------------------------------------
@@ -591,6 +603,57 @@ def _parse_route_env_vars(
 
 
 # ---------------------------------------------------------------------------
+# Retry env-var parsing
+# ---------------------------------------------------------------------------
+
+
+def _parse_retry_env_vars(
+    environ: dict[str, str] | os._Environ[str],  # type: ignore[attr-defined]
+) -> dict[str, str]:
+    """Parse ``MEDRE_RETRY__<FIELD>`` vars from *environ*.
+
+    Returns a mapping of field name → raw value.
+    Raises ConfigValidationError for malformed or unsupported fields.
+    """
+    prefix = RETRY_ENV_PREFIX
+    result: dict[str, str] = {}
+    malformed: list[str] = []
+    unsupported: list[str] = []
+
+    for name, value in environ.items():
+        if not name.startswith(prefix):
+            continue
+        remainder = name[len(prefix):]
+        if not remainder:
+            malformed.append(name)
+            continue
+        # Retry env vars use a single part: MEDRE_RETRY__<FIELD>
+        if "__" in remainder:
+            malformed.append(name)
+            continue
+        field_upper = remainder.upper()
+        if field_upper not in _RETRY_FIELD_MAP:
+            unsupported.append(name)
+            continue
+        field_name = _RETRY_FIELD_MAP[field_upper]
+        result[field_name] = value
+
+    if malformed:
+        raise ConfigValidationError(
+            f"Malformed MEDRE_RETRY__ environment variable(s): "
+            f"{sorted(malformed)}. Expected shape: "
+            f"MEDRE_RETRY__<FIELD> with a single, non-empty field name."
+        )
+    if unsupported:
+        raise ConfigValidationError(
+            f"Unsupported MEDRE_RETRY__ field(s): "
+            f"{sorted(unsupported)}. Supported fields: "
+            f"{sorted(_RETRY_FIELD_MAP.keys())}"
+        )
+    return result
+
+
+# ---------------------------------------------------------------------------
 # MedreEnvConfig
 # ---------------------------------------------------------------------------
 
@@ -628,6 +691,9 @@ class MedreEnvConfig:
         default_factory=dict
     )
 
+    # -- Retry overrides --
+    retry_overrides: dict[str, str] = field(default_factory=dict)
+
     # -- Construction -------------------------------------------------------
 
     @classmethod
@@ -651,6 +717,8 @@ class MedreEnvConfig:
             if key.startswith(_ADAPTER_ENV_PREFIX):
                 continue
             if key.startswith(ROUTE_ENV_PREFIX):
+                continue
+            if key.startswith(RETRY_ENV_PREFIX):
                 continue
             for prefix in _REJECTED_LEGACY_PREFIXES:
                 if key.startswith(prefix):
@@ -698,6 +766,18 @@ class MedreEnvConfig:
                         target_route_token=token,
                         target_field=field_name,
                     )
+
+        # Retry overrides.
+        retry_overrides = _parse_retry_env_vars(source)
+        if retry_overrides:
+            object.__setattr__(instance, "retry_overrides", retry_overrides)
+            for field_name, raw_value in retry_overrides.items():
+                provenance.record(
+                    f"{RETRY_ENV_PREFIX}{field_name.upper()}",
+                    raw_value,
+                    source_kind="retry",
+                    target_field=field_name,
+                )
 
         object.__setattr__(instance, "provenance", provenance)
         return instance
@@ -1260,6 +1340,44 @@ def apply_route_overrides(
 
 
 # ---------------------------------------------------------------------------
+# Retry env-var override application
+# ---------------------------------------------------------------------------
+
+
+def apply_retry_overrides(
+    config: RuntimeConfig,
+    retry_overrides: dict[str, str],
+) -> RuntimeConfig:
+    """Apply ``MEDRE_RETRY__<FIELD>`` overrides to *config*.
+
+    Returns a new RuntimeConfig with retry overrides applied.
+    Raises ConfigValidationError if values fail type coercion.
+    """
+    if not retry_overrides:
+        return config
+
+    kwargs: dict[str, Any] = {
+        f.name: getattr(config.retry, f.name)
+        for f in fields(config.retry)
+    }
+
+    for field_name, raw_value in retry_overrides.items():
+        if field_name not in kwargs:
+            raise ConfigValidationError(
+                f"Unknown retry field {field_name!r}"
+            )
+        field_type = get_type_hints(RetryConfig).get(field_name)
+        coerced = _coerce_field_value(
+            raw_value, field_name, field_type,
+            f"MEDRE_RETRY__{field_name.upper()}",
+        )
+        kwargs[field_name] = coerced
+
+    new_retry = RetryConfig(**kwargs)
+    return dataclasses.replace(config, retry=new_retry)
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -1365,5 +1483,10 @@ def apply_env_overrides(
     # Route overrides
     # ------------------------------------------------------------------
     config = apply_route_overrides(config, env.route_overrides)
+
+    # ------------------------------------------------------------------
+    # Retry overrides
+    # ------------------------------------------------------------------
+    config = apply_retry_overrides(config, env.retry_overrides)
 
     return config
