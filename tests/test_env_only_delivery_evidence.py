@@ -112,26 +112,28 @@ async def test_evidence_receipt_has_route_id(tmp_path: Path) -> None:
         assert section["status"] == "passed", f"Unexpected section status: {section}"
 
         # Receipt count >= 1
-        assert section["data"]["receipt_count"] >= 1, (
-            f"Expected receipt_count >= 1, got {section['data']['receipt_count']}"
-        )
+        assert (
+            section["data"]["receipt_count"] >= 1
+        ), f"Expected receipt_count >= 1, got {section['data']['receipt_count']}"
 
         # Timeline entries contain receipts with the expected metadata.
         timeline = section["data"]["timeline"]
         assert timeline is not None, "Timeline should not be None"
         receipt_entries = [e for e in timeline if e["entry_type"] == "receipt"]
-        assert len(receipt_entries) >= 1, "Expected at least one receipt entry in timeline"
+        assert (
+            len(receipt_entries) >= 1
+        ), "Expected at least one receipt entry in timeline"
         receipt_data = receipt_entries[0]["data"]
 
-        assert receipt_data["route_id"] == _ROUTE_ID, (
-            f"Expected route_id={_ROUTE_ID!r}, got {receipt_data.get('route_id')!r}"
-        )
-        assert receipt_data["target_adapter"] == _TARGET_ADAPTER, (
-            f"Expected target_adapter={_TARGET_ADAPTER!r}, got {receipt_data.get('target_adapter')!r}"
-        )
-        assert receipt_data["event_id"] == _EVENT_ID, (
-            f"Expected event_id={_EVENT_ID!r}, got {receipt_data.get('event_id')!r}"
-        )
+        assert (
+            receipt_data["route_id"] == _ROUTE_ID
+        ), f"Expected route_id={_ROUTE_ID!r}, got {receipt_data.get('route_id')!r}"
+        assert (
+            receipt_data["target_adapter"] == _TARGET_ADAPTER
+        ), f"Expected target_adapter={_TARGET_ADAPTER!r}, got {receipt_data.get('target_adapter')!r}"
+        assert (
+            receipt_data["event_id"] == _EVENT_ID
+        ), f"Expected event_id={_EVENT_ID!r}, got {receipt_data.get('event_id')!r}"
     finally:
         await storage.close()
 
@@ -154,15 +156,15 @@ async def test_trace_includes_route_id_and_target(tmp_path: Path) -> None:
     assert len(receipt_entries) == 1, "Expected exactly one receipt entry"
     receipt_data = receipt_entries[0]["data"]
 
-    assert receipt_data["route_id"] == _ROUTE_ID, (
-        f"Expected route_id={_ROUTE_ID!r}, got {receipt_data.get('route_id')!r}"
-    )
-    assert receipt_data["target_adapter"] == _TARGET_ADAPTER, (
-        f"Expected target_adapter={_TARGET_ADAPTER!r}, got {receipt_data.get('target_adapter')!r}"
-    )
-    assert receipt_data["event_id"] == _EVENT_ID, (
-        f"Expected event_id={_EVENT_ID!r}, got {receipt_data.get('event_id')!r}"
-    )
+    assert (
+        receipt_data["route_id"] == _ROUTE_ID
+    ), f"Expected route_id={_ROUTE_ID!r}, got {receipt_data.get('route_id')!r}"
+    assert (
+        receipt_data["target_adapter"] == _TARGET_ADAPTER
+    ), f"Expected target_adapter={_TARGET_ADAPTER!r}, got {receipt_data.get('target_adapter')!r}"
+    assert (
+        receipt_data["event_id"] == _EVENT_ID
+    ), f"Expected event_id={_EVENT_ID!r}, got {receipt_data.get('event_id')!r}"
 
 
 @pytest.mark.asyncio
@@ -209,7 +211,11 @@ async def test_evidence_and_trace_agree_on_delivery_metadata(tmp_path: Path) -> 
         assert ev_receipt_data["event_id"] == tr_receipt_data["event_id"] == _EVENT_ID
 
         # Both reference same target_adapter
-        assert ev_receipt_data["target_adapter"] == tr_receipt_data["target_adapter"] == _TARGET_ADAPTER
+        assert (
+            ev_receipt_data["target_adapter"]
+            == tr_receipt_data["target_adapter"]
+            == _TARGET_ADAPTER
+        )
 
         # Both reference same route_id
         assert ev_receipt_data["route_id"] == tr_receipt_data["route_id"] == _ROUTE_ID
@@ -238,9 +244,9 @@ async def test_receipt_attempt_number_in_both(tmp_path: Path) -> None:
     tr_data = tr_receipt[0]["data"]
 
     assert "attempt_number" in tr_data, "attempt_number missing from trace receipt"
-    assert tr_data["attempt_number"] == attempt, (
-        f"Trace attempt_number: expected {attempt}, got {tr_data['attempt_number']}"
-    )
+    assert (
+        tr_data["attempt_number"] == attempt
+    ), f"Trace attempt_number: expected {attempt}, got {tr_data['attempt_number']}"
 
     # -- Evidence (via storage) --
     db_path = str(tmp_path / "delivery_attempt.db")
@@ -265,10 +271,12 @@ async def test_receipt_attempt_number_in_both(tmp_path: Path) -> None:
         assert len(ev_receipt) >= 1
         ev_data = ev_receipt[0]["data"]
 
-        assert "attempt_number" in ev_data, "attempt_number missing from evidence receipt"
-        assert ev_data["attempt_number"] == attempt, (
-            f"Evidence attempt_number: expected {attempt}, got {ev_data['attempt_number']}"
-        )
+        assert (
+            "attempt_number" in ev_data
+        ), "attempt_number missing from evidence receipt"
+        assert (
+            ev_data["attempt_number"] == attempt
+        ), f"Evidence attempt_number: expected {attempt}, got {ev_data['attempt_number']}"
 
         # Both agree on the value
         assert ev_data["attempt_number"] == tr_data["attempt_number"], (
@@ -317,7 +325,9 @@ async def test_native_ref_canonical_keys_in_evidence_and_trace(tmp_path: Path) -
         assert ev_timeline is not None
 
         ev_nref = [e for e in ev_timeline if e["entry_type"] == "native_ref"]
-        assert len(ev_nref) >= 1, "Expected at least one native_ref in evidence timeline"
+        assert (
+            len(ev_nref) >= 1
+        ), "Expected at least one native_ref in evidence timeline"
         ev_data = ev_nref[0]["data"]
 
         for key in canonical_keys:

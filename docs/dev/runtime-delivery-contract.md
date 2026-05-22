@@ -34,64 +34,64 @@ This document describes how MEDRE routes, delivers, tracks, and recovers events.
 
 `DeliveryOutcome` (src/medre/core/planning/delivery_plan.py):
 
-| Field | Type | Description |
-|---|---|---|
-| event_id | str | Canonical event being delivered |
-| target_adapter | str | Target adapter name |
-| target_channel | str or None | Target channel on adapter |
-| route_id | str | Route that triggered delivery |
-| delivery_plan_id | str | Plan this belongs to |
-| status | Literal["success","queued","transient_failure","permanent_failure","skipped"] | Delivery status |
-| failure_kind | DeliveryFailureKind or None | Classification of failure |
-| receipt | DeliveryReceipt or None | Persisted receipt |
-| error | str or None | Sanitized error message |
-| duration_ms | float | Wall-clock duration |
+| Field            | Type                                                                          | Description                     |
+| ---------------- | ----------------------------------------------------------------------------- | ------------------------------- |
+| event_id         | str                                                                           | Canonical event being delivered |
+| target_adapter   | str                                                                           | Target adapter name             |
+| target_channel   | str or None                                                                   | Target channel on adapter       |
+| route_id         | str                                                                           | Route that triggered delivery   |
+| delivery_plan_id | str                                                                           | Plan this belongs to            |
+| status           | Literal["success","queued","transient_failure","permanent_failure","skipped"] | Delivery status                 |
+| failure_kind     | DeliveryFailureKind or None                                                   | Classification of failure       |
+| receipt          | DeliveryReceipt or None                                                       | Persisted receipt               |
+| error            | str or None                                                                   | Sanitized error message         |
+| duration_ms      | float                                                                         | Wall-clock duration             |
 
 ## Delivery Receipt Model
 
 `DeliveryReceipt` (src/medre/core/events/canonical.py):
 
-| Field | Type | Description |
-|---|---|---|
-| sequence | int | Autoincrement PK |
-| receipt_id | str | UUID ("rcpt-...") |
-| event_id | str | Canonical event ID |
-| delivery_plan_id | str | Plan identifier |
-| target_adapter | str | Target adapter name |
-| target_channel | str or None | Target channel |
-| route_id | str | Route that triggered delivery |
-| status | Literal["accepted","queued","sent","confirmed","failed","dead_lettered"] | Delivery status |
-| error | str or None | Sanitized error message |
-| failure_kind | str or None | Failure classification |
-| adapter_message_id | str or None | Native message ID from adapter |
-| next_retry_at | datetime or None | Scheduled retry time |
-| attempt_number | int | 1-indexed attempt |
-| parent_receipt_id | str or None | Previous receipt in lineage |
-| source | Literal["live","retry","replay"] | How this attempt was triggered |
-| replay_run_id | str or None | Populated when source="replay" |
-| retry_max_attempts | int or None | From RetryPolicy |
-| retry_backoff_base | float or None | From RetryPolicy |
-| retry_max_delay | float or None | From RetryPolicy |
-| retry_jitter | bool or None | From RetryPolicy |
-| created_at | datetime | Timestamp |
+| Field              | Type                                                                     | Description                    |
+| ------------------ | ------------------------------------------------------------------------ | ------------------------------ |
+| sequence           | int                                                                      | Autoincrement PK               |
+| receipt_id         | str                                                                      | UUID ("rcpt-...")              |
+| event_id           | str                                                                      | Canonical event ID             |
+| delivery_plan_id   | str                                                                      | Plan identifier                |
+| target_adapter     | str                                                                      | Target adapter name            |
+| target_channel     | str or None                                                              | Target channel                 |
+| route_id           | str                                                                      | Route that triggered delivery  |
+| status             | Literal["accepted","queued","sent","confirmed","failed","dead_lettered"] | Delivery status                |
+| error              | str or None                                                              | Sanitized error message        |
+| failure_kind       | str or None                                                              | Failure classification         |
+| adapter_message_id | str or None                                                              | Native message ID from adapter |
+| next_retry_at      | datetime or None                                                         | Scheduled retry time           |
+| attempt_number     | int                                                                      | 1-indexed attempt              |
+| parent_receipt_id  | str or None                                                              | Previous receipt in lineage    |
+| source             | Literal["live","retry","replay"]                                         | How this attempt was triggered |
+| replay_run_id      | str or None                                                              | Populated when source="replay" |
+| retry_max_attempts | int or None                                                              | From RetryPolicy               |
+| retry_backoff_base | float or None                                                            | From RetryPolicy               |
+| retry_max_delay    | float or None                                                            | From RetryPolicy               |
+| retry_jitter       | bool or None                                                             | From RetryPolicy               |
+| created_at         | datetime                                                                 | Timestamp                      |
 
 ## Delivery Failure Classification
 
 `DeliveryFailureKind` enum (src/medre/core/planning/delivery_plan.py):
 
-| Kind | Retryable | When |
-|---|---|---|
-| ADAPTER_TRANSIENT | Yes | Timeout, connection error, network unreachable |
-| ADAPTER_PERMANENT | No | Malformed payload, business rejection |
-| ADAPTER_MISSING | No | Target adapter not registered |
-| PLANNER_FAILURE | No | Router/planner misconfiguration |
-| RENDERER_FAILURE | No | No renderer registered for event kind |
-| TARGET_NOT_FOUND | No | Reserved — channel/address not found |
-| DEADLINE_EXCEEDED | No | Delivery plan deadline passed |
-| CAPACITY_REJECTION | No | All in-flight slots occupied |
-| SHUTDOWN_REJECTION | No | Pipeline shutting down |
-| DUPLICATE_SUPPRESSED | No | Duplicate native ref suppressed |
-| LOOP_SUPPRESSED | No | Route-trace or self-loop prevented |
+| Kind                 | Retryable | When                                           |
+| -------------------- | --------- | ---------------------------------------------- |
+| ADAPTER_TRANSIENT    | Yes       | Timeout, connection error, network unreachable |
+| ADAPTER_PERMANENT    | No        | Malformed payload, business rejection          |
+| ADAPTER_MISSING      | No        | Target adapter not registered                  |
+| PLANNER_FAILURE      | No        | Router/planner misconfiguration                |
+| RENDERER_FAILURE     | No        | No renderer registered for event kind          |
+| TARGET_NOT_FOUND     | No        | Reserved — channel/address not found           |
+| DEADLINE_EXCEEDED    | No        | Delivery plan deadline passed                  |
+| CAPACITY_REJECTION   | No        | All in-flight slots occupied                   |
+| SHUTDOWN_REJECTION   | No        | Pipeline shutting down                         |
+| DUPLICATE_SUPPRESSED | No        | Duplicate native ref suppressed                |
+| LOOP_SUPPRESSED      | No        | Route-trace or self-loop prevented             |
 
 `ADAPTER_TRANSIENT` is the **only** retryable kind.
 

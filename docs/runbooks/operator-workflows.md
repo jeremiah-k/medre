@@ -81,7 +81,7 @@ PYTHONPATH=src medre smoke
 
 This builds a pipeline with fake adapters, runs a message through it, and prints a summary. You should see output like:
 
-```
+```text
 Smoke test: PASSED
   Evidence level: fake_bridge
   Events processed: 1
@@ -231,12 +231,12 @@ medre inspect event <EVENT_ID> --config /path/to/config.toml
 
 ### Environment Variable Rules
 
-| Prefix                                 | Purpose                                      |
-| -------------------------------------- | -------------------------------------------- |
-| `MEDRE_ADAPTER__<TOKEN>__<FIELD>`      | Runtime adapter config                       |
-| `MEDRE_ROUTE__<TOKEN>__<FIELD>`        | Runtime route config                         |
+| Prefix                                             | Purpose                                      |
+| -------------------------------------------------- | -------------------------------------------- |
+| `MEDRE_ADAPTER__<TOKEN>__<FIELD>`                  | Runtime adapter config                       |
+| `MEDRE_ROUTE__<TOKEN>__<FIELD>`                    | Runtime route config                         |
 | `MATRIX_*`, `MESHTASTIC_*`, `MESHCORE_*`, `LXMF_*` | Pytest live-test convenience vars only       |
-| `MEDRE_MESHTASTIC_*`, etc.             | **Unsupported legacy** — rejected at startup |
+| `MEDRE_MESHTASTIC_*`, etc.                         | **Unsupported legacy** — rejected at startup |
 
 ### Sharing Output
 
@@ -244,57 +244,57 @@ Use `--json` flags for machine-readable output. Sanitize logs and evidence bundl
 
 ## Reading Delivery Reliability Reports
 
-MEDRE records every delivery attempt as a structured receipt.  Operators can inspect delivery outcomes, retries, and suppressions through evidence bundles and trace timelines.
+MEDRE records every delivery attempt as a structured receipt. Operators can inspect delivery outcomes, retries, and suppressions through evidence bundles and trace timelines.
 
 ### Delivery Outcome Statuses
 
-Each delivery attempt produces a ``DeliveryOutcome`` with one of these statuses:
+Each delivery attempt produces a `DeliveryOutcome` with one of these statuses:
 
-| Status              | Meaning                                                                 |
-| ------------------- | ----------------------------------------------------------------------- |
-| ``success``         | The adapter accepted the message and returned a native message ID.      |
-| ``queued``          | The adapter enqueued the message for async delivery.                    |
-| ``transient_failure`` | A temporary error (timeout, connection reset). Retryable.              |
-| ``permanent_failure`` | A non-retryable error (malformed payload, auth rejection).             |
-| ``skipped``         | Delivery was skipped (loop prevention, suppression, capacity rejection).|
+| Status              | Meaning                                                                  |
+| ------------------- | ------------------------------------------------------------------------ |
+| `success`           | The adapter accepted the message and returned a native message ID.       |
+| `queued`            | The adapter enqueued the message for async delivery.                     |
+| `transient_failure` | A temporary error (timeout, connection reset). Retryable.                |
+| `permanent_failure` | A non-retryable error (malformed payload, auth rejection).               |
+| `skipped`           | Delivery was skipped (loop prevention, suppression, capacity rejection). |
 
 ### Receipt Statuses
 
 Receipts persisted to storage have a finer-grained lifecycle:
 
-| Status             | Meaning                                                               |
-| ------------------ | --------------------------------------------------------------------- |
-| ``accepted``       | Initial state — delivery plan accepted.                               |
-| ``queued``         | Enqueued for async delivery (queue-based transports).                 |
-| ``sent``           | Adapter confirmed delivery.                                           |
-| ``failed``         | Delivery attempt failed (check ``failure_kind`` for details).         |
-| ``dead_lettered``  | All retry attempts exhausted — no further delivery will be attempted. |
+| Status          | Meaning                                                               |
+| --------------- | --------------------------------------------------------------------- |
+| `accepted`      | Initial state — delivery plan accepted.                               |
+| `queued`        | Enqueued for async delivery (queue-based transports).                 |
+| `sent`          | Adapter confirmed delivery.                                           |
+| `failed`        | Delivery attempt failed (check `failure_kind` for details).           |
+| `dead_lettered` | All retry attempts exhausted — no further delivery will be attempted. |
 
 ### Failure Classification
 
-The ``failure_kind`` field on receipts classifies failures:
+The `failure_kind` field on receipts classifies failures:
 
-| Kind                    | Retryable | When                                                        |
-| ----------------------- | --------- | ----------------------------------------------------------- |
-| ``adapter_transient``   | Yes       | Timeout, network error, connection reset                    |
-| ``adapter_permanent``   | No        | Malformed payload, business-logic rejection                 |
-| ``adapter_missing``     | No        | Target adapter not registered in the runtime                |
-| ``planner_failure``     | No        | Routing or planning misconfiguration                        |
-| ``renderer_failure``    | No        | No renderer registered for the event kind                   |
-| ``capacity_rejection``  | No        | All in-flight delivery slots occupied                       |
-| ``duplicate_suppressed``| No        | Event carries a native ref that has already been processed   |
-| ``loop_suppressed``     | No        | Route-trace or self-loop prevention blocked the delivery     |
+| Kind                   | Retryable | When                                                       |
+| ---------------------- | --------- | ---------------------------------------------------------- |
+| `adapter_transient`    | Yes       | Timeout, network error, connection reset                   |
+| `adapter_permanent`    | No        | Malformed payload, business-logic rejection                |
+| `adapter_missing`      | No        | Target adapter not registered in the runtime               |
+| `planner_failure`      | No        | Routing or planning misconfiguration                       |
+| `renderer_failure`     | No        | No renderer registered for the event kind                  |
+| `capacity_rejection`   | No        | All in-flight delivery slots occupied                      |
+| `duplicate_suppressed` | No        | Event carries a native ref that has already been processed |
+| `loop_suppressed`      | No        | Route-trace or self-loop prevention blocked the delivery   |
 
-Only ``adapter_transient`` is retryable.
+Only `adapter_transient` is retryable.
 
 ### Retry and Replay
 
-- **Retries** are handled by ``RetryWorker`` — a background task that polls for
+- **Retries** are handled by `RetryWorker` — a background task that polls for
   transient-failure receipts and re-attempts delivery with exponential backoff.
-  Retries are opt-in (``[retry] enabled = true`` in config).
+  Retries are opt-in (`[retry] enabled = true` in config).
 - **Replay** is a separate mechanism that re-processes historical events through
-  the pipeline.  Replayed deliveries are tagged ``source="replay"`` with a
-  ``replay_run_id`` for identification.
+  the pipeline. Replayed deliveries are tagged `source="replay"` with a
+  `replay_run_id` for identification.
 
 ### Inspection
 
@@ -311,7 +311,7 @@ medre trace event <EVENT_ID> --config /path/to/config.toml --json
 medre inspect event <EVENT_ID> --config /path/to/config.toml
 ```
 
-Sanitized JSON example (``failure_kind`` and ``attempt_number`` visible):
+Sanitized JSON example (`failure_kind` and `attempt_number` visible):
 
 ```json
 {
@@ -351,7 +351,7 @@ PYTHONPATH=src medre run
 
 You should see startup log lines confirming config loaded, pipeline started, and adapter connected. The key line is:
 
-```
+```text
 Matrix Operation Alpha running — awaiting shutdown signal
 ```
 
@@ -571,7 +571,7 @@ PYTHONPATH=src medre trace event <event_id> --storage-path /path/to/medre.db --j
 
 A healthy event trace looks something like this:
 
-```
+```text
 Event: evt_abc123 (message.created) from matrix-alpha
 Timeline (4 entries):
 

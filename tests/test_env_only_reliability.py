@@ -10,8 +10,6 @@ No Docker, no live transports, no SDK dependencies required.
 
 from __future__ import annotations
 
-import asyncio
-import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,9 +19,9 @@ import pytest
 
 from medre.config.env import apply_env_overrides
 from medre.config.loader import load_config
+from medre.core.events import NativeRef
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.metadata import EventMetadata
-from medre.core.events import NativeRef
 from medre.runtime.builder import RuntimeBuilder
 
 # ---------------------------------------------------------------------------
@@ -197,9 +195,9 @@ class TestEnvOnlyReliability:
             # -- Verify delivery outcomes ------------------------------------
             assert len(outcomes) >= 1, "Expected at least one delivery outcome"
             successful = [o for o in outcomes if o.status == "success"]
-            assert len(successful) >= 1, (
-                f"No successful deliveries; statuses: {[o.status for o in outcomes]}"
-            )
+            assert (
+                len(successful) >= 1
+            ), f"No successful deliveries; statuses: {[o.status for o in outcomes]}"
             assert successful[0].target_adapter == "matrix-fake"
 
             # -- Verify storage: event persisted ------------------------------
@@ -219,12 +217,11 @@ class TestEnvOnlyReliability:
             # -- Verify storage: outbound native ref -------------------------
             native_refs = await storage.list_native_refs_for_event(event.event_id)
             outbound_refs = [
-                nr for nr in native_refs
-                if getattr(nr, "direction", None) == "outbound"
+                nr for nr in native_refs if getattr(nr, "direction", None) == "outbound"
             ]
-            assert len(outbound_refs) >= 1, (
-                "Expected at least one outbound native ref for matrix-fake"
-            )
+            assert (
+                len(outbound_refs) >= 1
+            ), "Expected at least one outbound native ref for matrix-fake"
             assert getattr(outbound_refs[0], "adapter", None) == "matrix-fake"
             assert getattr(outbound_refs[0], "native_message_id", None) is not None
 
@@ -277,9 +274,9 @@ class TestEnvOnlyReliability:
             outcomes2 = await app.pipeline_runner.handle_ingress(event2)
 
             # Second injection should be suppressed (empty outcomes).
-            assert outcomes2 == [], (
-                f"Expected empty outcomes for duplicate, got {[o.status for o in outcomes2]}"
-            )
+            assert (
+                outcomes2 == []
+            ), f"Expected empty outcomes for duplicate, got {[o.status for o in outcomes2]}"
 
             # Storage should have exactly one event.
             storage = app.storage
@@ -289,9 +286,9 @@ class TestEnvOnlyReliability:
 
             # Exactly one receipt for this event.
             receipts = await storage.list_receipts_for_event(event_id)
-            assert len(receipts) == 1, (
-                f"Expected exactly 1 receipt, got {len(receipts)}"
-            )
+            assert (
+                len(receipts) == 1
+            ), f"Expected exactly 1 receipt, got {len(receipts)}"
 
             # Exactly one native ref for this event.
             native_refs = await storage.list_native_refs_for_event(event_id)
@@ -313,7 +310,9 @@ class TestEnvOnlyReliability:
         delivery through an env-created route."""
         db_path = str(tmp_path / "routestats.db")
         app = _load_and_build(
-            monkeypatch, tmp_path, db_path,
+            monkeypatch,
+            tmp_path,
+            db_path,
         )
 
         try:
@@ -335,9 +334,9 @@ class TestEnvOnlyReliability:
                 f"got: {sorted(snap.keys())}"
             )
             route_entry = snap["radio-to-matrix"]
-            assert route_entry.get("delivered", 0) >= 1, (
-                f"Expected delivered >= 1, got: {route_entry}"
-            )
+            assert (
+                route_entry.get("delivered", 0) >= 1
+            ), f"Expected delivered >= 1, got: {route_entry}"
         finally:
             try:
                 await app.stop()
@@ -386,9 +385,9 @@ class TestEnvOnlyReliability:
             outcomes_b = await app.pipeline_runner.handle_ingress(event_b)
 
             # Second event should be suppressed.
-            assert outcomes_b == [], (
-                f"Expected empty outcomes for dedup, got {[o.status for o in outcomes_b]}"
-            )
+            assert (
+                outcomes_b == []
+            ), f"Expected empty outcomes for dedup, got {[o.status for o in outcomes_b]}"
 
             # Only the first event_id should be in storage.
             storage = app.storage
@@ -398,9 +397,9 @@ class TestEnvOnlyReliability:
             assert stored_a is not None, "First event should be persisted"
 
             stored_b = await storage.get(event_b.event_id)
-            assert stored_b is None, (
-                f"Second event {event_b.event_id!r} should NOT be persisted (dedup)"
-            )
+            assert (
+                stored_b is None
+            ), f"Second event {event_b.event_id!r} should NOT be persisted (dedup)"
 
         finally:
             try:
