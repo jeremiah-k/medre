@@ -626,18 +626,18 @@ MEDRE uses three categories of environment variables:
 
 Retry behavior can be configured through environment variables using:
 
-```
+```text
 MEDRE_RETRY__ENABLED=true|false
 MEDRE_RETRY__MAX_ATTEMPTS=5
 MEDRE_RETRY__INTERVAL_SECONDS=10.0
 MEDRE_RETRY__BATCH_SIZE=20
 ```
 
-Field names are case-insensitive.  Values are coerced to the expected type
-(bool, int, or float).  These override any ``[retry]`` TOML section values.
+Field names are case-insensitive. Values are coerced to the expected type
+(bool, int, or float). These override any `[retry]` TOML section values.
 
-Retry is opt-in (default: disabled).  See the retry worker documentation in
-``src/medre/runtime/retry.py`` for details.
+Retry is opt-in (default: disabled). See the retry worker documentation in
+`src/medre/runtime/retry.py` for details.
 
 ### Instance-Scoped Adapter Overrides
 

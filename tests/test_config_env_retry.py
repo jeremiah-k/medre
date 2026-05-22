@@ -26,7 +26,6 @@ from medre.config.model import (
     StorageConfig,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -67,7 +66,9 @@ class TestRetryEnvOverrides:
         env = MedreEnvConfig.from_environ()
         assert env.retry_overrides["max_attempts"] == "5"
 
-    def test_retry_interval_seconds_float(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_retry_interval_seconds_float(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("MEDRE_RETRY__INTERVAL_SECONDS", "5.5")
         env = MedreEnvConfig.from_environ()
         assert env.retry_overrides["interval_seconds"] == "5.5"
@@ -89,7 +90,9 @@ class TestRetryEnvOverrides:
         with pytest.raises(ConfigValidationError, match="Malformed MEDRE_RETRY__"):
             MedreEnvConfig.from_environ({"MEDRE_RETRY__ENABLED__EXTRA": "v"})
 
-    def test_retry_coerces_to_retry_config(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_retry_coerces_to_retry_config(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """apply_env_overrides with MEDRE_RETRY__ vars produces correct RetryConfig."""
         base = _make_base_config()
         monkeypatch.setenv("MEDRE_RETRY__ENABLED", "true")
@@ -102,13 +105,17 @@ class TestRetryEnvOverrides:
         assert result.retry.interval_seconds == 15.0
         assert result.retry.batch_size == 10
 
-    def test_retry_case_insensitive_field(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_retry_case_insensitive_field(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Field names in MEDRE_RETRY__ are case-insensitive."""
         monkeypatch.setenv("MEDRE_RETRY__enabled", "true")
         env = MedreEnvConfig.from_environ()
         assert env.retry_overrides["enabled"] == "true"
 
-    def test_retry_does_not_affect_adapters_or_routes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_retry_does_not_affect_adapters_or_routes(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """MEDRE_RETRY__ vars don't interfere with adapter/route parsing."""
         monkeypatch.setenv("MEDRE_RETRY__ENABLED", "true")
         monkeypatch.setenv("MEDRE_RETRY__MAX_ATTEMPTS", "5")

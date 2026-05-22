@@ -79,28 +79,28 @@ This document describes how MEDRE routes, delivers, tracks, and recovers events.
 
 `DeliveryFailureKind` enum (src/medre/core/planning/delivery_plan.py):
 
-| Kind                 | Retryable | When                                           |
-| -------------------- | --------- | ---------------------------------------------- |
-| ADAPTER_TRANSIENT    | Yes       | Timeout, connection error, network unreachable |
-| ADAPTER_PERMANENT    | No        | Malformed payload, business rejection          |
-| ADAPTER_MISSING      | No        | Target adapter not registered                  |
-| PLANNER_FAILURE      | No        | Router/planner misconfiguration                |
-| RENDERER_FAILURE     | No        | No renderer registered for event kind          |
-| TARGET_NOT_FOUND     | No        | Reserved — channel/address not found           |
-| DEADLINE_EXCEEDED    | No        | Delivery plan deadline passed                  |
-| CAPACITY_REJECTION   | No        | All in-flight slots occupied                   |
-| SHUTDOWN_REJECTION   | No        | Pipeline shutting down                         |
-| DUPLICATE_SUPPRESSED | No | Reserved — defined in the enum but not currently emitted as a receipt/outcome. |
-| LOOP_SUPPRESSED      | No        | Route-trace or self-loop prevented             |
+| Kind                 | Retryable | When                                                                           |
+| -------------------- | --------- | ------------------------------------------------------------------------------ |
+| ADAPTER_TRANSIENT    | Yes       | Timeout, connection error, network unreachable                                 |
+| ADAPTER_PERMANENT    | No        | Malformed payload, business rejection                                          |
+| ADAPTER_MISSING      | No        | Target adapter not registered                                                  |
+| PLANNER_FAILURE      | No        | Router/planner misconfiguration                                                |
+| RENDERER_FAILURE     | No        | No renderer registered for event kind                                          |
+| TARGET_NOT_FOUND     | No        | Reserved — channel/address not found                                           |
+| DEADLINE_EXCEEDED    | No        | Delivery plan deadline passed                                                  |
+| CAPACITY_REJECTION   | No        | All in-flight slots occupied                                                   |
+| SHUTDOWN_REJECTION   | No        | Pipeline shutting down                                                         |
+| DUPLICATE_SUPPRESSED | No        | Reserved — defined in the enum but not currently emitted as a receipt/outcome. |
+| LOOP_SUPPRESSED      | No        | Route-trace or self-loop prevented                                             |
 
 `ADAPTER_TRANSIENT` is the **only** retryable kind.
 
-> **Note:** ``DUPLICATE_SUPPRESSED`` is defined in the ``DeliveryFailureKind``
-> enum but is not currently emitted as a receipt or ``DeliveryOutcome``.
-> Duplicate native-ref suppression happens before routing in ``handle_ingress``
-> and returns ``[]`` (no outcomes, no receipts).  The suppression is recorded
-> in ``RuntimeAccounting.loop_prevented``, not in persisted receipts or
-> ``RouteStats``.
+> **Note:** `DUPLICATE_SUPPRESSED` is defined in the `DeliveryFailureKind`
+> enum but is not currently emitted as a receipt or `DeliveryOutcome`.
+> Duplicate native-ref suppression happens before routing in `handle_ingress`
+> and returns `[]` (no outcomes, no receipts). The suppression is recorded
+> in `RuntimeAccounting.loop_prevented`, not in persisted receipts or
+> `RouteStats`.
 
 ## Retry Mechanism
 
@@ -115,13 +115,13 @@ This document describes how MEDRE routes, delivers, tracks, and recovers events.
 
 ## Duplicate Suppression
 
-- **Native ref dedup**: during ``handle_ingress``, if ``event.source_native_ref``
-  resolves to an already-stored event via ``storage.resolve_native_ref()``, the
-  pipeline returns ``[]`` (no outcomes, no receipts).  The duplicate event is
-  not persisted.  The suppression is recorded in ``RuntimeAccounting.loop_prevented``,
-  not in persisted receipts or ``RouteStats``.
-- **No event_id dedup**: the pipeline does NOT deduplicate by ``event_id`` —
-  each ``handle_ingress`` call proceeds independently.
+- **Native ref dedup**: during `handle_ingress`, if `event.source_native_ref`
+  resolves to an already-stored event via `storage.resolve_native_ref()`, the
+  pipeline returns `[]` (no outcomes, no receipts). The duplicate event is
+  not persisted. The suppression is recorded in `RuntimeAccounting.loop_prevented`,
+  not in persisted receipts or `RouteStats`.
+- **No event_id dedup**: the pipeline does NOT deduplicate by `event_id` —
+  each `handle_ingress` call proceeds independently.
 
 ## Loop Prevention
 

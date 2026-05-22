@@ -623,7 +623,7 @@ def _parse_retry_env_vars(
     for name, value in environ.items():
         if not name.startswith(prefix):
             continue
-        remainder = name[len(prefix):]
+        remainder = name[len(prefix) :]
         if not remainder:
             malformed.append(name)
             continue
@@ -1357,18 +1357,17 @@ def apply_retry_overrides(
         return config
 
     kwargs: dict[str, Any] = {
-        f.name: getattr(config.retry, f.name)
-        for f in fields(config.retry)
+        f.name: getattr(config.retry, f.name) for f in fields(config.retry)
     }
 
     for field_name, raw_value in retry_overrides.items():
         if field_name not in kwargs:
-            raise ConfigValidationError(
-                f"Unknown retry field {field_name!r}"
-            )
+            raise ConfigValidationError(f"Unknown retry field {field_name!r}")
         field_type = get_type_hints(RetryConfig).get(field_name)
         coerced = _coerce_field_value(
-            raw_value, field_name, field_type,
+            raw_value,
+            field_name,
+            field_type,
             f"MEDRE_RETRY__{field_name.upper()}",
         )
         kwargs[field_name] = coerced

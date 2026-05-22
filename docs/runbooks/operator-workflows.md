@@ -58,24 +58,27 @@ If this prints a help message, the install worked. If it prints `command not fou
 
 MEDRE uses different environment variable sets depending on context:
 
-**Runtime config** (read by ``medre run`` and all config-backed commands):
-- ``MEDRE_ADAPTER__<TOKEN>__<FIELD>`` — adapter instance config
-- ``MEDRE_ROUTE__<TOKEN>__<FIELD>`` — route config
-- ``MEDRE_HOME``, ``MEDRE_DB_PATH``, ``MEDRE_LOG_LEVEL`` — core runtime
-- ``MEDRE_RETRY__<FIELD>`` — retry worker config
+**Runtime config** (read by `medre run` and all config-backed commands):
 
-**Pytest live-test convenience vars** (read by ``pytest -m live`` only):
-- ``MATRIX_HOMESERVER``, ``MATRIX_USER_ID``, ``MATRIX_ACCESS_TOKEN``, ``MATRIX_ROOM_ID``
-- ``MESHTASTIC_CONNECTION_TYPE``, ``MESHTASTIC_HOST``, ``MESHTASTIC_SERIAL_PORT``
-- ``MESHCORE_CONNECTION_TYPE``, ``MESHCORE_HOST``
-- ``LXMF_CONNECTION_TYPE``
+- `MEDRE_ADAPTER__<TOKEN>__<FIELD>` — adapter instance config
+- `MEDRE_ROUTE__<TOKEN>__<FIELD>` — route config
+- `MEDRE_HOME`, `MEDRE_DB_PATH`, `MEDRE_LOG_LEVEL` — core runtime
+- `MEDRE_RETRY__<FIELD>` — retry worker config
+
+**Pytest live-test convenience vars** (read by `pytest -m live` only):
+
+- `MATRIX_HOMESERVER`, `MATRIX_USER_ID`, `MATRIX_ACCESS_TOKEN`, `MATRIX_ROOM_ID`
+- `MESHTASTIC_CONNECTION_TYPE`, `MESHTASTIC_HOST`, `MESHTASTIC_SERIAL_PORT`
+- `MESHCORE_CONNECTION_TYPE`, `MESHCORE_HOST`
+- `LXMF_CONNECTION_TYPE`
 
 **Unsupported legacy** (rejected at startup):
-- ``MEDRE_MATRIX_*``, ``MEDRE_MESHTASTIC_*``, ``MEDRE_MESHCORE_*``, ``MEDRE_LXMF_*``
 
-> **Important:** ``MATRIX_*`` variables are for pytest live-test convenience only.
-> They are **not** read by ``medre run``.  To configure a Matrix adapter for
-> runtime operation, use ``MEDRE_ADAPTER__<TOKEN>__<FIELD>``.
+- `MEDRE_MATRIX_*`, `MEDRE_MESHTASTIC_*`, `MEDRE_MESHCORE_*`, `MEDRE_LXMF_*`
+
+> **Important:** `MATRIX_*` variables are for pytest live-test convenience only.
+> They are **not** read by `medre run`. To configure a Matrix adapter for
+> runtime operation, use `MEDRE_ADAPTER__<TOKEN>__<FIELD>`.
 
 ## 3. End-to-End Fake Local Run Session
 
@@ -283,16 +286,16 @@ Receipts persisted to storage have a finer-grained lifecycle:
 
 The `failure_kind` field on receipts classifies failures:
 
-| Kind                   | Retryable | When                                                       |
-| ---------------------- | --------- | ---------------------------------------------------------- |
-| `adapter_transient`    | Yes       | Timeout, network error, connection reset                   |
-| `adapter_permanent`    | No        | Malformed payload, business-logic rejection                |
-| `adapter_missing`      | No        | Target adapter not registered in the runtime               |
-| `planner_failure`      | No        | Routing or planning misconfiguration                       |
-| `renderer_failure`     | No        | No renderer registered for the event kind                  |
-| `capacity_rejection`   | No        | All in-flight delivery slots occupied                      |
+| Kind                   | Retryable | When                                                                                                                                                                         |
+| ---------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `adapter_transient`    | Yes       | Timeout, network error, connection reset                                                                                                                                     |
+| `adapter_permanent`    | No        | Malformed payload, business-logic rejection                                                                                                                                  |
+| `adapter_missing`      | No        | Target adapter not registered in the runtime                                                                                                                                 |
+| `planner_failure`      | No        | Routing or planning misconfiguration                                                                                                                                         |
+| `renderer_failure`     | No        | No renderer registered for the event kind                                                                                                                                    |
+| `capacity_rejection`   | No        | All in-flight delivery slots occupied                                                                                                                                        |
 | `duplicate_suppressed` | No        | Reserved — defined in the enum but not currently emitted as a receipt or outcome. Duplicate native-ref suppression happens before routing and returns an empty outcome list. |
-| `loop_suppressed`      | No        | Route-trace or self-loop prevention blocked the delivery   |
+| `loop_suppressed`      | No        | Route-trace or self-loop prevention blocked the delivery                                                                                                                     |
 
 Only `adapter_transient` is retryable.
 
@@ -301,8 +304,8 @@ Only `adapter_transient` is retryable.
 - **Retries** are handled by `RetryWorker` — a background task that polls for
   transient-failure receipts and re-attempts delivery with exponential backoff.
   Retries are opt-in (`[retry] enabled = true` in config).
-  Retry is opt-in and can be configured through ``MEDRE_RETRY__`` environment
-  variables (or the ``[retry]`` TOML section).  Retry mechanisms are documented
+  Retry is opt-in and can be configured through `MEDRE_RETRY__` environment
+  variables (or the `[retry]` TOML section). Retry mechanisms are documented
   and unit-tested but were not live-validated by this tranche.
 - **Replay** is a separate mechanism that re-processes historical events through
   the pipeline. Replayed deliveries are tagged `source="replay"` with a
@@ -358,9 +361,9 @@ export MEDRE_ROUTE__PRIMARY_TO_MESH__DIRECTIONALITY=source_to_dest
 export MEDRE_ROUTE__PRIMARY_TO_MESH__ENABLED=true
 ```
 
-> **Note:** The ``MATRIX_*`` variables (``MATRIX_HOMESERVER``, ``MATRIX_USER_ID``, etc.)
-> are pytest live-test convenience vars.  They are **not** read by ``medre run``.
-> Use ``MEDRE_ADAPTER__<TOKEN>__<FIELD>`` to configure Matrix adapters for runtime.
+> **Note:** The `MATRIX_*` variables (`MATRIX_HOMESERVER`, `MATRIX_USER_ID`, etc.)
+> are pytest live-test convenience vars. They are **not** read by `medre run`.
+> Use `MEDRE_ADAPTER__<TOKEN>__<FIELD>` to configure Matrix adapters for runtime.
 
 Do not commit these. Do not paste them into chat. Do not log them. They are credentials.
 

@@ -23,7 +23,7 @@ This document is the single source of truth for per-transport capability trackin
 | Inbound decode                      | live-validated | opt-in live test exists | not started | not started |
 | Storage native refs                 | live-validated | fake-tested             | fake-tested | fake-tested |
 | Evidence bundle                     | live-validated | fake-tested             | fake-tested | fake-tested |
-| Delivery reliability                | fake-tested    | fake-tested             | designed | designed |
+| Delivery reliability                | fake-tested    | fake-tested             | designed    | designed    |
 | Run-session path                    | live-validated | not started             | not started | not started |
 | Operator runbook                    | live-validated | opt-in live test exists | designed    | designed    |
 | Live validation recorded            | live-validated | not started             | not started | not started |
@@ -53,7 +53,7 @@ The Matrix adapter supports plaintext and E2EE text alpha. E2EE supports encrypt
 Delivery reliability currently has env-only fake validation — the env-only
 deployment tests (test_env_only_reliability.py) validate successful delivery,
 duplicate suppression, and loop-prevention metadata through RuntimeBuilder +
-fake adapters.  Retry and replay mechanisms have existing tests and docs,
+fake adapters. Retry and replay mechanisms have existing tests and docs,
 but this tranche did not newly validate them through env-only or live delivery
 reliability tests.
 

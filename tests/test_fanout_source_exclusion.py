@@ -168,8 +168,7 @@ class TestFanoutWithoutSourceDuplication:
 
         # At least one outcome should have LOOP_SUPPRESSED for the self-loop
         loop_suppressed = [
-            o for o in outcomes
-            if o.failure_kind == DeliveryFailureKind.LOOP_SUPPRESSED
+            o for o in outcomes if o.failure_kind == DeliveryFailureKind.LOOP_SUPPRESSED
         ]
         assert len(loop_suppressed) >= 1, (
             f"Expected LOOP_SUPPRESSED failure_kind, got: "

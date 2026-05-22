@@ -399,7 +399,9 @@ class TestEnvOnlyReliability:
         failure_kind=LOOP_SUPPRESSED."""
         db_path = str(tmp_path / "loopsuppress.db")
         app = _load_and_build(
-            monkeypatch, tmp_path, db_path,
+            monkeypatch,
+            tmp_path,
+            db_path,
         )
 
         try:
@@ -408,6 +410,7 @@ class TestEnvOnlyReliability:
             # Create an event with a route_trace that includes the
             # route ID twice (simulating a prior traversal).
             from medre.core.events.metadata import RoutingMetadata
+
             event = CanonicalEvent(
                 event_id=f"loop-suppress-{uuid.uuid4()}",
                 event_kind="message.created",
@@ -432,7 +435,8 @@ class TestEnvOnlyReliability:
             # There might be outcomes from other routes too, but at least
             # one should be a route-trace loop suppression.
             suppressed = [
-                o for o in outcomes
+                o
+                for o in outcomes
                 if o.status == "skipped"
                 and o.failure_kind is not None
                 and o.failure_kind == DeliveryFailureKind.LOOP_SUPPRESSED
@@ -446,12 +450,8 @@ class TestEnvOnlyReliability:
             route_stats = app.route_stats
             assert route_stats is not None
             snap = route_stats.snapshot()
-            loop_total = sum(
-                v.get("loop_prevented", 0) for v in snap.values()
-            )
-            assert loop_total >= 1, (
-                f"Expected loop_prevented >= 1, got {loop_total}"
-            )
+            loop_total = sum(v.get("loop_prevented", 0) for v in snap.values())
+            assert loop_total >= 1, f"Expected loop_prevented >= 1, got {loop_total}"
         finally:
             try:
                 await app.stop()
@@ -477,6 +477,7 @@ class TestEnvOnlyReliability:
         """MEDRE_RETRY__ vars correctly override RetryConfig fields through
         apply_env_overrides."""
         from medre.config.model import RuntimeConfig, RuntimeOptions, StorageConfig
+
         base = RuntimeConfig(
             runtime=RuntimeOptions(name="retry-test"),
             storage=StorageConfig(backend="memory"),
@@ -494,6 +495,7 @@ class TestEnvOnlyReliability:
     def test_retry_is_opt_in_by_default(self) -> None:
         """Retry is disabled by default when no MEDRE_RETRY__ vars are set."""
         from medre.config.model import RuntimeConfig, RuntimeOptions, StorageConfig
+
         base = RuntimeConfig(
             runtime=RuntimeOptions(name="retry-default-test"),
             storage=StorageConfig(backend="memory"),
