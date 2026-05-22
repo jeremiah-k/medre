@@ -547,12 +547,8 @@ class TestDockerEnvKeyCoverage:
             "MEDRE_LXMF_",
         )
         unrecognized = env_keys - ALL_RECOGNIZED_ENV_NAMES
-        unrecognized = {
-            k for k in unrecognized if not k.startswith("MEDRE_ADAPTER__")
-        }
-        unrecognized = {
-            k for k in unrecognized if not k.startswith("MEDRE_ROUTE__")
-        }
+        unrecognized = {k for k in unrecognized if not k.startswith("MEDRE_ADAPTER__")}
+        unrecognized = {k for k in unrecognized if not k.startswith("MEDRE_ROUTE__")}
         unrecognized = {
             k
             for k in unrecognized

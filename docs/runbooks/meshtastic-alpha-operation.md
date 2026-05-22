@@ -210,15 +210,15 @@ Invalid configurations raise `MeshtasticConfigError` before any connection attem
 
 The live smoke tests use environment variables to configure the connection. The adapter itself is configured via `MeshtasticConfig` (see section 4).
 
-| Variable                     | Required for | Default | Example             | Description                                          |
-| ---------------------------- | ------------ | ------- | ------------------- | ---------------------------------------------------- |
-| `MESHTASTIC_CONNECTION_TYPE` | All          |         | `tcp`               | Connection mode: `tcp`, `serial`, `ble`              |
-| `MESHTASTIC_HOST`            | TCP          |         | `meshtastic.local`  | Node hostname or IP                                  |
-| `MESHTASTIC_PORT`            | TCP          | `4403`  | `4403`              | TCP port                                             |
-| `MESHTASTIC_SERIAL_PORT`     | Serial       |         | `/dev/ttyUSB0`      | Serial device path                                   |
-| `MESHTASTIC_BLE_ADDRESS`     | BLE          |         | `AA:BB:CC:DD:EE:FF` | BLE MAC address                                      |
-| `MESHTASTIC_CHANNEL_INDEX`   | All          | `0`     | `0`                 | Channel for test messages                            |
-| `MESHTASTIC_NODE_ID`         | All          |         | `!25d6e474`         | Meshtastic node ID for identifying the local node    |
+| Variable                     | Required for | Default | Example             | Description                                                                                                                             |
+| ---------------------------- | ------------ | ------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `MESHTASTIC_CONNECTION_TYPE` | All          |         | `tcp`               | Connection mode: `tcp`, `serial`, `ble`                                                                                                 |
+| `MESHTASTIC_HOST`            | TCP          |         | `meshtastic.local`  | Node hostname or IP                                                                                                                     |
+| `MESHTASTIC_PORT`            | TCP          | `4403`  | `4403`              | TCP port                                                                                                                                |
+| `MESHTASTIC_SERIAL_PORT`     | Serial       |         | `/dev/ttyUSB0`      | Serial device path                                                                                                                      |
+| `MESHTASTIC_BLE_ADDRESS`     | BLE          |         | `AA:BB:CC:DD:EE:FF` | BLE MAC address                                                                                                                         |
+| `MESHTASTIC_CHANNEL_INDEX`   | All          | `0`     | `0`                 | Channel for test messages                                                                                                               |
+| `MESHTASTIC_NODE_ID`         | All          |         | `!25d6e474`         | Meshtastic node ID for identifying the local node                                                                                       |
 | `MESHTASTIC_LIVE_SEND`       | Live TX      |         | `1`                 | **Transmit guard.** Must be `1` for RF transmission. Without this flag, the adapter may connect and health-check but MUST NOT transmit. |
 
 ### 5.1.1 Multi-instance env overrides
@@ -232,7 +232,7 @@ at runtime:
 export MEDRE_ADAPTER__RADIO_A__SERIAL_PORT=/dev/ttyUSB0
 ```
 
-The adapter must be declared in the TOML config.  Only the specified field
+The adapter must be declared in the TOML config. Only the specified field
 is overridden.
 
 **Create an adapter entirely from env vars:**
@@ -248,13 +248,13 @@ export MEDRE_ADAPTER__RADIO_B__HOST=192.168.1.25
 export MEDRE_ADAPTER__RADIO_B__PORT=4403
 ```
 
-When ``TRANSPORT=meshtastic`` is present and the token does not match any
-TOML adapter, the adapter is created from env vars alone.  The ``adapter_id``
-is derived from the token (e.g. ``radio-a``, ``radio-b``).
+When `TRANSPORT=meshtastic` is present and the token does not match any
+TOML adapter, the adapter is created from env vars alone. The `adapter_id`
+is derived from the token (e.g. `radio-a`, `radio-b`).
 
-**Routes** can be defined in TOML or via ``MEDRE_ROUTE__<TOKEN>__<FIELD>`` env vars
-(simple routes only; advanced features may still require TOML).  Route tokens
-may contain only letters, numbers, and underscores.  Route adapter references
+**Routes** can be defined in TOML or via `MEDRE_ROUTE__<TOKEN>__<FIELD>` env vars
+(simple routes only; advanced features may still require TOML). Route tokens
+may contain only letters, numbers, and underscores. Route adapter references
 are adapter IDs, not env tokens.
 
 ```toml
@@ -266,21 +266,21 @@ enabled = true
 
 **Field reference** for Meshtastic env-created adapters:
 
-- ``TRANSPORT`` — always ``meshtastic``
-- ``CONNECTION_TYPE`` — ``fake`` (default), ``serial``, ``tcp``, ``ble``
-- ``HOST`` — required for TCP
-- ``PORT`` — optional TCP port (default ``4403``)
-- ``SERIAL_PORT`` — required for serial
-- ``BLE_ADDRESS`` — required for BLE
-- ``MESHNET_NAME`` — informational
-- ``DEFAULT_CHANNEL`` — channel index (default ``0``)
-- ``ADAPTER_ID`` — rarely needed; token-derived name is used by default
+- `TRANSPORT` — always `meshtastic`
+- `CONNECTION_TYPE` — `fake` (default), `serial`, `tcp`, `ble`
+- `HOST` — required for TCP
+- `PORT` — optional TCP port (default `4403`)
+- `SERIAL_PORT` — required for serial
+- `BLE_ADDRESS` — required for BLE
+- `MESHNET_NAME` — informational
+- `DEFAULT_CHANNEL` — channel index (default `0`)
+- `ADAPTER_ID` — rarely needed; token-derived name is used by default
 
-Note: ``CHANNEL_MAPPING`` (a dict field) and other complex types cannot
-be set via env vars.  Set these in the TOML config file.
+Note: `CHANNEL_MAPPING` (a dict field) and other complex types cannot
+be set via env vars. Set these in the TOML config file.
 
-Legacy ``MEDRE_MESHTASTIC_*`` runtime config variables are **unsupported** —
-they raise ``ConfigValidationError``.  Migrate to ``MEDRE_ADAPTER__<TOKEN>__<FIELD>``.
+Legacy `MEDRE_MESHTASTIC_*` runtime config variables are **unsupported** —
+they raise `ConfigValidationError`. Migrate to `MEDRE_ADAPTER__<TOKEN>__<FIELD>`.
 
 ### 5.2 Manual adapter wiring
 
@@ -348,15 +348,15 @@ See `docs/runbooks/meshtastic-live-smoke.md` for full smoke test documentation.
 
 ### 6.1 Startup sequence
 
-When ``start(ctx)`` is called on a non-fake adapter:
+When `start(ctx)` is called on a non-fake adapter:
 
-1. The adapter checks ``HAS_MESHTASTIC`` (the ``mtjk`` import guard). If ``mtjk`` is not installed and connection_type is not ``"fake"``, raises ``MeshtasticConnectionError``.
+1. The adapter checks `HAS_MESHTASTIC` (the `mtjk` import guard). If `mtjk` is not installed and connection_type is not `"fake"`, raises `MeshtasticConnectionError`.
 2. A :class:`~medre.adapters.meshtastic.session.MeshtasticSession` is created, which delegates raw transport lifecycle to the session boundary.
-3. ``session.start(message_callback=self._on_packet)`` is called. The session internally creates the appropriate interface (``TCPInterface``, ``SerialInterface``, or ``BLEInterface``) and subscribes to ``meshtastic.receive`` pubsub callbacks. The client creation is **synchronous and blocking** — it waits for the initial device config.
-4. The adapter mirrors ``self._client = self._session.client`` for diagnostics access.
-5. A background ``_drain_task`` is created via ``asyncio.create_task(self._process_queue())`` to continuously drain the outbound queue.
-6. ``_started`` is set to ``True``.
-7. A startup log line is emitted: ``"MeshtasticAdapter mesh-alpha started (mode=tcp)"``.
+3. `session.start(message_callback=self._on_packet)` is called. The session internally creates the appropriate interface (`TCPInterface`, `SerialInterface`, or `BLEInterface`) and subscribes to `meshtastic.receive` pubsub callbacks. The client creation is **synchronous and blocking** — it waits for the initial device config.
+4. The adapter mirrors `self._client = self._session.client` for diagnostics access.
+5. A background `_drain_task` is created via `asyncio.create_task(self._process_queue())` to continuously drain the outbound queue.
+6. `_started` is set to `True`.
+7. A startup log line is emitted: `"MeshtasticAdapter mesh-alpha started (mode=tcp)"`.
 
 ### 6.2 Expected startup output
 
@@ -372,13 +372,13 @@ If startup fails, you will see one of:
 
 ### 6.3 Shutdown sequence
 
-When ``stop()`` is called:
+When `stop()` is called:
 
-1. The ``_drain_task`` (background queue processor) is cancelled and awaited with a 5-second timeout. If the drain task is mid-send, the send is aborted and the dequeued item is dropped (no automatic requeue).
+1. The `_drain_task` (background queue processor) is cancelled and awaited with a 5-second timeout. If the drain task is mid-send, the send is aborted and the dequeued item is dropped (no automatic requeue).
 2. All tracked background tasks (from inbound packet processing) are cancelled and drained.
-3. ``session.stop()`` is called, which unsubscribes pubsub callbacks and closes the underlying client interface.
-4. ``_client`` is set to ``None``, ``_session`` is set to ``None``, ``_started`` is set to ``False``.
-5. A shutdown log line is emitted: ``"MeshtasticAdapter mesh-alpha stopped"``.
+3. `session.stop()` is called, which unsubscribes pubsub callbacks and closes the underlying client interface.
+4. `_client` is set to `None`, `_session` is set to `None`, `_started` is set to `False`.
+5. A shutdown log line is emitted: `"MeshtasticAdapter mesh-alpha stopped"`.
 
 Shutdown is **idempotent** — calling `stop()` on an already-stopped adapter is a no-op.
 
@@ -409,12 +409,12 @@ The adapter's `health_check()` returns an `AdapterInfo` with a `health` field:
 
 .. note::
 
-   The adapter code at ``MeshtasticAdapter.health_check()`` does handle
-   a ``"degraded"`` health state when ``self._session.reconnecting`` is
-   ``True``.  However, the current session implementation does not
-   automatically enter the reconnecting state — this path is reserved for
-   a future automatic reconnection feature.  In practice, the adapter
-   reports ``"healthy"`` or ``"unknown"`` only.
+The adapter code at `MeshtasticAdapter.health_check()` does handle
+a `"degraded"` health state when `self._session.reconnecting` is
+`True`. However, the current session implementation does not
+automatically enter the reconnecting state — this path is reserved for
+a future automatic reconnection feature. In practice, the adapter
+reports `"healthy"` or `"unknown"` only.
 
 ### 7.2 Queue diagnostics
 
@@ -441,9 +441,9 @@ health = adapter.queue_health
 
 .. note::
 
-   ``drain_task_running`` is an adapter-level diagnostics field, not a
-   queue-level field.  Query it via ``adapter.diagnostics()["drain_task_running"]``
-   instead of ``adapter.queue_health["drain_task_running"]``.
+`drain_task_running` is an adapter-level diagnostics field, not a
+queue-level field. Query it via `adapter.diagnostics()["drain_task_running"]`
+instead of `adapter.queue_health["drain_task_running"]`.
 
 These counters are cumulative for the lifetime of the adapter instance (not reset on stop/start).
 
@@ -742,6 +742,7 @@ This is an honest list. Everything here is real.
 The adapter sends real radio packets. Ensure the configured channel is not used for critical or emergency communications during testing. Meshtastic operates on license-free bands (868 MHz EU / 915 MHz US). Ensure your node is configured for your regional regulations.
 
 **Transmit guard.** RF transmission is gated by the `MESHTASTIC_LIVE_SEND=1` environment variable. Without this flag, the adapter may connect and health-check but **MUST NOT transmit**. This prevents accidental radio transmissions when:
+
 - Running tests against real hardware without intending to transmit.
 - Operating in CI environments where RF is never wanted.
 - Developing against a real node but only testing connection lifecycle.
@@ -943,21 +944,21 @@ are deferred behind runtime guards. Fake mode should never trigger a top-level
 
 The following features are not supported in alpha mode. Do not attempt to use them. They are listed here so you do not have to wonder.
 
-| Feature                      | Status                         | Notes                                                                     |
-| ---------------------------- | ------------------------------ | ------------------------------------------------------------------------- |
-| Automatic reconnection       | Not implemented                | See section 12                                                            |
-| Outbound retry               | Not implemented                | Failed sends are permanently dropped                                      |
-| ACK / delivery confirmation  | Not implemented                | `wantAck` is not set                                                      |
-| Telemetry decoding           | Not supported                  | Telemetry packets are classified but silently dropped                     |
-| Position / GPS decoding      | Not supported                  | Position packets are classified but silently dropped                      |
-| Node database caching        | Not supported                  | Node info packets are classified but silently dropped                     |
-| Admin API                    | Not supported                  | Admin packets are classified but silently dropped                         |
-| End-to-end encryption        | Not supported                  | Meshtastic encrypted channels are not handled                             |
-| Multi-node mesh testing      | Not tested                     | Alpha has only been validated with a single node                          |
-| BLE connectivity             | Documented only                | BLE is a config option but not validated in alpha                         |
-| Backlog suppression          | Config field exists, not wired | `startup_backlog_suppress_seconds` is accepted but not used for filtering |
-| Store-and-forward            | Not supported                  | No message persistence across restarts                                    |
-| Rate limiting / flow control | Not implemented                | Only basic pacing via `message_delay_seconds`                             |
-| Transmit guard               | Implemented (`MESHTASTIC_LIVE_SEND`) | RF transmission gated by env var; connect/health allowed without it |
-| Non-Meshtastic transports    | Not in scope                   | This runbook covers Meshtastic only                                       |
-| Multi-transport bridging     | Not in scope                   | No bridge between Meshtastic and other transports                         |
+| Feature                      | Status                               | Notes                                                                     |
+| ---------------------------- | ------------------------------------ | ------------------------------------------------------------------------- |
+| Automatic reconnection       | Not implemented                      | See section 12                                                            |
+| Outbound retry               | Not implemented                      | Failed sends are permanently dropped                                      |
+| ACK / delivery confirmation  | Not implemented                      | `wantAck` is not set                                                      |
+| Telemetry decoding           | Not supported                        | Telemetry packets are classified but silently dropped                     |
+| Position / GPS decoding      | Not supported                        | Position packets are classified but silently dropped                      |
+| Node database caching        | Not supported                        | Node info packets are classified but silently dropped                     |
+| Admin API                    | Not supported                        | Admin packets are classified but silently dropped                         |
+| End-to-end encryption        | Not supported                        | Meshtastic encrypted channels are not handled                             |
+| Multi-node mesh testing      | Not tested                           | Alpha has only been validated with a single node                          |
+| BLE connectivity             | Documented only                      | BLE is a config option but not validated in alpha                         |
+| Backlog suppression          | Config field exists, not wired       | `startup_backlog_suppress_seconds` is accepted but not used for filtering |
+| Store-and-forward            | Not supported                        | No message persistence across restarts                                    |
+| Rate limiting / flow control | Not implemented                      | Only basic pacing via `message_delay_seconds`                             |
+| Transmit guard               | Implemented (`MESHTASTIC_LIVE_SEND`) | RF transmission gated by env var; connect/health allowed without it       |
+| Non-Meshtastic transports    | Not in scope                         | This runbook covers Meshtastic only                                       |
+| Multi-transport bridging     | Not in scope                         | No bridge between Meshtastic and other transports                         |

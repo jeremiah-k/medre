@@ -69,7 +69,7 @@ from medre.config.model import (
     MeshtasticRuntimeConfig,
     RuntimeConfig,
 )
-from medre.runtime.routes import RouteConfig, RouteConfigSet, RouteDirectionality
+from medre.runtime.routes import RouteConfig, RouteConfigSet
 
 __all__ = [
     "ROUTE_ENV_PREFIX",
@@ -484,7 +484,7 @@ def _parse_adapter_env_vars(
     for name, value in environ.items():
         if not name.startswith(prefix):
             continue
-        remainder = name[len(prefix):]
+        remainder = name[len(prefix) :]
         if not remainder:
             malformed.append(name)
             continue
@@ -545,7 +545,7 @@ def _parse_route_env_vars(
     for name, value in environ.items():
         if not name.startswith(prefix):
             continue
-        remainder = name[len(prefix):]
+        remainder = name[len(prefix) :]
         if not remainder:
             malformed.append(name)
             continue
@@ -555,7 +555,7 @@ def _parse_route_env_vars(
             continue
         raw_token = parts[0]
         # Route tokens may contain only letters, numbers, and underscores.
-        if not re.match(r'^[a-zA-Z0-9_]+$', raw_token):
+        if not re.match(r"^[a-zA-Z0-9_]+$", raw_token):
             raise ConfigValidationError(
                 f"Invalid route token in {name!r}: token {raw_token!r} contains "
                 f"characters other than letters, digits, and underscores. "
@@ -619,10 +619,14 @@ class MedreEnvConfig:
     delivery_acquire_timeout_seconds: str | None = None
 
     # -- Instance-scoped adapter overrides --
-    instance_overrides: dict[str, dict[str, ParsedAdapterEnvValue]] = field(default_factory=dict)
+    instance_overrides: dict[str, dict[str, ParsedAdapterEnvValue]] = field(
+        default_factory=dict
+    )
 
     # -- Route overrides --
-    route_overrides: dict[str, dict[str, ParsedAdapterEnvValue]] = field(default_factory=dict)
+    route_overrides: dict[str, dict[str, ParsedAdapterEnvValue]] = field(
+        default_factory=dict
+    )
 
     # -- Construction -------------------------------------------------------
 
@@ -745,7 +749,9 @@ def _iter_configured_adapters(
     return result
 
 
-def _collect_configured_adapter_refs(config: RuntimeConfig) -> list[tuple[str, str, str]]:
+def _collect_configured_adapter_refs(
+    config: RuntimeConfig,
+) -> list[tuple[str, str, str]]:
     """Return list of (transport, adapter_key, adapter_id) for all configured adapters."""
     refs: list[tuple[str, str, str]] = []
     for transport in ("matrix", "meshtastic", "meshcore", "lxmf"):
@@ -763,9 +769,7 @@ def _check_token_collisions(refs: list[tuple[str, str, str]]) -> str | None:
         token_groups.setdefault(token, []).append((transport, key, adapter_id))
     for token, adapters in token_groups.items():
         if len(adapters) > 1:
-            details = "; ".join(
-                f"{t}.{k} adapter_id={a!r}" for t, k, a in adapters
-            )
+            details = "; ".join(f"{t}.{k} adapter_id={a!r}" for t, k, a in adapters)
             return (
                 f"Adapter env token collision for {token}: {details}. "
                 f"Rename one adapter_id."
@@ -901,14 +905,11 @@ def apply_instance_env_overrides(
                 new_enabled = _coerce_bool(parsed.raw_value, parsed.env_var_name)
 
             # Apply config-field overrides (fields other than enabled).
-            config_field_names = {
-                k for k in field_map if k != "enabled"
-            }
+            config_field_names = {k for k in field_map if k != "enabled"}
             if config_field_names:
                 # Start from existing config values.
                 config_kwargs = {
-                    f.name: getattr(new_config, f.name)
-                    for f in fields(config_cls)
+                    f.name: getattr(new_config, f.name) for f in fields(config_cls)
                 }
 
                 for field_name in config_field_names:
@@ -916,7 +917,9 @@ def apply_instance_env_overrides(
                     field_type = _get_field_type(transport, field_name)
 
                     # Reject dict/tuple fields — they cannot be set via env.
-                    unwrapped = _unwrap_optional_type(field_type) if field_type else None
+                    unwrapped = (
+                        _unwrap_optional_type(field_type) if field_type else None
+                    )
                     origin = get_origin(unwrapped) if unwrapped else None
                     if unwrapped in (dict, tuple) or origin in (dict, tuple):
                         raise ConfigValidationError(
@@ -1036,7 +1039,7 @@ def apply_instance_env_overrides(
 
         # Back-fill target_transport on provenance entries for this token.
         if provenance is not None:
-            for field_name, parsed in field_map.items():
+            for _, parsed in field_map.items():
                 entry = provenance._entries.get(parsed.env_var_name)
                 if entry is not None and entry.target_transport is None:
                     entry.target_transport = transport
@@ -1115,22 +1118,16 @@ def _build_route_toml_data_from_env_fields(
             route_id = parsed.raw_value.strip()
         elif fname == "source_adapters":
             toml_data["source_adapters"] = [
-                s.strip()
-                for s in parsed.raw_value.split(",")
-                if s.strip()
+                s.strip() for s in parsed.raw_value.split(",") if s.strip()
             ]
         elif fname == "dest_adapters":
             toml_data["dest_adapters"] = [
-                s.strip()
-                for s in parsed.raw_value.split(",")
-                if s.strip()
+                s.strip() for s in parsed.raw_value.split(",") if s.strip()
             ]
         elif fname == "directionality":
             toml_data["directionality"] = parsed.raw_value.strip().lower()
         elif fname == "enabled":
-            toml_data["enabled"] = _coerce_bool(
-                parsed.raw_value, parsed.env_var_name
-            )
+            toml_data["enabled"] = _coerce_bool(parsed.raw_value, parsed.env_var_name)
         elif fname in (
             "source_channel",
             "dest_channel",
@@ -1210,14 +1207,18 @@ def apply_route_overrides(
             # Override mode.
             existing = existing_routes[match_idx]
             route = _build_route_toml_data_from_env_fields(
-                field_map, existing.route_id, existing=existing,
+                field_map,
+                existing.route_id,
+                existing=existing,
             )
             replacements[match_idx] = route
         else:
             # Creation mode.
             route_id = token.lower().replace("_", "-")
             route = _build_route_toml_data_from_env_fields(
-                field_map, route_id, existing=None,
+                field_map,
+                route_id,
+                existing=None,
             )
             additions.append(route)
 
@@ -1248,8 +1249,7 @@ def apply_route_overrides(
         msgs: list[str] = []
         for _tok, ids in collisions.items():
             msgs.append(
-                f"Route IDs {ids} both normalize to {_tok}; "
-                f"rename one route_id."
+                f"Route IDs {ids} both normalize to {_tok}; " f"rename one route_id."
             )
         raise ConfigValidationError("; ".join(msgs))
 

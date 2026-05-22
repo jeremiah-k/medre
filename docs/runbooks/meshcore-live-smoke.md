@@ -185,13 +185,13 @@ This section covers BLE-specific setup, testing, and troubleshooting for MeshCor
 
 ### BLE Environment Variables
 
-| Variable                  | Required | Example               | Description                                  |
-| ------------------------- | -------- | --------------------- | -------------------------------------------- |
-| `MESHCORE_CONNECTION_TYPE` | Yes     | `ble`                 | Must be set to `ble` for BLE mode            |
-| `MESHCORE_BLE_ADDRESS`    | Yes      | `C4:4F:33:6A:B0:23`  | BLE MAC address of the target node           |
-| `MESHCORE_BLE_PIN`        | No       | `123456`              | BLE pairing PIN (if device requires pairing) |
-| `MESHCORE_CHANNEL_INDEX`  | No       | `0`                   | Channel for test messages (default `0`)      |
-| `MESHCORE_LIVE_SEND`      | No       | `1`                   | Must be `1` to enable actual radio transmit  |
+| Variable                   | Required | Example             | Description                                  |
+| -------------------------- | -------- | ------------------- | -------------------------------------------- |
+| `MESHCORE_CONNECTION_TYPE` | Yes      | `ble`               | Must be set to `ble` for BLE mode            |
+| `MESHCORE_BLE_ADDRESS`     | Yes      | `C4:4F:33:6A:B0:23` | BLE MAC address of the target node           |
+| `MESHCORE_BLE_PIN`         | No       | `123456`            | BLE pairing PIN (if device requires pairing) |
+| `MESHCORE_CHANNEL_INDEX`   | No       | `0`                 | Channel for test messages (default `0`)      |
+| `MESHCORE_LIVE_SEND`       | No       | `1`                 | Must be `1` to enable actual radio transmit  |
 
 > **Note**: The MAC address `C4:4F:33:6A:B0:23` is an example from hardware probe findings (MeshCore-B4C6ED2C). Use the actual MAC address of your node obtained via `bluetoothctl scan on`.
 
@@ -267,7 +267,7 @@ SKIPPED [ reason: Set MESHCORE_CONNECTION_TYPE (tcp/serial/ble) to run live Mesh
 
 When recording BLE test results, use this template with sensitive values redacted:
 
-```
+````markdown
 ## BLE Live Smoke Evidence
 
 - **Date:** YYYY-MM-DD
@@ -305,12 +305,13 @@ When recording BLE test results, use this template with sensitive values redacte
   }
 }
 ```
+````
 
 ### Notes
 
 - <Any observations, issues, or anomalies>
-```
 
+````markdown
 ### BLE Troubleshooting: "Advertising but Not Connecting"
 
 If `bluetoothctl scan on` shows the MeshCore device but `MeshCore.create_ble()` fails:
@@ -322,6 +323,7 @@ If `bluetoothctl scan on` shows the MeshCore device but `MeshCore.create_ble()` 
    # Should show: UP RUNNING
    # If DOWN: sudo hciconfig hci0 up
    ```
+````
 
 2. **Check rfkill (Bluetooth blocked):**
 
@@ -378,16 +380,16 @@ If `bluetoothctl scan on` shows the MeshCore device but `MeshCore.create_ble()` 
 
 ## Required Environment Variables
 
-| Variable                   | Required for   | Example             | Description                                 |
-| -------------------------- | -------------- | ------------------- | ------------------------------------------- |
-| `MESHCORE_CONNECTION_TYPE` | All            | `tcp`               | Connection mode: `tcp`, `serial`, `ble`     |
-| `MESHCORE_HOST`            | TCP            | `192.168.1.100`     | Node hostname or IP address                 |
-| `MESHCORE_PORT`            | TCP            | `4000`              | TCP port (default `4000`)                   |
-| `MESHCORE_SERIAL_PORT`     | Serial         | `/dev/ttyUSB0`      | Serial device path                          |
-| `MESHCORE_BLE_ADDRESS`     | BLE            | `AA:BB:CC:DD:EE:FF` | BLE MAC address                             |
-| `MESHCORE_BLE_PIN`         | BLE (optional) | `123456`            | BLE pairing PIN                             |
-| `MESHCORE_CHANNEL_INDEX`   | All            | `0`                 | Channel for test messages (default `0`)     |
-| `MESHCORE_DESTINATION`     | DM tests       | `a1b2c3...`         | Hex pubkey prefix for direct message target |
+| Variable                   | Required for   | Example             | Description                                                                                                             |
+| -------------------------- | -------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `MESHCORE_CONNECTION_TYPE` | All            | `tcp`               | Connection mode: `tcp`, `serial`, `ble`                                                                                 |
+| `MESHCORE_HOST`            | TCP            | `192.168.1.100`     | Node hostname or IP address                                                                                             |
+| `MESHCORE_PORT`            | TCP            | `4000`              | TCP port (default `4000`)                                                                                               |
+| `MESHCORE_SERIAL_PORT`     | Serial         | `/dev/ttyUSB0`      | Serial device path                                                                                                      |
+| `MESHCORE_BLE_ADDRESS`     | BLE            | `AA:BB:CC:DD:EE:FF` | BLE MAC address                                                                                                         |
+| `MESHCORE_BLE_PIN`         | BLE (optional) | `123456`            | BLE pairing PIN                                                                                                         |
+| `MESHCORE_CHANNEL_INDEX`   | All            | `0`                 | Channel for test messages (default `0`)                                                                                 |
+| `MESHCORE_DESTINATION`     | DM tests       | `a1b2c3...`         | Hex pubkey prefix for direct message target                                                                             |
 | `MESHCORE_LIVE_SEND`       | Send tests     | `1`                 | Must be `1` to enable actual radio transmission. Without it, real-mode send tests skip. Fake-mode sends are unaffected. |
 
 If any required variable is unset, all live tests should skip with a descriptive message.
@@ -713,7 +715,7 @@ All findings labeled CONFIRMED (source-read), INFERRED (pattern-derived), or UNK
 
 ### Env-First Adapter Creation
 
-MEDRE can create MeshCore adapters entirely from environment variables, without any TOML config section. Use the ``TRANSPORT`` field to declare the adapter type:
+MEDRE can create MeshCore adapters entirely from environment variables, without any TOML config section. Use the `TRANSPORT` field to declare the adapter type:
 
 ```bash
 # Create a BLE MeshCore adapter named meshcore-tbeam
@@ -728,21 +730,21 @@ export MEDRE_ADAPTER__MESHCORE_LAB__HOST=192.168.1.50
 export MEDRE_ADAPTER__MESHCORE_LAB__PORT=4403
 ```
 
-The ``<TOKEN>`` (``MESHCORE_TBEAM``, ``MESHCORE_LAB``) becomes the adapter's ``adapter_id`` (lowercased, hyphens for underscores).
+The `<TOKEN>` (`MESHCORE_TBEAM`, `MESHCORE_LAB`) becomes the adapter's `adapter_id` (lowercased, hyphens for underscores).
 
 **Important:**
 
 Runtime adapter config:
-  `MEDRE_ADAPTER__<TOKEN>__<FIELD>` — the only runtime adapter override surface.
+`MEDRE_ADAPTER__<TOKEN>__<FIELD>` — the only runtime adapter override surface.
 
 Runtime route config:
-  `MEDRE_ROUTE__<TOKEN>__<FIELD>` — creates/overrides routes from env. Simple routes can be created via environment variables; advanced route features (policy, retry, filter_hooks) may still require TOML. Route adapter references are adapter IDs, not env tokens.
+`MEDRE_ROUTE__<TOKEN>__<FIELD>` — creates/overrides routes from env. Simple routes can be created via environment variables; advanced route features (policy, retry, filter_hooks) may still require TOML. Route adapter references are adapter IDs, not env tokens.
 
 Pytest live-test convenience vars:
-  `MESHCORE_CONNECTION_TYPE`, `MESHCORE_BLE_ADDRESS`, etc. — pytest-only, do not affect runtime config.
+`MESHCORE_CONNECTION_TYPE`, `MESHCORE_BLE_ADDRESS`, etc. — pytest-only, do not affect runtime config.
 
 Unsupported legacy runtime config:
-  `MEDRE_MESHCORE_*` — rejected at startup with migration guidance. Also rejected: `MEDRE_MATRIX_*`, `MEDRE_MESHTASTIC_*`, `MEDRE_LXMF_*`.
+`MEDRE_MESHCORE_*` — rejected at startup with migration guidance. Also rejected: `MEDRE_MATRIX_*`, `MEDRE_MESHTASTIC_*`, `MEDRE_LXMF_*`.
 
 ## Cleanup
 

@@ -327,21 +327,21 @@ export MEDRE_ADAPTER__MESHCORE_TBEAM__CONNECTION_TYPE=ble
 export MEDRE_ADAPTER__MESHCORE_TBEAM__BLE_ADDRESS=C4:4F:33:6A:B0:23
 ```
 
-The ``<TOKEN>`` becomes the adapter's ``adapter_id``. No TOML section is needed.
+The `<TOKEN>` becomes the adapter's `adapter_id`. No TOML section is needed.
 
-Simple routes can be created via ``MEDRE_ROUTE__<TOKEN>__<FIELD>`` environment variables. Advanced route features (policy, retry, filter_hooks) may still require TOML. See the configuration runbook for full details.
+Simple routes can be created via `MEDRE_ROUTE__<TOKEN>__<FIELD>` environment variables. Advanced route features (policy, retry, filter_hooks) may still require TOML. See the configuration runbook for full details.
 
 Runtime adapter config:
-  ``MEDRE_ADAPTER__<TOKEN>__<FIELD>`` — the only runtime adapter override surface.
+`MEDRE_ADAPTER__<TOKEN>__<FIELD>` — the only runtime adapter override surface.
 
 Runtime route config:
-  ``MEDRE_ROUTE__<TOKEN>__<FIELD>`` — creates/overrides routes from env.
+`MEDRE_ROUTE__<TOKEN>__<FIELD>` — creates/overrides routes from env.
 
 Pytest live-test convenience vars:
-  ``MESHCORE_CONNECTION_TYPE``, ``MESHCORE_HOST``, etc. — pytest-only, do not affect runtime config.
+`MESHCORE_CONNECTION_TYPE`, `MESHCORE_HOST`, etc. — pytest-only, do not affect runtime config.
 
 Unsupported legacy runtime config:
-  ``MEDRE_MESHCORE_*`` — rejected at startup. Also rejected: ``MEDRE_MATRIX_*``, ``MEDRE_MESHTASTIC_*``, ``MEDRE_LXMF_*``.
+`MEDRE_MESHCORE_*` — rejected at startup. Also rejected: `MEDRE_MATRIX_*`, `MEDRE_MESHTASTIC_*`, `MEDRE_LXMF_*`.
 
 ## 6. Startup and Shutdown Behavior
 
@@ -969,26 +969,26 @@ Core MEDRE tests pass without it. Only real connectivity modes require the SDK.
 
 The following features are not supported in alpha mode. Do not attempt to use them. They are listed here so you do not have to wonder.
 
-| Feature                              | Status                           | Notes                                                         |
-| ------------------------------------ | -------------------------------- | ------------------------------------------------------------- |
-| Real client connections              | Scaffolded                       | `start()` raises `MeshCoreConnectionError` for non-fake types |
-| Automatic reconnection               | Not implemented at adapter level | SDK supports `auto_reconnect` param, not wired                |
-| Outbound retry                       | Not implemented                  | Failed sends are permanently dropped                          |
-| ACK / delivery confirmation tracking | Not implemented                  | `expected_ack` is not tracked or correlated                   |
-| Direct message routing               | Not supported                    | DMs classified but processed identically to channel messages  |
-| Reply threading                      | Not supported                    | MeshCore protocol has no native reply mechanism               |
-| Reactions                            | Not supported                    | MeshCore protocol has no reaction mechanism                   |
-| Edits                                | Not supported                    | MeshCore protocol has no edit mechanism                       |
-| Deletes                              | Not supported                    | MeshCore protocol has no delete mechanism                     |
-| Attachments / files                  | Not supported                    | Binary payload not handled                                    |
-| Telemetry decoding                   | Not supported                    | Non-text events are silently dropped                          |
-| Position / GPS decoding              | Not supported                    | Non-text events are silently dropped                          |
-| Contact list caching                 | Not supported                    | Contact list available via SDK but not cached by adapter      |
-| Multi-node mesh testing              | Not tested                       | Alpha has only been validated with a single node              |
-| BLE connectivity                     | Implemented at session layer, hardware validation pending | BLE factory path wired, mock tests pass                      |
-| Backlog suppression                  | Config field exists, not wired   | `startup_backlog_suppress_seconds` accepted but not used      |
-| Store-and-forward                    | Not supported                    | No message persistence across restarts                        |
-| Rate limiting / flow control         | Not implemented                  | Only basic pacing via `message_delay_seconds`                 |
-| Cross-transport orchestration        | Not in scope                     | No bridge between MeshCore and other transports               |
-| Bridge-policy redesign               | Not in scope                     | No policy changes for MeshCore integration                    |
-| Non-MeshCore transports              | Not in scope                     | This runbook covers MeshCore only                             |
+| Feature                              | Status                                                    | Notes                                                         |
+| ------------------------------------ | --------------------------------------------------------- | ------------------------------------------------------------- |
+| Real client connections              | Scaffolded                                                | `start()` raises `MeshCoreConnectionError` for non-fake types |
+| Automatic reconnection               | Not implemented at adapter level                          | SDK supports `auto_reconnect` param, not wired                |
+| Outbound retry                       | Not implemented                                           | Failed sends are permanently dropped                          |
+| ACK / delivery confirmation tracking | Not implemented                                           | `expected_ack` is not tracked or correlated                   |
+| Direct message routing               | Not supported                                             | DMs classified but processed identically to channel messages  |
+| Reply threading                      | Not supported                                             | MeshCore protocol has no native reply mechanism               |
+| Reactions                            | Not supported                                             | MeshCore protocol has no reaction mechanism                   |
+| Edits                                | Not supported                                             | MeshCore protocol has no edit mechanism                       |
+| Deletes                              | Not supported                                             | MeshCore protocol has no delete mechanism                     |
+| Attachments / files                  | Not supported                                             | Binary payload not handled                                    |
+| Telemetry decoding                   | Not supported                                             | Non-text events are silently dropped                          |
+| Position / GPS decoding              | Not supported                                             | Non-text events are silently dropped                          |
+| Contact list caching                 | Not supported                                             | Contact list available via SDK but not cached by adapter      |
+| Multi-node mesh testing              | Not tested                                                | Alpha has only been validated with a single node              |
+| BLE connectivity                     | Implemented at session layer, hardware validation pending | BLE factory path wired, mock tests pass                       |
+| Backlog suppression                  | Config field exists, not wired                            | `startup_backlog_suppress_seconds` accepted but not used      |
+| Store-and-forward                    | Not supported                                             | No message persistence across restarts                        |
+| Rate limiting / flow control         | Not implemented                                           | Only basic pacing via `message_delay_seconds`                 |
+| Cross-transport orchestration        | Not in scope                                              | No bridge between MeshCore and other transports               |
+| Bridge-policy redesign               | Not in scope                                              | No policy changes for MeshCore integration                    |
+| Non-MeshCore transports              | Not in scope                                              | This runbook covers MeshCore only                             |

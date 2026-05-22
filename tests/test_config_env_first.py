@@ -14,7 +14,6 @@ import os
 import pytest
 
 from medre.config.adapters.matrix import MatrixConfig
-from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.config.env import (
     MedreEnvConfig,
@@ -119,7 +118,9 @@ class TestEnvCreatedAdapters:
     # (a) Single Matrix adapter created from env.
     def test_create_matrix_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("MEDRE_ADAPTER__MATRIX_MAIN__TRANSPORT", "matrix")
-        monkeypatch.setenv("MEDRE_ADAPTER__MATRIX_MAIN__HOMESERVER", "https://matrix.env")
+        monkeypatch.setenv(
+            "MEDRE_ADAPTER__MATRIX_MAIN__HOMESERVER", "https://matrix.env"
+        )
         monkeypatch.setenv("MEDRE_ADAPTER__MATRIX_MAIN__USER_ID", "@bot:env")
         monkeypatch.setenv("MEDRE_ADAPTER__MATRIX_MAIN__ACCESS_TOKEN", "env-token")
 
@@ -155,7 +156,9 @@ class TestEnvCreatedAdapters:
         assert result.adapters.matrix["matrix-b"].config.homeserver == "https://b.env"
 
     # (c) Meshtastic serial adapter created from env.
-    def test_create_meshtastic_serial_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_create_meshtastic_serial_from_env(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("MEDRE_ADAPTER__RADIO_SERIAL__TRANSPORT", "meshtastic")
         monkeypatch.setenv("MEDRE_ADAPTER__RADIO_SERIAL__CONNECTION_TYPE", "serial")
         monkeypatch.setenv("MEDRE_ADAPTER__RADIO_SERIAL__SERIAL_PORT", "/dev/ttyUSB0")
@@ -170,7 +173,9 @@ class TestEnvCreatedAdapters:
         assert adapter.config.serial_port == "/dev/ttyUSB0"
 
     # (d) Meshtastic TCP adapter created from env.
-    def test_create_meshtastic_tcp_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_create_meshtastic_tcp_from_env(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("MEDRE_ADAPTER__RADIO_TCP__TRANSPORT", "meshtastic")
         monkeypatch.setenv("MEDRE_ADAPTER__RADIO_TCP__CONNECTION_TYPE", "tcp")
         monkeypatch.setenv("MEDRE_ADAPTER__RADIO_TCP__HOST", "192.168.1.100")
@@ -184,7 +189,9 @@ class TestEnvCreatedAdapters:
         assert adapter.config.host == "192.168.1.100"
 
     # (e) MeshCore BLE adapter created from env.
-    def test_create_meshcore_ble_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_create_meshcore_ble_from_env(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("MEDRE_ADAPTER__MC_BLE__TRANSPORT", "meshcore")
         monkeypatch.setenv("MEDRE_ADAPTER__MC_BLE__CONNECTION_TYPE", "ble")
         monkeypatch.setenv("MEDRE_ADAPTER__MC_BLE__BLE_ADDRESS", "AA:BB:CC:DD:EE:FF")
@@ -210,11 +217,15 @@ class TestEnvCreatedAdapters:
         assert adapter.config.connection_type == "fake"
 
     # (i) Two MeshCore adapters created from env (tbeam BLE + lab TCP).
-    def test_create_two_meshcore_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_create_two_meshcore_from_env(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Two MeshCore adapters created from env vars independently."""
         monkeypatch.setenv("MEDRE_ADAPTER__MESHCORE_TBEAM__TRANSPORT", "meshcore")
         monkeypatch.setenv("MEDRE_ADAPTER__MESHCORE_TBEAM__CONNECTION_TYPE", "ble")
-        monkeypatch.setenv("MEDRE_ADAPTER__MESHCORE_TBEAM__BLE_ADDRESS", "C4:4F:33:6A:B0:23")
+        monkeypatch.setenv(
+            "MEDRE_ADAPTER__MESHCORE_TBEAM__BLE_ADDRESS", "C4:4F:33:6A:B0:23"
+        )
 
         monkeypatch.setenv("MEDRE_ADAPTER__MESHCORE_LAB__TRANSPORT", "meshcore")
         monkeypatch.setenv("MEDRE_ADAPTER__MESHCORE_LAB__CONNECTION_TYPE", "tcp")
@@ -303,7 +314,9 @@ class TestEnvCreatedAdapters:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("MEDRE_ADAPTER__MATRIX_OFF__TRANSPORT", "matrix")
-        monkeypatch.setenv("MEDRE_ADAPTER__MATRIX_OFF__HOMESERVER", "https://matrix.env")
+        monkeypatch.setenv(
+            "MEDRE_ADAPTER__MATRIX_OFF__HOMESERVER", "https://matrix.env"
+        )
         monkeypatch.setenv("MEDRE_ADAPTER__MATRIX_OFF__USER_ID", "@bot:off")
         monkeypatch.setenv("MEDRE_ADAPTER__MATRIX_OFF__ACCESS_TOKEN", "tok")
         monkeypatch.setenv("MEDRE_ADAPTER__MATRIX_OFF__ENABLED", "false")
@@ -331,7 +344,9 @@ class TestEnvCreatedAdapters:
         assert result.adapters.matrix["my-custom-id"].adapter_id == "my-custom-id"
 
     # (k) Two env-created adapters resolving to same adapter_id raises.
-    def test_created_adapter_id_collision(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_created_adapter_id_collision(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("MEDRE_ADAPTER__ALPHA__TRANSPORT", "matrix")
         monkeypatch.setenv("MEDRE_ADAPTER__ALPHA__ADAPTER_ID", "shared")
         monkeypatch.setenv("MEDRE_ADAPTER__ALPHA__HOMESERVER", "https://a.env")
@@ -351,20 +366,16 @@ class TestEnvCreatedAdapters:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("MEDRE_ADAPTER__MATRIX_SEC__TRANSPORT", "matrix")
-        monkeypatch.setenv("MEDRE_ADAPTER__MATRIX_SEC__HOMESERVER", "https://matrix.env")
+        monkeypatch.setenv(
+            "MEDRE_ADAPTER__MATRIX_SEC__HOMESERVER", "https://matrix.env"
+        )
         monkeypatch.setenv("MEDRE_ADAPTER__MATRIX_SEC__USER_ID", "@bot:sec")
         monkeypatch.setenv("MEDRE_ADAPTER__MATRIX_SEC__ACCESS_TOKEN", "super-secret")
 
         env = MedreEnvConfig.from_environ()
         redacted = dict(env.provenance.redacted_items())
-        assert (
-            redacted["MEDRE_ADAPTER__MATRIX_SEC__ACCESS_TOKEN"]
-            == "***REDACTED***"
-        )
-        assert (
-            redacted["MEDRE_ADAPTER__MATRIX_SEC__HOMESERVER"]
-            == "https://matrix.env"
-        )
+        assert redacted["MEDRE_ADAPTER__MATRIX_SEC__ACCESS_TOKEN"] == "***REDACTED***"
+        assert redacted["MEDRE_ADAPTER__MATRIX_SEC__HOMESERVER"] == "https://matrix.env"
 
     # (m) TOML radio-a + env-created radio_a collision raises.
     def test_toml_and_env_created_normalized_collision(
@@ -430,9 +441,7 @@ class TestEnvCreatedAdapters:
         assert adapter.adapter_kind == "fake"
 
     # (q) Invalid ADAPTER_KIND raises.
-    def test_invalid_adapter_kind_raises(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_invalid_adapter_kind_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("MEDRE_ADAPTER__BAD_KIND__TRANSPORT", "matrix")
         monkeypatch.setenv("MEDRE_ADAPTER__BAD_KIND__ADAPTER_KIND", "invalid")
         monkeypatch.setenv("MEDRE_ADAPTER__BAD_KIND__HOMESERVER", "https://bad.env")
@@ -559,9 +568,7 @@ class TestRouteEnvCreation:
         assert route.directionality == RouteDirectionality.SOURCE_TO_DEST
 
     # (c) Comma-separated SOURCE_ADAPTERS parsed into a tuple.
-    def test_route_comma_list_parsing(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_route_comma_list_parsing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("MEDRE_ROUTE__MULTI__SOURCE_ADAPTERS", "a,b,c")
         monkeypatch.setenv("MEDRE_ROUTE__MULTI__DEST_ADAPTERS", "d")
 
@@ -618,9 +625,7 @@ class TestRouteEnvCreation:
             apply_env_overrides(base)
 
     # (g) Explicit ROUTE_ID overrides the default.
-    def test_route_explicit_route_id(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_route_explicit_route_id(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("MEDRE_ROUTE__X__ROUTE_ID", "custom-id")
         monkeypatch.setenv("MEDRE_ROUTE__X__SOURCE_ADAPTERS", "a")
         monkeypatch.setenv("MEDRE_ROUTE__X__DEST_ADAPTERS", "b")
@@ -632,9 +637,7 @@ class TestRouteEnvCreation:
         assert route.route_id == "custom-id"
 
     # (h) Create both an adapter and a route referencing it from env.
-    def test_route_and_adapter_from_env(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_route_and_adapter_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # Create a Meshtastic adapter from env.
         monkeypatch.setenv("MEDRE_ADAPTER__RADIO_A__TRANSPORT", "meshtastic")
         monkeypatch.setenv("MEDRE_ADAPTER__RADIO_A__CONNECTION_TYPE", "fake")
@@ -672,7 +675,9 @@ class TestRouteEnvCreation:
         assert result.routes.routes[0].route_id == "my-route"
 
     # (k) Hyphen in route token raises ConfigValidationError.
-    def test_hyphenated_route_token_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_hyphenated_route_token_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Hyphen in route token raises ConfigValidationError."""
         monkeypatch.setenv("MEDRE_ROUTE__MY-ROUTE__SOURCE_ADAPTERS", "a")
         with pytest.raises(ConfigValidationError, match="Invalid route token"):
@@ -718,10 +723,14 @@ class TestRouteEnvCreation:
             MedreEnvConfig.from_environ({"MEDRE_ROUTE__MAIN__SOURCE__EXTRA": "v"})
 
     # (s) UPPER, lower, and Mixed CASE fields map to same internal field names.
-    def test_route_case_insensitive_fields(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_route_case_insensitive_fields(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("MEDRE_ROUTE__RADIO_TO_MATRIX__SOURCE_ADAPTERS", "radio-a")
         monkeypatch.setenv("MEDRE_ROUTE__RADIO_TO_MATRIX__dest_adapters", "matrix-main")
-        monkeypatch.setenv("MEDRE_ROUTE__RADIO_TO_MATRIX__Directionality", "source_to_dest")
+        monkeypatch.setenv(
+            "MEDRE_ROUTE__RADIO_TO_MATRIX__Directionality", "source_to_dest"
+        )
         base = _make_base_config()
         result = apply_env_overrides(base)
         route = result.routes.routes[0]
@@ -732,10 +741,12 @@ class TestRouteEnvCreation:
     # (t) Same token+field from different casing raises duplicate error.
     def test_route_duplicate_normalized_field_different_casing(self) -> None:
         with pytest.raises(ConfigValidationError, match="Duplicate normalized route"):
-            MedreEnvConfig.from_environ({
-                "MEDRE_ROUTE__MY_ROUTE__SOURCE_ADAPTERS": "a",
-                "MEDRE_ROUTE__MY_ROUTE__source_adapters": "b",
-            })
+            MedreEnvConfig.from_environ(
+                {
+                    "MEDRE_ROUTE__MY_ROUTE__SOURCE_ADAPTERS": "a",
+                    "MEDRE_ROUTE__MY_ROUTE__source_adapters": "b",
+                }
+            )
 
     # (u) Two env-created routes with same explicit route_id raise.
     def test_route_id_collision_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -750,7 +761,9 @@ class TestRouteEnvCreation:
             apply_env_overrides(base)
 
     # (v) Route provenance records target_route_token (not adapter_token).
-    def test_route_provenance_includes_route_token(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_route_provenance_includes_route_token(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Route provenance records target_route_token (not adapter_token)."""
         monkeypatch.setenv("MEDRE_ROUTE__MY_ROUTE__SOURCE_ADAPTERS", "a")
         monkeypatch.setenv("MEDRE_ROUTE__MY_ROUTE__DEST_ADAPTERS", "b")
@@ -813,7 +826,9 @@ class TestRouteEnvCreation:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Source/dest overlap in override mode raises."""
-        monkeypatch.setenv("MEDRE_ROUTE__TOML_ROUTE__SOURCE_ADAPTERS", "adapter-a,adapter-b")
+        monkeypatch.setenv(
+            "MEDRE_ROUTE__TOML_ROUTE__SOURCE_ADAPTERS", "adapter-a,adapter-b"
+        )
         base = _make_config_with_route()
         with pytest.raises(ConfigValidationError, match="overlap"):
             apply_env_overrides(base)

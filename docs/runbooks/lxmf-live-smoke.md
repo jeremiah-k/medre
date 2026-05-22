@@ -267,16 +267,16 @@ directories with TCP interfaces pointing at each other.
 
 The live smoke tests use these environment variables:
 
-| Variable                | Required | Example                   | Description                                                       |
-| ----------------------- | -------- | ------------------------- | ----------------------------------------------------------------- |
-| `LXMF_CONNECTION_TYPE`  | Yes      | `reticulum`               | Must be `"reticulum"`. Any other value causes tests to skip.      |
-| `LXMF_IDENTITY_PATH`    | Yes      | `/tmp/lxmf_test_identity` | Path to Reticulum identity file. Created on first run if missing. |
-| `LXMF_DISPLAY_NAME`     | No       | `MEDRE Smoke Test`        | Display name for LXMF announces. Defaults to empty string.        |
-| `LXMF_DESTINATION_HASH` | No       | (32-hex-char hash)        | Destination hexhash for outbound send tests.                      |
-| `LXMF_STORAGE_PATH`     | No       | `/tmp/lxmf_test_storage`  | Storage directory for LXMRouter. Defaults to adapter temp dir.    |
+| Variable                | Required | Example                   | Description                                                                                                       |
+| ----------------------- | -------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `LXMF_CONNECTION_TYPE`  | Yes      | `reticulum`               | Must be `"reticulum"`. Any other value causes tests to skip.                                                      |
+| `LXMF_IDENTITY_PATH`    | Yes      | `/tmp/lxmf_test_identity` | Path to Reticulum identity file. Created on first run if missing.                                                 |
+| `LXMF_DISPLAY_NAME`     | No       | `MEDRE Smoke Test`        | Display name for LXMF announces. Defaults to empty string.                                                        |
+| `LXMF_DESTINATION_HASH` | No       | (32-hex-char hash)        | Destination hexhash for outbound send tests.                                                                      |
+| `LXMF_STORAGE_PATH`     | No       | `/tmp/lxmf_test_storage`  | Storage directory for LXMRouter. Defaults to adapter temp dir.                                                    |
 | `LXMF_LIVE_SEND`        | No       | `1`                       | Must be `1` to enable actual message delivery. Without it, real-mode deliver tests skip. Fake-mode is unaffected. |
-| `LXMF_TOPOLOGY_LIVE`    | No       | `1`                       | Must be `1` to enable two-process topology tests in `TestLxmfTopologyLive`. |
-| `LXMF_PROCESS_ROLE`     | No       | `sender` or `receiver`    | Role for topology tests. `sender` runs start/send tests; `receiver` validates env only. |
+| `LXMF_TOPOLOGY_LIVE`    | No       | `1`                       | Must be `1` to enable two-process topology tests in `TestLxmfTopologyLive`.                                       |
+| `LXMF_PROCESS_ROLE`     | No       | `sender` or `receiver`    | Role for topology tests. `sender` runs start/send tests; `receiver` validates env only.                           |
 
 At minimum, `LXMF_CONNECTION_TYPE` and `LXMF_IDENTITY_PATH` must
 be set. If any required variable is missing, every test in the file
@@ -447,24 +447,24 @@ link establishment, and message delivery.
 
 ### Process Separation Model
 
-| Component        | Process A (Sender)                          | Process B (Receiver)               |
-| ---------------- | ------------------------------------------- | ---------------------------------- |
-| `PROCESS_ROLE`   | `sender`                                    | `receiver`                         |
-| Identity         | Own identity file                           | Own identity file                  |
-| `LXMF_DESTINATION_HASH` | Hash of Process B's identity | Not required                       |
-| Responsibility   | Starts adapter, sends messages              | Starts adapter, receives messages  |
+| Component               | Process A (Sender)             | Process B (Receiver)              |
+| ----------------------- | ------------------------------ | --------------------------------- |
+| `PROCESS_ROLE`          | `sender`                       | `receiver`                        |
+| Identity                | Own identity file              | Own identity file                 |
+| `LXMF_DESTINATION_HASH` | Hash of Process B's identity   | Not required                      |
+| Responsibility          | Starts adapter, sends messages | Starts adapter, receives messages |
 
 ### Required Environment Variables
 
-| Variable                | Process A (Sender)          | Process B (Receiver)       |
-| ----------------------- | --------------------------- | -------------------------- |
-| `LXMF_TOPOLOGY_LIVE`    | `1`                         | `1`                        |
-| `LXMF_PROCESS_ROLE`     | `sender`                    | `receiver`                 |
-| `LXMF_IDENTITY_PATH`    | Path to sender identity     | Path to receiver identity  |
-| `LXMF_DESTINATION_HASH` | Receiver's 32-char hex hash | Not required               |
-| `LXMF_STORAGE_PATH`     | Sender storage path         | Receiver storage path      |
-| `LXMF_CONNECTION_TYPE`  | `reticulum`                 | `reticulum`                |
-| `LXMF_LIVE_SEND`        | `1` (for send tests)        | Not required               |
+| Variable                | Process A (Sender)          | Process B (Receiver)      |
+| ----------------------- | --------------------------- | ------------------------- |
+| `LXMF_TOPOLOGY_LIVE`    | `1`                         | `1`                       |
+| `LXMF_PROCESS_ROLE`     | `sender`                    | `receiver`                |
+| `LXMF_IDENTITY_PATH`    | Path to sender identity     | Path to receiver identity |
+| `LXMF_DESTINATION_HASH` | Receiver's 32-char hex hash | Not required              |
+| `LXMF_STORAGE_PATH`     | Sender storage path         | Receiver storage path     |
+| `LXMF_CONNECTION_TYPE`  | `reticulum`                 | `reticulum`               |
+| `LXMF_LIVE_SEND`        | `1` (for send tests)        | Not required              |
 
 ### AutoInterface Setup
 
@@ -535,13 +535,13 @@ Record the receiver's hash — it becomes `LXMF_DESTINATION_HASH` for the sender
 
 ### Interpreting Results
 
-| Result                              | Meaning                                                                                      |
-| ----------------------------------- | -------------------------------------------------------------------------------------------- |
-| All tests pass                      | Two-process topology works end-to-end. Path discovery and delivery succeed.                  |
-| `test_topology_start_bounded` skip  | `LXMF_PROCESS_ROLE` is not `sender`, or connection unavailable.                              |
-| `test_topology_send_with_live_send` skip | `LXMF_LIVE_SEND` not set or `LXMF_DESTINATION_HASH` missing. |
-| Connection unavailable skip         | Reticulum SDK not installed, identity file missing, or Reticulum singleton conflict.         |
-| Timeout                             | Path discovery did not complete. Check that both processes are on the same LAN with AutoInterface. |
+| Result                                   | Meaning                                                                                            |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| All tests pass                           | Two-process topology works end-to-end. Path discovery and delivery succeed.                        |
+| `test_topology_start_bounded` skip       | `LXMF_PROCESS_ROLE` is not `sender`, or connection unavailable.                                    |
+| `test_topology_send_with_live_send` skip | `LXMF_LIVE_SEND` not set or `LXMF_DESTINATION_HASH` missing.                                       |
+| Connection unavailable skip              | Reticulum SDK not installed, identity file missing, or Reticulum singleton conflict.               |
+| Timeout                                  | Path discovery did not complete. Check that both processes are on the same LAN with AutoInterface. |
 
 ## Common Failures [CONFIRMED]
 
@@ -679,7 +679,7 @@ harness and the LXMF adapter alpha:
 
 ### Env-First Adapter Creation
 
-MEDRE can create LXMF adapters entirely from environment variables, without any TOML config section. Use the ``TRANSPORT`` field to declare the adapter type:
+MEDRE can create LXMF adapters entirely from environment variables, without any TOML config section. Use the `TRANSPORT` field to declare the adapter type:
 
 ```bash
 # Create an LXMF adapter named lxmf-sender
@@ -695,17 +695,18 @@ export MEDRE_ADAPTER__LXMF_RECEIVER__IDENTITY_PATH=/safe/path/receiver.identity
 export MEDRE_ADAPTER__LXMF_RECEIVER__DISPLAY_NAME=receiver
 ```
 
-The ``<TOKEN>`` (``LXMF_SENDER``, ``LXMF_RECEIVER``) becomes the adapter's ``adapter_id`` (lowercased, hyphens for underscores).
+The `<TOKEN>` (`LXMF_SENDER`, `LXMF_RECEIVER`) becomes the adapter's `adapter_id` (lowercased, hyphens for underscores).
 
 **Important:**
-- Simple routes can be created with ``MEDRE_ROUTE__<TOKEN>__<FIELD>`` env vars.
-  Route tokens may contain only letters, numbers, and underscores.  Advanced
+
+- Simple routes can be created with `MEDRE_ROUTE__<TOKEN>__<FIELD>` env vars.
+  Route tokens may contain only letters, numbers, and underscores. Advanced
   route features may still require TOML configuration.
-- Route adapter references are adapter IDs (e.g. ``lxmf-sender``), not env tokens.
+- Route adapter references are adapter IDs (e.g. `lxmf-sender`), not env tokens.
   Env-created adapter IDs can be referenced by routes normally.
-- ``MEDRE_LXMF_*`` is a **legacy** pattern and remains **unsupported** —
-  migrate to ``MEDRE_ADAPTER__<TOKEN>__<FIELD>``.
-- The live-test convenience vars (``LXMF_CONNECTION_TYPE``, ``LXMF_IDENTITY_PATH``, etc.) are pytest-only and do not affect runtime config.
+- `MEDRE_LXMF_*` is a **legacy** pattern and remains **unsupported** —
+  migrate to `MEDRE_ADAPTER__<TOKEN>__<FIELD>`.
+- The live-test convenience vars (`LXMF_CONNECTION_TYPE`, `LXMF_IDENTITY_PATH`, etc.) are pytest-only and do not affect runtime config.
 
 ## SDK Reality Pass Summary (2026-05-12)
 

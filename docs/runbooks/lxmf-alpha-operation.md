@@ -137,13 +137,13 @@ export MEDRE_ADAPTER__LXMF_SENDER__IDENTITY_PATH=/safe/path/sender.identity
 export MEDRE_ADAPTER__LXMF_SENDER__DISPLAY_NAME=sender
 ```
 
-The ``<TOKEN>`` becomes the adapter's ``adapter_id``. No TOML section is needed.
+The `<TOKEN>` becomes the adapter's `adapter_id`. No TOML section is needed.
 
-Simple routes can also be created with ``MEDRE_ROUTE__<TOKEN>__<FIELD>`` env vars.
-Route tokens may contain only letters, numbers, and underscores.  Advanced route
-features may still require TOML.  Route adapter references are adapter IDs, not
-env tokens.  Legacy ``MEDRE_LXMF_*`` runtime config vars are **unsupported** —
-migrate to ``MEDRE_ADAPTER__<TOKEN>__<FIELD>``.
+Simple routes can also be created with `MEDRE_ROUTE__<TOKEN>__<FIELD>` env vars.
+Route tokens may contain only letters, numbers, and underscores. Advanced route
+features may still require TOML. Route adapter references are adapter IDs, not
+env tokens. Legacy `MEDRE_LXMF_*` runtime config vars are **unsupported** —
+migrate to `MEDRE_ADAPTER__<TOKEN>__<FIELD>`.
 
 ## 5. Delivery Mode Semantics [CONFIRMED]
 
@@ -700,7 +700,7 @@ GENERATING → OUTBOUND → SENDING → SENT → DELIVERED
 
 `delivery_state_counts()` returns counts of tracked outbound deliveries per state. These are snapshots at call time. Terminal deliveries (`DELIVERED`, `FAILED`, `REJECTED`, `CANCELLED`) are cleaned up after processing, so the count reflects active/pending deliveries predominantly.
 
-The ``delivery_state_counts()`` method returns a ``dict[str, int]`` where keys are delivery state names (e.g. ``"outbound"``, ``"sending"``, ``"sent"``, ``"delivered"``, ``"failed"``) and values are the count of outbound deliveries in each state. This is useful for monitoring pending deliveries and detecting stuck messages.
+The `delivery_state_counts()` method returns a `dict[str, int]` where keys are delivery state names (e.g. `"outbound"`, `"sending"`, `"sent"`, `"delivered"`, `"failed"`) and values are the count of outbound deliveries in each state. This is useful for monitoring pending deliveries and detecting stuck messages.
 
 Example usage:
 
