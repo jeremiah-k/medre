@@ -62,6 +62,7 @@ MEDRE uses different environment variable sets depending on context:
 - ``MEDRE_ADAPTER__<TOKEN>__<FIELD>`` — adapter instance config
 - ``MEDRE_ROUTE__<TOKEN>__<FIELD>`` — route config
 - ``MEDRE_HOME``, ``MEDRE_DB_PATH``, ``MEDRE_LOG_LEVEL`` — core runtime
+- ``MEDRE_RETRY__<FIELD>`` — retry worker config
 
 **Pytest live-test convenience vars** (read by ``pytest -m live`` only):
 - ``MATRIX_HOMESERVER``, ``MATRIX_USER_ID``, ``MATRIX_ACCESS_TOKEN``, ``MATRIX_ROOM_ID``
@@ -242,6 +243,7 @@ medre inspect event <EVENT_ID> --config /path/to/config.toml
 | -------------------------------------------------- | -------------------------------------------- |
 | `MEDRE_ADAPTER__<TOKEN>__<FIELD>`                  | Runtime adapter config                       |
 | `MEDRE_ROUTE__<TOKEN>__<FIELD>`                    | Runtime route config                         |
+| `MEDRE_RETRY__<FIELD>`                             | Runtime retry config                         |
 | `MATRIX_*`, `MESHTASTIC_*`, `MESHCORE_*`, `LXMF_*` | Pytest live-test convenience vars only       |
 | `MEDRE_MESHTASTIC_*`, etc.                         | **Unsupported legacy** — rejected at startup |
 
