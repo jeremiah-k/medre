@@ -88,9 +88,9 @@ These apply to all transports unless specifically noted.
 
 2. **No dead-letter admin UI or management command.** Dead-lettered receipts are recorded in storage when retries are exhausted, but there is no dedicated CLI command or UI for browsing, replaying, or managing dead-lettered events. Operators can inspect them via `medre inspect receipts --event <id>` or evidence bundles.
 
-3. **Capacity control exists but transport-aware rate limiting is not complete.** The runtime enforces a configurable max-inflight-delivery limit via the capacity controller. Transport-aware rate limiting (e.g. respecting Matrix homeserver rate-limit headers, Meshtastic duty-cycle pacing) is not implemented. Adapters send as fast as they are called. Matrix homeservers rate-limit by default. Meshtastic nodes have a built-in duty cycle. Exceeding either produces errors.
+3. **Runtime capacity control exists; transport-aware rate limiting is incomplete.** The runtime enforces a configurable max-inflight-delivery limit via the capacity controller. Meshtastic has basic adapter-local outbound queue pacing. Meshtastic queue overflow and queued-vs-radio-sent evidence still need hardening. Matrix relies on homeserver-side rate limiting; MEDRE does not yet model Matrix rate-limit headers or adaptive transport backoff as runtime policy.
 
-4. **Graceful shutdown is limited.** The runner cancels in-flight operations on stop. Anything in the sync loop or delivery queue at shutdown time is lost. There is no drain period.
+4. **Graceful shutdown is bounded, not fully durable.** On stop, the runtime stops accepting new work and stops the retry worker, then waits up to `limits.shutdown_drain_timeout_seconds` for in-flight delivery and replay capacity to drain. Work still inside adapter SDK sync loops, adapter-local queues, or inbound callbacks is not durably queued before pipeline acceptance; in-flight work may still be abandoned after the drain timeout.
 
 5. **No inbound persistence.** Inbound events are published directly to the pipeline. If the pipeline is slow or fails, the event is gone. No retry, no redelivery at the inbound stage.
 

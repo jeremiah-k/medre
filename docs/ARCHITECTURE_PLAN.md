@@ -199,9 +199,9 @@ Current canonical module homes:
 
 ### 3.1 MMRelay Reference Relationship
 
-MMRelay (`meshtastic-matrix-relay`) at `/home/jeremiah/dev/meshtastic-matrix-relay` is an operational reference implementation for Matrix↔Meshtastic relay behavior. MEDRE learns conceptually from MMRelay in areas such as relay behavior, message truncation, outbound queueing, packet classification, Matrix send reliability, and sidecar credentials.
+MMRelay (`meshtastic-matrix-relay`) is an operational reference implementation for Matrix↔Meshtastic relay behavior. MEDRE learns conceptually from MMRelay in areas such as relay behavior, message truncation, outbound queueing, packet classification, Matrix send reliability, and sidecar credentials.
 
-MMRelay is NOT a dependency, import target, vendor source, or copy target for MEDRE. MEDRE does not import, vendor, merge, cherry-pick, or copy files from MMRelay. The relationship is conceptual reference only. `medre.interop` contains wire-format constants derived from open specifications; it does not import MMRelay code.
+MMRelay is NOT a dependency, import target, vendor source, or copy target for MEDRE. MEDRE does not import, vendor, merge, cherry-pick, or copy files from MMRelay. The relationship is conceptual reference only. `medre.interop` contains wire-format constants derived from open specifications; it does not import MMRelay code. Future MEDRE-facing details live in `docs/dev/mmrelay-reference-notes.md`.
 
 ## 4. Remaining Follow-Up Work
 
