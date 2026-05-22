@@ -171,6 +171,12 @@ class DeliveryFailureKind(Enum):
     SHUTDOWN_REJECTION:
         Delivery was attempted while the pipeline is shutting down
         (capacity controller no longer accepting work).  Not retryable.
+    DUPLICATE_SUPPRESSED:
+        Delivery was suppressed because the event carries a native ref
+        that has already been processed (deduplicated).  Not retryable.
+    LOOP_SUPPRESSED:
+        Delivery was suppressed by a loop-prevention guard
+        (self-loop or route-trace).  Not retryable.
     """
 
     PLANNER_FAILURE = "planner_failure"
@@ -182,6 +188,8 @@ class DeliveryFailureKind(Enum):
     DEADLINE_EXCEEDED = "deadline_exceeded"
     CAPACITY_REJECTION = "capacity_rejection"
     SHUTDOWN_REJECTION = "shutdown_rejection"
+    DUPLICATE_SUPPRESSED = "duplicate_suppressed"
+    LOOP_SUPPRESSED = "loop_suppressed"
 
     @property
     def is_retryable(self) -> bool:

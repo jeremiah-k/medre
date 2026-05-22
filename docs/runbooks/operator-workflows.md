@@ -242,6 +242,92 @@ medre inspect event <EVENT_ID> --config /path/to/config.toml
 
 Use `--json` flags for machine-readable output. Sanitize logs and evidence bundles before sharing: all access tokens, secrets, and credentials are automatically redacted from evidence output, log files, and error messages.
 
+## Reading Delivery Reliability Reports
+
+MEDRE records every delivery attempt as a structured receipt.  Operators can inspect delivery outcomes, retries, and suppressions through evidence bundles and trace timelines.
+
+### Delivery Outcome Statuses
+
+Each delivery attempt produces a ``DeliveryOutcome`` with one of these statuses:
+
+| Status              | Meaning                                                                 |
+| ------------------- | ----------------------------------------------------------------------- |
+| ``success``         | The adapter accepted the message and returned a native message ID.      |
+| ``queued``          | The adapter enqueued the message for async delivery.                    |
+| ``transient_failure`` | A temporary error (timeout, connection reset). Retryable.              |
+| ``permanent_failure`` | A non-retryable error (malformed payload, auth rejection).             |
+| ``skipped``         | Delivery was skipped (loop prevention, suppression, capacity rejection).|
+
+### Receipt Statuses
+
+Receipts persisted to storage have a finer-grained lifecycle:
+
+| Status             | Meaning                                                               |
+| ------------------ | --------------------------------------------------------------------- |
+| ``accepted``       | Initial state — delivery plan accepted.                               |
+| ``queued``         | Enqueued for async delivery (queue-based transports).                 |
+| ``sent``           | Adapter confirmed delivery.                                           |
+| ``failed``         | Delivery attempt failed (check ``failure_kind`` for details).         |
+| ``dead_lettered``  | All retry attempts exhausted — no further delivery will be attempted. |
+
+### Failure Classification
+
+The ``failure_kind`` field on receipts classifies failures:
+
+| Kind                    | Retryable | When                                                        |
+| ----------------------- | --------- | ----------------------------------------------------------- |
+| ``adapter_transient``   | Yes       | Timeout, network error, connection reset                    |
+| ``adapter_permanent``   | No        | Malformed payload, business-logic rejection                 |
+| ``adapter_missing``     | No        | Target adapter not registered in the runtime                |
+| ``planner_failure``     | No        | Routing or planning misconfiguration                        |
+| ``renderer_failure``    | No        | No renderer registered for the event kind                   |
+| ``capacity_rejection``  | No        | All in-flight delivery slots occupied                       |
+| ``duplicate_suppressed``| No        | Event carries a native ref that has already been processed   |
+| ``loop_suppressed``     | No        | Route-trace or self-loop prevention blocked the delivery     |
+
+Only ``adapter_transient`` is retryable.
+
+### Retry and Replay
+
+- **Retries** are handled by ``RetryWorker`` — a background task that polls for
+  transient-failure receipts and re-attempts delivery with exponential backoff.
+  Retries are opt-in (``[retry] enabled = true`` in config).
+- **Replay** is a separate mechanism that re-processes historical events through
+  the pipeline.  Replayed deliveries are tagged ``source="replay"`` with a
+  ``replay_run_id`` for identification.
+
+### Inspection
+
+Use the CLI to inspect delivery details:
+
+```bash
+# Evidence bundle — includes receipt and native-ref summary:
+medre evidence --config /path/to/config.toml --json
+
+# Trace — chronological timeline for a specific event:
+medre trace event <EVENT_ID> --config /path/to/config.toml --json
+
+# Inspect — unified event details with receipts and native refs:
+medre inspect event <EVENT_ID> --config /path/to/config.toml
+```
+
+Sanitized JSON example (``failure_kind`` and ``attempt_number`` visible):
+
+```json
+{
+  "receipt_id": "rcpt-...",
+  "event_id": "evt-...",
+  "route_id": "radio-to-matrix",
+  "target_adapter": "matrix-fake",
+  "status": "failed",
+  "failure_kind": "adapter_transient",
+  "attempt_number": 1,
+  "error": "..."
+}
+```
+
+No secrets or access tokens appear in evidence output.
+
 ## 4. Matrix Live Run Session
 
 If you have `MEDRE_ADAPTER__<TOKEN>__*` variables set for a Matrix transport, you can validate MEDRE against a real homeserver. This section assumes you have already set up a homeserver and bot account. If you have not, the full setup instructions are in `docs/runbooks/matrix-alpha-operation.md`.
