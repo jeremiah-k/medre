@@ -486,7 +486,7 @@ Future real send implementation should:
 | MEDRE Assumption                            | Status                                      | Action Required                                              |
 | ------------------------------------------- | ------------------------------------------- | ------------------------------------------------------------ |
 | Numeric PortNum map values                  | **Scaffold only** — does not match protobuf | Downgrade to explicit scaffold; add optional protobuf import |
-| `max_text_bytes=512` / `max_text_chars=512` | **Scaffold** — not enforced by renderer     | Future tranche                                               |
+| `max_text_bytes=512` / `max_text_chars=512` | **Implemented** — now `max_text_bytes=227` (configurable), `max_text_chars=None`; renderer enforces UTF-8 byte truncation | `feat/meshtastic-byte-budget-rendering` |
 | `startup_backlog_suppress_seconds`          | **Scaffold** — not implemented              | Future tranche                                               |
 | `connection_type` values                    | **Scaffold** — no real connection code      | Future tranche                                               |
 | `sync_timeout_ms`                           | **Scaffold** — no sync operations           | Future tranche                                               |

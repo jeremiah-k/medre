@@ -234,6 +234,7 @@ channel_mapping = {0 = "general", 1 = "admin"}
 message_delay_seconds = 0.5
 startup_backlog_suppress_seconds = 5.0
 sync_timeout_ms = 30000
+# max_text_bytes = 227              # UTF-8 byte budget for final radio text
 ```
 
 | Field                              | Type               | Default       | Description                                                                                         |
@@ -252,6 +253,7 @@ sync_timeout_ms = 30000
 | `message_delay_seconds`            | float              | `0.5`         | Minimum delay between outbound messages (pacing).                                                   |
 | `startup_backlog_suppress_seconds` | float              | `5.0`         | Seconds after start to suppress stale backlog packets.                                              |
 | `sync_timeout_ms`                  | int                | `30000`       | Timeout for sync operations in milliseconds.                                                        |
+| `max_text_bytes`                   | int                | `227`         | Maximum UTF-8 byte budget for final radio text. Applied after all rendering.                        |
 
 ### `[adapters.meshcore.INSTANCE_NAME]`
 

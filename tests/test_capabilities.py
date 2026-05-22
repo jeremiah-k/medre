@@ -392,8 +392,8 @@ class TestFakeMeshtasticCapabilities:
         assert caps.direct_messages is False
         assert caps.channels is True
         assert caps.mesh_routing is True
-        assert caps.max_text_bytes == 512
-        assert caps.max_text_chars == 512
+        assert caps.max_text_bytes == 227
+        assert caps.max_text_chars is None
 
     def test_capability_serialization_matches(self) -> None:
         from medre.adapters.fake_meshtastic import _FAKE_MESHTASTIC_CAPABILITIES
@@ -404,7 +404,7 @@ class TestFakeMeshtasticCapabilities:
         assert result["supports_channels"] is True
         assert result["supports_mesh_routing"] is True
         assert result["supports_reactions"] is True
-        assert result["max_text_bytes"] == 512
+        assert result["max_text_bytes"] == 227
 
     @pytest.mark.asyncio
     async def test_health_check_capabilities_serializable(

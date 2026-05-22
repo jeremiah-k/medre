@@ -214,10 +214,10 @@ MMRelay is NOT a dependency, import target, vendor source, or copy target for ME
 
 ## 5. Deferred Tranches
 
-The following tranches are documented for planning but are NOT implemented in `maint-522-1`:
+The following tranches are documented for planning; some are now implemented:
 
-- **docs/mmrelay-reference-map** — Structured documentation mapping MMRelay concepts (truncation, queueing, packet routing, sidecar credentials) to their MEDRE equivalents or gaps.
-- **feat/meshtastic-byte-budget-rendering** — Transport-aware rendering with a `max_text_bytes` setting (default 227, matching Meshtastic's payload budget) that UTF-8-safe byte-truncates the final rendered text to fit within the transport limit.
+- **docs/mmrelay-reference-map** — Structured documentation mapping MMRelay concepts (truncation, queueing, packet routing, sidecar credentials) to their MEDRE equivalents or gaps. Implemented as `docs/dev/mmrelay-reference-notes.md`.
+- **feat/meshtastic-byte-budget-rendering** — Implemented on branch `feat/meshtastic-byte-budget-rendering`. Transport-aware rendering with a `max_text_bytes` setting (default 227, matching Meshtastic's payload budget) that UTF-8-safe byte-truncates the final rendered text to fit within the transport limit.
 - **feat/meshtastic-queue-evidence** — Evidence tracking for Meshtastic's queued `send_one` outbound, correlating queue drain events with delivery receipts.
 - **feat/meshtastic-packet-classifier-parity** — Inbound packet type classification matching MMRelay's coverage of telemetry, position, nodeinfo, and text portnum types.
 - **feat/matrix-send-idempotency** — Matrix outbound send deduplication using transaction IDs or event ID caching to prevent duplicate sends on retry.
