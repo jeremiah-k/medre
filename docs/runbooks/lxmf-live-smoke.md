@@ -681,25 +681,30 @@ harness and the LXMF adapter alpha:
 
 MEDRE can create LXMF adapters entirely from environment variables, without any TOML config section. Use the ``TRANSPORT`` field to declare the adapter type:
 
-.. code-block:: bash
+```bash
+# Create an LXMF adapter named lxmf-sender
+export MEDRE_ADAPTER__LXMF_SENDER__TRANSPORT=lxmf
+export MEDRE_ADAPTER__LXMF_SENDER__CONNECTION_TYPE=reticulum
+export MEDRE_ADAPTER__LXMF_SENDER__IDENTITY_PATH=/safe/path/sender.identity
+export MEDRE_ADAPTER__LXMF_SENDER__DISPLAY_NAME=sender
 
-    # Create an LXMF adapter named lxmf-sender
-    export MEDRE_ADAPTER__LXMF_SENDER__TRANSPORT=lxmf
-    export MEDRE_ADAPTER__LXMF_SENDER__CONNECTION_TYPE=reticulum
-    export MEDRE_ADAPTER__LXMF_SENDER__IDENTITY_PATH=/safe/path/sender.identity
-    export MEDRE_ADAPTER__LXMF_SENDER__DISPLAY_NAME=sender
-
-    # Create an LXMF adapter named lxmf-receiver
-    export MEDRE_ADAPTER__LXMF_RECEIVER__TRANSPORT=lxmf
-    export MEDRE_ADAPTER__LXMF_RECEIVER__CONNECTION_TYPE=reticulum
-    export MEDRE_ADAPTER__LXMF_RECEIVER__IDENTITY_PATH=/safe/path/receiver.identity
-    export MEDRE_ADAPTER__LXMF_RECEIVER__DISPLAY_NAME=receiver
+# Create an LXMF adapter named lxmf-receiver
+export MEDRE_ADAPTER__LXMF_RECEIVER__TRANSPORT=lxmf
+export MEDRE_ADAPTER__LXMF_RECEIVER__CONNECTION_TYPE=reticulum
+export MEDRE_ADAPTER__LXMF_RECEIVER__IDENTITY_PATH=/safe/path/receiver.identity
+export MEDRE_ADAPTER__LXMF_RECEIVER__DISPLAY_NAME=receiver
+```
 
 The ``<TOKEN>`` (``LXMF_SENDER``, ``LXMF_RECEIVER``) becomes the adapter's ``adapter_id`` (lowercased, hyphens for underscores).
 
 **Important:**
-- Routes still require TOML configuration. Env-created adapters must be referenced by adapter_id in route definitions.
-- ``MEDRE_LXMF_*`` runtime config variables remain **unsupported**.
+- Simple routes can be created with ``MEDRE_ROUTE__<TOKEN>__<FIELD>`` env vars.
+  Route tokens may contain only letters, numbers, and underscores.  Advanced
+  route features may still require TOML configuration.
+- Route adapter references are adapter IDs (e.g. ``lxmf-sender``), not env tokens.
+  Env-created adapter IDs can be referenced by routes normally.
+- ``MEDRE_LXMF_*`` is a **legacy** pattern and remains **unsupported** —
+  migrate to ``MEDRE_ADAPTER__<TOKEN>__<FIELD>``.
 - The live-test convenience vars (``LXMF_CONNECTION_TYPE``, ``LXMF_IDENTITY_PATH``, etc.) are pytest-only and do not affect runtime config.
 
 ## SDK Reality Pass Summary (2026-05-12)

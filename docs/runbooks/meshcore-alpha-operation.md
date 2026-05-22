@@ -321,15 +321,27 @@ See `docs/runbooks/meshcore-live-smoke.md` for full smoke test documentation.
 
 MeshCore adapters can be created entirely from environment variables:
 
-.. code-block:: bash
-
-    export MEDRE_ADAPTER__MESHCORE_TBEAM__TRANSPORT=meshcore
-    export MEDRE_ADAPTER__MESHCORE_TBEAM__CONNECTION_TYPE=ble
-    export MEDRE_ADAPTER__MESHCORE_TBEAM__BLE_ADDRESS=C4:4F:33:6A:B0:23
+```bash
+export MEDRE_ADAPTER__MESHCORE_TBEAM__TRANSPORT=meshcore
+export MEDRE_ADAPTER__MESHCORE_TBEAM__CONNECTION_TYPE=ble
+export MEDRE_ADAPTER__MESHCORE_TBEAM__BLE_ADDRESS=C4:4F:33:6A:B0:23
+```
 
 The ``<TOKEN>`` becomes the adapter's ``adapter_id``. No TOML section is needed.
 
-Routes still require TOML configuration. Legacy ``MEDRE_MESHCORE_*`` runtime config vars remain unsupported.
+Simple routes can be created via ``MEDRE_ROUTE__<TOKEN>__<FIELD>`` environment variables. Advanced route features (policy, retry, filter_hooks) may still require TOML. See the configuration runbook for full details.
+
+Runtime adapter config:
+  ``MEDRE_ADAPTER__<TOKEN>__<FIELD>`` — the only runtime adapter override surface.
+
+Runtime route config:
+  ``MEDRE_ROUTE__<TOKEN>__<FIELD>`` — creates/overrides routes from env.
+
+Pytest live-test convenience vars:
+  ``MESHCORE_CONNECTION_TYPE``, ``MESHCORE_HOST``, etc. — pytest-only, do not affect runtime config.
+
+Unsupported legacy runtime config:
+  ``MEDRE_MESHCORE_*`` — rejected at startup. Also rejected: ``MEDRE_MATRIX_*``, ``MEDRE_MESHTASTIC_*``, ``MEDRE_LXMF_*``.
 
 ## 6. Startup and Shutdown Behavior
 

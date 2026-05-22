@@ -476,17 +476,17 @@ class TestEnvCreatedAdapters:
         adapter = result.adapters.meshtastic["custom-radio"]
         assert adapter.adapter_id == "custom-radio"
 
-    # (t) Routes remain TOML-only.
-    def test_routes_remain_toml_only(
+    # (t) Adapter-only env vars do not affect routes.
+    def test_adapter_env_vars_do_not_affect_routes(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Env overrides do not affect routes; routes must be declared in TOML."""
+        """Adapter-only env vars do not modify routes."""
         base = _make_config_with_matrix_and_meshtastic()
         monkeypatch.setenv("MEDRE_ADAPTER__RADIO_A__HOST", "10.0.0.99")
 
         result = apply_env_overrides(base)
 
-        # Routes are unchanged — no env var can create or modify routes.
+        # Routes are unchanged — only MEDRE_ROUTE__ vars affect routes.
         assert result.routes == base.routes
 
     # (u) Unsupported field validation for env-created adapters.
@@ -651,17 +651,110 @@ class TestRouteEnvCreation:
         assert route.source_adapters == ("radio-a",)
         assert route.dest_adapters == ("radio-b",)
 
-    # (i) Two env tokens that normalize to the same route token raise.
-    def test_route_token_collision(
+    # (i) Hyphenated route token is rejected.
+    def test_hyphenated_route_token_rejected(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # MEDRE_ROUTE__MY_ROUTE and MEDRE_ROUTE__MY-ROUTE both normalize
-        # to MY_ROUTE. Setting different fields on each triggers the
-        # duplicate-normalized-field detection in _parse_route_env_vars.
+        """Hyphenated route token raises Invalid route token error."""
+        monkeypatch.setenv("MEDRE_ROUTE__MY_ROUTE__SOURCE_ADAPTERS", "a")
+        monkeypatch.setenv("MEDRE_ROUTE__MY-ROUTE__DEST_ADAPTERS", "b")
+        with pytest.raises(ConfigValidationError, match="Invalid route token"):
+            MedreEnvConfig.from_environ()
+
+    # (j) Basic valid route token with underscores works.
+    def test_valid_route_token_works(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Basic valid route token with underscores works."""
+        monkeypatch.setenv("MEDRE_ROUTE__MY_ROUTE__SOURCE_ADAPTERS", "adapter-a")
+        monkeypatch.setenv("MEDRE_ROUTE__MY_ROUTE__DEST_ADAPTERS", "adapter-b")
+        base = _make_base_config()
+        result = apply_env_overrides(base)
+        assert len(result.routes.routes) == 1
+        assert result.routes.routes[0].route_id == "my-route"
+
+    # (k) Hyphen in route token raises ConfigValidationError.
+    def test_hyphenated_route_token_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Hyphen in route token raises ConfigValidationError."""
+        monkeypatch.setenv("MEDRE_ROUTE__MY-ROUTE__SOURCE_ADAPTERS", "a")
+        with pytest.raises(ConfigValidationError, match="Invalid route token"):
+            MedreEnvConfig.from_environ()
+
+    # (l) Dot in route token raises ConfigValidationError.
+    def test_dotted_route_token_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Dot in route token raises ConfigValidationError."""
+        monkeypatch.setenv("MEDRE_ROUTE__MY.ROUTE__SOURCE_ADAPTERS", "a")
+        with pytest.raises(ConfigValidationError, match="Invalid route token"):
+            MedreEnvConfig.from_environ()
+
+    # (m) Space in route token raises ConfigValidationError.
+    def test_spaced_route_token_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Space in route token raises ConfigValidationError."""
+        monkeypatch.setenv("MEDRE_ROUTE__MY ROUTE__SOURCE_ADAPTERS", "a")
+        with pytest.raises(ConfigValidationError, match="Invalid route token"):
+            MedreEnvConfig.from_environ()
+
+    # (n) MEDRE_ROUTE__ with nothing after prefix raises.
+    def test_malformed_route_var_empty_after_prefix(self) -> None:
+        with pytest.raises(ConfigValidationError, match="Malformed MEDRE_ROUTE__"):
+            MedreEnvConfig.from_environ({"MEDRE_ROUTE__": "v"})
+
+    # (o) MEDRE_ROUTE__MAIN with no field raises.
+    def test_malformed_route_var_no_field(self) -> None:
+        with pytest.raises(ConfigValidationError, match="Malformed MEDRE_ROUTE__"):
+            MedreEnvConfig.from_environ({"MEDRE_ROUTE__MAIN": "v"})
+
+    # (p) MEDRE_ROUTE____SOURCE_ADAPTERS with empty token raises.
+    def test_malformed_route_var_empty_token(self) -> None:
+        with pytest.raises(ConfigValidationError, match="Malformed MEDRE_ROUTE__"):
+            MedreEnvConfig.from_environ({"MEDRE_ROUTE____SOURCE_ADAPTERS": "v"})
+
+    # (q) MEDRE_ROUTE__MAIN__ with empty field raises.
+    def test_malformed_route_var_empty_field(self) -> None:
+        with pytest.raises(ConfigValidationError, match="Malformed MEDRE_ROUTE__"):
+            MedreEnvConfig.from_environ({"MEDRE_ROUTE__MAIN__": "v"})
+
+    # (r) MEDRE_ROUTE__MAIN__SOURCE__EXTRA raises (too many parts).
+    def test_malformed_route_var_too_many_separators(self) -> None:
+        with pytest.raises(ConfigValidationError, match="Malformed MEDRE_ROUTE__"):
+            MedreEnvConfig.from_environ({"MEDRE_ROUTE__MAIN__SOURCE__EXTRA": "v"})
+
+    # (s) UPPER, lower, and Mixed CASE fields map to same internal field names.
+    def test_route_case_insensitive_fields(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("MEDRE_ROUTE__RADIO_TO_MATRIX__SOURCE_ADAPTERS", "radio-a")
+        monkeypatch.setenv("MEDRE_ROUTE__RADIO_TO_MATRIX__dest_adapters", "matrix-main")
+        monkeypatch.setenv("MEDRE_ROUTE__RADIO_TO_MATRIX__Directionality", "source_to_dest")
+        base = _make_base_config()
+        result = apply_env_overrides(base)
+        route = result.routes.routes[0]
+        assert route.source_adapters == ("radio-a",)
+        assert route.dest_adapters == ("matrix-main",)
+        assert route.directionality == RouteDirectionality.SOURCE_TO_DEST
+
+    # (t) Same token+field from different casing raises duplicate error.
+    def test_route_duplicate_normalized_field_different_casing(self) -> None:
+        with pytest.raises(ConfigValidationError, match="Duplicate normalized route"):
+            MedreEnvConfig.from_environ({
+                "MEDRE_ROUTE__MY_ROUTE__SOURCE_ADAPTERS": "a",
+                "MEDRE_ROUTE__MY_ROUTE__source_adapters": "b",
+            })
+
+    # (u) Two env-created routes with same explicit route_id raise.
+    def test_route_id_collision_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("MEDRE_ROUTE__ROUTE_A__ROUTE_ID", "shared")
+        monkeypatch.setenv("MEDRE_ROUTE__ROUTE_A__SOURCE_ADAPTERS", "a")
+        monkeypatch.setenv("MEDRE_ROUTE__ROUTE_A__DEST_ADAPTERS", "b")
+        monkeypatch.setenv("MEDRE_ROUTE__ROUTE_B__ROUTE_ID", "shared")
+        monkeypatch.setenv("MEDRE_ROUTE__ROUTE_B__SOURCE_ADAPTERS", "c")
+        monkeypatch.setenv("MEDRE_ROUTE__ROUTE_B__DEST_ADAPTERS", "d")
+        base = _make_base_config()
+        with pytest.raises(ConfigValidationError, match="Duplicate route ID"):
+            apply_env_overrides(base)
+
+    # (v) Route provenance records target_adapter_token.
+    def test_route_provenance_includes_token(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("MEDRE_ROUTE__MY_ROUTE__SOURCE_ADAPTERS", "a")
         monkeypatch.setenv("MEDRE_ROUTE__MY_ROUTE__DEST_ADAPTERS", "b")
-        # "MY-ROUTE" normalizes to "MY_ROUTE" — collision on dest_adapters.
-        monkeypatch.setenv("MEDRE_ROUTE__MY-ROUTE__DEST_ADAPTERS", "c")
-
-        with pytest.raises(ConfigValidationError, match="Duplicate normalized route"):
-            MedreEnvConfig.from_environ()
+        env = MedreEnvConfig.from_environ()
+        route_entries = [e for e in env.provenance.entries if e.source_kind == "route"]
+        assert len(route_entries) == 2
+        for entry in route_entries:
+            assert entry.target_adapter_token == "MY_ROUTE"

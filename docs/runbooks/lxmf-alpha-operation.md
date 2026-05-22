@@ -130,16 +130,20 @@ MEDRE never handles `RNS.Identity` or `RNS.Destination` objects directly. The ad
 
 LXMF adapters can be created entirely from environment variables:
 
-.. code-block:: bash
-
-    export MEDRE_ADAPTER__LXMF_SENDER__TRANSPORT=lxmf
-    export MEDRE_ADAPTER__LXMF_SENDER__CONNECTION_TYPE=reticulum
-    export MEDRE_ADAPTER__LXMF_SENDER__IDENTITY_PATH=/safe/path/sender.identity
-    export MEDRE_ADAPTER__LXMF_SENDER__DISPLAY_NAME=sender
+```bash
+export MEDRE_ADAPTER__LXMF_SENDER__TRANSPORT=lxmf
+export MEDRE_ADAPTER__LXMF_SENDER__CONNECTION_TYPE=reticulum
+export MEDRE_ADAPTER__LXMF_SENDER__IDENTITY_PATH=/safe/path/sender.identity
+export MEDRE_ADAPTER__LXMF_SENDER__DISPLAY_NAME=sender
+```
 
 The ``<TOKEN>`` becomes the adapter's ``adapter_id``. No TOML section is needed.
 
-Routes still require TOML configuration. Legacy ``MEDRE_LXMF_*`` runtime config vars remain unsupported.
+Simple routes can also be created with ``MEDRE_ROUTE__<TOKEN>__<FIELD>`` env vars.
+Route tokens may contain only letters, numbers, and underscores.  Advanced route
+features may still require TOML.  Route adapter references are adapter IDs, not
+env tokens.  Legacy ``MEDRE_LXMF_*`` runtime config vars are **unsupported** —
+migrate to ``MEDRE_ADAPTER__<TOKEN>__<FIELD>``.
 
 ## 5. Delivery Mode Semantics [CONFIRMED]
 

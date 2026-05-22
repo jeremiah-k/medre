@@ -20,7 +20,8 @@ Route overrides use env vars of the form::
     MEDRE_ROUTE__<TOKEN>__<FIELD>=<value>
 
 where ``<TOKEN>`` is the uppercased form of the route's ``route_id``
-with non-alphanumeric characters replaced with underscores.
+with underscores (non-alphanumeric characters are rejected with
+an error).  Tokens may contain only letters, numbers, and underscores.
 For new routes, ``source_adapters`` and ``dest_adapters`` are required.
 
 Quick reference
@@ -213,7 +214,7 @@ class ProvenanceEntry:
     """Structured metadata for a single env-var override."""
 
     env_var_name: str
-    source_kind: str  # "core" or "instance"
+    source_kind: str  # "core", "instance", or "route"
     raw_value: str
     target_adapter_token: str | None = None
     target_transport: str | None = None
@@ -525,8 +526,8 @@ def _parse_route_env_vars(
 
     Returns a nested dict: ``{token: {field: ParsedAdapterEnvValue}}``.
 
-    Token is normalized: uppercased, non-alphanumeric characters replaced
-    with underscores.  Field names are lowercased.
+    Field names are lowercased.  Route tokens may contain only letters,
+    numbers, and underscores; non-alphanumeric characters are rejected.
 
     Raises :class:`~medre.config.errors.ConfigValidationError` if any
     ``MEDRE_ROUTE__`` variable has a malformed shape (wrong number of
@@ -549,7 +550,17 @@ def _parse_route_env_vars(
         if len(parts) != 2 or not parts[0] or not parts[1]:
             malformed.append(name)
             continue
-        token = normalize_adapter_id(parts[0])
+        raw_token = parts[0]
+        # Route tokens may contain only letters, numbers, and underscores.
+        if not re.match(r'^[a-zA-Z0-9_]+$', raw_token):
+            raise ConfigValidationError(
+                f"Invalid route token in {name!r}: token {raw_token!r} contains "
+                f"non-alphanumeric characters. Route tokens may contain only "
+                f"letters, numbers, and underscores (no hyphens, dots, or spaces). "
+                f"Expected shape: MEDRE_ROUTE__<TOKEN>__<FIELD> "
+                f"where <TOKEN> is alphanumeric with underscores."
+            )
+        token = raw_token.upper()
         field_name = parts[1].lower()
         parsed = ParsedAdapterEnvValue(env_var_name=name, raw_value=value)
         field_map = result.setdefault(token, {})
@@ -564,7 +575,8 @@ def _parse_route_env_vars(
         raise ConfigValidationError(
             f"Malformed MEDRE_ROUTE__ environment variable(s): "
             f"{sorted(malformed)}. Expected shape: "
-            f"MEDRE_ROUTE__<TOKEN>__<FIELD> with non-empty TOKEN and FIELD."
+            f"MEDRE_ROUTE__<TOKEN>__<FIELD> with non-empty TOKEN and FIELD "
+            f"(TOKEN: letters, numbers, underscores only)."
         )
     if duplicates:
         raise ConfigValidationError(
@@ -675,6 +687,7 @@ class MedreEnvConfig:
                         parsed.env_var_name,
                         parsed.raw_value,
                         source_kind="route",
+                        target_adapter_token=token,
                         target_field=field_name,
                     )
 

@@ -588,9 +588,9 @@ ways to configure them:
 If the adapter is already defined in the TOML config, override any field
 at runtime with the per-instance env var pattern:
 
-.. code-block:: bash
-
-   export MEDRE_ADAPTER__RADIO_A__SERIAL_PORT=/dev/ttyUSB0
+```bash
+export MEDRE_ADAPTER__RADIO_A__SERIAL_PORT=/dev/ttyUSB0
+```
 
 The adapter must exist in the TOML file (``[adapters.meshtastic.radio-a]``).
 The env var only modifies the specified field — all other fields come from
@@ -601,18 +601,18 @@ the config file.
 When ``TRANSPORT=meshtastic`` is set and the token does not match any
 TOML adapter, a new adapter is created from env vars alone:
 
-.. code-block:: bash
+```bash
+# Radio A — serial
+export MEDRE_ADAPTER__RADIO_A__TRANSPORT=meshtastic
+export MEDRE_ADAPTER__RADIO_A__CONNECTION_TYPE=serial
+export MEDRE_ADAPTER__RADIO_A__SERIAL_PORT=/dev/ttyUSB0
 
-   # Radio A — serial
-   export MEDRE_ADAPTER__RADIO_A__TRANSPORT=meshtastic
-   export MEDRE_ADAPTER__RADIO_A__CONNECTION_TYPE=serial
-   export MEDRE_ADAPTER__RADIO_A__SERIAL_PORT=/dev/ttyUSB0
-
-   # Radio B — TCP
-   export MEDRE_ADAPTER__RADIO_B__TRANSPORT=meshtastic
-   export MEDRE_ADAPTER__RADIO_B__CONNECTION_TYPE=tcp
-   export MEDRE_ADAPTER__RADIO_B__HOST=192.168.1.25
-   export MEDRE_ADAPTER__RADIO_B__PORT=4403
+# Radio B — TCP
+export MEDRE_ADAPTER__RADIO_B__TRANSPORT=meshtastic
+export MEDRE_ADAPTER__RADIO_B__CONNECTION_TYPE=tcp
+export MEDRE_ADAPTER__RADIO_B__HOST=192.168.1.25
+export MEDRE_ADAPTER__RADIO_B__PORT=4403
+```
 
 Required fields for Meshtastic env-created adapters:
 
@@ -638,26 +638,33 @@ defaults when omitted.
 
 ### Routes
 
-Routes must still be defined in the TOML config file.  Env-created
-adapter IDs can be referenced in TOML routes normally:
+Routes can be defined in the TOML config file or created from
+environment variables (see below).  Env-created adapter IDs can be
+referenced in route definitions normally:
 
-.. code-block:: toml
+```toml
+[routes.a_to_bridge]
+source_adapters = ["radio-a"]
+dest_adapters = ["radio-b"]
+directionality = "source_to_dest"
+enabled = true
+```
 
-   [routes.a_to_bridge]
-   source_adapters = ["radio-a"]
-   dest_adapters = ["radio-b"]
-   directionality = "source_to_dest"
-   enabled = true
+Simple routes can also be created from environment variables using
+``MEDRE_ROUTE__<TOKEN>__<FIELD>``.  Route tokens may contain only letters,
+numbers, and underscores.  Advanced route features (e.g. complex directionality,
+conditional routing) may still require TOML configuration.
 
-Route env creation is not yet supported.
+Route adapter references are adapter IDs (e.g. ``radio-a``), not env tokens.
 
 ### Legacy vars
 
 - ``MESHTASTIC_*`` env vars are ``pytest`` live-test **convenience vars**
   only (see `Required environment variables`_ above).  They are **not**
   runtime config overrides.
-- ``MEDRE_MESHTASTIC_*`` remains **unsupported** and triggers
-  ``ConfigValidationError`` with a migration message.
+- ``MEDRE_MESHTASTIC_*`` is a **legacy** pattern and remains **unsupported** —
+  it triggers ``ConfigValidationError`` with a migration message pointing to
+  ``MEDRE_ADAPTER__<TOKEN>__<FIELD>``.
 - All runtime config uses ``MEDRE_ADAPTER__<TOKEN>__<FIELD>``.
 
 ## Explicit Scope Exclusions

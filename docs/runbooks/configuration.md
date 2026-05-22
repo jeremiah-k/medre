@@ -599,12 +599,13 @@ Unrecognised placeholders cause a `MedrePathsError` at startup.
 
 Environment variables override TOML values. They always win. The original TOML config is never mutated; a new frozen config is returned with overrides applied.
 
-MEDRE uses two categories of environment variables:
+MEDRE uses three categories of environment variables:
 
 1. **Core env vars** control global runtime behaviour (paths, logging, limits).
 2. **Instance-scoped adapter overrides** target a specific adapter instance by its normalised ID.
+3. **Instance-scoped route overrides** create or override routes by an arbitrary token.
 
-`MEDRE_ADAPTER__<TOKEN>__<FIELD>` is the **only** adapter override surface. There are no transport-prefixed shortcuts. Env vars with legacy prefixes like `MEDRE_MATRIX_*`, `MEDRE_MESHTASTIC_*`, `MEDRE_MESHCORE_*`, or `MEDRE_LXMF_*` are rejected at startup with migration guidance. See [Unsupported Legacy Prefixes](#unsupported-legacy-prefixes) below.
+`MEDRE_ADAPTER__<TOKEN>__<FIELD>` is the **only** adapter override surface. `MEDRE_ROUTE__<TOKEN>__<FIELD>` is the **only** route override surface. There are no transport-prefixed shortcuts. Env vars with legacy prefixes like `MEDRE_MATRIX_*`, `MEDRE_MESHTASTIC_*`, `MEDRE_MESHCORE_*`, or `MEDRE_LXMF_*` are rejected at startup with migration guidance. See [Unsupported Legacy Prefixes](#unsupported-legacy-prefixes) below.
 
 ### Core Environment Variables
 
@@ -618,6 +619,8 @@ MEDRE uses two categories of environment variables:
 | `MEDRE_RUNTIME_MAX_INFLIGHT_REPLAY_EVENTS`       | int    | `limits.max_inflight_replay_events`   | _(TOML default)_       |
 | `MEDRE_RUNTIME_SHUTDOWN_DRAIN_TIMEOUT_SECONDS`   | int    | `limits.shutdown_drain_timeout_seconds` | _(TOML default)_    |
 | `MEDRE_RUNTIME_DELIVERY_ACQUIRE_TIMEOUT_SECONDS` | float  | `limits.delivery_acquire_timeout_seconds` | _(TOML default)_   |
+
+> **Route env vars** (`MEDRE_ROUTE__<TOKEN>__<FIELD>`) are documented separately in [Env-Driven Route Creation](#env-driven-route-creation).
 
 ### Instance-Scoped Adapter Overrides
 
@@ -774,12 +777,14 @@ This rejection is by design. The instance-scoped `MEDRE_ADAPTER__` pattern is th
 
 #### Migration Examples
 
-If you previously used transport-prefixed env vars, migrate them as follows:
+> **All legacy prefixed vars below are rejected at startup.** They are shown here
+> **for migration context only** — do not use them. Replace with the
+> `MEDRE_ADAPTER__<TOKEN>__<FIELD>` form shown under each "New:" heading.
 
 **Matrix:**
 
 ```bash
-# Old (no longer supported):
+# Unsupported — shown for migration context only:
 export MEDRE_MATRIX_ACCESS_TOKEN=syt_...
 export MEDRE_MATRIX_HOMESERVER=https://matrix.example.com
 export MEDRE_MATRIX_USER_ID=@bot:example.com
@@ -795,7 +800,7 @@ Replace `MAIN` with the normalised token of your adapter's `adapter_id`. For an 
 **Meshtastic:**
 
 ```bash
-# Old (no longer supported):
+# Unsupported — shown for migration context only:
 export MEDRE_MESHTASTIC_CONNECTION_TYPE=tcp
 export MEDRE_MESHTASTIC_HOST=meshtastic.local
 
@@ -807,7 +812,7 @@ export MEDRE_ADAPTER__RADIO__HOST=meshtastic.local
 **MeshCore:**
 
 ```bash
-# Old (no longer supported):
+# Unsupported — shown for migration context only:
 export MEDRE_MESHCORE_HOST=meshcore.local
 
 # New:
@@ -817,7 +822,7 @@ export MEDRE_ADAPTER__MESHCORE_RADIO__HOST=meshcore.local
 **LXMF:**
 
 ```bash
-# Old (no longer supported):
+# Unsupported — shown for migration context only:
 export MEDRE_LXMF_CONNECTION_TYPE=reticulum
 
 # New:
@@ -1002,8 +1007,8 @@ MEDRE_ROUTE__<TOKEN>__SOURCE_CHANNEL=1
 ```
 
 `<TOKEN>` is an arbitrary uppercase identifier you choose. It must be
-unique across all route env tokens and must not collide with any TOML
-route ID. Non-alphanumeric characters are not allowed in tokens.
+unique across all route env tokens. Tokens may contain only letters,
+numbers, and underscores (no hyphens, dots, or spaces).
 
 ### Field Types
 
