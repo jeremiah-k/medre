@@ -99,12 +99,12 @@ The adapter's fake mode is designed for zero-dependency development and testing:
 
 ### New Test Files
 
-| File                                                  | Description                                                         |
-| ----------------------------------------------------- | ------------------------------------------------------------------- |
-| `tests/test_meshtastic_live.py`                       | Live smoke tests (Categories A & B), no-SDK lifecycle (C), bounded live (D) |
-| `tests/test_meshtastic_storage_roundtrip.py`          | Storage roundtrip tests — validate Meshtastic events survive the full encode → store → decode cycle |
-| `tests/test_meshtastic_evidence_diagnostics.py`       | Evidence diagnostics tests — validate diagnostic metadata collection and reporting |
-| `tests/test_meshtastic_nosdk.py`                       | Drain lifecycle, queue metrics, delivery lifecycle, and failure classification tests |
+| File                                            | Description                                                                                         |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `tests/test_meshtastic_live.py`                 | Live smoke tests (Categories A & B), no-SDK lifecycle (C), bounded live (D)                         |
+| `tests/test_meshtastic_storage_roundtrip.py`    | Storage roundtrip tests — validate Meshtastic events survive the full encode → store → decode cycle |
+| `tests/test_meshtastic_evidence_diagnostics.py` | Evidence diagnostics tests — validate diagnostic metadata collection and reporting                  |
+| `tests/test_meshtastic_nosdk.py`                | Drain lifecycle, queue metrics, delivery lifecycle, and failure classification tests                |
 
 ## Dependency Installation
 
@@ -213,15 +213,15 @@ iface = meshtastic.ble_interface.BLEInterface(
 
 ## Required Environment Variables
 
-| Variable                     | Required for | Example             | Description                                          |
-| ---------------------------- | ------------ | ------------------- | ---------------------------------------------------- |
-| `MESHTASTIC_CONNECTION_TYPE` | All          | `tcp`               | Connection mode: `tcp`, `serial`, `ble`              |
-| `MESHTASTIC_HOST`            | TCP          | `meshtastic.local`  | Node hostname or IP address                          |
-| `MESHTASTIC_PORT`            | TCP          | `4403`              | TCP port (default `4403`)                            |
-| `MESHTASTIC_SERIAL_PORT`     | Serial       | `/dev/ttyUSB0`      | Serial device path                                   |
-| `MESHTASTIC_BLE_ADDRESS`     | BLE          | `AA:BB:CC:DD:EE:FF` | BLE MAC address                                      |
-| `MESHTASTIC_CHANNEL_INDEX`   | All          | `0`                 | Channel for test messages (default `0`)              |
-| `MESHTASTIC_NODE_ID`         | All          | `!25d6e474`         | Meshtastic node ID for identifying the local node    |
+| Variable                     | Required for | Example             | Description                                                                                                                             |
+| ---------------------------- | ------------ | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `MESHTASTIC_CONNECTION_TYPE` | All          | `tcp`               | Connection mode: `tcp`, `serial`, `ble`                                                                                                 |
+| `MESHTASTIC_HOST`            | TCP          | `meshtastic.local`  | Node hostname or IP address                                                                                                             |
+| `MESHTASTIC_PORT`            | TCP          | `4403`              | TCP port (default `4403`)                                                                                                               |
+| `MESHTASTIC_SERIAL_PORT`     | Serial       | `/dev/ttyUSB0`      | Serial device path                                                                                                                      |
+| `MESHTASTIC_BLE_ADDRESS`     | BLE          | `AA:BB:CC:DD:EE:FF` | BLE MAC address                                                                                                                         |
+| `MESHTASTIC_CHANNEL_INDEX`   | All          | `0`                 | Channel for test messages (default `0`)                                                                                                 |
+| `MESHTASTIC_NODE_ID`         | All          | `!25d6e474`         | Meshtastic node ID for identifying the local node                                                                                       |
 | `MESHTASTIC_LIVE_SEND`       | Live TX      | `1`                 | **Transmit guard.** Must be `1` for RF transmission. Without this flag, the adapter may connect and health-check but MUST NOT transmit. |
 
 If any required variable is unset, all live tests skip with a descriptive
@@ -338,17 +338,17 @@ live Meshtastic tests"_
 
 ## Common Failures
 
-| Symptom                                                 | Cause                                          | Fix                                                                       |
-| ------------------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------- |
-| `ImportError: No module named 'meshtastic'`             | `mtjk` not installed                           | `pip install mtjk`                                                        |
-| `ConnectionRefusedError` or timeout                     | Node unreachable, wrong host/port              | Verify hostname/IP; check node is powered on; try `ping meshtastic.local` |
-| `sendText` returns `None` or empty packet               | Node firmware issue                            | Update node firmware; try with `meshtastic` CLI tool first                |
-| All tests SKIP                                          | Env vars not set                               | Set `MESHTASTIC_CONNECTION_TYPE` and corresponding connection params      |
-| `OSError: [Errno 13] Permission denied` on serial port  | User not in `dialout` group                    | `sudo usermod -aG dialout $USER`; re-login                                |
-| BLE connection fails                                    | BlueZ not running or address wrong             | Verify `bluetoothctl scan on` sees the device; check MAC format           |
-| Pubsub callback never fires                             | Mesh is silent                                 | Send a message from another node or use self-receive test                 |
-| `MeshtasticConnectionError: mtjk library not installed` | `mtjk` missing but `connection_type != "fake"` | `pip install mtjk` or use `connection_type="fake"`                        |
-| Bounded live test skips transmit                        | `MESHTASTIC_LIVE_SEND` not set                    | Set `export MESHTASTIC_LIVE_SEND=1` to enable RF transmission              |
+| Symptom                                                 | Cause                                              | Fix                                                                             |
+| ------------------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `ImportError: No module named 'meshtastic'`             | `mtjk` not installed                               | `pip install mtjk`                                                              |
+| `ConnectionRefusedError` or timeout                     | Node unreachable, wrong host/port                  | Verify hostname/IP; check node is powered on; try `ping meshtastic.local`       |
+| `sendText` returns `None` or empty packet               | Node firmware issue                                | Update node firmware; try with `meshtastic` CLI tool first                      |
+| All tests SKIP                                          | Env vars not set                                   | Set `MESHTASTIC_CONNECTION_TYPE` and corresponding connection params            |
+| `OSError: [Errno 13] Permission denied` on serial port  | User not in `dialout` group                        | `sudo usermod -aG dialout $USER`; re-login                                      |
+| BLE connection fails                                    | BlueZ not running or address wrong                 | Verify `bluetoothctl scan on` sees the device; check MAC format                 |
+| Pubsub callback never fires                             | Mesh is silent                                     | Send a message from another node or use self-receive test                       |
+| `MeshtasticConnectionError: mtjk library not installed` | `mtjk` missing but `connection_type != "fake"`     | `pip install mtjk` or use `connection_type="fake"`                              |
+| Bounded live test skips transmit                        | `MESHTASTIC_LIVE_SEND` not set                     | Set `export MESHTASTIC_LIVE_SEND=1` to enable RF transmission                   |
 | No-SDK test fails on real client creation               | `mtjk` not installed but test uses real connection | Use fake mode or install `mtjk`; no-SDK tests must use `connection_type="fake"` |
 
 ## Safety Notes
@@ -364,17 +364,17 @@ live Meshtastic tests"_
    the configured channel. Ensure the channel is not used for critical or
    emergency communications during testing.
 
-2. **Message identification.** All test messages are prefixed with
+3. **Message identification.** All test messages are prefixed with
    `MEDRE live smoke` for easy identification and cleanup.
 
-3. **Frequency regulations.** Meshtastic operates on license-free bands
+4. **Frequency regulations.** Meshtastic operates on license-free bands
    (primarily 868 MHz EU / 915 MHz US). Ensure your node is configured
    for your regional regulations. The tests do not modify radio settings.
 
-4. **Duty cycle.** Tests send a minimal number of packets. No stress
+5. **Duty cycle.** Tests send a minimal number of packets. No stress
    testing or high-volume transmission is performed.
 
-5. **Firmware compatibility.** `mtjk` v2.7.8.post2 has been verified
+6. **Firmware compatibility.** `mtjk` v2.7.8.post2 has been verified
    against the source code. Actual firmware compatibility depends on
    the node's firmware version. If you encounter protocol errors,
    update both the node firmware and the `mtjk` package.
@@ -468,62 +468,62 @@ iface.sendData(
 Use this template when running live tests against real hardware. Fill in values
 and remove any lines that contain secrets before committing.
 
-| Field | Value |
-|-------|-------|
-| Date | YYYY-MM-DD |
-| Connection type | `tcp` / `serial` / `ble` |
-| Device type | e.g. LilyGO T-LORA V2.1, RAK4631, Heltec v3 |
-| Test command | `pytest tests/test_meshtastic_live.py -m live -v` |
-| MESHTASTIC_CONNECTION_TYPE | `<redacted>` |
-| MESHTASTIC_HOST | `<redacted>` (if TCP) |
-| MESHTASTIC_SERIAL_PORT | `<redacted>` (if serial) |
-| MESHTASTIC_CHANNEL_INDEX | `<integer>` |
-| MESHTASTIC_LIVE_SEND | `1` (only if transmit tested) |
-| Node firmware version | e.g. 2.7.19 |
-| Health result | `healthy` / `degraded` |
-| Send result | `passed` / `blocked` / `not tested` |
-| Native packet ID behavior | e.g. `sequential integers, unique per send` |
-| Known failure modes observed | e.g. None / describe |
-| Architecture report | `73 passed, 0 failed` |
-| Notes | |
+| Field                        | Value                                             |
+| ---------------------------- | ------------------------------------------------- |
+| Date                         | YYYY-MM-DD                                        |
+| Connection type              | `tcp` / `serial` / `ble`                          |
+| Device type                  | e.g. LilyGO T-LORA V2.1, RAK4631, Heltec v3       |
+| Test command                 | `pytest tests/test_meshtastic_live.py -m live -v` |
+| MESHTASTIC_CONNECTION_TYPE   | `<redacted>`                                      |
+| MESHTASTIC_HOST              | `<redacted>` (if TCP)                             |
+| MESHTASTIC_SERIAL_PORT       | `<redacted>` (if serial)                          |
+| MESHTASTIC_CHANNEL_INDEX     | `<integer>`                                       |
+| MESHTASTIC_LIVE_SEND         | `1` (only if transmit tested)                     |
+| Node firmware version        | e.g. 2.7.19                                       |
+| Health result                | `healthy` / `degraded`                            |
+| Send result                  | `passed` / `blocked` / `not tested`               |
+| Native packet ID behavior    | e.g. `sequential integers, unique per send`       |
+| Known failure modes observed | e.g. None / describe                              |
+| Architecture report          | `73 passed, 0 failed`                             |
+| Notes                        |                                                   |
 
 If no hardware was available during this tranche, leave this template
 unfilled as a checklist for the next operator.
 
 ## Diagnostics Reference
 
-The Meshtastic adapter exposes the following fields in ``diagnostics()``:
+The Meshtastic adapter exposes the following fields in `diagnostics()`:
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `adapter_id` | str | Adapter identifier |
-| `platform` | str | Always `"meshtastic"` |
-| `started` | bool | Whether the adapter has been started |
-| `connection_type` | str | `fake`, `tcp`, `serial`, or `ble` |
-| `queue_pending` | int | Items currently in the outbound queue |
-| `queue_total_sent` | int | Cumulative successful sends |
-| `queue_total_failed` | int | Cumulative send failures |
-| `queue_total_dropped` | int | Cumulative items dropped from queue |
-| `drain_task_running` | bool | Whether the background queue-drain task is active |
-| `background_tasks` | int | Number of tracked background tasks |
+| Field                 | Type | Description                                       |
+| --------------------- | ---- | ------------------------------------------------- |
+| `adapter_id`          | str  | Adapter identifier                                |
+| `platform`            | str  | Always `"meshtastic"`                             |
+| `started`             | bool | Whether the adapter has been started              |
+| `connection_type`     | str  | `fake`, `tcp`, `serial`, or `ble`                 |
+| `queue_pending`       | int  | Items currently in the outbound queue             |
+| `queue_total_sent`    | int  | Cumulative successful sends                       |
+| `queue_total_failed`  | int  | Cumulative send failures                          |
+| `queue_total_dropped` | int  | Cumulative items dropped from queue               |
+| `drain_task_running`  | bool | Whether the background queue-drain task is active |
+| `background_tasks`    | int  | Number of tracked background tasks                |
 
 **Session diagnostics** (present when adapter has been started):
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `connected` | bool | SDK client is created and session is started |
-| `reconnecting` | bool | Session is in reconnect backoff |
-| `reconnect_attempts` | int | Consecutive reconnect attempts |
-| `last_packet_time` | float or null | Monotonic time of last received packet |
-| `node_id` | str or null | Our node ID |
-| `channel_count` | int | Number of known channels |
-| `transient_delivery_failures` | int | Count of transient send failures |
-| `permanent_delivery_failures` | int | Count of permanent send failures |
-| `last_error` | str or null | Most recent error description |
+| Field                         | Type          | Description                                  |
+| ----------------------------- | ------------- | -------------------------------------------- |
+| `connected`                   | bool          | SDK client is created and session is started |
+| `reconnecting`                | bool          | Session is in reconnect backoff              |
+| `reconnect_attempts`          | int           | Consecutive reconnect attempts               |
+| `last_packet_time`            | float or null | Monotonic time of last received packet       |
+| `node_id`                     | str or null   | Our node ID                                  |
+| `channel_count`               | int           | Number of known channels                     |
+| `transient_delivery_failures` | int           | Count of transient send failures             |
+| `permanent_delivery_failures` | int           | Count of permanent send failures             |
+| `last_error`                  | str or null   | Most recent error description                |
 
 **Secret safety:** Diagnostics intentionally excludes serial port paths,
 hostnames, IP addresses, BLE MAC addresses, tokens, passwords, and keys.
-See ``test_meshtastic_nosdk.py::TestMeshtasticDiagnostics::test_diagnostics_no_secrets_after_start``
+See `test_meshtastic_nosdk.py::TestMeshtasticDiagnostics::test_diagnostics_no_secrets_after_start`
 for the recursive no-leak assertion.
 
 ## Cleanup
@@ -580,7 +580,7 @@ After running tests:
 
 ## Multi-Instance Operation
 
-MEDRE supports multiple Meshtastic adapters per runtime.  There are two
+MEDRE supports multiple Meshtastic adapters per runtime. There are two
 ways to configure them:
 
 ### Mode A: Override an existing TOML adapter
@@ -588,77 +588,84 @@ ways to configure them:
 If the adapter is already defined in the TOML config, override any field
 at runtime with the per-instance env var pattern:
 
-.. code-block:: bash
+```bash
+export MEDRE_ADAPTER__RADIO_A__SERIAL_PORT=/dev/ttyUSB0
+```
 
-   export MEDRE_ADAPTER__RADIO_A__SERIAL_PORT=/dev/ttyUSB0
-
-The adapter must exist in the TOML file (``[adapters.meshtastic.radio-a]``).
+The adapter must exist in the TOML file (`[adapters.meshtastic.radio-a]`).
 The env var only modifies the specified field — all other fields come from
 the config file.
 
 ### Mode B: Create an adapter entirely from env vars
 
-When ``TRANSPORT=meshtastic`` is set and the token does not match any
+When `TRANSPORT=meshtastic` is set and the token does not match any
 TOML adapter, a new adapter is created from env vars alone:
 
-.. code-block:: bash
+```bash
+# Radio A — serial
+export MEDRE_ADAPTER__RADIO_A__TRANSPORT=meshtastic
+export MEDRE_ADAPTER__RADIO_A__CONNECTION_TYPE=serial
+export MEDRE_ADAPTER__RADIO_A__SERIAL_PORT=/dev/ttyUSB0
 
-   # Radio A — serial
-   export MEDRE_ADAPTER__RADIO_A__TRANSPORT=meshtastic
-   export MEDRE_ADAPTER__RADIO_A__CONNECTION_TYPE=serial
-   export MEDRE_ADAPTER__RADIO_A__SERIAL_PORT=/dev/ttyUSB0
-
-   # Radio B — TCP
-   export MEDRE_ADAPTER__RADIO_B__TRANSPORT=meshtastic
-   export MEDRE_ADAPTER__RADIO_B__CONNECTION_TYPE=tcp
-   export MEDRE_ADAPTER__RADIO_B__HOST=192.168.1.25
-   export MEDRE_ADAPTER__RADIO_B__PORT=4403
+# Radio B — TCP
+export MEDRE_ADAPTER__RADIO_B__TRANSPORT=meshtastic
+export MEDRE_ADAPTER__RADIO_B__CONNECTION_TYPE=tcp
+export MEDRE_ADAPTER__RADIO_B__HOST=192.168.1.25
+export MEDRE_ADAPTER__RADIO_B__PORT=4403
+```
 
 Required fields for Meshtastic env-created adapters:
 
-- ``TRANSPORT`` — must be ``meshtastic``
-- ``CONNECTION_TYPE`` — ``serial``, ``tcp``, ``ble``, or ``fake`` (default)
+- `TRANSPORT` — must be `meshtastic`
+- `CONNECTION_TYPE` — `serial`, `tcp`, `ble`, or `fake` (default)
 
 Conditionally required fields per connection type:
 
-- TCP: ``HOST`` (required), ``PORT`` (optional, default ``4403``)
-- Serial: ``SERIAL_PORT`` (required)
-- BLE: ``BLE_ADDRESS`` (required)
+- TCP: `HOST` (required), `PORT` (optional, default `4403`)
+- Serial: `SERIAL_PORT` (required)
+- BLE: `BLE_ADDRESS` (required)
 
-All other ``MeshtasticConfig`` fields are optional and use their dataclass
+All other `MeshtasticConfig` fields are optional and use their dataclass
 defaults when omitted.
 
 ### Override vs. create behaviour
 
-- If a TOML adapter with the same ``adapter_id`` exists: env vars with
-  matching fields override the TOML values.  The ``TRANSPORT`` field is
+- If a TOML adapter with the same `adapter_id` exists: env vars with
+  matching fields override the TOML values. The `TRANSPORT` field is
   ignored (the TOML adapter's transport is already known).
-- If no TOML adapter matches: ``TRANSPORT`` must be set to ``meshtastic``,
-  or the env vars are rejected with ``ConfigValidationError``.
+- If no TOML adapter matches: `TRANSPORT` must be set to `meshtastic`,
+  or the env vars are rejected with `ConfigValidationError`.
 
 ### Routes
 
-Routes must still be defined in the TOML config file.  Env-created
-adapter IDs can be referenced in TOML routes normally:
+Routes can be defined in the TOML config file or created from
+environment variables (see below). Env-created adapter IDs can be
+referenced in route definitions normally:
 
-.. code-block:: toml
+```toml
+[routes.a_to_bridge]
+source_adapters = ["radio-a"]
+dest_adapters = ["radio-b"]
+directionality = "source_to_dest"
+enabled = true
+```
 
-   [routes.a_to_bridge]
-   source_adapters = ["radio-a"]
-   dest_adapters = ["radio-b"]
-   directionality = "source_to_dest"
-   enabled = true
+Simple routes can also be created from environment variables using
+`MEDRE_ROUTE__<TOKEN>__<FIELD>`. Route tokens may contain only letters,
+numbers, and underscores. Advanced route features (e.g. complex directionality,
+conditional routing) may still require TOML configuration.
 
-Route env creation is not yet supported.
+Route adapter references are adapter IDs (e.g. `radio-a`), not env tokens.
 
 ### Legacy vars
 
-- ``MESHTASTIC_*`` env vars are ``pytest`` live-test **convenience vars**
-  only (see `Required environment variables`_ above).  They are **not**
+- `MESHTASTIC_*` env vars are `pytest` live-test **convenience vars**
+  only (see `Required environment variables`\_ above). They are **not**
   runtime config overrides.
-- ``MEDRE_MESHTASTIC_*`` remains **unsupported** and triggers
-  ``ConfigValidationError`` with a migration message.
-- All runtime config uses ``MEDRE_ADAPTER__<TOKEN>__<FIELD>``.
+- `MEDRE_MESHTASTIC_*` is a **legacy** pattern and remains **unsupported** —
+  it triggers `ConfigValidationError` with a migration message pointing to
+  `MEDRE_ADAPTER__<TOKEN>__<FIELD>`.
+- All runtime config uses `MEDRE_ADAPTER__<TOKEN>__<FIELD>`.
 
 ## Explicit Scope Exclusions
 
