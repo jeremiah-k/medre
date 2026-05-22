@@ -38,6 +38,8 @@ PERMANENT_KINDS: frozenset[str] = frozenset(
         "adapter_missing",
         "renderer_failure",
         "planner_failure",
+        "duplicate_suppressed",
+        "loop_suppressed",
     }
 )
 """Failure kinds that are permanent and unlikely to succeed on retry."""

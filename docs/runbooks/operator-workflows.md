@@ -54,20 +54,31 @@ medre --help
 
 If this prints a help message, the install worked. If it prints `command not found`, check that your virtualenv is active and the install completed without errors.
 
-### 2.3 Environment variables
+### Environment Variables
 
-MEDRE reads configuration from environment variables. The variables you need depend on what you are doing.
+MEDRE uses different environment variable sets depending on context:
 
-| Mode                | Required env vars                                                                     | Notes                                                              |
-| ------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| Fake local smoke    | None                                                                                  | Runs entirely with fake adapters, no network                       |
-| Matrix live session | `MATRIX_HOMESERVER`, `MATRIX_USER_ID`, `MATRIX_ACCESS_TOKEN`, `MATRIX_ROOM_ALLOWLIST` | See `docs/runbooks/matrix-alpha-operation.md` for full details     |
-| E2EE text alpha     | All Matrix vars plus `MATRIX_ENCRYPTION_MODE`                                         | Set to `e2ee_required` or `e2ee_optional`                          |
-| Meshtastic live     | `MESHTASTIC_HOST` or `MESHTASTIC_SERIAL_PORT`, plus `MESHTASTIC_CHANNEL_INDEX`        | See `docs/runbooks/meshtastic-alpha-operation.md` for full details |
-| MeshCore live       | `MESHCORE_HOST` or `MESHCORE_SERIAL_PORT`                                             | See `docs/runbooks/meshcore-alpha-operation.md`                    |
-| LXMF live           | Reticulum config file, identity path                                                  | See `docs/runbooks/lxmf-alpha-operation.md`                        |
+**Runtime config** (read by `medre run` and all config-backed commands):
 
-The transport-prefixed convention is consistent: Matrix vars start with `MATRIX_`, Meshtastic vars start with `MESHTASTIC_`, MeshCore vars start with `MESHCORE_`, and so on.
+- `MEDRE_ADAPTER__<TOKEN>__<FIELD>` — adapter instance config
+- `MEDRE_ROUTE__<TOKEN>__<FIELD>` — route config
+- `MEDRE_HOME`, `MEDRE_DB_PATH`, `MEDRE_LOG_LEVEL` — core runtime
+- `MEDRE_RETRY__<FIELD>` — retry worker config
+
+**Pytest live-test convenience vars** (read by `pytest -m live` only):
+
+- `MATRIX_HOMESERVER`, `MATRIX_USER_ID`, `MATRIX_ACCESS_TOKEN`, `MATRIX_ROOM_ID`
+- `MESHTASTIC_CONNECTION_TYPE`, `MESHTASTIC_HOST`, `MESHTASTIC_SERIAL_PORT`
+- `MESHCORE_CONNECTION_TYPE`, `MESHCORE_HOST`
+- `LXMF_CONNECTION_TYPE`
+
+**Unsupported legacy** (rejected at startup):
+
+- `MEDRE_MATRIX_*`, `MEDRE_MESHTASTIC_*`, `MEDRE_MESHCORE_*`, `MEDRE_LXMF_*`
+
+> **Important:** `MATRIX_*` variables are for pytest live-test convenience only.
+> They are **not** read by `medre run`. To configure a Matrix adapter for
+> runtime operation, use `MEDRE_ADAPTER__<TOKEN>__<FIELD>`.
 
 ## 3. End-to-End Fake Local Run Session
 
@@ -81,7 +92,7 @@ PYTHONPATH=src medre smoke
 
 This builds a pipeline with fake adapters, runs a message through it, and prints a summary. You should see output like:
 
-```
+```text
 Smoke test: PASSED
   Evidence level: fake_bridge
   Events processed: 1
@@ -231,16 +242,106 @@ medre inspect event <EVENT_ID> --config /path/to/config.toml
 
 ### Environment Variable Rules
 
-| Prefix                                 | Purpose                                      |
-| -------------------------------------- | -------------------------------------------- |
-| `MEDRE_ADAPTER__<TOKEN>__<FIELD>`      | Runtime adapter config                       |
-| `MEDRE_ROUTE__<TOKEN>__<FIELD>`        | Runtime route config                         |
+| Prefix                                             | Purpose                                      |
+| -------------------------------------------------- | -------------------------------------------- |
+| `MEDRE_ADAPTER__<TOKEN>__<FIELD>`                  | Runtime adapter config                       |
+| `MEDRE_ROUTE__<TOKEN>__<FIELD>`                    | Runtime route config                         |
+| `MEDRE_RETRY__<FIELD>`                             | Runtime retry config                         |
 | `MATRIX_*`, `MESHTASTIC_*`, `MESHCORE_*`, `LXMF_*` | Pytest live-test convenience vars only       |
-| `MEDRE_MESHTASTIC_*`, etc.             | **Unsupported legacy** — rejected at startup |
+| `MEDRE_MESHTASTIC_*`, etc.                         | **Unsupported legacy** — rejected at startup |
 
 ### Sharing Output
 
 Use `--json` flags for machine-readable output. Sanitize logs and evidence bundles before sharing: all access tokens, secrets, and credentials are automatically redacted from evidence output, log files, and error messages.
+
+## Reading Delivery Reliability Reports
+
+MEDRE records every delivery attempt as a structured receipt. Operators can inspect delivery outcomes, retries, and suppressions through evidence bundles and trace timelines.
+
+### Delivery Outcome Statuses
+
+Each delivery attempt produces a `DeliveryOutcome` with one of these statuses:
+
+| Status              | Meaning                                                                  |
+| ------------------- | ------------------------------------------------------------------------ |
+| `success`           | The adapter accepted the message and returned a native message ID.       |
+| `queued`            | The adapter enqueued the message for async delivery.                     |
+| `transient_failure` | A temporary error (timeout, connection reset). Retryable.                |
+| `permanent_failure` | A non-retryable error (malformed payload, auth rejection).               |
+| `skipped`           | Delivery was skipped (loop prevention, suppression, capacity rejection). |
+
+### Receipt Statuses
+
+Receipts persisted to storage have a finer-grained lifecycle:
+
+| Status          | Meaning                                                               |
+| --------------- | --------------------------------------------------------------------- |
+| `accepted`      | Initial state — delivery plan accepted.                               |
+| `queued`        | Enqueued for async delivery (queue-based transports).                 |
+| `sent`          | Adapter confirmed delivery.                                           |
+| `failed`        | Delivery attempt failed (check `failure_kind` for details).           |
+| `dead_lettered` | All retry attempts exhausted — no further delivery will be attempted. |
+
+### Failure Classification
+
+The `failure_kind` field on receipts classifies failures:
+
+| Kind                   | Retryable | When                                                                                                                                                                         |
+| ---------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `adapter_transient`    | Yes       | Timeout, network error, connection reset                                                                                                                                     |
+| `adapter_permanent`    | No        | Malformed payload, business-logic rejection                                                                                                                                  |
+| `adapter_missing`      | No        | Target adapter not registered in the runtime                                                                                                                                 |
+| `planner_failure`      | No        | Routing or planning misconfiguration                                                                                                                                         |
+| `renderer_failure`     | No        | No renderer registered for the event kind                                                                                                                                    |
+| `capacity_rejection`   | No        | All in-flight delivery slots occupied                                                                                                                                        |
+| `duplicate_suppressed` | No        | Reserved — defined in the enum but not currently emitted as a receipt or outcome. Duplicate native-ref suppression happens before routing and returns an empty outcome list. |
+| `loop_suppressed`      | No        | Route-trace or self-loop prevention blocked the delivery                                                                                                                     |
+
+Only `adapter_transient` is retryable.
+
+### Retry and Replay
+
+- **Retries** are handled by `RetryWorker` — a background task that polls for
+  transient-failure receipts and re-attempts delivery with exponential backoff.
+  Retries are opt-in (`[retry] enabled = true` in config).
+  Retry is opt-in and can be configured through `MEDRE_RETRY__` environment
+  variables (or the `[retry]` TOML section). Retry mechanisms are documented
+  and unit-tested but were not live-validated by this tranche.
+- **Replay** is a separate mechanism that re-processes historical events through
+  the pipeline. Replayed deliveries are tagged `source="replay"` with a
+  `replay_run_id` for identification.
+
+### Inspection
+
+Use the CLI to inspect delivery details:
+
+```bash
+# Evidence bundle — includes receipt and native-ref summary:
+medre evidence --config /path/to/config.toml --json
+
+# Trace — chronological timeline for a specific event:
+medre trace event <EVENT_ID> --config /path/to/config.toml --json
+
+# Inspect — unified event details with receipts and native refs:
+medre inspect event <EVENT_ID> --config /path/to/config.toml
+```
+
+Sanitized JSON example (`failure_kind` and `attempt_number` visible):
+
+```json
+{
+  "receipt_id": "rcpt-...",
+  "event_id": "evt-...",
+  "route_id": "radio-to-matrix",
+  "target_adapter": "matrix-fake",
+  "status": "failed",
+  "failure_kind": "adapter_transient",
+  "attempt_number": 1,
+  "error": "..."
+}
+```
+
+No secrets or access tokens appear in evidence output.
 
 ## 4. Matrix Live Run Session
 
@@ -249,11 +350,20 @@ If you have `MEDRE_ADAPTER__<TOKEN>__*` variables set for a Matrix transport, yo
 ### 4.1 Set environment variables
 
 ```bash
-export MATRIX_HOMESERVER="http://localhost:8008"
-export MATRIX_USER_ID="@bot:localhost"
-export MATRIX_ACCESS_TOKEN="syt_xxxxxxxxxxxxx"
-export MATRIX_ROOM_ALLOWLIST="!abc123:localhost"
+export MEDRE_ADAPTER__MATRIX_PRIMARY__TRANSPORT=matrix
+export MEDRE_ADAPTER__MATRIX_PRIMARY__HOMESERVER=http://localhost:8008
+export MEDRE_ADAPTER__MATRIX_PRIMARY__USER_ID=@bot:localhost
+export MEDRE_ADAPTER__MATRIX_PRIMARY__ACCESS_TOKEN=syt_xxxxxxxxxxxxx
+export MEDRE_ADAPTER__MATRIX_PRIMARY__ROOM_ALLOWLIST="!abc123:localhost"
+export MEDRE_ROUTE__PRIMARY_TO_MESH__SOURCE_ADAPTERS=matrix-primary
+export MEDRE_ROUTE__PRIMARY_TO_MESH__DEST_ADAPTERS=meshtastic-radio
+export MEDRE_ROUTE__PRIMARY_TO_MESH__DIRECTIONALITY=source_to_dest
+export MEDRE_ROUTE__PRIMARY_TO_MESH__ENABLED=true
 ```
+
+> **Note:** The `MATRIX_*` variables (`MATRIX_HOMESERVER`, `MATRIX_USER_ID`, etc.)
+> are pytest live-test convenience vars. They are **not** read by `medre run`.
+> Use `MEDRE_ADAPTER__<TOKEN>__<FIELD>` to configure Matrix adapters for runtime.
 
 Do not commit these. Do not paste them into chat. Do not log them. They are credentials.
 
@@ -265,7 +375,7 @@ PYTHONPATH=src medre run
 
 You should see startup log lines confirming config loaded, pipeline started, and adapter connected. The key line is:
 
-```
+```text
 Matrix Operation Alpha running — awaiting shutdown signal
 ```
 
@@ -485,7 +595,7 @@ PYTHONPATH=src medre trace event <event_id> --storage-path /path/to/medre.db --j
 
 A healthy event trace looks something like this:
 
-```
+```text
 Event: evt_abc123 (message.created) from matrix-alpha
 Timeline (4 entries):
 

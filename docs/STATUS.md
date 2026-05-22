@@ -10,23 +10,24 @@ This document is the single source of truth for per-transport capability trackin
 
 ## Capability Matrix
 
-| Capability                          | Matrix                  | Meshtastic              | MeshCore    | LXMF        |
-| ----------------------------------- | ----------------------- | ----------------------- | ----------- | ----------- |
-| Config load                         | live-validated          | fake-tested             | fake-tested | fake-tested |
-| Instance-scoped env overrides       | live-validated          | fake-tested             | fake-tested | fake-tested |
-| Env-first adapter creation          | fake-tested             | fake-tested             | fake-tested | fake-tested |
-| Env-driven route creation           | fake-tested             | fake-tested             | fake-tested | fake-tested |
-| Fake lifecycle                      | live-validated          | fake-tested             | fake-tested | fake-tested |
-| Real adapter import safe            | live-validated          | opt-in live test exists | designed    | designed    |
-| Live start/health                   | live-validated          | opt-in live test exists | not started | not started |
-| Outbound delivery                   | live-validated          | opt-in live test exists | not started | not started |
-| Inbound decode                      | live-validated          | opt-in live test exists | not started | not started |
-| Storage native refs                 | live-validated          | fake-tested             | fake-tested | fake-tested |
-| Evidence bundle                     | live-validated          | fake-tested             | fake-tested | fake-tested |
-| Run-session path                    | live-validated          | not started             | not started | not started |
-| Operator runbook                    | live-validated          | opt-in live test exists | designed    | designed    |
-| Live validation recorded            | live-validated          | not started             | not started | not started |
-| Matrix live adapter (local Synapse) | live-validated          |                         |             |             |
+| Capability                          | Matrix         | Meshtastic              | MeshCore    | LXMF        |
+| ----------------------------------- | -------------- | ----------------------- | ----------- | ----------- |
+| Config load                         | live-validated | fake-tested             | fake-tested | fake-tested |
+| Instance-scoped env overrides       | live-validated | fake-tested             | fake-tested | fake-tested |
+| Env-first adapter creation          | fake-tested    | fake-tested             | fake-tested | fake-tested |
+| Env-driven route creation           | fake-tested    | fake-tested             | fake-tested | fake-tested |
+| Fake lifecycle                      | live-validated | fake-tested             | fake-tested | fake-tested |
+| Real adapter import safe            | live-validated | opt-in live test exists | designed    | designed    |
+| Live start/health                   | live-validated | opt-in live test exists | not started | not started |
+| Outbound delivery                   | live-validated | opt-in live test exists | not started | not started |
+| Inbound decode                      | live-validated | opt-in live test exists | not started | not started |
+| Storage native refs                 | live-validated | fake-tested             | fake-tested | fake-tested |
+| Evidence bundle                     | live-validated | fake-tested             | fake-tested | fake-tested |
+| Delivery reliability                | fake-tested    | fake-tested             | designed    | designed    |
+| Run-session path                    | live-validated | not started             | not started | not started |
+| Operator runbook                    | live-validated | opt-in live test exists | designed    | designed    |
+| Live validation recorded            | live-validated | not started             | not started | not started |
+| Matrix live adapter (local Synapse) | live-validated |                         |             |             |
 
 ## Interpretation
 
@@ -48,6 +49,13 @@ These statuses mean specific things. Do not read between the lines.
 Matrix is the most mature transport. Live validation was recorded on 2026-05-10 (13 plaintext tests passed, 7 E2EE tests passed) and again on 2026-05-22 (15 live tests passed, 1 xfailed against local Docker Synapse). See `docs/runbooks/matrix-alpha-operation.md` section "Live Validation Evidence" and `docs/runbooks/matrix-local-bringup.md` section "Live Validation Evidence" for details.
 
 The Matrix adapter supports plaintext and E2EE text alpha. E2EE supports encrypted rooms for text messages only. See the alpha operation runbook for the full unsupported features list.
+
+Delivery reliability currently has env-only fake validation — the env-only
+deployment tests (test_env_only_reliability.py) validate successful delivery,
+duplicate suppression, and loop-prevention metadata through RuntimeBuilder +
+fake adapters. Retry and replay mechanisms have existing tests and docs,
+but this tranche did not newly validate them through env-only or live delivery
+reliability tests.
 
 Opt-in Matrix live tests use pytest convenience variables such as MATRIX_HOMESERVER, MATRIX_USER_ID, MATRIX_ACCESS_TOKEN, and MATRIX_ROOM_ID. The local Synapse test harness additionally requires `MATRIX_LOCAL_SYNAPSE=1`. Runtime adapter config overrides use instance-scoped `MEDRE_ADAPTER__<TOKEN>__<FIELD>` and `MEDRE_ROUTE__<TOKEN>__<FIELD>` variables.
 
