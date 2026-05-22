@@ -64,6 +64,7 @@ enabled = true
 adapter_kind = "fake"
 homeserver = "https://fake.local"
 user_id = "@fake:local"
+access_token = "fake_token"
 
 [routes.radio-a-to-matrix]
 source_adapters = ["radio-a"]
