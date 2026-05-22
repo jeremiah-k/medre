@@ -578,6 +578,88 @@ After running tests:
 - **Second-node inbound:** **NOT EXECUTED** — requires a second Meshtastic node not present.
 - **Soak test result:** **NOT EXECUTED** (see `tests/test_soak.py::TestMeshtasticSoak`)
 
+## Multi-Instance Operation
+
+MEDRE supports multiple Meshtastic adapters per runtime.  There are two
+ways to configure them:
+
+### Mode A: Override an existing TOML adapter
+
+If the adapter is already defined in the TOML config, override any field
+at runtime with the per-instance env var pattern:
+
+.. code-block:: bash
+
+   export MEDRE_ADAPTER__RADIO_A__SERIAL_PORT=/dev/ttyUSB0
+
+The adapter must exist in the TOML file (``[adapters.meshtastic.radio-a]``).
+The env var only modifies the specified field — all other fields come from
+the config file.
+
+### Mode B: Create an adapter entirely from env vars
+
+When ``TRANSPORT=meshtastic`` is set and the token does not match any
+TOML adapter, a new adapter is created from env vars alone:
+
+.. code-block:: bash
+
+   # Radio A — serial
+   export MEDRE_ADAPTER__RADIO_A__TRANSPORT=meshtastic
+   export MEDRE_ADAPTER__RADIO_A__CONNECTION_TYPE=serial
+   export MEDRE_ADAPTER__RADIO_A__SERIAL_PORT=/dev/ttyUSB0
+
+   # Radio B — TCP
+   export MEDRE_ADAPTER__RADIO_B__TRANSPORT=meshtastic
+   export MEDRE_ADAPTER__RADIO_B__CONNECTION_TYPE=tcp
+   export MEDRE_ADAPTER__RADIO_B__HOST=192.168.1.25
+   export MEDRE_ADAPTER__RADIO_B__PORT=4403
+
+Required fields for Meshtastic env-created adapters:
+
+- ``TRANSPORT`` — must be ``meshtastic``
+- ``CONNECTION_TYPE`` — ``serial``, ``tcp``, ``ble``, or ``fake`` (default)
+
+Conditionally required fields per connection type:
+
+- TCP: ``HOST`` (required), ``PORT`` (optional, default ``4403``)
+- Serial: ``SERIAL_PORT`` (required)
+- BLE: ``BLE_ADDRESS`` (required)
+
+All other ``MeshtasticConfig`` fields are optional and use their dataclass
+defaults when omitted.
+
+### Override vs. create behaviour
+
+- If a TOML adapter with the same ``adapter_id`` exists: env vars with
+  matching fields override the TOML values.  The ``TRANSPORT`` field is
+  ignored (the TOML adapter's transport is already known).
+- If no TOML adapter matches: ``TRANSPORT`` must be set to ``meshtastic``,
+  or the env vars are rejected with ``ConfigValidationError``.
+
+### Routes
+
+Routes must still be defined in the TOML config file.  Env-created
+adapter IDs can be referenced in TOML routes normally:
+
+.. code-block:: toml
+
+   [routes.a_to_bridge]
+   source_adapters = ["radio-a"]
+   dest_adapters = ["radio-b"]
+   directionality = "source_to_dest"
+   enabled = true
+
+Route env creation is not yet supported.
+
+### Legacy vars
+
+- ``MESHTASTIC_*`` env vars are ``pytest`` live-test **convenience vars**
+  only (see `Required environment variables`_ above).  They are **not**
+  runtime config overrides.
+- ``MEDRE_MESHTASTIC_*`` remains **unsupported** and triggers
+  ``ConfigValidationError`` with a migration message.
+- All runtime config uses ``MEDRE_ADAPTER__<TOKEN>__<FIELD>``.
+
 ## Explicit Scope Exclusions
 
 The following are explicitly **out of scope** for the live smoke harness

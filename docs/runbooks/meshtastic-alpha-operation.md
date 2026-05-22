@@ -221,6 +221,64 @@ The live smoke tests use environment variables to configure the connection. The 
 | `MESHTASTIC_NODE_ID`         | All          |         | `!25d6e474`         | Meshtastic node ID for identifying the local node    |
 | `MESHTASTIC_LIVE_SEND`       | Live TX      |         | `1`                 | **Transmit guard.** Must be `1` for RF transmission. Without this flag, the adapter may connect and health-check but MUST NOT transmit. |
 
+### 5.1.1 Multi-instance env overrides
+
+MEDRE supports two patterns for configuring multiple Meshtastic adapters
+at runtime:
+
+**Override an existing TOML adapter:**
+
+.. code-block:: bash
+
+   export MEDRE_ADAPTER__RADIO_A__SERIAL_PORT=/dev/ttyUSB0
+
+The adapter must be declared in the TOML config.  Only the specified field
+is overridden.
+
+**Create an adapter entirely from env vars:**
+
+.. code-block:: bash
+
+   export MEDRE_ADAPTER__RADIO_A__TRANSPORT=meshtastic
+   export MEDRE_ADAPTER__RADIO_A__CONNECTION_TYPE=serial
+   export MEDRE_ADAPTER__RADIO_A__SERIAL_PORT=/dev/ttyUSB0
+
+   export MEDRE_ADAPTER__RADIO_B__TRANSPORT=meshtastic
+   export MEDRE_ADAPTER__RADIO_B__CONNECTION_TYPE=tcp
+   export MEDRE_ADAPTER__RADIO_B__HOST=192.168.1.25
+   export MEDRE_ADAPTER__RADIO_B__PORT=4403
+
+When ``TRANSPORT=meshtastic`` is present and the token does not match any
+TOML adapter, the adapter is created from env vars alone.  The ``adapter_id``
+is derived from the token (e.g. ``radio-a``, ``radio-b``).
+
+**Routes** must still be defined in TOML:
+
+.. code-block:: toml
+
+   [routes.a_to_b]
+   source_adapters = ["radio-a"]
+   dest_adapters = ["radio-b"]
+   enabled = true
+
+**Field reference** for Meshtastic env-created adapters:
+
+- ``TRANSPORT`` — always ``meshtastic``
+- ``CONNECTION_TYPE`` — ``fake`` (default), ``serial``, ``tcp``, ``ble``
+- ``HOST`` — required for TCP
+- ``PORT`` — optional TCP port (default ``4403``)
+- ``SERIAL_PORT`` — required for serial
+- ``BLE_ADDRESS`` — required for BLE
+- ``MESHNET_NAME`` — informational
+- ``DEFAULT_CHANNEL`` — channel index (default ``0``)
+- ``ADAPTER_ID`` — rarely needed; token-derived name is used by default
+
+Note: ``CHANNEL_MAPPING`` (a dict field) and other complex types cannot
+be set via env vars.  Set these in the TOML config file.
+
+Legacy ``MEDRE_MESHTASTIC_*`` runtime config variables remain unsupported
+and raise ``ConfigValidationError``.
+
 ### 5.2 Manual adapter wiring
 
 There is no dedicated Meshtastic runner. For alpha operation, wire the adapter manually:
