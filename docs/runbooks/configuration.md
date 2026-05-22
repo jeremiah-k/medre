@@ -745,7 +745,7 @@ Each transport exposes its config dataclass fields as override targets. The `ena
 | `identity_path`           | string | `MEDRE_ADAPTER__LOCAL__IDENTITY_PATH={state}/lxmf/identity`      |
 | `storage_path`            | string | `MEDRE_ADAPTER__LOCAL__STORAGE_PATH={state}/lxmf/storage`        |
 
-> **TOML-only fields.** `adapter_id`, dict fields (`channel_mapping`, `node_config`), and tuple fields (`auto_join_rooms`) cannot be set via environment variables. `adapter_id` defaults to the TOML instance name and cannot be overridden through env. Dict and tuple fields require structured data that the flat string format of env vars cannot represent. Set them in TOML instead. The env override system will reject these fields with a clear error message.
+> **TOML-only fields.** For adapters defined in TOML, `adapter_id` defaults to the TOML instance name and cannot be overridden through env. For adapters created entirely from env (see Env-First Adapter Creation), the `ADAPTER_ID` field can be set to override the default derivation. Dict fields (`channel_mapping`, `node_config`) and tuple fields (`auto_join_rooms`) cannot be set via environment variables for any adapter type — they require structured data that the flat string format of env vars cannot represent. Set them in TOML instead. The env override system will reject these fields with a clear error message.
 
 #### Secret Handling
 

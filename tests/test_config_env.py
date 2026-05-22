@@ -642,7 +642,7 @@ class TestErrors:
         monkeypatch.setenv("MEDRE_ADAPTER__NONEXISTENT__homeserver", "x")
         base = _make_config_with_matrix()
 
-        with pytest.raises(ConfigValidationError, match="Known tokens.*FROM_TOML"):
+        with pytest.raises(ConfigValidationError, match=r"Known tokens.*FROM_TOML"):
             apply_env_overrides(base)
 
     def test_unsupported_field_raises(
@@ -1325,7 +1325,7 @@ class TestEnvCreatedAdapters:
         monkeypatch.setenv("MEDRE_ADAPTER__BETA__CONNECTION_TYPE", "fake")
 
         base = _make_base_config()
-        with pytest.raises(ConfigValidationError, match="collision.*SHARED"):
+        with pytest.raises(ConfigValidationError, match=r"collision.*SHARED"):
             apply_env_overrides(base)
 
     # (l) Provenance redacts ACCESS_TOKEN for created adapter.

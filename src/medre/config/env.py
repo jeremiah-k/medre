@@ -887,7 +887,12 @@ def apply_instance_env_overrides(
             config_kwargs[field_name] = coerced
 
         config_kwargs["adapter_id"] = adapter_id
-        new_config = config_cls(**config_kwargs).validate()
+        try:
+            new_config = config_cls(**config_kwargs).validate()
+        except TypeError as exc:
+            raise ConfigValidationError(
+                f"Invalid {transport} adapter config for token {token!r}: {exc}"
+            ) from exc
 
         new_rtc = runtime_cls(
             adapter_id=adapter_id,
