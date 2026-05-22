@@ -1,6 +1,6 @@
 # MEDRE Transport Capability Status
 
-> **Generated:** 2026-05-21
+> **Generated:** 2026-05-22
 >
 > **Context:** This is a living document. It tracks which MEDRE capabilities are implemented, tested, and validated across each transport adapter. It exists so operators and developers can see, at a glance, what works and what does not.
 >
@@ -10,50 +10,52 @@ This document is the single source of truth for per-transport capability trackin
 
 ## Capability Matrix
 
-| Capability | Matrix | Meshtastic | MeshCore | LXMF |
-|---|---|---|---|---|
-| Config load | live-validated | fake-tested | fake-tested | fake-tested |
-| Instance-scoped env overrides | live-validated | fake-tested | fake-tested | fake-tested |
-| Env-driven route creation | fake-tested | fake-tested | fake-tested | fake-tested |
-| Fake lifecycle | live-validated | fake-tested | fake-tested | fake-tested |
-| Real adapter import safe | live-validated | opt-in live test exists | designed | designed |
-| Live start/health | live-validated | opt-in live test exists | not started | not started |
-| Outbound delivery | live-validated | opt-in live test exists | not started | not started |
-| Inbound decode | live-validated | opt-in live test exists | not started | not started |
-| Storage native refs | live-validated | fake-tested | fake-tested | fake-tested |
-| Evidence bundle | live-validated | fake-tested | fake-tested | fake-tested |
-| Run-session path | live-validated | not started | not started | not started |
-| Operator runbook | live-validated | opt-in live test exists | designed | designed |
-| Live validation recorded | live-validated | not started | not started | not started |
+| Capability                          | Matrix                  | Meshtastic              | MeshCore    | LXMF        |
+| ----------------------------------- | ----------------------- | ----------------------- | ----------- | ----------- |
+| Config load                         | live-validated          | fake-tested             | fake-tested | fake-tested |
+| Instance-scoped env overrides       | live-validated          | fake-tested             | fake-tested | fake-tested |
+| Env-first adapter creation          | fake-tested             | fake-tested             | fake-tested | fake-tested |
+| Env-driven route creation           | fake-tested             | fake-tested             | fake-tested | fake-tested |
+| Fake lifecycle                      | live-validated          | fake-tested             | fake-tested | fake-tested |
+| Real adapter import safe            | live-validated          | opt-in live test exists | designed    | designed    |
+| Live start/health                   | live-validated          | opt-in live test exists | not started | not started |
+| Outbound delivery                   | live-validated          | opt-in live test exists | not started | not started |
+| Inbound decode                      | live-validated          | opt-in live test exists | not started | not started |
+| Storage native refs                 | live-validated          | fake-tested             | fake-tested | fake-tested |
+| Evidence bundle                     | live-validated          | fake-tested             | fake-tested | fake-tested |
+| Run-session path                    | live-validated          | not started             | not started | not started |
+| Operator runbook                    | live-validated          | opt-in live test exists | designed    | designed    |
+| Live validation recorded            | live-validated          | not started             | not started | not started |
+| Matrix live adapter (local Synapse) | live-validated          |                         |             |             |
 
 ## Interpretation
 
 These statuses mean specific things. Do not read between the lines.
 
-| Status | What it means |
-|---|---|
-| `not started` | No implementation exists. No tests. No code. It is planned or designed but not built. |
-| `designed` | There is a spec, contract, or design document describing how it should work. No working code yet. |
-| `fake-tested` | The capability works with fake/mock adapters. Unit tests pass. Storage round-trips. No real network traffic is involved. This proves the pipeline wiring is correct, not that the transport SDK works. |
+| Status                    | What it means                                                                                                                                                                                                                                  |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `not started`             | No implementation exists. No tests. No code. It is planned or designed but not built.                                                                                                                                                          |
+| `designed`                | There is a spec, contract, or design document describing how it should work. No working code yet.                                                                                                                                              |
+| `fake-tested`             | The capability works with fake/mock adapters. Unit tests pass. Storage round-trips. No real network traffic is involved. This proves the pipeline wiring is correct, not that the transport SDK works.                                         |
 | `opt-in live test exists` | There is a test harness or runbook for live validation, gated by environment variables. It has not been run against a real transport in a recorded session, or the results have not been committed. The harness exists. The evidence does not. |
-| `live-validated` | The capability has been tested against a real transport (real homeserver, real radio, real network) and the results are recorded in the repository. Runbooks reference the specific test dates and outcomes. |
-| `blocked` | There is a known blocker preventing progress. The blocker is documented in the relevant runbook or contract. |
+| `live-validated`          | The capability has been tested against a real transport (real homeserver, real radio, real network) and the results are recorded in the repository. Runbooks reference the specific test dates and outcomes.                                   |
+| `blocked`                 | There is a known blocker preventing progress. The blocker is documented in the relevant runbook or contract.                                                                                                                                   |
 
 ## Per-Transport Notes
 
 ### Matrix
 
-Matrix is the most mature transport. Live validation was recorded on 2026-05-10 (13 plaintext tests passed, 7 E2EE tests passed). See `docs/runbooks/matrix-alpha-operation.md` section "Live Validation Evidence" for details.
+Matrix is the most mature transport. Live validation was recorded on 2026-05-10 (13 plaintext tests passed, 7 E2EE tests passed) and again on 2026-05-22 (15 live tests passed, 1 xfailed against local Docker Synapse). See `docs/runbooks/matrix-alpha-operation.md` section "Live Validation Evidence" and `docs/runbooks/matrix-local-bringup.md` section "Live Validation Evidence" for details.
 
 The Matrix adapter supports plaintext and E2EE text alpha. E2EE supports encrypted rooms for text messages only. See the alpha operation runbook for the full unsupported features list.
 
-Opt-in Matrix live tests use pytest convenience variables such as MATRIX_HOMESERVER, MATRIX_USER_ID, MATRIX_ACCESS_TOKEN, and MATRIX_ROOM_ID. Runtime adapter config overrides use instance-scoped MEDRE_ADAPTER__<TOKEN>__<FIELD> variables.
+Opt-in Matrix live tests use pytest convenience variables such as MATRIX_HOMESERVER, MATRIX_USER_ID, MATRIX_ACCESS_TOKEN, and MATRIX_ROOM_ID. The local Synapse test harness additionally requires `MATRIX_LOCAL_SYNAPSE=1`. Runtime adapter config overrides use instance-scoped `MEDRE_ADAPTER__<TOKEN>__<FIELD>` and `MEDRE_ROUTE__<TOKEN>__<FIELD>` variables.
 
 ### Meshtastic
 
 Meshtastic has a complete alpha operation runbook and a live smoke test harness. Real connectivity (TCP and serial) is implemented. The adapter uses pubsub callbacks for inbound and queued `send_one` for outbound.
 
-As of this writing, no live validation against a physical radio has been recorded in the repository. The harness exists. An operator with a Meshtastic node needs to set the pytest convenience variables for radio connection settings and run the live smoke tests. Runtime adapter config overrides use instance-scoped MEDRE_ADAPTER__<TOKEN>__<FIELD> variables. See `docs/runbooks/meshtastic-live-smoke.md`.
+As of this writing, no live validation against a physical radio has been recorded in the repository. The harness exists. An operator with a Meshtastic node needs to set the pytest convenience variables for radio connection settings and run the live smoke tests. Runtime adapter config overrides use instance-scoped `MEDRE_ADAPTER__<TOKEN>__<FIELD>` and `MEDRE_ROUTE__<TOKEN>__<FIELD>` variables. See `docs/runbooks/meshtastic-live-smoke.md`.
 
 ### MeshCore
 

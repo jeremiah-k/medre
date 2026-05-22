@@ -168,6 +168,17 @@ require_live = pytest.mark.skipif(
     ),
 )
 
+_MATRIX_LOCAL_SYNAPSE = os.environ.get("MATRIX_LOCAL_SYNAPSE")
+
+require_synapse = pytest.mark.skipif(
+    not _LIVE_ENV_SET or _MATRIX_LOCAL_SYNAPSE != "1",
+    reason=(
+        "Set MATRIX_LOCAL_SYNAPSE=1 and MATRIX_HOMESERVER, "
+        "MATRIX_USER_ID, MATRIX_ACCESS_TOKEN, MATRIX_ROOM_ID "
+        "to run local Synapse live tests"
+    ),
+)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1168,3 +1179,82 @@ class TestMatrixLiveSmoke:
         assert diag["connected"] is False
         assert diag["logged_in"] is False
         assert diag["sync_task_running"] is False
+
+
+# ---------------------------------------------------------------------------
+# Local Synapse live tests (require MATRIX_LOCAL_SYNAPSE=1)
+# ---------------------------------------------------------------------------
+@require_synapse
+class TestMatrixLiveLocalSynapse:
+    """Local Synapse-specific live tests requiring MATRIX_LOCAL_SYNAPSE=1."""
+
+    async def test_synapse_send_captures_event_id(self):
+        """Send a message via local Synapse and verify Matrix event_id is captured.
+
+        Validates:
+        - The Matrix adapter connects and authenticates against local Synapse.
+        - ``deliver()`` returns a non-None result.
+        - ``native_message_id`` starts with ``$`` (Matrix convention).
+        - ``native_channel_id`` matches MATRIX_ROOM_ID.
+        - All operations complete within bounded timeouts.
+        """
+        from medre.adapters.matrix.adapter import MatrixAdapter
+        from medre.core.contracts.adapter import AdapterContext
+        from medre.core.rendering.renderer import RenderingResult
+
+        adapter = MatrixAdapter(_make_config())
+        ctx = AdapterContext(
+            adapter_id="matrix-live-smoke",
+            event_bus=None,
+            publish_inbound=AsyncMock(),
+            logger=logging.getLogger("test.matrix-live.synapse"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+        )
+        await asyncio.wait_for(adapter.start(ctx), timeout=_ADAPTER_START_TIMEOUT)
+        try:
+            ts = int(time.time())
+            result = RenderingResult(
+                event_id=f"synapse-smoke-{ts}",
+                target_adapter="matrix-live-smoke",
+                target_channel=MATRIX_ROOM_ID,
+                payload={
+                    "msgtype": "m.text",
+                    "body": f"MEDRE Synapse live smoke test (ts={ts}) — safe to ignore",
+                },
+                metadata={"renderer": "matrix", "test": "synapse-smoke"},
+            )
+            delivery = await asyncio.wait_for(
+                adapter.deliver(result), timeout=_DELIVER_TIMEOUT
+            )
+            assert delivery is not None, "deliver() returned None"
+            assert (
+                delivery.native_message_id is not None
+            ), "native_message_id is None — homeserver did not return event_id"
+            assert delivery.native_message_id.startswith("$"), (
+                f"Matrix event_id should start with '$', "
+                f"got {delivery.native_message_id!r}"
+            )
+            assert delivery.native_channel_id == MATRIX_ROOM_ID, (
+                f"Expected channel {MATRIX_ROOM_ID!r}, "
+                f"got {delivery.native_channel_id!r}"
+            )
+
+            # Verify no access token leak in diagnostics
+            diag = adapter.diagnostics()
+            diag_str = str(diag)
+            assert MATRIX_ACCESS_TOKEN is not None
+            assert (
+                MATRIX_ACCESS_TOKEN not in diag_str
+            ), "Access token leaked into diagnostics output"
+        finally:
+            await asyncio.wait_for(adapter.stop(), timeout=_ADAPTER_STOP_TIMEOUT)
+
+    # -- Storage/evidence coverage note --
+    # Full storage+evidence pipeline with a live Matrix adapter requires
+    # building a MedreApp with RuntimeConfig → RuntimeBuilder, which adds
+    # significant complexity (Matrix sync loop, pipeline runner, route
+    # wiring).  The core Matrix delivery path is validated above against
+    # local Synapse.  End-to-end storage/evidence with env-only fake
+    # adapters is covered in test_env_only_deployment.py and
+    # test_env_only_evidence_cli.py.
