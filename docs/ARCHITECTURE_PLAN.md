@@ -190,13 +190,12 @@ medre/
 - `medre.core.runtime/` is distinct from top-level `medre.runtime/`.
 - Route configuration dataclasses are owned by `medre.config.routes`, not `medre.runtime`. Runtime route expansion and topology remain in `medre.runtime.route_engine`.
 
-The following modules do not exist and must not be imported:
+Current canonical module homes:
 
-- `medre.adapters.base` does not exist.
-- `medre.core.ports` does not exist.
-- `medre.core.adapter_base` does not exist.
-- `medre.adapters.*.config` modules do not exist (config lives in `medre.config.adapters.*`).
-- `medre.runtime.routes` does not exist (route config models live in `medre.config.routes`).
+- Adapter base contracts live in `medre.core.contracts.adapter`.
+- Core runtime helper types live under `medre.core.runtime/`.
+- Adapter config dataclasses live in `medre.config.adapters.*`.
+- Route config models live in `medre.config.routes`; runtime expansion and topology live in `medre.runtime.route_engine`.
 
 ### 3.1 MMRelay Reference Relationship
 
@@ -218,7 +217,7 @@ MMRelay is NOT a dependency, import target, vendor source, or copy target for ME
 The following tranches are documented for planning but are NOT implemented in `maint-522-1`:
 
 - **docs/mmrelay-reference-map** — Structured documentation mapping MMRelay concepts (truncation, queueing, packet routing, sidecar credentials) to their MEDRE equivalents or gaps.
-- **feat/meshtastic-byte-budget-rendering** — Transport-aware rendering that respects Meshtastic's ~237-byte payload limit with truncation and chunking.
+- **feat/meshtastic-byte-budget-rendering** — Transport-aware rendering with a `max_text_bytes` setting (default 227, matching Meshtastic's payload budget) that UTF-8-safe byte-truncates the final rendered text to fit within the transport limit.
 - **feat/meshtastic-queue-evidence** — Evidence tracking for Meshtastic's queued `send_one` outbound, correlating queue drain events with delivery receipts.
 - **feat/meshtastic-packet-classifier-parity** — Inbound packet type classification matching MMRelay's coverage of telemetry, position, nodeinfo, and text portnum types.
 - **feat/matrix-send-idempotency** — Matrix outbound send deduplication using transaction IDs or event ID caching to prevent duplicate sends on retry.

@@ -75,10 +75,10 @@ medre adapter matrix auth login \
   --user @bot:example.com
 ```
 
-This opens an interactive login flow against the homeserver, saves the
-resulting credentials to a sidecar JSON file (not the TOML config), and does
-**not** print the token to the terminal. The command does NOT accept `--config`
-or `--adapter-id` flags. After this step, the credentials sidecar is populated.
+This opens an interactive login flow against the homeserver and saves the
+resulting credentials to the Matrix sidecar JSON file. Accepted flags are
+`--homeserver`, `--user`, `--password`, and `--password-stdin`. The command
+prompts securely by default and keeps the token out of terminal output. After this step, the credentials sidecar is populated.
 You still need to edit the TOML config for: `room_allowlist`, route targeting
 fields (`source_room`, `dest_room`, `source_channel`, `dest_channel`),
 serial/TCP connection details for the Meshtastic adapter, and the channel index.

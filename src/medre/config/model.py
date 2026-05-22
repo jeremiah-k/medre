@@ -14,25 +14,21 @@ from __future__ import annotations
 import dataclasses
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Self, get_args, get_type_hints
+from typing import Any, Self, get_args, get_type_hints
 
 from medre.config.adapters.lxmf import LxmfConfig
 from medre.config.adapters.matrix import MatrixConfig
 from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.config.errors import ConfigValidationError
+from medre.config.routes import RouteConfigSet
 
 _logger = logging.getLogger(__name__)
 
-if TYPE_CHECKING:
-    from medre.config.routes import RouteConfigSet
-
 
 def _default_route_config_set() -> RouteConfigSet:
-    """Construct default empty RouteConfigSet (no deferred import needed)."""
-    from medre.config.routes import RouteConfigSet as _RCS
-
-    return _RCS()
+    """Construct default empty RouteConfigSet."""
+    return RouteConfigSet()
 
 
 # ---------------------------------------------------------------------------

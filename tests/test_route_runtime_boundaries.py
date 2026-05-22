@@ -192,14 +192,14 @@ _SESSION_INFOS = [
 
 
 class TestSessionRoutingBoundary:
-    """Session modules must not import routing or runtime routes."""
+    """Session modules must not import routing or route config."""
 
     @pytest.fixture(params=_SESSION_INFOS, ids=[s[0] for s in _SESSION_INFOS])
     def session_info(self, request):
         return request.param
 
-    def test_session_does_not_import_runtime_routes(self, session_info) -> None:
-        """Session must not import medre.config.routes or route_engine."""
+    def test_session_does_not_import_runtime_or_route_config(self, session_info) -> None:
+        """Session must not import medre.runtime or medre.config.routes."""
         _transport, mod_name, _cls_name = session_info
         mod = _load_module(mod_name)
         if mod is None:
@@ -279,7 +279,7 @@ class TestAdapterRoutingBoundary:
             violations
         )
 
-    def test_adapters_do_not_import_runtime_routes(self, transport) -> None:
+    def test_adapters_do_not_import_route_config(self, transport) -> None:
         """No adapter module imports medre.config.routes."""
         modules = _adapter_modules(transport)
         violations: list[str] = []
@@ -290,10 +290,10 @@ class TestAdapterRoutingBoundary:
             source = _read_module_source(mod)
             for line in _import_lines(source):
                 if "medre.config.routes" in line:
-                    violations.append(f"{mod_name} imports runtime.routes in: {line!r}")
+                    violations.append(f"{mod_name} imports config.routes in: {line!r}")
         assert (
             not violations
-        ), "Adapter runtime.routes import violations:\n" + "\n".join(violations)
+        ), "Adapter config.routes import violations:\n" + "\n".join(violations)
 
 
 # ===================================================================
@@ -419,7 +419,7 @@ class TestRendererRoutingBoundary:
 
 
 class TestRouteModelTransportAgnosticism:
-    """Runtime route model modules must not reference transport-specific concepts."""
+    """Route config and route engine modules must not reference transport-specific concepts."""
 
     _ROUTE_MODEL_MODULES = [
         "medre.config.routes",

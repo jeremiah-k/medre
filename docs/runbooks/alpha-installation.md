@@ -137,11 +137,10 @@ medre adapter matrix auth login \
   --user @bot:example.com
 ```
 
-This performs an interactive login and saves credentials to a sidecar JSON
-file (not the TOML config file). It does not accept `--config` or
-`--adapter-id` flags. It does not start the runtime, never prints the
-token to the terminal, and prompts for the password securely unless
-`--password-stdin` is given. The runtime reads credentials from the sidecar
+This performs an interactive login and saves credentials to the Matrix sidecar
+JSON file. Accepted flags are `--homeserver`, `--user`, `--password`, and
+`--password-stdin`. The command prompts securely by default, keeps the token
+out of terminal output, and leaves runtime topology in TOML. The runtime reads credentials from the sidecar
 at startup. See `docs/runbooks/secure-credentials.md` for full credential
 handling guidance.
 

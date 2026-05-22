@@ -134,7 +134,7 @@ surface.
 
 | Command                           | Classification       | Rationale                                                                                                                                                                                                                                                 |
 | --------------------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `medre adapter matrix auth login` | **Credential setup** | Credential setup utility. Does not start runtime. Does NOT accept `--config` or `--adapter-id`. Accepts `--homeserver`, `--user`, `--password`, `--password-stdin`. Never prints token. Saves credentials to a sidecar JSON file (not the TOML config). The runtime reads credentials from this sidecar at startup. |
+| `medre adapter matrix auth login` | **Credential setup** | Credential setup utility for Matrix token acquisition. Accepted flags: `--homeserver`, `--user`, `--password`, `--password-stdin`. Prompts securely by default, keeps the token out of terminal output, and saves credentials to the Matrix sidecar JSON file. The runtime reads credentials from this sidecar at startup. |
 
 ### Specialized commands (inspect-first guidance)
 

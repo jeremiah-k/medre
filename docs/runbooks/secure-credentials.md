@@ -40,11 +40,11 @@ Never commit config files containing real tokens to version control. MEDRE's
 must verify this before pushing.
 
 **Use `medre adapter matrix auth login` to populate tokens safely.** This command
-is a credential setup utility — it does not start the runtime, does NOT accept
-`--config` or `--adapter-id` flags, never prints the token to the terminal, and
-prompts for the password securely unless `--password-stdin` is given. It saves
-credentials to a sidecar JSON file (not the TOML config). The runtime reads
-credentials from this sidecar at startup.
+is a credential setup utility for Matrix token acquisition. Accepted flags are
+`--homeserver`, `--user`, `--password`, and `--password-stdin`. It prompts
+securely by default, keeps the token out of terminal output, and saves
+credentials to the Matrix sidecar JSON file. The runtime reads credentials from
+this sidecar at startup.
 
 ```bash
 medre adapter matrix auth login \
