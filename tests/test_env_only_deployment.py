@@ -29,6 +29,30 @@ from medre.config.loader import load_config
 from medre.core.events.canonical import CanonicalEvent
 from medre.runtime.builder import RuntimeBuilder
 
+
+# ---------------------------------------------------------------------------
+# Env isolation
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Clear all env vars between tests to prevent shell/CI contamination."""
+    import os
+    for var in (
+        "MEDRE_HOME",
+        "MEDRE_CONFIG",
+        "XDG_CONFIG_HOME",
+        "XDG_STATE_HOME",
+        "XDG_DATA_HOME",
+        "XDG_CACHE_HOME",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    for key in list(os.environ.keys()):
+        if key.startswith("MEDRE_"):
+            monkeypatch.delenv(key, raising=False)
+
+
 # ---------------------------------------------------------------------------
 # Minimal TOML config — no adapters, no routes
 # ---------------------------------------------------------------------------
@@ -85,7 +109,7 @@ def _set_env_vars(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _load_with_env(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, db_path: str,
+    tmp_path: Path, db_path: str,
 ) -> tuple[Any, Any, Any]:
     """Write config, load TOML, apply env overrides, return (config, source, paths)."""
     config_path = _write_config(tmp_path, db_path)
@@ -138,7 +162,7 @@ class TestEnvOnlyDeployment:
         """Env overrides create correct adapter and route configs."""
         db_path = str(tmp_path / "config_test.db")
         _set_env_vars(monkeypatch)
-        config, _source, _paths = _load_with_env(monkeypatch, tmp_path, db_path)
+        config, _source, _paths = _load_with_env(tmp_path, db_path)
 
         # Matrix adapter "matrix-fake" exists with correct fields.
         assert "matrix-fake" in config.adapters.matrix
@@ -157,6 +181,7 @@ class TestEnvOnlyDeployment:
         # Route created from env with correct source/dest.
         assert len(config.routes.routes) == 1
         route = config.routes.routes[0]
+        assert route.route_id == "radio-to-matrix"
         assert route.source_adapters == ("radio-a",)
         assert route.dest_adapters == ("matrix-fake",)
         assert route.enabled is True
@@ -170,7 +195,7 @@ class TestEnvOnlyDeployment:
         """RuntimeBuilder builds and starts adapters created from env vars."""
         db_path = str(tmp_path / "build_test.db")
         _set_env_vars(monkeypatch)
-        config, _source, paths = _load_with_env(monkeypatch, tmp_path, db_path)
+        config, _source, paths = _load_with_env(tmp_path, db_path)
 
         builder = RuntimeBuilder(config, paths)
         app = builder.build()
@@ -197,7 +222,7 @@ class TestEnvOnlyDeployment:
         """Event flows from radio-a through pipeline to matrix-fake with storage."""
         db_path = str(tmp_path / "pipeline_test.db")
         _set_env_vars(monkeypatch)
-        config, _source, paths = _load_with_env(monkeypatch, tmp_path, db_path)
+        config, _source, paths = _load_with_env(tmp_path, db_path)
 
         builder = RuntimeBuilder(config, paths)
         app = builder.build()
@@ -222,7 +247,7 @@ class TestEnvOnlyDeployment:
         """Secret access_token does not appear in storage output or reports."""
         db_path = str(tmp_path / "secret_test.db")
         _set_env_vars(monkeypatch)
-        config, _source, paths = _load_with_env(monkeypatch, tmp_path, db_path)
+        config, _source, paths = _load_with_env(tmp_path, db_path)
 
         builder = RuntimeBuilder(config, paths)
         app = builder.build()
@@ -328,6 +353,9 @@ async def _run_pipeline_session(app: Any) -> None:
 
     target = successful[0].target_adapter
     assert target == "matrix-fake"
+
+    # Verify route_id on the delivery outcome.
+    assert getattr(successful[0], "route_id", None) == "radio-to-matrix"
 
     # -- Verify storage: event persisted --------------------------------------
     storage = app.storage

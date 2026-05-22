@@ -110,37 +110,16 @@ async def _seed_env_only(storage: SQLiteStorage) -> None:
 # Sample TOML config for env-only fake deployment
 # ---------------------------------------------------------------------------
 
-CONFIG_ENV_ONLY_FAKE = """\
+CONFIG_ENV_ONLY_TOML = """\
 [runtime]
-name = "test-env-only-fake"
+name = "test-env-only"
 
 [logging]
-level = "INFO"
+level = "WARNING"
 
 [storage]
 backend = "sqlite"
-path = "{state}/env_only_test.db"
-
-[adapters.meshtastic.radio-a]
-enabled = true
-adapter_kind = "fake"
-connection_type = "fake"
-meshnet_name = "EnvTestMesh"
-
-[adapters.matrix.matrix-fake]
-enabled = true
-adapter_kind = "fake"
-homeserver = "https://matrix.fake"
-user_id = "@bot:fake"
-access_token = "fake_token_env_only"
-room_allowlist = ["!room:matrix-fake"]
-encryption_mode = "plaintext"
-
-[routes.radio-to-matrix]
-source_adapters = ["radio-a"]
-dest_adapters = ["matrix-fake"]
-directionality = "source_to_dest"
-enabled = true
+path = "{state}/env_only.db"
 """
 
 
@@ -168,11 +147,38 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture()
 def config_env_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Write env-only fake-adapter config to temp file with MEDRE_HOME isolation."""
+    """Write minimal TOML (no adapters/routes) + set env vars for env-only creation."""
     (tmp_path / "state").mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
     p = tmp_path / "config.toml"
-    p.write_text(CONFIG_ENV_ONLY_FAKE)
+    p.write_text(CONFIG_ENV_ONLY_TOML)
+
+    # Matrix adapter (env-only).
+    monkeypatch.setenv("MEDRE_ADAPTER__MATRIX_FAKE__TRANSPORT", "matrix")
+    monkeypatch.setenv("MEDRE_ADAPTER__MATRIX_FAKE__ADAPTER_KIND", "fake")
+    monkeypatch.setenv(
+        "MEDRE_ADAPTER__MATRIX_FAKE__HOMESERVER", "https://matrix.example.test"
+    )
+    monkeypatch.setenv("MEDRE_ADAPTER__MATRIX_FAKE__USER_ID", "@bot:example.test")
+    monkeypatch.setenv("MEDRE_ADAPTER__MATRIX_FAKE__ACCESS_TOKEN", "test-secret-token")
+    monkeypatch.setenv(
+        "MEDRE_ADAPTER__MATRIX_FAKE__ROOM_ALLOWLIST", "!room:example.test"
+    )
+
+    # Meshtastic adapter (env-only).
+    monkeypatch.setenv("MEDRE_ADAPTER__RADIO_A__TRANSPORT", "meshtastic")
+    monkeypatch.setenv("MEDRE_ADAPTER__RADIO_A__ADAPTER_KIND", "fake")
+    monkeypatch.setenv("MEDRE_ADAPTER__RADIO_A__CONNECTION_TYPE", "fake")
+    monkeypatch.setenv("MEDRE_ADAPTER__RADIO_A__MESHNET_NAME", "RadioA")
+
+    # Route (env-only).
+    monkeypatch.setenv("MEDRE_ROUTE__RADIO_TO_MATRIX__SOURCE_ADAPTERS", "radio-a")
+    monkeypatch.setenv("MEDRE_ROUTE__RADIO_TO_MATRIX__DEST_ADAPTERS", "matrix-fake")
+    monkeypatch.setenv(
+        "MEDRE_ROUTE__RADIO_TO_MATRIX__DIRECTIONALITY", "source_to_dest"
+    )
+    monkeypatch.setenv("MEDRE_ROUTE__RADIO_TO_MATRIX__ENABLED", "true")
+
     return p
 
 
@@ -239,6 +245,22 @@ class TestEnvOnlyEvidence:
         assert "radio-a" in adapter_ids, f"radio-a not in {adapter_ids}"
         assert "matrix-fake" in adapter_ids, f"matrix-fake not in {adapter_ids}"
 
+        # Routes created via env should appear in config summary.
+        routes = cs["data"]["routes"]
+        route_ids = {r["route_id"] for r in routes}
+        assert "radio-to-matrix" in route_ids, f"radio-to-matrix not in {route_ids}"
+
+        # No TOML adapter sections — adapters come purely from env vars.
+        # The TOML file contains only runtime, logging, and storage sections.
+        toml_path = config_env_only
+        toml_text = toml_path.read_text()
+        assert "[adapters" not in toml_text, "TOML should not contain adapter sections"
+        assert "[routes" not in toml_text, "TOML should not contain route sections"
+
+        # Env overrides should be recorded.
+        env_applied = cs["data"].get("env_overrides_applied", [])
+        assert len(env_applied) > 0, "Expected env overrides to be recorded"
+
     @pytest.mark.asyncio
     async def test_evidence_bundle_section_statuses_valid(
         self,
@@ -258,7 +280,7 @@ class TestEnvOnlyEvidence:
         config_env_only: Path,
     ) -> None:
         """Storage section includes event data when DB is seeded."""
-        db_path = str(config_env_only.parent / "state" / "env_only_test.db")
+        db_path = str(config_env_only.parent / "state" / "env_only.db")
 
         storage = SQLiteStorage(db_path)
         await storage.initialize()
@@ -434,10 +456,36 @@ class TestEnvOnlyEvidence:
         finally:
             await storage.close()
 
+    @pytest.mark.asyncio
+    async def test_evidence_route_validation_has_env_only_route(
+        self,
+        config_env_only: Path,
+    ) -> None:
+        """Route created purely from env vars appears in route validation."""
+        report = await collect_evidence_bundle(str(config_env_only))
 
-# ===================================================================
-# Class: TestEnvOnlyCLISmoke
-# ===================================================================
+        # Config summary lists the env-created route.
+        cs = report["sections"]["config_summary"]
+        route_ids = {r["route_id"] for r in cs["data"]["routes"]}
+        assert "radio-to-matrix" in route_ids
+
+        # Route validation should pass — adapters match.
+        rv = report["sections"]["route_validation"]
+        assert rv["data"]["valid"] is True
+        assert rv["data"]["route_count"] >= 1
+
+    @pytest.mark.asyncio
+    async def test_evidence_json_secrets_redacted(
+        self,
+        config_env_only: Path,
+    ) -> None:
+        """Access token must not appear anywhere in evidence JSON."""
+        report = await collect_evidence_bundle(str(config_env_only))
+        json_str = json.dumps(report, sort_keys=True, default=str)
+
+        # The token should never appear in any output.
+        assert "test-secret-token" not in json_str
+        assert "test_secret_token" not in json_str
 
 
 class TestEnvOnlyCLISmoke:
@@ -518,6 +566,7 @@ class TestEnvOnlyConfigFailures:
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
         (tmp_path / "state").mkdir(parents=True, exist_ok=True)
 
+        # Minimal TOML — no adapters, no routes.
         config_text = """\
 [runtime]
 name = "test-unknown-adapters"
@@ -525,20 +574,19 @@ name = "test-unknown-adapters"
 [storage]
 backend = "sqlite"
 path = "{state}/test.db"
-
-[adapters.meshtastic.radio-a]
-enabled = true
-adapter_kind = "fake"
-connection_type = "fake"
-
-[routes.bad-route]
-source_adapters = ["nonexistent"]
-dest_adapters = ["ghost"]
-directionality = "source_to_dest"
-enabled = true
 """
         cfg = tmp_path / "config.toml"
         cfg.write_text(config_text)
+
+        # Route via env referencing adapters that do not exist.
+        monkeypatch.setenv(
+            "MEDRE_ROUTE__BAD_ROUTE__SOURCE_ADAPTERS", "nonexistent"
+        )
+        monkeypatch.setenv("MEDRE_ROUTE__BAD_ROUTE__DEST_ADAPTERS", "ghost")
+        monkeypatch.setenv(
+            "MEDRE_ROUTE__BAD_ROUTE__DIRECTIONALITY", "source_to_dest"
+        )
+        monkeypatch.setenv("MEDRE_ROUTE__BAD_ROUTE__ENABLED", "true")
 
         report = await collect_evidence_bundle(str(cfg))
         rv = report["sections"]["route_validation"]
@@ -557,6 +605,7 @@ enabled = true
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
         (tmp_path / "state").mkdir(parents=True, exist_ok=True)
 
+        # Minimal TOML — no adapters, no routes.
         config_text = """\
 [runtime]
 name = "test-token-route"
@@ -564,20 +613,22 @@ name = "test-token-route"
 [storage]
 backend = "sqlite"
 path = "{state}/test.db"
-
-[adapters.meshtastic.radio-a]
-enabled = true
-adapter_kind = "fake"
-connection_type = "fake"
-
-[routes.token-route]
-source_adapters = ["RADIO_A"]
-dest_adapters = ["MATRIX_FAKE"]
-directionality = "source_to_dest"
-enabled = true
 """
         cfg = tmp_path / "config.toml"
         cfg.write_text(config_text)
+
+        # Create one real adapter via env.
+        monkeypatch.setenv("MEDRE_ADAPTER__RADIO_A__TRANSPORT", "meshtastic")
+        monkeypatch.setenv("MEDRE_ADAPTER__RADIO_A__ADAPTER_KIND", "fake")
+        monkeypatch.setenv("MEDRE_ADAPTER__RADIO_A__CONNECTION_TYPE", "fake")
+
+        # Route references UPPERCASE token instead of lowercase adapter_id.
+        monkeypatch.setenv("MEDRE_ROUTE__TEST__SOURCE_ADAPTERS", "RADIO_A")
+        monkeypatch.setenv("MEDRE_ROUTE__TEST__DEST_ADAPTERS", "MATRIX_FAKE")
+        monkeypatch.setenv(
+            "MEDRE_ROUTE__TEST__DIRECTIONALITY", "source_to_dest"
+        )
+        monkeypatch.setenv("MEDRE_ROUTE__TEST__ENABLED", "true")
 
         report = await collect_evidence_bundle(str(cfg))
         rv = report["sections"]["route_validation"]
