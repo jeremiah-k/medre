@@ -138,7 +138,7 @@ class MeshtasticConfig:
             )
         if isinstance(self.max_text_bytes, bool):
             raise MeshtasticConfigError(
-                f"max_text_bytes must be an int, got bool"
+                "max_text_bytes must be an int, got bool"
             )
         if not isinstance(self.max_text_bytes, int):
             raise MeshtasticConfigError(

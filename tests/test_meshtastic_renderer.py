@@ -634,6 +634,7 @@ class TestCrossPlatformReactionDescriptive:
         config = MagicMock()
         config.radio_relay_prefix = "[{longname}] "
         config.meshnet_name = "testnet"
+        config.max_text_bytes = 227
         renderer = MeshtasticRenderer(config=config)
 
         rel = _make_cross_platform_relation(
@@ -659,6 +660,7 @@ class TestCrossPlatformReactionDescriptive:
         config = MagicMock()
         config.radio_relay_prefix = "[{longname}] "
         config.meshnet_name = ""
+        config.max_text_bytes = 227
         renderer = MeshtasticRenderer(config=config)
 
         rel = _make_cross_platform_relation(key="👋", fallback_text="hi")
@@ -837,6 +839,7 @@ class TestMatrixToMeshtasticReactionComprehensive:
         config = MagicMock()
         config.radio_relay_prefix = "[{longname}] "
         config.meshnet_name = "mynet"
+        config.max_text_bytes = 227
         renderer = MeshtasticRenderer(config=config)
 
         rel = _make_cross_platform_relation(
@@ -896,6 +899,7 @@ class TestMatrixToMeshtasticReactionComprehensive:
         config = MagicMock()
         config.radio_relay_prefix = "[{longname}]"
         config.meshnet_name = ""
+        config.max_text_bytes = 227
         renderer = MeshtasticRenderer(config=config)
 
         rel = _make_cross_platform_relation(
@@ -1053,6 +1057,7 @@ class TestMatrixDisplayNameInPrefix:
         config = MagicMock()
         config.radio_relay_prefix = "[{longname}]: "
         config.meshnet_name = ""
+        config.max_text_bytes = 227
         renderer = MeshtasticRenderer(config=config)
 
         event = CanonicalEvent(
@@ -1088,6 +1093,7 @@ class TestMatrixDisplayNameInPrefix:
         config = MagicMock()
         config.radio_relay_prefix = "{longname}: "
         config.meshnet_name = ""
+        config.max_text_bytes = 227
         renderer = MeshtasticRenderer(config=config)
 
         event = CanonicalEvent(
@@ -1195,6 +1201,13 @@ class TestByteBudgetTruncation:
         result = await renderer.render(event, "mesh-1")
         assert result.payload["text"] == ""
         assert result.truncated is True
+        # Metadata reflects the zero-budget truncation.
+        assert result.metadata["max_text_bytes"] == 0
+        assert result.metadata["truncated"] is True
+        assert result.metadata["rendered_text_bytes"] == 0
+        assert result.metadata["original_text_bytes"] == 11
+        assert result.metadata["rendered_length"] == 0
+        assert result.metadata["original_length"] == 11
 
     async def test_truncation_metadata_keys(self) -> None:
         """Metadata includes byte-budget evidence keys."""
@@ -1207,23 +1220,29 @@ class TestByteBudgetTruncation:
         assert "rendered_text_bytes" in meta
         assert "max_text_bytes" in meta
         assert "truncated" in meta
+        assert "original_length" in meta
+        assert "rendered_length" in meta
         assert meta["max_text_bytes"] == 227
         assert meta["truncated"] is True
         assert isinstance(meta["original_text_bytes"], int)
         assert isinstance(meta["rendered_text_bytes"], int)
+        assert isinstance(meta["original_length"], int)
+        assert isinstance(meta["rendered_length"], int)
 
     async def test_metadata_byte_counts_match_final_text(self) -> None:
-        """rendered_text_bytes matches the actual byte length of the text."""
+        """rendered_text_bytes and rendered_length match the actual truncated text."""
         renderer = MeshtasticRenderer()
         text = "x" * 300
         event = _make_event(payload={"body": text})
         result = await renderer.render(event, "mesh-1")
-        rendered_bytes = len(result.payload["text"].encode("utf-8"))
+        rendered_text = result.payload["text"]
+        rendered_bytes = len(rendered_text.encode("utf-8"))
         assert result.metadata["rendered_text_bytes"] == rendered_bytes
         assert result.metadata["original_text_bytes"] == 300
+        assert result.metadata["rendered_length"] == len(rendered_text)
 
     async def test_no_truncation_metadata_when_under_budget(self) -> None:
-        """Under budget: truncated is False, byte counts match."""
+        """Under budget: truncated is False, byte counts and lengths match."""
         renderer = MeshtasticRenderer()
         text = "short"
         event = _make_event(payload={"body": text})
@@ -1232,6 +1251,8 @@ class TestByteBudgetTruncation:
         assert result.metadata["truncated"] is False
         assert result.metadata["original_text_bytes"] == 5
         assert result.metadata["rendered_text_bytes"] == 5
+        assert result.metadata["original_length"] == 5
+        assert result.metadata["rendered_length"] == 5
 
 
 # ===================================================================
@@ -1265,6 +1286,16 @@ class TestMeshtasticConfigMaxTextBytes:
         from medre.config.adapters.meshtastic import MeshtasticConfig
 
         config = MeshtasticConfig(adapter_id="test", max_text_bytes=True)  # type: ignore[arg-type]
+        with pytest.raises(MeshtasticConfigError, match="max_text_bytes"):
+            config.validate()
+
+    def test_rejects_float_max_text_bytes(self) -> None:
+        import pytest
+
+        from medre.config.adapters.errors import MeshtasticConfigError
+        from medre.config.adapters.meshtastic import MeshtasticConfig
+
+        config = MeshtasticConfig(adapter_id="test", max_text_bytes=227.5)  # type: ignore[arg-type]
         with pytest.raises(MeshtasticConfigError, match="max_text_bytes"):
             config.validate()
 

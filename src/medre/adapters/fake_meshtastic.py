@@ -138,7 +138,7 @@ class FakeMeshtasticClient:
 
 
 # Default capabilities for the fake Meshtastic adapter.
-# Uses the MeshtasticConfig default max_text_bytes (227).
+# Derives max_text_bytes from MeshtasticConfig to avoid duplicating the default.
 _FAKE_MESHTASTIC_CAPABILITIES = AdapterCapabilities(
     text=True,
     title=False,
@@ -154,7 +154,7 @@ _FAKE_MESHTASTIC_CAPABILITIES = AdapterCapabilities(
     channels=True,
     async_delivery=True,
     mesh_routing=True,
-    max_text_bytes=227,
+    max_text_bytes=MeshtasticConfig.max_text_bytes,
     max_text_chars=None,
 )
 

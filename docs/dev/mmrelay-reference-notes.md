@@ -1,7 +1,7 @@
 # MMRelay Reference Notes
 
 > **Purpose:** Conceptual reference for MEDRE developers.
-> **Source:** Local inspection of `/home/jeremiah/dev/meshtastic-matrix-relay`.
+> **Source:** Local inspection of a meshtastic-matrix-relay clone.
 > **Last audited:** 2026-05-22.
 
 This document summarizes conceptual behavior observed in the MMRelay

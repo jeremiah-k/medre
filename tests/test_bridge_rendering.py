@@ -530,12 +530,12 @@ class TestEscapingSafety:
         assert result.payload["body"] == text
 
     @pytest.mark.asyncio
-    async def test_very_long_text_no_truncation_at_renderer(self) -> None:
-        """Renderer-level: no truncation in tranche 1 (noted as TODO).
+    async def test_very_long_text_truncated_by_byte_budget(self) -> None:
+        """Renderer-level: MeshtasticRenderer truncates text to byte budget.
 
-        The TextRenderer truncates at 500 chars, but transport-specific
-        renderers (MeshtasticRenderer, etc.) do not enforce truncation.
-        This test documents the current behaviour.
+        The MeshtasticRenderer applies a 227-byte UTF-8 budget after final
+        rendering.  Text exceeding this budget is truncated and the
+        ``truncated`` flag is set.
         """
         text = "A" * 5000
         event = _make_event(
@@ -545,9 +545,9 @@ class TestEscapingSafety:
         pipeline = _make_pipeline()
         result = await _render(pipeline, event, "mesh-target", "meshtastic")
 
-        # MeshtasticRenderer does NOT truncate in tranche 1
-        assert result.payload["text"] == text
-        assert result.truncated is False
+        # MeshtasticRenderer truncates to the default 227-byte budget
+        assert len(result.payload["text"].encode("utf-8")) <= 227
+        assert result.truncated is True
 
     @pytest.mark.asyncio
     async def test_null_bytes_in_payload(self) -> None:

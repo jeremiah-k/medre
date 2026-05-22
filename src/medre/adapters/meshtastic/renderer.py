@@ -83,7 +83,15 @@ class MeshtasticRenderer:
     def __init__(self, config: MeshtasticConfig | None = None) -> None:
         self._radio_relay_prefix = config.radio_relay_prefix if config else ""
         self._meshnet_name = config.meshnet_name if config else ""
-        self._max_text_bytes = config.max_text_bytes if config else 227
+        # Import at runtime to avoid circular imports; the default is
+        # sourced from MeshtasticConfig.max_text_bytes rather than
+        # duplicated here.
+        if config is not None:
+            self._max_text_bytes = config.max_text_bytes
+        else:
+            from medre.config.adapters.meshtastic import MeshtasticConfig as _MC
+
+            self._max_text_bytes = _MC.max_text_bytes
 
     # ------------------------------------------------------------------
     # Capability check
@@ -332,6 +340,7 @@ class MeshtasticRenderer:
         metadata: dict[str, object] = {
             "renderer": self.name,
             "original_length": len(final_text),
+            "rendered_length": len(truncated_text),
             "original_text_bytes": original_bytes,
             "rendered_text_bytes": rendered_bytes,
             "max_text_bytes": self._max_text_bytes,
