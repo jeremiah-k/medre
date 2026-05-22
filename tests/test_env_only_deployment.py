@@ -29,7 +29,6 @@ from medre.config.loader import load_config
 from medre.core.events.canonical import CanonicalEvent
 from medre.runtime.builder import RuntimeBuilder
 
-
 # ---------------------------------------------------------------------------
 # Env isolation
 # ---------------------------------------------------------------------------
@@ -39,6 +38,7 @@ from medre.runtime.builder import RuntimeBuilder
 def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Clear all env vars between tests to prevent shell/CI contamination."""
     import os
+
     for var in (
         "MEDRE_HOME",
         "MEDRE_CONFIG",
@@ -90,10 +90,14 @@ def _set_env_vars(monkeypatch: pytest.MonkeyPatch) -> None:
     # --- Matrix fake adapter (token: MATRIX_FAKE) ---
     monkeypatch.setenv("MEDRE_ADAPTER__MATRIX_FAKE__TRANSPORT", "matrix")
     monkeypatch.setenv("MEDRE_ADAPTER__MATRIX_FAKE__ADAPTER_KIND", "fake")
-    monkeypatch.setenv("MEDRE_ADAPTER__MATRIX_FAKE__HOMESERVER", "https://matrix.example.test")
+    monkeypatch.setenv(
+        "MEDRE_ADAPTER__MATRIX_FAKE__HOMESERVER", "https://matrix.example.test"
+    )
     monkeypatch.setenv("MEDRE_ADAPTER__MATRIX_FAKE__USER_ID", "@bot:example.test")
     monkeypatch.setenv("MEDRE_ADAPTER__MATRIX_FAKE__ACCESS_TOKEN", _SECRET_TOKEN)
-    monkeypatch.setenv("MEDRE_ADAPTER__MATRIX_FAKE__ROOM_ALLOWLIST", "!room:example.test")
+    monkeypatch.setenv(
+        "MEDRE_ADAPTER__MATRIX_FAKE__ROOM_ALLOWLIST", "!room:example.test"
+    )
 
     # --- Meshtastic fake adapter (token: RADIO_A) ---
     monkeypatch.setenv("MEDRE_ADAPTER__RADIO_A__TRANSPORT", "meshtastic")
@@ -109,7 +113,8 @@ def _set_env_vars(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _load_with_env(
-    tmp_path: Path, db_path: str,
+    tmp_path: Path,
+    db_path: str,
 ) -> tuple[Any, Any, Any]:
     """Write config, load TOML, apply env overrides, return (config, source, paths)."""
     config_path = _write_config(tmp_path, db_path)
@@ -157,7 +162,9 @@ class TestEnvOnlyDeployment:
     # -- Test 1: Config loading -----------------------------------------------
 
     def test_env_only_config_loads(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         """Env overrides create correct adapter and route configs."""
         db_path = str(tmp_path / "config_test.db")
@@ -190,7 +197,9 @@ class TestEnvOnlyDeployment:
 
     @pytest.mark.asyncio
     async def test_env_only_builds_and_starts(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         """RuntimeBuilder builds and starts adapters created from env vars."""
         db_path = str(tmp_path / "build_test.db")
@@ -217,7 +226,9 @@ class TestEnvOnlyDeployment:
 
     @pytest.mark.asyncio
     async def test_env_only_pipeline_inject_event(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         """Event flows from radio-a through pipeline to matrix-fake with storage."""
         db_path = str(tmp_path / "pipeline_test.db")
@@ -242,7 +253,9 @@ class TestEnvOnlyDeployment:
 
     @pytest.mark.asyncio
     async def test_env_only_secrets_not_in_report(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         """Secret access_token does not appear in storage output or reports."""
         db_path = str(tmp_path / "secret_test.db")
@@ -271,9 +284,9 @@ class TestEnvOnlyDeployment:
             event_json = json.dumps(
                 {k: str(v) for k, v in stored_event.payload.items()},
             )
-            assert _SECRET_TOKEN not in event_json, (
-                f"Secret token leaked in stored event payload: {event_json[:200]}"
-            )
+            assert (
+                _SECRET_TOKEN not in event_json
+            ), f"Secret token leaked in stored event payload: {event_json[:200]}"
 
             # Check receipts.
             receipts = await storage.list_receipts_for_event(event.event_id)
@@ -282,9 +295,9 @@ class TestEnvOnlyDeployment:
                 receipt_json = json.dumps(
                     {k: str(v) for k, v in receipt_data.items()},
                 )
-                assert _SECRET_TOKEN not in receipt_json, (
-                    f"Secret token leaked in receipt: {receipt_json[:200]}"
-                )
+                assert (
+                    _SECRET_TOKEN not in receipt_json
+                ), f"Secret token leaked in receipt: {receipt_json[:200]}"
 
             # Check native refs.
             native_refs = await storage.list_native_refs_for_event(event.event_id)
@@ -293,32 +306,32 @@ class TestEnvOnlyDeployment:
                 nr_json = json.dumps(
                     {k: str(v) for k, v in nr_data.items()},
                 )
-                assert _SECRET_TOKEN not in nr_json, (
-                    f"Secret token leaked in native ref: {nr_json[:200]}"
-                )
+                assert (
+                    _SECRET_TOKEN not in nr_json
+                ), f"Secret token leaked in native ref: {nr_json[:200]}"
 
             # Check adapter diagnostics don't leak the token.
             for adapter_id, adapter in app.adapters.items():
                 diag = adapter.diagnostics()
                 diag_json = json.dumps(diag)
-                assert _SECRET_TOKEN not in diag_json, (
-                    f"Secret token leaked in adapter {adapter_id} diagnostics"
-                )
+                assert (
+                    _SECRET_TOKEN not in diag_json
+                ), f"Secret token leaked in adapter {adapter_id} diagnostics"
 
             # Config repr should also be clean (MatrixConfig redacts access_token).
             for _transport, _adapter_id, rtc in config.adapters.all_configs():
                 if hasattr(rtc, "config") and rtc.config is not None:
                     config_repr = repr(rtc.config)
-                    assert _SECRET_TOKEN not in config_repr, (
-                        f"Secret token leaked in config repr: {config_repr[:200]}"
-                    )
+                    assert (
+                        _SECRET_TOKEN not in config_repr
+                    ), f"Secret token leaked in config repr: {config_repr[:200]}"
 
             # Verify that access_token-related text is redacted.
             matrix_cfg = config.adapters.matrix["matrix-fake"].config
             config_repr = repr(matrix_cfg)
-            assert "…" in config_repr or "***" in config_repr, (
-                f"Expected redaction in MatrixConfig repr, got: {config_repr}"
-            )
+            assert (
+                "…" in config_repr or "***" in config_repr
+            ), f"Expected redaction in MatrixConfig repr, got: {config_repr}"
 
         finally:
             try:
@@ -347,9 +360,9 @@ async def _run_pipeline_session(app: Any) -> None:
     # -- Verify delivery outcomes ---------------------------------------------
     assert len(outcomes) >= 1, "Expected at least one delivery outcome"
     successful = [o for o in outcomes if o.status == "success"]
-    assert len(successful) >= 1, (
-        f"No successful deliveries; outcomes: {[o.status for o in outcomes]}"
-    )
+    assert (
+        len(successful) >= 1
+    ), f"No successful deliveries; outcomes: {[o.status for o in outcomes]}"
 
     target = successful[0].target_adapter
     assert target == "matrix-fake"
@@ -376,9 +389,9 @@ async def _run_pipeline_session(app: Any) -> None:
     outbound_refs = [
         nr for nr in native_refs if getattr(nr, "direction", None) == "outbound"
     ]
-    assert len(outbound_refs) >= 1, (
-        "Expected at least one outbound native ref for matrix-fake"
-    )
+    assert (
+        len(outbound_refs) >= 1
+    ), "Expected at least one outbound native ref for matrix-fake"
 
     dest_ref = outbound_refs[0]
     assert getattr(dest_ref, "adapter", None) == "matrix-fake"
@@ -390,6 +403,6 @@ async def _run_pipeline_session(app: Any) -> None:
         native_channel_id=dest_ref.native_channel_id,
         native_message_id=dest_ref.native_message_id,
     )
-    assert resolved == event.event_id, (
-        f"Native ref resolved to {resolved!r}, expected {event.event_id!r}"
-    )
+    assert (
+        resolved == event.event_id
+    ), f"Native ref resolved to {resolved!r}, expected {event.event_id!r}"

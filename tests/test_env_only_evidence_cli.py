@@ -174,9 +174,7 @@ def config_env_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     # Route (env-only).
     monkeypatch.setenv("MEDRE_ROUTE__RADIO_TO_MATRIX__SOURCE_ADAPTERS", "radio-a")
     monkeypatch.setenv("MEDRE_ROUTE__RADIO_TO_MATRIX__DEST_ADAPTERS", "matrix-fake")
-    monkeypatch.setenv(
-        "MEDRE_ROUTE__RADIO_TO_MATRIX__DIRECTIONALITY", "source_to_dest"
-    )
+    monkeypatch.setenv("MEDRE_ROUTE__RADIO_TO_MATRIX__DIRECTIONALITY", "source_to_dest")
     monkeypatch.setenv("MEDRE_ROUTE__RADIO_TO_MATRIX__ENABLED", "true")
 
     return p
@@ -270,9 +268,9 @@ class TestEnvOnlyEvidence:
         report = await collect_evidence_bundle(str(config_env_only))
         valid_statuses = {"passed", "partial", "skipped", "error"}
         for name, section in report["sections"].items():
-            assert section["status"] in valid_statuses, (
-                f"Section {name!r} has invalid status {section['status']!r}"
-            )
+            assert (
+                section["status"] in valid_statuses
+            ), f"Section {name!r} has invalid status {section['status']!r}"
 
     @pytest.mark.asyncio
     async def test_evidence_bundle_storage_includes_event_data(
@@ -448,7 +446,12 @@ class TestEnvOnlyEvidence:
             trace_nref = nref_entries[0]["data"]
             bundle_nref = bundle_nrefs[0]
 
-            for key in ("adapter", "native_channel_id", "native_message_id", "direction"):
+            for key in (
+                "adapter",
+                "native_channel_id",
+                "native_message_id",
+                "direction",
+            ):
                 assert trace_nref.get(key) == bundle_nref.get(key), (
                     f"Key {key!r} mismatch: trace={trace_nref.get(key)!r} "
                     f"evidence={bundle_nref.get(key)!r}"
@@ -579,13 +582,9 @@ path = "{state}/test.db"
         cfg.write_text(config_text)
 
         # Route via env referencing adapters that do not exist.
-        monkeypatch.setenv(
-            "MEDRE_ROUTE__BAD_ROUTE__SOURCE_ADAPTERS", "nonexistent"
-        )
+        monkeypatch.setenv("MEDRE_ROUTE__BAD_ROUTE__SOURCE_ADAPTERS", "nonexistent")
         monkeypatch.setenv("MEDRE_ROUTE__BAD_ROUTE__DEST_ADAPTERS", "ghost")
-        monkeypatch.setenv(
-            "MEDRE_ROUTE__BAD_ROUTE__DIRECTIONALITY", "source_to_dest"
-        )
+        monkeypatch.setenv("MEDRE_ROUTE__BAD_ROUTE__DIRECTIONALITY", "source_to_dest")
         monkeypatch.setenv("MEDRE_ROUTE__BAD_ROUTE__ENABLED", "true")
 
         report = await collect_evidence_bundle(str(cfg))
@@ -625,9 +624,7 @@ path = "{state}/test.db"
         # Route references UPPERCASE token instead of lowercase adapter_id.
         monkeypatch.setenv("MEDRE_ROUTE__TEST__SOURCE_ADAPTERS", "RADIO_A")
         monkeypatch.setenv("MEDRE_ROUTE__TEST__DEST_ADAPTERS", "MATRIX_FAKE")
-        monkeypatch.setenv(
-            "MEDRE_ROUTE__TEST__DIRECTIONALITY", "source_to_dest"
-        )
+        monkeypatch.setenv("MEDRE_ROUTE__TEST__DIRECTIONALITY", "source_to_dest")
         monkeypatch.setenv("MEDRE_ROUTE__TEST__ENABLED", "true")
 
         report = await collect_evidence_bundle(str(cfg))

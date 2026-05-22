@@ -14,13 +14,13 @@ Test developers should read `docs/dev/live-test-harness.md` for the live test pa
 
 ## 1. Prerequisites
 
-| Requirement | Details |
-|---|---|
-| Python | 3.11 or later (3.12 for LXMF) |
-| pip | Recent enough to handle extras (`pip >= 21.3`) |
-| Git | For cloning the repo |
-| Matrix homeserver (optional) | Synapse or Conduit, local or reachable. Only needed for live Matrix sessions. |
-| Meshtastic node (optional) | A real radio node accessible via TCP or serial. Only needed for live Meshtastic sessions. |
+| Requirement                  | Details                                                                                   |
+| ---------------------------- | ----------------------------------------------------------------------------------------- |
+| Python                       | 3.11 or later (3.12 for LXMF)                                                             |
+| pip                          | Recent enough to handle extras (`pip >= 21.3`)                                            |
+| Git                          | For cloning the repo                                                                      |
+| Matrix homeserver (optional) | Synapse or Conduit, local or reachable. Only needed for live Matrix sessions.             |
+| Meshtastic node (optional)   | A real radio node accessible via TCP or serial. Only needed for live Meshtastic sessions. |
 
 You do not need Docker for the basic workflow. You do not need any transport credentials to run the fake local smoke test.
 
@@ -58,14 +58,14 @@ If this prints a help message, the install worked. If it prints `command not fou
 
 MEDRE reads configuration from environment variables. The variables you need depend on what you are doing.
 
-| Mode | Required env vars | Notes |
-|---|---|---|
-| Fake local smoke | None | Runs entirely with fake adapters, no network |
-| Matrix live session | `MATRIX_HOMESERVER`, `MATRIX_USER_ID`, `MATRIX_ACCESS_TOKEN`, `MATRIX_ROOM_ALLOWLIST` | See `docs/runbooks/matrix-alpha-operation.md` for full details |
-| E2EE text alpha | All Matrix vars plus `MATRIX_ENCRYPTION_MODE` | Set to `e2ee_required` or `e2ee_optional` |
-| Meshtastic live | `MESHTASTIC_HOST` or `MESHTASTIC_SERIAL_PORT`, plus `MESHTASTIC_CHANNEL_INDEX` | See `docs/runbooks/meshtastic-alpha-operation.md` for full details |
-| MeshCore live | `MESHCORE_HOST` or `MESHCORE_SERIAL_PORT` | See `docs/runbooks/meshcore-alpha-operation.md` |
-| LXMF live | Reticulum config file, identity path | See `docs/runbooks/lxmf-alpha-operation.md` |
+| Mode                | Required env vars                                                                     | Notes                                                              |
+| ------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Fake local smoke    | None                                                                                  | Runs entirely with fake adapters, no network                       |
+| Matrix live session | `MATRIX_HOMESERVER`, `MATRIX_USER_ID`, `MATRIX_ACCESS_TOKEN`, `MATRIX_ROOM_ALLOWLIST` | See `docs/runbooks/matrix-alpha-operation.md` for full details     |
+| E2EE text alpha     | All Matrix vars plus `MATRIX_ENCRYPTION_MODE`                                         | Set to `e2ee_required` or `e2ee_optional`                          |
+| Meshtastic live     | `MESHTASTIC_HOST` or `MESHTASTIC_SERIAL_PORT`, plus `MESHTASTIC_CHANNEL_INDEX`        | See `docs/runbooks/meshtastic-alpha-operation.md` for full details |
+| MeshCore live       | `MESHCORE_HOST` or `MESHCORE_SERIAL_PORT`                                             | See `docs/runbooks/meshcore-alpha-operation.md`                    |
+| LXMF live           | Reticulum config file, identity path                                                  | See `docs/runbooks/lxmf-alpha-operation.md`                        |
 
 The transport-prefixed convention is consistent: Matrix vars start with `MATRIX_`, Meshtastic vars start with `MESHTASTIC_`, MeshCore vars start with `MESHCORE_`, and so on.
 
@@ -231,12 +231,12 @@ medre inspect event <EVENT_ID> --config /path/to/config.toml
 
 ### Environment Variable Rules
 
-| Prefix | Purpose |
-|---|---|
-| `MEDRE_ADAPTER__<TOKEN>__<FIELD>` | Runtime adapter config |
-| `MEDRE_ROUTE__<TOKEN>__<FIELD>` | Runtime route config |
-| `MESHTASTIC_*`, `MESHCORE_*`, `LXMF_*` | Pytest live-test convenience vars only |
-| `MEDRE_MESHTASTIC_*`, etc. | **Unsupported legacy** — rejected at startup |
+| Prefix                                 | Purpose                                      |
+| -------------------------------------- | -------------------------------------------- |
+| `MEDRE_ADAPTER__<TOKEN>__<FIELD>`      | Runtime adapter config                       |
+| `MEDRE_ROUTE__<TOKEN>__<FIELD>`        | Runtime route config                         |
+| `MESHTASTIC_*`, `MESHCORE_*`, `LXMF_*` | Pytest live-test convenience vars only       |
+| `MEDRE_MESHTASTIC_*`, etc.             | **Unsupported legacy** — rejected at startup |
 
 ### Sharing Output
 
@@ -285,18 +285,18 @@ If all five steps pass, the Matrix live path is working. If any step fails, see 
 
 When you collect evidence from a live Matrix session, the report includes these canonical fields:
 
-| Field | Description |
-|---|---|
-| `config_source` | How the bundle was collected (`"config"` or `"storage_path"`) |
-| `collected_at` | ISO 8601 timestamp of collection |
-| `evidence_level` | `fake_bridge` or `live_bridge` depending on adapter type |
-| `diagnostics.connected` | Whether the nio client has an active connection |
-| `diagnostics.logged_in` | Whether the client is authenticated |
-| `diagnostics.sync_task_running` | Whether the sync loop is active |
-| `diagnostics.rooms_tracked` | Number of rooms being tracked |
-| `diagnostics.delivery_attempts` | Cumulative outbound delivery count |
-| `diagnostics.delivery_successes` | Successful deliveries |
-| `diagnostics.delivery_failures` | Failed deliveries |
+| Field                            | Description                                                   |
+| -------------------------------- | ------------------------------------------------------------- |
+| `config_source`                  | How the bundle was collected (`"config"` or `"storage_path"`) |
+| `collected_at`                   | ISO 8601 timestamp of collection                              |
+| `evidence_level`                 | `fake_bridge` or `live_bridge` depending on adapter type      |
+| `diagnostics.connected`          | Whether the nio client has an active connection               |
+| `diagnostics.logged_in`          | Whether the client is authenticated                           |
+| `diagnostics.sync_task_running`  | Whether the sync loop is active                               |
+| `diagnostics.rooms_tracked`      | Number of rooms being tracked                                 |
+| `diagnostics.delivery_attempts`  | Cumulative outbound delivery count                            |
+| `diagnostics.delivery_successes` | Successful deliveries                                         |
+| `diagnostics.delivery_failures`  | Failed deliveries                                             |
 
 See `docs/runbooks/matrix-alpha-operation.md` section 9 for the full diagnostics schema.
 
@@ -394,13 +394,13 @@ This starts a runtime, collects a full evidence bundle including live health che
 
 ### 6.3 What is in the bundle
 
-| Section | Contents |
-|---|---|
-| Config | Runtime configuration (secrets redacted) |
-| Diagnostics | Adapter health, counters, connection state |
-| Routes | Configured routes and their status |
-| Events | Event data if `--event-id` is specified |
-| Replay | Replay run data if `--replay-run-id` is specified |
+| Section     | Contents                                          |
+| ----------- | ------------------------------------------------- |
+| Config      | Runtime configuration (secrets redacted)          |
+| Diagnostics | Adapter health, counters, connection state        |
+| Routes      | Configured routes and their status                |
+| Events      | Event data if `--event-id` is specified           |
+| Replay      | Replay run data if `--replay-run-id` is specified |
 
 Use `--event-id` to scope the bundle to a specific event (includes native refs, receipts, and incident summary):
 
@@ -430,29 +430,29 @@ If you are unsure, review the JSON output before pasting it into an issue. Look 
 
 The evidence report is a single JSON object. These are the top-level keys you will see:
 
-| Field | Type | Description |
-|---|---|---|
-| `schema_version` | string | Bundle schema version for forward compatibility |
-| `medre_version` | string | Version of the MEDRE runtime that produced the bundle |
-| `command` | string | Always `"evidence"` |
-| `status` | string | Overall result: `"passed"`, `"partial"`, or `"error"` |
-| `collected_at` | string | ISO 8601 timestamp when collection started |
-| `generated_at` | string | ISO 8601 timestamp when the bundle was finalized |
-| `config_source` | string | `"config"` or `"storage_path"`, depending on how the bundle was produced |
-| `runtime_started` | boolean | `true` if the runtime was booted for a live health check |
-| `errors` | array\<string\> | Accumulated error messages from any section |
-| `limitations` | array\<string\> | Known limitations or caveats about the collected data |
-| `sections` | object | Nested data sections (see below) |
+| Field             | Type            | Description                                                              |
+| ----------------- | --------------- | ------------------------------------------------------------------------ |
+| `schema_version`  | string          | Bundle schema version for forward compatibility                          |
+| `medre_version`   | string          | Version of the MEDRE runtime that produced the bundle                    |
+| `command`         | string          | Always `"evidence"`                                                      |
+| `status`          | string          | Overall result: `"passed"`, `"partial"`, or `"error"`                    |
+| `collected_at`    | string          | ISO 8601 timestamp when collection started                               |
+| `generated_at`    | string          | ISO 8601 timestamp when the bundle was finalized                         |
+| `config_source`   | string          | `"config"` or `"storage_path"`, depending on how the bundle was produced |
+| `runtime_started` | boolean         | `true` if the runtime was booted for a live health check                 |
+| `errors`          | array\<string\> | Accumulated error messages from any section                              |
+| `limitations`     | array\<string\> | Known limitations or caveats about the collected data                    |
+| `sections`        | object          | Nested data sections (see below)                                         |
 
 The `sections` object contains the actual diagnostic data:
 
-| Path | Description |
-|---|---|
-| `sections.config_summary` | Redacted runtime config and resolved paths |
-| `sections.route_validation` | Route definitions and validation status |
-| `sections.diagnostics_snapshot` | Per-adapter health and counters without starting the runtime |
-| `sections.live_health` | Live adapter health (requires `--include-refresh-health`) |
-| `sections.storage` | Event and delivery records from the SQLite store (scoped by `--event-id` or `--replay-run-id` when provided) |
+| Path                            | Description                                                                                                  |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `sections.config_summary`       | Redacted runtime config and resolved paths                                                                   |
+| `sections.route_validation`     | Route definitions and validation status                                                                      |
+| `sections.diagnostics_snapshot` | Per-adapter health and counters without starting the runtime                                                 |
+| `sections.live_health`          | Live adapter health (requires `--include-refresh-health`)                                                    |
+| `sections.storage`              | Event and delivery records from the SQLite store (scoped by `--event-id` or `--replay-run-id` when provided) |
 
 ## 7. Trace an Event
 
@@ -474,12 +474,12 @@ PYTHONPATH=src medre trace event <event_id> --storage-path /path/to/medre.db --j
 
 ### 7.2 Timeline entry types
 
-| Entry type | What it shows |
-|---|---|
-| `event` | The canonical event itself (kind, source adapter, timestamp) |
-| `relation` | Relations to other events (replies, reactions) |
+| Entry type   | What it shows                                                          |
+| ------------ | ---------------------------------------------------------------------- |
+| `event`      | The canonical event itself (kind, source adapter, timestamp)           |
+| `relation`   | Relations to other events (replies, reactions)                         |
 | `native_ref` | Native transport references (Matrix event IDs, Meshtastic message IDs) |
-| `receipt` | Delivery receipts (status, target adapter, attempt count) |
+| `receipt`    | Delivery receipts (status, target adapter, attempt count)              |
 
 ### 7.3 Interpreting the timeline
 
@@ -521,11 +521,11 @@ Replay re-processes historical events through the pipeline. It is a specialized 
 
 ### 8.2 Replay modes
 
-| Mode | Delivers? | Side effects | Use case |
-|---|---|---|---|
-| `DRY_RUN` | No | None | Preview what replay would do |
-| `RE_ROUTE` | No | None | Re-evaluate route matching after config change |
-| `BEST_EFFORT` | Yes | Real adapter delivery | Re-deliver historical events |
+| Mode          | Delivers? | Side effects          | Use case                                       |
+| ------------- | --------- | --------------------- | ---------------------------------------------- |
+| `DRY_RUN`     | No        | None                  | Preview what replay would do                   |
+| `RE_ROUTE`    | No        | None                  | Re-evaluate route matching after config change |
+| `BEST_EFFORT` | Yes       | Real adapter delivery | Re-deliver historical events                   |
 
 **Always run `DRY_RUN` first.** Only use `BEST_EFFORT` when you have verified the route matching preview and accept the duplicate delivery risk.
 
@@ -612,13 +612,13 @@ When a message fails to reach its destination, the evidence is in the receipts a
 
 ### 10.1 Receipt status values
 
-| Status | Meaning |
-|---|---|
-| `delivered` | The target adapter confirmed successful delivery |
-| `sent` | The adapter sent the message but has not received transport-level confirmation |
-| `failed` | Delivery attempted and failed. Check the error message. |
-| `pending` | Delivery has not been attempted yet |
-| `skipped` | Delivery was not attempted (e.g., route was degraded or disabled) |
+| Status      | Meaning                                                                        |
+| ----------- | ------------------------------------------------------------------------------ |
+| `delivered` | The target adapter confirmed successful delivery                               |
+| `sent`      | The adapter sent the message but has not received transport-level confirmation |
+| `failed`    | Delivery attempted and failed. Check the error message.                        |
+| `pending`   | Delivery has not been attempted yet                                            |
+| `skipped`   | Delivery was not attempted (e.g., route was degraded or disabled)              |
 
 ### 10.2 Reading a failure timeline
 
@@ -630,15 +630,15 @@ Trace the event (section 7) or inspect it with `--timeline --evidence` (section 
 
 ### 10.3 Common failure patterns
 
-| Pattern | Likely cause | What to check |
-|---|---|---|
-| Receipt says `failed` with `AdapterPermanentError` | Permanent delivery failure (bad room, forbidden, etc.) | Verify the target room/channel exists and the bot has access |
-| Receipt says `failed` with `AdapterSendError` (transient) | Temporary network or homeserver error | Check network connectivity, homeserver health |
-| No receipt at all | Event never reached delivery stage | Check routing config, adapter health, pipeline logs |
-| Receipt says `skipped` | Route was degraded or disabled | Check route status in evidence bundle |
-| Multiple receipts with alternating `failed` and `delivered` | Intermittent failures during retry | Check network stability, adapter load |
-| Receipt with `source='replay'` and `failed` | Replay re-delivery failed | Check that the target adapter was healthy during the replay run |
-| Receipt with `attempt_number` > 1 | Retried delivery | Check the `parent_receipt_id` for the original failure reason |
+| Pattern                                                     | Likely cause                                           | What to check                                                   |
+| ----------------------------------------------------------- | ------------------------------------------------------ | --------------------------------------------------------------- |
+| Receipt says `failed` with `AdapterPermanentError`          | Permanent delivery failure (bad room, forbidden, etc.) | Verify the target room/channel exists and the bot has access    |
+| Receipt says `failed` with `AdapterSendError` (transient)   | Temporary network or homeserver error                  | Check network connectivity, homeserver health                   |
+| No receipt at all                                           | Event never reached delivery stage                     | Check routing config, adapter health, pipeline logs             |
+| Receipt says `skipped`                                      | Route was degraded or disabled                         | Check route status in evidence bundle                           |
+| Multiple receipts with alternating `failed` and `delivered` | Intermittent failures during retry                     | Check network stability, adapter load                           |
+| Receipt with `source='replay'` and `failed`                 | Replay re-delivery failed                              | Check that the target adapter was healthy during the replay run |
+| Receipt with `attempt_number` > 1                           | Retried delivery                                       | Check the `parent_receipt_id` for the original failure reason   |
 
 ### 10.4 Incident summary
 
@@ -727,16 +727,16 @@ If you find a bug, file an issue with the evidence bundle (section 6) and the ev
 
 ## 14. Related Documentation
 
-| Document | What it covers |
-|---|---|
-| `docs/STATUS.md` | Per-transport capability dashboard (the single source of truth for what works) |
-| `docs/runbooks/matrix-alpha-operation.md` | Full Matrix alpha operation guide (setup, validation, troubleshooting, E2EE) |
-| `docs/runbooks/matrix-live-smoke.md` | Matrix live smoke test instructions |
-| `docs/runbooks/meshtastic-alpha-operation.md` | Full Meshtastic alpha operation guide |
-| `docs/runbooks/meshtastic-live-smoke.md` | Meshtastic live smoke test instructions |
-| `docs/runbooks/meshcore-alpha-operation.md` | Full MeshCore alpha operation guide |
-| `docs/runbooks/lxmf-alpha-operation.md` | Full LXMF/Reticulum alpha operation guide |
-| `docs/runbooks/replay-operation.md` | Replay modes, commands, and risk assessment |
-| `docs/runbooks/event-tracing.md` | Detailed event tracing and timeline interpretation |
-| `docs/dev/live-test-harness.md` | Live test patterns and conventions for test developers |
-| `docs/dev/TESTING_GUIDE.md` | General testing guide (tiers, style, patterns) |
+| Document                                      | What it covers                                                                 |
+| --------------------------------------------- | ------------------------------------------------------------------------------ |
+| `docs/STATUS.md`                              | Per-transport capability dashboard (the single source of truth for what works) |
+| `docs/runbooks/matrix-alpha-operation.md`     | Full Matrix alpha operation guide (setup, validation, troubleshooting, E2EE)   |
+| `docs/runbooks/matrix-live-smoke.md`          | Matrix live smoke test instructions                                            |
+| `docs/runbooks/meshtastic-alpha-operation.md` | Full Meshtastic alpha operation guide                                          |
+| `docs/runbooks/meshtastic-live-smoke.md`      | Meshtastic live smoke test instructions                                        |
+| `docs/runbooks/meshcore-alpha-operation.md`   | Full MeshCore alpha operation guide                                            |
+| `docs/runbooks/lxmf-alpha-operation.md`       | Full LXMF/Reticulum alpha operation guide                                      |
+| `docs/runbooks/replay-operation.md`           | Replay modes, commands, and risk assessment                                    |
+| `docs/runbooks/event-tracing.md`              | Detailed event tracing and timeline interpretation                             |
+| `docs/dev/live-test-harness.md`               | Live test patterns and conventions for test developers                         |
+| `docs/dev/TESTING_GUIDE.md`                   | General testing guide (tiers, style, patterns)                                 |

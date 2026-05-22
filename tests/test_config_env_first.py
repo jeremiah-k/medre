@@ -1129,9 +1129,7 @@ class TestRouteNormalizedTokenCollision:
         The env parser treats source_adapters as opaque strings.  Validation
         that no adapter has ID "MY_ADAPTER_TOKEN" happens at build time.
         """
-        monkeypatch.setenv(
-            "MEDRE_ROUTE__MY_ROUTE__SOURCE_ADAPTERS", "MY_ADAPTER_TOKEN"
-        )
+        monkeypatch.setenv("MEDRE_ROUTE__MY_ROUTE__SOURCE_ADAPTERS", "MY_ADAPTER_TOKEN")
         monkeypatch.setenv("MEDRE_ROUTE__MY_ROUTE__DEST_ADAPTERS", "adapter-b")
         base = _make_base_config()
         result = apply_env_overrides(base)
