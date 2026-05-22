@@ -1048,32 +1048,64 @@ same convention used for env-created adapter IDs.
 | `MATRIX_PRIMARY_BRIDGE` | `matrix-primary-bridge` |
 | `ADMIN_ROUTE`           | `admin-route`           |
 
-### Full Env-Only Deployment Example
+### Full Env-Only Example
 
-A complete bridge between Matrix and Meshtastic with no TOML adapter or
-route sections. You still need a minimal TOML config file (for `medre run`
-to find), but it can be empty or contain only `[runtime]` settings.
+The following example creates a complete deployment from environment variables
+with no adapter or route sections in TOML. This uses fake adapters, which is
+the recommended starting point for smoke-testing the pipeline without network.
+
+**Minimal TOML:**
+
+```toml
+[runtime]
+name = "env-deployed"
+
+[storage]
+backend = "sqlite"
+path = "/var/medre/medre.db"
+```
+
+**Environment variables:**
 
 ```bash
-# Minimal config file (required for medre run to start)
-cat > /opt/medre/config.toml <<EOF
-[runtime]
-name = "env-only"
-EOF
+# Matrix fake adapter
+export MEDRE_ADAPTER__MATRIX_FAKE__TRANSPORT=matrix
+export MEDRE_ADAPTER__MATRIX_FAKE__ADAPTER_KIND=fake
+export MEDRE_ADAPTER__MATRIX_FAKE__HOMESERVER=https://matrix.example.test
+export MEDRE_ADAPTER__MATRIX_FAKE__USER_ID=@bot:example.test
+export MEDRE_ADAPTER__MATRIX_FAKE__ACCESS_TOKEN=fake-token
+export MEDRE_ADAPTER__MATRIX_FAKE__ROOM_ALLOWLIST=!room:example.test
 
-# Matrix adapter
+# Meshtastic fake adapter
+export MEDRE_ADAPTER__RADIO_A__TRANSPORT=meshtastic
+export MEDRE_ADAPTER__RADIO_A__ADAPTER_KIND=fake
+export MEDRE_ADAPTER__RADIO_A__CONNECTION_TYPE=fake
+export MEDRE_ADAPTER__RADIO_A__MESHNET_NAME=RadioA
+
+# Route between them
+export MEDRE_ROUTE__RADIO_TO_MATRIX__SOURCE_ADAPTERS=radio-a
+export MEDRE_ROUTE__RADIO_TO_MATRIX__DEST_ADAPTERS=matrix-fake
+export MEDRE_ROUTE__RADIO_TO_MATRIX__DIRECTIONALITY=source_to_dest
+export MEDRE_ROUTE__RADIO_TO_MATRIX__ENABLED=true
+```
+
+Adapter IDs are derived from env tokens: `MATRIX_FAKE` → `matrix-fake`,
+`RADIO_A` → `radio-a`.
+
+**For a real-adapter deployment** (live Matrix + real Meshtastic serial),
+use `adapter_kind = "real"` (the default) and set real connection fields:
+
+```bash
 MEDRE_ADAPTER__MATRIX_PRIMARY__TRANSPORT=matrix
 MEDRE_ADAPTER__MATRIX_PRIMARY__HOMESERVER=https://matrix.example.com
 MEDRE_ADAPTER__MATRIX_PRIMARY__USER_ID=@bot:example.com
 MEDRE_ADAPTER__MATRIX_PRIMARY__ACCESS_TOKEN=syt_...
 MEDRE_ADAPTER__MATRIX_PRIMARY__ROOM_ALLOWLIST="!bridge:example.com"
 
-# Meshtastic adapter
 MEDRE_ADAPTER__RADIO_A__TRANSPORT=meshtastic
 MEDRE_ADAPTER__RADIO_A__CONNECTION_TYPE=serial
 MEDRE_ADAPTER__RADIO_A__SERIAL_PORT=/dev/ttyACM0
 
-# Route from radio to Matrix
 MEDRE_ROUTE__RADIO_A_TO_MATRIX__SOURCE_ADAPTERS=radio-a
 MEDRE_ROUTE__RADIO_A_TO_MATRIX__DEST_ADAPTERS=matrix-primary
 MEDRE_ROUTE__RADIO_A_TO_MATRIX__DIRECTIONALITY=bidirectional

@@ -160,6 +160,88 @@ PYTHONPATH=src medre evidence --storage-path /tmp/medre-fake.db --json
 
 This walkthrough confirms the full pipeline path (config load, adapter wire, codec, storage, diagnostics) without touching any network. The `config_source` field in the evidence report confirms where the data came from. See `docs/STATUS.md` for the "Fake lifecycle" capability row.
 
+## Env-Only Fake Deployment
+
+MEDRE can run entirely from environment variables without defining adapters or routes in TOML.
+
+### Minimal TOML
+
+The TOML config only needs runtime and storage basics:
+
+```toml
+[runtime]
+name = "env-deployed"
+
+[storage]
+backend = "sqlite"
+path = "/var/medre/medre.db"
+```
+
+### Env Adapter Creation
+
+Create adapters using `MEDRE_ADAPTER__<TOKEN>__TRANSPORT`:
+
+```bash
+# Matrix adapter
+export MEDRE_ADAPTER__MATRIX_FAKE__TRANSPORT=matrix
+export MEDRE_ADAPTER__MATRIX_FAKE__ADAPTER_KIND=fake
+export MEDRE_ADAPTER__MATRIX_FAKE__HOMESERVER=https://matrix.example.test
+export MEDRE_ADAPTER__MATRIX_FAKE__USER_ID=@bot:example.test
+export MEDRE_ADAPTER__MATRIX_FAKE__ACCESS_TOKEN=fake-token
+export MEDRE_ADAPTER__MATRIX_FAKE__ROOM_ALLOWLIST=!room:example.test
+
+# Meshtastic adapter
+export MEDRE_ADAPTER__RADIO_A__TRANSPORT=meshtastic
+export MEDRE_ADAPTER__RADIO_A__ADAPTER_KIND=fake
+export MEDRE_ADAPTER__RADIO_A__CONNECTION_TYPE=fake
+export MEDRE_ADAPTER__RADIO_A__MESHNET_NAME=RadioA
+```
+
+### Env Route Creation
+
+Create routes using `MEDRE_ROUTE__<TOKEN>__<FIELD>`:
+
+```bash
+export MEDRE_ROUTE__RADIO_TO_MATRIX__SOURCE_ADAPTERS=radio-a
+export MEDRE_ROUTE__RADIO_TO_MATRIX__DEST_ADAPTERS=matrix-fake
+export MEDRE_ROUTE__RADIO_TO_MATRIX__DIRECTIONALITY=source_to_dest
+export MEDRE_ROUTE__RADIO_TO_MATRIX__ENABLED=true
+```
+
+Routes reference resolved adapter IDs (`radio-a`, `matrix-fake`), not env tokens (`RADIO_A`, `MATRIX_FAKE`).
+
+### Running
+
+```bash
+medre run /path/to/config.toml
+```
+
+### Inspecting
+
+```bash
+# Evidence bundle
+medre evidence --config /path/to/config.toml --json
+
+# Trace
+medre trace event <EVENT_ID> --config /path/to/config.toml --json
+
+# Inspect
+medre inspect event <EVENT_ID> --config /path/to/config.toml
+```
+
+### Environment Variable Rules
+
+| Prefix | Purpose |
+|---|---|
+| `MEDRE_ADAPTER__<TOKEN>__<FIELD>` | Runtime adapter config |
+| `MEDRE_ROUTE__<TOKEN>__<FIELD>` | Runtime route config |
+| `MESHTASTIC_*`, `MESHCORE_*`, `LXMF_*` | Pytest live-test convenience vars only |
+| `MEDRE_MESHTASTIC_*`, etc. | **Unsupported legacy** — rejected at startup |
+
+### Sharing Output
+
+Use `--json` flags for machine-readable output. Sanitize logs and evidence bundles before sharing: all access tokens, secrets, and credentials are automatically redacted from evidence output, log files, and error messages.
+
 ## 4. Matrix Live Run Session
 
 If you have `MATRIX_*` environment variables set, you can validate MEDRE against a real homeserver. This section assumes you have already set up a homeserver and bot account. If you have not, the full setup instructions are in `docs/runbooks/matrix-alpha-operation.md`.

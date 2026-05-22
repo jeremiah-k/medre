@@ -1101,3 +1101,38 @@ class TestRouteNormalizedTokenCollision:
 
         with pytest.raises(ConfigValidationError, match="normali"):
             apply_env_overrides(base)
+
+    # (af) Route referencing unknown adapter IDs passes config but would fail build.
+    def test_env_route_unknown_adapter_id(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Route referencing nonexistent adapter passes config parsing.
+
+        Env parsing does not validate adapter refs — that happens at
+        RuntimeBuilder.build() / route_engine.register_routes() time.
+        """
+        monkeypatch.setenv("MEDRE_ROUTE__MY_ROUTE__SOURCE_ADAPTERS", "nonexistent")
+        monkeypatch.setenv("MEDRE_ROUTE__MY_ROUTE__DEST_ADAPTERS", "ghost")
+        base = _make_base_config()
+        result = apply_env_overrides(base)
+        assert len(result.routes.routes) == 1
+        route = result.routes.routes[0]
+        assert route.source_adapters == ("nonexistent",)
+        assert route.dest_adapters == ("ghost",)
+
+    # (ag) Route using env token format instead of adapter_id format is accepted.
+    def test_env_route_token_instead_of_adapter_id(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Route using env token (UPPERCASE) instead of adapter_id is accepted by parser.
+
+        The env parser treats source_adapters as opaque strings.  Validation
+        that no adapter has ID "MY_ADAPTER_TOKEN" happens at build time.
+        """
+        monkeypatch.setenv(
+            "MEDRE_ROUTE__MY_ROUTE__SOURCE_ADAPTERS", "MY_ADAPTER_TOKEN"
+        )
+        monkeypatch.setenv("MEDRE_ROUTE__MY_ROUTE__DEST_ADAPTERS", "adapter-b")
+        base = _make_base_config()
+        result = apply_env_overrides(base)
+        assert result.routes.routes[0].source_adapters == ("MY_ADAPTER_TOKEN",)

@@ -14,6 +14,7 @@ This document is the single source of truth for per-transport capability trackin
 |---|---|---|---|---|
 | Config load | live-validated | fake-tested | fake-tested | fake-tested |
 | Instance-scoped env overrides | live-validated | fake-tested | fake-tested | fake-tested |
+| Env-first adapter creation | fake-tested | fake-tested | fake-tested | fake-tested |
 | Env-driven route creation | fake-tested | fake-tested | fake-tested | fake-tested |
 | Fake lifecycle | live-validated | fake-tested | fake-tested | fake-tested |
 | Real adapter import safe | live-validated | opt-in live test exists | designed | designed |
