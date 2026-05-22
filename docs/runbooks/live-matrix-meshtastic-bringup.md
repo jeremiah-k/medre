@@ -104,9 +104,9 @@ path = "/tmp/medre-live.sqlite"
 [adapters.matrix.matrix]
 enabled = true
 adapter_kind = "real"
-homeserver = "https://matrix.example.com"   # FILL IN — or use medre adapter matrix auth login sidecar
-user_id = "@bot:example.com"                  # FILL IN — or use medre adapter matrix auth login sidecar
-access_token = ""                             # FILL IN — or use medre adapter matrix auth login sidecar — treat as a secret
+homeserver = "https://matrix.example.com"   # FILL IN — or use medre adapter matrix auth login
+user_id = "@bot:example.com"                  # FILL IN — or use medre adapter matrix auth login
+access_token = ""                             # FILL IN — or use medre adapter matrix auth login — treat as a secret
 room_allowlist = ["!room:example.com"] # FILL IN — your throwaway room
 encryption_mode = "plaintext"
 

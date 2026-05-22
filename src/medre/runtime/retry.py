@@ -260,7 +260,6 @@ class RetryWorker:
                         },
                     )
                     return
-                capacity_acquired = True
             except Exception:
                 self.state.failed += 1
                 _logger.warning(
@@ -268,6 +267,7 @@ class RetryWorker:
                     receipt.receipt_id,
                 )
                 return
+            capacity_acquired = True
 
         try:
             # Reconstruct minimal Route and DeliveryPlan from receipt metadata.

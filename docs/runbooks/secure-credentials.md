@@ -8,7 +8,7 @@ This runbook provides guidance for handling secret material (access tokens, priv
 
 ## 1. Principles
 
-1. **Environment variables for secrets.** All secret material must be provided via environment variables, not command-line arguments, config files checked into version control, or hardcoded strings.
+1. **Environment variables for secrets.** All secret material must be provided via environment variables, not command-line arguments, config files checked into version control, or hardcoded strings. **Approved exception:** Matrix sidecar auth — `medre adapter matrix auth login` saves credentials to a local sidecar JSON file outside the repo tree (see §2.1).
 2. **Never commit credentials.** Files containing tokens, private keys, or identity data must be excluded from git. Use `.gitignore` patterns.
 3. **Store files outside the repo tree.** If a secret must be stored as a file (e.g., LXMF identity key), store it outside the repository directory or in a path explicitly excluded by `.gitignore`.
 4. **Never log tokens or private keys.** Adapters and tests must not log secret material. Diagnostic output and error messages must exclude raw credentials.

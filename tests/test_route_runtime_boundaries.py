@@ -209,6 +209,9 @@ class TestSessionRoutingBoundary:
             assert (
                 "medre.runtime" not in line
             ), f"Session must not import runtime; found: {line!r}"
+            assert (
+                "medre.config.routes" not in line
+            ), f"Session must not import route config; found: {line!r}"
 
     def test_session_does_not_import_core_routing(self, session_info) -> None:
         """Session must not import medre.core.routing.*."""
