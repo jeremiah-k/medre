@@ -522,6 +522,8 @@ class TestDeliveryFailureKind:
             "DEADLINE_EXCEEDED",
             "SHUTDOWN_REJECTION",
             "CAPACITY_REJECTION",
+            "DUPLICATE_SUPPRESSED",
+            "LOOP_SUPPRESSED",
         }
         actual = {m.name for m in DeliveryFailureKind}
         assert actual == expected
@@ -537,8 +539,10 @@ class TestDeliveryFailureKind:
             DeliveryFailureKind.ADAPTER_MISSING,
             DeliveryFailureKind.TARGET_NOT_FOUND,
             DeliveryFailureKind.DEADLINE_EXCEEDED,
-            DeliveryFailureKind.SHUTDOWN_REJECTION,
             DeliveryFailureKind.CAPACITY_REJECTION,
+            DeliveryFailureKind.SHUTDOWN_REJECTION,
+            DeliveryFailureKind.DUPLICATE_SUPPRESSED,
+            DeliveryFailureKind.LOOP_SUPPRESSED,
         ]
         for kind in non_retryable:
             assert kind.is_retryable is False, f"{kind.name} should not be retryable"

@@ -609,16 +609,17 @@ def _parse_route_env_vars(
 
 def _parse_retry_env_vars(
     environ: dict[str, str] | os._Environ[str],  # type: ignore[attr-defined]
-) -> dict[str, str]:
+) -> dict[str, ParsedAdapterEnvValue]:
     """Parse ``MEDRE_RETRY__<FIELD>`` vars from *environ*.
 
-    Returns a mapping of field name → raw value.
-    Raises ConfigValidationError for malformed or unsupported fields.
+    Returns a mapping of field name → ParsedAdapterEnvValue.
+    Raises ConfigValidationError for malformed, unsupported, or duplicate fields.
     """
     prefix = RETRY_ENV_PREFIX
-    result: dict[str, str] = {}
+    result: dict[str, ParsedAdapterEnvValue] = {}
     malformed: list[str] = []
     unsupported: list[str] = []
+    duplicates: list[str] = []
 
     for name, value in environ.items():
         if not name.startswith(prefix):
@@ -627,7 +628,6 @@ def _parse_retry_env_vars(
         if not remainder:
             malformed.append(name)
             continue
-        # Retry env vars use a single part: MEDRE_RETRY__<FIELD>
         if "__" in remainder:
             malformed.append(name)
             continue
@@ -636,7 +636,14 @@ def _parse_retry_env_vars(
             unsupported.append(name)
             continue
         field_name = _RETRY_FIELD_MAP[field_upper]
-        result[field_name] = value
+        parsed = ParsedAdapterEnvValue(env_var_name=name, raw_value=value)
+        if field_name in result:
+            duplicates.append(
+                f"{result[field_name].env_var_name} and {name} both normalize "
+                f"to retry field {field_name!r}"
+            )
+            continue
+        result[field_name] = parsed
 
     if malformed:
         raise ConfigValidationError(
@@ -649,6 +656,11 @@ def _parse_retry_env_vars(
             f"Unsupported MEDRE_RETRY__ field(s): "
             f"{sorted(unsupported)}. Supported fields: "
             f"{sorted(_RETRY_FIELD_MAP.keys())}"
+        )
+    if duplicates:
+        raise ConfigValidationError(
+            f"Duplicate normalized retry fields: {'; '.join(duplicates)}. "
+            f"Each retry field must come from exactly one env var."
         )
     return result
 
@@ -770,11 +782,18 @@ class MedreEnvConfig:
         # Retry overrides.
         retry_overrides = _parse_retry_env_vars(source)
         if retry_overrides:
-            object.__setattr__(instance, "retry_overrides", retry_overrides)
-            for field_name, raw_value in retry_overrides.items():
+            object.__setattr__(
+                instance,
+                "retry_overrides",
+                {
+                    field_name: parsed.raw_value
+                    for field_name, parsed in retry_overrides.items()
+                },
+            )
+            for field_name, parsed in retry_overrides.items():
                 provenance.record(
-                    f"{RETRY_ENV_PREFIX}{field_name.upper()}",
-                    raw_value,
+                    parsed.env_var_name,
+                    parsed.raw_value,
                     source_kind="retry",
                     target_field=field_name,
                 )
@@ -1360,10 +1379,11 @@ def apply_retry_overrides(
         f.name: getattr(config.retry, f.name) for f in fields(config.retry)
     }
 
+    hints = get_type_hints(RetryConfig)
     for field_name, raw_value in retry_overrides.items():
         if field_name not in kwargs:
             raise ConfigValidationError(f"Unknown retry field {field_name!r}")
-        field_type = get_type_hints(RetryConfig).get(field_name)
+        field_type = hints.get(field_name)
         coerced = _coerce_field_value(
             raw_value,
             field_name,

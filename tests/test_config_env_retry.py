@@ -113,6 +113,16 @@ class TestRetryEnvOverrides:
         env = MedreEnvConfig.from_environ()
         assert env.retry_overrides["enabled"] == "true"
 
+    def test_retry_duplicate_normalized_field_raises(self) -> None:
+        """Two MEDRE_RETRY__ vars normalizing to same field raise."""
+        with pytest.raises(ConfigValidationError, match="Duplicate normalized retry"):
+            MedreEnvConfig.from_environ(
+                {
+                    "MEDRE_RETRY__ENABLED": "true",
+                    "MEDRE_RETRY__enabled": "false",
+                }
+            )
+
     def test_retry_does_not_affect_adapters_or_routes(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

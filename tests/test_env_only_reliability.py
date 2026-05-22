@@ -98,11 +98,6 @@ def _set_reliability_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MEDRE_ROUTE__RADIO_TO_MATRIX__ENABLED", "true")
 
 
-def _set_base_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Set env vars for standard radio-a → matrix-fake deployment."""
-    _set_reliability_env(monkeypatch)
-
-
 def _load_and_build(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -274,7 +269,9 @@ class TestEnvOnlyReliability:
 
             # Exactly one native ref for this event.
             native_refs = await storage.list_native_refs_for_event(event_id)
-            assert len(native_refs) >= 1, "Expected native refs for first delivery"
+            assert (
+                len(native_refs) >= 1
+            ), f"Expected at least 1 native ref for this event, got {len(native_refs)}"
 
         finally:
             try:
@@ -472,34 +469,3 @@ class TestEnvOnlyReliability:
         assert DeliveryFailureKind.DUPLICATE_SUPPRESSED.value in PERMANENT_KINDS
         assert failure_category("loop_suppressed") == "permanent"
         assert failure_category("duplicate_suppressed") == "permanent"
-
-    def test_retry_env_config_applies(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """MEDRE_RETRY__ vars correctly override RetryConfig fields through
-        apply_env_overrides."""
-        from medre.config.model import RuntimeConfig, RuntimeOptions, StorageConfig
-
-        base = RuntimeConfig(
-            runtime=RuntimeOptions(name="retry-test"),
-            storage=StorageConfig(backend="memory"),
-        )
-        monkeypatch.setenv("MEDRE_RETRY__ENABLED", "true")
-        monkeypatch.setenv("MEDRE_RETRY__MAX_ATTEMPTS", "5")
-        monkeypatch.setenv("MEDRE_RETRY__INTERVAL_SECONDS", "15.5")
-        monkeypatch.setenv("MEDRE_RETRY__BATCH_SIZE", "10")
-        result = apply_env_overrides(base)
-        assert result.retry.enabled is True
-        assert result.retry.max_attempts == 5
-        assert result.retry.interval_seconds == 15.5
-        assert result.retry.batch_size == 10
-
-    def test_retry_is_opt_in_by_default(self) -> None:
-        """Retry is disabled by default when no MEDRE_RETRY__ vars are set."""
-        from medre.config.model import RuntimeConfig, RuntimeOptions, StorageConfig
-
-        base = RuntimeConfig(
-            runtime=RuntimeOptions(name="retry-default-test"),
-            storage=StorageConfig(backend="memory"),
-        )
-        result = apply_env_overrides(base)
-        assert result.retry.enabled is False
-        assert result.retry.max_attempts == 3
