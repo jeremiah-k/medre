@@ -22,6 +22,7 @@ from medre.config.loader import load_config
 from medre.core.events import NativeRef
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.metadata import EventMetadata
+from medre.core.planning.delivery_plan import DeliveryFailureKind
 from medre.runtime.builder import RuntimeBuilder
 
 # ---------------------------------------------------------------------------
@@ -453,7 +454,7 @@ class TestEnvOnlyReliability:
                 o for o in outcomes
                 if o.status == "skipped"
                 and o.failure_kind is not None
-                and "LOOP_SUPPRESSED" in str(o.failure_kind)
+                and o.failure_kind == DeliveryFailureKind.LOOP_SUPPRESSED
             ]
             assert len(suppressed) >= 1, (
                 f"Expected at least one LOOP_SUPPRESSED outcome, "
@@ -475,3 +476,15 @@ class TestEnvOnlyReliability:
                 await app.stop()
             except Exception as exc:
                 pytest.fail(f"app.stop() failed: {exc!r}")
+
+    def test_loop_suppressed_is_not_retryable(self) -> None:
+        """LOOP_SUPPRESSED and DUPLICATE_SUPPRESSED are not retryable."""
+        from medre.core.observability.classification import (
+            PERMANENT_KINDS,
+            failure_category,
+        )
+
+        assert not DeliveryFailureKind.LOOP_SUPPRESSED.is_retryable
+        assert not DeliveryFailureKind.DUPLICATE_SUPPRESSED.is_retryable
+        assert DeliveryFailureKind.LOOP_SUPPRESSED.value in PERMANENT_KINDS
+        assert DeliveryFailureKind.DUPLICATE_SUPPRESSED.value in PERMANENT_KINDS

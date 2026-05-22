@@ -289,7 +289,7 @@ The `failure_kind` field on receipts classifies failures:
 | `planner_failure`      | No        | Routing or planning misconfiguration                       |
 | `renderer_failure`     | No        | No renderer registered for the event kind                  |
 | `capacity_rejection`   | No        | All in-flight delivery slots occupied                      |
-| `duplicate_suppressed` | No        | Event carries a native ref that has already been processed |
+| `duplicate_suppressed` | No        | Reserved — defined in the enum but not currently emitted as a receipt or outcome. Duplicate native-ref suppression happens before routing and returns an empty outcome list. |
 | `loop_suppressed`      | No        | Route-trace or self-loop prevention blocked the delivery   |
 
 Only `adapter_transient` is retryable.

@@ -17,6 +17,7 @@ from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.events.kinds import EventKind
+from medre.core.planning.delivery_plan import DeliveryFailureKind
 from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
@@ -151,7 +152,9 @@ class TestFanoutWithoutSourceDuplication:
             text="fanout self-loop",
             event_kind=EventKind.MESSAGE_CREATED,
         )
-        await fake_matrix.simulate_inbound(event)
+
+        # Capture the outcomes from handle_ingress
+        outcomes = await runner.handle_ingress(event)
 
         await fake_matrix.stop()
         await fake_mesh.stop()
@@ -162,6 +165,16 @@ class TestFanoutWithoutSourceDuplication:
 
         # Matrix did NOT receive its own event
         assert len(fake_matrix.delivered_payloads) == 0
+
+        # At least one outcome should have LOOP_SUPPRESSED for the self-loop
+        loop_suppressed = [
+            o for o in outcomes
+            if o.failure_kind == DeliveryFailureKind.LOOP_SUPPRESSED
+        ]
+        assert len(loop_suppressed) >= 1, (
+            f"Expected LOOP_SUPPRESSED failure_kind, got: "
+            f"{[(o.status, o.failure_kind) for o in outcomes]}"
+        )
 
         # loop_prevented incremented
         snap = accounting.snapshot()

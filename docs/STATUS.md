@@ -53,8 +53,9 @@ The Matrix adapter supports plaintext and E2EE text alpha. E2EE supports encrypt
 Delivery reliability currently has env-only fake validation — the env-only
 deployment tests (test_env_only_reliability.py) validate successful delivery,
 duplicate suppression, and loop-prevention metadata through RuntimeBuilder +
-fake adapters.  Retry and replay mechanisms are documented and unit-tested
-but were not newly validated in this tranche.
+fake adapters.  Retry and replay mechanisms have existing tests and docs,
+but this tranche did not newly validate them through env-only or live delivery
+reliability tests.
 
 Opt-in Matrix live tests use pytest convenience variables such as MATRIX_HOMESERVER, MATRIX_USER_ID, MATRIX_ACCESS_TOKEN, and MATRIX_ROOM_ID. The local Synapse test harness additionally requires `MATRIX_LOCAL_SYNAPSE=1`. Runtime adapter config overrides use instance-scoped `MEDRE_ADAPTER__<TOKEN>__<FIELD>` and `MEDRE_ROUTE__<TOKEN>__<FIELD>` variables.
 
