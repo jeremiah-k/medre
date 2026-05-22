@@ -24,6 +24,18 @@ docker run --rm -e SYNAPSE_SERVER_NAME=matrix.local \
 #   enable_registration: true
 #   registration_shared_secret: <a-secret>
 
+# Create a docker-compose.yml for the Synapse service
+cat > compose.yaml << 'EOF'
+services:
+  synapse:
+    image: matrixdotorg/synapse:latest
+    container_name: medre-synapse
+    ports:
+      - "8008:8008"
+    volumes:
+      - ./data:/data
+EOF
+
 # Start Synapse
 docker compose up -d
 ```
@@ -31,7 +43,7 @@ docker compose up -d
 ## Registering a Bot User
 
 ```bash
-docker exec -it synapse-synapse-1 register_new_matrix_user \
+docker exec -it medre-synapse register_new_matrix_user \
   -u bot_user -p bot_password -c /data/homeserver.yaml \
   http://localhost:8008
 ```
@@ -42,10 +54,25 @@ Join or create a room using any Matrix client (Element, etc.) connected
 to ``http://localhost:8008``.  Note the canonical room ID
 (e.g. ``!abc123:matrix.local``).
 
+## Obtaining an Access Token
+
+The ``MATRIX_ACCESS_TOKEN`` is a ``syt_*`` token obtained by logging in:
+
+```bash
+curl -X POST http://localhost:8008/_matrix/client/v3/login \
+  -H "Content-Type: application/json" \
+  -d '{"type":"m.login.password","user":"bot_user","password":"bot_password"}'
+```
+
+The response contains an ``access_token`` field.  Copy that value (it starts
+with ``syt_``).  Do not commit it to version control.
+
 ## Required Pytest Environment Variables
 
 These are **live-test convenience vars** — they configure the pytest
-live-test fixture, not the MEDRE runtime:
+live-test fixture, not the MEDRE runtime.  ``MATRIX_*`` variables
+are separate from and unrelated to the unsupported legacy
+``MEDRE_MATRIX_*`` runtime config vars:
 
 ```bash
 export MATRIX_HOMESERVER=http://localhost:8008
@@ -56,14 +83,15 @@ export MATRIX_ROOM_ID=!abc123:matrix.local
 
 ## Running Matrix Live Tests
 
-```bash
-# Skip live tests unless explicitly enabled:
-export MEDRE_MATRIX_LOCAL_SYNAPSE=1
+Matrix live tests are opt-in through the pytest ``live`` marker.
+They are **not** run by default.  Provide the required ``MATRIX_*``
+environment variables (see above) and run explicitly:
 
+```bash
 # Run only Matrix live tests:
 pytest tests/test_matrix_live.py -v -m live
 
-# Or run all live tests:
+# Or run all live tests across all transports:
 pytest -v -m live
 ```
 
@@ -86,5 +114,10 @@ rm -rf data
 ## Notes
 
 - This setup is **opt-in only**.  CI does not require Docker by default.
-- Tests marked ``pytest.mark.live`` are skipped unless ``MEDRE_MATRIX_LOCAL_SYNAPSE=1`` is set.
-- Docker availability is checked at test time; missing Docker skips gracefully.
+- Matrix live tests use standard ``pytest -m live`` gating — they are always skipped
+  unless ``-m live`` is passed and the required ``MATRIX_*`` environment
+  variables are set.
+- The ``MATRIX_*`` variables shown above are **pytest live-test convenience
+  vars only**.  They are not MEDRE runtime config.  Runtime config always uses
+  ``MEDRE_ADAPTER__<TOKEN>__<FIELD>`` and ``MEDRE_ROUTE__<TOKEN>__<FIELD>``.
+  Legacy ``MEDRE_MATRIX_*`` runtime config vars remain unsupported.
