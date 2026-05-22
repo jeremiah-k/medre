@@ -54,20 +54,27 @@ medre --help
 
 If this prints a help message, the install worked. If it prints `command not found`, check that your virtualenv is active and the install completed without errors.
 
-### 2.3 Environment variables
+### Environment Variables
 
-MEDRE reads configuration from environment variables. The variables you need depend on what you are doing.
+MEDRE uses different environment variable sets depending on context:
 
-| Mode                | Required env vars                                                                     | Notes                                                              |
-| ------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| Fake local smoke    | None                                                                                  | Runs entirely with fake adapters, no network                       |
-| Matrix live session | `MATRIX_HOMESERVER`, `MATRIX_USER_ID`, `MATRIX_ACCESS_TOKEN`, `MATRIX_ROOM_ALLOWLIST` | See `docs/runbooks/matrix-alpha-operation.md` for full details     |
-| E2EE text alpha     | All Matrix vars plus `MATRIX_ENCRYPTION_MODE`                                         | Set to `e2ee_required` or `e2ee_optional`                          |
-| Meshtastic live     | `MESHTASTIC_HOST` or `MESHTASTIC_SERIAL_PORT`, plus `MESHTASTIC_CHANNEL_INDEX`        | See `docs/runbooks/meshtastic-alpha-operation.md` for full details |
-| MeshCore live       | `MESHCORE_HOST` or `MESHCORE_SERIAL_PORT`                                             | See `docs/runbooks/meshcore-alpha-operation.md`                    |
-| LXMF live           | Reticulum config file, identity path                                                  | See `docs/runbooks/lxmf-alpha-operation.md`                        |
+**Runtime config** (read by ``medre run`` and all config-backed commands):
+- ``MEDRE_ADAPTER__<TOKEN>__<FIELD>`` — adapter instance config
+- ``MEDRE_ROUTE__<TOKEN>__<FIELD>`` — route config
+- ``MEDRE_HOME``, ``MEDRE_DB_PATH``, ``MEDRE_LOG_LEVEL`` — core runtime
 
-The transport-prefixed convention is consistent: Matrix vars start with `MATRIX_`, Meshtastic vars start with `MESHTASTIC_`, MeshCore vars start with `MESHCORE_`, and so on.
+**Pytest live-test convenience vars** (read by ``pytest -m live`` only):
+- ``MATRIX_HOMESERVER``, ``MATRIX_USER_ID``, ``MATRIX_ACCESS_TOKEN``, ``MATRIX_ROOM_ID``
+- ``MESHTASTIC_CONNECTION_TYPE``, ``MESHTASTIC_HOST``, ``MESHTASTIC_SERIAL_PORT``
+- ``MESHCORE_CONNECTION_TYPE``, ``MESHCORE_HOST``
+- ``LXMF_CONNECTION_TYPE``
+
+**Unsupported legacy** (rejected at startup):
+- ``MEDRE_MATRIX_*``, ``MEDRE_MESHTASTIC_*``, ``MEDRE_MESHCORE_*``, ``MEDRE_LXMF_*``
+
+> **Important:** ``MATRIX_*`` variables are for pytest live-test convenience only.
+> They are **not** read by ``medre run``.  To configure a Matrix adapter for
+> runtime operation, use ``MEDRE_ADAPTER__<TOKEN>__<FIELD>``.
 
 ## 3. End-to-End Fake Local Run Session
 
@@ -335,11 +342,20 @@ If you have `MEDRE_ADAPTER__<TOKEN>__*` variables set for a Matrix transport, yo
 ### 4.1 Set environment variables
 
 ```bash
-export MATRIX_HOMESERVER="http://localhost:8008"
-export MATRIX_USER_ID="@bot:localhost"
-export MATRIX_ACCESS_TOKEN="syt_xxxxxxxxxxxxx"
-export MATRIX_ROOM_ALLOWLIST="!abc123:localhost"
+export MEDRE_ADAPTER__MATRIX_PRIMARY__TRANSPORT=matrix
+export MEDRE_ADAPTER__MATRIX_PRIMARY__HOMESERVER=http://localhost:8008
+export MEDRE_ADAPTER__MATRIX_PRIMARY__USER_ID=@bot:localhost
+export MEDRE_ADAPTER__MATRIX_PRIMARY__ACCESS_TOKEN=syt_xxxxxxxxxxxxx
+export MEDRE_ADAPTER__MATRIX_PRIMARY__ROOM_ALLOWLIST="!abc123:localhost"
+export MEDRE_ROUTE__PRIMARY_TO_MESH__SOURCE_ADAPTERS=matrix-primary
+export MEDRE_ROUTE__PRIMARY_TO_MESH__DEST_ADAPTERS=meshtastic-radio
+export MEDRE_ROUTE__PRIMARY_TO_MESH__DIRECTIONALITY=source_to_dest
+export MEDRE_ROUTE__PRIMARY_TO_MESH__ENABLED=true
 ```
+
+> **Note:** The ``MATRIX_*`` variables (``MATRIX_HOMESERVER``, ``MATRIX_USER_ID``, etc.)
+> are pytest live-test convenience vars.  They are **not** read by ``medre run``.
+> Use ``MEDRE_ADAPTER__<TOKEN>__<FIELD>`` to configure Matrix adapters for runtime.
 
 Do not commit these. Do not paste them into chat. Do not log them. They are credentials.
 

@@ -1,8 +1,8 @@
 """Env-only reliability tests for the delivery path.
 
 End-to-end tests that exercise delivery reliability semantics — successful
-delivery, duplicate suppression, self-loop prevention, and native-ref dedup
-persistence — using the full RuntimeBuilder + MedreApp stack driven entirely
+delivery, duplicate suppression, native-ref dedup persistence, and
+route-stats tracking — using the full RuntimeBuilder + MedreApp stack driven entirely
 from environment variables with a minimal TOML skeleton.
 
 No Docker, no live transports, no SDK dependencies required.
@@ -97,8 +97,8 @@ def _set_reliability_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MEDRE_ROUTE__RADIO_TO_MATRIX__ENABLED", "true")
 
 
-def _set_duplicate_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Set env vars for duplicate-suppression test (two adapters, one route)."""
+def _set_base_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Set env vars for standard radio-a → matrix-fake deployment."""
     _set_reliability_env(monkeypatch)
 
 
@@ -401,6 +401,75 @@ class TestEnvOnlyReliability:
                 stored_b is None
             ), f"Second event {event_b.event_id!r} should NOT be persisted (dedup)"
 
+        finally:
+            try:
+                await app.stop()
+            except Exception as exc:
+                pytest.fail(f"app.stop() failed: {exc!r}")
+
+    @pytest.mark.asyncio
+    async def test_env_only_loop_suppressed_failure_kind(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """DeliveryOutcome for route-trace loop prevention has
+        failure_kind=LOOP_SUPPRESSED."""
+        db_path = str(tmp_path / "loopsuppress.db")
+        app = _load_and_build(
+            monkeypatch, tmp_path, db_path,
+        )
+
+        try:
+            await app.start()
+
+            # Create an event with a route_trace that includes the
+            # route ID twice (simulating a prior traversal).
+            from medre.core.events.metadata import RoutingMetadata
+            event = CanonicalEvent(
+                event_id=f"loop-suppress-{uuid.uuid4()}",
+                event_kind="message.created",
+                schema_version=1,
+                timestamp=datetime.now(timezone.utc),
+                source_adapter="radio-a",
+                source_transport_id="meshtastic",
+                source_channel_id="ch-0",
+                parent_event_id=None,
+                lineage=(),
+                relations=(),
+                payload={"text": "loop suppression test"},
+                metadata=EventMetadata(
+                    routing=RoutingMetadata(
+                        route_trace=("radio-to-matrix", "radio-to-matrix"),
+                    ),
+                ),
+            )
+
+            outcomes = await app.pipeline_runner.handle_ingress(event)
+
+            # There might be outcomes from other routes too, but at least
+            # one should be a route-trace loop suppression.
+            suppressed = [
+                o for o in outcomes
+                if o.status == "skipped"
+                and o.failure_kind is not None
+                and "LOOP_SUPPRESSED" in str(o.failure_kind)
+            ]
+            assert len(suppressed) >= 1, (
+                f"Expected at least one LOOP_SUPPRESSED outcome, "
+                f"got outcomes: {[(o.status, o.failure_kind) for o in outcomes]}"
+            )
+
+            # RouteStats should show loop_prevented >= 1.
+            route_stats = app.route_stats
+            assert route_stats is not None
+            snap = route_stats.snapshot()
+            loop_total = sum(
+                v.get("loop_prevented", 0) for v in snap.values()
+            )
+            assert loop_total >= 1, (
+                f"Expected loop_prevented >= 1, got {loop_total}"
+            )
         finally:
             try:
                 await app.stop()
