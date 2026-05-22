@@ -147,25 +147,6 @@ def _make_event(
     )
 
 
-async def _start_stop(app: Any) -> None:
-    """Ensure app.stop() is always called, surfacing startup failures."""
-    try:
-        await app.start()
-    except BaseException:
-        try:
-            await app.stop()
-        except Exception:
-            pass
-        raise
-    try:
-        yield app
-    finally:
-        try:
-            await app.stop()
-        except Exception as exc:
-            pytest.fail(f"app.stop() failed: {exc!r}")
-
-
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -478,7 +459,8 @@ class TestEnvOnlyReliability:
                 pytest.fail(f"app.stop() failed: {exc!r}")
 
     def test_loop_suppressed_is_not_retryable(self) -> None:
-        """LOOP_SUPPRESSED and DUPLICATE_SUPPRESSED are not retryable."""
+        """LOOP_SUPPRESSED and DUPLICATE_SUPPRESSED are not retryable
+        and classify as permanent failures."""
         from medre.core.observability.classification import (
             PERMANENT_KINDS,
             failure_category,
@@ -488,3 +470,5 @@ class TestEnvOnlyReliability:
         assert not DeliveryFailureKind.DUPLICATE_SUPPRESSED.is_retryable
         assert DeliveryFailureKind.LOOP_SUPPRESSED.value in PERMANENT_KINDS
         assert DeliveryFailureKind.DUPLICATE_SUPPRESSED.value in PERMANENT_KINDS
+        assert failure_category("loop_suppressed") == "permanent"
+        assert failure_category("duplicate_suppressed") == "permanent"

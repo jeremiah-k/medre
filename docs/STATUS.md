@@ -23,7 +23,7 @@ This document is the single source of truth for per-transport capability trackin
 | Inbound decode                      | live-validated | opt-in live test exists | not started | not started |
 | Storage native refs                 | live-validated | fake-tested             | fake-tested | fake-tested |
 | Evidence bundle                     | live-validated | fake-tested             | fake-tested | fake-tested |
-| Delivery reliability                | fake-tested    | fake-tested             | fake-tested | fake-tested |
+| Delivery reliability                | fake-tested    | fake-tested             | designed | designed |
 | Run-session path                    | live-validated | not started             | not started | not started |
 | Operator runbook                    | live-validated | opt-in live test exists | designed    | designed    |
 | Live validation recorded            | live-validated | not started             | not started | not started |
