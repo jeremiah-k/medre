@@ -558,10 +558,11 @@ def _parse_route_env_vars(
         if not re.match(r'^[a-zA-Z0-9_]+$', raw_token):
             raise ConfigValidationError(
                 f"Invalid route token in {name!r}: token {raw_token!r} contains "
-                f"non-alphanumeric characters. Route tokens may contain only "
-                f"letters, numbers, and underscores (no hyphens, dots, or spaces). "
+                f"characters other than letters, digits, and underscores. "
+                f"Route tokens may contain only letters, digits, and underscores "
+                f"(no hyphens, dots, or spaces). "
                 f"Expected shape: MEDRE_ROUTE__<TOKEN>__<FIELD> "
-                f"where <TOKEN> is alphanumeric with underscores."
+                f"where <TOKEN> uses letters, digits, and underscores."
             )
         token = raw_token.upper()
         field_name = parts[1].lower()
@@ -1106,6 +1107,11 @@ def _build_route_toml_data_from_env_fields(
 
     for fname, parsed in field_map.items():
         if fname == "route_id":
+            if existing is not None:
+                raise ConfigValidationError(
+                    f"route_id cannot be changed through env for existing "
+                    f"route {existing.route_id!r}. Rename the route in TOML."
+                )
             route_id = parsed.raw_value.strip()
         elif fname == "source_adapters":
             toml_data["source_adapters"] = [

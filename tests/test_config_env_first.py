@@ -847,3 +847,13 @@ class TestRouteEnvCreation:
         base = _make_config_with_route()
         with pytest.raises(ConfigValidationError, match="directionality"):
             apply_env_overrides(base)
+
+    # (ae) route_id cannot be changed for existing TOML route.
+    def test_route_override_route_id_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """route_id override on existing TOML route raises ConfigValidationError."""
+        monkeypatch.setenv("MEDRE_ROUTE__TOML_ROUTE__ROUTE_ID", "renamed")
+        base = _make_config_with_route()
+        with pytest.raises(ConfigValidationError, match="route_id"):
+            apply_env_overrides(base)
