@@ -906,8 +906,9 @@ below for `ADAPTER_KIND` details.
 ### C. Multi-adapter env-only deployment
 
 You can define multiple adapters entirely from env, with no TOML adapter
-sections at all. You still need a minimal TOML config for routes (see
-Limitations below).
+sections at all. Wire them together using env-driven route creation
+(see [Env-Driven Route Creation](#env-driven-route-creation)) or with
+TOML `[routes.*]` sections.
 
 ```bash
 # Matrix adapter — token MATRIX_PRIMARY
@@ -922,8 +923,9 @@ MEDRE_ADAPTER__RADIO_A__CONNECTION_TYPE=serial
 MEDRE_ADAPTER__RADIO_A__SERIAL_PORT=/dev/ttyACM0
 ```
 
-Both adapters are created from env. A TOML config with routes referencing
-`matrix-primary` and `radio-a` would wire them together.
+Both adapters are created from env. Wire them together using env-driven
+route creation (see [Env-Driven Route Creation](#env-driven-route-creation))
+or by declaring `[routes.*]` sections in TOML.
 
 ### D. Default adapter_id behaviour
 
@@ -951,9 +953,6 @@ and cannot be changed via env.
 
 ### E. Limitations
 
-- **Routes still need TOML.** There is no env-driven route creation. Your TOML
-  config must declare `[routes.*]` sections that reference the adapter IDs
-  (whether those adapters come from TOML or env).
 - **`ADAPTER_ID` override is env-only.** The `ADAPTER_ID` field only works for
   adapters being created from env. It does not override `adapter_id` on
   adapters declared in TOML.
@@ -983,6 +982,104 @@ MEDRE_ADAPTER__RADIO_A__SERIAL_PORT=/dev/ttyUSB0
 `ConfigValidationError` at startup. This field is only available for
 env-created adapters — adapters defined in TOML use the `adapter_kind` key
 in their TOML section (see per-transport schema above).
+
+## Env-Driven Route Creation
+
+In addition to creating adapters from env vars, you can create routes
+entirely from environment variables. This lets you deploy a full bridge
+without writing any TOML route sections.
+
+### Syntax
+
+Route env vars use the prefix `MEDRE_ROUTE__<TOKEN>__`:
+
+```bash
+MEDRE_ROUTE__<TOKEN>__SOURCE_ADAPTERS=adapter-a,adapter-b
+MEDRE_ROUTE__<TOKEN>__DEST_ADAPTERS=adapter-c
+MEDRE_ROUTE__<TOKEN>__DIRECTIONALITY=source_to_dest
+MEDRE_ROUTE__<TOKEN>__ENABLED=true
+MEDRE_ROUTE__<TOKEN>__SOURCE_CHANNEL=1
+```
+
+`<TOKEN>` is an arbitrary uppercase identifier you choose. It must be
+unique across all route env tokens and must not collide with any TOML
+route ID. Non-alphanumeric characters are not allowed in tokens.
+
+### Field Types
+
+| Field              | Type                  | Required | Description                                                                  |
+| ------------------ | --------------------- | -------- | ---------------------------------------------------------------------------- |
+| `SOURCE_ADAPTERS`  | comma-separated list  | yes      | Adapter IDs that originate events. Must not overlap with `DEST_ADAPTERS`.     |
+| `DEST_ADAPTERS`    | comma-separated list  | yes      | Adapter IDs that receive events. Must not overlap with `SOURCE_ADAPTERS`.     |
+| `DIRECTIONALITY`   | string                | no       | `source_to_dest` (default), `dest_to_source`, or `bidirectional`.            |
+| `ENABLED`          | bool                  | no       | `true`/`false`/`yes`/`no`/`1`/`0`. Defaults to `true`.                       |
+| `SOURCE_CHANNEL`   | string                | no       | Source channel or conversation ID.                                            |
+| `DEST_CHANNEL`     | string                | no       | Destination channel or conversation ID.                                       |
+| `SOURCE_ROOM`      | string                | no       | Source Matrix room ID.                                                        |
+| `DEST_ROOM`        | string                | no       | Destination Matrix room ID.                                                   |
+| `ROUTE_ID`         | string                | no       | Explicit route ID. See default derivation below.                              |
+
+### Route ID Default Derivation
+
+When `ROUTE_ID` is not set, the route ID is derived from the token by
+lowercasing and replacing underscores with hyphens. This matches the
+same convention used for env-created adapter IDs.
+
+| Token                  | Default `route_id`     |
+| ---------------------- | ---------------------- |
+| `RADIO_A_TO_MATRIX`    | `radio-a-to-matrix`    |
+| `MATRIX_PRIMARY_BRIDGE`| `matrix-primary-bridge`|
+| `ADMIN_ROUTE`          | `admin-route`          |
+
+### Full Env-Only Deployment Example
+
+A complete bridge between Matrix and Meshtastic with no TOML adapter or
+route sections. You still need a minimal TOML config file (for `medre run`
+to find), but it can be empty or contain only `[runtime]` settings.
+
+```bash
+# Minimal config file (required for medre run to start)
+cat > /opt/medre/config.toml <<EOF
+[runtime]
+name = "env-only"
+EOF
+
+# Matrix adapter
+MEDRE_ADAPTER__MATRIX_PRIMARY__TRANSPORT=matrix
+MEDRE_ADAPTER__MATRIX_PRIMARY__HOMESERVER=https://matrix.example.com
+MEDRE_ADAPTER__MATRIX_PRIMARY__USER_ID=@bot:example.com
+MEDRE_ADAPTER__MATRIX_PRIMARY__ACCESS_TOKEN=syt_...
+MEDRE_ADAPTER__MATRIX_PRIMARY__ROOM_ALLOWLIST="!bridge:example.com"
+
+# Meshtastic adapter
+MEDRE_ADAPTER__RADIO_A__TRANSPORT=meshtastic
+MEDRE_ADAPTER__RADIO_A__CONNECTION_TYPE=serial
+MEDRE_ADAPTER__RADIO_A__SERIAL_PORT=/dev/ttyACM0
+
+# Route from radio to Matrix
+MEDRE_ROUTE__RADIO_A_TO_MATRIX__SOURCE_ADAPTERS=radio-a
+MEDRE_ROUTE__RADIO_A_TO_MATRIX__DEST_ADAPTERS=matrix-primary
+MEDRE_ROUTE__RADIO_A_TO_MATRIX__DIRECTIONALITY=bidirectional
+MEDRE_ROUTE__RADIO_A_TO_MATRIX__ENABLED=true
+```
+
+This creates two adapters (`matrix-primary`, `radio-a`) and one
+bidirectional route between them, all from environment variables.
+
+### Limitations
+
+- **Advanced route features still require TOML.** Policy (`[routes.*.policy]`),
+  retry (`[routes.*.retry]`), and `filter_hooks` are not expressible through
+  env vars. If you need these, define the route in TOML instead.
+- **Legacy transport env vars remain unsupported.** The same rejection rules
+  that apply to adapter env vars apply here. Use the `MEDRE_ROUTE__<TOKEN>__`
+  prefix, not transport-prefixed shortcuts.
+- **Routes reference adapter IDs, not env tokens.** The `SOURCE_ADAPTERS` and
+  `DEST_ADAPTERS` values must match the resolved `adapter_id` of the target
+  adapters (whether those adapters come from TOML or env). For env-created
+  adapters, this is the lowercased, hyphenated form of the adapter token.
+  For TOML adapters, it is the `adapter_id` field value (or the section key
+  if `adapter_id` is not set).
 
 ## Environment Variable `.env` Files
 

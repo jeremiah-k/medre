@@ -30,6 +30,7 @@ from medre.config.model import (
     RuntimeOptions,
     StorageConfig,
 )
+from medre.runtime.routes import RouteConfig, RouteConfigSet, RouteDirectionality
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -1561,3 +1562,172 @@ class TestEnvCreatedAdapters:
         base = _make_base_config()
         with pytest.raises(ConfigValidationError, match="cannot be set through env"):
             apply_env_overrides(base)
+
+
+# ---------------------------------------------------------------------------
+# Route env creation
+# ---------------------------------------------------------------------------
+
+
+def _make_config_with_route() -> RuntimeConfig:
+    """RuntimeConfig with a single TOML-defined route."""
+    route = RouteConfig(
+        route_id="toml-route",
+        source_adapters=("adapter-a",),
+        dest_adapters=("adapter-b",),
+        directionality=RouteDirectionality.SOURCE_TO_DEST,
+        enabled=True,
+    )
+    return RuntimeConfig(
+        runtime=RuntimeOptions(name="test"),
+        logging=LoggingConfig(level="INFO"),
+        storage=StorageConfig(backend="sqlite", path="/tmp/test.db"),
+        adapters=AdapterConfigSet(),
+        routes=RouteConfigSet(routes=(route,)),
+    )
+
+
+class TestRouteEnvCreation:
+    """MEDRE_ROUTE__<TOKEN>__<FIELD> creates routes from env vars."""
+
+    # (a) Create a basic route via env.
+    def test_create_route_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("MEDRE_ROUTE__MY_ROUTE__SOURCE_ADAPTERS", "adapter-a")
+        monkeypatch.setenv("MEDRE_ROUTE__MY_ROUTE__DEST_ADAPTERS", "adapter-b")
+
+        base = _make_base_config()
+        result = apply_env_overrides(base)
+
+        assert len(result.routes.routes) == 1
+        route = result.routes.routes[0]
+        assert route.route_id == "my-route"
+        assert route.source_adapters == ("adapter-a",)
+        assert route.dest_adapters == ("adapter-b",)
+        assert route.directionality == RouteDirectionality.SOURCE_TO_DEST
+        assert route.enabled is True
+
+    # (b) Override existing TOML route: ENABLED=false preserves other fields.
+    def test_override_existing_toml_route(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("MEDRE_ROUTE__TOML_ROUTE__ENABLED", "false")
+
+        base = _make_config_with_route()
+        result = apply_env_overrides(base)
+
+        assert len(result.routes.routes) == 1
+        route = result.routes.routes[0]
+        assert route.route_id == "toml-route"
+        assert route.enabled is False
+        # Other fields preserved from TOML.
+        assert route.source_adapters == ("adapter-a",)
+        assert route.dest_adapters == ("adapter-b",)
+        assert route.directionality == RouteDirectionality.SOURCE_TO_DEST
+
+    # (c) Comma-separated SOURCE_ADAPTERS parsed into a tuple.
+    def test_route_comma_list_parsing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("MEDRE_ROUTE__MULTI__SOURCE_ADAPTERS", "a,b,c")
+        monkeypatch.setenv("MEDRE_ROUTE__MULTI__DEST_ADAPTERS", "d")
+
+        base = _make_base_config()
+        result = apply_env_overrides(base)
+
+        route = result.routes.routes[0]
+        assert route.source_adapters == ("a", "b", "c")
+        assert len(route.source_adapters) == 3
+
+    # (d) Missing SOURCE_ADAPTERS or DEST_ADAPTERS raises.
+    def test_route_creation_requires_source_and_dest(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Only source, no dest.
+        monkeypatch.setenv("MEDRE_ROUTE__INCOMPLETE__SOURCE_ADAPTERS", "a")
+
+        base = _make_base_config()
+        with pytest.raises(ConfigValidationError, match="dest_adapters"):
+            apply_env_overrides(base)
+
+    def test_route_creation_requires_source(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Only dest, no source.
+        monkeypatch.setenv("MEDRE_ROUTE__INCOMPLETE__DEST_ADAPTERS", "b")
+
+        base = _make_base_config()
+        with pytest.raises(ConfigValidationError, match="source_adapters"):
+            apply_env_overrides(base)
+
+    # (e) Invalid directionality raises.
+    def test_route_invalid_directionality(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("MEDRE_ROUTE__BAD_DIR__SOURCE_ADAPTERS", "a")
+        monkeypatch.setenv("MEDRE_ROUTE__BAD_DIR__DEST_ADAPTERS", "b")
+        monkeypatch.setenv("MEDRE_ROUTE__BAD_DIR__DIRECTIONALITY", "sideways")
+
+        base = _make_base_config()
+        with pytest.raises(ConfigValidationError, match="directionality"):
+            apply_env_overrides(base)
+
+    # (f) Unknown field on a route raises.
+    def test_route_unsupported_field_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("MEDRE_ROUTE__BAD__SOURCE_ADAPTERS", "a")
+        monkeypatch.setenv("MEDRE_ROUTE__BAD__DEST_ADAPTERS", "b")
+        monkeypatch.setenv("MEDRE_ROUTE__BAD__TOTALLY_FAKE", "nope")
+
+        base = _make_base_config()
+        with pytest.raises(ConfigValidationError, match="Unsupported route field"):
+            apply_env_overrides(base)
+
+    # (g) Explicit ROUTE_ID overrides the default.
+    def test_route_explicit_route_id(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("MEDRE_ROUTE__X__ROUTE_ID", "custom-id")
+        monkeypatch.setenv("MEDRE_ROUTE__X__SOURCE_ADAPTERS", "a")
+        monkeypatch.setenv("MEDRE_ROUTE__X__DEST_ADAPTERS", "b")
+
+        base = _make_base_config()
+        result = apply_env_overrides(base)
+
+        route = result.routes.routes[0]
+        assert route.route_id == "custom-id"
+
+    # (h) Create both an adapter and a route referencing it from env.
+    def test_route_and_adapter_from_env(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Create a Meshtastic adapter from env.
+        monkeypatch.setenv("MEDRE_ADAPTER__RADIO_A__TRANSPORT", "meshtastic")
+        monkeypatch.setenv("MEDRE_ADAPTER__RADIO_A__CONNECTION_TYPE", "fake")
+        # Create a route referencing it.
+        monkeypatch.setenv("MEDRE_ROUTE__BRIDGE__SOURCE_ADAPTERS", "radio-a")
+        monkeypatch.setenv("MEDRE_ROUTE__BRIDGE__DEST_ADAPTERS", "radio-b")
+
+        base = _make_base_config()
+        result = apply_env_overrides(base)
+
+        assert "radio-a" in result.adapters.meshtastic
+        assert len(result.routes.routes) == 1
+        route = result.routes.routes[0]
+        assert route.source_adapters == ("radio-a",)
+        assert route.dest_adapters == ("radio-b",)
+
+    # (i) Two env tokens that normalize to the same route token raise.
+    def test_route_token_collision(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # MEDRE_ROUTE__MY_ROUTE and MEDRE_ROUTE__MY-ROUTE both normalize
+        # to MY_ROUTE. Setting different fields on each triggers the
+        # duplicate-normalized-field detection in _parse_route_env_vars.
+        monkeypatch.setenv("MEDRE_ROUTE__MY_ROUTE__SOURCE_ADAPTERS", "a")
+        monkeypatch.setenv("MEDRE_ROUTE__MY_ROUTE__DEST_ADAPTERS", "b")
+        # "MY-ROUTE" normalizes to "MY_ROUTE" — collision on dest_adapters.
+        monkeypatch.setenv("MEDRE_ROUTE__MY-ROUTE__DEST_ADAPTERS", "c")
+
+        with pytest.raises(ConfigValidationError, match="Duplicate normalized route"):
+            MedreEnvConfig.from_environ()

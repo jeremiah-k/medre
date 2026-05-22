@@ -15,6 +15,14 @@ with non-alphanumeric characters replaced with underscores
 (see :func:`normalize_adapter_id`) and ``<FIELD>`` is
 a field name on the adapter's config dataclass (or ``enabled``).
 
+Route overrides use env vars of the form::
+
+    MEDRE_ROUTE__<TOKEN>__<FIELD>=<value>
+
+where ``<TOKEN>`` is the uppercased form of the route's ``route_id``
+with non-alphanumeric characters replaced with underscores.
+For new routes, ``source_adapters`` and ``dest_adapters`` are required.
+
 Quick reference
 ---------------
 Core:
@@ -29,6 +37,15 @@ Adapter overrides (instance-scoped):
   on the adapter whose ``adapter_id`` normalizes to ``MATRIX_PRIMARY``
 * ``MEDRE_ADAPTER__MESHTASTIC_RADIO_A__HOST`` → overrides ``host`` on the
   adapter whose ``adapter_id`` normalizes to ``MESHTASTIC_RADIO_A``
+
+Route overrides:
+
+* ``MEDRE_ROUTE__MATRIX_TO_MESH__SOURCE_ADAPTERS`` → overrides source adapters
+  on the route whose ``route_id`` normalizes to ``MATRIX_TO_MESH``
+* ``MEDRE_ROUTE__NEW_BRIDGE__SOURCE_ADAPTERS=matrix-primary`` → creates a new
+  route with ``route_id`` ``new-bridge``
+* ``MEDRE_ROUTE__NEW_BRIDGE__DEST_ADAPTERS=meshtastic-radio`` → required
+  for new routes
 """
 
 from __future__ import annotations
@@ -51,10 +68,14 @@ from medre.config.model import (
     MeshtasticRuntimeConfig,
     RuntimeConfig,
 )
+from medre.runtime.routes import RouteConfig, RouteConfigSet, RouteDirectionality
 
 __all__ = [
+    "ROUTE_ENV_PREFIX",
+    "ROUTE_ENV_NAMES",
     "apply_env_overrides",
     "apply_instance_env_overrides",
+    "apply_route_overrides",
     "detect_token_collisions",
     "MedreEnvConfig",
     "normalize_adapter_id",
@@ -82,6 +103,9 @@ CORE_ENV_NAMES: frozenset[str] = frozenset(
 ALL_RECOGNIZED_ENV_NAMES: frozenset[str] = CORE_ENV_NAMES
 
 _ADAPTER_ENV_PREFIX = "MEDRE_ADAPTER__"
+
+ROUTE_ENV_PREFIX = "MEDRE_ROUTE__"
+ROUTE_ENV_NAMES: frozenset[str] = frozenset()
 
 _REJECTED_LEGACY_PREFIXES: tuple[str, ...] = (
     "MEDRE_MATRIX_",
@@ -241,6 +265,13 @@ class EnvProvenance:
             value = entry.raw_value
             # For MEDRE_ADAPTER__TOKEN__FIELD, extract FIELD.
             if name.startswith(_ADAPTER_ENV_PREFIX):
+                parts = name.split("__", 2)
+                field_part = parts[2] if len(parts) >= 3 else ""
+                if _is_secret_field(field_part):
+                    result.append((name, "***REDACTED***"))
+                    continue
+            # For MEDRE_ROUTE__TOKEN__FIELD, extract FIELD.
+            if name.startswith(ROUTE_ENV_PREFIX):
                 parts = name.split("__", 2)
                 field_part = parts[2] if len(parts) >= 3 else ""
                 if _is_secret_field(field_part):
@@ -483,6 +514,67 @@ def _parse_adapter_env_vars(
 
 
 # ---------------------------------------------------------------------------
+# Route env-var parsing
+# ---------------------------------------------------------------------------
+
+
+def _parse_route_env_vars(
+    environ: dict[str, str] | os._Environ[str],  # type: ignore[attr-defined]
+) -> dict[str, dict[str, ParsedAdapterEnvValue]]:
+    """Parse ``MEDRE_ROUTE__<TOKEN>__<FIELD>`` vars from *environ*.
+
+    Returns a nested dict: ``{token: {field: ParsedAdapterEnvValue}}``.
+
+    Token is normalized: uppercased, non-alphanumeric characters replaced
+    with underscores.  Field names are lowercased.
+
+    Raises :class:`~medre.config.errors.ConfigValidationError` if any
+    ``MEDRE_ROUTE__`` variable has a malformed shape (wrong number of
+    segments, empty token, or empty field) or if duplicate normalized
+    fields are found.
+    """
+    result: dict[str, dict[str, ParsedAdapterEnvValue]] = {}
+    prefix = ROUTE_ENV_PREFIX
+    malformed: list[str] = []
+    duplicates: list[str] = []
+
+    for name, value in environ.items():
+        if not name.startswith(prefix):
+            continue
+        remainder = name[len(prefix):]
+        if not remainder:
+            malformed.append(name)
+            continue
+        parts = remainder.split("__")
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            malformed.append(name)
+            continue
+        token = normalize_adapter_id(parts[0])
+        field_name = parts[1].lower()
+        parsed = ParsedAdapterEnvValue(env_var_name=name, raw_value=value)
+        field_map = result.setdefault(token, {})
+        if field_name in field_map:
+            duplicates.append(
+                f"{field_map[field_name].env_var_name} and {name} both "
+                f"normalize to token={token!r} field={field_name!r}"
+            )
+        field_map[field_name] = parsed
+
+    if malformed:
+        raise ConfigValidationError(
+            f"Malformed MEDRE_ROUTE__ environment variable(s): "
+            f"{sorted(malformed)}. Expected shape: "
+            f"MEDRE_ROUTE__<TOKEN>__<FIELD> with non-empty TOKEN and FIELD."
+        )
+    if duplicates:
+        raise ConfigValidationError(
+            f"Duplicate normalized route fields: {'; '.join(duplicates)}. "
+            f"Each token/field combination must come from exactly one env var."
+        )
+    return result
+
+
+# ---------------------------------------------------------------------------
 # MedreEnvConfig
 # ---------------------------------------------------------------------------
 
@@ -513,6 +605,9 @@ class MedreEnvConfig:
     # -- Instance-scoped adapter overrides --
     instance_overrides: dict[str, dict[str, ParsedAdapterEnvValue]] = field(default_factory=dict)
 
+    # -- Route overrides --
+    route_overrides: dict[str, dict[str, ParsedAdapterEnvValue]] = field(default_factory=dict)
+
     # -- Construction -------------------------------------------------------
 
     @classmethod
@@ -534,6 +629,8 @@ class MedreEnvConfig:
         legacy_found: list[str] = []
         for key in source:
             if key.startswith(_ADAPTER_ENV_PREFIX):
+                continue
+            if key.startswith(ROUTE_ENV_PREFIX):
                 continue
             for prefix in _REJECTED_LEGACY_PREFIXES:
                 if key.startswith(prefix):
@@ -565,6 +662,19 @@ class MedreEnvConfig:
                         parsed.raw_value,
                         source_kind="instance",
                         target_adapter_token=token,
+                        target_field=field_name,
+                    )
+
+        # Route overrides.
+        route_overrides = _parse_route_env_vars(source)
+        if route_overrides:
+            object.__setattr__(instance, "route_overrides", route_overrides)
+            for token, field_map in route_overrides.items():
+                for field_name, parsed in field_map.items():
+                    provenance.record(
+                        parsed.env_var_name,
+                        parsed.raw_value,
+                        source_kind="route",
                         target_field=field_name,
                     )
 
@@ -938,6 +1048,247 @@ def apply_instance_env_overrides(
 
 
 # ---------------------------------------------------------------------------
+# Route env-var override application
+# ---------------------------------------------------------------------------
+
+
+def apply_route_overrides(
+    config: RuntimeConfig,
+    route_overrides: dict[str, dict[str, ParsedAdapterEnvValue]],
+) -> RuntimeConfig:
+    """Apply ``MEDRE_ROUTE__<TOKEN>__<FIELD>`` overrides to *config*.
+
+    For tokens that match an existing route (by normalizing the route_id),
+    fields are overridden on the existing route.  For tokens with **no**
+    matching route, a brand-new route is created from environment variables
+    (env-first creation).
+
+    Parameters
+    ----------
+    config:
+        The base configuration.
+    route_overrides:
+        Parsed route env vars as ``{token: {field: ParsedAdapterEnvValue}}``.
+
+    Returns
+    -------
+    RuntimeConfig
+        A new frozen config with route overrides applied.
+
+    Raises
+    ------
+    ConfigValidationError
+        If a new route is missing required fields, a field is unsupported,
+        type coercion fails, or route IDs collide after creation.
+    """
+    if not route_overrides:
+        return config
+
+    existing_routes = list(config.routes.routes)
+
+    # Build mapping: normalized_token → index in existing_routes.
+    token_to_idx: dict[str, int] = {}
+    for i, route in enumerate(existing_routes):
+        norm = normalize_adapter_id(route.route_id)
+        token_to_idx[norm] = i
+
+    replacements: dict[int, RouteConfig] = {}
+    additions: list[RouteConfig] = []
+
+    for token, field_map in route_overrides.items():
+        match_idx = token_to_idx.get(token)
+
+        if match_idx is not None:
+            # ----------------------------------------------------------
+            # Override mode: merge env fields into existing route.
+            # ----------------------------------------------------------
+            existing = existing_routes[match_idx]
+            kwargs = {
+                f.name: getattr(existing, f.name)
+                for f in dataclasses.fields(existing)
+            }
+
+            for fname, parsed in field_map.items():
+                if fname == "route_id":
+                    raise ConfigValidationError(
+                        "route_id cannot be changed through env; "
+                        "rename the route in TOML."
+                    )
+                elif fname == "source_adapters":
+                    kwargs["source_adapters"] = tuple(
+                        s.strip()
+                        for s in parsed.raw_value.split(",")
+                        if s.strip()
+                    )
+                elif fname == "dest_adapters":
+                    kwargs["dest_adapters"] = tuple(
+                        s.strip()
+                        for s in parsed.raw_value.split(",")
+                        if s.strip()
+                    )
+                elif fname == "directionality":
+                    try:
+                        kwargs["directionality"] = RouteDirectionality[
+                            parsed.raw_value.strip().upper()
+                        ]
+                    except KeyError:
+                        valid = ", ".join(d.value for d in RouteDirectionality)
+                        raise ConfigValidationError(
+                            f"Invalid directionality {parsed.raw_value!r} for "
+                            f"route {existing.route_id!r} (valid: {valid})"
+                        ) from None
+                elif fname == "enabled":
+                    kwargs["enabled"] = _coerce_bool(
+                        parsed.raw_value, parsed.env_var_name
+                    )
+                elif fname in (
+                    "source_channel",
+                    "dest_channel",
+                    "source_room",
+                    "dest_room",
+                ):
+                    kwargs[fname] = parsed.raw_value.strip()
+                else:
+                    raise ConfigValidationError(
+                        f"Unsupported route field {fname!r} in "
+                        f"{parsed.env_var_name!r}. Supported fields: "
+                        f"source_adapters, dest_adapters, directionality, "
+                        f"enabled, source_channel, dest_channel, "
+                        f"source_room, dest_room."
+                    )
+
+            route = RouteConfig(**kwargs)
+
+            # Validate invariants that from_toml_dict normally checks.
+            _validate_route_invariants(route)
+
+            replacements[match_idx] = route
+
+        else:
+            # ----------------------------------------------------------
+            # Creation mode: build a new route from env fields.
+            # ----------------------------------------------------------
+            route_id = token.lower().replace("_", "-")
+            toml_data: dict[str, Any] = {}
+
+            for fname, parsed in field_map.items():
+                if fname == "route_id":
+                    route_id = parsed.raw_value.strip()
+                elif fname == "source_adapters":
+                    toml_data["source_adapters"] = [
+                        s.strip()
+                        for s in parsed.raw_value.split(",")
+                        if s.strip()
+                    ]
+                elif fname == "dest_adapters":
+                    toml_data["dest_adapters"] = [
+                        s.strip()
+                        for s in parsed.raw_value.split(",")
+                        if s.strip()
+                    ]
+                elif fname == "directionality":
+                    toml_data["directionality"] = parsed.raw_value.strip().lower()
+                elif fname == "enabled":
+                    toml_data["enabled"] = _coerce_bool(
+                        parsed.raw_value, parsed.env_var_name
+                    )
+                elif fname in (
+                    "source_channel",
+                    "dest_channel",
+                    "source_room",
+                    "dest_room",
+                ):
+                    toml_data[fname] = parsed.raw_value.strip()
+                else:
+                    raise ConfigValidationError(
+                        f"Unsupported route field {fname!r} in "
+                        f"{parsed.env_var_name!r}. Supported fields: "
+                        f"source_adapters, dest_adapters, directionality, "
+                        f"enabled, source_channel, dest_channel, "
+                        f"source_room, dest_room, route_id."
+                    )
+
+            if "source_adapters" not in toml_data:
+                raise ConfigValidationError(
+                    f"Route token {token!r} does not match any existing route "
+                    f"and is missing 'source_adapters'. Set "
+                    f"MEDRE_ROUTE__{token}__SOURCE_ADAPTERS=<val>."
+                )
+            if "dest_adapters" not in toml_data:
+                raise ConfigValidationError(
+                    f"Route token {token!r} does not match any existing route "
+                    f"and is missing 'dest_adapters'. Set "
+                    f"MEDRE_ROUTE__{token}__DEST_ADAPTERS=<val>."
+                )
+
+            route = RouteConfig.from_toml_dict(route_id, toml_data)
+            additions.append(route)
+
+    # -- Build final route list --------------------------------------------
+    final_routes: list[RouteConfig] = []
+    for i, route in enumerate(existing_routes):
+        final_routes.append(replacements.get(i, route))
+    final_routes.extend(additions)
+
+    # -- Route-ID collision check ------------------------------------------
+    seen_ids: dict[str, str] = {}
+    for route in final_routes:
+        if route.route_id in seen_ids:
+            raise ConfigValidationError(
+                f"Duplicate route ID {route.route_id!r} after applying env "
+                f"route overrides (conflicts with existing route "
+                f"{seen_ids[route.route_id]!r})."
+            )
+        seen_ids[route.route_id] = route.route_id
+
+    # -- Normalized-token collision check ----------------------------------
+    token_groups: dict[str, list[str]] = {}
+    for route in final_routes:
+        norm = normalize_adapter_id(route.route_id)
+        token_groups.setdefault(norm, []).append(route.route_id)
+    collisions = {t: ids for t, ids in token_groups.items() if len(ids) > 1}
+    if collisions:
+        msgs: list[str] = []
+        for _tok, ids in collisions.items():
+            msgs.append(
+                f"Route IDs {ids} both normalize to {_tok}; "
+                f"rename one route_id."
+            )
+        raise ConfigValidationError("; ".join(msgs))
+
+    new_route_set = RouteConfigSet(routes=tuple(final_routes))
+    new_route_set.validate()
+
+    return dataclasses.replace(config, routes=new_route_set)
+
+
+def _validate_route_invariants(route: RouteConfig) -> None:
+    """Validate route invariants that ``from_toml_dict`` normally checks.
+
+    Called when constructing a route via direct ``RouteConfig()`` (override
+    mode) to ensure the same safety checks as the TOML path.
+    """
+    sources_set = set(route.source_adapters)
+    dests_set = set(route.dest_adapters)
+    overlap = sources_set & dests_set
+    if overlap:
+        raise ConfigValidationError(
+            f"Route {route.route_id!r}: source and destination adapters "
+            f"overlap: {sorted(overlap)}. A route must not bridge an "
+            f"adapter to itself."
+        )
+    if len(set(route.dest_adapters)) != len(route.dest_adapters):
+        raise ConfigValidationError(
+            f"Route {route.route_id!r}: duplicate entries in 'dest_adapters'."
+        )
+    if len(set(route.source_adapters)) != len(route.source_adapters):
+        raise ConfigValidationError(
+            f"Route {route.route_id!r}: duplicate entries in "
+            f"'source_adapters'."
+        )
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -1038,5 +1389,10 @@ def apply_env_overrides(
     config = apply_instance_env_overrides(
         config, env.instance_overrides, provenance=env.provenance
     )
+
+    # ------------------------------------------------------------------
+    # Route overrides
+    # ------------------------------------------------------------------
+    config = apply_route_overrides(config, env.route_overrides)
 
     return config
