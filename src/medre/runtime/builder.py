@@ -29,6 +29,7 @@ import logging
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
+from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.config.model import (
     RuntimeConfig,
     StorageConfig,
@@ -242,6 +243,17 @@ def _register_adapter_renderers(
                 meshtastic_configs[_adapter_id] = rtc.config
                 if first_meshtastic_config is None:
                     first_meshtastic_config = rtc.config
+        # Fallback: if no real configs but Meshtastic adapters exist (e.g.
+        # adapter_kind="fake" where rtc.config is None), synthesize defaults
+        # so the renderer is registered and target-aware rendering works.
+        if not meshtastic_configs and config.adapters.meshtastic:
+            for adapter_id in config.adapters.meshtastic:
+                meshtastic_configs[adapter_id] = MeshtasticConfig(
+                    adapter_id=adapter_id,
+                    radio_relay_prefix="",
+                )
+            if meshtastic_configs:
+                first_meshtastic_config = next(iter(meshtastic_configs.values()))
 
     for module_path, class_name in _ADAPTER_RENDERER_SPECS:
         try:
