@@ -13,7 +13,9 @@ Verifies:
 - Unknown exception bounded retry: plain Exception treated as transient
   with bounded retry; exhausted after max_attempts.
 - CancelledError re-raises: asyncio.CancelledError is re-raised; item
-  attempt counter is NOT bumped; item is NOT requeued or dropped.
+  attempt counter is NOT bumped.  The item has already been dequeued
+  so shutdown-time cancellation can abandon the in-flight item; this
+  is not durable delivery.
 - Front requeue order: failed item goes to front before newer items.
 - queue_health fields: all new counters present with correct values.
 - Adapter diagnostics fields: queue_-prefixed new counters present.

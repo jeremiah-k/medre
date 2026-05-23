@@ -314,12 +314,16 @@ class MeshtasticOutboundQueue:
             # Scaffold mode: no send, no pacing sleep.
             return None
 
-        # Apply pacing delay based on time since last send.
+        # Apply pacing delay based on time since last send attempt.
         now = time.monotonic()
         elapsed_since_last = now - self._last_send_time
         remaining = self._delay - elapsed_since_last
         if remaining > 0:
             await asyncio.sleep(remaining)
+
+        # Record send attempt timestamp before send_fn so transient
+        # retries also observe pacing (message_delay_seconds).
+        self._last_send_time = time.monotonic()
 
         try:
             send_result = await send_fn(item)
@@ -360,7 +364,6 @@ class MeshtasticOutboundQueue:
             self._handle_transient_failure(item)
             return None
 
-        self._last_send_time = time.monotonic()
         self._total_sent += 1
 
         # Extract native packet ID from the send result.

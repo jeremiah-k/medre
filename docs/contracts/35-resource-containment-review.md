@@ -144,7 +144,7 @@ Existing tests in `tests/test_matrix_session.py` and its split files cover:
 The outbound queue is owned by the adapter, not the session. Key resource
 properties:
 
-- **Queue:** `collections.deque` — bounded by `max_queue_size`, in-memory.
+- **Queue:** `collections.deque` — capacity enforced explicitly at enqueue time via ``max_queue_size``; the internal deque is unbounded but growth is prevented by enqueue rejection.  In-memory.
   - **Risk:** Memory grows linearly if messages are enqueued faster than processed.
   - **Mitigation:** `process_one()` drains one item at a time with pacing delay. Caller controls dequeue rate. Queue overflow is rejected (not silently evicted).
   - **Residual risk:** No backpressure. If the adapter enqueues faster than the radio can send, the queue grows up to `max_queue_size`, then rejects new enqueues.
