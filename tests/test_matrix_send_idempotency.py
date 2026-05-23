@@ -21,7 +21,6 @@ import asyncio
 import hashlib
 import logging
 from datetime import datetime, timezone
-from types import MappingProxyType
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -35,7 +34,6 @@ from medre.adapters.matrix.adapter import (
     _matrix_txn_id,
     _NioRateLimitError,
 )
-from medre.adapters.matrix.errors import MatrixSendError
 from medre.config.adapters.matrix import MatrixConfig
 from medre.core.contracts.adapter import (
     AdapterContext,
@@ -43,7 +41,6 @@ from medre.core.contracts.adapter import (
     AdapterSendError,
 )
 from medre.core.rendering.renderer import RenderingResult
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -147,9 +144,16 @@ class TestMatrixTxnId:
         result = _make_result()
         room_id = "!room:example.com"
         expected_input = ":".join(
-            [result.event_id, result.target_adapter, result.target_channel or "", room_id]
+            [
+                result.event_id,
+                result.target_adapter,
+                result.target_channel or "",
+                room_id,
+            ]
         )
-        expected_digest = hashlib.sha256(expected_input.encode("utf-8")).hexdigest()[:32]
+        expected_digest = hashlib.sha256(expected_input.encode("utf-8")).hexdigest()[
+            :32
+        ]
         expected = f"medre_{expected_digest}"
         assert _matrix_txn_id(result, room_id) == expected
 
