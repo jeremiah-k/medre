@@ -114,7 +114,7 @@ def _is_transient_error(exc: BaseException) -> bool:
     ):
         return True
 
-    # aiohttp transport errors
+    # All aiohttp errors on this code path are transport-related; broad matching is intentional.
     if "aiohttp" in exc_module and "Error" in exc_name:
         return True
 
@@ -149,7 +149,8 @@ def _is_nio_permanent_response(response: Any) -> bool:
     if hasattr(response, "event_id"):
         return False
     errcode = str(getattr(response, "errcode", "") or "").upper()
-    if errcode in ("M_FORBIDDEN", "M_NOT_FOUND", "M_UNKNOWN", "M_UNAUTHORIZED", "M_UNKNOWN_TOKEN", "M_USER_DEACTIVATED", "M_BAD_JSON", "M_NOT_JSON", "M_INVALID_PARAM"):
+    _PERMANENT_ERRCODES = frozenset({"M_FORBIDDEN", "M_NOT_FOUND", "M_UNKNOWN", "M_UNAUTHORIZED", "M_UNKNOWN_TOKEN", "M_USER_DEACTIVATED", "M_BAD_JSON", "M_NOT_JSON", "M_INVALID_PARAM"})
+    if errcode in _PERMANENT_ERRCODES:
         return True
     msg = str(response).upper()
     if "NOT_FOUND" in msg or "FORBIDDEN" in msg:
@@ -686,7 +687,7 @@ class MatrixAdapter(AdapterContract):
                     self._permanent_delivery_failures += 1
                     raise AdapterPermanentError(str(exc)) from exc
 
-        # Should not reach here, but safety net
+        # Safety net: if loop exhausts without raising, classify as permanent. Currently unreachable.
         raise AdapterPermanentError(f"Delivery failed: {last_exc}") from last_exc
 
     # -- Inbound callback ---------------------------------------------------

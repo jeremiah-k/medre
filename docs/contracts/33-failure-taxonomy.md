@@ -94,7 +94,7 @@ cross-transport orchestration.
 
 | Failure                | Transient/Permanent         | Duplicate-Send Risk                                                                     |
 | ---------------------- | --------------------------- | --------------------------------------------------------------------------------------- |
-| `room_send` HTTP error | Transient (4xx → permanent) | Low: event_id is server-assigned. Retrying creates a new event_id. No dedup key.        |
+| `room_send` HTTP error | Transient (4xx → permanent) | Low: event_id is server-assigned. Retries use stable tx_id for dedup within homeserver window. |
 | `room_send` timeout    | Transient                   | Medium: message may have been accepted but ACK lost. Server may have created the event. |
 | Room not joined        | Permanent                   | None: send fails immediately.                                                           |
 | Message too large      | Permanent                   | None: deterministic rejection.                                                          |
