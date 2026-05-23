@@ -38,11 +38,13 @@ Available drills
 
 ``capacity_rejection``
     Exhausts the capacity semaphore before delivery; proves
-    ``CAPACITY_REJECTION`` classification with no receipt persisted.
+    ``CAPACITY_REJECTION`` classification with a ``suppressed``
+    evidence receipt persisted.
 
 ``shutdown_rejection``
     Calls ``stop_accepting()`` before delivery; proves
-    ``SHUTDOWN_REJECTION`` classification with no receipt persisted.
+    ``SHUTDOWN_REJECTION`` classification with a ``suppressed``
+    evidence receipt persisted.
 
 ``replay_duplicate_risk``
     Delivers once, then re-delivers via BEST_EFFORT replay; proves
@@ -782,7 +784,7 @@ async def _drill_capacity_rejection(
                 capacity_rejections=len(cap_outcomes),
             )
         )
-        # Verify: no receipts for capacity-rejected deliveries.
+        # Verify: suppressed evidence receipts for capacity-rejected deliveries.
         if app.storage is not None:
             try:
                 receipts = await app.storage.list_receipts_for_event(event.event_id)
@@ -790,16 +792,22 @@ async def _drill_capacity_rejection(
                 receipts = []
         else:
             receipts = []
+        cap_target_adapters = {o.target_adapter for o in cap_outcomes}
         cap_receipts = [
             r
             for r in receipts
-            if r.target_adapter in {o.target_adapter for o in cap_outcomes}
+            if r.target_adapter in cap_target_adapters
         ]
+        has_suppressed = all(
+            r.status == "suppressed" and r.failure_kind == "capacity_rejection"
+            for r in cap_receipts
+        )
         steps.append(
             _step(
-                "verify_no_receipt",
-                "ok" if not cap_receipts else "unexpected",
+                "verify_suppressed_receipts",
+                "ok" if has_suppressed and len(cap_receipts) >= 1 else "unexpected",
                 receipt_count=len(cap_receipts),
+                all_suppressed=has_suppressed,
             )
         )
 
@@ -901,7 +909,7 @@ async def _drill_shutdown_rejection(
                 timestamp=datetime.now(timezone.utc).isoformat(),
             )
         )
-        # Verify: no receipts for shutdown-rejected deliveries.
+        # Verify: suppressed evidence receipts for shutdown-rejected deliveries.
         if app.storage is not None:
             try:
                 receipts = await app.storage.list_receipts_for_event(event.event_id)
@@ -909,16 +917,22 @@ async def _drill_shutdown_rejection(
                 receipts = []
         else:
             receipts = []
+        shutdown_target_adapters = {o.target_adapter for o in shutdown_outcomes}
         shutdown_receipts = [
             r
             for r in receipts
-            if r.target_adapter in {o.target_adapter for o in shutdown_outcomes}
+            if r.target_adapter in shutdown_target_adapters
         ]
+        has_suppressed = all(
+            r.status == "suppressed" and r.failure_kind == "shutdown_rejection"
+            for r in shutdown_receipts
+        )
         steps.append(
             _step(
-                "verify_no_receipt",
-                "ok" if not shutdown_receipts else "unexpected",
+                "verify_suppressed_receipts",
+                "ok" if has_suppressed and len(shutdown_receipts) >= 1 else "unexpected",
                 receipt_count=len(shutdown_receipts),
+                all_suppressed=has_suppressed,
                 timestamp=datetime.now(timezone.utc).isoformat(),
             )
         )
@@ -928,7 +942,7 @@ async def _drill_shutdown_rejection(
             "inject_at": inject_ts,
             "accepting_work_at_rejection": False,
             "shutdown_rejections": len(shutdown_outcomes),
-            "receipts_created_for_rejected": len(shutdown_receipts),
+            "suppressed_receipts_created": len(shutdown_receipts),
         }
 
         if not has_shutdown:

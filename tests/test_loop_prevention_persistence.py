@@ -102,11 +102,14 @@ class TestLoopPreventionHardening:
         # No delivery to the adapter
         assert len(fake_adapter.delivered_payloads) == 0
 
-        # No delivery receipt persisted
+        # One suppressed evidence receipt persisted for self-loop target
         receipts = await temp_storage._read_all(
-            "SELECT target_adapter FROM delivery_receipts"
+            "SELECT target_adapter, status, failure_kind FROM delivery_receipts"
         )
-        assert len(receipts) == 0
+        assert len(receipts) == 1
+        assert receipts[0]["target_adapter"] == "loop-src-tgt"
+        assert receipts[0]["status"] == "suppressed"
+        assert receipts[0]["failure_kind"] == "loop_suppressed"
 
     async def test_route_trace_guard_fires(self, temp_storage: SQLiteStorage) -> None:
         """Inject event with route-trace showing it already traversed a route.

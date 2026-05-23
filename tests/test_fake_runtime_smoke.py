@@ -876,7 +876,10 @@ class TestFailureKindIntegration:
             assert len(outcomes) == 1
             assert outcomes[0].failure_kind == DeliveryFailureKind.CAPACITY_REJECTION
             assert outcomes[0].status == "permanent_failure"
-            assert outcomes[0].receipt is None  # no receipt for capacity rejection
+            # Capacity rejection persists a suppressed evidence receipt.
+            assert outcomes[0].receipt is not None
+            assert outcomes[0].receipt.status == "suppressed"
+            assert outcomes[0].receipt.failure_kind == "capacity_rejection"
 
             # Release slot so stop can drain cleanly.
             await cc.release_delivery()
@@ -902,7 +905,10 @@ class TestFailureKindIntegration:
             assert len(outcomes) == 1
             assert outcomes[0].failure_kind == DeliveryFailureKind.SHUTDOWN_REJECTION
             assert outcomes[0].status == "permanent_failure"
-            assert outcomes[0].receipt is None  # no receipt for shutdown rejection
+            # Shutdown rejection persists a suppressed evidence receipt.
+            assert outcomes[0].receipt is not None
+            assert outcomes[0].receipt.status == "suppressed"
+            assert outcomes[0].receipt.failure_kind == "shutdown_rejection"
         finally:
             await clean_stop(app)
 

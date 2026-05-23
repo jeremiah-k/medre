@@ -181,7 +181,9 @@ async def _collect_storage_data_from_backend(
                     for idx, rd in enumerate(group):
                         attempt = rd.get("attempt_number")
                         attempt_int = attempt if isinstance(attempt, int) else 0
-                        if attempt_int > best_attempt:
+                        if attempt_int > best_attempt or (
+                            attempt_int == best_attempt and idx > best_idx
+                        ):
                             best_attempt = attempt_int
                             best_idx = idx
                     best = group[best_idx]

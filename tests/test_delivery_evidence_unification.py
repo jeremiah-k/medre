@@ -33,6 +33,7 @@ from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
+import msgspec
 import pytest
 
 from medre.adapters.meshtastic.errors import MeshtasticSendError
@@ -199,15 +200,25 @@ class TestSuccessReportNativeMessageId:
         assert result.native_message_id == "$plat-123"
 
     def test_success_outcome_serializable_with_native_id(self) -> None:
-        """Outcome with receipt + native ID is JSON-serializable."""
+        """Outcome with receipt + native ID is msgspec-JSON-serializable."""
         receipt = _make_receipt(
             status="sent",
             adapter_message_id="$ser-001",
         )
         outcome = _make_outcome(status="success", receipt=receipt)
-        raw = json.dumps(outcome.receipt, default=str)
-        parsed = json.loads(raw)
+        parsed = msgspec.json.decode(msgspec.json.encode(outcome.receipt))
         assert parsed["adapter_message_id"] == "$ser-001"
+
+    def test_success_receipt_without_adapter_message_id(self) -> None:
+        """Success receipt with no native message ID (queue-based adapter)."""
+        receipt = _make_receipt(
+            status="sent",
+            adapter_message_id=None,
+        )
+        outcome = _make_outcome(status="success", receipt=receipt)
+        assert outcome.status == "success"
+        assert outcome.receipt is not None
+        assert outcome.receipt.adapter_message_id is None
 
 
 # ===================================================================
@@ -342,8 +353,7 @@ class TestDeadLetterExhaustionEvidence:
             attempt_number=4,
             error="Retry exhausted",
         )
-        raw = json.dumps(receipt, default=str)
-        parsed = json.loads(raw)
+        parsed = msgspec.json.decode(msgspec.json.encode(receipt))
         assert parsed["status"] == "dead_lettered"
         assert parsed["retry_max_attempts"] == 3
 
@@ -359,7 +369,7 @@ class TestDeadLetterExhaustionEvidence:
             attempt_number=4,
             error="Retry exhausted after 3 attempts",
         )
-        raw = json.dumps(receipt, default=str).lower()
+        raw = msgspec.json.encode(receipt).decode().lower()
         assert "access_token" not in raw
         assert "password" not in raw
         assert "tok_" not in raw
@@ -447,6 +457,19 @@ class TestDuplicateSuppressedContract:
         if status is not None and hasattr(status, "__args__"):
             assert "duplicate_suppressed" not in status.__args__
 
+    def test_duplicate_suppressed_value(self) -> None:
+        assert DeliveryFailureKind.DUPLICATE_SUPPRESSED.value == "duplicate_suppressed"
+
+    def test_duplicate_suppressed_not_a_delivery_outcome_status(self) -> None:
+        """'duplicate_suppressed' is not a valid DeliveryOutcome status value."""
+        import typing
+
+        outcome_type_hints = typing.get_type_hints(DeliveryOutcome)
+        status_field = outcome_type_hints.get("status")
+        if status_field is not None and hasattr(status_field, "__args__"):
+            valid_statuses = set(status_field.__args__)
+            assert "duplicate_suppressed" not in valid_statuses
+
 
 # ===================================================================
 # 7. Matrix success metadata includes matrix_txn_id
@@ -513,17 +536,33 @@ class TestMatrixE2EEBlockedPermanent:
 
 
 class TestMeshtasticQueueRejectedTransient:
-    """Meshtastic queue full rejection is a transient, retryable error."""
+    """Meshtastic queue full rejection evidence.
+
+    MeshtasticSendError is NOT a subclass of AdapterSendError; the adapter
+    catches it and wraps to AdapterSendError(transient=True) at the boundary.
+    RetryExecutor.classify_failure only recognises AdapterSendError for the
+    transient/permanent split, so an unwrapped MeshtasticSendError falls
+    through to ADAPTER_PERMANENT.
+    """
 
     def test_queue_full_error_is_transient(self) -> None:
         err = MeshtasticSendError("queue is full", transient=True)
         assert err.transient is True
 
-    def test_queue_full_classifies_as_adapter_transient(self) -> None:
-        err = MeshtasticSendError("queue is full", transient=True)
+    def test_queue_full_adapter_wrapped_classifies_as_transient(self) -> None:
+        """Adapter wraps queue-full MeshtasticSendError as
+        AdapterSendError(transient=True), which classifies as ADAPTER_TRANSIENT."""
+        err = AdapterSendError("queue is full", transient=True)
         kind = RetryExecutor.classify_failure(err)
         assert kind is DeliveryFailureKind.ADAPTER_TRANSIENT
         assert kind.is_retryable is True
+
+    def test_meshtastic_send_error_unwrapped_classifies_as_permanent(self) -> None:
+        """Unwrapped MeshtasticSendError is not recognised by classify_failure
+        (it is not an AdapterSendError), so it falls through to ADAPTER_PERMANENT."""
+        err = MeshtasticSendError("queue is full", transient=True)
+        kind = RetryExecutor.classify_failure(err)
+        assert kind is DeliveryFailureKind.ADAPTER_PERMANENT
 
     async def test_queue_full_rejection_increments_counter(self) -> None:
         q = MeshtasticOutboundQueue(max_queue_size=1)
@@ -532,9 +571,11 @@ class TestMeshtasticQueueRejectedTransient:
             await q.enqueue({"text": "overflow"}, channel_index=0)
         assert q.total_rejected == 1
 
-    def test_meshtastic_send_error_is_adapter_send_error(self) -> None:
-        """MeshtasticSendError is a subclass of AdapterSendError."""
-        assert issubclass(MeshtasticSendError, AdapterSendError)
+    def test_meshtastic_send_error_is_not_adapter_send_error(self) -> None:
+        """MeshtasticSendError has its own hierarchy (MeshtasticError → Exception).
+        The adapter wraps it to AdapterSendError at the delivery boundary."""
+        assert not issubclass(MeshtasticSendError, AdapterSendError)
+        assert issubclass(MeshtasticSendError, Exception)
 
 
 # ===================================================================
@@ -626,7 +667,7 @@ class TestEvidenceSecretSafety:
             attempt_number=4,
             error="Retry exhausted",
         )
-        raw = json.dumps(receipt, default=str).lower()
+        raw = msgspec.json.encode(receipt).decode().lower()
         for substr in self._SECRET_SUBSTRINGS:
             assert substr not in raw, f"Secret substring '{substr}' in receipt JSON"
 
@@ -641,7 +682,7 @@ class TestEvidenceSecretSafety:
             attempt_number=1,
             error="ConnectionError: timeout",
         )
-        raw = json.dumps(receipt, default=str).lower()
+        raw = msgspec.json.encode(receipt).decode().lower()
         for substr in self._SECRET_SUBSTRINGS:
             assert substr not in raw, f"Secret substring '{substr}' in receipt JSON"
 
@@ -665,3 +706,53 @@ class TestEvidenceSecretSafety:
         assert "secret" not in meta
         # matrix_txn_id is allowed
         assert "matrix_txn_id" in meta
+
+
+# ===================================================================
+# 12. Failure kind / status consistency
+# ===================================================================
+
+
+class TestFailureKindStatusConsistency:
+    """All valid failure_kind/status combinations produce consistent
+    is_retryable classification."""
+
+    def test_transient_failure_kind_with_transient_status(self) -> None:
+        """transient_failure status with ADAPTER_TRANSIENT is retryable."""
+        outcome = _make_outcome(
+            status="transient_failure",
+            failure_kind=DeliveryFailureKind.ADAPTER_TRANSIENT,
+            error="ConnectionError: timeout",
+        )
+        assert outcome.failure_kind is not None
+        assert outcome.failure_kind.is_retryable is True
+        assert outcome.status == "transient_failure"
+
+    def test_permanent_failure_kind_with_permanent_status(self) -> None:
+        """permanent_failure status with ADAPTER_PERMANENT is not retryable."""
+        outcome = _make_outcome(
+            status="permanent_failure",
+            failure_kind=DeliveryFailureKind.ADAPTER_PERMANENT,
+            error="ValueError: malformed",
+        )
+        assert outcome.failure_kind is not None
+        assert outcome.failure_kind.is_retryable is False
+        assert outcome.status == "permanent_failure"
+
+    def test_all_non_transient_kinds_are_not_retryable(self) -> None:
+        """Every failure kind except ADAPTER_TRANSIENT is not retryable."""
+        non_transient = [
+            k
+            for k in DeliveryFailureKind
+            if k is not DeliveryFailureKind.ADAPTER_TRANSIENT
+        ]
+        for kind in non_transient:
+            assert kind.is_retryable is False, f"{kind.name} should not be retryable"
+
+    def test_skipped_status_never_has_retryable_kind(self) -> None:
+        """Skipped outcomes should not have a retryable failure_kind."""
+        for kind in (
+            DeliveryFailureKind.LOOP_SUPPRESSED,
+            DeliveryFailureKind.DUPLICATE_SUPPRESSED,
+        ):
+            assert kind.is_retryable is False

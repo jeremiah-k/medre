@@ -1137,12 +1137,11 @@ class TestDeadLetterIncidentSummary:
 
     @pytest.mark.asyncio
     async def test_dead_lettered_additive_fields_probe(self, config_fake: Path) -> None:
-        """Probe for additive fields implementation agents may add.
+        """Incident summary enrichment fields are required (not optional).
 
-        These fields are not yet guaranteed to exist; this test documents
-        their expected shape so that when they are added, the test will
-        validate them. Uses get() so test passes whether or not fields
-        are present.
+        dead_lettered_count, suppressed_count, sent_unconfirmed_count, and
+        delivery_state_by_adapter are always populated by the evidence builder
+        and must be present and correctly typed on every incident summary.
         """
         db_path = str(config_fake.parent / "state" / "test_evidence.db")
         event_id = await _make_populated_db_with_dead_letter(db_path)
@@ -1153,25 +1152,37 @@ class TestDeadLetterIncidentSummary:
         )
         summary = report["sections"]["storage"]["data"]["incident_summary"]
 
-        # When implementation adds dead_lettered_count, it should be >= 1
-        dl_count = summary.get("dead_lettered_count")
-        if dl_count is not None:
-            assert dl_count >= 1, f"dead_lettered_count should be >= 1, got {dl_count}"
+        # dead_lettered_count: required, int >= 1 (we have one dead-lettered receipt)
+        dl_count = summary["dead_lettered_count"]
+        assert isinstance(dl_count, int), (
+            f"dead_lettered_count must be int, got {type(dl_count).__name__}"
+        )
+        assert dl_count >= 1, f"dead_lettered_count must be >= 1, got {dl_count}"
 
-        # When implementation adds suppressed_count, it should be >= 0
-        suppressed_count = summary.get("suppressed_count")
-        if suppressed_count is not None:
-            assert isinstance(suppressed_count, int)
+        # suppressed_count: required, int >= 0
+        suppressed_count = summary["suppressed_count"]
+        assert isinstance(suppressed_count, int), (
+            f"suppressed_count must be int, got {type(suppressed_count).__name__}"
+        )
+        assert suppressed_count >= 0, (
+            f"suppressed_count must be >= 0, got {suppressed_count}"
+        )
 
-        # When implementation adds sent_unconfirmed_count, it should be >= 0
-        sent_unconfirmed = summary.get("sent_unconfirmed_count")
-        if sent_unconfirmed is not None:
-            assert isinstance(sent_unconfirmed, int)
+        # sent_unconfirmed_count: required, int >= 0
+        sent_unconfirmed = summary["sent_unconfirmed_count"]
+        assert isinstance(sent_unconfirmed, int), (
+            f"sent_unconfirmed_count must be int, got {type(sent_unconfirmed).__name__}"
+        )
+        assert sent_unconfirmed >= 0, (
+            f"sent_unconfirmed_count must be >= 0, got {sent_unconfirmed}"
+        )
 
-        # When implementation adds delivery_state_by_adapter, it should be a dict
-        state_by_adapter = summary.get("delivery_state_by_adapter")
-        if state_by_adapter is not None:
-            assert isinstance(state_by_adapter, dict)
+        # delivery_state_by_adapter: required, dict
+        state_by_adapter = summary["delivery_state_by_adapter"]
+        assert isinstance(state_by_adapter, dict), (
+            f"delivery_state_by_adapter must be dict, "
+            f"got {type(state_by_adapter).__name__}"
+        )
 
     @pytest.mark.asyncio
     async def test_dead_lettered_receipt_timeline_includes_retry_fields(

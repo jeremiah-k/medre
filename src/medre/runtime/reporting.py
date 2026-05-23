@@ -168,6 +168,21 @@ def delivery_receipt_to_report_dict(
     error_value: str | None = (
         sanitize_error(receipt.error) if receipt.error else receipt.error
     )
+    # Use getattr for enrichment fields so duck-typed receipt fakes that
+    # lack newly-added attributes (next_retry_at, retry policy, etc.)
+    # remain compatible without raising AttributeError.
+    _next_retry_at: datetime | None = getattr(receipt, "next_retry_at", None)
+    _retry_max_attempts: int | None = getattr(
+        receipt, "retry_max_attempts", None
+    )
+    _retry_backoff_base: float | None = getattr(
+        receipt, "retry_backoff_base", None
+    )
+    _retry_max_delay: float | None = getattr(receipt, "retry_max_delay", None)
+    _retry_jitter: bool | None = getattr(receipt, "retry_jitter", None)
+    _parent_receipt_id: str | None = getattr(
+        receipt, "parent_receipt_id", None
+    )
     fk_detail: str | None = _derive_failure_kind_detail(
         receipt.failure_kind,
         receipt.error,
@@ -176,7 +191,7 @@ def delivery_receipt_to_report_dict(
     retryable: bool = _compute_retryable(
         receipt.failure_kind,
         receipt.status,
-        receipt.next_retry_at,
+        _next_retry_at,
     )
     return {
         # Original keys (unchanged).
@@ -194,12 +209,13 @@ def delivery_receipt_to_report_dict(
         "route_id": receipt.route_id,
         "source": receipt.source,
         # Retry policy fields (from DeliveryReceipt struct).
-        "retry_max_attempts": receipt.retry_max_attempts,
-        "retry_backoff_base": receipt.retry_backoff_base,
-        "retry_max_delay": receipt.retry_max_delay,
-        "retry_jitter": receipt.retry_jitter,
-        "next_retry_at": _to_iso_or_none(receipt.next_retry_at),
-        "parent_receipt_id": receipt.parent_receipt_id,
+        # Safe getattr defaults for duck-typed compatibility.
+        "retry_max_attempts": _retry_max_attempts,
+        "retry_backoff_base": _retry_backoff_base,
+        "retry_max_delay": _retry_max_delay,
+        "retry_jitter": _retry_jitter,
+        "next_retry_at": _to_iso_or_none(_next_retry_at),
+        "parent_receipt_id": _parent_receipt_id,
         # Derived enrichment fields.
         "failure_kind_detail": fk_detail,
         "adapter_message_id": receipt.adapter_message_id,

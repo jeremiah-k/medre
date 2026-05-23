@@ -809,9 +809,12 @@ class TestLoopPrevention:
             stored = await app.storage.get(event.event_id)
             assert stored is not None
 
-            # -- No receipt for skipped deliveries --
+            # -- Suppressed evidence receipt for self-loop target --
             receipts = await app.storage.list_receipts_for_event(event.event_id)
-            assert len(receipts) == 0
+            assert len(receipts) == 1
+            assert receipts[0].status == "suppressed"
+            assert receipts[0].target_adapter == "mx_a"
+            assert receipts[0].failure_kind == "loop_suppressed"
         finally:
             await _clean_stop(app)
 

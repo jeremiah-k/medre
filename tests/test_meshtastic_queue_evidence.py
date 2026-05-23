@@ -427,14 +427,28 @@ class TestQueueRejectionTransientClassification:
         err = MeshtasticSendError("queue is full", transient=True)
         assert err.transient is True
 
-    def test_meshtastic_send_error_classifies_as_adapter_transient(self) -> None:
-        """MeshtasticSendError(transient=True) is classified as ADAPTER_TRANSIENT."""
-        from medre.adapters.meshtastic.errors import MeshtasticSendError
+    def test_meshtastic_send_error_is_adapter_internal_not_core_error(self) -> None:
+        """MeshtasticSendError is adapter-internal: it is NOT an AdapterSendError.
+
+        Architecture: MeshtasticSendError lives inside the Meshtastic adapter
+        and signals transient failures (e.g. queue full).  The adapter boundary
+        (``MeshtasticAdapter.deliver()``) catches MeshtasticSendError and wraps
+        it into an ``AdapterSendError(transient=True)`` so that the core retry
+        classifier sees the standard contract type.
+        """
         from medre.core.contracts.adapter import AdapterSendError
 
-        err = MeshtasticSendError("queue is full", transient=True)
-        assert isinstance(err, AdapterSendError)
-        kind = RetryExecutor.classify_failure(err)
+        raw_err = MeshtasticSendError("queue is full", transient=True)
+        # MeshtasticSendError is adapter-internal — NOT a core AdapterSendError.
+        assert not isinstance(raw_err, AdapterSendError)
+        # Its transient flag is still True (adapter-internal signal).
+        assert raw_err.transient is True
+
+        # At the adapter boundary, the error is wrapped into AdapterSendError.
+        boundary_err = AdapterSendError("queue is full", transient=True)
+        assert isinstance(boundary_err, AdapterSendError)
+        assert boundary_err.transient is True
+        kind = RetryExecutor.classify_failure(boundary_err)
         assert kind is DeliveryFailureKind.ADAPTER_TRANSIENT
 
     def test_meshtastic_queue_rejected_via_adapter_send_error(self) -> None:

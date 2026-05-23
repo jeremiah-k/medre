@@ -457,19 +457,20 @@ class TestCapacityRejectionDrill:
         assert report["status"] == "passed", report.get("fail_reasons", [])
 
     @pytest.mark.asyncio
-    async def test_no_receipt_for_rejected(self) -> None:
-        """Capacity rejection produces no receipt."""
+    async def test_suppressed_receipt_for_rejected(self) -> None:
+        """Capacity rejection produces suppressed evidence receipt."""
         report = await run_drill(
             "capacity_rejection",
             config_path=_smoke_config_path(),
         )
         steps = report["drill_steps"]
-        no_rcpt = next(
-            (s for s in steps if s["step"] == "verify_no_receipt"),
+        suppressed_rcpt = next(
+            (s for s in steps if s["step"] == "verify_suppressed_receipts"),
             None,
         )
-        assert no_rcpt is not None
-        assert no_rcpt["result"] == "ok"
+        assert suppressed_rcpt is not None
+        assert suppressed_rcpt["result"] == "ok"
+        assert suppressed_rcpt["all_suppressed"] is True
 
     @pytest.mark.asyncio
     async def test_json_safe(self) -> None:
@@ -492,19 +493,20 @@ class TestShutdownRejectionDrill:
         assert report["status"] == "passed", report.get("fail_reasons", [])
 
     @pytest.mark.asyncio
-    async def test_no_receipt_for_rejected(self) -> None:
-        """Shutdown rejection produces no receipt."""
+    async def test_suppressed_receipt_for_rejected(self) -> None:
+        """Shutdown rejection produces suppressed evidence receipt."""
         report = await run_drill(
             "shutdown_rejection",
             config_path=_smoke_config_path(),
         )
         steps = report["drill_steps"]
-        no_rcpt = next(
-            (s for s in steps if s["step"] == "verify_no_receipt"),
+        suppressed_rcpt = next(
+            (s for s in steps if s["step"] == "verify_suppressed_receipts"),
             None,
         )
-        assert no_rcpt is not None
-        assert no_rcpt["result"] == "ok"
+        assert suppressed_rcpt is not None
+        assert suppressed_rcpt["result"] == "ok"
+        assert suppressed_rcpt["all_suppressed"] is True
 
     @pytest.mark.asyncio
     async def test_rejection_timeline_in_report(self) -> None:
@@ -516,7 +518,7 @@ class TestShutdownRejectionDrill:
         assert "rejection_timeline" in report
         tl = report["rejection_timeline"]
         assert tl["accepting_work_at_rejection"] is False
-        assert tl["receipts_created_for_rejected"] == 0
+        assert tl["suppressed_receipts_created"] >= 1
         assert tl["shutdown_rejections"] >= 1
         assert "stop_accepting_at" in tl
         assert "inject_at" in tl
@@ -1035,7 +1037,7 @@ _RECEIPT_DRILLS = (
     "replay_duplicate_risk",
 )
 
-# Drills where all deliveries are rejected (zero receipts expected).
+# Drills where all deliveries are rejected (suppressed evidence receipts expected).
 _REJECTION_DRILLS = (
     "capacity_rejection",
     "shutdown_rejection",
@@ -1173,12 +1175,12 @@ class TestDrillStorageCrossCheck:
     # -- inspect receipts (rejection drills: zero receipts expected) ---------
 
     @pytest.mark.parametrize("drill_name", _REJECTION_DRILLS)
-    def test_inspect_no_receipts_for_rejection_drills(
+    def test_inspect_suppressed_receipts_for_rejection_drills(
         self,
         drill_name: str,
         tmp_path: Path,
     ) -> None:
-        """Rejection drills produce zero receipts (event still stored)."""
+        """Rejection drills produce suppressed evidence receipts (event stored)."""
         db_path = str(tmp_path / f"{drill_name}-reject.db")
         report = self._run_drill_sync(drill_name, storage_path=db_path)
         assert report["status"] == "passed", report.get("fail_reasons", [])
@@ -1199,7 +1201,7 @@ class TestDrillStorageCrossCheck:
         types = [e["entry_type"] for e in timeline]
         assert "event" in types
 
-        # Receipts list is empty for rejected deliveries.
+        # Receipts list contains suppressed receipts for rejection drills.
         rcpt_output = _capture_cli(
             "inspect",
             "receipts",
@@ -1211,8 +1213,18 @@ class TestDrillStorageCrossCheck:
         receipts = json.loads(rcpt_output)
         assert isinstance(receipts, list)
         assert (
-            len(receipts) == 0
-        ), f"Expected 0 receipts for {drill_name}, got {len(receipts)}"
+            len(receipts) >= 1
+        ), f"Expected suppressed receipts for {drill_name}, got {len(receipts)}"
+        # All receipts for rejection drills should be suppressed.
+        suppressed_kinds = {"capacity_rejection", "shutdown_rejection"}
+        for r in receipts:
+            assert r["status"] == "suppressed", (
+                f"Expected suppressed status for {drill_name}, got {r['status']}"
+            )
+            assert r["failure_kind"] in suppressed_kinds, (
+                f"Expected rejection failure_kind for {drill_name}, "
+                f"got {r['failure_kind']}"
+            )
 
     # -- evidence --event ----------------------------------------------------
 
@@ -1290,6 +1302,15 @@ class TestDrillStorageCrossCheck:
                 assert (
                     len(receipts) >= 1
                 ), f"No receipts for receipt-producing drill {drill_name}"
+            if drill_name in _REJECTION_DRILLS:
+                assert (
+                    len(receipts) >= 1
+                ), f"No suppressed receipts for rejection drill {drill_name}"
+                for r in receipts:
+                    assert r["status"] == "suppressed", (
+                        f"Expected suppressed receipt for {drill_name}, "
+                        f"got {r['status']}"
+                    )
 
             # 3. evidence — must find the event.
             ev_output = _capture_cli(

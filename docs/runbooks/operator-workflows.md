@@ -281,6 +281,7 @@ Receipts persisted to storage have a finer-grained lifecycle:
 | `sent`          | Adapter confirmed delivery.                                           |
 | `failed`        | Delivery attempt failed (check `failure_kind` for details).           |
 | `dead_lettered` | All retry attempts exhausted — no further delivery will be attempted. |
+| `suppressed`   | Delivery was intentionally suppressed (loop prevention, capacity/shutdown rejection). The `failure_kind` field classifies the reason. |
 
 ### Failure Classification
 
@@ -921,13 +922,13 @@ Two types of suppression exist:
 
 ```json
 {
-  "status": "skipped",
+  "status": "suppressed",
   "failure_kind": "loop_suppressed",
   "error": "loop_prevented: route already in route_trace"
 }
 ```
 
-This means the route-trace or self-loop guard prevented delivery.
+This means the route-trace or self-loop guard prevented delivery. The receipt uses `status="suppressed"` (the persisted receipt lifecycle status), not the in-flight `DeliveryOutcome.status="skipped"`.
 
 **Duplicate suppressed** — silent at the receipt level. If an event was suppressed by native-ref dedup at ingress, there will be no receipt at all. The event was never stored. Check `RuntimeAccounting.loop_prevented` counters (in diagnostics) for the aggregate count. The `DUPLICATE_SUPPRESSED` failure kind is reserved but not currently emitted — the runtime does not safely persist the duplicate path without creating a new event.
 
@@ -948,15 +949,17 @@ Example:
   "receipt_id": "rcpt-final",
   "event_id": "evt-ghi789",
   "status": "dead_lettered",
-  "failure_kind": "adapter_transient",
-  "error": "timeout",
-  "attempt_number": 3,
+  "failure_kind": null,
+  "error": "Retry exhausted after 3 attempts",
+  "attempt_number": 4,
   "retry_max_attempts": 3,
   "source": "retry"
 }
 ```
 
-This tells you: the event exhausted 3 retry attempts (all transient timeouts), and the pipeline will not retry further. The event is effectively dead — operators can use `medre replay --mode BEST_EFFORT` to attempt re-delivery if the underlying condition has resolved.
+> **Note:** `failure_kind` may be `null` (unset) on dead-lettered receipts — the `dead_lettered` status itself signals that retry exhaustion occurred. When set, it reflects the failure kind of the original transient or permanent error that triggered retries. The `error` field is always present and describes what happened.
+
+This tells you: the event exhausted its retry budget, and the pipeline will not retry further. The event is effectively dead — operators can use `medre replay --mode BEST_EFFORT` to attempt re-delivery if the underlying condition has resolved.
 
 ### 14.5 "Queued locally but not RF-confirmed" (Meshtastic)
 
