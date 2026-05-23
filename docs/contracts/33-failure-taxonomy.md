@@ -92,12 +92,12 @@ cross-transport orchestration.
 
 ### 4.3 Send Failures
 
-| Failure                | Transient/Permanent         | Duplicate-Send Risk                                                                     |
-| ---------------------- | --------------------------- | --------------------------------------------------------------------------------------- |
-| `room_send` HTTP error | Transient (4xx → permanent) | Low: event_id is server-assigned. Retrying creates a new event_id. No dedup key.        |
-| `room_send` timeout    | Transient                   | Medium: message may have been accepted but ACK lost. Server may have created the event. |
-| Room not joined        | Permanent                   | None: send fails immediately.                                                           |
-| Message too large      | Permanent                   | None: deterministic rejection.                                                          |
+| Failure                | Transient/Permanent         | Duplicate-Send Risk                                                                            |
+| ---------------------- | --------------------------- | ---------------------------------------------------------------------------------------------- |
+| `room_send` HTTP error | Transient (4xx → permanent) | Low: event_id is server-assigned. Retries use stable tx_id for dedup within homeserver window. |
+| `room_send` timeout    | Transient                   | Medium: message may have been accepted but ACK lost. Server may have created the event.        |
+| Room not joined        | Permanent                   | None: send fails immediately.                                                                  |
+| Message too large      | Permanent                   | None: deterministic rejection.                                                                 |
 
 ### 4.4 Duplicate-Send Risk Assessment: Matrix
 
@@ -105,7 +105,7 @@ cross-transport orchestration.
 
 - Matrix assigns event IDs server-side. Two sends of the same content produce
   two different events with two different event IDs.
-- MEDRE does not implement a transaction ID for idempotent sends.
+- MEDRE now implements a deterministic transaction ID (tx_id) for Matrix room_send calls. This reduces duplicate events within the homeserver's transaction-ID dedup window. Duplicate risk remains nonzero across restarts, replay, changed delivery identity, or outside the homeserver window.
 - Under timeout/retry, a message may be duplicated (same content, different event_id).
 - The sync loop will echo back the sent message, but MEDRE's self-message
   suppression removes own messages by sender match.

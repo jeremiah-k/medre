@@ -521,7 +521,7 @@ The adapter does not guarantee ordering of outbound messages. If you call `deliv
 
 If the adapter restarts after sending a message but before recording the event, the same message may be sent again on restart. The adapter has no deduplication logic for outbound messages. Inbound events may also be delivered twice if the sync token is not persisted between restarts.
 
-Delivery retries (up to 3 attempts on transient send errors) can produce duplicates: the message may have been accepted by the homeserver on the first attempt, but the response was lost. The adapter retries the send, resulting in a duplicate event in the room. There is no idempotency key or deduplication mechanism. Operators monitoring rooms should be aware of this possibility, especially during network instability.
+Delivery retries (up to 3 attempts on transient send errors) can produce duplicates: the message may have been accepted by the homeserver on the first attempt, but the response was lost. Matrix delivery now uses a stable per-delivery tx_id so homeservers deduplicate repeated retry attempts within the Matrix transaction-ID window. This reduces duplicate visible messages when a retry follows a lost response, but it is not exactly-once delivery. Duplicates are still possible across process restarts, changed delivery identity, homeserver behavior outside the dedup window, or manual replay.
 
 ## 12A. Operational Resilience
 
@@ -581,7 +581,7 @@ Outbound `deliver()` calls have built-in retry for transient send failures:
 
 On each retry, the adapter waits with exponential backoff before reattempting. If all 3 attempts fail, the delivery fails and the error is returned to the caller.
 
-**Duplicate risk**: Because the homeserver may have accepted the message on an earlier attempt but the response was lost, a successful retry can produce a duplicate event in the room. There is no transaction ID deduplication in the alpha. Operators should be aware of this during network instability.
+**Duplicate risk**: Because the homeserver may have accepted the message on an earlier attempt but the response was lost, a successful retry can produce a duplicate event in the room. Matrix delivery now uses a stable per-delivery tx_id so homeservers deduplicate repeated retry attempts within the Matrix transaction-ID window. This reduces duplicate visible messages when a retry follows a lost response, but it is not exactly-once delivery. Duplicates are still possible across process restarts, changed delivery identity, homeserver behavior outside the dedup window, or manual replay.
 
 Delivery diagnostics are available: `delivery_attempts`, `delivery_successes`, `delivery_failures` track cumulative counters since adapter start.
 
@@ -847,7 +847,7 @@ The adapter tried to recover from a transient error but used all its reconnect a
 
 This is a known trade-off of the delivery retry mechanism (see section 12A.4). The first send attempt may have succeeded at the homeserver, but the response was lost. The retry produces a duplicate.
 
-Mitigation: monitor rooms for duplicates during network instability. There is no deduplication mechanism in the alpha. This is a known limitation, not a bug.
+Mitigation: monitor rooms for duplicates during network instability. Matrix delivery now uses a stable per-delivery tx_id so homeservers deduplicate repeated retry attempts within the Matrix transaction-ID window. This reduces but does not eliminate duplicates — duplicates are still possible across process restarts, changed delivery identity, homeserver behavior outside the dedup window, or manual replay.
 
 ### 14.22 `crypto_store_loaded` is `False` after restart with `.[matrix-e2e]`
 

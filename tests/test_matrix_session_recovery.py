@@ -17,14 +17,12 @@ from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.errors import MatrixConnectionError, MatrixSendError
 from medre.adapters.matrix.session import MatrixSession
 from medre.core.contracts.adapter import AdapterPermanentError, AdapterSendError
-
 from tests.helpers.matrix_session import (
     fast_sleep_patch,
     make_matrix_config,
     make_matrix_context,
-    mock_nio,  # noqa: F401
 )
-
+from tests.helpers.matrix_session import mock_nio as _mock_nio  # noqa: F401
 
 # ===================================================================
 # TestSyncFailureLogging
@@ -714,7 +712,8 @@ class TestDeliveryRetry:
 
             assert call_count == 3
             assert adapter._transient_delivery_failures == 3
-            assert adapter._permanent_delivery_failures >= 1
+            # Exhausted transient retries must NOT increment permanent counter
+            assert adapter._permanent_delivery_failures == 0
         finally:
             await adapter.stop()
 
