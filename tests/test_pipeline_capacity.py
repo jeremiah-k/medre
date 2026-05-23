@@ -102,14 +102,17 @@ class TestCapacityRejectionTaxonomy:
             assert outcomes[0].receipt is not None
             assert outcomes[0].receipt.status == "suppressed"
             assert outcomes[0].receipt.failure_kind == "capacity_rejection"
-            receipt_rows = await temp_storage._read_all(
-                "SELECT * FROM delivery_receipts WHERE event_id = ?",
-                ("cap-001",),
-            )
+            receipts = await temp_storage.list_receipts_for_event("cap-001")
             assert (
-                len(receipt_rows) >= 1
+                len(receipts) >= 1
             ), "capacity rejection must persist a suppressed delivery receipt"
-            assert receipt_rows[0]["status"] == "suppressed"
+            suppressed = [
+                r for r in receipts
+                if r.status == "suppressed" and r.failure_kind == "capacity_rejection"
+            ]
+            assert len(suppressed) >= 1, (
+                "expected at least one suppressed capacity_rejection receipt"
+            )
 
             # Accounting: capacity_rejections incremented.
             assert accounting.counters().capacity_rejections == 1
@@ -164,14 +167,17 @@ class TestCapacityRejectionTaxonomy:
             assert outcomes[0].receipt is not None
             assert outcomes[0].receipt.status == "suppressed"
             assert outcomes[0].receipt.failure_kind == "shutdown_rejection"
-            receipt_rows = await temp_storage._read_all(
-                "SELECT * FROM delivery_receipts WHERE event_id = ?",
-                ("shutdown-001",),
-            )
+            receipts = await temp_storage.list_receipts_for_event("shutdown-001")
             assert (
-                len(receipt_rows) >= 1
+                len(receipts) >= 1
             ), "shutdown rejection must persist a suppressed delivery receipt"
-            assert receipt_rows[0]["status"] == "suppressed"
+            suppressed = [
+                r for r in receipts
+                if r.status == "suppressed" and r.failure_kind == "shutdown_rejection"
+            ]
+            assert len(suppressed) >= 1, (
+                "expected at least one suppressed shutdown_rejection receipt"
+            )
 
             # Accounting: capacity_rejections incremented.
             assert accounting.counters().capacity_rejections == 1
@@ -258,15 +264,17 @@ class TestCapacityRejectionGoldenFlow:
             assert receipt.attempt_number == 1
 
             # ---- Phase 3: Storage has suppressed receipt ----
-            receipt_rows = await temp_storage._read_all(
-                "SELECT * FROM delivery_receipts WHERE event_id = ?",
-                (event_id,),
-            )
-            assert len(receipt_rows) >= 1, (
+            receipts = await temp_storage.list_receipts_for_event(event_id)
+            assert len(receipts) >= 1, (
                 "capacity rejection must persist a suppressed delivery receipt"
             )
-            assert receipt_rows[0]["status"] == "suppressed"
-            assert receipt_rows[0]["failure_kind"] == "capacity_rejection"
+            suppressed = [
+                r for r in receipts
+                if r.status == "suppressed" and r.failure_kind == "capacity_rejection"
+            ]
+            assert len(suppressed) >= 1, (
+                "expected at least one suppressed capacity_rejection receipt"
+            )
 
             # ---- Phase 4: Evidence incident_summary ----
             db_path = temp_storage._db_path
