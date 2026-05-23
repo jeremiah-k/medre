@@ -391,9 +391,9 @@ class FakeMeshtasticAdapter(AdapterContract):
             )
 
         classification = self._classifier.classify(packet)
-        if classification["category"] != "text":
+        if classification.category != "text":
             return
-        if classification["is_ack"]:
+        if classification.is_ack:
             return
 
         canonical = self._codec.decode(packet)

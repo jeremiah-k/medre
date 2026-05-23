@@ -383,7 +383,7 @@ class MeshtasticPacketClassifier:
             action = "deferred"
             reason = "plugin_only packets are deferred"
         # 9. Empty text
-        elif is_text and not text_content.strip():
+        elif is_text and (not isinstance(text_content, str) or not text_content.strip()):
             action = "ignore"
             reason = "empty text"
         # 10. Text message (relay)
@@ -395,7 +395,7 @@ class MeshtasticPacketClassifier:
             action = "deferred"
             reason = "unclassified packet"
 
-        routeable = is_text and not is_ack and not is_direct
+        routeable = is_text and not is_ack and not is_direct and not is_encrypted
 
         return ClassificationResult(
             action=action,
