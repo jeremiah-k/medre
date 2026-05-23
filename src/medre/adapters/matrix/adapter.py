@@ -79,7 +79,7 @@ def _is_transient_error(exc: BaseException) -> bool:
     """Classify an exception as transient (retry-able) or permanent.
 
     Network-level errors from nio / aiohttp are considered transient.
-    Internal rate-limit sentinals are transient.
+    Internal rate-limit sentinels are transient.
     ``asyncio.TimeoutError``, ``TimeoutError``, ``OSError``,
     ``ConnectionError``, and ``aiohttp.ClientError`` subclasses are
     all transient.
@@ -149,7 +149,7 @@ def _is_nio_permanent_response(response: Any) -> bool:
     if hasattr(response, "event_id"):
         return False
     errcode = str(getattr(response, "errcode", "") or "").upper()
-    if errcode in ("M_FORBIDDEN", "M_NOT_FOUND", "M_UNKNOWN"):
+    if errcode in ("M_FORBIDDEN", "M_NOT_FOUND", "M_UNKNOWN", "M_UNAUTHORIZED", "M_UNKNOWN_TOKEN", "M_USER_DEACTIVATED", "M_BAD_JSON", "M_NOT_JSON", "M_INVALID_PARAM"):
         return True
     msg = str(response).upper()
     if "NOT_FOUND" in msg or "FORBIDDEN" in msg:
@@ -523,8 +523,12 @@ class MatrixAdapter(AdapterContract):
         Non-transient errors raise immediately without retry.
 
         .. note::
-            Retry may cause duplicate messages if the first attempt
-            succeeded on the server but the response was lost.
+            A deterministic transaction ID (tx_id) is computed once per
+            delivery and reused across retries, allowing the homeserver
+            to deduplicate within its transaction-ID window.  This
+            reduces but does not eliminate duplicate events — duplicates
+            are still possible across restarts, replay, changed delivery
+            identity, or outside the dedup window.
 
         Parameters
         ----------

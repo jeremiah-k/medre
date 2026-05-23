@@ -105,7 +105,7 @@ cross-transport orchestration.
 
 - Matrix assigns event IDs server-side. Two sends of the same content produce
   two different events with two different event IDs.
-- MEDRE does not implement a transaction ID for idempotent sends.
+- MEDRE now implements a deterministic transaction ID (tx_id) for Matrix room_send calls. This reduces duplicate events within the homeserver's transaction-ID dedup window. Duplicate risk remains nonzero across restarts, replay, changed delivery identity, or outside the homeserver window.
 - Under timeout/retry, a message may be duplicated (same content, different event_id).
 - The sync loop will echo back the sent message, but MEDRE's self-message
   suppression removes own messages by sender match.
