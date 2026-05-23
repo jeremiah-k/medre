@@ -246,10 +246,14 @@ def _register_adapter_renderers(
         # adapter_kind="fake" where rtc.config is None), synthesize defaults
         # so the renderer is registered and target-aware rendering works.
         if not meshtastic_configs and config.adapters.meshtastic:
-            from medre.config.adapters.meshtastic import MeshtasticConfig  # lazy import
+            import importlib
 
+            _meshtastic_mod = importlib.import_module(
+                "medre.config.adapters.meshtastic"
+            )
+            _MConfig = _meshtastic_mod.MeshtasticConfig
             for adapter_id in config.adapters.meshtastic:
-                meshtastic_configs[adapter_id] = MeshtasticConfig(
+                meshtastic_configs[adapter_id] = _MConfig(
                     adapter_id=adapter_id,
                     radio_relay_prefix="",
                 )
