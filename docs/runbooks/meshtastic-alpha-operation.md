@@ -727,7 +727,7 @@ This is an honest list. Everything here is real.
 
 5. **Text packets only.** The adapter classifies all inbound packets but only processes `text` category packets. Telemetry, position, nodeinfo, admin, and other portnum types are silently dropped.
 
-6. **No backlog suppression.** When the adapter starts, it may receive a burst of queued packets from the node. There is a `startup_backlog_suppress_seconds` config field (default 5.0s) but it is not wired to filtering logic in the current adapter. Backlog packets are processed like any other packet.
+6. **Startup backlog suppression is best-effort, session-scoped.** When the adapter starts, it may receive a burst of queued packets from the node. `startup_backlog_suppress_seconds` (default 5.0s) is wired to ingress pre-decode stale packet suppression using the packet's `rxTime` field where available. Packets whose `rxTime` predates the adapter's startup window are suppressed before canonical event creation. This is **not** cryptographic replay prevention, not durable across restarts, not distributed dedup, and not exactly-once delivery. Missing or malformed timestamps are passed through conservatively (no fake precision injected). Suppressed packets do not create canonical events or delivery/evidence receipts. Suppression counters are in-memory diagnostics only, reset on process restart.
 
 7. **No dedicated runner.** There is no Meshtastic-specific runner. Adapter wiring is manual (see section 5.2).
 
@@ -958,21 +958,21 @@ are deferred behind runtime guards. Fake mode should never trigger a top-level
 
 The following features are not supported in alpha mode. Do not attempt to use them. They are listed here so you do not have to wonder.
 
-| Feature                      | Status                               | Notes                                                                     |
-| ---------------------------- | ------------------------------------ | ------------------------------------------------------------------------- |
-| Automatic reconnection       | Not implemented                      | See section 12                                                            |
-| Outbound retry               | Not implemented                      | Failed sends are permanently dropped                                      |
-| ACK / delivery confirmation  | Not implemented                      | `wantAck` is not set                                                      |
-| Telemetry decoding           | Not supported                        | Telemetry packets are classified but silently dropped                     |
-| Position / GPS decoding      | Not supported                        | Position packets are classified but silently dropped                      |
-| Node database caching        | Not supported                        | Node info packets are classified but silently dropped                     |
-| Admin API                    | Not supported                        | Admin packets are classified but silently dropped                         |
-| End-to-end encryption        | Not supported                        | Meshtastic encrypted channels are not handled                             |
-| Multi-node mesh testing      | Not tested                           | Alpha has only been validated with a single node                          |
-| BLE connectivity             | Documented only                      | BLE is a config option but not validated in alpha                         |
-| Backlog suppression          | Config field exists, not wired       | `startup_backlog_suppress_seconds` is accepted but not used for filtering |
-| Store-and-forward            | Not supported                        | No message persistence across restarts                                    |
-| Rate limiting / flow control | Not implemented                      | Only basic pacing via `message_delay_seconds`                             |
-| Transmit guard               | Implemented (`MESHTASTIC_LIVE_SEND`) | RF transmission gated by env var; connect/health allowed without it       |
-| Non-Meshtastic transports    | Not in scope                         | This runbook covers Meshtastic only                                       |
-| Multi-transport bridging     | Not in scope                         | No bridge between Meshtastic and other transports                         |
+| Feature                      | Status                                    | Notes                                                                                                                                                                         |
+| ---------------------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Automatic reconnection       | Not implemented                           | See section 12                                                                                                                                                                |
+| Outbound retry               | Not implemented                           | Failed sends are permanently dropped                                                                                                                                          |
+| ACK / delivery confirmation  | Not implemented                           | `wantAck` is not set                                                                                                                                                          |
+| Telemetry decoding           | Not supported                             | Telemetry packets are classified but silently dropped                                                                                                                         |
+| Position / GPS decoding      | Not supported                             | Position packets are classified but silently dropped                                                                                                                          |
+| Node database caching        | Not supported                             | Node info packets are classified but silently dropped                                                                                                                         |
+| Admin API                    | Not supported                             | Admin packets are classified but silently dropped                                                                                                                             |
+| End-to-end encryption        | Not supported                             | Meshtastic encrypted channels are not handled                                                                                                                                 |
+| Multi-node mesh testing      | Not tested                                | Alpha has only been validated with a single node                                                                                                                              |
+| BLE connectivity             | Documented only                           | BLE is a config option but not validated in alpha                                                                                                                             |
+| Backlog suppression          | Implemented (best-effort, session-scoped) | `startup_backlog_suppress_seconds` wired to ingress pre-decode stale packet suppression via `rxTime`. Not durable, not exactly-once, not cryptographic. See section 13 item 6 |
+| Store-and-forward            | Not supported                             | No message persistence across restarts                                                                                                                                        |
+| Rate limiting / flow control | Not implemented                           | Only basic pacing via `message_delay_seconds`                                                                                                                                 |
+| Transmit guard               | Implemented (`MESHTASTIC_LIVE_SEND`)      | RF transmission gated by env var; connect/health allowed without it                                                                                                           |
+| Non-Meshtastic transports    | Not in scope                              | This runbook covers Meshtastic only                                                                                                                                           |
+| Multi-transport bridging     | Not in scope                              | No bridge between Meshtastic and other transports                                                                                                                             |

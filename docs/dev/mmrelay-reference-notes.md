@@ -94,9 +94,11 @@ the current tranche; the adapter always attempts delivery.
 
 MMRelay drops packets received within `STARTUP_PACKET_DRAIN_SECS` of
 the first process-lifetime connect. It also drops packets whose
-`rxTime < RELAY_START_TIME` (adjusted for clock skew). MEDRE has a
-`startup_backlog_suppress_seconds` config field but does not wire it
-to filtering logic yet.
+`rxTime < RELAY_START_TIME` (adjusted for clock skew). MEDRE
+implements startup backlog suppression: the Meshtastic adapter delegates
+rxTime extraction and cutoff comparison to the shared utility
+`medre.core.policies.startup_backlog_suppress`, controlled by the
+`startup_backlog_suppress_seconds` config field.
 
 ## Packet classification: RELAY / PLUGIN_ONLY / DROP
 

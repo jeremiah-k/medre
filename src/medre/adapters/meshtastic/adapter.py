@@ -58,6 +58,8 @@ external dependencies.
 from __future__ import annotations
 
 import asyncio
+import time
+from datetime import datetime, timezone
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
@@ -92,6 +94,10 @@ from medre.core.contracts.adapter import (
     AdapterRole,
     AdapterSendError,
     OutboundNativeRefRecord,
+)
+from medre.core.policies.startup_backlog_suppress import (
+    extract_meshtastic_rx_time,
+    should_suppress_startup_backlog,
 )
 from medre.core.rendering.renderer import RenderingResult
 
@@ -175,6 +181,11 @@ class MeshtasticAdapter(AdapterContract):
         self._classifier_packets_unknown_portnum_deferred: int = 0
         self._inbound_published: int = 0
 
+        # Startup backlog suppression
+        self._adapter_start_epoch: float | None = None
+        self._startup_backlog_packets_seen: int = 0
+        self._startup_backlog_packets_suppressed: int = 0
+
     # -- Lifecycle ----------------------------------------------------------
 
     async def start(self, ctx: AdapterContext) -> None:
@@ -197,6 +208,7 @@ class MeshtasticAdapter(AdapterContract):
 
         self.ctx = ctx
         self._mark_started(ctx)
+        self._adapter_start_epoch = time.time()
 
         # Create session and delegate lifecycle
         self._session = MeshtasticSession(
@@ -470,6 +482,60 @@ class MeshtasticAdapter(AdapterContract):
                 classification.from_id,
             )
 
+    def _check_startup_backlog_suppress(
+        self, packet: dict[str, Any], packet_id: Any
+    ) -> bool:
+        """Check whether a relay-classified packet should be suppressed as stale backlog.
+
+        Delegates ``rxTime`` extraction to
+        :func:`~medre.core.policies.startup_backlog_suppress.extract_meshtastic_rx_time`
+        and the suppression decision to
+        :func:`~medre.core.policies.startup_backlog_suppress.should_suppress_startup_backlog`.
+
+        Returns ``True`` when the packet's ``rxTime`` predates
+        ``adapter_start_epoch - startup_backlog_suppress_seconds``.
+
+        Conservative: missing, ``None``, or non-numeric ``rxTime`` are **not**
+        suppressed.  A suppression window of ``0`` disables suppression entirely.
+
+        Parameters
+        ----------
+        packet:
+            Raw Meshtastic packet dict (must contain top-level ``rxTime``).
+        packet_id:
+            The packet ID for safe logging.
+
+        Returns
+        -------
+        bool
+            ``True`` if the packet should be suppressed; ``False`` otherwise.
+        """
+        window = self._config.startup_backlog_suppress_seconds
+        if window <= 0 or self._adapter_start_epoch is None:
+            return False
+
+        packet_time = extract_meshtastic_rx_time(packet)
+        adapter_start = datetime.fromtimestamp(
+            self._adapter_start_epoch, tz=timezone.utc
+        )
+
+        if should_suppress_startup_backlog(packet_time, adapter_start, float(window)):
+            if self.ctx is not None:
+                cutoff = self._adapter_start_epoch - float(window)
+                self.ctx.logger.debug(
+                    "MeshtasticAdapter %s: startup backlog suppressed "
+                    "transport=meshtastic packet_id=%s rxTime=%s cutoff=%s "
+                    "window=%s",
+                    self.adapter_id,
+                    packet_id,
+                    packet.get("rxTime"),
+                    cutoff,
+                    window,
+                )
+            return True
+
+        return False
+
     def _on_packet(self, packet: dict[str, Any]) -> None:
         """Process an inbound Meshtastic packet.
 
@@ -491,6 +557,12 @@ class MeshtasticAdapter(AdapterContract):
 
             # Only relay packets proceed to decode and publish
             if classification.action != "relay":
+                return
+
+            # Startup backlog suppression gate
+            self._startup_backlog_packets_seen += 1
+            if self._check_startup_backlog_suppress(packet, classification.packet_id):
+                self._startup_backlog_packets_suppressed += 1
                 return
 
             canonical = self._codec.decode(packet)
@@ -601,6 +673,12 @@ class MeshtasticAdapter(AdapterContract):
         if classification.action != "relay":
             return
 
+        # Startup backlog suppression gate
+        self._startup_backlog_packets_seen += 1
+        if self._check_startup_backlog_suppress(packet, classification.packet_id):
+            self._startup_backlog_packets_suppressed += 1
+            return
+
         canonical = self._codec.decode(packet)
         await self.publish_inbound(canonical)
         self._inbound_published += 1
@@ -649,6 +727,11 @@ class MeshtasticAdapter(AdapterContract):
             "classifier_packets_empty_text_ignored": self._classifier_packets_empty_text_ignored,
             "classifier_packets_unknown_portnum_deferred": self._classifier_packets_unknown_portnum_deferred,
             "inbound_published": self._inbound_published,
+            # Startup backlog suppression
+            "startup_backlog_packets_seen": self._startup_backlog_packets_seen,
+            "startup_backlog_packets_suppressed": self._startup_backlog_packets_suppressed,
+            "startup_backlog_suppress_seconds": self._config.startup_backlog_suppress_seconds,
+            "adapter_start_epoch": self._adapter_start_epoch,
         }
 
         if self._session is not None:

@@ -27,6 +27,8 @@ Usage
 from __future__ import annotations
 
 import logging
+import time
+from datetime import datetime, timezone
 from typing import Any
 
 from medre.adapters.meshtastic.codec import MeshtasticCodec
@@ -43,6 +45,10 @@ from medre.core.contracts.adapter import (
     AdapterSendError,
 )
 from medre.core.events.canonical import CanonicalEvent
+from medre.core.policies.startup_backlog_suppress import (
+    extract_meshtastic_rx_time,
+    should_suppress_startup_backlog,
+)
 from medre.core.rendering.renderer import RenderingResult
 
 _logger = logging.getLogger(__name__)
@@ -212,6 +218,9 @@ class FakeMeshtasticAdapter(AdapterContract):
         self._classifier = MeshtasticPacketClassifier(config)
         self._fake_client = FakeMeshtasticClient()
         self._deliver_failure: bool = False
+        self._adapter_start_epoch: float | None = None
+        self._startup_backlog_packets_seen: int = 0
+        self._startup_backlog_packets_suppressed: int = 0
         # Build per-config capabilities matching the real adapter pattern.
         self._capabilities = AdapterCapabilities(
             text=True,
@@ -251,6 +260,7 @@ class FakeMeshtasticAdapter(AdapterContract):
         self.ctx = ctx
         self._mark_started(ctx)
         self._started = True
+        self._adapter_start_epoch = time.time()
         ctx.logger.info("FakeMeshtasticAdapter %s started", self.adapter_id)
 
     async def stop(self, timeout: float = 5.0) -> None:
@@ -282,6 +292,10 @@ class FakeMeshtasticAdapter(AdapterContract):
             "mode": "fake",
             "delivered_count": len(self.delivered_payloads),
             "inbound_count": len(self.inbound_events),
+            "startup_backlog_packets_seen": self._startup_backlog_packets_seen,
+            "startup_backlog_packets_suppressed": self._startup_backlog_packets_suppressed,
+            "startup_backlog_suppress_seconds": self._config.startup_backlog_suppress_seconds,
+            "adapter_start_epoch": self._adapter_start_epoch,
         }
 
     # -- Outbound delivery --------------------------------------------------
@@ -372,7 +386,8 @@ class FakeMeshtasticAdapter(AdapterContract):
         """Simulate an inbound Meshtastic packet.
 
         Classifies, decodes, and publishes the packet through the same
-        path as a real inbound packet.
+        path as a real inbound packet.  Applies startup backlog suppression
+        using the same shared utilities as the real adapter.
 
         Parameters
         ----------
@@ -393,6 +408,20 @@ class FakeMeshtasticAdapter(AdapterContract):
         classification = self._classifier.classify(packet)
         if classification.action != "relay":
             return
+
+        # Startup backlog suppression gate (mirrors real adapter)
+        self._startup_backlog_packets_seen += 1
+        window = self._config.startup_backlog_suppress_seconds
+        if window > 0 and self._adapter_start_epoch is not None:
+            packet_time = extract_meshtastic_rx_time(packet)
+            adapter_start = datetime.fromtimestamp(
+                self._adapter_start_epoch, tz=timezone.utc
+            )
+            if should_suppress_startup_backlog(
+                packet_time, adapter_start, float(window)
+            ):
+                self._startup_backlog_packets_suppressed += 1
+                return
 
         canonical = self._codec.decode(packet)
         await self.publish_inbound(canonical)

@@ -11,18 +11,19 @@ This note compares them across the dimensions that matter for MEDRE's abstractio
 
 ## Comparison Table
 
-| Dimension       | Matrix                    | Meshtastic                              | MeshCore                        |
-| --------------- | ------------------------- | --------------------------------------- | ------------------------------- |
-| Role            | Presentation              | Transport/Radio                         | Transport/Radio                 |
-| Identity        | MXID (`@user:server.org`) | NodeNum (int) + fromId (str)            | Ed25519 pubkey (32B hex)        |
-| Channels        | Room ID string            | Channel index (0-7)                     | Channel index (0-7) + encrypted |
-| Message ID      | Event ID string           | Packet ID int                           | Sender timestamp int            |
-| Wire format     | JSON events               | Protobuf                                | Custom binary                   |
-| Reply mechanism | `m.in_reply_to`           | `replyId` int                           | None native                     |
-| Payload limit   | ~100 KB                   | ~227 bytes (configurable, target-aware) | 184 bytes                       |
-| Encryption      | Homeserver TLS            | Optional per-packet                     | Always-on E2EE                  |
-| ACK model       | Sync `/sync` confirm      | Async ROUTING_APP                       | Async ACK event + CRC           |
-| Send returns    | Event ID string           | MeshPacket protobuf                     | Event + expected_ack + timeout  |
+| Dimension                | Matrix                    | Meshtastic                              | MeshCore                        | LXMF                            |
+| ------------------------ | ------------------------- | --------------------------------------- | ------------------------------- | ------------------------------- |
+| Role                     | Presentation              | Transport/Radio                         | Transport/Radio                 | Transport/Radio                 |
+| Identity                 | MXID (`@user:server.org`) | NodeNum (int) + fromId (str)            | Ed25519 pubkey (32B hex)        | Reticulum LXMF destination hash |
+| Channels                 | Room ID string            | Channel index (0-7)                     | Channel index (0-7) + encrypted | Propagation node addressing     |
+| Message ID               | Event ID string           | Packet ID int                           | Sender timestamp int            | LXMF message hash               |
+| Wire format              | JSON events               | Protobuf                                | Custom binary                   | Reticulum binary                |
+| Reply mechanism          | `m.in_reply_to`           | `replyId` int                           | None native                     | None native                     |
+| Payload limit            | ~100 KB                   | ~227 bytes (configurable, target-aware) | 184 bytes                       | Variable (link-dependent)       |
+| Encryption               | Homeserver TLS            | Optional per-packet                     | Always-on E2EE                  | Reticulum link-layer            |
+| ACK model                | Sync `/sync` confirm      | Async ROUTING_APP                       | Async ACK event + CRC           | Link-level ACK                  |
+| Send returns             | Event ID string           | MeshPacket protobuf                     | Event + expected_ack + timeout  | Delivery status                 |
+| Startup backlog suppress | Excluded (sync semantics) | Implemented (rxTime-based, best-effort) | Deferred (no backlog)           | Deferred                        |
 
 ## Identity and Addressing
 
@@ -95,6 +96,20 @@ MEDRE doesn't track delivery confirmation in tranche 1. When it does, the abstra
 ## Direct Message Semantics
 
 `direct_messages=False` in MeshCore's adapter capabilities means MEDRE does not model explicit outbound DM targeting. It does not mean the transport cannot relay inbound PRIV (private) packets. The MeshCore packet classifier tags PRIV packets with `is_direct_message=True` and relays them through the same pipeline as channel messages. This is relay, not DM initiation. Future contributors should not "fix" the apparent contradiction by blocking PRIV relay or toggling `direct_messages` to `True` without understanding this distinction. Inline notes in `adapter.py` (near `_MESHCORE_CAPS_BASE`) and `packet_classifier.py` (near the DM TODO) reinforce this.
+
+## Startup Backlog Suppression Semantics
+
+When a constrained transport adapter starts, it may receive a burst of packets that accumulated before the adapter connected. Startup backlog suppression is a best-effort mechanism to drop stale packets from this initial flood. It is timestamp-based, session-scoped, and in-memory only. It is **not** cryptographic replay prevention, not durable across restarts, not distributed dedup, and not exactly-once delivery.
+
+The four transports differ significantly in whether suppression is possible or appropriate:
+
+**Meshtastic: implemented (first-class, best-effort).** The adapter wires `startup_backlog_suppress_seconds` (default 5.0s) to ingress pre-decode stale packet suppression using the packet's `rxTime` field where available. Packets whose `rxTime` predates the adapter's startup window are suppressed before canonical event creation. Missing or malformed timestamps are passed through conservatively (no fake precision injected). Suppressed packets do not create canonical events or delivery/evidence receipts. Suppression counters are in-memory diagnostics only, reset on process restart.
+
+**MeshCore: deferred (not implemented).** MeshCore has no message history, no store-and-forward, and no initial sync. When the adapter connects, events arrive live from the SDK's event dispatcher; there is no backlog to suppress. The `sender_timestamp` field is sender-side and unverified. Attempting timestamp-based suppression on live events would risk dropping fresh packets, not stale ones. If MeshCore later gains store-and-forward or an initial backlog sync mechanism, this decision should be revisited.
+
+**Matrix: excluded.** Matrix uses a separate sync model (`/sync` with tokens). Backlog handling is governed by the homeserver's sync semantics and the client's sync token, not by a startup suppression window. Matrix does not need startup backlog suppression because the sync protocol already handles message ordering and gap detection.
+
+**LXMF: deferred.** LXMF/Reticulum does not provide reliable receive-time timestamps in a form suitable for backlog suppression. No equivalent `startup_backlog_suppress_seconds` config field is currently present or wired in the LXMF adapter. Implementation is deferred until LXMF's delivery and timestamp semantics are better understood through live testing.
 
 ## Conclusions
 
