@@ -84,34 +84,39 @@ def _derive_failure_kind_detail(
 
     Patterns:
 
-    * ``"e2ee_blocked"`` — Matrix encrypted / E2EE decryption or
-      blocking errors.
-    * ``"meshtastic_queue_rejected"`` — Meshtastic adapter queue-full
-      or rejection errors.
+    * ``"e2ee_blocked"`` — Matrix E2EE decryption or blocking errors
+      (Matrix-specific patterns only; generic "encrypted" alone does
+      not match).
+    * ``"meshtastic_queue_rejected"`` — Queue-full or enqueue-rejected
+      error patterns (detected from error text alone; no requirement
+      for "meshtastic" in adapter ID or error text).
     * Otherwise — same as ``failure_kind``.
     """
     if not failure_kind:
         return None
     err = (error or "").lower()
     # E2EE / encrypted blocking (Matrix adapters).
+    # Tightened to Matrix-specific patterns only — generic "encrypted"
+    # alone is insufficient (e.g. "encrypted packet" is not E2EE).
     if any(
         s in err
         for s in (
             "e2ee",
-            "encrypted",
             "megolm",
             "olm session",
             "unable to decrypt",
+            "crypto is not active",
+            "matrix room is encrypted",
+            "room is encrypted but e2ee",
         )
     ):
         return "e2ee_blocked"
-    # Meshtastic queue-full / rejection — detect from error text rather
-    # than target_adapter so adapters with non-standard IDs (e.g.
-    # radio/mesh/test-full) are still recognised.  Conservative guard:
-    # "meshtastic" must appear in the error text itself.
-    if "meshtastic" in err:
-        if ("queue" in err and "full" in err) or "enqueue rejected" in err:
-            return "meshtastic_queue_rejected"
+    # Meshtastic queue-full / rejection — detect from error text alone.
+    # No requirement for "meshtastic" in error or target_adapter so
+    # adapters with non-standard IDs (e.g. radio/mesh/test-full) are
+    # still recognised.
+    if ("queue" in err and "full" in err) or "enqueue rejected" in err:
+        return "meshtastic_queue_rejected"
     # Default: preserve the original failure_kind.
     return failure_kind
 

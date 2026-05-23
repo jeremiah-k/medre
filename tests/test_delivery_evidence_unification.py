@@ -307,9 +307,15 @@ class TestDeriveFailureKindDetail:
       containing "meshtastic" → ``"meshtastic_queue_rejected"``.
     * Meshtastic queue error with adapter name "radio" (config alias) →
       ``"meshtastic_queue_rejected"`` (error text is authoritative).
+    * Meshtastic queue error with no "meshtastic" in error text
+      (e.g. "queue is full; enqueue rejected") → still detected.
     * Unrelated error where neither ``queue+full`` nor ``enqueue rejected``
       are present → original ``failure_kind``.
     * No ``failure_kind`` at all → ``None``.
+    * E2EE: Matrix-specific patterns (e2ee, megolm, olm session, etc.)
+      → ``"e2ee_blocked"``.
+    * E2EE: generic "encrypted packet" does NOT match → original
+      ``failure_kind``.
     """
 
     def test_meshtastic_adapter_queue_full_rejected(self) -> None:
@@ -393,6 +399,137 @@ class TestDeriveFailureKindDetail:
         receipt = _make_receipt(status="sent")
         report = delivery_receipt_to_report_dict(receipt)
         assert report["failure_kind_detail"] is None
+
+    # -- Meshtastic queue: error-pattern-based (no "meshtastic" required) --
+
+    def test_radio_adapter_queue_full_enqueue_rejected(self) -> None:
+        """target_adapter='radio' with queue-full enqueue-rejected error
+        (no 'meshtastic' in text) → meshtastic_queue_rejected."""
+        receipt = _make_receipt(
+            status="failed",
+            failure_kind="adapter_transient",
+            error="queue is full; enqueue rejected (1/1)",
+        )
+        receipt = DeliveryReceipt(
+            receipt_id=receipt.receipt_id,
+            event_id=receipt.event_id,
+            delivery_plan_id=receipt.delivery_plan_id,
+            target_adapter="radio",
+            target_channel="ch-0",
+            route_id=receipt.route_id,
+            status="failed",
+            failure_kind="adapter_transient",
+            error="queue is full; enqueue rejected (1/1)",
+            attempt_number=1,
+            created_at=receipt.created_at,
+        )
+        report = delivery_receipt_to_report_dict(receipt)
+        assert report["failure_kind_detail"] == "meshtastic_queue_rejected"
+
+    def test_radio_adapter_explicit_meshtastic_queue_error(self) -> None:
+        """target_adapter='radio' with explicit Meshtastic queue-full error
+        → meshtastic_queue_rejected."""
+        receipt = _make_receipt(
+            status="failed",
+            failure_kind="adapter_transient",
+            error="Meshtastic outbound queue is full; enqueue rejected (1/1)",
+        )
+        receipt = DeliveryReceipt(
+            receipt_id=receipt.receipt_id,
+            event_id=receipt.event_id,
+            delivery_plan_id=receipt.delivery_plan_id,
+            target_adapter="radio",
+            target_channel="ch-0",
+            route_id=receipt.route_id,
+            status="failed",
+            failure_kind="adapter_transient",
+            error="Meshtastic outbound queue is full; enqueue rejected (1/1)",
+            attempt_number=1,
+            created_at=receipt.created_at,
+        )
+        report = delivery_receipt_to_report_dict(receipt)
+        assert report["failure_kind_detail"] == "meshtastic_queue_rejected"
+
+    def test_unrelated_queue_depth_preserves_failure_kind(self) -> None:
+        """Error 'queue depth warning' without queue+full or enqueue-rejected
+        preserves original failure_kind."""
+        receipt = _make_receipt(
+            status="failed",
+            failure_kind="adapter_transient",
+            error="queue depth warning",
+        )
+        receipt = DeliveryReceipt(
+            receipt_id=receipt.receipt_id,
+            event_id=receipt.event_id,
+            delivery_plan_id=receipt.delivery_plan_id,
+            target_adapter="radio",
+            target_channel="ch-0",
+            route_id=receipt.route_id,
+            status="failed",
+            failure_kind="adapter_transient",
+            error="queue depth warning",
+            attempt_number=1,
+            created_at=receipt.created_at,
+        )
+        report = delivery_receipt_to_report_dict(receipt)
+        assert report["failure_kind_detail"] == "adapter_transient"
+
+    def test_unrelated_full_payload_preserves_failure_kind(self) -> None:
+        """Error 'full payload received' without queue+full or enqueue-rejected
+        preserves original failure_kind."""
+        receipt = _make_receipt(
+            status="failed",
+            failure_kind="adapter_transient",
+            error="full payload received",
+        )
+        receipt = DeliveryReceipt(
+            receipt_id=receipt.receipt_id,
+            event_id=receipt.event_id,
+            delivery_plan_id=receipt.delivery_plan_id,
+            target_adapter="radio",
+            target_channel="ch-0",
+            route_id=receipt.route_id,
+            status="failed",
+            failure_kind="adapter_transient",
+            error="full payload received",
+            attempt_number=1,
+            created_at=receipt.created_at,
+        )
+        report = delivery_receipt_to_report_dict(receipt)
+        assert report["failure_kind_detail"] == "adapter_transient"
+
+    # -- E2EE: tightened to Matrix-specific patterns --
+
+    def test_e2ee_matrix_room_encrypted_crypto_not_active(self) -> None:
+        """Matrix-specific E2EE error → e2ee_blocked."""
+        receipt = _make_receipt(
+            status="failed",
+            failure_kind="adapter_permanent",
+            error="Matrix room is encrypted but E2EE crypto is not active",
+        )
+        report = delivery_receipt_to_report_dict(receipt)
+        assert report["failure_kind_detail"] == "e2ee_blocked"
+
+    def test_e2ee_unable_to_decrypt_megolm(self) -> None:
+        """unable to decrypt megolm event → e2ee_blocked."""
+        receipt = _make_receipt(
+            status="failed",
+            failure_kind="adapter_permanent",
+            error="unable to decrypt megolm event",
+        )
+        report = delivery_receipt_to_report_dict(receipt)
+        assert report["failure_kind_detail"] == "e2ee_blocked"
+
+    def test_encrypted_packet_not_e2ee_blocked(self) -> None:
+        """Generic 'encrypted packet' does NOT match E2EE patterns →
+        preserves original failure_kind."""
+        receipt = _make_receipt(
+            status="failed",
+            failure_kind="adapter_transient",
+            error="encrypted packet",
+        )
+        report = delivery_receipt_to_report_dict(receipt)
+        assert report["failure_kind_detail"] == "adapter_transient"
 
 
 # ===================================================================
