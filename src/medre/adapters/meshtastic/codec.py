@@ -70,6 +70,12 @@ class MeshtasticCodec:
         ------
         MeshtasticCodecError
             If the packet is fundamentally unparseable.
+
+        Note
+        ----
+        The adapter is responsible for relay policy gating via
+        ClassificationResult.action.  The codec converts text-shaped packets
+        and may be used by tests/tools to inspect metadata.
         """
         if not isinstance(packet, dict):
             raise MeshtasticCodecError(

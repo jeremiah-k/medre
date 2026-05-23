@@ -11,19 +11,18 @@ Classification policy (conservative defaults):
 
 1. Encrypted packet → **drop** (``"encrypted packet"``)
 2. Malformed / no decoded payload → **drop** (``"malformed or missing decoded payload"``)
-3. Ack / admin / system → **ignore** (``"ack/admin/system message"``)
-4. Detection sensor → **deferred** (``"detection sensor packets are deferred"``)
+3. Detection sensor → **deferred** (``"detection sensor packets are deferred"``)
+4. Ack / admin → **ignore** (``"ack/admin/system message"``)
 5. Unknown / custom portnum → **deferred** (``"unknown or custom portnum"``)
 6. Telemetry / position / nodeinfo → **ignore** (``"non-chat message type"``)
 7. Direct message → **ignore** (``"direct message to specific node"``)
 8. Plugin-only → **deferred** (``"plugin_only packets are deferred"``)
-9. Text message (valid decoded text) → **relay** (``"text message"``)
-10. Empty text → **ignore** (``"empty text"``)
+9. Empty text → **ignore** (``"empty text"``)
+10. Text message (valid decoded text) → **relay** (``"text message"``)
 """
 
 from __future__ import annotations
 
-import dataclasses
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -322,7 +321,7 @@ class MeshtasticPacketClassifier:
 
         # --- Category determination ---
         is_ack = False
-        category = "unknown"
+        category: ClassificationCategory = "unknown"
         is_detection_sensor = False
         text_content: str = ""
 
@@ -384,7 +383,7 @@ class MeshtasticPacketClassifier:
             action = "ignore"
             reason = REASON_ACK_ADMIN
         # 5. Unknown / custom portnum
-        elif category == "unknown" and not is_text:
+        elif category == "unknown":
             action = "deferred"
             reason = REASON_UNKNOWN_PORTNUM
         # 6. Telemetry / position / nodeinfo

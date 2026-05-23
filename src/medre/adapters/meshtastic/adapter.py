@@ -396,7 +396,6 @@ class MeshtasticAdapter(AdapterContract):
         self._classifier_packets_seen += 1
 
         action = classification.action
-        reason = classification.reason
 
         # Action-level counter
         if action == "relay":

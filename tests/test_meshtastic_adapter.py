@@ -915,22 +915,24 @@ class TestMeshtasticAdapterClassifierCounters:
         adapter = MeshtasticAdapter(config)
         ctx = make_adapter_context("mesh-1")
         await adapter.start(ctx)
-
-        diag = adapter.diagnostics()
-        expected_keys = [
-            "classifier_packets_seen",
-            "classifier_packets_relayed",
-            "classifier_packets_ignored",
-            "classifier_packets_dropped",
-            "classifier_packets_deferred",
-            "classifier_packets_malformed",
-            "classifier_packets_encrypted_dropped",
-            "classifier_packets_detection_sensor_deferred",
-            "classifier_packets_dm_ignored",
-            "classifier_packets_empty_text_ignored",
-            "classifier_packets_unknown_portnum_deferred",
-            "inbound_published",
-        ]
-        for key in expected_keys:
-            assert key in diag, f"Missing key {key!r} in diagnostics"
-            assert isinstance(diag[key], int)
+        try:
+            diag = adapter.diagnostics()
+            expected_keys = [
+                "classifier_packets_seen",
+                "classifier_packets_relayed",
+                "classifier_packets_ignored",
+                "classifier_packets_dropped",
+                "classifier_packets_deferred",
+                "classifier_packets_malformed",
+                "classifier_packets_encrypted_dropped",
+                "classifier_packets_detection_sensor_deferred",
+                "classifier_packets_dm_ignored",
+                "classifier_packets_empty_text_ignored",
+                "classifier_packets_unknown_portnum_deferred",
+                "inbound_published",
+            ]
+            for key in expected_keys:
+                assert key in diag, f"Missing key {key!r} in diagnostics"
+                assert isinstance(diag[key], int)
+        finally:
+            await adapter.stop()
