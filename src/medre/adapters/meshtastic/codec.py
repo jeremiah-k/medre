@@ -16,7 +16,10 @@ from datetime import datetime, timezone
 from typing import Any
 
 from medre.adapters.meshtastic.errors import MeshtasticCodecError
-from medre.adapters.meshtastic.packet_classifier import MeshtasticPacketClassifier
+from medre.adapters.meshtastic.packet_classifier import (
+    ClassificationResult,
+    MeshtasticPacketClassifier,
+)
 from medre.adapters.meshtastic.packet_snapshot import snapshot_decoded, snapshot_packet
 from medre.core.events.canonical import CanonicalEvent, EventRelation, NativeRef
 from medre.core.events.kinds import EventKind
@@ -67,6 +70,12 @@ class MeshtasticCodec:
         ------
         MeshtasticCodecError
             If the packet is fundamentally unparseable.
+
+        Note
+        ----
+        The adapter is responsible for relay policy gating via
+        ClassificationResult.action.  The codec converts text-shaped packets
+        and may be used by tests/tools to inspect metadata.
         """
         if not isinstance(packet, dict):
             raise MeshtasticCodecError(
@@ -74,12 +83,11 @@ class MeshtasticCodec:
             )
 
         classification = self._classifier.classify(packet)
-        category = classification["category"]
-        if classification["is_ack"]:
+        if classification.is_ack:
             raise MeshtasticCodecError("ACK packets are not decodable as text events")
-        if category != "text":
+        if classification.category != "text":
             raise MeshtasticCodecError(
-                f"unsupported Meshtastic packet category for decode: {category!r}"
+                f"unsupported Meshtastic packet category for decode: {classification.category!r}"
             )
 
         decoded = packet.get("decoded", {})
@@ -91,11 +99,11 @@ class MeshtasticCodec:
         if text is None:
             text = ""
 
-        sender = classification["sender_id"] or ""
+        sender = classification.from_id or ""
         pkt_channel = (
             channel_index
             if channel_index is not None
-            else classification["channel_index"]
+            else classification.channel_index
         )
         # Fall back to the configured default channel when the packet
         # does not carry an explicit channel index.  Without this,
@@ -103,12 +111,12 @@ class MeshtasticCodec:
         # match routes that filter on source_channel (e.g. "0").
         if pkt_channel is None:
             pkt_channel = self._config.default_channel
-        pkt_id = classification["packet_id"]
-        portnum = classification["portnum"]
+        pkt_id = classification.packet_id
+        portnum = classification.portnum
 
         # Determine event kind: reaction vs plain message
-        is_reaction = classification["is_reaction"]
-        is_reply = classification["is_reply"]
+        is_reaction = classification.is_reaction
+        is_reply = classification.is_reply
         event_kind = EventKind.MESSAGE_CREATED
         if is_reaction:
             event_kind = EventKind.MESSAGE_REACTED
@@ -118,7 +126,7 @@ class MeshtasticCodec:
         if portnum:
             payload["portnum"] = portnum
         if is_reaction:
-            reaction_key = classification["reaction_key"] or "?"
+            reaction_key = classification.reaction_key or "?"
             payload["key"] = reaction_key
 
         # Source native ref from packet ID
@@ -132,8 +140,8 @@ class MeshtasticCodec:
 
         # Relations: reaction or reply from replyId / emoji
         relations: list[EventRelation] = []
-        reply_id = classification["reply_id"]
-        emoji_flag = classification["emoji_flag"]
+        reply_id = classification.reply_id
+        emoji_flag = classification.emoji_flag
         if reply_id is not None:
             relation_metadata: dict[str, object] = {
                 "meshtastic_reply_id": str(reply_id),
@@ -141,7 +149,7 @@ class MeshtasticCodec:
             if emoji_flag:
                 relation_metadata["meshtastic_emoji"] = 1
             if is_reaction:
-                reaction_key = classification["reaction_key"] or "?"
+                reaction_key = classification.reaction_key or "?"
                 relations.append(
                     EventRelation(
                         relation_type="reaction",
@@ -194,7 +202,7 @@ class MeshtasticCodec:
                 "channel": pkt_channel,
                 "portnum": str(portnum) if portnum else None,
                 "to_id": to_id,
-                "is_direct_message": classification["is_direct_message"],
+                "is_direct_message": classification.is_direct_message,
                 "longname": longname,
                 "shortname": shortname,
                 "reply_id": reply_id,
@@ -203,11 +211,16 @@ class MeshtasticCodec:
                 "packet": snapshot_packet(packet),
                 "decoded": snapshot_decoded(decoded),
                 "classification": {
-                    "category": classification["category"],
+                    "action": classification.action,
+                    "category": classification.category,
+                    "reason": classification.reason,
                     "is_reply": is_reply,
                     "is_reaction": is_reaction,
                     "emoji_flag": emoji_flag,
-                    "reaction_key": classification["reaction_key"],
+                    "reaction_key": classification.reaction_key,
+                    "is_encrypted": classification.is_encrypted,
+                    "is_detection_sensor": classification.is_detection_sensor,
+                    "routeable": classification.routeable,
                 },
             }
         )

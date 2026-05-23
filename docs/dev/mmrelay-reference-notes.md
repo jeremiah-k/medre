@@ -109,9 +109,10 @@ dispositions:
 - **DROP:** Ignored entirely (e.g., ACKs, telemetry the user opted out
   of).
 
-MEDRE's packet classifier uses a simpler category model (`text`,
-`ack`, `telemetry`, etc.) and drops everything except `text` in the
-current tranche.
+MEDRE's packet classifier uses a 4-action model (`relay`, `ignore`,
+`drop`, `deferred`) instead of MMRelay's 3-action `RELAY / PLUGIN_ONLY / DROP`
+model.  See the "Where MEDRE intentionally differs" section below for
+details.
 
 ## Matrix stable transaction-id retry
 
@@ -181,3 +182,105 @@ behavioral observations recorded here. Specifically:
   design.
 - **Route engine** and route configuration are MEDRE's routing layer.
 - **Evidence reports** and diagnostics are MEDRE's observability model.
+
+---
+
+## Packet classification lessons
+
+This section documents what MEDRE learned from studying MMRelay's packet
+classification model and how MEDRE's implementation differs intentionally.
+
+### MMRelay's 3-action model
+
+MMRelay classifies every inbound Meshtastic packet into one of three
+dispositions:
+
+- **RELAY:** Normal text message to be bridged to Matrix.
+- **PLUGIN_ONLY:** Handled by plugins but not relayed (e.g., detection
+  sensor data, encrypted packets).
+- **DROP:** Ignored entirely (e.g., ACKs, opted-out telemetry).
+
+### MMRelay's classification priority
+
+MMRelay evaluates packets in priority order:
+
+1. **Encrypted** → `PLUGIN_ONLY` by default (plugins may handle, relay skips).
+2. **Disabled message types** → `DROP` (user config opts out).
+3. **Chat-type overrides** → per-portnum config can force `RELAY` or `DROP`.
+4. **Type defaults** → each portnum has a built-in default (text=RELAY,
+   telemetry=DROP, detection_sensor=PLUGIN_ONLY, etc.).
+5. **Catch-all** → unknown types default to `DROP`.
+
+Key behaviors:
+
+- **Encrypted packets** default to `PLUGIN_ONLY`.  Plugins may decrypt
+  and handle them, but the relay core does not attempt decryption.
+- **Detection sensor** packets default to `PLUGIN_ONLY` if plugins are
+  loaded; otherwise `DROP`.  When `detection_sensor_enabled=True` in
+  MMRelay config, they become `RELAY`.
+- **DM (direct messages)** are not relayed by default in MMRelay.  Plugins
+  see DMs first and may relay them, but the core relay skips them.
+- **Channel mapping** is the final gate: even a `RELAY` packet is dropped
+  if no Matrix channel is mapped for the packet's Meshtastic channel
+  index.
+
+### Startup stale/backlog/clock-skew suppression
+
+MMRelay drops packets received within `STARTUP_PACKET_DRAIN_SECS` of the
+first process-lifetime connect.  It also drops packets whose `rxTime` is
+older than `RELAY_START_TIME` (adjusted for clock skew between the radio
+and the host).  This prevents relaying stale backlog that accumulated
+while the relay was offline.
+
+### Where MEDRE intentionally differs
+
+MEDRE uses a **4-action model** instead of MMRelay's 3-action model:
+
+| Action     | Meaning                                              |
+|------------|------------------------------------------------------|
+| `relay`    | Text message proceeds to decode and publish          |
+| `ignore`   | Packet is skipped with no side effects               |
+| `drop`     | Packet is rejected (malformed, encrypted)            |
+| `deferred` | Packet is set aside for future handling (plugins)    |
+
+Key differences:
+
+1. **`deferred` action**: MMRelay's `PLUGIN_ONLY` maps roughly to
+   MEDRE's `deferred`.     MEDRE does not have a plugin system yet, so
+   deferred packets are counted and logged but not processed.  If
+   MEDRE later adds a plugin/extension path, deferred packets will
+   be the entry point.
+
+2. **Encrypted packets → `drop`**: MMRelay treats encrypted as
+   `PLUGIN_ONLY` (plugins may decrypt).  MEDRE conservatively drops
+   encrypted packets because there is no decryption infrastructure yet.
+   This may change to `deferred` when a decryption plugin exists.
+
+3. **Detection sensor → `deferred`**: MMRelay relays detection sensor
+   data when enabled.  MEDRE defers all detection sensor packets because
+   there is no handler for them yet.
+
+4. **Unknown portnums → `deferred`**: MMRelay drops unknown types.
+   MEDRE defers them so future handlers can pick them up without
+   classifier changes.
+
+5. **Explicit reason strings**: Every MEDRE classification includes a
+   human-readable `reason` string explaining the decision.  This supports
+   structured logging and diagnostics without string-matching on
+   category names.
+
+6. **Inbound evidence counters**: MEDRE tracks per-action and per-reason
+   counters in the adapter (seen, relayed, ignored, dropped, deferred,
+   malformed, encrypted, detection_sensor, DM, empty_text, unknown_portnum).
+   These are exposed via `diagnostics()` for observability without
+   external tools.  MMRelay does not expose equivalent counters.
+
+7. **`ClassificationResult` dataclass**: MEDRE returns a frozen dataclass
+   from the classifier instead of a dict.  The dataclass carries action,
+   category, reason, and all metadata fields in a typed, immutable
+   structure.  MMRelay uses dicts throughout.
+
+8. **No policy DSL**: MEDRE does not implement MMRelay's per-portnum
+   config overrides or chat-type config DSL.  Classification policy is
+   coded directly in the classifier decision tree.  A policy DSL may be
+   added in a future tranche.

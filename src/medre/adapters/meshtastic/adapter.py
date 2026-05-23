@@ -45,6 +45,14 @@ The adapter delegates raw transport lifecycle to
 :class:`~medre.adapters.meshtastic.session.MeshtasticSession`.
 The session owns the raw client; the adapter owns semantic conversion
 (classification, codec, event publishing).
+
+Inbound evidence
+----------------
+The adapter maintains counters for every classification action (relay,
+ignore, drop, deferred) and sub-counters for specific reasons (encrypted,
+detection sensor, DM, empty text, unknown portnum, malformed).  These
+are exposed via :meth:`diagnostics` and provide inbound evidence without
+external dependencies.
 """
 
 from __future__ import annotations
@@ -61,7 +69,15 @@ from medre.adapters.meshtastic.codec import MeshtasticCodec
 from medre.adapters.meshtastic.errors import (
     MeshtasticSendError,
 )
-from medre.adapters.meshtastic.packet_classifier import MeshtasticPacketClassifier
+from medre.adapters.meshtastic.packet_classifier import (
+    REASON_DETECTION_SENSOR,
+    REASON_DIRECT_MESSAGE,
+    REASON_EMPTY_TEXT,
+    REASON_ENCRYPTED,
+    REASON_MALFORMED,
+    REASON_UNKNOWN_PORTNUM,
+    MeshtasticPacketClassifier,
+)
 from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue, QueueDeliveryResult
 from medre.adapters.meshtastic.session import MeshtasticSession
 from medre.config.adapters.meshtastic import MeshtasticConfig
@@ -143,6 +159,20 @@ class MeshtasticAdapter(AdapterContract):
         self._background_tasks: set[asyncio.Task] = set()
         self._loop: asyncio.AbstractEventLoop | None = None
         self._drain_task: asyncio.Task | None = None
+
+        # Classifier counters — inbound evidence
+        self._classifier_packets_seen: int = 0
+        self._classifier_packets_relayed: int = 0
+        self._classifier_packets_ignored: int = 0
+        self._classifier_packets_dropped: int = 0
+        self._classifier_packets_deferred: int = 0
+        self._classifier_packets_malformed: int = 0
+        self._classifier_packets_encrypted_dropped: int = 0
+        self._classifier_packets_detection_sensor_deferred: int = 0
+        self._classifier_packets_dm_ignored: int = 0
+        self._classifier_packets_empty_text_ignored: int = 0
+        self._classifier_packets_unknown_portnum_deferred: int = 0
+        self._inbound_published: int = 0
 
     # -- Lifecycle ----------------------------------------------------------
 
@@ -355,6 +385,89 @@ class MeshtasticAdapter(AdapterContract):
         """
         self._on_packet(packet)
 
+    def _increment_classifier_counters(self, classification: Any) -> None:
+        """Increment classifier counters based on a ClassificationResult.
+
+        Parameters
+        ----------
+        classification:
+            A :class:`~medre.adapters.meshtastic.packet_classifier.ClassificationResult`.
+        """
+        self._classifier_packets_seen += 1
+
+        action = classification.action
+
+        # Action-level counter
+        if action == "relay":
+            self._classifier_packets_relayed += 1
+        elif action == "ignore":
+            self._classifier_packets_ignored += 1
+        elif action == "drop":
+            self._classifier_packets_dropped += 1
+        elif action == "deferred":
+            self._classifier_packets_deferred += 1
+
+        # Reason-level sub-counters (exact match)
+        if classification.reason == REASON_MALFORMED:
+            self._classifier_packets_malformed += 1
+        if classification.reason == REASON_ENCRYPTED:
+            self._classifier_packets_encrypted_dropped += 1
+        if classification.reason == REASON_DETECTION_SENSOR:
+            self._classifier_packets_detection_sensor_deferred += 1
+        if classification.reason == REASON_DIRECT_MESSAGE:
+            self._classifier_packets_dm_ignored += 1
+        if classification.reason == REASON_EMPTY_TEXT:
+            self._classifier_packets_empty_text_ignored += 1
+        if classification.reason == REASON_UNKNOWN_PORTNUM:
+            self._classifier_packets_unknown_portnum_deferred += 1
+
+    def _log_classification(self, classification: Any) -> None:
+        """Log a structured classification decision.
+
+        Parameters
+        ----------
+        classification:
+            A :class:`~medre.adapters.meshtastic.packet_classifier.ClassificationResult`.
+        """
+        if self.ctx is None:
+            return
+        _logger = self.ctx.logger
+        action = classification.action
+        reason = classification.reason
+
+        if action == "drop":
+            _logger.debug(
+                "MeshtasticAdapter %s: packet dropped reason=%s portnum=%s from_id=%s",
+                self.adapter_id,
+                reason,
+                classification.portnum,
+                classification.from_id,
+            )
+        elif action == "ignore":
+            _logger.debug(
+                "MeshtasticAdapter %s: packet ignored reason=%s category=%s portnum=%s",
+                self.adapter_id,
+                reason,
+                classification.category,
+                classification.portnum,
+            )
+        elif action == "deferred":
+            _logger.debug(
+                "MeshtasticAdapter %s: packet deferred reason=%s portnum=%s packet_id=%s",
+                self.adapter_id,
+                reason,
+                classification.portnum,
+                classification.packet_id,
+            )
+        elif action == "relay":
+            # Preview text from the packet's decoded text for relay log
+            _logger.info(
+                "MeshtasticAdapter %s: packet relayed packet_id=%s from_id=%s",
+                self.adapter_id,
+                classification.packet_id,
+                classification.from_id,
+            )
+
     def _on_packet(self, packet: dict[str, Any]) -> None:
         """Process an inbound Meshtastic packet.
 
@@ -371,10 +484,11 @@ class MeshtasticAdapter(AdapterContract):
 
         try:
             classification = self._classifier.classify(packet)
-            # Only text packets are currently decoded
-            if classification["category"] != "text":
-                return
-            if classification["is_ack"]:
+            self._increment_classifier_counters(classification)
+            self._log_classification(classification)
+
+            # Only relay packets proceed to decode and publish
+            if classification.action != "relay":
                 return
 
             canonical = self._codec.decode(packet)
@@ -448,6 +562,7 @@ class MeshtasticAdapter(AdapterContract):
         try:
             if self.ctx is not None:
                 await self.publish_inbound(canonical)
+                self._inbound_published += 1
         except Exception:
             if self.ctx is not None:
                 self.ctx.logger.exception(
@@ -478,13 +593,15 @@ class MeshtasticAdapter(AdapterContract):
             )
 
         classification = self._classifier.classify(packet)
-        if classification["category"] != "text":
-            return
-        if classification["is_ack"]:
+        self._increment_classifier_counters(classification)
+        self._log_classification(classification)
+
+        if classification.action != "relay":
             return
 
         canonical = self._codec.decode(packet)
         await self.publish_inbound(canonical)
+        self._inbound_published += 1
 
     # -- Diagnostics --------------------------------------------------------
 
@@ -517,6 +634,19 @@ class MeshtasticAdapter(AdapterContract):
             "queue_last_send_time": self._queue.queue_health["last_send_time"],
             "drain_task_running": (drain_task is not None and not drain_task.done()),
             "background_tasks": len(self._background_tasks),
+            # Classifier counters — inbound evidence
+            "classifier_packets_seen": self._classifier_packets_seen,
+            "classifier_packets_relayed": self._classifier_packets_relayed,
+            "classifier_packets_ignored": self._classifier_packets_ignored,
+            "classifier_packets_dropped": self._classifier_packets_dropped,
+            "classifier_packets_deferred": self._classifier_packets_deferred,
+            "classifier_packets_malformed": self._classifier_packets_malformed,
+            "classifier_packets_encrypted_dropped": self._classifier_packets_encrypted_dropped,
+            "classifier_packets_detection_sensor_deferred": self._classifier_packets_detection_sensor_deferred,
+            "classifier_packets_dm_ignored": self._classifier_packets_dm_ignored,
+            "classifier_packets_empty_text_ignored": self._classifier_packets_empty_text_ignored,
+            "classifier_packets_unknown_portnum_deferred": self._classifier_packets_unknown_portnum_deferred,
+            "inbound_published": self._inbound_published,
         }
 
         if self._session is not None:

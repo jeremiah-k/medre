@@ -914,10 +914,17 @@ class SQLiteStorage:
         )
         return row["cnt"] if row else 0
 
-    @staticmethod
-    def _sync_close(db: sqlite3.Connection) -> None:
-        """Close a synchronous connection (called from a worker thread)."""
-        db.close()
+    def _sync_close(self, db: sqlite3.Connection) -> None:
+        """Close a synchronous connection (called from a worker thread).
+
+        Acquires ``self._lock`` to avoid closing the connection while a
+        synchronous write or read is in progress on the same connection
+        object.  Without the lock, ``db.close()`` can race with
+        ``db.execute()`` in another thread, producing a use-after-free
+        crash in SQLite's C extension.
+        """
+        with self._lock:
+            db.close()
 
     # -- Read / write primitives --------------------------------------------
 
