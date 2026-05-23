@@ -92,12 +92,12 @@ cross-transport orchestration.
 
 ### 4.3 Send Failures
 
-| Failure                | Transient/Permanent         | Duplicate-Send Risk                                                                     |
-| ---------------------- | --------------------------- | --------------------------------------------------------------------------------------- |
+| Failure                | Transient/Permanent         | Duplicate-Send Risk                                                                            |
+| ---------------------- | --------------------------- | ---------------------------------------------------------------------------------------------- |
 | `room_send` HTTP error | Transient (4xx → permanent) | Low: event_id is server-assigned. Retries use stable tx_id for dedup within homeserver window. |
-| `room_send` timeout    | Transient                   | Medium: message may have been accepted but ACK lost. Server may have created the event. |
-| Room not joined        | Permanent                   | None: send fails immediately.                                                           |
-| Message too large      | Permanent                   | None: deterministic rejection.                                                          |
+| `room_send` timeout    | Transient                   | Medium: message may have been accepted but ACK lost. Server may have created the event.        |
+| Room not joined        | Permanent                   | None: send fails immediately.                                                                  |
+| Message too large      | Permanent                   | None: deterministic rejection.                                                                 |
 
 ### 4.4 Duplicate-Send Risk Assessment: Matrix
 

@@ -65,17 +65,19 @@ _MAX_DELIVERY_RETRIES: int = 3
 _DELIVERY_BACKOFF_BASE: float = 0.5  # 500ms
 _DELIVERY_BACKOFF_JITTER: float = 0.25
 
-_PERMANENT_ERRCODES = frozenset({
-    "M_FORBIDDEN",
-    "M_NOT_FOUND",
-    "M_UNKNOWN",
-    "M_UNAUTHORIZED",
-    "M_UNKNOWN_TOKEN",
-    "M_USER_DEACTIVATED",
-    "M_BAD_JSON",
-    "M_NOT_JSON",
-    "M_INVALID_PARAM",
-})
+_PERMANENT_ERRCODES = frozenset(
+    {
+        "M_FORBIDDEN",
+        "M_NOT_FOUND",
+        "M_UNKNOWN",
+        "M_UNAUTHORIZED",
+        "M_UNKNOWN_TOKEN",
+        "M_USER_DEACTIVATED",
+        "M_BAD_JSON",
+        "M_NOT_JSON",
+        "M_INVALID_PARAM",
+    }
+)
 
 
 class _NioRateLimitError(Exception):

@@ -144,7 +144,8 @@ class TestMatrixTxnId:
         result = _make_result()
         room_id = "!room:example.com"
         expected_input = "".join(
-            f"{len(p)}:{p}|" for p in [
+            f"{len(p)}:{p}|"
+            for p in [
                 result.event_id,
                 result.target_adapter,
                 result.target_channel or "",
