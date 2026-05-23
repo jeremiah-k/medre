@@ -714,7 +714,8 @@ class TestDeliveryRetry:
 
             assert call_count == 3
             assert adapter._transient_delivery_failures == 3
-            assert adapter._permanent_delivery_failures >= 1
+            # Exhausted transient retries must NOT increment permanent counter
+            assert adapter._permanent_delivery_failures == 0
         finally:
             await adapter.stop()
 
