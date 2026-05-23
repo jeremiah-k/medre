@@ -172,17 +172,11 @@ def delivery_receipt_to_report_dict(
     # lack newly-added attributes (next_retry_at, retry policy, etc.)
     # remain compatible without raising AttributeError.
     _next_retry_at: datetime | None = getattr(receipt, "next_retry_at", None)
-    _retry_max_attempts: int | None = getattr(
-        receipt, "retry_max_attempts", None
-    )
-    _retry_backoff_base: float | None = getattr(
-        receipt, "retry_backoff_base", None
-    )
+    _retry_max_attempts: int | None = getattr(receipt, "retry_max_attempts", None)
+    _retry_backoff_base: float | None = getattr(receipt, "retry_backoff_base", None)
     _retry_max_delay: float | None = getattr(receipt, "retry_max_delay", None)
     _retry_jitter: bool | None = getattr(receipt, "retry_jitter", None)
-    _parent_receipt_id: str | None = getattr(
-        receipt, "parent_receipt_id", None
-    )
+    _parent_receipt_id: str | None = getattr(receipt, "parent_receipt_id", None)
     fk_detail: str | None = _derive_failure_kind_detail(
         receipt.failure_kind,
         receipt.error,

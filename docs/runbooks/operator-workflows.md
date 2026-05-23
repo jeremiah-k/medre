@@ -274,14 +274,14 @@ Each delivery attempt produces a `DeliveryOutcome` with one of these statuses:
 
 Receipts persisted to storage have a finer-grained lifecycle:
 
-| Status          | Meaning                                                               |
-| --------------- | --------------------------------------------------------------------- |
-| `accepted`      | Initial state — delivery plan accepted.                               |
-| `queued`        | Enqueued for async delivery (queue-based transports).                 |
-| `sent`          | Adapter confirmed delivery.                                           |
-| `failed`        | Delivery attempt failed (check `failure_kind` for details).           |
-| `dead_lettered` | All retry attempts exhausted — no further delivery will be attempted. |
-| `suppressed`   | Delivery was intentionally suppressed (loop prevention, capacity/shutdown rejection). The `failure_kind` field classifies the reason. |
+| Status          | Meaning                                                                                                                               |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `accepted`      | Initial state — delivery plan accepted.                                                                                               |
+| `queued`        | Enqueued for async delivery (queue-based transports).                                                                                 |
+| `sent`          | Adapter confirmed delivery.                                                                                                           |
+| `failed`        | Delivery attempt failed (check `failure_kind` for details).                                                                           |
+| `dead_lettered` | All retry attempts exhausted — no further delivery will be attempted.                                                                 |
+| `suppressed`    | Delivery was intentionally suppressed (loop prevention, capacity/shutdown rejection). The `failure_kind` field classifies the reason. |
 
 ### Failure Classification
 

@@ -103,6 +103,7 @@ from medre.config.model import (
     StorageConfig,
 )
 from medre.config.paths import resolve as resolve_paths
+from medre.config.routes import RouteConfig, RouteConfigSet
 from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
@@ -118,7 +119,6 @@ from medre.runtime.errors import (
     RuntimeStartupError,
 )
 from medre.runtime.route_engine import RouteValidationError
-from medre.config.routes import RouteConfig, RouteConfigSet
 from medre.runtime.smoke import (
     _default_smoke_config_path,
     _make_smoke_event,
@@ -793,11 +793,7 @@ async def _drill_capacity_rejection(
         else:
             receipts = []
         cap_target_adapters = {o.target_adapter for o in cap_outcomes}
-        cap_receipts = [
-            r
-            for r in receipts
-            if r.target_adapter in cap_target_adapters
-        ]
+        cap_receipts = [r for r in receipts if r.target_adapter in cap_target_adapters]
         has_suppressed = all(
             r.status == "suppressed" and r.failure_kind == "capacity_rejection"
             for r in cap_receipts
@@ -919,9 +915,7 @@ async def _drill_shutdown_rejection(
             receipts = []
         shutdown_target_adapters = {o.target_adapter for o in shutdown_outcomes}
         shutdown_receipts = [
-            r
-            for r in receipts
-            if r.target_adapter in shutdown_target_adapters
+            r for r in receipts if r.target_adapter in shutdown_target_adapters
         ]
         has_suppressed = all(
             r.status == "suppressed" and r.failure_kind == "shutdown_rejection"
@@ -930,7 +924,11 @@ async def _drill_shutdown_rejection(
         steps.append(
             _step(
                 "verify_suppressed_receipts",
-                "ok" if has_suppressed and len(shutdown_receipts) >= 1 else "unexpected",
+                (
+                    "ok"
+                    if has_suppressed and len(shutdown_receipts) >= 1
+                    else "unexpected"
+                ),
                 receipt_count=len(shutdown_receipts),
                 all_suppressed=has_suppressed,
                 timestamp=datetime.now(timezone.utc).isoformat(),

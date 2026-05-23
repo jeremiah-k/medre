@@ -1218,9 +1218,9 @@ class TestDrillStorageCrossCheck:
         # All receipts for rejection drills should be suppressed.
         suppressed_kinds = {"capacity_rejection", "shutdown_rejection"}
         for r in receipts:
-            assert r["status"] == "suppressed", (
-                f"Expected suppressed status for {drill_name}, got {r['status']}"
-            )
+            assert (
+                r["status"] == "suppressed"
+            ), f"Expected suppressed status for {drill_name}, got {r['status']}"
             assert r["failure_kind"] in suppressed_kinds, (
                 f"Expected rejection failure_kind for {drill_name}, "
                 f"got {r['failure_kind']}"

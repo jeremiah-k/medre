@@ -1154,28 +1154,28 @@ class TestDeadLetterIncidentSummary:
 
         # dead_lettered_count: required, int >= 1 (we have one dead-lettered receipt)
         dl_count = summary["dead_lettered_count"]
-        assert isinstance(dl_count, int), (
-            f"dead_lettered_count must be int, got {type(dl_count).__name__}"
-        )
+        assert isinstance(
+            dl_count, int
+        ), f"dead_lettered_count must be int, got {type(dl_count).__name__}"
         assert dl_count >= 1, f"dead_lettered_count must be >= 1, got {dl_count}"
 
         # suppressed_count: required, int >= 0
         suppressed_count = summary["suppressed_count"]
-        assert isinstance(suppressed_count, int), (
-            f"suppressed_count must be int, got {type(suppressed_count).__name__}"
-        )
-        assert suppressed_count >= 0, (
-            f"suppressed_count must be >= 0, got {suppressed_count}"
-        )
+        assert isinstance(
+            suppressed_count, int
+        ), f"suppressed_count must be int, got {type(suppressed_count).__name__}"
+        assert (
+            suppressed_count >= 0
+        ), f"suppressed_count must be >= 0, got {suppressed_count}"
 
         # sent_unconfirmed_count: required, int >= 0
         sent_unconfirmed = summary["sent_unconfirmed_count"]
-        assert isinstance(sent_unconfirmed, int), (
-            f"sent_unconfirmed_count must be int, got {type(sent_unconfirmed).__name__}"
-        )
-        assert sent_unconfirmed >= 0, (
-            f"sent_unconfirmed_count must be >= 0, got {sent_unconfirmed}"
-        )
+        assert isinstance(
+            sent_unconfirmed, int
+        ), f"sent_unconfirmed_count must be int, got {type(sent_unconfirmed).__name__}"
+        assert (
+            sent_unconfirmed >= 0
+        ), f"sent_unconfirmed_count must be >= 0, got {sent_unconfirmed}"
 
         # delivery_state_by_adapter: required, dict
         state_by_adapter = summary["delivery_state_by_adapter"]

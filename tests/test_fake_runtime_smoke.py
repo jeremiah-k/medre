@@ -30,8 +30,8 @@ from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
 from medre.config.model import (
     AdapterConfigSet,
     LoggingConfig,
-    MeshtasticRuntimeConfig,
     MatrixRuntimeConfig,
+    MeshtasticRuntimeConfig,
     RuntimeConfig,
     RuntimeLimits,
     RuntimeOptions,
@@ -44,16 +44,13 @@ from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.runtime.app import MedreApp, RuntimeState
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.snapshot import SCHEMA_VERSION, build_runtime_snapshot
-
 from tests.helpers.fake_runtime import (
     build_and_start,
     clean_stop,
     make_cross_transport_config_with_route,
     make_multi_adapter_config,
     make_two_adapter_config_with_route,
-    wait_until,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
