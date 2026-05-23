@@ -50,7 +50,7 @@ def _make_receipt(
     target_adapter: str,
     *,
     status: Literal[
-        "accepted", "queued", "sent", "confirmed", "failed", "dead_lettered"
+        "accepted", "queued", "sent", "confirmed", "suppressed", "failed", "dead_lettered"
     ] = "sent",
     source: str = "live",
     replay_run_id: str | None = None,
