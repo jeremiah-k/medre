@@ -7,7 +7,8 @@ Verifies:
 - Adapter deliver() on full queue raises AdapterSendError(transient=True).
 - Queue diagnostics include depth, max_size, enqueued, rejected counts.
 - Queue processing increments sent/failed correctly.
-- Adapter diagnostics include queue stats.
+- Adapter diagnostics include queue stats and classifier counters.
+- Queue rejection classifies as adapter_transient.
 - Docs/examples do not claim queued = RF delivered.
 """
 
@@ -17,6 +18,10 @@ import pytest
 
 from medre.adapters.meshtastic.errors import MeshtasticSendError
 from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
+from medre.core.planning.delivery_plan import (
+    DeliveryFailureKind,
+    RetryExecutor,
+)
 
 
 class TestQueueMaxQueueSizeValidation:
@@ -296,3 +301,161 @@ class TestQueueDoesNotClaimRfDelivery:
         assert "RF-delivered" not in doc
         # Should mention rejection/explicit behavior
         assert "reject" in doc.lower() or "raise" in doc.lower()
+
+
+class TestAdapterDiagnosticsClassifierCounters:
+    """Meshtastic adapter diagnostics include classifier_packets_* counters
+    for inbound packet classification evidence."""
+
+    async def test_diagnostics_includes_classifier_counter_keys(self) -> None:
+        """All classifier_packets_* counters are present in diagnostics."""
+        import asyncio
+        import logging
+        from datetime import datetime, timezone
+        from unittest.mock import AsyncMock
+
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+        from medre.config.adapters.meshtastic import MeshtasticConfig
+        from medre.core.contracts.adapter import AdapterContext
+        from medre.core.events.bus import EventBus
+
+        config = MeshtasticConfig(adapter_id="cls-test", connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        ctx = AdapterContext(
+            adapter_id="cls-test",
+            event_bus=EventBus(),
+            publish_inbound=AsyncMock(),
+            logger=logging.getLogger("test"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+        )
+        await adapter.start(ctx)
+        try:
+            diag = adapter.diagnostics()
+            # All expected classifier counters
+            classifier_keys = [
+                "classifier_packets_seen",
+                "classifier_packets_relayed",
+                "classifier_packets_ignored",
+                "classifier_packets_dropped",
+                "classifier_packets_deferred",
+                "classifier_packets_malformed",
+                "classifier_packets_encrypted_dropped",
+                "classifier_packets_detection_sensor_deferred",
+                "classifier_packets_dm_ignored",
+                "classifier_packets_empty_text_ignored",
+                "classifier_packets_unknown_portnum_deferred",
+            ]
+            for key in classifier_keys:
+                assert key in diag, f"Missing classifier counter: {key}"
+                assert isinstance(
+                    diag[key], int
+                ), f"Classifier counter {key} should be int, got {type(diag[key])}"
+        finally:
+            await adapter.stop()
+
+    async def test_classifier_counters_start_at_zero(self) -> None:
+        """Classifier counters initialise at zero before any packets."""
+        import asyncio
+        import logging
+        from datetime import datetime, timezone
+        from unittest.mock import AsyncMock
+
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+        from medre.config.adapters.meshtastic import MeshtasticConfig
+        from medre.core.contracts.adapter import AdapterContext
+        from medre.core.events.bus import EventBus
+
+        config = MeshtasticConfig(adapter_id="cls-zero", connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        ctx = AdapterContext(
+            adapter_id="cls-zero",
+            event_bus=EventBus(),
+            publish_inbound=AsyncMock(),
+            logger=logging.getLogger("test"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+        )
+        await adapter.start(ctx)
+        try:
+            diag = adapter.diagnostics()
+            assert diag["classifier_packets_seen"] == 0
+            assert diag["classifier_packets_relayed"] == 0
+            assert diag["classifier_packets_ignored"] == 0
+            assert diag["classifier_packets_dropped"] == 0
+            assert diag["classifier_packets_deferred"] == 0
+        finally:
+            await adapter.stop()
+
+    async def test_diagnostics_includes_queue_total_rejected(self) -> None:
+        """queue_total_rejected counter is present in diagnostics."""
+        import asyncio
+        import logging
+        from datetime import datetime, timezone
+        from unittest.mock import AsyncMock
+
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+        from medre.config.adapters.meshtastic import MeshtasticConfig
+        from medre.core.contracts.adapter import AdapterContext
+        from medre.core.events.bus import EventBus
+
+        config = MeshtasticConfig(adapter_id="rej-test", connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        ctx = AdapterContext(
+            adapter_id="rej-test",
+            event_bus=EventBus(),
+            publish_inbound=AsyncMock(),
+            logger=logging.getLogger("test"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+        )
+        await adapter.start(ctx)
+        try:
+            diag = adapter.diagnostics()
+            assert "queue_total_rejected" in diag
+            assert isinstance(diag["queue_total_rejected"], int)
+        finally:
+            await adapter.stop()
+
+
+class TestQueueRejectionTransientClassification:
+    """Meshtastic queue-full rejection propagates as adapter_transient
+    through the failure classification pipeline."""
+
+    def test_meshtastic_send_error_is_transient(self) -> None:
+        """MeshtasticSendError from queue full has transient=True."""
+        err = MeshtasticSendError("queue is full", transient=True)
+        assert err.transient is True
+
+    def test_meshtastic_send_error_is_adapter_internal_not_core_error(self) -> None:
+        """MeshtasticSendError is adapter-internal: it is NOT an AdapterSendError.
+
+        Architecture: MeshtasticSendError lives inside the Meshtastic adapter
+        and signals transient failures (e.g. queue full).  The adapter boundary
+        (``MeshtasticAdapter.deliver()``) catches MeshtasticSendError and wraps
+        it into an ``AdapterSendError(transient=True)`` so that the core retry
+        classifier sees the standard contract type.
+        """
+        from medre.core.contracts.adapter import AdapterSendError
+
+        raw_err = MeshtasticSendError("queue is full", transient=True)
+        # MeshtasticSendError is adapter-internal — NOT a core AdapterSendError.
+        assert not isinstance(raw_err, AdapterSendError)
+        # Its transient flag is still True (adapter-internal signal).
+        assert raw_err.transient is True
+
+        # At the adapter boundary, the error is wrapped into AdapterSendError.
+        boundary_err = AdapterSendError("queue is full", transient=True)
+        assert isinstance(boundary_err, AdapterSendError)
+        assert boundary_err.transient is True
+        kind = RetryExecutor.classify_failure(boundary_err)
+        assert kind is DeliveryFailureKind.ADAPTER_TRANSIENT
+
+    def test_meshtastic_queue_rejected_via_adapter_send_error(self) -> None:
+        """AdapterSendError(transient=True) from queue rejection classifies correctly."""
+        from medre.core.contracts.adapter import AdapterSendError
+
+        err = AdapterSendError("queue rejected: capacity exceeded", transient=True)
+        kind = RetryExecutor.classify_failure(err)
+        assert kind is DeliveryFailureKind.ADAPTER_TRANSIENT
+        assert kind.is_retryable is True

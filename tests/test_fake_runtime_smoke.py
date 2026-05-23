@@ -30,8 +30,8 @@ from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
 from medre.config.model import (
     AdapterConfigSet,
     LoggingConfig,
-    MeshtasticRuntimeConfig,
     MatrixRuntimeConfig,
+    MeshtasticRuntimeConfig,
     RuntimeConfig,
     RuntimeLimits,
     RuntimeOptions,
@@ -44,16 +44,13 @@ from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.runtime.app import MedreApp, RuntimeState
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.snapshot import SCHEMA_VERSION, build_runtime_snapshot
-
 from tests.helpers.fake_runtime import (
     build_and_start,
     clean_stop,
     make_cross_transport_config_with_route,
     make_multi_adapter_config,
     make_two_adapter_config_with_route,
-    wait_until,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -876,7 +873,10 @@ class TestFailureKindIntegration:
             assert len(outcomes) == 1
             assert outcomes[0].failure_kind == DeliveryFailureKind.CAPACITY_REJECTION
             assert outcomes[0].status == "permanent_failure"
-            assert outcomes[0].receipt is None  # no receipt for capacity rejection
+            # Capacity rejection persists a suppressed evidence receipt.
+            assert outcomes[0].receipt is not None
+            assert outcomes[0].receipt.status == "suppressed"
+            assert outcomes[0].receipt.failure_kind == "capacity_rejection"
 
             # Release slot so stop can drain cleanly.
             await cc.release_delivery()
@@ -902,7 +902,10 @@ class TestFailureKindIntegration:
             assert len(outcomes) == 1
             assert outcomes[0].failure_kind == DeliveryFailureKind.SHUTDOWN_REJECTION
             assert outcomes[0].status == "permanent_failure"
-            assert outcomes[0].receipt is None  # no receipt for shutdown rejection
+            # Shutdown rejection persists a suppressed evidence receipt.
+            assert outcomes[0].receipt is not None
+            assert outcomes[0].receipt.status == "suppressed"
+            assert outcomes[0].receipt.failure_kind == "shutdown_rejection"
         finally:
             await clean_stop(app)
 

@@ -503,7 +503,7 @@ class DeliveryReceipt:
     event_id: str = ""                     # The canonical event being delivered
     delivery_plan_id: str = ""             # Delivery plan this receipt belongs to
     target_adapter: str = ""               # Name of the target adapter
-    status: Literal["accepted", "queued", "sent", "confirmed", "failed", "dead_lettered"] = "accepted"
+    status: Literal["accepted", "queued", "sent", "confirmed", "suppressed", "failed", "dead_lettered"] = "accepted"
     error: str | None = None               # Error message if delivery failed
     adapter_message_id: str | None = None  # Platform-specific message ID after send
     next_retry_at: datetime | None = None  # Scheduled time for next retry attempt

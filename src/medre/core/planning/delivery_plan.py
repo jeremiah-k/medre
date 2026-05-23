@@ -175,7 +175,11 @@ class DeliveryFailureKind(Enum):
         Reserved — defined in the enum but not currently emitted as a
         :class:`DeliveryOutcome` or receipt failure kind.  Duplicate
         native-ref suppression currently returns an empty outcomes list
-        and does not persist a duplicate receipt.  Not retryable.
+        and does not persist a duplicate receipt.  Suppression occurs at
+        Stage 1.5 *before* the inbound event is stored, so there is no
+        persisted event to link a receipt to.  If a future refactor moves
+        dedup after storage, this member can be used to emit a
+        ``status="suppressed"`` receipt at that point.  Not retryable.
     LOOP_SUPPRESSED:
         Delivery was suppressed by a loop-prevention guard
         (self-loop or route-trace).  Not retryable.

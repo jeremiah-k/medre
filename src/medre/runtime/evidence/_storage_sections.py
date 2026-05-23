@@ -90,8 +90,15 @@ async def _collect_storage_data_from_backend(
                     infer_failure_kind,
                     recommended_commands,
                 )
+                from medre.runtime.reporting import (
+                    delivery_receipt_to_report_dict as _receipt_to_report,
+                )
 
                 receipt_dicts = [_json.loads(msgspec.json.encode(r)) for r in receipts]
+                # Enriched report dicts with derived fields (retryable,
+                # failure_kind_detail, retry policy, etc.).
+                enriched_dicts = [_receipt_to_report(r) for r in receipts]
+
                 failed_count = sum(
                     1
                     for r in receipt_dicts
@@ -103,7 +110,8 @@ async def _collect_storage_data_from_backend(
                 worst_category = "success"
                 for r in receipt_dicts:
                     if r.get("status") in ("failed", "dead_lettered"):
-                        fk = infer_failure_kind(
+                        # Use persisted failure_kind first, fall back to inference.
+                        fk = r.get("failure_kind") or infer_failure_kind(
                             r.get("error"),
                             r.get("status", ""),
                         )
@@ -114,11 +122,27 @@ async def _collect_storage_data_from_backend(
                             worst_category = cat
                             break
 
+                # If no failed/dead_lettered receipts set the category,
+                # check suppressed receipts for classification.
+                if worst_category == "success":
+                    for r in receipt_dicts:
+                        if r.get("status") == "suppressed":
+                            fk = r.get("failure_kind") or infer_failure_kind(
+                                r.get("error"),
+                                r.get("status", ""),
+                            )
+                            if first_failure_kind is None:
+                                first_failure_kind = fk
+                            cat = failure_category(fk)
+                            if cat != "success":
+                                worst_category = cat
+                                break
+
                 has_replay = any(r.get("source") == "replay" for r in receipt_dicts)
                 has_native_refs = len(native_refs) > 0
 
                 # Determine overall classification for the event.
-                if failed_count == 0:
+                if failed_count == 0 and worst_category == "success":
                     classification = "success"
                 elif worst_category != "success":
                     classification = worst_category
@@ -147,7 +171,55 @@ async def _collect_storage_data_from_backend(
                         f"medre inspect event {event_id} --replay-run {replay_run_id}",
                     ]
 
+                # --- Incident summary enrichment (additive) ---
+
+                dead_lettered_count = sum(
+                    1 for r in receipt_dicts if r.get("status") == "dead_lettered"
+                )
+                suppressed_count = sum(
+                    1 for r in receipt_dicts if r.get("status") == "suppressed"
+                )
+                sent_unconfirmed_count = sum(
+                    1 for r in receipt_dicts if r.get("status") == "sent"
+                )
+
+                # Per-adapter delivery state: group by target_adapter, keep
+                # the receipt with the highest attempt_number per adapter.
+                _adapter_groups: dict[str, list[dict[str, object]]] = {}
+                for rd in enriched_dicts:
+                    adapter_key = str(rd.get("target_adapter", ""))
+                    _adapter_groups.setdefault(adapter_key, []).append(rd)
+
+                delivery_state_by_adapter: dict[str, dict[str, object]] = {}
+                for adapter_key, group in _adapter_groups.items():
+                    # Select receipt with the highest attempt_number per adapter.
+                    best_idx = 0
+                    best_attempt: int = 0
+                    for idx, rd in enumerate(group):
+                        attempt = rd.get("attempt_number")
+                        attempt_int = attempt if isinstance(attempt, int) else 0
+                        if attempt_int > best_attempt or (
+                            attempt_int == best_attempt and idx > best_idx
+                        ):
+                            best_attempt = attempt_int
+                            best_idx = idx
+                    best = group[best_idx]
+                    delivery_state_by_adapter[adapter_key] = {
+                        "status": best.get("status"),
+                        "attempt_number": best.get("attempt_number"),
+                        "native_message_id": best.get("native_message_id"),
+                        "adapter_message_id": best.get("adapter_message_id"),
+                        # TODO: future delivery_state_by_target can distinguish
+                        # multiple channels per adapter.
+                        "target_channel": best.get("target_channel"),
+                        "failure_kind": best.get("failure_kind"),
+                        "failure_kind_detail": best.get("failure_kind_detail"),
+                        "retryable": best.get("retryable"),
+                        "next_retry_at": best.get("next_retry_at"),
+                    }
+
                 data["incident_summary"] = {
+                    # Original keys (unchanged).
                     "event_id": event_id,
                     "event_kind": event.event_kind,
                     "source_adapter": event.source_adapter,
@@ -160,6 +232,11 @@ async def _collect_storage_data_from_backend(
                     "sent_count": sent_count,
                     "recommended_commands": cmds,
                     "commands": structured_commands,
+                    # Additive enrichment keys.
+                    "dead_lettered_count": dead_lettered_count,
+                    "suppressed_count": suppressed_count,
+                    "sent_unconfirmed_count": sent_unconfirmed_count,
+                    "delivery_state_by_adapter": delivery_state_by_adapter,
                 }
             # else: event not found — keep None, not an error for the section.
 

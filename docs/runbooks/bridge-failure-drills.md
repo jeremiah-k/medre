@@ -44,7 +44,7 @@ see [Routing Correctness](routing-correctness.md) and
 | Shutdown rejection    | 0                    | `failed` (delivery_rejected_shutdown)     | No                         | `outbound_failed` counter                                                                                        |
 | Replay capacity       | 0                    | `error` (replay_capacity_exceeded)        | No                         | `capacity_rejections` counter                                                                                    |
 | Replay duplicate      | 0                    | `sent` (multiple receipts, source=replay) | N/A (by design)            | receipt `replay_run_id`                                                                                          |
-| Loop prevented        | 0                    | `skipped` (no receipt)                    | No                         | `loop_prevented` counter, RouteStats                                                                             |
+| Loop prevented        | 0                    | `suppressed` receipt persisted            | No                         | `loop_prevented` counter, RouteStats                                                                             |
 | Degraded live health  | 0 (command succeeds) | N/A                                       | No                         | `health.live_health.adapters[]`                                                                                  |
 | Failed live health    | 0 (command succeeds) | N/A                                       | No                         | `health.live_health.adapters[]`, `.error`                                                                        |
 
@@ -776,9 +776,10 @@ PYTHONPATH=src pytest tests/test_fake_bridge_smoke.py::TestLoopPrevention -v
 - `DeliveryOutcome`: `status == "skipped"`,
   `error` contains `"loop_prevented"`.
 - Target adapter has zero delivered payloads.
-- No `DeliveryReceipt` persisted for the skipped delivery.
+- A `DeliveryReceipt` with `status="suppressed"` is persisted for the skipped delivery.
 - `accounting.loop_prevented >= 1`.
 - `RouteStats.snapshot()["route_id"]["loop_prevented"] >= 1`.
+- A `DeliveryReceipt` with `status="suppressed"` is persisted for the skipped delivery.
 - The inbound event IS stored — ingestion succeeded, only delivery prevented.
 
 **Inspect next:**
@@ -852,8 +853,8 @@ This cross-check workflow applies to all drills in this runbook:
 | `renderer_failure`          | Event ingestion, no delivery   | `failure_kind == "RENDERER_FAILURE"`, `status == "failed"`     |
 | `adapter_permanent_failure` | Delivery attempt               | `failure_kind == "ADAPTER_PERMANENT"`, no retry chain          |
 | `adapter_transient_failure` | Retry chain                    | `attempt_number`, `parent_receipt_id` progression              |
-| `capacity_rejection`        | No receipt (permanent failure) | `capacity_rejections` counter (process-local, lost on restart) |
-| `shutdown_rejection`        | No receipt (rejected)          | `outbound_failed` counter (process-local)                      |
+| `capacity_rejection`        | `suppressed` receipt persisted | `capacity_rejections` counter (process-local, lost on restart) |
+| `shutdown_rejection`        | `suppressed` receipt persisted | `outbound_failed` counter (process-local)                      |
 | `replay_duplicate_risk`     | Live vs. replay receipts       | `source` field, `replay_run_id` grouping                       |
 | `degraded_live_health`      | Health snapshot                | `health.live_health.adapters[].health`, `.error`               |
 

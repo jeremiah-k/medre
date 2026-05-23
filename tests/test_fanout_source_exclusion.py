@@ -179,13 +179,18 @@ class TestFanoutWithoutSourceDuplication:
         snap = accounting.snapshot()
         assert snap["loop_prevented"] == 1
 
-        # Only one receipt (to meshtastic); matrix target was skipped
+        # One sent receipt (to meshtastic) + one suppressed receipt (self-loop);
+        # matrix target was skipped but produces suppressed evidence receipt.
         receipts = await temp_storage._read_all(
             "SELECT target_adapter, status FROM delivery_receipts"
         )
-        assert len(receipts) == 1
-        assert receipts[0]["target_adapter"] == "fanout-sl-mesh"
-        assert receipts[0]["status"] == "sent"
+        assert len(receipts) == 2
+        sent_receipts = [r for r in receipts if r["status"] == "sent"]
+        suppressed_receipts = [r for r in receipts if r["status"] == "suppressed"]
+        assert len(sent_receipts) == 1
+        assert sent_receipts[0]["target_adapter"] == "fanout-sl-mesh"
+        assert len(suppressed_receipts) == 1
+        assert suppressed_receipts[0]["target_adapter"] == "fanout-sl-matrix"
 
     async def test_fanout_three_targets_no_duplicates(
         self, temp_storage: SQLiteStorage

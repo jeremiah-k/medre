@@ -379,6 +379,13 @@ class PipelineRunner:
                 )
                 if self._runtime_accounting is not None:
                     self._runtime_accounting.record_loop_prevented()
+                # NOTE(duplicate_suppressed): No DeliveryReceipt is persisted
+                # here because this check runs at Stage 1.5 — *before* the
+                # inbound event is stored (Stage 3).  There is no persisted
+                # event_id to link a receipt to.  DUPLICATE_SUPPRESSED remains
+                # reserved in the DeliveryFailureKind enum for a future path
+                # where dedup occurs after storage.  Evidence of this
+                # suppression is recorded via RuntimeAccounting counters only.
                 return []
 
         # Accounting: inbound event accepted past validation + dedup.
@@ -1026,6 +1033,75 @@ class PipelineRunner:
             replay_run_id=replay_run_id,
         )
 
+    async def _persist_suppression_receipt(
+        self,
+        *,
+        event_id: str,
+        delivery_plan_id: str,
+        target_adapter: str,
+        target_channel: str | None,
+        route_id: str,
+        failure_kind: DeliveryFailureKind,
+        error: str,
+        source: str = "live",
+        replay_run_id: str | None = None,
+    ) -> DeliveryReceipt:
+        """Build and persist a lightweight suppression/rejection receipt.
+
+        Creates a ``status="suppressed"`` :class:`DeliveryReceipt` with
+        ``attempt_number=1``, no ``next_retry_at``, and the given
+        *failure_kind*.  The receipt is appended to storage so downstream
+        reporting can inspect loop suppression, capacity rejection, and
+        shutdown rejection events.
+
+        Parameters
+        ----------
+        event_id:
+            The canonical event ID (must already be persisted).
+        delivery_plan_id:
+            ID of the delivery plan.
+        target_adapter:
+            Name of the target adapter.
+        target_channel:
+            Channel on the target adapter, if applicable.
+        route_id:
+            ID of the route that triggered this delivery.
+        failure_kind:
+            The :class:`DeliveryFailureKind` for the suppression reason.
+        error:
+            Human-readable error/reason string.
+        source:
+            Origin of delivery: ``"live"``, ``"retry"``, or ``"replay"``.
+        replay_run_id:
+            When ``source="replay"``, the replay run identifier.
+
+        Returns
+        -------
+        DeliveryReceipt
+            The persisted suppression receipt.
+        """
+        now = datetime.now(tz=timezone.utc)
+        receipt = DeliveryReceipt(
+            sequence=0,
+            receipt_id=f"rcpt-{uuid.uuid4()}",
+            event_id=event_id,
+            delivery_plan_id=delivery_plan_id,
+            target_adapter=target_adapter,
+            target_channel=target_channel,
+            route_id=route_id,
+            status="suppressed",
+            error=error,
+            failure_kind=failure_kind.value,
+            next_retry_at=None,
+            created_at=now,
+            attempt_number=1,
+            parent_receipt_id=None,
+            source=source,
+            replay_run_id=replay_run_id,
+        )
+        await self._config.storage.append_receipt(receipt)
+        return receipt
+
     async def _deliver_to_targets_inner(
         self,
         event: CanonicalEvent,
@@ -1061,13 +1137,22 @@ class PipelineRunner:
                         capacity_failure_kind = DeliveryFailureKind.CAPACITY_REJECTION
                         capacity_error = "delivery_capacity_exceeded"
                     elapsed = (time.monotonic() - t0) * 1000.0
-                    # NOTE(semantics): Capacity and shutdown rejections
-                    # intentionally produce no persisted DeliveryReceipt.
-                    # The event never entered the delivery stage; the
-                    # rejection occurs at the capacity gate *before* any
-                    # adapter interaction.  Durable evidence of the
-                    # rejection is recorded via RuntimeAccounting counters
-                    # and RouteStats, NOT via delivery_receipts.
+                    # Persist lightweight suppression evidence so operators
+                    # can inspect capacity/shutdown rejections via receipts.
+                    # The event is already stored (Stage 3) by this point.
+                    suppression_receipt = await self._persist_suppression_receipt(
+                        event_id=event.event_id,
+                        delivery_plan_id=(
+                            route_plan.plan_id if hasattr(route_plan, "plan_id") else ""
+                        ),
+                        target_adapter=adapter_id,
+                        target_channel=target.channel,
+                        route_id=route.id,
+                        failure_kind=capacity_failure_kind,
+                        error=capacity_error,
+                        source=source,
+                        replay_run_id=replay_run_id,
+                    )
                     return DeliveryOutcome(
                         event_id=event.event_id,
                         target_adapter=adapter_id,
@@ -1078,7 +1163,7 @@ class PipelineRunner:
                         ),
                         status="permanent_failure",
                         failure_kind=capacity_failure_kind,
-                        receipt=None,
+                        receipt=suppression_receipt,
                         error=capacity_error,
                         duration_ms=elapsed,
                     )
@@ -1108,6 +1193,18 @@ class PipelineRunner:
                         if self._runtime_accounting is not None:
                             self._runtime_accounting.record_loop_prevented()
                         elapsed = (time.monotonic() - t0) * 1000.0
+                        # Persist lightweight loop suppression evidence.
+                        loop_receipt = await self._persist_suppression_receipt(
+                            event_id=event.event_id,
+                            delivery_plan_id=route_plan.plan_id,
+                            target_adapter=adapter_id,
+                            target_channel=target.channel,
+                            route_id=route.id,
+                            failure_kind=DeliveryFailureKind.LOOP_SUPPRESSED,
+                            error="loop_prevented: route already traversed in prior routing pass",
+                            source=source,
+                            replay_run_id=replay_run_id,
+                        )
                         return DeliveryOutcome(
                             event_id=event.event_id,
                             target_adapter=adapter_id,
@@ -1116,7 +1213,7 @@ class PipelineRunner:
                             delivery_plan_id=route_plan.plan_id,
                             status="skipped",
                             failure_kind=DeliveryFailureKind.LOOP_SUPPRESSED,
-                            receipt=None,
+                            receipt=loop_receipt,
                             error="loop_prevented: route already traversed in prior routing pass",
                             duration_ms=elapsed,
                         )
@@ -1135,6 +1232,18 @@ class PipelineRunner:
                     if self._runtime_accounting is not None:
                         self._runtime_accounting.record_loop_prevented()
                     elapsed = (time.monotonic() - t0) * 1000.0
+                    # Persist lightweight self-loop suppression evidence.
+                    selfloop_receipt = await self._persist_suppression_receipt(
+                        event_id=event.event_id,
+                        delivery_plan_id=route_plan.plan_id,
+                        target_adapter=adapter_id,
+                        target_channel=target.channel,
+                        route_id=route.id,
+                        failure_kind=DeliveryFailureKind.LOOP_SUPPRESSED,
+                        error="loop_prevented",
+                        source=source,
+                        replay_run_id=replay_run_id,
+                    )
                     return DeliveryOutcome(
                         event_id=event.event_id,
                         target_adapter=adapter_id,
@@ -1143,7 +1252,7 @@ class PipelineRunner:
                         delivery_plan_id=route_plan.plan_id,
                         status="skipped",
                         failure_kind=DeliveryFailureKind.LOOP_SUPPRESSED,
-                        receipt=None,
+                        receipt=selfloop_receipt,
                         error="loop_prevented",
                         duration_ms=elapsed,
                     )

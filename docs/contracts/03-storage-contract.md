@@ -278,7 +278,7 @@ CREATE TABLE delivery_receipts (
     target_adapter TEXT NOT NULL,
     target_channel TEXT,
     route_id TEXT NOT NULL DEFAULT '',
-    status TEXT NOT NULL,             -- "accepted", "queued", "sent", "confirmed", "failed", "dead_lettered"
+    status TEXT NOT NULL,             -- "accepted", "queued", "sent", "confirmed", "suppressed", "failed", "dead_lettered"
     error TEXT,
     failure_kind TEXT,
     adapter_message_id TEXT,
@@ -299,7 +299,7 @@ CREATE TABLE delivery_receipts (
 
 Every delivery attempt produces a new row. Existing rows are never updated or deleted. A delivery that retried three times produces four rows.
 
-Status values are `accepted`, `queued`, `sent`, `confirmed`, `failed`, `dead_lettered`. Note: `confirmed` (not `acknowledged`) is the status for transport-level acknowledgement.
+Status values are `accepted`, `queued`, `sent`, `confirmed`, `suppressed`, `failed`, `dead_lettered`. The `suppressed` status covers loop/capacity/shutdown rejection receipts persisted where event/target context exists. Note: `confirmed` (not `acknowledged`) is the status for transport-level acknowledgement.
 
 `target_channel` carries the target channel/room/topic from the `RouteTarget`. This is the logical channel name resolved at delivery planning time. `NULL` if the route target does not specify a channel.
 

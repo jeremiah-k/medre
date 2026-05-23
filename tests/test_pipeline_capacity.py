@@ -94,16 +94,18 @@ class TestCapacityRejectionTaxonomy:
             assert outcomes[0].failure_kind is DeliveryFailureKind.CAPACITY_REJECTION
             assert outcomes[0].error == "delivery_capacity_exceeded"
 
-            # Semantics: capacity rejection occurs before delivery stage,
-            # so no DeliveryReceipt is persisted for this event.
-            assert outcomes[0].receipt is None
+            # Semantics: capacity rejection persists a suppressed evidence receipt.
+            assert outcomes[0].receipt is not None
+            assert outcomes[0].receipt.status == "suppressed"
+            assert outcomes[0].receipt.failure_kind == "capacity_rejection"
             receipt_rows = await temp_storage._read_all(
                 "SELECT * FROM delivery_receipts WHERE event_id = ?",
                 ("cap-001",),
             )
             assert (
-                len(receipt_rows) == 0
-            ), "capacity rejection must not persist any delivery receipt"
+                len(receipt_rows) >= 1
+            ), "capacity rejection must persist a suppressed delivery receipt"
+            assert receipt_rows[0]["status"] == "suppressed"
 
             # Accounting: capacity_rejections incremented.
             assert accounting.counters().capacity_rejections == 1
@@ -154,16 +156,18 @@ class TestCapacityRejectionTaxonomy:
             assert outcomes[0].failure_kind is DeliveryFailureKind.SHUTDOWN_REJECTION
             assert outcomes[0].error == "delivery_rejected_shutdown"
 
-            # Semantics: shutdown rejection occurs before delivery stage,
-            # so no DeliveryReceipt is persisted for this event.
-            assert outcomes[0].receipt is None
+            # Semantics: shutdown rejection persists a suppressed evidence receipt.
+            assert outcomes[0].receipt is not None
+            assert outcomes[0].receipt.status == "suppressed"
+            assert outcomes[0].receipt.failure_kind == "shutdown_rejection"
             receipt_rows = await temp_storage._read_all(
                 "SELECT * FROM delivery_receipts WHERE event_id = ?",
                 ("shutdown-001",),
             )
             assert (
-                len(receipt_rows) == 0
-            ), "shutdown rejection must not persist any delivery receipt"
+                len(receipt_rows) >= 1
+            ), "shutdown rejection must persist a suppressed delivery receipt"
+            assert receipt_rows[0]["status"] == "suppressed"
 
             # Accounting: capacity_rejections incremented.
             assert accounting.counters().capacity_rejections == 1

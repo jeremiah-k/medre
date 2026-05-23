@@ -70,7 +70,13 @@ def _make_receipt(
     delivery_plan_id: str = "plan-1",
     target_adapter: str = "adapter_x",
     status: Literal[
-        "accepted", "queued", "sent", "confirmed", "failed", "dead_lettered"
+        "accepted",
+        "queued",
+        "sent",
+        "confirmed",
+        "suppressed",
+        "failed",
+        "dead_lettered",
     ] = "sent",
     attempt_number: int = 1,
 ) -> DeliveryReceipt:

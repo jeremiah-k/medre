@@ -49,6 +49,12 @@ from medre.config.model import (
     StorageConfig,
 )
 from medre.config.paths import MedrePaths, resolve
+from medre.config.routes import (
+    BridgePolicy,
+    RouteConfig,
+    RouteConfigSet,
+    RouteDirectionality,
+)
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.kinds import EventKind
 from medre.core.events.metadata import EventMetadata
@@ -56,12 +62,6 @@ from medre.core.rendering.renderer import RenderingResult
 from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.runtime.app import MedreApp, RuntimeState
 from medre.runtime.builder import RuntimeBuilder
-from medre.config.routes import (
-    BridgePolicy,
-    RouteConfig,
-    RouteConfigSet,
-    RouteDirectionality,
-)
 from medre.runtime.snapshot import SCHEMA_VERSION, build_runtime_snapshot
 
 # ---------------------------------------------------------------------------
@@ -809,9 +809,12 @@ class TestLoopPrevention:
             stored = await app.storage.get(event.event_id)
             assert stored is not None
 
-            # -- No receipt for skipped deliveries --
+            # -- Suppressed evidence receipt for self-loop target --
             receipts = await app.storage.list_receipts_for_event(event.event_id)
-            assert len(receipts) == 0
+            assert len(receipts) == 1
+            assert receipts[0].status == "suppressed"
+            assert receipts[0].target_adapter == "mx_a"
+            assert receipts[0].failure_kind == "loop_suppressed"
         finally:
             await _clean_stop(app)
 

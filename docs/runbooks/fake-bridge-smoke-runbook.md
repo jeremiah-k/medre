@@ -82,17 +82,17 @@ All tests should pass in under 30 seconds total.
 
 ## 3. Test Coverage Matrix
 
-| Test Class                       | Flow                            | Key Assertions                                                                        |
-| -------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------- |
-| `TestMatrixToMeshtastic`         | Matrix -> Meshtastic            | Event stored, receipt sent, native ref, accounting, route stats, no duplicate         |
-| `TestMeshtasticToMatrix`         | Meshtastic -> Matrix            | Event stored, receipt sent, inbound native ref, outbound native ref, accounting       |
-| `TestBidirectionalBridge`        | Matrix <-> Meshtastic           | Both directions deliver, no cross-contamination, two receipts                         |
-| `TestFanoutDelivery`             | Matrix -> Meshtastic + MeshCore | Both targets receive delivery, two receipts, two native refs, error isolation         |
-| `TestLoopPrevention`             | Self-loop                       | Delivery skipped, loop_prevented counter incremented, no receipt                      |
-| `TestReplyRelationPreservation`  | Reply event bridge              | Relations preserved in storage, fallback text rendered correctly                      |
-| `TestRenderingContract`          | Various                         | RenderingResult shape, empty payload handling, unsupported kind = failure, truncation |
-| `TestSnapshotReflectsBridgeFlow` | After delivery                  | Accounting counters, route stats, JSON-safe snapshot                                  |
-| `TestRouteConfigThroughRuntime`  | Config -> Routes                | Config route registers, bidirectional expands, policy filters, disabled skipped       |
+| Test Class                       | Flow                            | Key Assertions                                                                                |
+| -------------------------------- | ------------------------------- | --------------------------------------------------------------------------------------------- |
+| `TestMatrixToMeshtastic`         | Matrix -> Meshtastic            | Event stored, receipt sent, native ref, accounting, route stats, no duplicate                 |
+| `TestMeshtasticToMatrix`         | Meshtastic -> Matrix            | Event stored, receipt sent, inbound native ref, outbound native ref, accounting               |
+| `TestBidirectionalBridge`        | Matrix <-> Meshtastic           | Both directions deliver, no cross-contamination, two receipts                                 |
+| `TestFanoutDelivery`             | Matrix -> Meshtastic + MeshCore | Both targets receive delivery, two receipts, two native refs, error isolation                 |
+| `TestLoopPrevention`             | Self-loop                       | Delivery skipped, loop_prevented counter incremented, `status="suppressed"` receipt persisted |
+| `TestReplyRelationPreservation`  | Reply event bridge              | Relations preserved in storage, fallback text rendered correctly                              |
+| `TestRenderingContract`          | Various                         | RenderingResult shape, empty payload handling, unsupported kind = failure, truncation         |
+| `TestSnapshotReflectsBridgeFlow` | After delivery                  | Accounting counters, route stats, JSON-safe snapshot                                          |
+| `TestRouteConfigThroughRuntime`  | Config -> Routes                | Config route registers, bidirectional expands, policy filters, disabled skipped               |
 
 ## 4. Step-by-Step: Proving a New Bridge Flow
 

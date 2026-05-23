@@ -345,7 +345,7 @@ CREATE TABLE delivery_receipts (
     event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
     delivery_plan_id TEXT NOT NULL,
     target_adapter TEXT NOT NULL,
-    status TEXT NOT NULL,             -- "accepted", "queued", "sent", "confirmed", "failed", "dead_lettered"
+    status TEXT NOT NULL,             -- "accepted", "queued", "sent", "confirmed", "suppressed", "failed", "dead_lettered"
     error TEXT,
     adapter_message_id TEXT,
     next_retry_at TEXT,
@@ -355,6 +355,10 @@ CREATE TABLE delivery_receipts (
 );
 
 -- Current delivery status projection
+-- Note: the "suppressed" status was added for loop/capacity/shutdown rejection
+-- receipts. The authoritative runtime receipt status literal, including
+-- "suppressed", is defined in docs/dev/runtime-delivery-contract.md and
+-- docs/contracts/61-operational-evidence-contract.md.
 CREATE VIEW delivery_status AS
 SELECT dr.* FROM delivery_receipts dr
 JOIN (
