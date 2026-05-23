@@ -600,6 +600,8 @@ Every delivery attempt produces a receipt:
 
 Phase 1 does not define a `DeliveryStatus` enum in code. Receipt status is a string literal constrained to `"accepted"`, `"queued"`, `"sent"`, `"confirmed"`, `"failed"`, or `"dead_lettered"`.
 
+> **Note (2026-05-23):** This Phase 1 spec predates the `"suppressed"` status added for loop/capacity/shutdown rejection receipts. For the current runtime status literal including `"suppressed"`, see `docs/dev/runtime-delivery-contract.md` and `docs/contracts/61-operational-evidence-contract.md`.
+
 ### 10.2 Receipt Record
 
 ```python
