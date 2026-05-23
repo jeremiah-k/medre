@@ -25,7 +25,7 @@ to future work.  This is a scaffold design choice, not a bug.
 
 Queue bounds
 ------------
-The internal deque is bounded by ``max_queue_size`` (default 1024).
+The internal deque is intentionally unbounded. ``max_queue_size`` is enforced explicitly at enqueue time so existing accepted items are never silently evicted.
 When the queue is full, ``enqueue()`` raises
 :class:`~medre.adapters.meshtastic.errors.MeshtasticSendError` with
 ``transient=True`` instead of accepting the item.  The caller receives
