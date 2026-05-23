@@ -396,7 +396,7 @@ corresponding entry in `delivery_receipts`. This happens when:
 - The runtime crashed mid-delivery.
 - Delivery was cancelled during shutdown.
 - Route matching found no matching routes (by design — not an error).
-- Loop prevention skipped delivery (by design — no receipt is written).
+- Loop prevention suppressed delivery (a `status="suppressed"` receipt is persisted when event/target context exists).
 
 ```sql
 -- All orphaned events
@@ -434,8 +434,8 @@ Not all events without receipts are truly orphaned:
 | ------------------------------------------------------ | ---------------------- | ----------------------------------------------------------------- |
 | Event stored, delivery in progress when crash occurred | No                     | Replay candidate                                                  |
 | Event stored, no routes matched                        | No                     | Not an orphan — no routes were configured for this event's source |
-| Event stored, loop prevented delivery                  | No                     | Not an orphan — loop prevention worked correctly                  |
-| Event stored, capacity exceeded                        | No (permanent failure) | Replay candidate (after increasing capacity limits)               |
+| Event stored, loop prevented delivery                  | `suppressed` receipt   | Not an orphan — loop prevention worked correctly                  |
+| Event stored, capacity exceeded                        | `suppressed` receipt   | Replay candidate (after increasing capacity limits)               |
 | Event stored, delivery sent before crash               | Yes (receipt written)  | Not an orphan — check receipt status                              |
 
 To distinguish genuine orphans from expected undelivered events:
@@ -772,9 +772,10 @@ sqlite3 {state}/medre.sqlite "
 ### 6.5 How Duplicate Suppression Appears in Storage
 
 MEDRE does not have a deduplication layer, but loop prevention suppresses
-delivery when an event would be routed back to its source adapter. In this
-case, no receipt is written. The event exists in `canonical_events` with no
-corresponding receipt for the loop-prevented adapter.
+delivery when an event would be routed back to its source adapter. A
+`DeliveryReceipt` with `status="suppressed"` is persisted for the loop-prevented
+delivery when event/target context exists. The event exists in `canonical_events`
+with a suppressed receipt for the loop-prevented adapter.
 
 ```bash
 # An event where loop prevention suppressed delivery:
@@ -785,19 +786,20 @@ medre trace event evt_loop_prevented --storage-path /path/to/medre.sqlite
 
 # Expected output:
 #   Event: evt_loop_prevented (message.text) from bot
-#   Timeline (1 entry):
+#   Timeline (2 entries):
 #
 #     2026-05-14T10:30:00Z  [event] message.text from bot
+#     2026-05-14T10:30:00.010Z  [receipt] suppressed -> bot (attempt 1)
 #
 #   Summary:
-#     Receipts: none
+#     Receipts: suppressed: 1
 #     Native refs: 0
 ```
 
-No receipt was written because loop prevention prevented delivery. The event
-has zero receipts. This is the same storage signature as an orphaned event.
-To distinguish loop-prevented events from orphans, check whether the event's
-source adapter matches any route's destination:
+A `status="suppressed"` receipt was written because loop prevention prevented
+delivery. The event has a suppressed receipt. This is distinct from a true
+orphaned event (which has zero receipts). To distinguish loop-prevented events
+from orphans, check whether the receipt has `status="suppressed"`:
 
 ```bash
 # Events with no receipts where the source adapter IS a route destination

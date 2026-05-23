@@ -332,10 +332,11 @@ Timeline phases are reconstructed from stored data. Gaps indicate:
 
 - **No routing phase:** The event had no matching routes. Check route
   configuration and event source adapter.
-- **No delivery phase:** Delivery was attempted but no receipt was written.
-  This happens when the runtime crashes mid-delivery (in-flight delivery lost)
-  or when delivery was skipped (loop prevention, capacity exceeded without a
-  receipt).
+- **No delivery phase:** No receipt exists for the event. This happens when
+  the runtime crashes mid-delivery (in-flight delivery lost) or when delivery
+  was never attempted (planner failure). Note: loop prevention, capacity
+  exceeded, and shutdown rejection produce `status="suppressed"` receipts —
+  those appear as a delivery phase, not as a gap.
 - **Multiple delivery phases, same target:** Retry chain. Check
   `attempt_number` and `parent_receipt_id` to trace the lineage. Retry receipts have `source="retry"` and link back to the original failure via `parent_receipt_id`.
 - **Multiple delivery phases, different targets:** Fan-out. Multiple routes
@@ -357,7 +358,7 @@ types:
 | --------------------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | `replay_duplicate_risk`     | BEST_EFFORT replay produces receipts for events that already have live receipts | Multiple outbound deliveries for the same event. Use `source` field to distinguish live from replay.             |
 | `adapter_transient_failure` | Transient adapter failure triggers retry chain                                  | Check `attempt_number` progression and `parent_receipt_id` lineage. Each retry is a separate receipt.            |
-| `shutdown_rejection`        | In-flight delivery cancelled during runtime shutdown                            | No receipt is written for rejected deliveries. Check `outbound_failed` counter (process-local, lost on restart). |
+| `shutdown_rejection`        | In-flight delivery cancelled during runtime shutdown                            | `status="suppressed"` receipt persisted. Check `outbound_failed` counter (process-local, lost on restart) for additional signal. |
 | `degraded_live_health`      | Adapter reports degraded/failed health after startup                            | Event may have been delivered to a degraded adapter. Check the adapter's `.error` field in live health output.   |
 
 To drill into these scenarios:
