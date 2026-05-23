@@ -20,8 +20,10 @@ Failure semantics
 When *send_fn* raises an exception during ``process_one``, the behaviour
 depends on the exception type and remaining retry budget:
 
-* ``asyncio.CancelledError`` — re-raised immediately; the item is
-  **not** requeued or dropped.
+* ``asyncio.CancelledError`` — re-raised immediately and not counted
+  as failed/requeued/exhausted.  Because the item has already been
+  dequeued, shutdown-time cancellation can abandon the in-flight
+  item; this is **not** durable delivery.
 * :class:`~medre.adapters.meshtastic.errors.MeshtasticSendError` with
   ``transient=True`` — the item is **front-requeued** (``appendleft``)
   if the attempt count is below ``max_attempts``; otherwise it is
@@ -341,8 +343,10 @@ class MeshtasticOutboundQueue:
             return None
         except Exception:
             # Unknown exception: treat conservatively as transient for
-            # bounded retry.  This ensures unexpected errors don't
-            # silently drop items while still bounding starvation.
+            # bounded retry.  send_fn wraps the SDK send boundary, so
+            # unexpected errors here are treated as adapter-local
+            # transient failures.  Bugs outside send_fn should still
+            # surface through the queue drain task.
             self._handle_transient_failure(item)
             return None
 
@@ -414,7 +418,10 @@ class MeshtasticOutboundQueue:
 
     @property
     def total_failed(self) -> int:
-        """Total number of send failures."""
+        """Terminal send failures (exhausted retries + permanent failures).
+
+        Does **not** increment on transient requeued failures.
+        """
         return self._total_failed
 
     @property

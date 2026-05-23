@@ -53,9 +53,9 @@ This is a review document. No runtime redesign is proposed.
 
 - **Reconnect attempts:** Max 10 (`_MAX_RECONNECT_ATTEMPTS`). After exhaustion, `_sync_failure` is set and the sync loop exits.
 - **Backoff:** Exponential, base 1s, cap 60s, ±25% jitter. No retry after budget exhaustion.
-- **No send retry.** `deliver()` calls `room_send` once. On failure, adapter normalizes internal `MatrixSendError` and raises `AdapterSendError`/`AdapterPermanentError`. No retry loop.
+- **Bounded send retry.** `deliver()` retries transient send failures up to 3 times with a stable per-delivery `tx_id`. The homeserver uses `tx_id` to deduplicate retried attempts within its transaction-ID window, reducing duplicate visible messages. This is not exactly-once delivery; duplicates are still possible across restarts or outside the dedup window.
 
-**Risk assessment:** Low. The retry budget is finite and the session does not retry sends. The backoff prevents thundering-herd reconnection attempts.
+**Risk assessment:** Low. The retry budget is finite and bounded. The stable `tx_id` reduces but does not eliminate duplicate risk. The backoff prevents thundering-herd reconnection attempts.
 
 ### 3.3 Callback Management
 
@@ -278,7 +278,7 @@ model, and no raw-object leakage.
 
 4. **Three memory growth risks identified:**
    - Matrix `_room_states` dict (mitigated by clear on start).
-   - Meshtastic outbound queue (no max size; mitigated by pacing).
+   - Meshtastic outbound queue is bounded by explicit `max_queue_size` (default 1024); overflow rejects new enqueues instead of evicting accepted items. Pacing provides additional backpressure.
    - LXMF `_outbound_deliveries` dict (no eviction for completed deliveries).
 
 5. **No secret leakage through diagnostics.** All diagnostics snapshots use read-only dataclasses that exclude secrets, tokens, keys, and raw SDK objects.
