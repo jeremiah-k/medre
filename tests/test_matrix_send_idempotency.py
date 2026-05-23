@@ -143,8 +143,8 @@ class TestMatrixTxnId:
     def test_txn_id_matches_expected_sha256(self) -> None:
         result = _make_result()
         room_id = "!room:example.com"
-        expected_input = ":".join(
-            [
+        expected_input = "".join(
+            f"{len(p)}:{p}|" for p in [
                 result.event_id,
                 result.target_adapter,
                 result.target_channel or "",
@@ -177,10 +177,10 @@ class TestDeliverTxnIdPassed:
         await adapter.deliver(result)
 
         call_kwargs = mock_client.room_send.call_args.kwargs
-        assert "txn_id" in call_kwargs
+        assert "tx_id" in call_kwargs
         room_id = result.target_channel or "!room:example.com"
         expected_txn = _matrix_txn_id(result, room_id)
-        assert call_kwargs["txn_id"] == expected_txn
+        assert call_kwargs["tx_id"] == expected_txn
 
 
 # ---------------------------------------------------------------------------
@@ -202,7 +202,7 @@ class TestRetryReusesTxnId:
         async def _flaky_then_ok(**kwargs: Any) -> MagicMock:
             nonlocal call_count
             call_count += 1
-            txn_ids_seen.append(kwargs.get("txn_id", ""))
+            txn_ids_seen.append(kwargs.get("tx_id", ""))
             if call_count <= 2:
                 raise ConnectionError("network glitch")
             return _make_send_response()

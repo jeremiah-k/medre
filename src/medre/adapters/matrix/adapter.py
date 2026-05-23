@@ -162,10 +162,15 @@ def _matrix_txn_id(result: RenderingResult, room_id: str) -> str:
 
     Deterministic inputs: ``result.event_id``, ``result.target_adapter``,
     ``result.target_channel``, ``room_id``.  Produces a ``medre_``-prefixed
-    38-character identifier (7 prefix + 32 hex chars / first 32 of sha256).
+    38-character identifier (6-character prefix + 32 hex chars / first 32 of sha256).
 
     The transaction ID does **not** include the message body, ensuring that
     content changes do not affect the idempotency key.
+
+    .. note::
+       nio's ``AsyncClient.room_send()`` accepts the transaction ID as
+       ``tx_id``, not ``txn_id``.  The local variable is still named
+       ``txn_id`` for readability but is passed as ``tx_id=txn_id``.
     """
     parts = [
         result.event_id,
@@ -173,7 +178,9 @@ def _matrix_txn_id(result: RenderingResult, room_id: str) -> str:
         result.target_channel or "",
         room_id,
     ]
-    digest = hashlib.sha256(":".join(parts).encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(
+        "".join(f"{len(p)}:{p}|" for p in parts).encode("utf-8")
+    ).hexdigest()
     return f"medre_{digest[:32]}"
 
 
@@ -499,20 +506,6 @@ class MatrixAdapter(AdapterContract):
                     _encrypted_msg,
                     transient=False,
                 )
-        if room_state == "plaintext":
-            # Room is known plaintext — allow send
-            return
-
-        # "unknown" — fall back to client.rooms check
-        rooms = getattr(client, "rooms", None)
-        if rooms is not None and isinstance(rooms, dict):
-            room_obj = rooms.get(room_id)
-            if room_obj is not None and getattr(room_obj, "encrypted", False):
-                raise MatrixSendError(
-                    f"Room {room_id} is encrypted but E2EE crypto is not active; "
-                    f"cannot send encrypted message",
-                    transient=False,
-                )
 
     async def deliver(self, result: RenderingResult) -> AdapterDeliveryResult | None:
         """Send a pre-rendered payload to a Matrix room.
@@ -616,7 +609,7 @@ class MatrixAdapter(AdapterContract):
                     message_type=message_type,
                     content=content,
                     ignore_unverified_devices=self._should_ignore_unverified_devices(),
-                    txn_id=txn_id,
+                    tx_id=txn_id,
                 )
 
                 # Check for nio error responses (no event_id)
@@ -627,10 +620,16 @@ class MatrixAdapter(AdapterContract):
 
                     # Permanent error response (M_FORBIDDEN, M_NOT_FOUND, etc.)
                     if _is_nio_permanent_response(response):
-                        raise AdapterPermanentError(str(response))
+                        err_msg = str(response)
+                        if hasattr(response, "errcode") and response.errcode:
+                            err_msg = f"{response.errcode}: {err_msg}"
+                        raise AdapterPermanentError(err_msg)
 
                     # Unknown error response — treat as permanent
-                    raise AdapterPermanentError(str(response))
+                    err_msg = str(response)
+                    if hasattr(response, "errcode") and response.errcode:
+                        err_msg = f"{response.errcode}: {err_msg}"
+                    raise AdapterPermanentError(err_msg)
 
                 event_id = response.event_id
                 if not event_id:
