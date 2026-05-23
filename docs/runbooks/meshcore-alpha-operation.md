@@ -784,7 +784,7 @@ This is an honest list. Everything here is real.
 
 11. **512-byte text limit.** The adapter's capabilities declare `max_text_bytes=512` and `max_text_chars=512`. The renderer notes this but does not enforce it. The MeshCore wire protocol has a 255-byte frame payload maximum. Messages exceeding the wire limit may be truncated or rejected by the firmware.
 
-12. **No DM support.** The adapter capabilities declare `direct_messages=False`. Direct messages are classified by the packet classifier (`is_direct_message`) but are processed identically to channel messages.
+12. **No DM support (outbound).** The adapter capabilities declare `direct_messages=False`. This means MEDRE does not model explicit outbound DM targeting. It does **not** mean the transport cannot relay inbound PRIV packets. Direct messages are classified by the packet classifier (`is_direct_message`) and relayed identically to channel messages. Relaying an inbound private message is not the same as initiating a direct message. See `packet_classifier.py` for the inline note.
 
 13. **Identity collision risk.** The `pubkey_prefix` used as `sender_id` is a truncated prefix (default 12 hex chars / 6 bytes). Two different nodes could theoretically share the same prefix. Do not assume `sender_id` is globally unique.
 

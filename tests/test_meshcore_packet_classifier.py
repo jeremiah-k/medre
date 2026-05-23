@@ -4,7 +4,7 @@ vs channel messages, missing fields, ACK detection, and edge cases.
 
 from __future__ import annotations
 
-import dataclasses
+from dataclasses import FrozenInstanceError, fields, is_dataclass
 
 import pytest
 
@@ -28,7 +28,7 @@ class TestPacketClassifierText:
         }
         result = cls.classify(packet)
         assert isinstance(result, ClassificationResult)
-        assert result.category == "text"
+        assert result.category == "direct_message"
         assert result.is_ack is False
         assert result.is_text is True
         assert result.action == "relay"
@@ -151,7 +151,7 @@ class TestPacketClassifierMissingFields:
         }
         result = cls.classify(packet)
         assert result.packet_id is None
-        assert result.category == "text"
+        assert result.category == "direct_message"
         assert result.action == "relay"
 
     def test_missing_sender(self) -> None:
@@ -183,13 +183,13 @@ class TestPacketClassifierMissingFields:
     def test_empty_packet(self) -> None:
         cls = MeshCorePacketClassifier()
         result = cls.classify({})
-        assert result.category == "unknown"
+        assert result.category == "malformed"
         assert result.is_ack is False
         assert result.sender_id is None
         assert result.packet_id is None
-        assert result.action == "ignore"
+        assert result.action == "deferred"
         assert result.routeable is False
-        assert result.reason == "empty_packet"
+        assert result.reason == "empty_text_packet"
 
 
 class TestPacketClassifierAck:
@@ -224,7 +224,7 @@ class TestPacketClassifierAck:
         }
         result = cls.classify(packet)
         assert result.is_ack is False
-        assert result.category == "text"
+        assert result.category == "direct_message"
         assert result.action == "relay"
 
 
@@ -236,15 +236,15 @@ class TestPacketClassifierUnknown:
         packet = {"type": "UNKNOWN"}
         result = cls.classify(packet)
         assert result.category == "unknown"
-        assert result.action == "ignore"
+        assert result.action == "deferred"
         assert result.reason == "unknown_packet"
 
     def test_packet_with_unrelated_fields(self) -> None:
         cls = MeshCorePacketClassifier()
         packet = {"foo": "bar"}
         result = cls.classify(packet)
-        assert result.category == "unknown"
-        assert result.action == "ignore"
+        assert result.category == "malformed"
+        assert result.action == "deferred"
 
 
 class TestClassificationResultFrozen:
@@ -254,9 +254,9 @@ class TestClassificationResultFrozen:
         cls = MeshCorePacketClassifier()
         packet = {"text": "frozen test", "type": "CHAN", "txt_type": 0}
         result = cls.classify(packet)
-        assert dataclasses.is_dataclass(result)
+        assert is_dataclass(result)
         assert result.__dataclass_params__.frozen is True  # type: ignore[attr-defined]
-        with pytest.raises(dataclasses.FrozenInstanceError):
+        with pytest.raises(FrozenInstanceError):
             result.action = "drop"  # type: ignore[misc]
 
     def test_result_has_all_fields(self) -> None:
@@ -275,5 +275,5 @@ class TestClassificationResultFrozen:
             "is_text",
             "routeable",
         }
-        actual_fields = {f.name for f in dataclasses.fields(result)}
+        actual_fields = {f.name for f in fields(result)}
         assert actual_fields == expected_fields

@@ -14,7 +14,7 @@ frozen :class:`ClassificationResult`.  It has no side effects.
 
 from __future__ import annotations
 
-import dataclasses
+from dataclasses import FrozenInstanceError, dataclass, fields
 from typing import Any, Literal
 
 # ---------------------------------------------------------------------------
@@ -30,7 +30,7 @@ ClassificationAction = Literal["relay", "ignore", "drop", "deferred"]
 * ``"deferred"`` – hold for later evaluation (reserved for future policy).
 """
 
-ClassificationCategory = Literal["text", "ack", "unknown"]
+ClassificationCategory = Literal["text", "direct_message", "ack", "malformed", "unknown"]
 """Packet content category."""
 
 # ---------------------------------------------------------------------------
@@ -41,7 +41,7 @@ REASON_CHANNEL_TEXT = "channel_text_packet"
 REASON_DIRECT_TEXT = "direct_text_packet"
 REASON_ACK = "ack_packet"
 REASON_UNKNOWN = "unknown_packet"
-REASON_EMPTY = "empty_packet"
+REASON_EMPTY_TEXT = "empty_text_packet"
 
 
 # ---------------------------------------------------------------------------
@@ -49,7 +49,7 @@ REASON_EMPTY = "empty_packet"
 # ---------------------------------------------------------------------------
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclass(frozen=True)
 class ClassificationResult:
     """Immutable classification produced by :meth:`MeshCorePacketClassifier.classify`.
 
@@ -150,12 +150,19 @@ class MeshCorePacketClassifier:
             )
 
         if is_text:
-            # TODO(tranche-B): DM filtering policy may become configurable.
-            # For now all text packets (both CHAN and PRIV) are relayed.
-            reason = REASON_DIRECT_TEXT if is_direct else REASON_CHANNEL_TEXT
+            if is_direct:
+                category: ClassificationCategory = "direct_message"
+                reason = REASON_DIRECT_TEXT
+            elif msg_type == "CHAN":
+                category = "text"
+                reason = REASON_CHANNEL_TEXT
+            else:
+                # Text present but no recognised type — treat as generic text.
+                category = "text"
+                reason = REASON_CHANNEL_TEXT
             return ClassificationResult(
                 action="relay",
-                category="text",
+                category=category,
                 reason=reason,
                 channel_index=channel_index if not is_direct else None,
                 packet_id=packet_id,
@@ -166,11 +173,26 @@ class MeshCorePacketClassifier:
                 routeable=True,
             )
 
-        # Unknown / empty / unrecognised — silently ignore.
-        reason = REASON_EMPTY if not packet else REASON_UNKNOWN
+        # No text, no code — check for unrecognised type vs malformed.
+        if msg_type is not None and msg_type not in ("PRIV", "CHAN"):
+            return ClassificationResult(
+                action="deferred",
+                category="unknown",
+                reason=REASON_UNKNOWN,
+                channel_index=None,
+                packet_id=packet_id,
+                sender_id=sender_id,
+                is_direct_message=False,
+                is_ack=False,
+                is_text=False,
+                routeable=False,
+            )
+
+        # Malformed: empty dict, random fields, or PRIV/CHAN without text.
+        reason = REASON_EMPTY_TEXT if not packet else REASON_UNKNOWN
         return ClassificationResult(
-            action="ignore",
-            category="unknown",
+            action="deferred",
+            category="malformed",
             reason=reason,
             channel_index=None,
             packet_id=packet_id,

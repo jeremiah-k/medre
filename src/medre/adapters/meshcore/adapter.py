@@ -83,6 +83,9 @@ _MESHCORE_CAPS_BASE = AdapterCapabilities(
     metadata_fields=False,
     delivery_receipts=False,
     store_and_forward=False,
+    # direct_messages=False: MEDRE does not initiate outbound DMs. Inbound
+    # PRIV packets are still relayed (relay != DM initiation). See
+    # packet_classifier.py for the relay-side note.
     direct_messages=False,
     channels=True,
     async_delivery=True,

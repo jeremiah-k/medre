@@ -92,6 +92,10 @@ The three ACK models are fundamentally different:
 
 MEDRE doesn't track delivery confirmation in tranche 1. When it does, the abstraction should probably be event-based (adapter emits a delivery status event) rather than request-based (caller asks "was this delivered?"). All three models map cleanly to an event-based approach. This is an open design question, not a neutrality problem.
 
+## Direct Message Semantics
+
+`direct_messages=False` in MeshCore's adapter capabilities means MEDRE does not model explicit outbound DM targeting. It does not mean the transport cannot relay inbound PRIV (private) packets. The MeshCore packet classifier tags PRIV packets with `is_direct_message=True` and relays them through the same pipeline as channel messages. This is relay, not DM initiation. Future contributors should not "fix" the apparent contradiction by blocking PRIV relay or toggling `direct_messages` to `True` without understanding this distinction. Inline notes in `adapter.py` (near `_MESHCORE_CAPS_BASE`) and `packet_classifier.py` (near the DM TODO) reinforce this.
+
 ## Conclusions
 
 **Protocol-neutral abstractions (safe as-is):**

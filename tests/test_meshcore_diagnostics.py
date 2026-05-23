@@ -3,7 +3,7 @@
 Tests cover:
 - Initial zero counters on fresh adapters
 - Text relay increments seen/relayed/inbound_published
-- ACK/unknown/empty packets increment seen/ignored only
+- ACK packets increment seen/ignored only; unknown/malformed increment seen/deferred only
 - Fake adapter counter parity with real adapter
 - Diagnostics primitive shape (all values are int)
 - DM relay increments relayed and preserves is_direct_message metadata
@@ -190,7 +190,7 @@ class TestTextRelayCounters:
 
 
 class TestIgnoredPackets:
-    """ACK, unknown, and empty packets increment seen/ignored only."""
+    """ACK packets increment seen/ignored; unknown/malformed increment seen/deferred."""
 
     async def test_fake_ack_increments_seen_ignored_only(
         self, make_adapter_context
@@ -207,7 +207,7 @@ class TestIgnoredPackets:
         assert diag["classifier_packets_relayed"] == 0
         assert diag["inbound_published"] == 0
 
-    async def test_fake_empty_packet_increments_seen_ignored_only(
+    async def test_fake_empty_packet_increments_seen_deferred_only(
         self, make_adapter_context
     ) -> None:
         adapter = FakeMeshCoreAdapter()
@@ -218,11 +218,11 @@ class TestIgnoredPackets:
 
         diag = adapter.diagnostics()
         assert diag["classifier_packets_seen"] == 1
-        assert diag["classifier_packets_ignored"] == 1
+        assert diag["classifier_packets_deferred"] == 1
         assert diag["classifier_packets_relayed"] == 0
         assert diag["inbound_published"] == 0
 
-    async def test_fake_unknown_packet_increments_seen_ignored_only(
+    async def test_fake_unknown_packet_increments_seen_deferred_only(
         self, make_adapter_context
     ) -> None:
         adapter = FakeMeshCoreAdapter()
@@ -233,7 +233,7 @@ class TestIgnoredPackets:
 
         diag = adapter.diagnostics()
         assert diag["classifier_packets_seen"] == 1
-        assert diag["classifier_packets_ignored"] == 1
+        assert diag["classifier_packets_deferred"] == 1
         assert diag["classifier_packets_relayed"] == 0
         assert diag["inbound_published"] == 0
 
@@ -260,7 +260,7 @@ class TestIgnoredPackets:
         ctx = make_adapter_context("mc-diag")
         await adapter.start(ctx)
 
-        # 2 text → relay, 1 ack → ignore, 1 unknown → ignore
+        # 2 text → relay, 1 ack → ignore, 1 unknown → deferred
         await adapter.simulate_inbound(_channel_text_packet(text="t1"))
         await adapter.simulate_inbound(_ack_packet())
         await adapter.simulate_inbound(_unknown_packet())
@@ -269,7 +269,8 @@ class TestIgnoredPackets:
         diag = adapter.diagnostics()
         assert diag["classifier_packets_seen"] == 4
         assert diag["classifier_packets_relayed"] == 2
-        assert diag["classifier_packets_ignored"] == 2
+        assert diag["classifier_packets_ignored"] == 1
+        assert diag["classifier_packets_deferred"] == 1
         assert diag["inbound_published"] == 2
 
 
