@@ -29,7 +29,6 @@ import logging
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
-from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.config.model import (
     RuntimeConfig,
     StorageConfig,
@@ -247,6 +246,8 @@ def _register_adapter_renderers(
         # adapter_kind="fake" where rtc.config is None), synthesize defaults
         # so the renderer is registered and target-aware rendering works.
         if not meshtastic_configs and config.adapters.meshtastic:
+            from medre.config.adapters.meshtastic import MeshtasticConfig  # lazy import
+
             for adapter_id in config.adapters.meshtastic:
                 meshtastic_configs[adapter_id] = MeshtasticConfig(
                     adapter_id=adapter_id,

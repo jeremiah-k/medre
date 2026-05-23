@@ -312,7 +312,10 @@ class TestRendererBoundary:
         mod = _load_module(mod_name)
         cls = getattr(mod, cls_name)
         instance = (
-            cls(configs={"t": MeshtasticConfig(adapter_id="t")})
+            cls(configs={
+                "t": MeshtasticConfig(adapter_id="t"),
+                "meshtastic_node": MeshtasticConfig(adapter_id="meshtastic_node"),
+            })
             if cls_name == "MeshtasticRenderer"
             else cls()
         )
@@ -326,7 +329,10 @@ class TestRendererBoundary:
         mod = _load_module(mod_name)
         cls = getattr(mod, cls_name)
         instance = (
-            cls(configs={"t": MeshtasticConfig(adapter_id="t")})
+            cls(configs={
+                "t": MeshtasticConfig(adapter_id="t"),
+                "meshtastic_node": MeshtasticConfig(adapter_id="meshtastic_node"),
+            })
             if cls_name == "MeshtasticRenderer"
             else cls()
         )
@@ -338,7 +344,10 @@ class TestRendererBoundary:
         mod = _load_module(mod_name)
         cls = getattr(mod, cls_name)
         instance = (
-            cls(configs={"t": MeshtasticConfig(adapter_id="t")})
+            cls(configs={
+                "t": MeshtasticConfig(adapter_id="t"),
+                "meshtastic_node": MeshtasticConfig(adapter_id="meshtastic_node"),
+            })
             if cls_name == "MeshtasticRenderer"
             else cls()
         )
@@ -352,7 +361,10 @@ class TestRendererBoundary:
         mod = _load_module(mod_name)
         cls = getattr(mod, cls_name)
         instance = (
-            cls(configs={"t": MeshtasticConfig(adapter_id="t")})
+            cls(configs={
+                "t": MeshtasticConfig(adapter_id="t"),
+                "meshtastic_node": MeshtasticConfig(adapter_id="meshtastic_node"),
+            })
             if cls_name == "MeshtasticRenderer"
             else cls()
         )
@@ -364,7 +376,10 @@ class TestRendererBoundary:
         mod = _load_module(mod_name)
         cls = getattr(mod, cls_name)
         instance = (
-            cls(configs={"t": MeshtasticConfig(adapter_id="t")})
+            cls(configs={
+                "t": MeshtasticConfig(adapter_id="t"),
+                "meshtastic_node": MeshtasticConfig(adapter_id="meshtastic_node"),
+            })
             if cls_name == "MeshtasticRenderer"
             else cls()
         )
@@ -378,7 +393,10 @@ class TestRendererBoundary:
         mod = _load_module(mod_name)
         cls = getattr(mod, cls_name)
         instance = (
-            cls(configs={"t": MeshtasticConfig(adapter_id="t")})
+            cls(configs={
+                "t": MeshtasticConfig(adapter_id="t"),
+                "meshtastic_node": MeshtasticConfig(adapter_id="meshtastic_node"),
+            })
             if cls_name == "MeshtasticRenderer"
             else cls()
         )
@@ -427,7 +445,10 @@ class TestRendererBoundary:
         mod = _load_module(mod_name)
         cls = getattr(mod, cls_name)
         renderer = (
-            cls(configs={"t": MeshtasticConfig(adapter_id="t")})
+            cls(configs={
+                "t": MeshtasticConfig(adapter_id="t"),
+                "meshtastic_node": MeshtasticConfig(adapter_id="meshtastic_node"),
+            })
             if cls_name == "MeshtasticRenderer"
             else cls()
         )
