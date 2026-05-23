@@ -617,7 +617,8 @@ class TestEmptyPayload:
             await adapter.stop()
 
     async def test_empty_meshcore_text_not_crash(self) -> None:
-        """A MeshCore packet with empty text string processes fine."""
+        """A MeshCore packet with empty text is classified as ignore (no
+        event published) and does not crash."""
         adapter = MeshCoreAdapter(
             MeshCoreConfig(adapter_id="mc-empty", connection_type="fake")
         )
@@ -627,8 +628,7 @@ class TestEmptyPayload:
         try:
             pkt = make_meshcore_packet(text="", sender="empty1", packet_id=9001)
             await adapter.simulate_inbound(pkt)
-            assert len(collector.events) == 1
-            assert collector.events[0].payload.get("body") == ""
+            assert len(collector.events) == 0
         finally:
             await adapter.stop()
 
