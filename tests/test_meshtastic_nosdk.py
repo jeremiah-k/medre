@@ -224,7 +224,7 @@ class TestMeshtasticNoSdkLifecycle:
         assert "queue_pending" in diag
         assert "queue_total_sent" in diag
         assert "queue_total_failed" in diag
-        assert "queue_total_dropped" in diag
+        assert "queue_total_rejected" in diag
         assert "background_tasks" in diag
         # No session before start
         assert "session" not in diag
@@ -302,7 +302,7 @@ class TestMeshtasticDiagnostics:
         assert isinstance(diag["queue_pending"], int)
         assert isinstance(diag["queue_total_sent"], int)
         assert isinstance(diag["queue_total_failed"], int)
-        assert isinstance(diag["queue_total_dropped"], int)
+        assert isinstance(diag["queue_total_rejected"], int)
         assert isinstance(diag["background_tasks"], int)
 
         # No session before start
@@ -371,11 +371,11 @@ class TestMeshtasticDiagnostics:
             assert "queue_pending" in diag
             assert "queue_total_sent" in diag
             assert "queue_total_failed" in diag
-            assert "queue_total_dropped" in diag
+            assert "queue_total_rejected" in diag
             assert diag["queue_pending"] >= 0
             assert diag["queue_total_sent"] >= 0
             assert diag["queue_total_failed"] >= 0
-            assert diag["queue_total_dropped"] >= 0
+            assert diag["queue_total_rejected"] >= 0
         finally:
             await _bounded(adapter.stop())
 
@@ -649,7 +649,7 @@ class TestMeshtasticQueueMetrics:
         assert diag["queue_pending"] == 0
         assert diag["queue_total_sent"] == 0
         assert diag["queue_total_failed"] == 0
-        assert diag["queue_total_dropped"] == 0
+        assert diag["queue_total_rejected"] == 0
 
     async def test_queue_metrics_after_deliver(self):
         """After multiple deliver() calls, queue_pending reflects count."""
@@ -679,7 +679,7 @@ class TestMeshtasticQueueMetrics:
             "queue_pending",
             "queue_total_sent",
             "queue_total_failed",
-            "queue_total_dropped",
+            "queue_total_rejected",
         )
         for key in required_keys:
             assert key in diag, f"Missing key {key!r} in diagnostics"
@@ -725,7 +725,7 @@ class TestMeshtasticQueueMetrics:
         assert diag["queue_pending"] == 1
         assert diag["queue_total_sent"] >= 0
         assert diag["queue_total_failed"] >= 0
-        assert diag["queue_total_dropped"] >= 0
+        assert diag["queue_total_rejected"] >= 0
 
 
 # ---------------------------------------------------------------------------

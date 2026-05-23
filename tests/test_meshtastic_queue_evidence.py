@@ -108,7 +108,10 @@ class TestAdapterDeliverOnFullQueue:
     """Adapter deliver() on full queue raises AdapterSendError(transient=True)."""
 
     async def test_deliver_on_full_queue_raises_adapter_send_error(self) -> None:
+        import asyncio
         import logging
+        from datetime import datetime, timezone
+        from unittest.mock import AsyncMock
 
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
         from medre.config.adapters.meshtastic import MeshtasticConfig
@@ -122,8 +125,12 @@ class TestAdapterDeliverOnFullQueue:
         )
         adapter = MeshtasticAdapter(config)
         ctx = AdapterContext(
+            adapter_id="test-full",
             event_bus=EventBus(),
+            publish_inbound=AsyncMock(),
             logger=logging.getLogger("test"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
         )
         await adapter.start(ctx)
         try:
@@ -237,7 +244,10 @@ class TestAdapterDiagnosticsQueueStats:
     """Adapter diagnostics include queue stats."""
 
     async def test_adapter_diagnostics_includes_queue_counters(self) -> None:
+        import asyncio
         import logging
+        from datetime import datetime, timezone
+        from unittest.mock import AsyncMock
 
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
         from medre.config.adapters.meshtastic import MeshtasticConfig
@@ -247,8 +257,12 @@ class TestAdapterDiagnosticsQueueStats:
         config = MeshtasticConfig(adapter_id="diag-test", connection_type="fake")
         adapter = MeshtasticAdapter(config)
         ctx = AdapterContext(
+            adapter_id="diag-test",
             event_bus=EventBus(),
+            publish_inbound=AsyncMock(),
             logger=logging.getLogger("test"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
         )
         await adapter.start(ctx)
         try:
