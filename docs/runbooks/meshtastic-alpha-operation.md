@@ -407,14 +407,12 @@ The adapter's `health_check()` returns an `AdapterInfo` with a `health` field:
 | `healthy` | Adapter has started successfully; client is connected           |
 | `failed`  | Client exists but start did not complete (subscription failure) |
 
-.. note::
-
-The adapter code at `MeshtasticAdapter.health_check()` does handle
-a `"degraded"` health state when `self._session.reconnecting` is
-`True`. However, the current session implementation does not
-automatically enter the reconnecting state — this path is reserved for
-a future automatic reconnection feature. In practice, the adapter
-reports `"healthy"` or `"unknown"` only.
+> **Note:** The adapter code at `MeshtasticAdapter.health_check()` does
+> handle a `"degraded"` health state when `self._session.reconnecting` is
+> `True`. However, the current session implementation does not automatically
+> enter the reconnecting state — this path is reserved for a future automatic
+> reconnection feature. In practice, the adapter reports `"healthy"` or
+> `"unknown"` only.
 
 ### 7.2 Queue diagnostics
 
@@ -440,35 +438,34 @@ health = adapter.queue_health
 # }
 ```
 
-| Field                    | Type  | Meaning                                                                              |
-| ------------------------ | ----- | ------------------------------------------------------------------------------------ |
-| `pending_count`          | int   | Number of items currently in the outbound queue                                      |
-| `total_sent`             | int   | Cumulative count of successful sends since adapter creation                          |
-| `total_failed`           | int   | Cumulative count of send failures (after exhausting retries) since adapter creation  |
-| `total_requeued`         | int   | Cumulative count of items requeued for retry after a transient send failure          |
-| `total_exhausted`        | int   | Cumulative count of items that exhausted `max_attempts` and were dropped              |
-| `total_permanent_failed` | int   | Cumulative count of items that failed permanently (non-transient) on first attempt    |
-| `total_enqueued`         | int   | Cumulative count of successful enqueue operations                                    |
-| `total_dequeued`         | int   | Cumulative count of dequeue operations                                               |
-| `total_rejected`         | int   | Cumulative count of enqueue rejections (queue full)                                  |
-| `max_attempts`           | int   | Maximum send attempts per item before marking exhausted                              |
-| `max_queue_size`         | int   | Maximum queue capacity                                                               |
-| `utilization_pct`        | float | Current queue utilization as a percentage of max size                                |
-| `delay_between_messages` | float | Configured minimum pacing delay in seconds                                           |
-| `last_send_time`         | float | `time.monotonic()` of the last successful send                                       |
+| Field                    | Type  | Meaning                                                                             |
+| ------------------------ | ----- | ----------------------------------------------------------------------------------- |
+| `pending_count`          | int   | Number of items currently in the outbound queue                                     |
+| `total_sent`             | int   | Cumulative count of successful sends since adapter creation                         |
+| `total_failed`           | int   | Cumulative count of send failures (after exhausting retries) since adapter creation |
+| `total_requeued`         | int   | Cumulative count of items requeued for retry after a transient send failure         |
+| `total_exhausted`        | int   | Cumulative count of items that exhausted `max_attempts` and were dropped            |
+| `total_permanent_failed` | int   | Cumulative count of items that failed permanently (non-transient) on first attempt  |
+| `total_enqueued`         | int   | Cumulative count of successful enqueue operations                                   |
+| `total_dequeued`         | int   | Cumulative count of dequeue operations                                              |
+| `total_rejected`         | int   | Cumulative count of enqueue rejections (queue full)                                 |
+| `max_attempts`           | int   | Maximum send attempts per item before marking exhausted                             |
+| `max_queue_size`         | int   | Maximum queue capacity                                                              |
+| `utilization_pct`        | float | Current queue utilization as a percentage of max size                               |
+| `delay_between_messages` | float | Configured minimum pacing delay in seconds                                          |
+| `last_send_time`         | float | `time.monotonic()` of the last successful send                                      |
 
-.. note::
+> **Note:** Counter names (`total_requeued`, `total_exhausted`,
+> `total_permanent_failed`, `max_attempts`) are the `queue_health` property
+> names. Adapter diagnostics prefix these with `queue_` (e.g.
+> `queue_total_exhausted`, `queue_total_permanent_failed`) and use
+> `queue_send_max_attempts` instead of `max_attempts`. Both surfaces expose
+> the same underlying values.
 
-    Counter names (`total_requeued`, `total_exhausted`, `total_permanent_failed`, `max_attempts`) are
-    the `queue_health` property names. Adapter diagnostics prefix these with `queue_`
-    (e.g. `queue_total_exhausted`, `queue_total_permanent_failed`) and use `queue_send_max_attempts`
-    instead of `max_attempts`. Both surfaces expose the same underlying values.
-
-.. note::
-
-`drain_task_running` is an adapter-level diagnostics field, not a
-queue-level field. Query it via `adapter.diagnostics()["drain_task_running"]`
-instead of `adapter.queue_health["drain_task_running"]`.
+> **Note:** `drain_task_running` is an adapter-level diagnostics field, not a
+> queue-level field. Query it via
+> `adapter.diagnostics()["drain_task_running"]` instead of
+> `adapter.queue_health["drain_task_running"]`.
 
 These counters are cumulative for the lifetime of the adapter instance (not reset on stop/start).
 
@@ -981,7 +978,7 @@ The following features are not supported in alpha mode. Do not attempt to use th
 | Feature                      | Status                                    | Notes                                                                                                                                                                         |
 | ---------------------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Automatic reconnection       | Not implemented                           | See section 12                                                                                                                                                                |
-| Outbound retry               | Bounded adapter-local retry               | Transient SDK failures retried up to `queue_send_max_attempts`; permanent failures and exhausted retries are dropped |
+| Outbound retry               | Bounded adapter-local retry               | Transient SDK failures retried up to `queue_send_max_attempts`; permanent failures and exhausted retries are dropped                                                          |
 | ACK / delivery confirmation  | Not implemented                           | `wantAck` is not set                                                                                                                                                          |
 | Telemetry decoding           | Not supported                             | Telemetry packets are classified but silently dropped                                                                                                                         |
 | Position / GPS decoding      | Not supported                             | Position packets are classified but silently dropped                                                                                                                          |

@@ -60,11 +60,11 @@ cross-transport orchestration.
 
 ### 3.4 Queue-Drain Semantics
 
-| Category           | Definition                                                                    |
-| ------------------ | ----------------------------------------------------------------------------- |
-| **FIFO drain**     | Messages are drained in order; no reordering under normal conditions.         |
-| **Lossy drain**    | Some messages may be silently dropped during drain (e.g., queue overflow).    |
-| **No queue**       | No outbound queue; sends are immediate and fire-and-forget.                   |
+| Category           | Definition                                                                                                                                   |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| **FIFO drain**     | Messages are drained in order; no reordering under normal conditions.                                                                        |
+| **Lossy drain**    | Some messages may be silently dropped during drain (e.g., queue overflow).                                                                   |
+| **No queue**       | No outbound queue; sends are immediate and fire-and-forget.                                                                                  |
 | **Scaffold queue** | Outbound queue with bounded retry: transient SDK failures retried up to `queue_send_max_attempts`; exhausted and permanent failures dropped. |
 
 ## 4. Matrix Failure Taxonomy

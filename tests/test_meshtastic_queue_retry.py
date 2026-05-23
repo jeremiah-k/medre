@@ -32,7 +32,6 @@ import pytest
 from medre.adapters.meshtastic.errors import MeshtasticSendError
 from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
 
-
 # ===================================================================
 # Helpers
 # ===================================================================
@@ -625,9 +624,7 @@ class TestDiagnosticsNoMessageBodyOrSecrets:
 
     async def test_queue_health_no_event_id(self) -> None:
         q = MeshtasticOutboundQueue(max_attempts=3)
-        await q.enqueue(
-            {"text": "hello"}, channel_index=0, event_id="sensitive-evt-id"
-        )
+        await q.enqueue({"text": "hello"}, channel_index=0, event_id="sensitive-evt-id")
 
         health = q.queue_health
         health_str = str(health)
@@ -656,9 +653,7 @@ class TestDiagnosticsNoMessageBodyOrSecrets:
         await adapter.start(ctx)
         try:
             # Enqueue a payload with potentially sensitive text.
-            await adapter._queue.enqueue(
-                {"text": "secret radio text"}, channel_index=0
-            )
+            await adapter._queue.enqueue({"text": "secret radio text"}, channel_index=0)
             diag = adapter.diagnostics()
             diag_str = str(diag)
             assert "secret radio text" not in diag_str

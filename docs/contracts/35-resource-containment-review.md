@@ -262,7 +262,7 @@ model, and no raw-object leakage.
 | **Background tasks**       | 1 (sync)              | 0–1 (reconnect)           | 0–1 (reconnect)           | 0–2 (reconnect + announce)  |
 | **SDK client**             | nio AsyncClient       | mtjk interface            | meshcore.MeshCore         | RNS + Identity + LXMRouter  |
 | **Max reconnect attempts** | 10                    | 10                        | 10                        | 10                          |
-| **Max send retries**       | 0 (no retry)          | `queue_send_max_attempts`  | 3                         | 3                           |
+| **Max send retries**       | 0 (no retry)          | `queue_send_max_attempts` | 3                         | 3                           |
 | **Outbound queue**         | None                  | Bounded retry (in-memory) | None                      | None (router-managed)       |
 | **Monotonic counters**     | 1 (undecryptable)     | 2 (transient + permanent) | 2 (transient + permanent) | 2 (transient + permanent)   |
 | **Memory growth risk**     | `_room_states` dict   | Outbound queue            | None                      | `_outbound_deliveries` dict |

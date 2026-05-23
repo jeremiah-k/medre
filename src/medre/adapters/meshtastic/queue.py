@@ -401,8 +401,7 @@ class MeshtasticOutboundQueue:
             self._total_failed += 1
             self._total_exhausted += 1
             _logger.warning(
-                "MeshtasticOutboundQueue: item exhausted %d attempts; "
-                "dropping",
+                "MeshtasticOutboundQueue: item exhausted %d attempts; " "dropping",
                 self._max_attempts,
             )
 

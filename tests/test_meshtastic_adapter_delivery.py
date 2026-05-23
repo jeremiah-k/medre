@@ -102,7 +102,8 @@ class TestMeshtasticAdapterSendSemantics:
         assert result.delivery_result.native_message_id is None
 
     async def test_queue_process_one_tracks_failures(self) -> None:
-        """process_one increments total_failed on send_fn exception."""
+        """process_one treats unknown exceptions as transient; after
+        exhausting max_attempts the item is counted as failed."""
         from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
 
         queue = MeshtasticOutboundQueue(delay_between_messages=0.0)
@@ -111,8 +112,10 @@ class TestMeshtasticAdapterSendSemantics:
         async def fake_send_fail(item):
             raise RuntimeError("boom")
 
-        with pytest.raises(RuntimeError, match="boom"):
-            await queue.process_one(send_fn=fake_send_fail)
+        # Run process_one max_attempts times to exhaust retries.
+        for _ in range(queue.max_attempts):
+            result = await queue.process_one(send_fn=fake_send_fail)
+            assert result is None
 
         assert queue.total_failed == 1
 
