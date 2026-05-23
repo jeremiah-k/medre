@@ -232,6 +232,7 @@ The `delivery_state_by_adapter` dict in the incident summary provides per-adapte
     "attempt_number": int | None,
     "native_message_id": str | None,
     "adapter_message_id": str | None,
+    "target_channel": str | None,
     "failure_kind": str | None,
     "failure_kind_detail": str | None,
     "retryable": bool,
@@ -240,7 +241,9 @@ The `delivery_state_by_adapter` dict in the incident summary provides per-adapte
 }
 ```
 
-Each entry selects the receipt with the highest `attempt_number` for that adapter.
+The dict is keyed by `target_adapter`. Each entry selects the receipt with the highest `attempt_number` for that adapter and includes `target_channel` from that receipt. A future `delivery_state_by_target` may distinguish multiple channels per adapter more precisely.
+
+> **Warning:** This is a per-adapter summary, not a full receipt list. Only the highest-attempt receipt per adapter is represented.
 
 ### Incident Summary
 
@@ -261,7 +264,7 @@ The evidence bundle's storage section includes an `incident_summary` for scoped 
 | `dead_lettered_count`       | Count of `dead_lettered` receipts                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `suppressed_count`          | Count of receipts with `status="suppressed"` (covers loop_suppressed, capacity_rejection, shutdown_rejection)                                                                                                                                                                                                                                                                                                                      |
 | `sent_unconfirmed_count`    | Count of `sent` receipts (not yet confirmed by transport)                                                                                                                                                                                                                                                                                                                                                                          |
-| `delivery_state_by_adapter` | Per-adapter delivery state dict keyed by target_adapter. Each value includes: `status`, `attempt_number`, `native_message_id`, `adapter_message_id`, `failure_kind`, `failure_kind_detail`, `retryable`, `next_retry_at`. The `failure_kind_detail` field provides a more specific classification derived from error patterns (e.g., `e2ee_blocked`, `meshtastic_queue_rejected`) without changing the `DeliveryFailureKind` enum. |
+| `delivery_state_by_adapter` | Per-adapter delivery state dict keyed by target_adapter. Each value includes: `status`, `attempt_number`, `native_message_id`, `adapter_message_id`, `target_channel`, `failure_kind`, `failure_kind_detail`, `retryable`, `next_retry_at`. The `target_channel` field carries the channel from the selected receipt. The `failure_kind_detail` field provides a more specific classification derived from error patterns (e.g., `e2ee_blocked`, `meshtastic_queue_rejected`) without changing the `DeliveryFailureKind` enum. |
 | `recommended_commands`      | Suggested CLI commands for investigation                                                                                                                                                                                                                                                                                                                                                                                           |
 | `commands`                  | Structured command list (primary + specialized)                                                                                                                                                                                                                                                                                                                                                                                    |
 
