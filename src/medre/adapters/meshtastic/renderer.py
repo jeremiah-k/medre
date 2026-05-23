@@ -4,10 +4,16 @@ The :class:`MeshtasticRenderer` converts canonical events into
 Meshtastic-ready content payloads (dicts with ``text``, ``channel_index``,
 and optional ``meshnet_name``).
 
-When initialised with a :class:`~medre.config.adapters.meshtastic.MeshtasticConfig`
-that contains a non-empty ``radio_relay_prefix``, the renderer prepends a formatted
-prefix to the message text.  The prefix template uses Python ``str.format()``
-syntax with the following variables:
+The renderer is initialised with a **required** mapping of adapter IDs to
+:class:`~medre.config.adapters.meshtastic.MeshtasticConfig` instances.
+At render time the config for *target_adapter* is resolved from this
+mapping — there is no fallback or default.  An empty mapping raises
+:class:`ValueError` at construction; an unknown *target_adapter* raises
+:class:`KeyError` at render time.
+
+When the resolved config contains a non-empty ``radio_relay_prefix``,
+the renderer prepends a formatted prefix to the message text.  The prefix
+template uses Python ``str.format()`` syntax with the following variables:
 
 * ``{longname}`` — sender long name (from event native metadata, if available).
 * ``{shortname}`` — sender short name (from event native metadata, if available).
@@ -51,7 +57,7 @@ Native Meshtastic-originated reactions continue to use ``emoji=1`` +
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Mapping
 
 from medre.core.events import CanonicalEvent, EventKind, EventRelation
 from medre.core.rendering.renderer import RenderingResult
@@ -66,9 +72,15 @@ class MeshtasticRenderer:
     Produces content dicts with ``text``, ``channel_index``, and optional
     ``meshnet_name``.
 
-    When *config* is provided and ``config.radio_relay_prefix`` is non-empty,
-    the renderer prepends the formatted prefix to the message text using
-    event source metadata.
+    **Target-aware rendering.** The renderer is initialised with a
+    mapping of adapter IDs to :class:`~medre.config.adapters.meshtastic.MeshtasticConfig`
+    instances.  At render time the config for *target_adapter* is resolved
+    from this mapping.  This allows multi-radio setups where each adapter
+    has different ``max_text_bytes``, ``radio_relay_prefix``, and
+    ``meshnet_name`` values.
+
+    An empty *configs* mapping raises :class:`ValueError`.  An unknown
+    *target_adapter* at render time raises :class:`KeyError`.
 
     Selection is via the pipeline's platform registry.
     """
@@ -80,18 +92,17 @@ class MeshtasticRenderer:
     _PLATFORM: str = "meshtastic"
     """Internal platform identifier for matching via ``target_platform``."""
 
-    def __init__(self, config: MeshtasticConfig | None = None) -> None:
-        self._radio_relay_prefix = config.radio_relay_prefix if config else ""
-        self._meshnet_name = config.meshnet_name if config else ""
-        # Import at runtime to avoid circular imports; the default is
-        # sourced from MeshtasticConfig.max_text_bytes rather than
-        # duplicated here.
-        if config is not None:
-            self._max_text_bytes = config.max_text_bytes
-        else:
-            from medre.config.adapters.meshtastic import MeshtasticConfig as _MC
-
-            self._max_text_bytes = _MC.max_text_bytes
+    def __init__(
+        self,
+        *,
+        configs: Mapping[str, MeshtasticConfig],
+    ) -> None:
+        if not configs:
+            raise ValueError(
+                "MeshtasticRenderer requires at least one adapter config. "
+                "Pass a non-empty configs mapping."
+            )
+        self._configs: dict[str, MeshtasticConfig] = dict(configs)
 
     # ------------------------------------------------------------------
     # Capability check
@@ -144,8 +155,15 @@ class MeshtasticRenderer:
     # Prefix formatting
     # ------------------------------------------------------------------
 
-    def _format_prefix(self, event: CanonicalEvent) -> str:
-        """Format ``radio_relay_prefix`` template using event source metadata.
+    @staticmethod
+    def _format_prefix_for(
+        event: CanonicalEvent,
+        radio_relay_prefix: str,
+        meshnet_name: str,
+        *,
+        compact: bool = False,
+    ) -> str:
+        """Format a prefix template using event source metadata.
 
         Available template variables:
 
@@ -158,42 +176,56 @@ class MeshtasticRenderer:
         Falls back to empty strings for any unavailable variables.
         If the template is invalid, returns the raw template unchanged.
 
+        When *compact* is ``True``, spaces are stripped from display-name
+        tokens (longname, shortname) before template substitution.
+
         Parameters
         ----------
         event:
             The canonical event whose source metadata is used for formatting.
+        radio_relay_prefix:
+            The prefix template string.
+        meshnet_name:
+            The mesh network name for ``{meshnet_name}`` substitution.
+        compact:
+            When ``True``, strip spaces from display-name tokens.
 
         Returns
         -------
         str
             The formatted prefix string.
         """
-        if not self._radio_relay_prefix:
+        if not radio_relay_prefix:
             return ""
 
         native_data: dict[str, object] = {}
         if event.metadata and event.metadata.native:
             native_data = dict(event.metadata.native.data)
 
-        shortname = str(native_data.get("shortname", ""))
+        shortname_raw = str(native_data.get("shortname", ""))
         from_id = str(native_data.get("from_id", event.source_transport_id or ""))
-        # shortname5: first 5 chars of shortname, or first 5 chars of from_id
-        shortname5 = (shortname or from_id)[:5]
+        shortname5 = (shortname_raw or from_id)[:5]
+
+        longname = str(native_data.get("longname", ""))
+        shortname = shortname_raw
+
+        if compact:
+            longname = longname.replace(" ", "")
+            shortname = shortname.replace(" ", "")
+            shortname5 = shortname[:5] if shortname else from_id[:5]
 
         format_vars = {
-            "longname": str(native_data.get("longname", "")),
+            "longname": longname,
             "shortname": shortname,
             "shortname5": shortname5,
-            "meshnet_name": self._meshnet_name,
+            "meshnet_name": meshnet_name,
             "from_id": from_id,
         }
 
         try:
-            return self._radio_relay_prefix.format(**format_vars)
+            return radio_relay_prefix.format(**format_vars)
         except (KeyError, IndexError, ValueError):
-            # If the template references unknown variables, return it as-is
-            # so the message still goes through with an unformatted prefix.
-            return self._radio_relay_prefix
+            return radio_relay_prefix
 
     # ------------------------------------------------------------------
     # Rendering
@@ -213,6 +245,11 @@ class MeshtasticRenderer:
           configured ``radio_relay_prefix`` prepended if set.
         * ``channel_index``: parsed from *target_channel* or ``0``.
         * ``meshnet_name``: the configured mesh network name.
+
+        **Target-aware config resolution.** The renderer resolves the
+        config for *target_adapter* from the ``configs`` mapping supplied
+        at construction.  If *target_adapter* is not found, a
+        :class:`KeyError` is raised — there is no fallback.
 
         **Relation rendering** — when the event carries relations:
 
@@ -254,6 +291,20 @@ class MeshtasticRenderer:
         RenderingResult
             The rendered Meshtastic content dict wrapped in a result.
         """
+        # Resolve target-adapter-specific config.
+        try:
+            adapter_config = self._configs[target_adapter]
+        except KeyError:
+            raise KeyError(
+                f"No MeshtasticConfig registered for target_adapter "
+                f"{target_adapter!r}. Known adapters: "
+                f"{sorted(self._configs.keys())}"
+            ) from None
+
+        prefix = adapter_config.radio_relay_prefix
+        meshnet_name = adapter_config.meshnet_name
+        max_text_bytes = adapter_config.max_text_bytes
+
         # Parse channel index from target_channel
         channel_index = 0
         if target_channel is not None:
@@ -264,7 +315,7 @@ class MeshtasticRenderer:
 
         content: dict[str, object] = {
             "channel_index": channel_index,
-            "meshnet_name": self._meshnet_name,
+            "meshnet_name": meshnet_name,
         }
 
         # -- Structured reply / reaction rendering ----------------------------
@@ -299,7 +350,12 @@ class MeshtasticRenderer:
                     # Cross-platform (e.g. Matrix→Meshtastic) MMRelay-style
                     # descriptive reaction — NOT a native tapback.
                     orig_preview = self._abbreviated_original_text(event, rel)
-                    compact_prefix = self._format_prefix_compact(event)
+                    compact_prefix = self._format_prefix_for(
+                        event,
+                        prefix,
+                        meshnet_name,
+                        compact=True,
+                    )
                     # Add a separator space between prefix and "reacted"
                     # only when the prefix exists and doesn't already end
                     # with whitespace (e.g. "[Foo] " already has one).
@@ -324,16 +380,20 @@ class MeshtasticRenderer:
         # Prepend relay prefix when configured
         # (skip for native emoji-only reactions; descriptive reactions
         # already include their compact prefix in the text).
-        prefix = ""
+        formatted_prefix = ""
         if not is_structured_reaction and not is_descriptive_reaction:
-            prefix = self._format_prefix(event)
-            if prefix:
-                content["text"] = f"{prefix}{content['text']}"
+            formatted_prefix = self._format_prefix_for(
+                event,
+                prefix,
+                meshnet_name,
+            )
+            if formatted_prefix:
+                content["text"] = f"{formatted_prefix}{content['text']}"
 
         # -- UTF-8 byte-budget truncation after final rendering ------
         final_text = str(content.get("text", ""))
         truncated_text, was_truncated, original_bytes, rendered_bytes = (
-            self._truncate_utf8_bytes(final_text, self._max_text_bytes)
+            self._truncate_utf8_bytes(final_text, max_text_bytes)
         )
         content["text"] = truncated_text
 
@@ -343,11 +403,11 @@ class MeshtasticRenderer:
             "rendered_length": len(truncated_text),
             "original_text_bytes": original_bytes,
             "rendered_text_bytes": rendered_bytes,
-            "max_text_bytes": self._max_text_bytes,
+            "max_text_bytes": max_text_bytes,
             "truncated": was_truncated,
         }
-        if prefix:
-            metadata["radio_relay_prefix"] = prefix
+        if formatted_prefix:
+            metadata["radio_relay_prefix"] = formatted_prefix
         if is_descriptive_reaction:
             metadata["descriptive_reaction"] = True
 
@@ -365,9 +425,7 @@ class MeshtasticRenderer:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _truncate_utf8_bytes(
-        text: str, max_bytes: int
-    ) -> tuple[str, bool, int, int]:
+    def _truncate_utf8_bytes(text: str, max_bytes: int) -> tuple[str, bool, int, int]:
         """Truncate *text* to at most *max_bytes* UTF-8 bytes.
 
         Parameters
@@ -424,59 +482,6 @@ class MeshtasticRenderer:
         bool
         """
         return event.source_adapter == target_adapter
-
-    def _format_prefix_compact(self, event: CanonicalEvent) -> str:
-        """Format ``radio_relay_prefix`` with spaces stripped from display
-                name tokens.
-
-                Identical to :meth:`_format_prefix` except that spaces are removed
-                from ``longname`` and ``shortname`` values before template
-                substitution.  This is used for cross-platform (Matrix → Meshtastic)
-                reaction prefixes where meshnet bandwidth savings matter while
-                preserving casing.
-
-        Example: ``"Display Name"`` → ``"DisplayName"`` (spaces removed,
-        casing preserved).
-
-                Parameters
-                ----------
-                event:
-                    The canonical event whose source metadata is used for formatting.
-
-                Returns
-                -------
-                str
-                    The formatted prefix string with compact name tokens.
-        """
-        if not self._radio_relay_prefix:
-            return ""
-
-        native_data: dict[str, object] = {}
-        if event.metadata and event.metadata.native:
-            native_data = dict(event.metadata.native.data)
-
-        shortname_raw = str(native_data.get("shortname", ""))
-        from_id = str(native_data.get("from_id", event.source_transport_id or ""))
-        shortname5 = (shortname_raw or from_id)[:5]
-
-        # Remove spaces from display-name tokens for meshnet brevity.
-        # Casing is preserved: "Display Name" → "DisplayName".
-        longname = str(native_data.get("longname", "")).replace(" ", "")
-        shortname = shortname_raw.replace(" ", "")
-        shortname5 = shortname.replace(" ", "")[:5] if shortname else from_id[:5]
-
-        format_vars = {
-            "longname": longname,
-            "shortname": shortname,
-            "shortname5": shortname5,
-            "meshnet_name": self._meshnet_name,
-            "from_id": from_id,
-        }
-
-        try:
-            return self._radio_relay_prefix.format(**format_vars)
-        except (KeyError, IndexError, ValueError):
-            return self._radio_relay_prefix
 
     @staticmethod
     def _abbreviated_original_text(

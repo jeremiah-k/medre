@@ -426,6 +426,11 @@ health = adapter.queue_health
 #     "pending_count": 0,
 #     "total_sent": 3,
 #     "total_failed": 0,
+#     "total_enqueued": 5,
+#     "total_dequeued": 3,
+#     "total_rejected": 0,
+#     "max_queue_size": 1024,
+#     "utilization_pct": 0.0,
 #     "delay_between_messages": 0.5,
 #     "last_send_time": 1715289600.123,
 # }
@@ -436,6 +441,11 @@ health = adapter.queue_health
 | `pending_count`          | int   | Number of items currently in the outbound queue             |
 | `total_sent`             | int   | Cumulative count of successful sends since adapter creation |
 | `total_failed`           | int   | Cumulative count of send failures since adapter creation    |
+| `total_enqueued`         | int   | Cumulative count of successful enqueue operations           |
+| `total_dequeued`         | int   | Cumulative count of dequeue operations                      |
+| `total_rejected`         | int   | Cumulative count of enqueue rejections (queue full)         |
+| `max_queue_size`         | int   | Maximum queue capacity                                      |
+| `utilization_pct`        | float | Current queue utilization as a percentage of max size       |
 | `delay_between_messages` | float | Configured minimum pacing delay in seconds                  |
 | `last_send_time`         | float | `time.monotonic()` of the last successful send              |
 
@@ -540,15 +550,19 @@ EventRelation(
 
 In fake mode, `send_one()` returns `None` — no real send occurs.
 
-### 9.2 Retry semantics (current: none)
+### 9.2 Retry semantics (current: none for send failures)
 
-**There is no outbound retry logic.** When `send_one()` fails:
+**There is no outbound retry logic for send failures.** When `send_one()` fails:
 
 - The dequeued item is **permanently dropped**. It is NOT requeued or retried.
 - `total_failed` is incremented.
 - The exception is re-raised to the caller of `send_one()`.
 
 This is an explicit scaffold design choice, documented in the queue module: "Production-grade retry / requeue logic is explicitly deferred to a future tranche."
+
+**Queue overflow is explicitly rejected (not silently evicted).** When `deliver()` is called and the outbound queue is full, `enqueue()` raises `MeshtasticSendError(transient=True)`. The adapter's `deliver()` method catches this and raises `AdapterSendError(transient=True)`. The pipeline classifies this as `ADAPTER_TRANSIENT` and may retry the delivery according to the route's retry policy. Existing queued items are never evicted to make room for new ones.
+
+**Target-aware rendering.** When multiple Meshtastic adapters are configured with different settings, the Meshtastic renderer resolves the target adapter's `max_text_bytes`, `radio_relay_prefix`, and `meshnet_name` at render time. This ensures each radio gets the correct byte budget and prefix for its configuration.
 
 ### 9.3 Duplicate-send risk
 

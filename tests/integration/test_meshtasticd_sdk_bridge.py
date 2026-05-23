@@ -327,7 +327,16 @@ class TestMeshtasticdSdkBridge:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register(
+            MeshtasticRenderer(
+                configs={
+                    "sdk-bridge-fake-out": MeshtasticConfig(
+                        adapter_id="sdk-bridge-fake-out"
+                    )
+                }
+            ),
+            priority=50,
+        )
         rp.register_adapter_platform("sdk-bridge-fake-out", "meshtastic")
         rp.register(TextRenderer(), priority=100)
 

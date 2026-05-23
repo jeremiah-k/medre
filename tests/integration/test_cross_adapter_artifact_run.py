@@ -166,7 +166,14 @@ def _make_pipeline_config(
 ) -> PipelineConfig:
     """Build a PipelineConfig with both Matrix and Meshtastic renderers."""
     rp = RenderingPipeline()
-    rp.register(MeshtasticRenderer(), priority=50)
+    rp.register(
+        MeshtasticRenderer(
+            configs={
+                "cross-mesh-target": MeshtasticConfig(adapter_id="cross-mesh-target")
+            }
+        ),
+        priority=50,
+    )
     rp.register(MatrixRenderer(), priority=50)
     rp.register(TextRenderer(), priority=100)
 

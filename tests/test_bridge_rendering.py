@@ -24,6 +24,7 @@ from medre.adapters.lxmf.renderer import LxmfRenderer
 from medre.adapters.matrix.renderer import MatrixRenderer
 from medre.adapters.meshcore.renderer import MeshCoreRenderer
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
+from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.events import CanonicalEvent, EventMetadata, EventRelation, NativeRef
 from medre.core.rendering.renderer import RenderingPipeline
 
@@ -60,8 +61,17 @@ def _make_event(
 def _make_pipeline() -> RenderingPipeline:
     """Create a RenderingPipeline with all four transport renderers registered."""
     pipeline = RenderingPipeline()
-    # Register with distinct priorities so ordering is deterministic.
-    pipeline.register(MeshtasticRenderer(), priority=10)
+    # MeshtasticRenderer requires configs mapping — use a config for the
+    # bridge tests' target adapter "mesh-target" with empty prefix.
+    _mesh_config = MeshtasticConfig(
+        adapter_id="mesh-target",
+        radio_relay_prefix="",
+        max_text_bytes=227,
+    )
+    pipeline.register(
+        MeshtasticRenderer(configs={"mesh-target": _mesh_config}),
+        priority=10,
+    )
     pipeline.register(MatrixRenderer(), priority=20)
     pipeline.register(MeshCoreRenderer(), priority=30)
     pipeline.register(LxmfRenderer(), priority=40)

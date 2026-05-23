@@ -64,7 +64,12 @@ class TestMeshtasticSessionCallbackBridge:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register(
+            MeshtasticRenderer(
+                configs={"cb-fake-out": MeshtasticConfig(adapter_id="cb-fake-out")}
+            ),
+            priority=50,
+        )
         rp.register_adapter_platform("cb-fake-out", "meshtastic")
         rp.register(TextRenderer(), priority=100)
 

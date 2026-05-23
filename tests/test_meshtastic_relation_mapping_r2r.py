@@ -701,7 +701,12 @@ class TestNormalReactionStillRoutes:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register(
+            MeshtasticRenderer(
+                configs={_RADIO_ADAPTER: MeshtasticConfig(adapter_id=_RADIO_ADAPTER)}
+            ),
+            priority=50,
+        )
         rp.register_adapter_platform(_RADIO_ADAPTER, "meshtastic")
         rp.register(TextRenderer(), priority=100)
 
