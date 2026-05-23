@@ -118,10 +118,10 @@ details.
 
 MMRelay uses `txn_id` on Matrix `room_send` calls. The homeserver
 deduplicates events with the same transaction ID within a time window,
-allowing safe retries without duplicate messages. MEDRE's Matrix
+allowing homeservers to deduplicate repeated sends with the same transaction ID within their dedup window. MEDRE's Matrix
 adapter now uses its own deterministic transaction ID derived from
 `sha256(len:event_id|len:target_adapter|len:target_channel|len:room_id|)`, prefixed
-with `medre_`. This enables the homeserver to deduplicate retries within its transaction-ID window, preventing duplicate sends during that period.
+with `medre_`. This enables the homeserver to deduplicate retries within its transaction-ID window, allowing homeservers to deduplicate repeated sends with the same transaction ID within their dedup window.
 This is **at-most-once within the dedup window**, not exactly-once
 delivery. A stable transaction ID is a standard Matrix protocol
 feature — both projects use the same `txn_id` mechanism independently.
