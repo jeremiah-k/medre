@@ -89,15 +89,24 @@ class QueueDeliveryResult:
 class MeshtasticOutboundQueue:
     """Outbound queue with pacing for Meshtastic messages.
 
+    The internal ``deque`` is intentionally created without ``maxlen`` so
+    that capacity is enforced explicitly at ``enqueue()`` time, allowing
+    the queue to reject with ``transient=True`` rather than silently
+    evicting the oldest item.
+
     Parameters
     ----------
     delay_between_messages:
         Minimum delay in seconds between consecutive outbound messages.
     max_queue_size:
-        Maximum number of queued items.  When full, ``enqueue()`` raises
-        :class:`~medre.adapters.meshtastic.errors.MeshtasticSendError`
-        with ``transient=True`` instead of accepting the item.
-        ``None`` means unbounded (not recommended for production).
+        Maximum number of queued items.
+
+        * ``None`` — unbounded (not recommended for production).
+        * Positive ``int`` — bounded; ``enqueue()`` raises
+          :class:`~medre.adapters.meshtastic.errors.MeshtasticSendError`
+          with ``transient=True`` when full.
+        * ``0``, negative, or ``bool`` — **invalid**; raises
+          ``ValueError`` at construction time.
     """
 
     def __init__(
@@ -105,6 +114,14 @@ class MeshtasticOutboundQueue:
         delay_between_messages: float = 0.5,
         max_queue_size: int | None = _DEFAULT_MAX_QUEUE_SIZE,
     ) -> None:
+        # Validate max_queue_size: None=unbounded, positive int=bounded.
+        if max_queue_size is not None:
+            if isinstance(max_queue_size, bool):
+                raise ValueError("max_queue_size must not be a bool")
+            if not isinstance(max_queue_size, int):
+                raise ValueError("max_queue_size must be int or None")
+            if max_queue_size <= 0:
+                raise ValueError("max_queue_size must be > 0 or None")
         self._delay = delay_between_messages
         self._max_queue_size = max_queue_size
         self._queue: deque[dict[str, Any]] = deque()
@@ -169,6 +186,11 @@ class MeshtasticOutboundQueue:
             and len(self._queue) >= self._max_queue_size
         ):
             self._total_rejected += 1
+            _logger.warning(
+                "MeshtasticOutboundQueue full (%d/%d); rejecting enqueue",
+                len(self._queue),
+                self._max_queue_size,
+            )
             raise MeshtasticSendError(
                 "Meshtastic outbound queue is full "
                 f"({len(self._queue)}/{self._max_queue_size})",

@@ -118,17 +118,13 @@ class TestMeshtasticRendererConstructor:
         renderer = MeshtasticRenderer(configs=configs)
         assert renderer.name == "meshtastic"
 
-    def test_unknown_target_adapter_raises_key_error(self) -> None:
+    async def test_unknown_target_adapter_raises_key_error(self) -> None:
         """Rendering to an unknown target_adapter raises KeyError."""
-        import asyncio
-
         config = MeshtasticConfig(adapter_id="radio-a")
         renderer = MeshtasticRenderer(configs={"radio-a": config})
         event = _make_event()
         with pytest.raises(KeyError, match="radio-a"):
-            asyncio.get_event_loop().run_until_complete(
-                renderer.render(event, "unknown-radio")
-            )
+            await renderer.render(event, "unknown-radio")
 
 
 # ===================================================================

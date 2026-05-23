@@ -19,6 +19,28 @@ from medre.adapters.meshtastic.errors import MeshtasticSendError
 from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
 
 
+class TestQueueMaxQueueSizeValidation:
+    """max_queue_size validation: None, positive int, 0, negative, bool."""
+
+    async def test_none_allows_enqueue_and_reports_none(self) -> None:
+        q = MeshtasticOutboundQueue(max_queue_size=None)
+        await q.enqueue({"text": "hello"}, channel_index=0)
+        assert q.queue_depth == 1
+        assert q.max_queue_size is None
+
+    def test_zero_raises_value_error(self) -> None:
+        with pytest.raises(ValueError, match="max_queue_size must be > 0"):
+            MeshtasticOutboundQueue(max_queue_size=0)
+
+    def test_negative_raises_value_error(self) -> None:
+        with pytest.raises(ValueError, match="max_queue_size must be > 0"):
+            MeshtasticOutboundQueue(max_queue_size=-1)
+
+    def test_bool_raises_value_error(self) -> None:
+        with pytest.raises(ValueError, match="max_queue_size must not be a bool"):
+            MeshtasticOutboundQueue(max_queue_size=True)
+
+
 class TestQueueEnqueueSuccess:
     """Queue enqueue under capacity succeeds and increments counters."""
 
@@ -104,29 +126,29 @@ class TestAdapterDeliverOnFullQueue:
             logger=logging.getLogger("test"),
         )
         await adapter.start(ctx)
+        try:
+            # Fill the queue.
+            for i in range(adapter._queue.max_queue_size):
+                result = RenderingResult(
+                    event_id=f"evt-{i}",
+                    target_adapter="test-full",
+                    target_channel="0",
+                    payload={"text": f"msg-{i}", "channel_index": 0},
+                )
+                await adapter.deliver(result)
 
-        # Fill the queue.
-        for i in range(adapter._queue.max_queue_size):
-            result = RenderingResult(
-                event_id=f"evt-{i}",
+            # One more should trigger AdapterSendError(transient=True).
+            overflow_result = RenderingResult(
+                event_id="evt-overflow",
                 target_adapter="test-full",
                 target_channel="0",
-                payload={"text": f"msg-{i}", "channel_index": 0},
+                payload={"text": "overflow", "channel_index": 0},
             )
-            await adapter.deliver(result)
-
-        # One more should trigger AdapterSendError(transient=True).
-        overflow_result = RenderingResult(
-            event_id="evt-overflow",
-            target_adapter="test-full",
-            target_channel="0",
-            payload={"text": "overflow", "channel_index": 0},
-        )
-        with pytest.raises(AdapterSendError) as exc_info:
-            await adapter.deliver(overflow_result)
-        assert exc_info.value.transient is True
-
-        await adapter.stop()
+            with pytest.raises(AdapterSendError) as exc_info:
+                await adapter.deliver(overflow_result)
+            assert exc_info.value.transient is True
+        finally:
+            await adapter.stop()
 
 
 class TestQueueDiagnostics:
@@ -137,13 +159,15 @@ class TestQueueDiagnostics:
         await q.enqueue({"text": "hello"}, channel_index=0)
 
         health = q.queue_health
+        # Current contract: no total_dropped (rejected replaces dropped).
+        assert "total_dropped" not in health
+        # All expected fields must be present.
         assert "pending_count" in health
         assert "total_sent" in health
         assert "total_failed" in health
         assert "total_enqueued" in health
         assert "total_dequeued" in health
         assert "total_rejected" in health
-        assert "total_dropped" in health
         assert "max_queue_size" in health
         assert "utilization_pct" in health
         assert "delay_between_messages" in health
@@ -227,17 +251,23 @@ class TestAdapterDiagnosticsQueueStats:
             logger=logging.getLogger("test"),
         )
         await adapter.start(ctx)
-
-        diag = adapter.diagnostics()
-        assert "queue_pending" in diag
-        assert "queue_total_sent" in diag
-        assert "queue_total_failed" in diag
-        assert "queue_total_dropped" in diag
-        assert "queue_total_enqueued" in diag
-        assert "queue_total_dequeued" in diag
-        assert "queue_total_rejected" in diag
-
-        await adapter.stop()
+        try:
+            diag = adapter.diagnostics()
+            # No total_dropped in diagnostics (rejected replaces dropped).
+            assert "queue_total_dropped" not in diag
+            # All expected queue fields must be present.
+            assert "queue_pending" in diag
+            assert "queue_total_sent" in diag
+            assert "queue_total_failed" in diag
+            assert "queue_total_enqueued" in diag
+            assert "queue_total_dequeued" in diag
+            assert "queue_total_rejected" in diag
+            assert "queue_max_size" in diag
+            assert "queue_utilization_pct" in diag
+            assert "queue_delay_between_messages" in diag
+            assert "queue_last_send_time" in diag
+        finally:
+            await adapter.stop()
 
 
 class TestQueueDoesNotClaimRfDelivery:
