@@ -602,9 +602,9 @@ When bridging events across transports with different speed profiles (e.g., Matr
 
 **Meshtastic outbound queue pressure:**
 
-- The Meshtastic adapter's `MeshtasticOutboundQueue` uses a `deque(maxlen=1024)`.
-- Under sustained pressure (outbound throughput exceeds send capacity), the oldest items are silently dropped.
-- `total_dropped` tracks how many items were shed.
+- The Meshtastic adapter's `MeshtasticOutboundQueue` uses an unbounded deque with explicit enqueue-time capacity enforcement (default `max_queue_size=1024`).
+- When the queue is full, `enqueue()` raises `MeshtasticSendError(transient=True)` instead of silently dropping items.
+- `queue_total_rejected` tracks how many enqueue attempts were rejected.
 - This is expected behavior for radio transports — the runtime prioritizes stability over completeness.
 
 **Replay pressure:**
@@ -620,7 +620,7 @@ During bridge operation, monitor these signals:
 | Signal                                 | Source               | Interpretation                                      |
 | -------------------------------------- | -------------------- | --------------------------------------------------- |
 | `capacity_rejections` growing          | `CapacityController` | Delivery concurrency is insufficient for the load   |
-| `total_dropped` growing                | Meshtastic adapter   | Outbound send rate cannot keep up with inbound rate |
+| `queue_total_rejected` growing        | Meshtastic adapter   | Outbound send rate cannot keep up with inbound rate |
 | `capacity_rejections` growing (replay) | `CapacityController` | Replay concurrency is insufficient                  |
 | High `delivery_current` sustained      | `CapacityController` | Adapters are slow to complete deliveries            |
 
