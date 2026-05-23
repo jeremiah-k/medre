@@ -33,6 +33,7 @@ from typing import Any
 
 from medre.adapters.meshtastic.codec import MeshtasticCodec
 from medre.adapters.meshtastic.packet_classifier import MeshtasticPacketClassifier
+from medre.adapters.meshtastic.startup_backlog import extract_meshtastic_rx_time
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.contracts.adapter import (
     AdapterCapabilities,
@@ -46,7 +47,6 @@ from medre.core.contracts.adapter import (
 )
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.policies.startup_backlog_suppress import (
-    extract_meshtastic_rx_time,
     should_suppress_startup_backlog,
 )
 from medre.core.rendering.renderer import RenderingResult

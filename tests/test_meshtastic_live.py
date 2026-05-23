@@ -630,9 +630,11 @@ class TestMeshtasticLiveSmoke:
 
         This test always passes.  It documents that
         ``startup_backlog_suppress_seconds`` is wired into the Meshtastic
-        adapter's inbound path.  The adapter delegates rxTime extraction
-        and cutoff comparison to the shared utility
-        ``medre.core.policies.startup_backlog_suppress``.  Real nodes
+        adapter's inbound path.  Cutoff comparison lives in the
+        transport-neutral helper
+        ``medre.core.policies.startup_backlog_suppress.should_suppress_startup_backlog``,
+        while Meshtastic-specific rxTime extraction lives in
+        ``medre.adapters.meshtastic.startup_backlog``.  Real nodes
         replay buffered packets on TCP connect; MEDRE filters stale
         packets whose rxTime predates the suppression window.
         """

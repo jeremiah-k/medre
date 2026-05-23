@@ -1,8 +1,6 @@
-"""Tests for startup-backlog suppression utilities.
+"""Tests for startup-backlog suppression — transport-neutral decision logic.
 
 Covers:
-* :func:`extract_meshtastic_rx_time` — valid int, valid float, missing,
-  bool, string, NaN/inf, negative/zero, float precision.
 * :func:`should_suppress_startup_backlog` — stale, fresh, within-window,
   exact cutoff, just-before-cutoff, disabled (zero / negative), missing
   packet_time, future timestamps, timezone normalization, naive datetimes.
@@ -12,10 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-import pytest
-
 from medre.core.policies.startup_backlog_suppress import (
-    extract_meshtastic_rx_time,
     should_suppress_startup_backlog,
 )
 
@@ -36,119 +31,6 @@ def _dt(epoch: float) -> datetime:
 def _naive(epoch: float) -> datetime:
     """Shorthand naive datetime from epoch seconds."""
     return datetime.fromtimestamp(epoch, tz=_UTC).replace(tzinfo=None)
-
-
-# ===================================================================
-# extract_meshtastic_rx_time
-# ===================================================================
-
-
-class TestExtractRxTimeValid:
-    """Valid rxTime values produce a timezone-aware UTC datetime."""
-
-    def test_int_epoch(self) -> None:
-        pkt = {"rxTime": 1_700_000_000}
-        result = extract_meshtastic_rx_time(pkt)
-        assert result is not None
-        assert result == _dt(1_700_000_000)
-        assert result.tzinfo is _UTC
-
-    def test_float_epoch(self) -> None:
-        pkt = {"rxTime": 1_700_000_000.123}
-        result = extract_meshtastic_rx_time(pkt)
-        assert result is not None
-        assert abs(result.timestamp() - 1_700_000_000.123) < 1e-6
-
-    def test_small_positive_int(self) -> None:
-        pkt = {"rxTime": 1}
-        result = extract_meshtastic_rx_time(pkt)
-        assert result is not None
-        assert result == _dt(1.0)
-
-    def test_small_positive_float(self) -> None:
-        pkt = {"rxTime": 0.001}
-        result = extract_meshtastic_rx_time(pkt)
-        assert result is not None
-        assert result.timestamp() == pytest.approx(0.001)
-
-    def test_returns_none_for_empty_mapping(self) -> None:
-        result = extract_meshtastic_rx_time({})
-        assert result is None
-
-
-class TestExtractRxTimeMissing:
-    """Missing rxTime returns None."""
-
-    def test_no_rx_time_key(self) -> None:
-        assert extract_meshtastic_rx_time({"fromId": "!abc"}) is None
-
-    def test_rx_time_none_value(self) -> None:
-        assert extract_meshtastic_rx_time({"rxTime": None}) is None
-
-
-class TestExtractRxTimeBool:
-    """Bool values (subclass of int) are rejected."""
-
-    def test_true(self) -> None:
-        assert extract_meshtastic_rx_time({"rxTime": True}) is None
-
-    def test_false(self) -> None:
-        assert extract_meshtastic_rx_time({"rxTime": False}) is None
-
-
-class TestExtractRxTimeString:
-    """String rxTime is rejected."""
-
-    def test_numeric_string(self) -> None:
-        assert extract_meshtastic_rx_time({"rxTime": "1700000000"}) is None
-
-    def test_empty_string(self) -> None:
-        assert extract_meshtastic_rx_time({"rxTime": ""}) is None
-
-
-class TestExtractRxTimeNanInf:
-    """NaN / inf / -inf float values are rejected."""
-
-    def test_nan(self) -> None:
-        assert extract_meshtastic_rx_time({"rxTime": float("nan")}) is None
-
-    def test_inf(self) -> None:
-        assert extract_meshtastic_rx_time({"rxTime": float("inf")}) is None
-
-    def test_negative_inf(self) -> None:
-        assert extract_meshtastic_rx_time({"rxTime": float("-inf")}) is None
-
-
-class TestExtractRxTimeNonPositive:
-    """Zero and negative epochs are rejected."""
-
-    def test_zero_int(self) -> None:
-        assert extract_meshtastic_rx_time({"rxTime": 0}) is None
-
-    def test_zero_float(self) -> None:
-        assert extract_meshtastic_rx_time({"rxTime": 0.0}) is None
-
-    def test_negative_int(self) -> None:
-        assert extract_meshtastic_rx_time({"rxTime": -1}) is None
-
-    def test_negative_float(self) -> None:
-        assert extract_meshtastic_rx_time({"rxTime": -0.5}) is None
-
-
-class TestExtractRxTimeMisc:
-    """Other edge cases for rxTime extraction."""
-
-    def test_dict_value(self) -> None:
-        assert extract_meshtastic_rx_time({"rxTime": {"seconds": 100}}) is None
-
-    def test_list_value(self) -> None:
-        assert extract_meshtastic_rx_time({"rxTime": [100]}) is None
-
-    def test_extra_keys_ignored(self) -> None:
-        pkt = {"rxTime": 1_700_000_000, "decoded": {"portnum": "text"}}
-        result = extract_meshtastic_rx_time(pkt)
-        assert result is not None
-        assert result == _dt(1_700_000_000)
 
 
 # ===================================================================

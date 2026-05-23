@@ -83,6 +83,7 @@ from medre.adapters.meshtastic.packet_classifier import (
 )
 from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue, QueueDeliveryResult
 from medre.adapters.meshtastic.session import MeshtasticSession
+from medre.adapters.meshtastic.startup_backlog import extract_meshtastic_rx_time
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.contracts.adapter import (
     AdapterCapabilities,
@@ -96,7 +97,6 @@ from medre.core.contracts.adapter import (
     OutboundNativeRefRecord,
 )
 from medre.core.policies.startup_backlog_suppress import (
-    extract_meshtastic_rx_time,
     should_suppress_startup_backlog,
 )
 from medre.core.rendering.renderer import RenderingResult
@@ -488,7 +488,7 @@ class MeshtasticAdapter(AdapterContract):
         """Check whether a relay-classified packet should be suppressed as stale backlog.
 
         Delegates ``rxTime`` extraction to
-        :func:`~medre.core.policies.startup_backlog_suppress.extract_meshtastic_rx_time`
+        :func:`~medre.adapters.meshtastic.startup_backlog.extract_meshtastic_rx_time`
         and the suppression decision to
         :func:`~medre.core.policies.startup_backlog_suppress.should_suppress_startup_backlog`.
 

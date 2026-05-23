@@ -331,10 +331,13 @@ seconds of the first process-lifetime connect, and also drops packets whose
 `rxTime < RELAY_START_TIME` (adjusted for clock skew).
 
 MEDRE implements startup backlog suppression: the adapter's
-`_check_startup_backlog_suppress` delegates to the shared utility
-`medre.core.policies.startup_backlog_suppress` for rxTime extraction
-and cutoff comparison. The `startup_backlog_suppress_seconds` config
-field controls the window; a value of 0 disables suppression.
+`_check_startup_backlog_suppress` delegates cutoff comparison to the
+transport-neutral helper
+`medre.core.policies.startup_backlog_suppress.should_suppress_startup_backlog`,
+while Meshtastic-specific rxTime extraction lives in
+`medre.adapters.meshtastic.startup_backlog`. The
+`startup_backlog_suppress_seconds` config field controls the window;
+a value of 0 disables suppression.
 
 ### 4.7 ACK Handling
 
