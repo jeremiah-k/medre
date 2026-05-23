@@ -240,7 +240,7 @@ class TestCapacityRejectionEvidence:
         await runner.start()
 
         # Pre-acquire the single slot so the next acquire fails.
-        await cc.acquire_delivery()
+        capacity_acquired = await cc.acquire_delivery()
 
         event = make_event(event_id=event_id, source_adapter="src")
 
@@ -314,4 +314,6 @@ class TestCapacityRejectionEvidence:
             # Accounting: capacity_rejections incremented.
             assert accounting.counters().capacity_rejections == 1
         finally:
+            if capacity_acquired:
+                await cc.release_delivery()
             await runner.stop()
