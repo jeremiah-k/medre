@@ -5,11 +5,26 @@ and classifies them by category, direction, and portnum without routing,
 publishing, or storage.
 
 The classifier is a pure function: it inspects a packet and returns a
-classification dict.  It has no side effects.
+:class:`ClassificationResult`.  It has no side effects.
+
+Classification policy (conservative defaults):
+
+1. Encrypted packet → **drop** (``"encrypted packet"``)
+2. Malformed / no decoded payload → **drop** (``"malformed or missing decoded payload"``)
+3. Ack / admin / system → **ignore** (``"ack/admin/system message"``)
+4. Detection sensor → **deferred** (``"detection sensor packets are deferred"``)
+5. Unknown / custom portnum → **deferred** (``"unknown or custom portnum"``)
+6. Telemetry / position / nodeinfo → **ignore** (``"non-chat message type"``)
+7. Direct message → **ignore** (``"direct message to specific node"``)
+8. Plugin-only → **deferred** (``"plugin_only packets are deferred"``)
+9. Text message (valid decoded text) → **relay** (``"text message"``)
+10. Empty text → **ignore** (``"empty text"``)
 """
 
 from __future__ import annotations
 
+import dataclasses
+from dataclasses import dataclass
 from typing import Any
 
 from medre.interop.mmrelay import EMOJI_FLAG_VALUE
@@ -49,6 +64,7 @@ _SYMBOLIC_PORTNUM_MAP: dict[str, str] = {
     "NODEINFO_APP": "nodeinfo",
     "ADMIN_APP": "admin",
     "ROUTING_APP": "routing",
+    "DETECTION_SENSOR_APP": "detection_sensor",
 }
 
 _NORMALIZED_PORTNUMS: set[str] = {
@@ -59,6 +75,7 @@ _NORMALIZED_PORTNUMS: set[str] = {
     "nodeinfo",
     "admin",
     "routing",
+    "detection_sensor",
 }
 
 
@@ -106,6 +123,75 @@ def _is_routing_ack(decoded: dict[str, Any]) -> bool:
     return error_reason == "NONE"
 
 
+@dataclass(frozen=True)
+class ClassificationResult:
+    """Immutable classification result returned by :meth:`MeshtasticPacketClassifier.classify`.
+
+    Attributes
+    ----------
+    action:
+        Disposition: ``"relay"``, ``"ignore"``, ``"drop"``, or ``"deferred"``.
+    category:
+        Packet category: ``"text"``, ``"ack"``, ``"telemetry"``, ``"nodeinfo"``,
+        ``"position"``, ``"admin"``, ``"unknown"``, or ``"plugin_only"``.
+    reason:
+        Human-readable explanation of why this decision was made.
+    portnum:
+        Decoded portnum string, or ``None``.
+    channel_index:
+        Radio channel index, or ``None``.
+    packet_id:
+        Packet ID integer, or ``None``.
+    from_id:
+        Sender node ID, or ``None``.
+    to_id:
+        Recipient node ID string (from ``toId``), or ``""``.
+    is_text:
+        Whether this is a text message packet.
+    is_ack:
+        Whether this is an acknowledgement.
+    is_encrypted:
+        Whether the packet is encrypted.
+    is_detection_sensor:
+        Whether the packet is a detection sensor packet.
+    is_direct_message:
+        Whether the packet is a DM.
+    routeable:
+        Whether the packet is routeable (text + not ack + not dm).
+    reply_id:
+        ``decoded.replyId`` integer, or ``None``.
+    emoji_flag:
+        ``True`` when ``decoded.emoji == 1``.
+    reaction_key:
+        Stripped text when ``emoji_flag`` is set (``"?"`` if empty),
+        else ``None``.
+    is_reply:
+        Text packet with ``replyId`` but no emoji flag.
+    is_reaction:
+        Text packet with ``replyId`` and emoji flag.
+    """
+
+    action: str
+    category: str
+    reason: str
+    portnum: str | None
+    channel_index: int | None
+    packet_id: int | None
+    from_id: str | None
+    to_id: str
+    is_text: bool
+    is_ack: bool
+    is_encrypted: bool
+    is_detection_sensor: bool
+    is_direct_message: bool
+    routeable: bool
+    reply_id: int | None
+    emoji_flag: bool
+    reaction_key: str | None
+    is_reply: bool
+    is_reaction: bool
+
+
 class MeshtasticPacketClassifier:
     """Classify raw Meshtastic packet dicts.
 
@@ -146,7 +232,7 @@ class MeshtasticPacketClassifier:
             return True
         return False
 
-    def classify(self, packet: dict[str, Any]) -> dict[str, Any]:
+    def classify(self, packet: dict[str, Any]) -> ClassificationResult:
         """Classify a raw Meshtastic packet dict.
 
         Parameters
@@ -161,29 +247,11 @@ class MeshtasticPacketClassifier:
 
         Returns
         -------
-        dict
-            Classification result with keys:
-
-            * ``category`` – ``"text"``, ``"ack"``, ``"telemetry"``,
-              ``"nodeinfo"``, ``"position"``, ``"admin"``, ``"unknown"``,
-              or ``"plugin_only"``.
-            * ``is_direct_message`` – whether the packet is a DM.
-            * ``channel_index`` – radio channel index, or ``None``.
-            * ``packet_id`` – packet ID integer, or ``None``.
-            * ``sender_id`` – sender node ID, or ``None``.
-            * ``portnum`` – decoded portnum string, or ``None``.
-            * ``is_ack`` – whether this is an acknowledgement.
-            * ``reply_id`` – ``decoded.replyId`` integer, or ``None``.
-            * ``emoji_flag`` – ``True`` when ``decoded.emoji == 1``.
-            * ``reaction_key`` – stripped text when ``emoji_flag`` is set
-              (``"?"`` if empty), else ``None``.
-            * ``is_reply`` – text packet with ``replyId`` but no emoji flag.
-            * ``is_reaction`` – text packet with ``replyId`` and emoji flag.
+        ClassificationResult
+            Immutable classification result with action, category, reason,
+            and all metadata fields.
         """
-        raw_decoded = packet.get("decoded", {})
-        decoded = raw_decoded if isinstance(raw_decoded, dict) else {}
-        portnum = normalize_portnum(decoded.get("portnum", None))
-
+        # --- Extract raw fields ---
         to_id = packet.get("toId", "")
         is_direct = not self._is_broadcast(to_id)
         # Also check numeric `to` field (real meshtastic-python includes both)
@@ -195,9 +263,6 @@ class MeshtasticPacketClassifier:
                 )
 
         channel_index = packet.get("channel")
-        if channel_index is None:
-            channel_index = decoded.get("channel")
-
         packet_id = packet.get("id")
 
         sender_id = packet.get("fromId")
@@ -206,32 +271,17 @@ class MeshtasticPacketClassifier:
             if from_numeric is not None:
                 sender_id = str(from_numeric)
 
-        is_ack = False
-        category = "unknown"
+        is_encrypted = bool(packet.get("encrypted"))
 
-        if portnum in ("text_message",):
-            category = "text"
-        elif portnum in ("text_message_ack",):
-            is_ack = True
-            category = "ack"
-        elif portnum == "routing" and _is_routing_ack(decoded):
-            is_ack = True
-            category = "ack"
-        elif portnum in ("telemetry",):
-            category = "telemetry"
-        elif portnum in ("nodeinfo",):
-            category = "nodeinfo"
-        elif portnum in ("position",):
-            category = "position"
-        elif portnum in ("admin",):
-            category = "admin"
-        elif portnum and portnum.startswith("plugin_"):
-            category = "plugin_only"
-        else:
-            category = "unknown"
+        raw_decoded = packet.get("decoded", {})
+        decoded = raw_decoded if isinstance(raw_decoded, dict) else {}
+        portnum = normalize_portnum(decoded.get("portnum", None))
 
-        # Reply / reaction semantics from decoded.replyId and decoded.emoji
-        reply_id = None
+        if channel_index is None:
+            channel_index = decoded.get("channel")
+
+        # --- Reply / reaction semantics from decoded.replyId and decoded.emoji ---
+        reply_id: int | None = None
         if isinstance(decoded, dict):
             reply_id = decoded.get("replyId")
             if reply_id is None:
@@ -250,6 +300,38 @@ class MeshtasticPacketClassifier:
                 stripped = ""
             reaction_key = stripped if stripped else "?"
 
+        # --- Category determination ---
+        is_ack = False
+        category = "unknown"
+        is_detection_sensor = False
+        text_content: str = ""
+
+        if portnum == "detection_sensor":
+            is_detection_sensor = True
+            category = "unknown"
+
+        if portnum in ("text_message",):
+            category = "text"
+            text_content = decoded.get("text", "") if isinstance(decoded, dict) else ""
+            if text_content is None:
+                text_content = ""
+        elif portnum in ("text_message_ack",):
+            is_ack = True
+            category = "ack"
+        elif portnum == "routing" and _is_routing_ack(decoded):
+            is_ack = True
+            category = "ack"
+        elif portnum in ("telemetry",):
+            category = "telemetry"
+        elif portnum in ("nodeinfo",):
+            category = "nodeinfo"
+        elif portnum in ("position",):
+            category = "position"
+        elif portnum in ("admin",):
+            category = "admin"
+        elif portnum and portnum.startswith("plugin_"):
+            category = "plugin_only"
+
         # is_reply / is_reaction only for non-ACK text messages
         is_reply = False
         is_reaction = False
@@ -259,17 +341,80 @@ class MeshtasticPacketClassifier:
             else:
                 is_reply = True
 
-        return {
-            "category": category,
-            "is_direct_message": is_direct,
-            "channel_index": channel_index,
-            "packet_id": packet_id,
-            "sender_id": sender_id,
-            "portnum": portnum,
-            "is_ack": is_ack,
-            "reply_id": reply_id,
-            "emoji_flag": emoji_flag,
-            "reaction_key": reaction_key,
-            "is_reply": is_reply,
-            "is_reaction": is_reaction,
-        }
+        is_text = category == "text"
+
+        # --- Action decision (classification policy) ---
+        action: str
+        reason: str
+
+        # 1. Encrypted
+        if is_encrypted:
+            action = "drop"
+            reason = "encrypted packet"
+        # 2. Malformed / no decoded payload
+        elif not decoded and not is_encrypted:
+            action = "drop"
+            reason = "malformed or missing decoded payload"
+        # 3. Detection sensor
+        elif is_detection_sensor:
+            action = "deferred"
+            reason = "detection sensor packets are deferred"
+        # 4. Ack / admin
+        elif is_ack:
+            action = "ignore"
+            reason = "ack/admin/system message"
+        elif category == "admin":
+            action = "ignore"
+            reason = "ack/admin/system message"
+        # 5. Unknown / custom portnum
+        elif category == "unknown" and not is_text:
+            action = "deferred"
+            reason = "unknown or custom portnum"
+        # 6. Telemetry / position / nodeinfo
+        elif category in ("telemetry", "position", "nodeinfo"):
+            action = "ignore"
+            reason = "non-chat message type"
+        # 7. Direct message
+        elif is_direct:
+            action = "ignore"
+            reason = "direct message to specific node"
+        # 8. Plugin-only
+        elif category == "plugin_only":
+            action = "deferred"
+            reason = "plugin_only packets are deferred"
+        # 9. Empty text
+        elif is_text and not text_content.strip():
+            action = "ignore"
+            reason = "empty text"
+        # 10. Text message (relay)
+        elif is_text:
+            action = "relay"
+            reason = "text message"
+        else:
+            # Fallback — should not normally be reached
+            action = "deferred"
+            reason = "unclassified packet"
+
+        routeable = is_text and not is_ack and not is_direct
+
+        return ClassificationResult(
+            action=action,
+            category=category,
+            reason=reason,
+            portnum=portnum,
+            channel_index=channel_index,
+            packet_id=packet_id,
+            from_id=sender_id,
+            to_id=to_id if isinstance(to_id, str) else str(to_id) if to_id is not None else "",
+            is_text=is_text,
+            is_ack=is_ack,
+            is_encrypted=is_encrypted,
+            is_detection_sensor=is_detection_sensor,
+            is_direct_message=is_direct,
+            routeable=routeable,
+            reply_id=reply_id,
+            emoji_flag=emoji_flag,
+            reaction_key=reaction_key,
+            is_reply=is_reply,
+            is_reaction=is_reaction,
+        )

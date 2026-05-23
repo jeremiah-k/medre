@@ -752,3 +752,171 @@ class TestMeshtasticAdapterQueueOwnership:
         assert len(fake_client.sent) == 1
 
         await adapter.stop()
+
+
+# ===================================================================
+# Classifier counter tests
+# ===================================================================
+
+
+class TestMeshtasticAdapterClassifierCounters:
+    """Classifier counters increment correctly for various packet types."""
+
+    async def test_seen_increments_for_every_packet(
+        self, make_adapter_context, inbound_collector
+    ) -> None:
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        ctx = make_adapter_context("mesh-1")
+        await adapter.start(ctx)
+
+        # Text packet
+        await adapter.simulate_inbound(make_meshtastic_text_packet(text="hello"))
+        # Telemetry packet
+        await adapter.simulate_inbound({
+            "fromId": "!node1",
+            "id": 2,
+            "decoded": {"portnum": "telemetry"},
+        })
+        # ACK packet
+        await adapter.simulate_inbound({
+            "fromId": "!node1",
+            "id": 3,
+            "decoded": {"portnum": "text_message_ack"},
+        })
+
+        diag = adapter.diagnostics()
+        assert diag["classifier_packets_seen"] == 3
+        assert diag["classifier_packets_relayed"] == 1
+        assert diag["classifier_packets_ignored"] == 2
+        assert diag["inbound_published"] == 1
+
+    async def test_malformed_increments_drop_counter(
+        self, make_adapter_context, inbound_collector
+    ) -> None:
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        ctx = make_adapter_context("mesh-1")
+        await adapter.start(ctx)
+
+        await adapter.simulate_inbound({"fromId": "!node1", "id": 1})
+
+        diag = adapter.diagnostics()
+        assert diag["classifier_packets_dropped"] == 1
+        assert diag["classifier_packets_malformed"] == 1
+        assert diag["classifier_packets_seen"] == 1
+
+    async def test_encrypted_increments_sub_counter(
+        self, make_adapter_context, inbound_collector
+    ) -> None:
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        ctx = make_adapter_context("mesh-1")
+        await adapter.start(ctx)
+
+        await adapter.simulate_inbound({
+            "fromId": "!node1",
+            "id": 1,
+            "encrypted": True,
+            "decoded": {"portnum": "text_message", "text": "secret"},
+        })
+
+        diag = adapter.diagnostics()
+        assert diag["classifier_packets_dropped"] == 1
+        assert diag["classifier_packets_encrypted_ignored"] == 1
+
+    async def test_detection_sensor_increments_deferred_counter(
+        self, make_adapter_context, inbound_collector
+    ) -> None:
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        ctx = make_adapter_context("mesh-1")
+        await adapter.start(ctx)
+
+        await adapter.simulate_inbound({
+            "fromId": "!node1",
+            "id": 1,
+            "decoded": {"portnum": "detection_sensor"},
+        })
+
+        diag = adapter.diagnostics()
+        assert diag["classifier_packets_deferred"] == 1
+        assert diag["classifier_packets_detection_sensor_ignored"] == 1
+
+    async def test_dm_increments_dm_counter(
+        self, make_adapter_context, inbound_collector
+    ) -> None:
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        ctx = make_adapter_context("mesh-1")
+        await adapter.start(ctx)
+
+        await adapter.simulate_inbound({
+            "fromId": "!node1",
+            "toId": "!target",
+            "id": 1,
+            "decoded": {"portnum": "text_message", "text": "private"},
+        })
+
+        diag = adapter.diagnostics()
+        assert diag["classifier_packets_ignored"] == 1
+        assert diag["classifier_packets_dm_ignored"] == 1
+
+    async def test_empty_text_increments_empty_counter(
+        self, make_adapter_context, inbound_collector
+    ) -> None:
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        ctx = make_adapter_context("mesh-1")
+        await adapter.start(ctx)
+
+        await adapter.simulate_inbound(make_meshtastic_text_packet(text=""))
+
+        diag = adapter.diagnostics()
+        assert diag["classifier_packets_ignored"] == 1
+        assert diag["classifier_packets_empty_text_ignored"] == 1
+
+    async def test_unknown_portnum_increments_unknown_counter(
+        self, make_adapter_context, inbound_collector
+    ) -> None:
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        ctx = make_adapter_context("mesh-1")
+        await adapter.start(ctx)
+
+        await adapter.simulate_inbound({
+            "fromId": "!node1",
+            "id": 1,
+            "decoded": {"portnum": "weird_type"},
+        })
+
+        diag = adapter.diagnostics()
+        assert diag["classifier_packets_deferred"] == 1
+        assert diag["classifier_packets_unknown_portnum_ignored"] == 1
+
+    async def test_diagnostics_includes_all_classifier_keys(
+        self, make_adapter_context
+    ) -> None:
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        ctx = make_adapter_context("mesh-1")
+        await adapter.start(ctx)
+
+        diag = adapter.diagnostics()
+        expected_keys = [
+            "classifier_packets_seen",
+            "classifier_packets_relayed",
+            "classifier_packets_ignored",
+            "classifier_packets_dropped",
+            "classifier_packets_deferred",
+            "classifier_packets_malformed",
+            "classifier_packets_encrypted_ignored",
+            "classifier_packets_detection_sensor_ignored",
+            "classifier_packets_dm_ignored",
+            "classifier_packets_empty_text_ignored",
+            "classifier_packets_unknown_portnum_ignored",
+            "inbound_published",
+        ]
+        for key in expected_keys:
+            assert key in diag, f"Missing key {key!r} in diagnostics"
+            assert isinstance(diag[key], int)
