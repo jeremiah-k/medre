@@ -1421,4 +1421,3 @@ class TestSuppressedIncidentSummary:
         assert (
             summary["classification"] != "success"
         ), "Suppressed-only events must not be classified as 'success'"
-

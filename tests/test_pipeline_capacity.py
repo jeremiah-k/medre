@@ -107,12 +107,13 @@ class TestCapacityRejectionTaxonomy:
                 len(receipts) >= 1
             ), "capacity rejection must persist a suppressed delivery receipt"
             suppressed = [
-                r for r in receipts
+                r
+                for r in receipts
                 if r.status == "suppressed" and r.failure_kind == "capacity_rejection"
             ]
-            assert len(suppressed) >= 1, (
-                "expected at least one suppressed capacity_rejection receipt"
-            )
+            assert (
+                len(suppressed) >= 1
+            ), "expected at least one suppressed capacity_rejection receipt"
 
             # Accounting: capacity_rejections incremented.
             assert accounting.counters().capacity_rejections == 1
@@ -172,12 +173,13 @@ class TestCapacityRejectionTaxonomy:
                 len(receipts) >= 1
             ), "shutdown rejection must persist a suppressed delivery receipt"
             suppressed = [
-                r for r in receipts
+                r
+                for r in receipts
                 if r.status == "suppressed" and r.failure_kind == "shutdown_rejection"
             ]
-            assert len(suppressed) >= 1, (
-                "expected at least one suppressed shutdown_rejection receipt"
-            )
+            assert (
+                len(suppressed) >= 1
+            ), "expected at least one suppressed shutdown_rejection receipt"
 
             # Accounting: capacity_rejections incremented.
             assert accounting.counters().capacity_rejections == 1
@@ -186,12 +188,12 @@ class TestCapacityRejectionTaxonomy:
 
 
 # ===================================================================
-# Capacity rejection golden-flow: suppression → receipt → evidence
+# Capacity rejection suppression-evidence: suppression → receipt → evidence
 # ===================================================================
 
 
-class TestCapacityRejectionGoldenFlow:
-    """Golden-flow: capacity rejection produces CAPACITY_REJECTION, persists
+class TestCapacityRejectionEvidence:
+    """Suppression-evidence: capacity rejection produces CAPACITY_REJECTION, persists
     a suppressed receipt, and surfaces coherent evidence via
     incident_summary and delivery_state_by_adapter.
 
@@ -265,16 +267,17 @@ class TestCapacityRejectionGoldenFlow:
 
             # ---- Phase 3: Storage has suppressed receipt ----
             receipts = await temp_storage.list_receipts_for_event(event_id)
-            assert len(receipts) >= 1, (
-                "capacity rejection must persist a suppressed delivery receipt"
-            )
+            assert (
+                len(receipts) >= 1
+            ), "capacity rejection must persist a suppressed delivery receipt"
             suppressed = [
-                r for r in receipts
+                r
+                for r in receipts
                 if r.status == "suppressed" and r.failure_kind == "capacity_rejection"
             ]
-            assert len(suppressed) >= 1, (
-                "expected at least one suppressed capacity_rejection receipt"
-            )
+            assert (
+                len(suppressed) >= 1
+            ), "expected at least one suppressed capacity_rejection receipt"
 
             # ---- Phase 4: Evidence incident_summary ----
             db_path = temp_storage._db_path
@@ -284,29 +287,29 @@ class TestCapacityRejectionGoldenFlow:
             )
 
             storage_section = report["sections"]["storage"]
-            assert storage_section["error"] is None, (
-                f"Storage section error: {storage_section['error']}"
-            )
+            assert (
+                storage_section["error"] is None
+            ), f"Storage section error: {storage_section['error']}"
 
             summary = storage_section["data"]["incident_summary"]
-            assert summary["suppressed_count"] >= 1, (
-                f"Expected suppressed_count >= 1, got {summary['suppressed_count']}"
-            )
+            assert (
+                summary["suppressed_count"] >= 1
+            ), f"Expected suppressed_count >= 1, got {summary['suppressed_count']}"
             assert summary["first_failure_kind"] == "capacity_rejection"
             assert summary["classification"] == "operational"
             assert summary["failed_count"] == 0
 
             # ---- Phase 5: delivery_state_by_adapter ----
             dsba = summary["delivery_state_by_adapter"]
-            assert "target" in dsba, (
-                f"Expected 'target' in delivery_state_by_adapter, got {list(dsba.keys())}"
-            )
+            assert (
+                "target" in dsba
+            ), f"Expected 'target' in delivery_state_by_adapter, got {list(dsba.keys())}"
             target_state = dsba["target"]
             assert target_state["failure_kind"] == "capacity_rejection"
             assert target_state["retryable"] is False
-            assert "target_channel" in target_state, (
-                "delivery_state_by_adapter entry must include target_channel key"
-            )
+            assert (
+                "target_channel" in target_state
+            ), "delivery_state_by_adapter entry must include target_channel key"
 
             # Accounting: capacity_rejections incremented.
             assert accounting.counters().capacity_rejections == 1

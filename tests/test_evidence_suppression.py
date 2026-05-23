@@ -1,4 +1,4 @@
-"""Golden-flow integration tests for delivery evidence.
+"""Suppression-evidence integration tests for delivery evidence.
 
 Moved from test_delivery_evidence_unification.py to keep the main file under
 the 1500-line limit.  These tests exercise the real PipelineRunner with fake
@@ -14,15 +14,14 @@ import pytest
 from medre.core.planning.delivery_plan import DeliveryFailureKind
 from medre.runtime.evidence._bundle import collect_evidence_bundle
 
-
 # ===================================================================
-# 13. Loop-suppression golden-flow: PipelineRunner → suppressed
+# 13. Loop-suppression suppression-evidence: PipelineRunner → suppressed
 #     receipt → collect_evidence_bundle → incident_summary
 # ===================================================================
 
 
-class TestLoopSuppressionGoldenFlow:
-    """Focused golden-flow test proving that a loop-suppression scenario
+class TestLoopSuppressionEvidence:
+    """Focused suppression-evidence test proving that a loop-suppression scenario
     exercised through the **real PipelineRunner** self-loop guard produces
     a ``skipped`` / ``loop_suppressed`` outcome, persists a
     ``status="suppressed"`` receipt in SQLite storage, and surfaces
@@ -36,8 +35,8 @@ class TestLoopSuppressionGoldenFlow:
     """
 
     @pytest.mark.asyncio
-    async def test_loop_suppression_golden_flow(self, tmp_path: Path) -> None:
-        """End-to-end golden flow via PipelineRunner self-loop guard.
+    async def test_loop_suppression_evidence(self, tmp_path: Path) -> None:
+        """End-to-end suppression-evidence via PipelineRunner self-loop guard.
 
         Scenario: an event arriving from adapter ``golden-loop-mx`` is
         routed back to the same adapter (self-loop route).  The
@@ -52,14 +51,13 @@ class TestLoopSuppressionGoldenFlow:
         from medre.core.routing.stats import RouteStats
         from medre.core.runtime.accounting import RuntimeAccounting
         from medre.core.storage.sqlite import SQLiteStorage
-
         from tests.helpers.bridge import make_adapter_context, make_pipeline_config
 
         # -- Setup: self-loop route where source == target adapter ----------
         adapter_id = "golden-loop-mx"
         target_channel = "!golden-loop:fake"
 
-        db_path = str(tmp_path / "golden_flow_loop.db")
+        db_path = str(tmp_path / "suppression_loop.db")
         storage = SQLiteStorage(db_path)
         await storage.initialize()
 
@@ -122,9 +120,9 @@ class TestLoopSuppressionGoldenFlow:
             stored_receipts = await storage.list_receipts_for_event(
                 event.event_id,
             )
-            assert len(stored_receipts) == 1, (
-                f"Expected exactly 1 receipt, got {len(stored_receipts)}"
-            )
+            assert (
+                len(stored_receipts) == 1
+            ), f"Expected exactly 1 receipt, got {len(stored_receipts)}"
             suppressed = [r for r in stored_receipts if r.status == "suppressed"]
             assert len(suppressed) == 1
             assert suppressed[0].failure_kind == "loop_suppressed"
@@ -143,24 +141,24 @@ class TestLoopSuppressionGoldenFlow:
         )
 
         storage_section = report["sections"]["storage"]
-        assert storage_section["status"] == "passed", (
-            f"Storage section error: {storage_section.get('error')}"
-        )
+        assert (
+            storage_section["status"] == "passed"
+        ), f"Storage section error: {storage_section.get('error')}"
 
         data = storage_section["data"]
         assert data["event"] is not None, "Event should be found in storage"
-        assert data["receipt_count"] == 1, (
-            f"Expected exactly 1 receipt, got {data['receipt_count']}"
-        )
+        assert (
+            data["receipt_count"] == 1
+        ), f"Expected exactly 1 receipt, got {data['receipt_count']}"
 
         # -- Phase 4: Incident summary assertions ----------------------------
         summary = data["incident_summary"]
         assert summary is not None, "incident_summary must be present"
 
         # suppressed_count reflects the suppressed receipt.
-        assert summary["suppressed_count"] == 1, (
-            f"Expected suppressed_count == 1, got {summary['suppressed_count']}"
-        )
+        assert (
+            summary["suppressed_count"] == 1
+        ), f"Expected suppressed_count == 1, got {summary['suppressed_count']}"
 
         # Classification is permanent for loop_suppressed.
         assert summary["classification"] == "permanent", (
@@ -186,9 +184,9 @@ class TestLoopSuppressionGoldenFlow:
         assert adapter_state["status"] == "suppressed"
         assert adapter_state["failure_kind"] == "loop_suppressed"
         assert adapter_state["retryable"] is False
-        assert "target_channel" in adapter_state, (
-            "delivery_state_by_adapter entry must include 'target_channel' key"
-        )
+        assert (
+            "target_channel" in adapter_state
+        ), "delivery_state_by_adapter entry must include 'target_channel' key"
         assert adapter_state["target_channel"] == target_channel, (
             f"Expected target_channel {target_channel!r}, "
             f"got {adapter_state['target_channel']!r}"
