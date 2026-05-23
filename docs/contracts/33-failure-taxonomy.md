@@ -191,8 +191,8 @@ MEDRE uses a **bounded-retry outbound queue** (`MeshtasticOutboundQueue`):
 - **Transient send failures are retried** up to `queue_send_max_attempts` times from
   the adapter-local in-memory queue. `total_requeued` is incremented on each retry.
 - **Exhausted retries and permanent failures are dropped.** `total_exhausted` (for
-  exhausted) and `total_failed` (for permanent) are incremented. The exception is
-  re-raised on the final attempt.
+  exhausted) and `total_permanent_failed` plus `total_failed` (for permanent) are incremented. The item
+  is permanently discarded; the exception is not re-raised.
 - No persistence; queue contents and retry counters are lost on adapter shutdown.
 - Retry is best-effort, adapter-local, in-memory, non-durable, and not exactly-once.
 

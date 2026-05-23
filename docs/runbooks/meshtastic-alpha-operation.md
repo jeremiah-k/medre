@@ -428,10 +428,11 @@ health = adapter.queue_health
 #     "total_failed": 0,
 #     "total_requeued": 1,
 #     "total_exhausted": 0,
+#     "total_permanent_failed": 0,
 #     "total_enqueued": 5,
 #     "total_dequeued": 3,
 #     "total_rejected": 0,
-#     "queue_send_max_attempts": 3,
+#     "max_attempts": 3,
 #     "max_queue_size": 1024,
 #     "utilization_pct": 0.0,
 #     "delay_between_messages": 0.5,
@@ -445,11 +446,12 @@ health = adapter.queue_health
 | `total_sent`             | int   | Cumulative count of successful sends since adapter creation                          |
 | `total_failed`           | int   | Cumulative count of send failures (after exhausting retries) since adapter creation  |
 | `total_requeued`         | int   | Cumulative count of items requeued for retry after a transient send failure          |
-| `total_exhausted`        | int   | Cumulative count of items that exhausted `queue_send_max_attempts` and were dropped  |
+| `total_exhausted`        | int   | Cumulative count of items that exhausted `max_attempts` and were dropped              |
+| `total_permanent_failed` | int   | Cumulative count of items that failed permanently (non-transient) on first attempt    |
 | `total_enqueued`         | int   | Cumulative count of successful enqueue operations                                    |
 | `total_dequeued`         | int   | Cumulative count of dequeue operations                                               |
 | `total_rejected`         | int   | Cumulative count of enqueue rejections (queue full)                                  |
-| `queue_send_max_attempts`| int   | Maximum send attempts per item before marking exhausted                              |
+| `max_attempts`           | int   | Maximum send attempts per item before marking exhausted                              |
 | `max_queue_size`         | int   | Maximum queue capacity                                                               |
 | `utilization_pct`        | float | Current queue utilization as a percentage of max size                                |
 | `delay_between_messages` | float | Configured minimum pacing delay in seconds                                           |
@@ -457,9 +459,10 @@ health = adapter.queue_health
 
 .. note::
 
-    Counter names (`total_requeued`, `total_exhausted`, `queue_send_max_attempts`) are
-    the intended final names. If the implementation chooses different names, they must
-    be reconciled here during verification.
+    Counter names (`total_requeued`, `total_exhausted`, `total_permanent_failed`, `max_attempts`) are
+    the `queue_health` property names. Adapter diagnostics prefix these with `queue_`
+    (e.g. `queue_total_exhausted`, `queue_total_permanent_failed`) and use `queue_send_max_attempts`
+    instead of `max_attempts`. Both surfaces expose the same underlying values.
 
 .. note::
 
@@ -484,7 +487,7 @@ There is no periodic "still alive" log. Silence is normal when no packets arrive
 
 `send_one()` dequeues one item from the outbound queue, applies pacing delay, and calls `client.sendText(text, channelIndex=channel_index)` via `asyncio.to_thread()`. The send result is a `MeshPacket` protobuf with a populated `id` field.
 
-Successful sends increment `total_sent`. Transient send failures trigger adapter-local retry: the item is requeued and retried up to `queue_send_max_attempts` times. If retries exhaust, the item is dropped, `total_exhausted` is incremented, and the exception is re-raised. Permanent send failures are not retried. See section 9 for the full retry contract.
+Successful sends increment `total_sent`. Transient send failures trigger adapter-local retry: the item is requeued and retried up to `max_attempts` times. If retries exhaust, the item is dropped and `total_exhausted` is incremented; the exception is not re-raised. Permanent send failures are not retried and increment `total_permanent_failed`. See section 9 for the full retry contract.
 
 ## 8. Canonical Metadata Structure
 
@@ -568,12 +571,12 @@ Transient local SDK send failures are retried from the adapter-local queue:
 
 - Each queued item may be sent up to `queue_send_max_attempts` times (default configured at queue creation).
 - On a transient `send_one()` failure, the item is requeued and retried on the next drain cycle. `total_requeued` is incremented.
-- If the item exhausts all attempts, it is permanently dropped, `total_exhausted` is incremented, and the exception is re-raised to the caller.
-- Permanent failures (non-transient SDK errors) are not retried and increment `total_failed` immediately.
+- If the item exhausts all attempts, it is permanently dropped and `total_exhausted` is incremented; the exception is not re-raised.
+- Permanent failures (non-transient SDK errors) are not retried and increment `total_permanent_failed` and `total_failed` immediately.
 
 Retry is **best-effort, adapter-local, in-memory, and non-durable**. The retry counter and queue contents are lost on process restart. Retry is not exactly-once: a retried send may succeed on a second attempt even though the first attempt may have partially transmitted.
 
-Exhausted retries are visible in diagnostics: `total_requeued`, `total_exhausted`, and `queue_send_max_attempts` are exposed via `queue_health`.
+Exhausted retries are visible in diagnostics: `total_requeued`, `total_exhausted`, `total_permanent_failed`, and `max_attempts` are exposed via `queue_health`. Adapter diagnostics surface the same values with the `queue_` prefix and `queue_send_max_attempts`.
 
 **Queue overflow is explicitly rejected (not silently evicted).** When `deliver()` is called and the outbound queue is full, `enqueue()` raises `MeshtasticSendError(transient=True)`. The adapter's `deliver()` method catches this and raises `AdapterSendError(transient=True)`. The pipeline classifies this as `ADAPTER_TRANSIENT` and may retry the delivery according to the route's retry policy. Existing queued items are never evicted to make room for new ones.
 
