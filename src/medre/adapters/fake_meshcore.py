@@ -221,8 +221,22 @@ class FakeMeshCoreAdapter(AdapterContract):
 
     # -- Lifecycle ----------------------------------------------------------
 
+    def _reset_inbound_counters(self) -> None:
+        """Zero all aggregate in-memory classifier counters.
+
+        Called from :meth:`start` so that a reused adapter instance
+        begins with a clean slate on every (re)start.
+        """
+        self._classifier_packets_seen = 0
+        self._classifier_packets_relayed = 0
+        self._classifier_packets_ignored = 0
+        self._classifier_packets_dropped = 0
+        self._classifier_packets_deferred = 0
+        self._inbound_published = 0
+
     async def start(self, ctx: AdapterContext) -> None:
         """Store the context and mark the adapter as started."""
+        self._reset_inbound_counters()
         self.ctx = ctx
         self._mark_started(ctx)
         self._started = True

@@ -972,7 +972,7 @@ A successful return from `deliver()` means the adapter called the SDK send metho
 - The message was transmitted over RF.
 - Any remote node received the message.
 - An ACK was received (direct messages carry `expected_ack`, but the adapter does not track or correlate ACKs).
-- The message was delivered end to end across the mesh.
+- The message was delivered end-to-end across the mesh.
 
 Channel messages return `OK`/`ERROR` with no `expected_ack`. There is no per-recipient delivery confirmation for channel messages. Direct messages carry `expected_ack` for ACK correlation, but ACKs are not guaranteed and the adapter does not track them.
 

@@ -13,6 +13,8 @@ from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.rendering.renderer import RenderingResult
 
+pytestmark = pytest.mark.asyncio
+
 
 def _make_config(
     adapter_id: str = "meshcore_node",

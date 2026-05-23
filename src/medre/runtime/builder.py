@@ -263,16 +263,20 @@ def _register_adapter_renderers(
                 )
             if meshtastic_configs:
                 first_meshtastic_config = next(iter(meshtastic_configs.values()))
-        # Fallback: synthesize default MeshCoreConfigs for fake adapters.
-        if not meshcore_configs and config.adapters.meshcore:
-            import importlib as _importlib
-
-            _meshcore_mod = _importlib.import_module("medre.config.adapters.meshcore")
-            _MCConfig = _meshcore_mod.MeshCoreConfig
+        # Fallback: synthesize default MeshCoreConfigs for adapters that
+        # lack a real config (e.g. fake adapters in mixed configs).
+        if config.adapters.meshcore:
             for adapter_id in config.adapters.meshcore:
-                meshcore_configs[adapter_id] = _MCConfig(
-                    adapter_id=adapter_id,
-                )
+                if adapter_id not in meshcore_configs:
+                    import importlib
+
+                    _meshcore_mod = importlib.import_module(
+                        "medre.config.adapters.meshcore"
+                    )
+                    _MCConfig = _meshcore_mod.MeshCoreConfig
+                    meshcore_configs[adapter_id] = _MCConfig(
+                        adapter_id=adapter_id,
+                    )
 
     for module_path, class_name in _ADAPTER_RENDERER_SPECS:
         try:

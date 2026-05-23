@@ -218,12 +218,11 @@ class MeshCoreRenderer:
             ``(truncated_text, was_truncated, original_byte_count,
             rendered_byte_count)``.
         """
-        if max_bytes == 0:
-            original = len(text.encode("utf-8"))
-            return ("", original > 0, original, 0)
-
         encoded = text.encode("utf-8")
         original_bytes = len(encoded)
+
+        if max_bytes == 0:
+            return ("", original_bytes > 0, original_bytes, 0)
 
         if original_bytes <= max_bytes:
             return (text, False, original_bytes, original_bytes)

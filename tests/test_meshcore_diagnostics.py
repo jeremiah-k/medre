@@ -435,3 +435,76 @@ class TestDMRelayCounters:
         assert event.metadata.native is not None
         native_data = event.metadata.native.data
         assert native_data.get("meshcore.is_direct_message") is False
+
+
+# ===================================================================
+# Counter reset on restart
+# ===================================================================
+
+
+class TestCounterResetOnRestart:
+    """Calling start() on a reused adapter resets all counters to zero."""
+
+    async def test_fake_adapter_resets_counters_on_restart(
+        self, make_adapter_context
+    ) -> None:
+        adapter = FakeMeshCoreAdapter()
+        ctx = make_adapter_context("mc-diag")
+        await adapter.start(ctx)
+
+        # Accumulate some counters.
+        await adapter.simulate_inbound(_channel_text_packet(text="msg1"))
+        await adapter.simulate_inbound(_channel_text_packet(text="msg2"))
+        await adapter.simulate_inbound(_ack_packet())
+
+        diag = adapter.diagnostics()
+        assert diag["classifier_packets_seen"] == 3
+        assert diag["classifier_packets_relayed"] == 2
+        assert diag["inbound_published"] == 2
+
+        # Stop and restart — counters must reset to zero.
+        await adapter.stop()
+        await adapter.start(ctx)
+
+        _assert_counter_keys_zero(adapter.diagnostics())
+
+    async def test_real_adapter_resets_counters_on_restart(
+        self, make_adapter_context
+    ) -> None:
+        config = _make_config(connection_type="fake")
+        adapter = MeshCoreAdapter(config)
+        ctx = make_adapter_context("mc-diag")
+        await adapter.start(ctx)
+
+        # Accumulate some counters.
+        await adapter.simulate_inbound(_channel_text_packet(text="msg1"))
+        await adapter.simulate_inbound(_ack_packet())
+
+        diag = adapter.diagnostics()
+        assert diag["classifier_packets_seen"] == 2
+        assert diag["classifier_packets_relayed"] == 1
+        assert diag["inbound_published"] == 1
+
+        # Stop and restart — counters must reset to zero.
+        await adapter.stop()
+        await adapter.start(ctx)
+
+        _assert_counter_keys_zero(adapter.diagnostics())
+
+    async def test_fake_adapter_counters_accumulate_after_restart(
+        self, make_adapter_context
+    ) -> None:
+        """After restart, counters accumulate from zero correctly."""
+        adapter = FakeMeshCoreAdapter()
+        ctx = make_adapter_context("mc-diag")
+        await adapter.start(ctx)
+        await adapter.simulate_inbound(_channel_text_packet(text="before"))
+        await adapter.stop()
+
+        await adapter.start(ctx)
+        await adapter.simulate_inbound(_channel_text_packet(text="after"))
+
+        diag = adapter.diagnostics()
+        assert diag["classifier_packets_seen"] == 1
+        assert diag["classifier_packets_relayed"] == 1
+        assert diag["inbound_published"] == 1
