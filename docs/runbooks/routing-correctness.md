@@ -284,7 +284,7 @@ These are things the routing layer explicitly does **not** provide:
 
 1. **Distributed loop prevention.** Loop detection is local to a single MEDRE process. If two MEDRE instances bridge the same transports in opposite directions, neither will detect the cross-instance loop.
 
-2. **Exactly-once delivery.** No transport in MEDRE provides exactly-once semantics. Radio transports are probabilistic. Matrix is at-least-once. LXMF is at-least-once with eventual delivery.
+2. **Exactly-once delivery.** No transport in MEDRE provides exactly-once semantics. Radio transports are probabilistic. Matrix is at-least-once (deterministic `tx_id` reduces duplicate retries but is not exactly-once). LXMF is at-least-once with eventual delivery. See `docs/dev/runtime-delivery-contract.md` → Unified Delivery Evidence for the full non-guarantee statement per transport.
 
 3. **Radio delivery confirmation.** Meshtastic and MeshCore transports cannot confirm that any remote node received a message. A `sent` receipt means the local node accepted the packet. Nothing more.
 
@@ -303,6 +303,10 @@ These are things the routing layer explicitly does **not** provide:
 10. **Queue-bound delivery completeness.** Capacity semaphores prevent unbounded accumulation but do not guarantee delivery. Under pressure, correctly matched and correctly routed events may be rejected at the delivery stage. This is not a routing failure — it is a capacity backpressure signal.
 
 11. **Exactly-once delivery.** No transport in MEDRE provides exactly-once semantics. MEDRE remains best-effort. Radio transports are probabilistic. Queue bounds prevent unbounded accumulation but not data loss under extreme pressure.
+
+### 6.1 Delivery Evidence for Routing Diagnosis
+
+For worked examples of diagnosing delivery outcomes through the unified evidence surface, see `docs/runbooks/operator-workflows.md` section 14 (Unified Delivery Evidence Workflows). That section answers operator questions including: delivered where, retried why, suppressed why, dead-lettered why, queued locally but not RF-confirmed, Matrix tx_id used, and Meshtastic classifier ignored/dropped/deferred.
 
 ## 7. Quick Reference: Route Matching Rules
 

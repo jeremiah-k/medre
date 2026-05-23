@@ -230,6 +230,7 @@ class DeliveryReceipt(msgspec.Struct, frozen=True):
         "confirmed",
         "failed",
         "dead_lettered",
+        "suppressed",
     ] = "accepted"
     error: str | None = None
     failure_kind: str | None = None

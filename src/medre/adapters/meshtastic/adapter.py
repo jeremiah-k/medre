@@ -58,6 +58,7 @@ external dependencies.
 from __future__ import annotations
 
 import asyncio
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 import msgspec
@@ -363,6 +364,7 @@ class MeshtasticAdapter(AdapterContract):
             native_message_id=None,
             native_channel_id=str(channel_index),
             delivery_note="locally enqueued",
+            metadata=MappingProxyType({"meshtastic_channel_index": channel_index}),
         )
 
     # -- Inbound callback ---------------------------------------------------

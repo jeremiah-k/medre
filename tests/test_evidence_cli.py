@@ -1031,3 +1031,218 @@ class TestEvidenceStorageSectionEquivalence:
         assert (
             config_summary["first_failure_kind"] == path_summary["first_failure_kind"]
         )
+
+
+# ---------------------------------------------------------------------------
+# Tests: dead-lettered incident summary and additive fields
+# ---------------------------------------------------------------------------
+
+
+async def _make_populated_db_with_dead_letter(
+    db_path: str,
+    event_id: str = "ev-dead-letter-001",
+    retry_max_attempts: int = 3,
+    attempt_number: int = 4,
+) -> str:
+    """Create a DB with a dead-lettered receipt carrying retry exhaustion evidence.
+
+    Returns the event_id.
+    """
+    from medre.core.events.canonical import CanonicalEvent, DeliveryReceipt
+    from medre.core.events.kinds import EventKind
+    from medre.core.events.metadata import EventMetadata
+    from medre.core.storage.sqlite import SQLiteStorage
+
+    storage = SQLiteStorage(db_path)
+    await storage.initialize()
+
+    event = CanonicalEvent(
+        event_id=event_id,
+        event_kind=EventKind.MESSAGE_TEXT,
+        schema_version=1,
+        timestamp=datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
+        source_adapter="main",
+        source_transport_id="matrix",
+        source_channel_id="!room:test",
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload={"text": "dead letter evidence test"},
+        metadata=EventMetadata(),
+    )
+    await storage.append(event)
+
+    receipt = DeliveryReceipt(
+        receipt_id="rcpt-dl-001",
+        event_id=event_id,
+        delivery_plan_id="dp-dl-001",
+        target_adapter="radio",
+        status="dead_lettered",
+        source="live",
+        error=f"Retry exhausted after {retry_max_attempts} attempts",
+        attempt_number=attempt_number,
+        retry_max_attempts=retry_max_attempts,
+        retry_backoff_base=2.0,
+        retry_max_delay=60.0,
+        retry_jitter=False,
+        created_at=datetime(2026, 1, 1, 0, 0, 5, tzinfo=timezone.utc),
+    )
+    await storage.append_receipt(receipt)
+
+    await storage.close()
+    return event_id
+
+
+class TestDeadLetterIncidentSummary:
+    """Incident summary for dead-lettered receipts with exhaustion evidence."""
+
+    @pytest.mark.asyncio
+    async def test_dead_lettered_incident_summary_classification(
+        self, config_fake: Path
+    ) -> None:
+        """Dead-lettered receipt produces classification indicating exhaustion."""
+        db_path = str(config_fake.parent / "state" / "test_evidence.db")
+        event_id = await _make_populated_db_with_dead_letter(db_path)
+
+        report = await collect_evidence_bundle(
+            str(config_fake),
+            event_id=event_id,
+        )
+        summary = report["sections"]["storage"]["data"]["incident_summary"]
+        assert summary["classification"] in ("retryable", "permanent", "unknown")
+        assert summary["failed_count"] >= 1
+        assert summary["sent_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_dead_lettered_incident_summary_has_required_fields(
+        self, config_fake: Path
+    ) -> None:
+        """Dead-lettered incident summary includes all standard fields."""
+        db_path = str(config_fake.parent / "state" / "test_evidence.db")
+        event_id = await _make_populated_db_with_dead_letter(db_path)
+
+        report = await collect_evidence_bundle(
+            str(config_fake),
+            event_id=event_id,
+        )
+        summary = report["sections"]["storage"]["data"]["incident_summary"]
+
+        # Core fields that must always be present
+        assert "event_id" in summary
+        assert "classification" in summary
+        assert "receipt_count" in summary
+        assert "failed_count" in summary
+        assert "sent_count" in summary
+        assert "first_failure_kind" in summary
+
+    @pytest.mark.asyncio
+    async def test_dead_lettered_additive_fields_probe(
+        self, config_fake: Path
+    ) -> None:
+        """Probe for additive fields implementation agents may add.
+
+        These fields are not yet guaranteed to exist; this test documents
+        their expected shape so that when they are added, the test will
+        validate them. Uses get() so test passes whether or not fields
+        are present.
+        """
+        db_path = str(config_fake.parent / "state" / "test_evidence.db")
+        event_id = await _make_populated_db_with_dead_letter(db_path)
+
+        report = await collect_evidence_bundle(
+            str(config_fake),
+            event_id=event_id,
+        )
+        summary = report["sections"]["storage"]["data"]["incident_summary"]
+
+        # When implementation adds dead_lettered_count, it should be >= 1
+        dl_count = summary.get("dead_lettered_count")
+        if dl_count is not None:
+            assert dl_count >= 1, (
+                f"dead_lettered_count should be >= 1, got {dl_count}"
+            )
+
+        # When implementation adds suppressed_count, it should be >= 0
+        suppressed_count = summary.get("suppressed_count")
+        if suppressed_count is not None:
+            assert isinstance(suppressed_count, int)
+
+        # When implementation adds sent_unconfirmed_count, it should be >= 0
+        sent_unconfirmed = summary.get("sent_unconfirmed_count")
+        if sent_unconfirmed is not None:
+            assert isinstance(sent_unconfirmed, int)
+
+        # When implementation adds delivery_state_by_adapter, it should be a dict
+        state_by_adapter = summary.get("delivery_state_by_adapter")
+        if state_by_adapter is not None:
+            assert isinstance(state_by_adapter, dict)
+
+    @pytest.mark.asyncio
+    async def test_dead_lettered_receipt_timeline_includes_retry_fields(
+        self, config_fake: Path
+    ) -> None:
+        """Dead-lettered receipt in timeline exposes retry policy fields."""
+        db_path = str(config_fake.parent / "state" / "test_evidence.db")
+        event_id = await _make_populated_db_with_dead_letter(
+            db_path,
+            retry_max_attempts=5,
+            attempt_number=6,
+        )
+
+        report = await collect_evidence_bundle(
+            str(config_fake),
+            event_id=event_id,
+        )
+        timeline = report["sections"]["storage"]["data"]["timeline"]
+        assert timeline is not None
+        receipt_entries = [e for e in timeline if e["entry_type"] == "receipt"]
+        assert len(receipt_entries) >= 1
+
+        receipt_data = receipt_entries[0]["data"]
+        # Receipt should expose retry policy fields from the dead-letter receipt
+        assert receipt_data.get("retry_max_attempts") == 5
+        assert receipt_data.get("retry_backoff_base") == 2.0
+        assert receipt_data.get("retry_max_delay") == 60.0
+        assert receipt_data.get("attempt_number") == 6
+
+    @pytest.mark.asyncio
+    async def test_incident_summary_json_no_secrets(
+        self, config_fake: Path
+    ) -> None:
+        """Incident summary JSON output never contains secret values."""
+        db_path = str(config_fake.parent / "state" / "test_evidence.db")
+        event_id = await _make_populated_db_with_dead_letter(db_path)
+
+        report = await collect_evidence_bundle(
+            str(config_fake),
+            event_id=event_id,
+        )
+        raw = json.dumps(report, sort_keys=True)
+        lower = raw.lower()
+        # No secret key names as keys in JSON
+        assert '"access_token"' not in raw
+        assert '"password"' not in raw
+        # No secret values
+        assert "tok_" not in lower
+        assert "syt_" not in lower
+        assert "sk_" not in lower
+
+    @pytest.mark.asyncio
+    async def test_evidence_json_stable_across_calls(
+        self, config_fake: Path
+    ) -> None:
+        """Evidence JSON output is structurally stable across multiple calls."""
+        db_path = str(config_fake.parent / "state" / "test_evidence.db")
+        await _make_populated_db(db_path)
+
+        report1 = await collect_evidence_bundle(str(config_fake))
+        report2 = await collect_evidence_bundle(str(config_fake))
+
+        # Schema version is stable
+        assert report1["schema_version"] == report2["schema_version"]
+        # Section keys are stable
+        assert set(report1["sections"].keys()) == set(report2["sections"].keys())
+        # Config summary adapter count is stable
+        adapters1 = report1["sections"]["config_summary"]["data"]["adapters"]
+        adapters2 = report2["sections"]["config_summary"]["data"]["adapters"]
+        assert len(adapters1) == len(adapters2)

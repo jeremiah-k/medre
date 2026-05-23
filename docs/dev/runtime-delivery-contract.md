@@ -60,7 +60,7 @@ This document describes how MEDRE routes, delivers, tracks, and recovers events.
 | target_adapter     | str                                                                      | Target adapter name            |
 | target_channel     | str or None                                                              | Target channel                 |
 | route_id           | str                                                                      | Route that triggered delivery  |
-| status             | Literal["accepted","queued","sent","confirmed","failed","dead_lettered"] | Delivery status                |
+| status             | Literal["accepted","queued","sent","confirmed","suppressed","failed","dead_lettered"] | Delivery status                |
 | error              | str or None                                                              | Sanitized error message        |
 | failure_kind       | str or None                                                              | Failure classification         |
 | adapter_message_id | str or None                                                              | Native message ID from adapter |
@@ -146,3 +146,123 @@ Three mechanisms:
 - **Retry evidence**: receipts show `source="retry"`, `attempt_number`, `parent_receipt_id`, `next_retry_at`
 - **Replay evidence**: receipts show `source="replay"`, `replay_run_id`
 - **Suppression evidence**: `RouteStats` counters for `loop_prevented`
+
+## Unified Delivery Evidence
+
+This section describes the unified operator-facing evidence surface that answers the question: _"Why did this event deliver, retry, suppress, fail, defer, drop, or dead-letter?"_
+
+All evidence described here is **best-effort** and **local-process scoped**. It reflects what the local MEDRE process observed. It does not represent distributed consensus, end-to-end delivery confirmation, or transport-level acknowledgement from remote nodes.
+
+### Evidence Scope and Limitations
+
+1. **Best-effort.** Evidence is recorded on a best-effort basis. Process crashes, ungraceful shutdowns, or storage failures may cause evidence gaps. Absence of evidence is not evidence of absence.
+
+2. **Local-process scoped.** All evidence (receipts, native refs, classifier counters, diagnostics) reflects the state of a single MEDRE process. There is no cross-instance coordination or shared evidence store.
+
+3. **No exactly-once delivery.** MEDRE does not provide exactly-once delivery semantics on any transport. Matrix is at-least-once. Meshtastic is probabilistic. LXMF is at-least-once with eventual delivery. Duplicate suppression on inbound native refs reduces duplicates but does not eliminate them under all conditions.
+
+4. **Not production-ready.** The evidence surface is under active development. Field names, shapes, and availability may change without notice.
+
+### Delivery Explanation Shape
+
+The `inspect` and `evidence` commands expose a delivery explanation/summary shape for a given event. When available, the JSON output includes these fields:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `event_id` | string | Canonical event ID |
+| `event_kind` | string | Event kind (e.g., `message.created`) |
+| `source_adapter` | string | Adapter that produced the inbound event |
+| `route_id` | string or null | Route that triggered this delivery |
+| `target_adapter` | string or null | Target adapter for this delivery |
+| `target_channel` | string or null | Target channel on the destination adapter |
+| `status` | string | Final delivery status: `sent`, `confirmed`, `suppressed`, `failed`, `dead_lettered`, `queued`, `accepted`. The `suppressed` status covers loop/capacity/shutdown rejection receipts persisted where event/target context exists; `duplicate_suppressed` remains reserved and is not emitted in pre-storage dedup. |
+| `failure_kind` | string or null | Classification of failure (see Delivery Failure Classification above) |
+| `retryable` | boolean | Whether the failure kind is retryable (only `ADAPTER_TRANSIENT`) |
+| `attempt_number` | integer | 1-indexed attempt count |
+| `retry_max_attempts` | integer or null | Maximum retry attempts from RetryPolicy |
+| `retry_backoff_base` | float or null | Backoff base from RetryPolicy |
+| `retry_max_delay` | float or null | Max delay cap from RetryPolicy |
+| `retry_jitter` | boolean or null | Whether jitter is enabled |
+| `next_retry_at` | string or null | ISO 8601 timestamp for next scheduled retry |
+| `adapter_message_id` | string or null | Native message ID from the target adapter (e.g., Matrix event ID, Meshtastic packet ID) |
+| `error` | string or null | Sanitized error message |
+| `source` | string | How this attempt was triggered: `live`, `retry`, or `replay` |
+| `replay_run_id` | string or null | Populated when `source="replay"` |
+| `parent_receipt_id` | string or null | Previous receipt in retry lineage |
+| `receipt_id` | string | Unique receipt identifier (`rcpt-...`) |
+| `created_at` | string | ISO 8601 timestamp of receipt creation |
+
+### Per-Adapter Delivery State
+
+Each adapter contributes adapter-specific metadata to delivery evidence:
+
+#### Matrix
+
+- **`matrix_txn_id`**: Deterministic transaction ID computed from `event_id`, `target_adapter`, `target_channel`, and `room_id`. Passed as `tx_id` to the Matrix homeserver. The homeserver uses `tx_id` to deduplicate retried sends — if the same `tx_id` is sent twice, the homeserver returns the original event ID instead of creating a duplicate event. This **reduces duplicate retries** but does **not** provide exactly-once delivery: the homeserver may have already processed and lost the first attempt, or the `tx_id` window may have expired.
+- **`undecryptable_event_count`**: Count of inbound MegolmEvents that could not be decrypted. Incremented when E2EE is enabled and crypto keys are unavailable. A non-zero count indicates Matrix E2EE is blocked for those events — the events were received but their content is inaccessible.
+- **`delivery_attempts` / `delivery_successes` / `delivery_failures`**: Cumulative outbound delivery counters.
+
+#### Meshtastic
+
+- **Queue state**: `queue_total_enqueued`, `queue_total_sent`, `queue_total_failed`, `queue_total_rejected`, `queue_pending`, `queue_max_size`. Being **queued**, **enqueued**, or **sent** means the local node accepted the packet into its outbound queue and sent it to the radio. This is **not RF confirmation** — there is no acknowledgment from any remote node that the packet was received over the air. Confirmed/ack semantics remain distinct and are not currently available from the Meshtastic adapter.
+- **Classifier aggregate counters**: `classifier_packets_seen`, `classifier_packets_relayed`, `classifier_packets_ignored`, `classifier_packets_dropped`, `classifier_packets_deferred`, plus reason-level sub-counters (`classifier_packets_malformed`, `classifier_packets_encrypted_dropped`, `classifier_packets_detection_sensor_deferred`, `classifier_packets_dm_ignored`, `classifier_packets_empty_text_ignored`, `classifier_packets_unknown_portnum_deferred`). These are **aggregate inbound classification counters** that explain how many packets the classifier saw and what it did with them. They do **not** mean live validation — they count decisions made by the pure-function classifier against each inbound packet. They do **not** persist a record of every individual ignored, dropped, or deferred packet; only the aggregate totals are maintained in memory and exposed via `diagnostics()`.
+
+### Suppression Evidence
+
+- **Native-ref dedup**: When `event.source_native_ref` resolves to an already-stored event, the pipeline suppresses the duplicate and returns `[]` (no outcomes, no receipts). The suppression is recorded in `RuntimeAccounting.loop_prevented`, not in persisted receipts or `RouteStats`.
+- **`DUPLICATE_SUPPRESSED` failure kind**: This value is defined in the `DeliveryFailureKind` enum but is **not currently emitted** as a receipt or `DeliveryOutcome`. It is reserved. The current runtime cannot safely persist the duplicate path without creating a new event, so duplicate suppression happens silently at the ingress stage. If a future change adds explicit duplicate-suppression receipts, this failure kind will be used. Do not rely on it being present in evidence output.
+- **`LOOP_SUPPRESSED`**: Recorded when route-trace or self-loop prevention fires. Visible in `RouteStats.loop_prevented` and in the delivery outcome. The pipeline persists a `status="suppressed"` receipt for loop/capacity/shutdown suppression where event/target context exists.
+
+### Derived Enrichment Fields
+
+The `failure_kind_detail` field is derived from error patterns and provides a more specific classification than `failure_kind` without changing the `DeliveryFailureKind` enum. Current values:
+
+| `failure_kind_detail` | Condition |
+| --- | --- |
+| `e2ee_blocked` | Matrix encrypted/E2EE decryption or blocking errors |
+| `meshtastic_queue_rejected` | Meshtastic adapter queue-full errors (requires "queue" + "full" or "enqueue rejected" in error text) |
+| (original `failure_kind`) | Default — no specialised pattern matched |
+
+The `delivery_state_by_adapter` dict in the incident summary provides per-adapter delivery state. Shape:
+
+```
+{
+  "<target_adapter>": {
+    "status": str | None,
+    "attempt_number": int | None,
+    "native_message_id": str | None,
+    "adapter_message_id": str | None,
+    "failure_kind": str | None,
+    "failure_kind_detail": str | None,
+    "retryable": bool,
+    "next_retry_at": str | None  (ISO 8601)
+  }
+}
+```
+
+Each entry selects the receipt with the highest `attempt_number` for that adapter.
+
+### Incident Summary
+
+The evidence bundle's storage section includes an `incident_summary` for scoped events with fields:
+
+| Field | Description |
+| --- | --- |
+| `event_id` | The canonical event ID |
+| `event_kind` | Event kind |
+| `source_adapter` | Source adapter |
+| `first_failure_kind` | Best-effort inferred failure kind from error patterns |
+| `classification` | One of: `success`, `retryable`, `permanent`, `operational`, `unknown` |
+| `replay_receipts_present` | Whether any replay-sourced receipts exist |
+| `native_refs_present` | Whether native transport references exist |
+| `receipt_count` | Total number of delivery receipts |
+| `failed_count` | Count of `failed` or `dead_lettered` receipts |
+| `sent_count` | Count of `sent` receipts |
+| `dead_lettered_count` | Count of `dead_lettered` receipts |
+| `suppressed_count` | Count of receipts with `status="suppressed"` (covers loop_suppressed, capacity_rejection, shutdown_rejection) |
+| `sent_unconfirmed_count` | Count of `sent` receipts (not yet confirmed by transport) |
+| `delivery_state_by_adapter` | Per-adapter delivery state dict keyed by target_adapter. Each value includes: `status`, `attempt_number`, `native_message_id`, `adapter_message_id`, `failure_kind`, `failure_kind_detail`, `retryable`, `next_retry_at`. The `failure_kind_detail` field provides a more specific classification derived from error patterns (e.g., `e2ee_blocked`, `meshtastic_queue_rejected`) without changing the `DeliveryFailureKind` enum. |
+| `recommended_commands` | Suggested CLI commands for investigation |
+| `commands` | Structured command list (primary + specialized) |
+
+The `classification` field is derived from `infer_failure_kind()` which reconstructs a best-effort failure kind from error message patterns. It is not authoritative — it is a heuristic.

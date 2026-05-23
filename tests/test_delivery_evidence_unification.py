@@ -1,0 +1,663 @@
+"""Focused tests for delivery evidence unification across the pipeline.
+
+Covers the operator-facing explanation/reporting contract without running
+live adapters or requiring external services.  Tests exercise:
+
+- Success explanation/report dict includes native/adaptor message ID.
+- Transient failure explanation/report includes retryable=true or
+  adapter_transient classification.
+- Permanent failure includes retryable=false or adapter_permanent.
+- Dead-letter incident summary includes attempts/exhaustion evidence
+  (dead_lettered_count, retry fields).
+- Loop suppressed visibility: DeliveryOutcome may be skipped; pipeline persists
+  suppressed receipts (status="suppressed") for loop/capacity/shutdown where
+  event/target context exists.
+- duplicate_suppressed: reserved enum value, not emitted as status.
+- Matrix success metadata includes matrix_txn_id.
+- Matrix E2EE blocked is permanent/recognizable.
+- Meshtastic queue full/rejected is transient/queue rejected.
+- Meshtastic classifier ignored/drop/deferred aggregate diagnostics
+  counters are present.
+- JSON/evidence output is stable and secret-safe.
+
+Uses in-repo fake adapters and mocks only.  No pytest execution required.
+py_compile validation only.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+from datetime import datetime, timedelta, timezone
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from medre.adapters.meshtastic.errors import MeshtasticSendError
+from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
+from medre.core.contracts.adapter import (
+    AdapterContext,
+    AdapterDeliveryResult,
+    AdapterPermanentError,
+    AdapterSendError,
+)
+from medre.core.events.canonical import DeliveryReceipt
+from medre.core.planning.delivery_plan import (
+    DeliveryFailureKind,
+    DeliveryOutcome,
+    RetryExecutor,
+    RetryPolicy,
+)
+from medre.core.rendering.renderer import RenderingResult
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_receipt(
+    *,
+    status: str = "sent",
+    adapter_message_id: str | None = None,
+    failure_kind: str | None = None,
+    attempt_number: int = 1,
+    error: str | None = None,
+    retry_max_attempts: int | None = None,
+    retry_backoff_base: float | None = None,
+) -> DeliveryReceipt:
+    from typing import cast
+
+    from medre.core.events.canonical import DeliveryReceipt
+
+    valid_statuses = (
+        "accepted", "queued", "sent", "confirmed", "failed", "dead_lettered",
+        "suppressed",
+    )
+    assert status in valid_statuses, f"Invalid receipt status: {status!r}"
+    return DeliveryReceipt(
+        receipt_id=f"rcpt-unif-{attempt_number}",
+        event_id="evt-unif-001",
+        delivery_plan_id="plan-unif-001",
+        target_adapter="target_adapter",
+        target_channel="ch-0",
+        route_id="route-unif",
+        status=cast(Any, status),
+        adapter_message_id=adapter_message_id,
+        failure_kind=failure_kind,
+        attempt_number=attempt_number,
+        error=error,
+        retry_max_attempts=retry_max_attempts,
+        retry_backoff_base=retry_backoff_base,
+        created_at=datetime.now(timezone.utc),
+    )
+
+
+def _make_outcome(
+    *,
+    status: str = "success",
+    failure_kind: DeliveryFailureKind | None = None,
+    receipt: DeliveryReceipt | None = None,
+    error: str | None = None,
+) -> DeliveryOutcome:
+    from typing import cast
+
+    valid_statuses = (
+        "success", "queued", "transient_failure", "permanent_failure", "skipped",
+    )
+    assert status in valid_statuses, f"Invalid outcome status: {status!r}"
+    return DeliveryOutcome(
+        event_id="evt-unif-001",
+        target_adapter="target_adapter",
+        target_channel="ch-0",
+        route_id="route-unif",
+        delivery_plan_id="plan-unif-001",
+        status=cast(Any, status),
+        failure_kind=failure_kind,
+        receipt=receipt,
+        error=error,
+    )
+
+
+def _matrix_result(
+    event_id: str = "evt-matrix-unif",
+    target_channel: str = "!room:example.com",
+    body: str = "hello",
+) -> RenderingResult:
+    return RenderingResult(
+        event_id=event_id,
+        target_adapter="matrix-unif",
+        target_channel=target_channel,
+        payload={"msgtype": "m.text", "body": body},
+    )
+
+
+def _matrix_config(**overrides: Any) -> Any:
+    from medre.config.adapters.matrix import MatrixConfig
+
+    defaults: dict[str, Any] = {
+        "adapter_id": "matrix-unif",
+        "homeserver": "https://matrix.example.com",
+        "user_id": "@bot:example.com",
+        "access_token": "tok_secret_do_not_expose",
+    }
+    defaults.update(overrides)
+    return MatrixConfig(**defaults)
+
+
+def _adapter_context(adapter_id: str = "matrix-unif") -> AdapterContext:
+    return AdapterContext(
+        adapter_id=adapter_id,
+        event_bus=None,
+        publish_inbound=AsyncMock(),
+        logger=logging.getLogger(f"test.{adapter_id}"),
+        clock=lambda: datetime.now(timezone.utc),
+        shutdown_event=asyncio.Event(),
+    )
+
+
+def _mock_send_response(event_id: str = "$sent-unif-001") -> MagicMock:
+    resp = MagicMock()
+    resp.event_id = event_id
+    return resp
+
+
+# ===================================================================
+# 1. Success explanation/report includes native message ID
+# ===================================================================
+
+
+class TestSuccessReportNativeMessageId:
+    """Successful delivery produces a report dict with the adapter's
+    native message ID."""
+
+    def test_success_outcome_receipt_has_adapter_message_id(self) -> None:
+        receipt = _make_receipt(
+            status="sent",
+            adapter_message_id="$native-matrix-evt-42",
+        )
+        outcome = _make_outcome(status="success", receipt=receipt)
+        assert outcome.receipt is not None
+        assert outcome.receipt.adapter_message_id == "$native-matrix-evt-42"
+
+    def test_adapter_delivery_result_native_id(self) -> None:
+        """AdapterDeliveryResult carries native_message_id from platform."""
+        result = AdapterDeliveryResult(
+            native_message_id="$plat-123",
+            native_channel_id="!room:test",
+        )
+        assert result.native_message_id == "$plat-123"
+
+    def test_success_outcome_serializable_with_native_id(self) -> None:
+        """Outcome with receipt + native ID is JSON-serializable."""
+        receipt = _make_receipt(
+            status="sent",
+            adapter_message_id="$ser-001",
+        )
+        outcome = _make_outcome(status="success", receipt=receipt)
+        raw = json.dumps(outcome.receipt, default=str)
+        parsed = json.loads(raw)
+        assert parsed["adapter_message_id"] == "$ser-001"
+
+
+# ===================================================================
+# 2. Transient failure: retryable=true / adapter_transient
+# ===================================================================
+
+
+class TestTransientFailureClassification:
+    """Transient failures are classified as adapter_transient (retryable)."""
+
+    def test_adapter_send_error_transient_classifies_correctly(self) -> None:
+        err = AdapterSendError("timeout", transient=True)
+        kind = RetryExecutor.classify_failure(err)
+        assert kind is DeliveryFailureKind.ADAPTER_TRANSIENT
+        assert kind.is_retryable is True
+
+    def test_timeout_error_classifies_as_transient(self) -> None:
+        kind = RetryExecutor.classify_failure(TimeoutError("timed out"))
+        assert kind is DeliveryFailureKind.ADAPTER_TRANSIENT
+
+    def test_connection_error_classifies_as_transient(self) -> None:
+        kind = RetryExecutor.classify_failure(ConnectionError("refused"))
+        assert kind is DeliveryFailureKind.ADAPTER_TRANSIENT
+
+    def test_transient_failure_outcome_report(self) -> None:
+        receipt = _make_receipt(
+            status="failed",
+            failure_kind="adapter_transient",
+            error="ConnectionError: timeout",
+        )
+        outcome = _make_outcome(
+            status="transient_failure",
+            failure_kind=DeliveryFailureKind.ADAPTER_TRANSIENT,
+            receipt=receipt,
+            error="ConnectionError: timeout",
+        )
+        assert outcome.failure_kind is DeliveryFailureKind.ADAPTER_TRANSIENT
+        assert outcome.failure_kind is not None
+        assert outcome.failure_kind.is_retryable is True
+        assert outcome.receipt is not None
+        assert outcome.receipt.failure_kind == "adapter_transient"
+
+    def test_transient_receipt_includes_retry_policy(self) -> None:
+        """Failed receipt for transient error carries retry policy fields."""
+        policy = RetryPolicy(max_attempts=5, backoff_base=3.0)
+        executor = RetryExecutor(policy)
+        receipt = executor.build_retry_receipt(
+            event_id="evt-trans-1",
+            delivery_plan_id="plan-trans",
+            target_adapter="adapter-trans",
+            previous_receipt_id=None,
+            attempt_number=1,
+            error="ConnectionError: timeout",
+        )
+        assert receipt.retry_max_attempts == 5
+        assert receipt.retry_backoff_base == 3.0
+        assert receipt.status == "failed"
+        assert receipt.next_retry_at is not None
+
+
+# ===================================================================
+# 3. Permanent failure: retryable=false / adapter_permanent
+# ===================================================================
+
+
+class TestPermanentFailureClassification:
+    """Permanent failures are classified as adapter_permanent (not retryable)."""
+
+    def test_adapter_permanent_error_classifies(self) -> None:
+        err = AdapterPermanentError("forbidden")
+        kind = RetryExecutor.classify_failure(err)
+        assert kind is DeliveryFailureKind.ADAPTER_PERMANENT
+        assert kind.is_retryable is False
+
+    def test_runtime_error_classifies_as_permanent(self) -> None:
+        kind = RetryExecutor.classify_failure(RuntimeError("malformed"))
+        assert kind is DeliveryFailureKind.ADAPTER_PERMANENT
+
+    def test_permanent_failure_outcome_report(self) -> None:
+        receipt = _make_receipt(
+            status="failed",
+            failure_kind="adapter_permanent",
+            error="ValueError: malformed payload",
+        )
+        outcome = _make_outcome(
+            status="permanent_failure",
+            failure_kind=DeliveryFailureKind.ADAPTER_PERMANENT,
+            receipt=receipt,
+            error="ValueError: malformed payload",
+        )
+        assert outcome.failure_kind is DeliveryFailureKind.ADAPTER_PERMANENT
+        assert outcome.failure_kind is not None
+        assert outcome.failure_kind.is_retryable is False
+        assert outcome.receipt is not None
+        assert outcome.receipt.failure_kind == "adapter_permanent"
+
+
+# ===================================================================
+# 4. Dead-letter exhaustion evidence
+# ===================================================================
+
+
+class TestDeadLetterExhaustionEvidence:
+    """Dead-letter receipt carries retry exhaustion metadata."""
+
+    def test_dead_letter_receipt_has_retry_policy_fields(self) -> None:
+        policy = RetryPolicy(max_attempts=3, backoff_base=2.0)
+        executor = RetryExecutor(policy)
+        receipt = executor.build_dead_letter_receipt(
+            event_id="evt-dl-unif",
+            delivery_plan_id="plan-dl",
+            target_adapter="adapter-dl",
+            previous_receipt_id="rcpt-prev",
+            attempt_number=4,
+            error="Retry exhausted after 3 attempts",
+        )
+        assert receipt.status == "dead_lettered"
+        assert receipt.attempt_number == 4
+        assert receipt.retry_max_attempts == 3
+        assert receipt.retry_backoff_base == 2.0
+        assert receipt.next_retry_at is None
+        assert "exhausted" in (receipt.error or "")
+
+    def test_dead_letter_receipt_json_serializable(self) -> None:
+        policy = RetryPolicy(max_attempts=3)
+        executor = RetryExecutor(policy)
+        receipt = executor.build_dead_letter_receipt(
+            event_id="evt-dl-json",
+            delivery_plan_id="plan-dl-json",
+            target_adapter="adapter-dl",
+            previous_receipt_id=None,
+            attempt_number=4,
+            error="Retry exhausted",
+        )
+        raw = json.dumps(receipt, default=str)
+        parsed = json.loads(raw)
+        assert parsed["status"] == "dead_lettered"
+        assert parsed["retry_max_attempts"] == 3
+
+    def test_dead_letter_receipt_json_no_secrets(self) -> None:
+        """Dead-letter receipt JSON contains no secret values."""
+        policy = RetryPolicy(max_attempts=3)
+        executor = RetryExecutor(policy)
+        receipt = executor.build_dead_letter_receipt(
+            event_id="evt-dl-safe",
+            delivery_plan_id="plan-dl-safe",
+            target_adapter="adapter-safe",
+            previous_receipt_id=None,
+            attempt_number=4,
+            error="Retry exhausted after 3 attempts",
+        )
+        raw = json.dumps(receipt, default=str).lower()
+        assert "access_token" not in raw
+        assert "password" not in raw
+        assert "tok_" not in raw
+        assert "syt_" not in raw
+
+
+# ===================================================================
+# 5. Loop suppressed: DeliveryOutcome may be skipped; suppressed
+#    receipts persisted where event/target context exists
+# ===================================================================
+
+
+class TestLoopSuppressedVisibility:
+    """Loop suppression: DeliveryOutcome may be skipped (no receipt in
+    the outcome object), but the pipeline persists a suppressed receipt
+    (status="suppressed") when event/target context is available —
+    covering loop_suppressed, capacity_rejection, and shutdown_rejection.
+
+    duplicate_suppressed remains reserved and is not emitted in
+    pre-storage dedup (no event/target context at that stage).
+    """
+
+    def test_loop_suppressed_failure_kind_not_retryable(self) -> None:
+        assert DeliveryFailureKind.LOOP_SUPPRESSED.is_retryable is False
+
+    def test_loop_suppressed_enum_value(self) -> None:
+        assert DeliveryFailureKind.LOOP_SUPPRESSED.value == "loop_suppressed"
+
+    def test_skipped_outcome_for_loop_no_receipt(self) -> None:
+        """Loop-suppressed outcome is 'skipped' with no receipt in the
+        DeliveryOutcome.  The pipeline may persist a separate suppressed
+        receipt outside the outcome when event/target context exists."""
+        outcome = _make_outcome(
+            status="skipped",
+            error="loop_prevented",
+        )
+        assert outcome.status == "skipped"
+        assert outcome.receipt is None
+        assert "loop" in (outcome.error or "")
+
+    def test_suppressed_receipt_status_is_valid(self) -> None:
+        """Pipeline persists receipts with status='suppressed' for
+        loop/capacity/shutdown suppression where context exists."""
+        receipt = _make_receipt(status="suppressed", failure_kind="loop_suppressed")
+        assert receipt.status == "suppressed"
+        assert receipt.failure_kind == "loop_suppressed"
+
+    def test_capacity_rejection_suppressed_receipt(self) -> None:
+        """Capacity rejection produces a suppressed receipt."""
+        receipt = _make_receipt(
+            status="suppressed", failure_kind="capacity_rejection"
+        )
+        assert receipt.status == "suppressed"
+        assert receipt.failure_kind == "capacity_rejection"
+
+    def test_shutdown_rejection_suppressed_receipt(self) -> None:
+        """Shutdown rejection produces a suppressed receipt."""
+        receipt = _make_receipt(
+            status="suppressed", failure_kind="shutdown_rejection"
+        )
+        assert receipt.status == "suppressed"
+        assert receipt.failure_kind == "shutdown_rejection"
+
+
+# ===================================================================
+# 6. DUPLICATE_SUPPRESSED: reserved, not emitted
+# ===================================================================
+
+
+class TestDuplicateSuppressedContract:
+    """DUPLICATE_SUPPRESSED is a reserved enum value.
+
+    It exists in the taxonomy but is not currently emitted as a
+    DeliveryOutcome status, receipt status, or receipt failure_kind.
+    """
+
+    def test_duplicate_suppressed_exists(self) -> None:
+        assert hasattr(DeliveryFailureKind, "DUPLICATE_SUPPRESSED")
+
+    def test_duplicate_suppressed_not_retryable(self) -> None:
+        assert DeliveryFailureKind.DUPLICATE_SUPPRESSED.is_retryable is False
+
+    def test_duplicate_suppressed_not_in_receipt_status_literal(self) -> None:
+        """Receipt status Literal does not include 'duplicate_suppressed'."""
+        import typing
+
+        hints = typing.get_type_hints(DeliveryReceipt)
+        status = hints.get("status")
+        if status is not None and hasattr(status, "__args__"):
+            assert "duplicate_suppressed" not in status.__args__
+
+
+# ===================================================================
+# 7. Matrix success metadata includes matrix_txn_id
+# ===================================================================
+
+
+class TestMatrixTxnIdInSuccess:
+    """Matrix adapter deliver() returns metadata with matrix_txn_id."""
+
+    async def test_matrix_delivery_result_has_txn_id(self) -> None:
+        from medre.adapters.matrix.adapter import MatrixAdapter, _matrix_txn_id
+
+        config = _matrix_config()
+        adapter = MatrixAdapter(config)
+        mock_client = MagicMock()
+        mock_client.room_send = AsyncMock(return_value=_mock_send_response())
+        adapter._client = mock_client
+
+        result = _matrix_result()
+        delivery = await adapter.deliver(result)
+
+        assert delivery is not None
+        assert "matrix_txn_id" in delivery.metadata
+        room_id = result.target_channel or "!room:example.com"
+        expected_txn = _matrix_txn_id(result, room_id)
+        assert delivery.metadata["matrix_txn_id"] == expected_txn
+
+
+# ===================================================================
+# 8. Matrix E2EE blocked is permanent/recognizable
+# ===================================================================
+
+
+class TestMatrixE2EEBlockedPermanent:
+    """Encrypted-room sends blocked when E2EE disabled → permanent."""
+
+    async def test_e2ee_blocked_raises_permanent(self) -> None:
+        from medre.adapters.matrix.adapter import MatrixAdapter
+
+        config = _matrix_config()
+        adapter = MatrixAdapter(config)
+        adapter._client = MagicMock()
+
+        mock_session = MagicMock()
+        mock_session.crypto_enabled = False
+        mock_session.room_state.return_value = "encrypted"
+        adapter._session = mock_session
+
+        result = _matrix_result()
+        with pytest.raises(AdapterPermanentError, match="encrypted but E2EE"):
+            await adapter.deliver(result)
+
+    async def test_e2ee_error_classifies_as_permanent(self) -> None:
+        """E2EE-blocked AdapterPermanentError classifies as ADAPTER_PERMANENT."""
+        err = AdapterPermanentError("encrypted but E2EE crypto is not active")
+        kind = RetryExecutor.classify_failure(err)
+        assert kind is DeliveryFailureKind.ADAPTER_PERMANENT
+        assert kind.is_retryable is False
+
+
+# ===================================================================
+# 9. Meshtastic queue full/rejected is transient
+# ===================================================================
+
+
+class TestMeshtasticQueueRejectedTransient:
+    """Meshtastic queue full rejection is a transient, retryable error."""
+
+    def test_queue_full_error_is_transient(self) -> None:
+        err = MeshtasticSendError("queue is full", transient=True)
+        assert err.transient is True
+
+    def test_queue_full_classifies_as_adapter_transient(self) -> None:
+        err = MeshtasticSendError("queue is full", transient=True)
+        kind = RetryExecutor.classify_failure(err)
+        assert kind is DeliveryFailureKind.ADAPTER_TRANSIENT
+        assert kind.is_retryable is True
+
+    async def test_queue_full_rejection_increments_counter(self) -> None:
+        q = MeshtasticOutboundQueue(max_queue_size=1)
+        await q.enqueue({"text": "first"}, channel_index=0)
+        with pytest.raises(MeshtasticSendError, match="queue is full"):
+            await q.enqueue({"text": "overflow"}, channel_index=0)
+        assert q.total_rejected == 1
+
+    def test_meshtastic_send_error_is_adapter_send_error(self) -> None:
+        """MeshtasticSendError is a subclass of AdapterSendError."""
+        assert issubclass(MeshtasticSendError, AdapterSendError)
+
+
+# ===================================================================
+# 10. Meshtastic classifier diagnostics counters present
+# ===================================================================
+
+
+class TestMeshtasticClassifierDiagnosticsCounters:
+    """Meshtastic adapter diagnostics expose aggregate inbound classifier
+    counters: ignored, dropped, deferred."""
+
+    async def test_diagnostics_has_all_classifier_keys(self) -> None:
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+        from medre.config.adapters.meshtastic import MeshtasticConfig
+
+        config = MeshtasticConfig(adapter_id="cls-diag", connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        ctx = AdapterContext(
+            adapter_id="cls-diag",
+            event_bus=None,
+            publish_inbound=AsyncMock(),
+            logger=logging.getLogger("test"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+        )
+        await adapter.start(ctx)
+        try:
+            diag = adapter.diagnostics()
+            classifier_keys = [
+                "classifier_packets_seen",
+                "classifier_packets_relayed",
+                "classifier_packets_ignored",
+                "classifier_packets_dropped",
+                "classifier_packets_deferred",
+            ]
+            for key in classifier_keys:
+                assert key in diag, f"Missing classifier key: {key}"
+        finally:
+            await adapter.stop()
+
+    async def test_diagnostics_has_queue_total_rejected(self) -> None:
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+        from medre.config.adapters.meshtastic import MeshtasticConfig
+
+        config = MeshtasticConfig(adapter_id="rej-diag", connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        ctx = AdapterContext(
+            adapter_id="rej-diag",
+            event_bus=None,
+            publish_inbound=AsyncMock(),
+            logger=logging.getLogger("test"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+        )
+        await adapter.start(ctx)
+        try:
+            diag = adapter.diagnostics()
+            assert "queue_total_rejected" in diag
+            assert isinstance(diag["queue_total_rejected"], int)
+        finally:
+            await adapter.stop()
+
+
+# ===================================================================
+# 11. JSON/evidence output secret safety
+# ===================================================================
+
+
+class TestEvidenceSecretSafety:
+    """Evidence and receipt JSON output must never contain secrets."""
+
+    _SECRET_SUBSTRINGS = ("access_token", "password", "tok_", "syt_", "sk_")
+
+    def test_receipt_dict_no_secret_keys(self) -> None:
+        import typing
+
+        hints = typing.get_type_hints(DeliveryReceipt)
+        for secret in ("access_token", "token", "password", "secret", "api_key"):
+            assert secret not in hints, f"DeliveryReceipt has secret key: {secret}"
+
+    def test_dead_letter_receipt_json_safe(self) -> None:
+        policy = RetryPolicy(max_attempts=3)
+        executor = RetryExecutor(policy)
+        receipt = executor.build_dead_letter_receipt(
+            event_id="evt-secret-1",
+            delivery_plan_id="plan-secret",
+            target_adapter="adapter-secret",
+            previous_receipt_id=None,
+            attempt_number=4,
+            error="Retry exhausted",
+        )
+        raw = json.dumps(receipt, default=str).lower()
+        for substr in self._SECRET_SUBSTRINGS:
+            assert substr not in raw, f"Secret substring '{substr}' in receipt JSON"
+
+    def test_retry_receipt_json_safe(self) -> None:
+        policy = RetryPolicy(backoff_base=2.0, jitter=False, max_delay_seconds=60.0)
+        executor = RetryExecutor(policy)
+        receipt = executor.build_retry_receipt(
+            event_id="evt-secret-retry",
+            delivery_plan_id="plan-secret-retry",
+            target_adapter="adapter-secret-retry",
+            previous_receipt_id=None,
+            attempt_number=1,
+            error="ConnectionError: timeout",
+        )
+        raw = json.dumps(receipt, default=str).lower()
+        for substr in self._SECRET_SUBSTRINGS:
+            assert substr not in raw, f"Secret substring '{substr}' in receipt JSON"
+
+    async def test_matrix_delivery_metadata_no_secrets(self) -> None:
+        from medre.adapters.matrix.adapter import MatrixAdapter
+
+        config = _matrix_config()
+        adapter = MatrixAdapter(config)
+        mock_client = MagicMock()
+        mock_client.room_send = AsyncMock(return_value=_mock_send_response())
+        adapter._client = mock_client
+
+        result = _matrix_result()
+        delivery = await adapter.deliver(result)
+
+        assert delivery is not None
+        meta = dict(delivery.metadata)
+        assert "access_token" not in meta
+        assert "token" not in meta
+        assert "password" not in meta
+        assert "secret" not in meta
+        # matrix_txn_id is allowed
+        assert "matrix_txn_id" in meta

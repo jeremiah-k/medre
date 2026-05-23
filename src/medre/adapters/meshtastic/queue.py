@@ -192,8 +192,8 @@ class MeshtasticOutboundQueue:
                 self._max_queue_size,
             )
             raise MeshtasticSendError(
-                "Meshtastic outbound queue is full "
-                f"({len(self._queue)}/{self._max_queue_size})",
+                "Meshtastic outbound queue is full; "
+                f"enqueue rejected ({len(self._queue)}/{self._max_queue_size})",
                 transient=True,
             )
         self._queue.append(

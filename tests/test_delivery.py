@@ -11,6 +11,7 @@ import pytest
 
 from medre.core.events import (
     CanonicalEvent,
+    DeliveryReceipt,
     EventMetadata,
     EventRelation,
     NativeRef,
@@ -1323,3 +1324,218 @@ class TestRouteStats:
         }
         assert snap["r2"]["failed"] == 1
         assert snap["r3"]["loop_prevented"] == 1
+
+
+# ===================================================================
+# Delivery evidence unification: DUPLICATE_SUPPRESSED, receipt
+# completeness, secret-safety, success-with-native-message-id
+# ===================================================================
+
+
+class TestDuplicateSuppressedReserved:
+    """DUPLICATE_SUPPRESSED exists in the enum but is not emitted as
+    a DeliveryOutcome status, failure_kind, or receipt status.
+
+    Current behaviour: duplicate native-ref suppression returns an
+    empty outcomes list and does not persist a duplicate receipt.
+    This test documents that contract so a future change is caught.
+    """
+
+    def test_duplicate_suppressed_in_enum(self) -> None:
+        """DUPLICATE_SUPPRESSED is defined in DeliveryFailureKind."""
+        assert hasattr(DeliveryFailureKind, "DUPLICATE_SUPPRESSED")
+
+    def test_duplicate_suppressed_not_retryable(self) -> None:
+        """DUPLICATE_SUPPRESSED.is_retryable is False."""
+        assert DeliveryFailureKind.DUPLICATE_SUPPRESSED.is_retryable is False
+
+    def test_duplicate_suppressed_value(self) -> None:
+        assert DeliveryFailureKind.DUPLICATE_SUPPRESSED.value == "duplicate_suppressed"
+
+    def test_duplicate_suppressed_not_a_receipt_status(self) -> None:
+        """'duplicate_suppressed' is not a valid DeliveryReceipt status value.
+
+        The receipt status literal is: accepted | queued | sent | confirmed |
+        failed | dead_lettered.  'duplicate_suppressed' must not appear there.
+        """
+        import typing
+
+        receipt_type_hints = typing.get_type_hints(DeliveryReceipt)
+        status_field = receipt_type_hints.get("status")
+        # The status Literal should not include "duplicate_suppressed"
+        if status_field is not None and hasattr(status_field, "__args__"):
+            valid_statuses = set(status_field.__args__)
+            assert "duplicate_suppressed" not in valid_statuses
+
+    def test_duplicate_suppressed_not_a_delivery_outcome_status(self) -> None:
+        """'duplicate_suppressed' is not a valid DeliveryOutcome status value."""
+        import typing
+
+        outcome_type_hints = typing.get_type_hints(DeliveryOutcome)
+        status_field = outcome_type_hints.get("status")
+        if status_field is not None and hasattr(status_field, "__args__"):
+            valid_statuses = set(status_field.__args__)
+            assert "duplicate_suppressed" not in valid_statuses
+
+
+class TestSuccessOutcomeWithNativeMessageId:
+    """Success DeliveryOutcome carrying a receipt with adapter_message_id."""
+
+    def test_success_receipt_has_adapter_message_id(self) -> None:
+        """A successful delivery receipt includes the native adapter message ID."""
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-ok-native",
+            event_id="evt-native-1",
+            delivery_plan_id="plan-native",
+            target_adapter="matrix",
+            target_channel="!room:test",
+            route_id="route-1",
+            status="sent",
+            adapter_message_id="$native-matrix-event-123",
+            attempt_number=1,
+            created_at=datetime.now(timezone.utc),
+        )
+        outcome = DeliveryOutcome(
+            event_id="evt-native-1",
+            target_adapter="matrix",
+            target_channel="!room:test",
+            route_id="route-1",
+            delivery_plan_id="plan-native",
+            status="success",
+            receipt=receipt,
+        )
+        assert outcome.status == "success"
+        assert outcome.receipt is not None
+        assert outcome.receipt.adapter_message_id == "$native-matrix-event-123"
+
+    def test_success_receipt_without_adapter_message_id(self) -> None:
+        """Success receipt with no native message ID (queue-based adapter)."""
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-ok-no-native",
+            event_id="evt-queue-1",
+            delivery_plan_id="plan-queue",
+            target_adapter="meshtastic",
+            target_channel="0",
+            route_id="route-mesh",
+            status="sent",
+            adapter_message_id=None,
+            attempt_number=1,
+            created_at=datetime.now(timezone.utc),
+        )
+        outcome = DeliveryOutcome(
+            event_id="evt-queue-1",
+            target_adapter="meshtastic",
+            target_channel="0",
+            route_id="route-mesh",
+            delivery_plan_id="plan-queue",
+            status="success",
+            receipt=receipt,
+        )
+        assert outcome.status == "success"
+        assert outcome.receipt is not None
+        assert outcome.receipt.adapter_message_id is None
+
+
+class TestReceiptJsonSecretSafety:
+    """Receipt JSON serialization must not expose secrets."""
+
+    def test_receipt_no_secret_keys_in_dict(self) -> None:
+        """DeliveryReceipt dict has no secret-bearing keys."""
+        import typing
+
+        receipt_type_hints = typing.get_type_hints(DeliveryReceipt)
+        secret_keys = {"access_token", "token", "password", "secret", "api_key"}
+        actual_keys = set(receipt_type_hints.keys())
+        overlap = actual_keys & secret_keys
+        assert overlap == set(), f"Receipt has secret-bearing keys: {overlap}"
+
+    def test_dead_letter_receipt_json_no_secrets(self) -> None:
+        """Dead-letter receipt serializes without secrets."""
+        import json
+
+        policy = RetryPolicy(max_attempts=3)
+        executor = RetryExecutor(policy)
+        receipt = executor.build_dead_letter_receipt(
+            event_id="evt-safe-1",
+            delivery_plan_id="plan-safe",
+            target_adapter="adapter-safe",
+            previous_receipt_id=None,
+            attempt_number=4,
+            error="Retry exhausted after 3 attempts",
+        )
+        raw = json.dumps(receipt, default=str)
+        lower = raw.lower()
+        assert "access_token" not in lower
+        assert "password" not in lower
+        for secret_token in ("tok_", "syt_", "sk_"):
+            assert secret_token not in lower
+
+    def test_retry_receipt_json_no_secrets(self) -> None:
+        """Retry receipt serializes without secrets."""
+        import json
+
+        policy = RetryPolicy(backoff_base=2.0, jitter=False, max_delay_seconds=60.0)
+        executor = RetryExecutor(policy)
+        receipt = executor.build_retry_receipt(
+            event_id="evt-retry-safe",
+            delivery_plan_id="plan-retry-safe",
+            target_adapter="adapter-retry-safe",
+            previous_receipt_id=None,
+            attempt_number=1,
+            error="ConnectionError: timeout",
+        )
+        raw = json.dumps(receipt, default=str)
+        lower = raw.lower()
+        assert "access_token" not in lower
+        assert "password" not in lower
+
+
+class TestFailureKindStatusConsistency:
+    """All valid failure_kind/status combinations produce consistent
+    is_retryable classification."""
+
+    def test_transient_failure_kind_with_transient_status(self) -> None:
+        """transient_failure status with ADAPTER_TRANSIENT is retryable."""
+        outcome = DeliveryOutcome(
+            event_id="e-consist-1",
+            target_adapter="a",
+            target_channel=None,
+            route_id="r1",
+            delivery_plan_id="p1",
+            status="transient_failure",
+            failure_kind=DeliveryFailureKind.ADAPTER_TRANSIENT,
+            error="ConnectionError: timeout",
+        )
+        assert outcome.failure_kind is not None
+        assert outcome.failure_kind.is_retryable is True
+        assert outcome.status == "transient_failure"
+
+    def test_permanent_failure_kind_with_permanent_status(self) -> None:
+        """permanent_failure status with ADAPTER_PERMANENT is not retryable."""
+        outcome = DeliveryOutcome(
+            event_id="e-consist-2",
+            target_adapter="a",
+            target_channel=None,
+            route_id="r2",
+            delivery_plan_id="p2",
+            status="permanent_failure",
+            failure_kind=DeliveryFailureKind.ADAPTER_PERMANENT,
+            error="ValueError: malformed",
+        )
+        assert outcome.failure_kind is not None
+        assert outcome.failure_kind.is_retryable is False
+        assert outcome.status == "permanent_failure"
+
+    def test_all_non_transient_kinds_are_not_retryable(self) -> None:
+        """Every failure kind except ADAPTER_TRANSIENT is not retryable."""
+        non_transient = [
+            k for k in DeliveryFailureKind
+            if k is not DeliveryFailureKind.ADAPTER_TRANSIENT
+        ]
+        for kind in non_transient:
+            assert kind.is_retryable is False, f"{kind.name} should not be retryable"
+
+    def test_skipped_status_never_has_retryable_kind(self) -> None:
+        """Skipped outcomes should not have a retryable failure_kind."""
+        for kind in (DeliveryFailureKind.LOOP_SUPPRESSED, DeliveryFailureKind.DUPLICATE_SUPPRESSED):
+            assert kind.is_retryable is False

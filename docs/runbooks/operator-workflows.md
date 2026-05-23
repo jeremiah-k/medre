@@ -835,7 +835,237 @@ For per-transport capability tracking, see `docs/STATUS.md`. That document track
 
 If you find a bug, file an issue with the evidence bundle (section 6) and the event trace (section 7). Include what you expected and what actually happened.
 
-## 14. Related Documentation
+## 14. Unified Delivery Evidence Workflows
+
+This section provides worked examples for the operator questions that the unified delivery evidence surface is designed to answer. All evidence is **best-effort** and **local-process scoped** — it reflects what the local MEDRE process observed.
+
+### 14.1 "Delivered where?"
+
+**Question:** Where did event `evt-abc123` end up?
+
+```bash
+medre inspect event evt-abc123 --storage-path /path/to/medre.db --timeline
+```
+
+Look for receipt entries with `status: "sent"`. Each receipt shows:
+
+- `target_adapter` — which adapter received it
+- `target_channel` — which channel/room
+- `adapter_message_id` — the native message ID at the destination (e.g., Matrix `$event_id`, Meshtastic packet ID)
+- `route_id` — which route triggered the delivery
+
+Example output (sanitized):
+
+```json
+{
+  "receipt_id": "rcpt-...",
+  "event_id": "evt-abc123",
+  "target_adapter": "matrix-primary",
+  "target_channel": "!room:example.com",
+  "status": "sent",
+  "adapter_message_id": "$mx_event_id",
+  "route_id": "radio-to-matrix",
+  "attempt_number": 1,
+  "source": "live"
+}
+```
+
+This tells you: the event was delivered to `matrix-primary` in room `!room:example.com` via route `radio-to-matrix`, on the first attempt, during live operation.
+
+### 14.2 "Retried why?"
+
+**Question:** Why was event `evt-def456` retried?
+
+```bash
+medre inspect event evt-def456 --storage-path /path/to/medre.db --recovery
+```
+
+Look for multiple receipts with the same `event_id` but different `attempt_number` values. The `parent_receipt_id` links them into a retry lineage.
+
+Example:
+
+```json
+{
+  "receipt_id": "rcpt-001",
+  "event_id": "evt-def456",
+  "status": "failed",
+  "failure_kind": "adapter_transient",
+  "error": "connection reset",
+  "attempt_number": 1,
+  "next_retry_at": "2026-05-23T10:00:30Z",
+  "source": "live"
+}
+```
+
+```json
+{
+  "receipt_id": "rcpt-002",
+  "event_id": "evt-def456",
+  "status": "sent",
+  "failure_kind": null,
+  "attempt_number": 2,
+  "parent_receipt_id": "rcpt-001",
+  "source": "retry"
+}
+```
+
+This tells you: the first attempt failed with a transient connection error, a retry was scheduled, and the second attempt succeeded. The `source: "retry"` confirms this was a RetryWorker-initiated attempt.
+
+### 14.3 "Suppressed why?"
+
+**Question:** Why was an event suppressed?
+
+Two types of suppression exist:
+
+**Loop suppressed** — visible in receipts:
+
+```json
+{
+  "status": "skipped",
+  "failure_kind": "loop_suppressed",
+  "error": "loop_prevented: route already in route_trace"
+}
+```
+
+This means the route-trace or self-loop guard prevented delivery.
+
+**Duplicate suppressed** — silent at the receipt level. If an event was suppressed by native-ref dedup at ingress, there will be no receipt at all. The event was never stored. Check `RuntimeAccounting.loop_prevented` counters (in diagnostics) for the aggregate count. The `DUPLICATE_SUPPRESSED` failure kind is reserved but not currently emitted — the runtime does not safely persist the duplicate path without creating a new event.
+
+### 14.4 "Dead-lettered why?"
+
+**Question:** Why did event `evt-ghi789` end up dead-lettered?
+
+```bash
+medre inspect event evt-ghi789 --storage-path /path/to/medre.db --recovery
+```
+
+Look for a receipt with `status: "dead_lettered"`. Trace the `parent_receipt_id` chain back to the original failure.
+
+Example:
+
+```json
+{
+  "receipt_id": "rcpt-final",
+  "event_id": "evt-ghi789",
+  "status": "dead_lettered",
+  "failure_kind": "adapter_transient",
+  "error": "timeout",
+  "attempt_number": 3,
+  "retry_max_attempts": 3,
+  "source": "retry"
+}
+```
+
+This tells you: the event exhausted 3 retry attempts (all transient timeouts), and the pipeline will not retry further. The event is effectively dead — operators can use `medre replay --mode BEST_EFFORT` to attempt re-delivery if the underlying condition has resolved.
+
+### 14.5 "Queued locally but not RF-confirmed" (Meshtastic)
+
+**Question:** The Meshtastic receipt says `sent`, but did the remote node actually receive it?
+
+**Answer:** No transport-level confirmation is available. The receipt statuses for Meshtastic mean:
+
+- `queued` — the adapter's outbound queue accepted the message
+- `sent` — the local Meshtastic node sent the packet to the radio
+
+Neither status confirms RF delivery to any remote node. There is no Meshtastic acknowledgement mechanism exposed to MEDRE. Confirmed/ack semantics remain distinct and are not currently available from the adapter.
+
+Check queue diagnostics for additional context:
+
+```bash
+medre evidence --config /path/to/config.toml --json | jq '.sections.diagnostics_snapshot'
+```
+
+Look for `queue_total_sent`, `queue_total_failed`, `queue_total_rejected` to understand queue-level throughput. `queue_total_rejected` indicates the queue was full and new messages were turned away.
+
+### 14.6 "Matrix tx_id used"
+
+**Question:** How does Matrix transaction ID deduplication work?
+
+The Matrix adapter computes a deterministic `tx_id` (named `matrix_txn_id` internally) from `event_id + target_adapter + target_channel + room_id`. This `tx_id` is passed to the homeserver on every send attempt, including retries.
+
+**What it does:** If the same `tx_id` is sent twice (e.g., a retry of a transient failure where the first attempt actually succeeded at the homeserver), the homeserver returns the original `event_id` instead of creating a duplicate event. This **reduces duplicate retries**.
+
+**What it does NOT do:** This is not exactly-once delivery. The homeserver's deduplication window is finite. If the first attempt was lost before reaching the homeserver, the retry with the same `tx_id` will create a new event (correct behavior). If the homeserver processed the first attempt but the response was lost, the `tx_id` dedup prevents a duplicate (correct behavior). There is no guarantee the homeserver remembers the `tx_id` across restarts or over long time windows.
+
+Check the delivery receipt's metadata for `matrix_txn_id`:
+
+```json
+{
+  "adapter_message_id": "$mx_event_id",
+  "metadata": {
+    "matrix_txn_id": "medre_a1b2c3d4..."
+  }
+}
+```
+
+### 14.7 "Matrix E2EE blocked"
+
+**Question:** Why are some Matrix inbound events not being processed in an encrypted room?
+
+When Matrix E2EE is enabled and the bot cannot decrypt a MegolmEvent, the event is counted but its content is not processed. Check diagnostics:
+
+```bash
+medre evidence --config /path/to/config.toml --json | jq '.sections.diagnostics_snapshot'
+```
+
+Look for `undecryptable_event_count`. A non-zero value indicates E2EE decryption failures. Common causes:
+
+- The bot's crypto store does not have the room key
+- The room key was rotated before the bot received it
+- Cross-signing or key backup is not set up
+
+E2EE decryption is an upstream nio/vodozemac property. MEDRE does not manage key distribution, cross-signing, or key backup. See `docs/runbooks/matrix-alpha-operation.md` for E2EE setup requirements.
+
+### 14.8 "Meshtastic classifier ignored/dropped/deferred"
+
+**Question:** Why are Meshtastic inbound packets not being relayed?
+
+The Meshtastic packet classifier examines every inbound packet and decides: `relay`, `ignore`, `drop`, or `deferred`. Check the aggregate counters:
+
+```bash
+medre evidence --config /path/to/config.toml --json | jq '.sections.diagnostics_snapshot'
+```
+
+Look for `classifier_packets_*` fields:
+
+| Counter | What it means |
+| --- | --- |
+| `classifier_packets_seen` | Total packets examined |
+| `classifier_packets_relayed` | Packets proceeding to the pipeline |
+| `classifier_packets_ignored` | Skipped: ack/admin, telemetry, position, nodeinfo, direct messages, empty text |
+| `classifier_packets_dropped` | Rejected: encrypted packets, malformed payloads |
+| `classifier_packets_deferred` | Held for future: detection sensor, unknown portnum, plugin-only |
+
+Sub-counters break down by reason:
+
+| Sub-counter | Classification reason |
+| --- | --- |
+| `classifier_packets_malformed` | Dropped: no valid decoded payload |
+| `classifier_packets_encrypted_dropped` | Dropped: packet is encrypted |
+| `classifier_packets_detection_sensor_deferred` | Deferred: detection sensor portnum |
+| `classifier_packets_dm_ignored` | Ignored: direct message to a specific node |
+| `classifier_packets_empty_text_ignored` | Ignored: text message with empty body |
+| `classifier_packets_unknown_portnum_deferred` | Deferred: unknown or custom portnum |
+
+**Important:** These are **aggregate counters**, not per-packet records. They explain how many packets were classified and what aggregate decisions were made. They do **not** mean live validation — the classifier is a pure function that examines packet structure, not a real-time validator. They do **not** persist a record of every individual ignored, dropped, or deferred packet. Counters reset on adapter restart (in-memory only).
+
+### 14.9 Summary: Evidence Non-Guarantees
+
+| Question | Answer | Evidence available? |
+| --- | --- | --- |
+| Delivered where? | Receipt shows target adapter, channel, native message ID, route | Yes (receipt + timeline) |
+| Retried why? | Receipt lineage shows failure kind, attempt number, retry policy | Yes (recovery context) |
+| Suppressed why (loop)? | Route-trace or self-loop guard fired | Yes (receipt failure_kind) |
+| Suppressed why (duplicate)? | Native-ref dedup at ingress | No receipt — counters only |
+| Dead-lettered why? | Retry exhaustion after transient failures | Yes (receipt chain) |
+| Queued but RF-confirmed? | Meshtastic `sent` means local node only | Yes (queue stats, but no RF ack) |
+| Matrix tx_id used? | Deterministic dedup reduces duplicates | Yes (receipt metadata) |
+| Matrix tx_id exactly-once? | No — homeserver dedup window is finite | No — this is not guaranteed |
+| Matrix E2EE blocked? | Undecryptable events counted in diagnostics | Yes (undecryptable_event_count) |
+| Meshtastic classifier stats? | Aggregate inbound skip counts | Yes (diagnostics classifier_*) |
+| Classifier stats per-packet? | No — aggregate only, reset on restart | No — in-memory counters only |
+
+## 15. Related Documentation
 
 | Document                                      | What it covers                                                                 |
 | --------------------------------------------- | ------------------------------------------------------------------------------ |

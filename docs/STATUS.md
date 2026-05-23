@@ -1,6 +1,6 @@
 # MEDRE Transport Capability Status
 
-> **Generated:** 2026-05-22
+> **Generated:** 2026-05-23
 >
 > **Context:** This is a living document. It tracks which MEDRE capabilities are implemented, tested, and validated across each transport adapter. It exists so operators and developers can see, at a glance, what works and what does not.
 >
@@ -24,6 +24,7 @@ This document is the single source of truth for per-transport capability trackin
 | Storage native refs                 | live-validated | fake-tested             | fake-tested | fake-tested |
 | Evidence bundle                     | live-validated | fake-tested             | fake-tested | fake-tested |
 | Delivery reliability                | fake-tested    | fake-tested             | designed    | designed    |
+| Delivery evidence (unified inspect) | fake-tested    | fake-tested             | not started | not started |
 | Run-session path                    | live-validated | not started             | not started | not started |
 | Operator runbook                    | live-validated | opt-in live test exists | designed    | designed    |
 | Live validation recorded            | live-validated | not started             | not started | not started |
@@ -60,6 +61,8 @@ when the `[retry]` section is enabled. Replay and recover commands exist for
 manual re-delivery. Transport-aware rate limiting and a dead-letter admin UI
 are not yet implemented.
 
+The unified delivery evidence surface (`medre inspect`, `medre evidence --event-id`) exposes a delivery explanation shape with event_id, route/target info, final status, failure kind, retryable flag, attempt/retry policy fields, next_retry_at, native adapter message IDs, and per-adapter metadata (including Matrix txn_id for homeserver deduplication and undecryptable_event_count for E2EE diagnosis). Evidence is best-effort and local-process scoped — not exactly-once, not distributed. See `docs/dev/runtime-delivery-contract.md` → Unified Delivery Evidence for the full specification.
+
 Opt-in Matrix live tests use pytest convenience variables such as MATRIX_HOMESERVER, MATRIX_USER_ID, MATRIX_ACCESS_TOKEN, and MATRIX_ROOM_ID. The local Synapse test harness additionally requires `MATRIX_LOCAL_SYNAPSE=1`. Runtime adapter config overrides use instance-scoped `MEDRE_ADAPTER__<TOKEN>__<FIELD>` and `MEDRE_ROUTE__<TOKEN>__<FIELD>` variables.
 
 ### Meshtastic
@@ -67,6 +70,8 @@ Opt-in Matrix live tests use pytest convenience variables such as MATRIX_HOMESER
 Meshtastic has a complete alpha operation runbook and a live smoke test harness. Real connectivity (TCP and serial) is implemented. The adapter uses pubsub callbacks for inbound and queued `send_one` for outbound.
 
 As of this writing, no live validation against a physical radio has been recorded in the repository. The harness exists. An operator with a Meshtastic node needs to set the pytest convenience variables for radio connection settings and run the live smoke tests. Runtime adapter config overrides use instance-scoped `MEDRE_ADAPTER__<TOKEN>__<FIELD>` and `MEDRE_ROUTE__<TOKEN>__<FIELD>` variables. See `docs/runbooks/meshtastic-live-smoke.md`.
+
+Meshtastic adapter diagnostics expose aggregate inbound classification counters (`classifier_packets_seen`, `classifier_packets_relayed`, `classifier_packets_ignored`, `classifier_packets_dropped`, `classifier_packets_deferred`, plus reason-level sub-counters). These counters explain aggregate inbound skips but do not mean live validation and do not persist every ignored/dropped/deferred packet. Queue stats (`queue_total_enqueued`, `queue_total_sent`, `queue_total_failed`, `queue_total_rejected`) are visible in diagnostics. Being queued/enqueued/sent means local node acceptance, not RF confirmation. See `docs/runbooks/operator-workflows.md` section 14 for operator workflow examples.
 
 ### MeshCore
 

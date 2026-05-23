@@ -1,9 +1,9 @@
 # Contract 61 — Operational Evidence Contract
 
-> Contract version: 3
-> Last updated: 2026-05-13
+> Contract version: 4
+> Last updated: 2026-05-23
 > Track: 1 (Transport Maturity Evidence), Track 2 (Live Operational Evidence), Track 7 (Live Evidence Documentation), Track 8 (Deployment Boundary Enforcement), Track 9 (Evidence Consolidation)
-> Supersedes: Contract 61 v2 (2026-05-12). Adds evidence lifecycle metadata pattern (§8) — evidence_type, confidence, verified_at, verification_scope, environment. Pilot only; does not alter H/C/S/R tiers or existing fields.
+> Supersedes: Contract 61 v3 (2026-05-13). Adds unified delivery evidence fields (§3.8) — delivery explanation shape, per-adapter metadata, suppression evidence, Meshtastic classifier aggregate counters, incident summary, and non-guarantees. Pilot only; does not alter H/C/S/R tiers or existing fields.
 > Status: Active contract. Defines the schema, classification, and recording protocol for all operational evidence.
 > References: Contract 32 (Beta Readiness), Contract 37 (Transport Maturity), Contract 39 (Risk Register), Contract 48 (Observability), Contract 59 (Durability), Contract 60 (Cancellation).
 
@@ -176,6 +176,106 @@ These fields record evidence from deployment boundary enforcement testing. They 
 
 All fields above are S-tier evidence (deterministic test pass/fail). They do not require live endpoints.
 
+### 3.8 Delivery Evidence Fields (Track 1 — Unified Inspectability)
+
+These fields describe the unified delivery evidence shape exposed by `medre inspect` and `medre evidence` commands. They are additive to the existing evidence schema and do not modify any existing fields.
+
+Delivery evidence is **best-effort** and **local-process scoped**. It reflects what the local MEDRE process observed, not distributed consensus or end-to-end transport confirmation.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `event_id` | string | Yes | Canonical event ID being inspected |
+| `event_kind` | string | Yes | Event kind (e.g., `message.created`) |
+| `source_adapter` | string | Yes | Adapter that produced the inbound event |
+| `route_id` | string or null | Yes | Route that triggered this delivery attempt |
+| `target_adapter` | string or null | Yes | Target adapter for this delivery |
+| `target_channel` | string or null | Yes | Target channel on the destination adapter |
+| `status` | string | Yes | Final delivery receipt status: `accepted`, `queued`, `sent`, `confirmed`, `suppressed`, `failed`, `dead_lettered`. The `suppressed` status covers loop/capacity/shutdown rejection receipts persisted where event/target context exists; `duplicate_suppressed` remains reserved and is not emitted in pre-storage dedup. |
+| `failure_kind` | string or null | Yes | Best-effort failure classification. Inferred from error patterns when not directly persisted. |
+| `retryable` | boolean | Yes | Whether the failure kind is retryable (only `adapter_transient` is retryable) |
+| `attempt_number` | integer | Yes | 1-indexed delivery attempt count |
+| `retry_max_attempts` | integer or null | Yes | From RetryPolicy, if retry is enabled |
+| `retry_backoff_base` | float or null | Yes | From RetryPolicy, if retry is enabled |
+| `retry_max_delay` | float or null | Yes | From RetryPolicy, if retry is enabled |
+| `retry_jitter` | boolean or null | Yes | From RetryPolicy, if retry is enabled |
+| `next_retry_at` | string or null | Yes | ISO 8601 timestamp for next scheduled retry, or null |
+| `adapter_message_id` | string or null | Yes | Native message ID from the target adapter (Matrix event ID, Meshtastic packet ID, etc.) |
+| `error` | string or null | Yes | Sanitized error message from the delivery attempt |
+| `source` | string | Yes | How this attempt was triggered: `live`, `retry`, or `replay` |
+| `replay_run_id` | string or null | Yes | Populated when `source="replay"` |
+| `parent_receipt_id` | string or null | Yes | Previous receipt in retry lineage |
+| `receipt_id` | string | Yes | Unique receipt identifier (`rcpt-...`) |
+| `created_at` | string | Yes | ISO 8601 timestamp of receipt creation |
+
+#### 3.8.1 Per-Adapter Metadata Summary
+
+Delivery evidence may include adapter-specific metadata:
+
+| Field | Adapter | Description |
+| --- | --- | --- |
+| `matrix_txn_id` | Matrix | Deterministic transaction ID used for homeserver deduplication. Reduces duplicate retries but is not exactly-once. |
+| `undecryptable_event_count` | Matrix | Count of inbound MegolmEvents that could not be decrypted (E2EE blocked). |
+| `delivery_attempts` | Matrix | Cumulative outbound delivery attempts. |
+| `delivery_successes` | Matrix | Cumulative successful outbound deliveries. |
+| `delivery_failures` | Matrix | Cumulative failed outbound deliveries. |
+| `queue_total_enqueued` | Meshtastic | Total messages enqueued for outbound send. |
+| `queue_total_sent` | Meshtastic | Total messages successfully sent from the queue. |
+| `queue_total_failed` | Meshtastic | Total messages that failed to send from the queue. |
+| `queue_total_rejected` | Meshtastic | Total messages rejected because the queue was full. |
+| `queue_pending` | Meshtastic | Current number of pending messages in the queue. |
+
+#### 3.8.2 Suppression Evidence Fields
+
+| Field | Description |
+| --- | --- |
+| `duplicate_suppressed` | Reserved — not currently emitted. The `DUPLICATE_SUPPRESSED` failure kind is defined but the runtime does not safely persist the duplicate path without creating a new event. If a future change adds explicit duplicate-suppression receipts, this field will be populated. |
+| `loop_suppressed` | Visible in `RouteStats.loop_prevented` when route-trace or self-loop prevention fires. Also present in delivery outcomes with `failure_kind=LOOP_SUPPRESSED`. The pipeline persists a `status="suppressed"` receipt for loop/capacity/shutdown suppression where event/target context exists. |
+
+#### 3.8.3 Meshtastic Classifier Aggregate Counters
+
+The Meshtastic adapter exposes aggregate inbound classification counters via `diagnostics()`. These explain aggregate inbound skips — they do not mean live validation and do not persist every ignored/dropped/deferred packet.
+
+| Field | Description |
+| --- | --- |
+| `classifier_packets_seen` | Total packets examined by the classifier. |
+| `classifier_packets_relayed` | Packets classified as `relay` (valid text messages). |
+| `classifier_packets_ignored` | Packets classified as `ignore` (acks, admin, telemetry, position, nodeinfo, direct messages, empty text). |
+| `classifier_packets_dropped` | Packets classified as `drop` (encrypted, malformed). |
+| `classifier_packets_deferred` | Packets classified as `deferred` (detection sensor, unknown portnum, plugin-only). |
+| `classifier_packets_malformed` | Sub-counter: dropped due to malformed or missing decoded payload. |
+| `classifier_packets_encrypted_dropped` | Sub-counter: dropped due to encryption. |
+| `classifier_packets_detection_sensor_deferred` | Sub-counter: deferred detection sensor packets. |
+| `classifier_packets_dm_ignored` | Sub-counter: ignored direct messages. |
+| `classifier_packets_empty_text_ignored` | Sub-counter: ignored empty text messages. |
+| `classifier_packets_unknown_portnum_deferred` | Sub-counter: deferred unknown/custom portnum packets. |
+
+#### 3.8.4 Incident Summary Fields
+
+When the evidence bundle is scoped to a specific event (`--event-id`), the storage section includes an `incident_summary`:
+
+| Field | Description |
+| --- | --- |
+| `classification` | One of: `success`, `retryable`, `permanent`, `operational`, `unknown`. Derived from best-effort error pattern matching. |
+| `first_failure_kind` | Best-effort inferred failure kind from the first failed receipt. |
+| `replay_receipts_present` | Whether any replay-sourced receipts exist for this event. |
+| `native_refs_present` | Whether native transport references exist for this event. |
+| `failed_count` | Count of `failed` or `dead_lettered` receipts. |
+| `sent_count` | Count of `sent` receipts. |
+| `dead_lettered_count` | Count of `dead_lettered` receipts. |
+| `suppressed_count` | Count of receipts with `status="suppressed"` (covers loop_suppressed, capacity_rejection, shutdown_rejection). |
+| `sent_unconfirmed_count` | Count of `sent` receipts (not yet confirmed by transport). |
+| `delivery_state_by_adapter` | Per-adapter delivery state dict keyed by target_adapter. Each value includes: `status`, `attempt_number`, `native_message_id`, `adapter_message_id`, `failure_kind`, `failure_kind_detail`, `retryable`, `next_retry_at`. The `failure_kind_detail` field provides a more specific classification derived from error patterns (e.g., `e2ee_blocked`, `meshtastic_queue_rejected`) without changing the `DeliveryFailureKind` enum. |
+
+#### 3.8.5 Non-Guarantees for Delivery Evidence
+
+1. **Matrix `tx_id` reduces duplicate retries but is not exactly-once.** The deterministic transaction ID allows the homeserver to deduplicate retried sends. The homeserver may have already processed and lost the first attempt, or the deduplication window may have expired. This is an improvement over random `tx_id` values, not an exactly-once guarantee.
+
+2. **Meshtastic queue acceptance is not RF confirmation.** A `queued`, `enqueued`, or `sent` receipt means the local node accepted the packet. No remote node acknowledgement is available. Confirmed/ack semantics remain distinct if available from future Meshtastic firmware.
+
+3. **Meshtastic classifier counters are aggregate, not per-packet records.** They explain how many packets were seen and what aggregate decisions were made. They do not persist a log of every individual ignored, dropped, or deferred packet. They reset on adapter restart (in-memory only).
+
+4. **`duplicate_suppressed` may not be emitted.** The current runtime suppresses duplicates at ingress without creating a receipt. The `DUPLICATE_SUPPRESSED` failure kind is reserved for future use.
+
 ## 4. Evidence Recording Protocol
 
 ### 4.1 When to Record
@@ -336,3 +436,4 @@ When multiple evidence entries have different lifecycle status, use one block pe
 | 2026-05-12 | v1      | Contract 61 created. Formalizes evidence schema from operational-evidence.md. Defines 4 evidence tiers, required fields per transport, evidence maturity scores, prohibited claims.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | 2026-05-12 | v2      | Tracks 1/2/7/8/9 consolidation. Added: Matrix v2 fields (§3.2: `repeated_start_stop_cycles`, `replay_restart_recovery`, `long_running_sync_observation`, `room_state_boundedness`, `diagnostics_snapshot_at_start/end`, `runtime_duration_seconds`). Meshtastic v2 fields (§3.3: `repeated_start_stop_cycles`, `serial_reconnect_degraded`, `outbound_degraded_behavior`, `long_running_runtime_observation`, `hardware_firmware_snapshot`, `diagnostics_snapshot_at_start/end`, `runtime_duration_seconds`, `connection_establishment_time_ms`). Common runtime observation fields (§3.6). Deployment and boundary enforcement evidence fields (§3.7: Track 8/9). Updated prohibited claims (§6). Updated transport scores with v2 field status (§5.1). Added Contract 60 reference. |
 | 2026-05-13 | v3      | Added evidence lifecycle metadata pattern (§8). Pilot-only: defines evidence_type (tested/observed/inferred/planned), confidence, verified_at, verification_scope, environment. Orthogonal to H/C/S/R tier system. No existing fields or tiers modified.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| 2026-05-23 | v4      | Added unified delivery evidence fields (§3.8). Documents the delivery explanation/summary JSON shape exposed by `medre inspect` and `medre evidence`: event_id, route/target info, final status, failure_kind, retryable flag, attempt/retry policy fields, next_retry_at, native/adapter message IDs, per-adapter metadata summary (Matrix txn_id, undecryptable counts; Meshtastic queue stats), suppression counts/kinds (duplicate_suppressed reserved, loop_suppressed active), Meshtastic classifier aggregate counters, incident summary fields, and non-guarantees (tx_id not exactly-once, queue not RF confirmation, classifier counters not live validation, duplicate_suppressed not emitted). Pilot only; does not alter H/C/S/R tiers or existing fields. |
