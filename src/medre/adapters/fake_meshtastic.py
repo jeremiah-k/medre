@@ -391,9 +391,7 @@ class FakeMeshtasticAdapter(AdapterContract):
             )
 
         classification = self._classifier.classify(packet)
-        if classification.category != "text":
-            return
-        if classification.is_ack:
+        if classification.action != "relay":
             return
 
         canonical = self._codec.decode(packet)

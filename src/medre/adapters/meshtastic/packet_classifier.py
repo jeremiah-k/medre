@@ -25,9 +25,28 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from medre.interop.mmrelay import EMOJI_FLAG_VALUE
+
+# --- Reason constants ---
+REASON_TEXT: str = "text message"
+REASON_MALFORMED: str = "malformed or missing decoded payload"
+REASON_ENCRYPTED: str = "encrypted packet"
+REASON_DETECTION_SENSOR: str = "detection sensor packets are deferred"
+REASON_ACK_ADMIN: str = "ack/admin/system message"
+REASON_UNKNOWN_PORTNUM: str = "unknown or custom portnum"
+REASON_NON_CHAT: str = "non-chat message type"
+REASON_DIRECT_MESSAGE: str = "direct message to specific node"
+REASON_PLUGIN_ONLY: str = "plugin_only packets are deferred"
+REASON_EMPTY_TEXT: str = "empty text"
+REASON_UNCLASSIFIED: str = "unclassified packet"
+
+# --- Literal type aliases ---
+ClassificationAction = Literal["relay", "ignore", "drop", "deferred"]
+ClassificationCategory = Literal[
+    "text", "ack", "telemetry", "nodeinfo", "position", "admin", "unknown", "plugin_only"
+]
 
 # **FIxTURE-SCAFFOLD ONLY** — This numeric map is NOT derived from the real
 # Meshtastic protobuf PortNum enum.  It is a MEDRE test fixture approximation
@@ -157,7 +176,8 @@ class ClassificationResult:
     is_direct_message:
         Whether the packet is a DM.
     routeable:
-        Whether the packet is routeable (text + not ack + not dm).
+        Whether the classifier decided the packet can proceed to relay
+        (equivalent to ``action == "relay"``).
     reply_id:
         ``decoded.replyId`` integer, or ``None``.
     emoji_flag:
@@ -171,8 +191,8 @@ class ClassificationResult:
         Text packet with ``replyId`` and emoji flag.
     """
 
-    action: str
-    category: str
+    action: ClassificationAction
+    category: ClassificationCategory
     reason: str
     portnum: str | None
     channel_index: int | None
@@ -344,58 +364,55 @@ class MeshtasticPacketClassifier:
         is_text = category == "text"
 
         # --- Action decision (classification policy) ---
-        action: str
+        action: ClassificationAction
         reason: str
 
         # 1. Encrypted
         if is_encrypted:
             action = "drop"
-            reason = "encrypted packet"
+            reason = REASON_ENCRYPTED
         # 2. Malformed / no decoded payload
         elif not decoded and not is_encrypted:
             action = "drop"
-            reason = "malformed or missing decoded payload"
+            reason = REASON_MALFORMED
         # 3. Detection sensor
         elif is_detection_sensor:
             action = "deferred"
-            reason = "detection sensor packets are deferred"
+            reason = REASON_DETECTION_SENSOR
         # 4. Ack / admin
-        elif is_ack:
+        elif is_ack or category == "admin":
             action = "ignore"
-            reason = "ack/admin/system message"
-        elif category == "admin":
-            action = "ignore"
-            reason = "ack/admin/system message"
+            reason = REASON_ACK_ADMIN
         # 5. Unknown / custom portnum
         elif category == "unknown" and not is_text:
             action = "deferred"
-            reason = "unknown or custom portnum"
+            reason = REASON_UNKNOWN_PORTNUM
         # 6. Telemetry / position / nodeinfo
         elif category in ("telemetry", "position", "nodeinfo"):
             action = "ignore"
-            reason = "non-chat message type"
+            reason = REASON_NON_CHAT
         # 7. Direct message
         elif is_direct:
             action = "ignore"
-            reason = "direct message to specific node"
+            reason = REASON_DIRECT_MESSAGE
         # 8. Plugin-only
         elif category == "plugin_only":
             action = "deferred"
-            reason = "plugin_only packets are deferred"
+            reason = REASON_PLUGIN_ONLY
         # 9. Empty text
         elif is_text and (not isinstance(text_content, str) or not text_content.strip()):
             action = "ignore"
-            reason = "empty text"
+            reason = REASON_EMPTY_TEXT
         # 10. Text message (relay)
         elif is_text:
             action = "relay"
-            reason = "text message"
+            reason = REASON_TEXT
         else:
             # Fallback — should not normally be reached
             action = "deferred"
-            reason = "unclassified packet"
+            reason = REASON_UNCLASSIFIED
 
-        routeable = is_text and not is_ack and not is_direct and not is_encrypted
+        routeable = action == "relay"
 
         return ClassificationResult(
             action=action,

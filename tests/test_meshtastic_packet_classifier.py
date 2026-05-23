@@ -698,6 +698,7 @@ class TestClassificationActionTests:
         result = cls.classify(packet)
         assert result.action == "ignore"
         assert result.reason == "empty text"
+        assert result.routeable is False
 
     def test_whitespace_only_text_classified_as_ignore(self) -> None:
         cls = MeshtasticPacketClassifier()
@@ -705,6 +706,33 @@ class TestClassificationActionTests:
         result = cls.classify(packet)
         assert result.action == "ignore"
         assert result.reason == "empty text"
+        assert result.routeable is False
+
+    def test_normal_text_routeable(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet(text="hello world")
+        result = cls.classify(packet)
+        assert result.action == "relay"
+        assert result.routeable is True
+
+    def test_encrypted_routeable_false(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = {
+            "fromId": "!node1",
+            "id": 1,
+            "encrypted": True,
+            "decoded": {"portnum": "text_message", "text": "secret"},
+        }
+        result = cls.classify(packet)
+        assert result.action == "drop"
+        assert result.routeable is False
+
+    def test_direct_message_routeable_false(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet(text="dm", to_id="!target")
+        result = cls.classify(packet)
+        assert result.action == "ignore"
+        assert result.routeable is False
 
     def test_admin_classified_as_ignore(self) -> None:
         cls = MeshtasticPacketClassifier()
@@ -763,6 +791,7 @@ class TestClassificationActionTests:
         }
         result = cls.classify(packet)
         assert result.is_encrypted is True
+        assert result.action == "drop"
         assert result.routeable is False
 
     def test_dm_text_is_not_routeable(self) -> None:
@@ -770,4 +799,5 @@ class TestClassificationActionTests:
         packet = _make_text_packet(text="dm", to_id="!target")
         result = cls.classify(packet)
         assert result.is_direct_message is True
+        assert result.action == "ignore"
         assert result.routeable is False

@@ -109,9 +109,10 @@ dispositions:
 - **DROP:** Ignored entirely (e.g., ACKs, telemetry the user opted out
   of).
 
-MEDRE's packet classifier uses a simpler category model (`text`,
-`ack`, `telemetry`, etc.) and drops everything except `text` in the
-current tranche.
+MEDRE's packet classifier uses a 4-action model (`relay`, `ignore`,
+`drop`, `deferred`) instead of MMRelay's 3-action `RELAY / PLUGIN_ONLY / DROP`
+model.  See the "Where MEDRE intentionally differs" section below for
+details.
 
 ## Matrix stable transaction-id retry
 
@@ -245,9 +246,10 @@ MEDRE uses a **4-action model** instead of MMRelay's 3-action model:
 Key differences:
 
 1. **`deferred` action**: MMRelay's `PLUGIN_ONLY` maps roughly to
-   MEDRE's `deferred`.  MEDRE does not have a plugin system yet, so
-   deferred packets are counted and logged but not processed.  When
-   MEDRE adds a plugin system, deferred packets will be the entry point.
+   MEDRE's `deferred`.     MEDRE does not have a plugin system yet, so
+   deferred packets are counted and logged but not processed.  If
+   MEDRE later adds a plugin/extension path, deferred packets will
+   be the entry point.
 
 2. **Encrypted packets → `drop`**: MMRelay treats encrypted as
    `PLUGIN_ONLY` (plugins may decrypt).  MEDRE conservatively drops

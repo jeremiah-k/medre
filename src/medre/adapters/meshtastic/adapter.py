@@ -69,7 +69,15 @@ from medre.adapters.meshtastic.codec import MeshtasticCodec
 from medre.adapters.meshtastic.errors import (
     MeshtasticSendError,
 )
-from medre.adapters.meshtastic.packet_classifier import MeshtasticPacketClassifier
+from medre.adapters.meshtastic.packet_classifier import (
+    REASON_DETECTION_SENSOR,
+    REASON_DIRECT_MESSAGE,
+    REASON_EMPTY_TEXT,
+    REASON_ENCRYPTED,
+    REASON_MALFORMED,
+    REASON_UNKNOWN_PORTNUM,
+    MeshtasticPacketClassifier,
+)
 from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue, QueueDeliveryResult
 from medre.adapters.meshtastic.session import MeshtasticSession
 from medre.config.adapters.meshtastic import MeshtasticConfig
@@ -159,11 +167,11 @@ class MeshtasticAdapter(AdapterContract):
         self._classifier_packets_dropped: int = 0
         self._classifier_packets_deferred: int = 0
         self._classifier_packets_malformed: int = 0
-        self._classifier_packets_encrypted_ignored: int = 0
-        self._classifier_packets_detection_sensor_ignored: int = 0
+        self._classifier_packets_encrypted_dropped: int = 0
+        self._classifier_packets_detection_sensor_deferred: int = 0
         self._classifier_packets_dm_ignored: int = 0
         self._classifier_packets_empty_text_ignored: int = 0
-        self._classifier_packets_unknown_portnum_ignored: int = 0
+        self._classifier_packets_unknown_portnum_deferred: int = 0
         self._inbound_published: int = 0
 
     # -- Lifecycle ----------------------------------------------------------
@@ -400,19 +408,19 @@ class MeshtasticAdapter(AdapterContract):
         elif action == "deferred":
             self._classifier_packets_deferred += 1
 
-        # Reason-level sub-counters
-        if "malformed" in reason:
+        # Reason-level sub-counters (exact match)
+        if classification.reason == REASON_MALFORMED:
             self._classifier_packets_malformed += 1
-        if "encrypted" in reason:
-            self._classifier_packets_encrypted_ignored += 1
-        if "detection sensor" in reason:
-            self._classifier_packets_detection_sensor_ignored += 1
-        if "direct message" in reason:
+        if classification.reason == REASON_ENCRYPTED:
+            self._classifier_packets_encrypted_dropped += 1
+        if classification.reason == REASON_DETECTION_SENSOR:
+            self._classifier_packets_detection_sensor_deferred += 1
+        if classification.reason == REASON_DIRECT_MESSAGE:
             self._classifier_packets_dm_ignored += 1
-        if "empty text" in reason:
+        if classification.reason == REASON_EMPTY_TEXT:
             self._classifier_packets_empty_text_ignored += 1
-        if "unknown or custom portnum" in reason:
-            self._classifier_packets_unknown_portnum_ignored += 1
+        if classification.reason == REASON_UNKNOWN_PORTNUM:
+            self._classifier_packets_unknown_portnum_deferred += 1
 
     def _log_classification(self, classification: Any) -> None:
         """Log a structured classification decision.
@@ -634,11 +642,11 @@ class MeshtasticAdapter(AdapterContract):
             "classifier_packets_dropped": self._classifier_packets_dropped,
             "classifier_packets_deferred": self._classifier_packets_deferred,
             "classifier_packets_malformed": self._classifier_packets_malformed,
-            "classifier_packets_encrypted_ignored": self._classifier_packets_encrypted_ignored,
-            "classifier_packets_detection_sensor_ignored": self._classifier_packets_detection_sensor_ignored,
+            "classifier_packets_encrypted_dropped": self._classifier_packets_encrypted_dropped,
+            "classifier_packets_detection_sensor_deferred": self._classifier_packets_detection_sensor_deferred,
             "classifier_packets_dm_ignored": self._classifier_packets_dm_ignored,
             "classifier_packets_empty_text_ignored": self._classifier_packets_empty_text_ignored,
-            "classifier_packets_unknown_portnum_ignored": self._classifier_packets_unknown_portnum_ignored,
+            "classifier_packets_unknown_portnum_deferred": self._classifier_packets_unknown_portnum_deferred,
             "inbound_published": self._inbound_published,
         }
 
