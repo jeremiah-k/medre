@@ -262,7 +262,7 @@ model, and no raw-object leakage.
 | **Background tasks**       | 1 (sync)              | 0–1 (reconnect)           | 0–1 (reconnect)           | 0–2 (reconnect + announce)  |
 | **SDK client**             | nio AsyncClient       | mtjk interface            | meshcore.MeshCore         | RNS + Identity + LXMRouter  |
 | **Max reconnect attempts** | 10                    | 10                        | 10                        | 10                          |
-| **Max send retries**       | 0 (no retry)          | `queue_send_max_attempts` | 3                         | 3                           |
+| **Max send retries**       | 3 (bounded retry)     | `queue_send_max_attempts` | 3                         | 3                           |
 | **Outbound queue**         | None                  | Bounded retry (in-memory) | None                      | None (router-managed)       |
 | **Monotonic counters**     | 1 (undecryptable)     | 2 (transient + permanent) | 2 (transient + permanent) | 2 (transient + permanent)   |
 | **Memory growth risk**     | `_room_states` dict   | Outbound queue            | None                      | `_outbound_deliveries` dict |
@@ -270,7 +270,7 @@ model, and no raw-object leakage.
 
 ## 8. Key Findings
 
-1. **All sessions have bounded retry budgets.** Max 10 reconnects. Meshtastic adapter-local queue retries transient send failures up to `queue_send_max_attempts`. MeshCore and LXMF cap at 3 send retries. Matrix has no send retry. No unbounded retry loops.
+1. **All sessions have bounded retry budgets.** Max 10 reconnects. Meshtastic adapter-local queue retries transient send failures up to `queue_send_max_attempts`. Matrix bounded send retry (3) with stable `tx_id`. MeshCore and LXMF cap at 3 send retries. No unbounded retry loops.
 
 2. **All sessions have idempotent stop()** with timeout-based task cancellation. The `_stop_requested` flag prevents zombie reconnect loops.
 

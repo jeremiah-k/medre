@@ -332,10 +332,12 @@ class MeshtasticOutboundQueue:
                 self._total_failed += 1
                 self._total_permanent_failed += 1
                 _logger.warning(
-                    "MeshtasticOutboundQueue: permanent send failure; "
-                    "dropping item (attempt %d/%d)",
+                    "MeshtasticOutboundQueue: permanent send failure for "
+                    "event_id=%s; dropping item (attempt %d/%d): %s",
+                    item.get("event_id"),
                     item.get("_attempt", 1),
                     self._max_attempts,
+                    exc,
                 )
                 return None
             # Transient: front-requeue if attempts remain.
@@ -347,6 +349,14 @@ class MeshtasticOutboundQueue:
             # unexpected errors here are treated as adapter-local
             # transient failures.  Bugs outside send_fn should still
             # surface through the queue drain task.
+            _logger.warning(
+                "MeshtasticOutboundQueue: unexpected error during send "
+                "for event_id=%s; treating as transient (attempt %d/%d)",
+                item.get("event_id"),
+                item.get("_attempt", 1),
+                self._max_attempts,
+                exc_info=True,
+            )
             self._handle_transient_failure(item)
             return None
 
@@ -391,8 +401,9 @@ class MeshtasticOutboundQueue:
             self._queue.appendleft(item)
             self._total_requeued += 1
             _logger.info(
-                "MeshtasticOutboundQueue: transient failure; "
-                "front-requeue item (attempt %d/%d)",
+                "MeshtasticOutboundQueue: transient failure for "
+                "event_id=%s; front-requeue item (attempt %d/%d)",
+                item.get("event_id"),
                 next_attempt,
                 self._max_attempts,
             )
@@ -401,7 +412,8 @@ class MeshtasticOutboundQueue:
             self._total_failed += 1
             self._total_exhausted += 1
             _logger.warning(
-                "MeshtasticOutboundQueue: item exhausted %d attempts; " "dropping",
+                "MeshtasticOutboundQueue: item %s exhausted %d attempts; dropping",
+                item.get("event_id"),
                 self._max_attempts,
             )
 
