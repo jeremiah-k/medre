@@ -451,6 +451,35 @@ class TestFakeMeshCoreCapabilities:
         assert result["supports_mesh_routing"] is True
         assert result["max_text_bytes"] == 512
 
+    def test_fake_capabilities_remain_at_default_512(self) -> None:
+        """Fake adapter constant stays at 512 regardless of config."""
+        from medre.adapters.fake_meshcore import _FAKE_MESHCORE_CAPABILITIES
+
+        assert _FAKE_MESHCORE_CAPABILITIES.max_text_bytes == 512
+
+    def test_real_adapter_default_capabilities_match_fake(self) -> None:
+        """Real adapter with default config has same max_text_bytes as fake."""
+        from medre.adapters.fake_meshcore import _FAKE_MESHCORE_CAPABILITIES
+        from medre.adapters.meshcore.adapter import MeshCoreAdapter
+        from medre.config.adapters.meshcore import MeshCoreConfig
+
+        config = MeshCoreConfig(adapter_id="caps-test")
+        adapter = MeshCoreAdapter(config)
+        assert (
+            adapter._capabilities.max_text_bytes
+            == _FAKE_MESHCORE_CAPABILITIES.max_text_bytes
+        )
+
+    def test_real_adapter_custom_config_overrides_max_text_bytes(self) -> None:
+        """Real adapter with custom max_text_bytes config overrides capabilities."""
+        from medre.adapters.meshcore.adapter import MeshCoreAdapter
+        from medre.config.adapters.meshcore import MeshCoreConfig
+
+        config = MeshCoreConfig(adapter_id="caps-test", max_text_bytes=2048)
+        adapter = MeshCoreAdapter(config)
+        assert adapter._capabilities.max_text_bytes == 2048
+        assert adapter._capabilities.max_text_chars == 2048
+
     @pytest.mark.asyncio
     async def test_health_check_capabilities_serializable(
         self,

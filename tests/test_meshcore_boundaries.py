@@ -403,15 +403,21 @@ class TestMeshCoreCodecIsolation:
 # ===================================================================
 
 
+def _make_renderer() -> MeshCoreRenderer:
+    """Create a MeshCoreRenderer with a default config for boundary tests."""
+    cfg = MeshCoreConfig(adapter_id="meshcore_node")
+    return MeshCoreRenderer(configs={"meshcore_node": cfg})
+
+
 class TestMeshCoreRendererIsolation:
     """MeshCore renderer does not deliver."""
 
     def test_renderer_has_no_deliver_method(self) -> None:
-        renderer = MeshCoreRenderer()
+        renderer = _make_renderer()
         assert not hasattr(renderer, "deliver")
 
     def test_renderer_has_no_send_method(self) -> None:
-        renderer = MeshCoreRenderer()
+        renderer = _make_renderer()
         assert not hasattr(renderer, "send")
 
     def test_renderer_source_does_not_import_deliver(self) -> None:
@@ -429,7 +435,7 @@ class TestMeshCoreRendererIsolation:
             ), f"Renderer must not import delivery code; found: {line!r}"
 
     async def test_renderer_returns_rendering_result_not_delivery(self) -> None:
-        renderer = MeshCoreRenderer()
+        renderer = _make_renderer()
         event = CanonicalEvent(
             event_id="evt-1",
             event_kind="message.created",

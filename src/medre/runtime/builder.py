@@ -236,12 +236,16 @@ def _register_adapter_renderers(
     # Collect ALL MeshtasticConfigs for target-aware rendering.
     meshtastic_configs: dict[str, Any] = {}
     first_meshtastic_config: Any = None
+    # Collect ALL MeshCoreConfigs for target-aware rendering.
+    meshcore_configs: dict[str, Any] = {}
     if config is not None:
         for _transport, _adapter_id, rtc in config.adapters.all_configs():
             if _transport == "meshtastic" and getattr(rtc, "config", None) is not None:
                 meshtastic_configs[_adapter_id] = rtc.config
                 if first_meshtastic_config is None:
                     first_meshtastic_config = rtc.config
+            if _transport == "meshcore" and getattr(rtc, "config", None) is not None:
+                meshcore_configs[_adapter_id] = rtc.config
         # Fallback: if no real configs but Meshtastic adapters exist (e.g.
         # adapter_kind="fake" where rtc.config is None), synthesize defaults
         # so the renderer is registered and target-aware rendering works.
@@ -259,6 +263,16 @@ def _register_adapter_renderers(
                 )
             if meshtastic_configs:
                 first_meshtastic_config = next(iter(meshtastic_configs.values()))
+        # Fallback: synthesize default MeshCoreConfigs for fake adapters.
+        if not meshcore_configs and config.adapters.meshcore:
+            import importlib as _importlib
+
+            _meshcore_mod = _importlib.import_module("medre.config.adapters.meshcore")
+            _MCConfig = _meshcore_mod.MeshCoreConfig
+            for adapter_id in config.adapters.meshcore:
+                meshcore_configs[adapter_id] = _MCConfig(
+                    adapter_id=adapter_id,
+                )
 
     for module_path, class_name in _ADAPTER_RENDERER_SPECS:
         try:
@@ -272,6 +286,13 @@ def _register_adapter_renderers(
                     continue
                 pipeline.register(
                     renderer_cls(configs=meshtastic_configs),
+                    priority=50,
+                )
+            elif class_name == "MeshCoreRenderer":
+                if not meshcore_configs:
+                    continue
+                pipeline.register(
+                    renderer_cls(configs=meshcore_configs),
                     priority=50,
                 )
             elif class_name == "MatrixRenderer" and first_meshtastic_config is not None:

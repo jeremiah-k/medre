@@ -34,8 +34,9 @@ from pathlib import Path
 
 import pytest
 
-from medre.core.events import CanonicalEvent, EventMetadata
+from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.config.adapters.meshtastic import MeshtasticConfig
+from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.rendering.renderer import RenderingResult
 from medre.runtime.architecture_report import _SDK_PACKAGES
 
@@ -312,12 +313,22 @@ class TestRendererBoundary:
         mod = _load_module(mod_name)
         cls = getattr(mod, cls_name)
         instance = (
-            cls(configs={
-                "t": MeshtasticConfig(adapter_id="t"),
-                "meshtastic_node": MeshtasticConfig(adapter_id="meshtastic_node"),
-            })
+            cls(
+                configs={
+                    "t": MeshtasticConfig(adapter_id="t"),
+                    "meshtastic_node": MeshtasticConfig(adapter_id="meshtastic_node"),
+                }
+            )
             if cls_name == "MeshtasticRenderer"
-            else cls()
+            else (
+                cls(
+                    configs={
+                        "meshcore_node": MeshCoreConfig(adapter_id="meshcore_node")
+                    }
+                )
+                if cls_name == "MeshCoreRenderer"
+                else cls()
+            )
         )
         assert not hasattr(
             instance, "deliver"
@@ -329,12 +340,22 @@ class TestRendererBoundary:
         mod = _load_module(mod_name)
         cls = getattr(mod, cls_name)
         instance = (
-            cls(configs={
-                "t": MeshtasticConfig(adapter_id="t"),
-                "meshtastic_node": MeshtasticConfig(adapter_id="meshtastic_node"),
-            })
+            cls(
+                configs={
+                    "t": MeshtasticConfig(adapter_id="t"),
+                    "meshtastic_node": MeshtasticConfig(adapter_id="meshtastic_node"),
+                }
+            )
             if cls_name == "MeshtasticRenderer"
-            else cls()
+            else (
+                cls(
+                    configs={
+                        "meshcore_node": MeshCoreConfig(adapter_id="meshcore_node")
+                    }
+                )
+                if cls_name == "MeshCoreRenderer"
+                else cls()
+            )
         )
         assert not hasattr(instance, "send"), f"{cls_name} must not have a send method"
 
@@ -344,12 +365,22 @@ class TestRendererBoundary:
         mod = _load_module(mod_name)
         cls = getattr(mod, cls_name)
         instance = (
-            cls(configs={
-                "t": MeshtasticConfig(adapter_id="t"),
-                "meshtastic_node": MeshtasticConfig(adapter_id="meshtastic_node"),
-            })
+            cls(
+                configs={
+                    "t": MeshtasticConfig(adapter_id="t"),
+                    "meshtastic_node": MeshtasticConfig(adapter_id="meshtastic_node"),
+                }
+            )
             if cls_name == "MeshtasticRenderer"
-            else cls()
+            else (
+                cls(
+                    configs={
+                        "meshcore_node": MeshCoreConfig(adapter_id="meshcore_node")
+                    }
+                )
+                if cls_name == "MeshCoreRenderer"
+                else cls()
+            )
         )
         assert not hasattr(
             instance, "start"
@@ -361,12 +392,22 @@ class TestRendererBoundary:
         mod = _load_module(mod_name)
         cls = getattr(mod, cls_name)
         instance = (
-            cls(configs={
-                "t": MeshtasticConfig(adapter_id="t"),
-                "meshtastic_node": MeshtasticConfig(adapter_id="meshtastic_node"),
-            })
+            cls(
+                configs={
+                    "t": MeshtasticConfig(adapter_id="t"),
+                    "meshtastic_node": MeshtasticConfig(adapter_id="meshtastic_node"),
+                }
+            )
             if cls_name == "MeshtasticRenderer"
-            else cls()
+            else (
+                cls(
+                    configs={
+                        "meshcore_node": MeshCoreConfig(adapter_id="meshcore_node")
+                    }
+                )
+                if cls_name == "MeshCoreRenderer"
+                else cls()
+            )
         )
         assert not hasattr(instance, "stop"), f"{cls_name} must not have a stop method"
 
@@ -376,12 +417,22 @@ class TestRendererBoundary:
         mod = _load_module(mod_name)
         cls = getattr(mod, cls_name)
         instance = (
-            cls(configs={
-                "t": MeshtasticConfig(adapter_id="t"),
-                "meshtastic_node": MeshtasticConfig(adapter_id="meshtastic_node"),
-            })
+            cls(
+                configs={
+                    "t": MeshtasticConfig(adapter_id="t"),
+                    "meshtastic_node": MeshtasticConfig(adapter_id="meshtastic_node"),
+                }
+            )
             if cls_name == "MeshtasticRenderer"
-            else cls()
+            else (
+                cls(
+                    configs={
+                        "meshcore_node": MeshCoreConfig(adapter_id="meshcore_node")
+                    }
+                )
+                if cls_name == "MeshCoreRenderer"
+                else cls()
+            )
         )
         assert not hasattr(
             instance, "connect"
@@ -393,12 +444,22 @@ class TestRendererBoundary:
         mod = _load_module(mod_name)
         cls = getattr(mod, cls_name)
         instance = (
-            cls(configs={
-                "t": MeshtasticConfig(adapter_id="t"),
-                "meshtastic_node": MeshtasticConfig(adapter_id="meshtastic_node"),
-            })
+            cls(
+                configs={
+                    "t": MeshtasticConfig(adapter_id="t"),
+                    "meshtastic_node": MeshtasticConfig(adapter_id="meshtastic_node"),
+                }
+            )
             if cls_name == "MeshtasticRenderer"
-            else cls()
+            else (
+                cls(
+                    configs={
+                        "meshcore_node": MeshCoreConfig(adapter_id="meshcore_node")
+                    }
+                )
+                if cls_name == "MeshCoreRenderer"
+                else cls()
+            )
         )
         assert not hasattr(
             instance, "publish"
@@ -445,12 +506,22 @@ class TestRendererBoundary:
         mod = _load_module(mod_name)
         cls = getattr(mod, cls_name)
         renderer = (
-            cls(configs={
-                "t": MeshtasticConfig(adapter_id="t"),
-                "meshtastic_node": MeshtasticConfig(adapter_id="meshtastic_node"),
-            })
+            cls(
+                configs={
+                    "t": MeshtasticConfig(adapter_id="t"),
+                    "meshtastic_node": MeshtasticConfig(adapter_id="meshtastic_node"),
+                }
+            )
             if cls_name == "MeshtasticRenderer"
-            else cls()
+            else (
+                cls(
+                    configs={
+                        "meshcore_node": MeshCoreConfig(adapter_id="meshcore_node")
+                    }
+                )
+                if cls_name == "MeshCoreRenderer"
+                else cls()
+            )
         )
 
         event = CanonicalEvent(

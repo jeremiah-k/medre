@@ -4,7 +4,14 @@ vs channel messages, missing fields, ACK detection, and edge cases.
 
 from __future__ import annotations
 
-from medre.adapters.meshcore.packet_classifier import MeshCorePacketClassifier
+import dataclasses
+
+import pytest
+
+from medre.adapters.meshcore.packet_classifier import (
+    ClassificationResult,
+    MeshCorePacketClassifier,
+)
 
 
 class TestPacketClassifierText:
@@ -20,8 +27,13 @@ class TestPacketClassifierText:
             "txt_type": 0,
         }
         result = cls.classify(packet)
-        assert result["category"] == "text"
-        assert result["is_ack"] is False
+        assert isinstance(result, ClassificationResult)
+        assert result.category == "text"
+        assert result.is_ack is False
+        assert result.is_text is True
+        assert result.action == "relay"
+        assert result.routeable is True
+        assert result.reason == "direct_text_packet"
 
     def test_classify_channel_text_packet(self) -> None:
         cls = MeshCorePacketClassifier()
@@ -34,8 +46,12 @@ class TestPacketClassifierText:
             "pubkey_prefix": "chan_sender",
         }
         result = cls.classify(packet)
-        assert result["category"] == "text"
-        assert result["is_ack"] is False
+        assert result.category == "text"
+        assert result.is_ack is False
+        assert result.is_text is True
+        assert result.action == "relay"
+        assert result.routeable is True
+        assert result.reason == "channel_text_packet"
 
     def test_classify_text_packet_with_sender(self) -> None:
         cls = MeshCorePacketClassifier()
@@ -47,7 +63,7 @@ class TestPacketClassifierText:
             "txt_type": 0,
         }
         result = cls.classify(packet)
-        assert result["sender_id"] == "node1"
+        assert result.sender_id == "node1"
 
     def test_classify_text_packet_with_packet_id(self) -> None:
         cls = MeshCorePacketClassifier()
@@ -60,7 +76,7 @@ class TestPacketClassifierText:
             "txt_type": 0,
         }
         result = cls.classify(packet)
-        assert result["packet_id"] == 12345
+        assert result.packet_id == 12345
 
 
 class TestPacketClassifierDirect:
@@ -76,7 +92,9 @@ class TestPacketClassifierDirect:
             "txt_type": 0,
         }
         result = cls.classify(packet)
-        assert result["is_direct_message"] is True
+        assert result.is_direct_message is True
+        assert result.action == "relay"
+        assert result.routeable is True
 
     def test_channel_message_chan(self) -> None:
         cls = MeshCorePacketClassifier()
@@ -89,7 +107,7 @@ class TestPacketClassifierDirect:
             "pubkey_prefix": "sender",
         }
         result = cls.classify(packet)
-        assert result["is_direct_message"] is False
+        assert result.is_direct_message is False
 
     def test_channel_index_none_for_dm(self) -> None:
         cls = MeshCorePacketClassifier()
@@ -102,8 +120,8 @@ class TestPacketClassifierDirect:
             "channel_idx": 5,
         }
         result = cls.classify(packet)
-        assert result["is_direct_message"] is True
-        assert result["channel_index"] is None
+        assert result.is_direct_message is True
+        assert result.channel_index is None
 
     def test_channel_index_set_for_channel(self) -> None:
         cls = MeshCorePacketClassifier()
@@ -116,8 +134,8 @@ class TestPacketClassifierDirect:
             "pubkey_prefix": "sender",
         }
         result = cls.classify(packet)
-        assert result["is_direct_message"] is False
-        assert result["channel_index"] == 3
+        assert result.is_direct_message is False
+        assert result.channel_index == 3
 
 
 class TestPacketClassifierMissingFields:
@@ -132,8 +150,9 @@ class TestPacketClassifierMissingFields:
             "txt_type": 0,
         }
         result = cls.classify(packet)
-        assert result["packet_id"] is None
-        assert result["category"] == "text"
+        assert result.packet_id is None
+        assert result.category == "text"
+        assert result.action == "relay"
 
     def test_missing_sender(self) -> None:
         cls = MeshCorePacketClassifier()
@@ -145,8 +164,9 @@ class TestPacketClassifierMissingFields:
             "txt_type": 0,
         }
         result = cls.classify(packet)
-        assert result["sender_id"] is None
-        assert result["category"] == "text"
+        assert result.sender_id is None
+        assert result.category == "text"
+        assert result.action == "relay"
 
     def test_missing_channel_idx(self) -> None:
         cls = MeshCorePacketClassifier()
@@ -158,15 +178,18 @@ class TestPacketClassifierMissingFields:
             "txt_type": 0,
         }
         result = cls.classify(packet)
-        assert result["channel_index"] is None
+        assert result.channel_index is None
 
     def test_empty_packet(self) -> None:
         cls = MeshCorePacketClassifier()
         result = cls.classify({})
-        assert result["category"] == "unknown"
-        assert result["is_ack"] is False
-        assert result["sender_id"] is None
-        assert result["packet_id"] is None
+        assert result.category == "unknown"
+        assert result.is_ack is False
+        assert result.sender_id is None
+        assert result.packet_id is None
+        assert result.action == "ignore"
+        assert result.routeable is False
+        assert result.reason == "empty_packet"
 
 
 class TestPacketClassifierAck:
@@ -176,15 +199,19 @@ class TestPacketClassifierAck:
         cls = MeshCorePacketClassifier()
         packet = {"code": 0}
         result = cls.classify(packet)
-        assert result["is_ack"] is True
-        assert result["category"] == "ack"
+        assert result.is_ack is True
+        assert result.category == "ack"
+        assert result.action == "ignore"
+        assert result.routeable is False
+        assert result.reason == "ack_packet"
 
     def test_ack_packet_with_nonzero_code(self) -> None:
         cls = MeshCorePacketClassifier()
         packet = {"code": 1}
         result = cls.classify(packet)
-        assert result["is_ack"] is True
-        assert result["category"] == "ack"
+        assert result.is_ack is True
+        assert result.category == "ack"
+        assert result.action == "ignore"
 
     def test_normal_text_is_not_ack(self) -> None:
         cls = MeshCorePacketClassifier()
@@ -196,8 +223,9 @@ class TestPacketClassifierAck:
             "txt_type": 0,
         }
         result = cls.classify(packet)
-        assert result["is_ack"] is False
-        assert result["category"] == "text"
+        assert result.is_ack is False
+        assert result.category == "text"
+        assert result.action == "relay"
 
 
 class TestPacketClassifierUnknown:
@@ -207,10 +235,45 @@ class TestPacketClassifierUnknown:
         cls = MeshCorePacketClassifier()
         packet = {"type": "UNKNOWN"}
         result = cls.classify(packet)
-        assert result["category"] == "unknown"
+        assert result.category == "unknown"
+        assert result.action == "ignore"
+        assert result.reason == "unknown_packet"
 
     def test_packet_with_unrelated_fields(self) -> None:
         cls = MeshCorePacketClassifier()
         packet = {"foo": "bar"}
         result = cls.classify(packet)
-        assert result["category"] == "unknown"
+        assert result.category == "unknown"
+        assert result.action == "ignore"
+
+
+class TestClassificationResultFrozen:
+    """ClassificationResult is frozen/immutable."""
+
+    def test_result_is_frozen(self) -> None:
+        cls = MeshCorePacketClassifier()
+        packet = {"text": "frozen test", "type": "CHAN", "txt_type": 0}
+        result = cls.classify(packet)
+        assert dataclasses.is_dataclass(result)
+        assert result.__dataclass_params__.frozen is True  # type: ignore[attr-defined]
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            result.action = "drop"  # type: ignore[misc]
+
+    def test_result_has_all_fields(self) -> None:
+        cls = MeshCorePacketClassifier()
+        packet = {"text": "fields test", "type": "CHAN", "txt_type": 0}
+        result = cls.classify(packet)
+        expected_fields = {
+            "action",
+            "category",
+            "reason",
+            "channel_index",
+            "packet_id",
+            "sender_id",
+            "is_direct_message",
+            "is_ack",
+            "is_text",
+            "routeable",
+        }
+        actual_fields = {f.name for f in dataclasses.fields(result)}
+        assert actual_fields == expected_fields

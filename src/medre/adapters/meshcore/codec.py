@@ -72,25 +72,22 @@ class MeshCoreCodec:
             )
 
         classification = self._classifier.classify(packet)
-        category = classification["category"]
-        if classification["is_ack"]:
+        if classification.is_ack:
             raise MeshCoreCodecError("ACK packets are not decodable as text events")
-        if category != "text":
+        if classification.category != "text":
             raise MeshCoreCodecError(
-                f"unsupported MeshCore packet category for decode: {category!r}"
+                f"unsupported MeshCore packet category for decode: {classification.category!r}"
             )
 
         text = packet.get("text", "")
         if text is None:
             text = ""
 
-        sender = classification["sender_id"] or ""
+        sender = classification.sender_id or ""
         pkt_channel = (
-            channel_index
-            if channel_index is not None
-            else classification["channel_index"]
+            channel_index if channel_index is not None else classification.channel_index
         )
-        pkt_id = classification["packet_id"]
+        pkt_id = classification.packet_id
 
         event_kind = EventKind.MESSAGE_CREATED
 
@@ -116,7 +113,15 @@ class MeshCoreCodec:
                 "meshcore.channel": pkt_channel,
                 "meshcore.pubkey_prefix": sender,
                 "meshcore.txt_type": packet.get("txt_type"),
-                "meshcore.is_direct_message": classification["is_direct_message"],
+                "meshcore.is_direct_message": classification.is_direct_message,
+                # Nested classification primitives (no raw SDK objects).
+                "meshcore.classification": {
+                    "action": classification.action,
+                    "category": classification.category,
+                    "reason": classification.reason,
+                    "is_direct_message": classification.is_direct_message,
+                    "routeable": classification.routeable,
+                },
             }
         )
 

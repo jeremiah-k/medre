@@ -9,12 +9,84 @@ like ``text``, ``pubkey_prefix``, ``channel_idx``, ``type``, ``code``, and
 ``txt_type`` rather than a portnum enum.
 
 The classifier is a pure function: it inspects a packet and returns a
-classification dict.  It has no side effects.
+frozen :class:`ClassificationResult`.  It has no side effects.
 """
 
 from __future__ import annotations
 
-from typing import Any
+import dataclasses
+from typing import Any, Literal
+
+# ---------------------------------------------------------------------------
+# Type aliases
+# ---------------------------------------------------------------------------
+
+ClassificationAction = Literal["relay", "ignore", "drop", "deferred"]
+"""What the inbound pipeline should do with a classified packet.
+
+* ``"relay"``   – forward through codec → canonical event pipeline.
+* ``"ignore"``  – silently skip (ACKs, unknown packets).
+* ``"drop"``    – explicitly discard (reserved for future policy).
+* ``"deferred"`` – hold for later evaluation (reserved for future policy).
+"""
+
+ClassificationCategory = Literal["text", "ack", "unknown"]
+"""Packet content category."""
+
+# ---------------------------------------------------------------------------
+# Reason constants
+# ---------------------------------------------------------------------------
+
+REASON_CHANNEL_TEXT = "channel_text_packet"
+REASON_DIRECT_TEXT = "direct_text_packet"
+REASON_ACK = "ack_packet"
+REASON_UNKNOWN = "unknown_packet"
+REASON_EMPTY = "empty_packet"
+
+
+# ---------------------------------------------------------------------------
+# Frozen result dataclass
+# ---------------------------------------------------------------------------
+
+
+@dataclasses.dataclass(frozen=True)
+class ClassificationResult:
+    """Immutable classification produced by :meth:`MeshCorePacketClassifier.classify`.
+
+    Attributes
+    ----------
+    action:
+        What the inbound pipeline should do with this packet.
+    category:
+        Content category (``"text"``, ``"ack"``, or ``"unknown"``).
+    reason:
+        Human-readable reason string explaining the classification.
+    channel_index:
+        Channel index from the packet, or ``None`` for DMs / missing.
+    packet_id:
+        ``sender_timestamp`` integer, or ``None`` if absent.
+    sender_id:
+        ``pubkey_prefix`` string, or ``None`` if absent.
+    is_direct_message:
+        ``True`` when ``type == "PRIV"`` (MeshCore direct / private message).
+    is_ack:
+        ``True`` when the packet carries a ``code`` field.
+    is_text:
+        ``True`` when the packet carries a ``text`` field.
+    routeable:
+        ``True`` when the packet should enter the codec / canonical pipeline.
+    """
+
+    action: ClassificationAction
+    category: ClassificationCategory
+    reason: str
+    channel_index: int | None
+    packet_id: int | None
+    sender_id: str | None
+    is_direct_message: bool
+    is_ack: bool
+    is_text: bool
+    routeable: bool
 
 
 class MeshCorePacketClassifier:
@@ -32,13 +104,13 @@ class MeshCorePacketClassifier:
     ----------
     config:
         Optional :class:`~medre.config.adapters.meshcore.MeshCoreConfig`
-        for channel mapping lookups (unused in tranche 1).
+        for channel mapping lookups (unused in current tranche).
     """
 
     def __init__(self, config: Any = None) -> None:
         self._config = config
 
-    def classify(self, packet: dict[str, Any]) -> dict[str, Any]:
+    def classify(self, packet: dict[str, Any]) -> ClassificationResult:
         """Classify a raw MeshCore event payload dict.
 
         Parameters
@@ -48,15 +120,8 @@ class MeshCorePacketClassifier:
 
         Returns
         -------
-        dict
-            Classification result with keys:
-
-            * ``category`` – ``"text"``, ``"ack"``, or ``"unknown"``.
-            * ``is_direct_message`` – whether the packet is a DM.
-            * ``channel_index`` – channel index, or ``None``.
-            * ``packet_id`` – sender timestamp integer, or ``None``.
-            * ``sender_id`` – pubkey_prefix string, or ``None``.
-            * ``is_ack`` – whether this is an acknowledgement.
+        ClassificationResult
+            Frozen typed result with action, category, reason, and flags.
         """
         text = packet.get("text")
         code = packet.get("code")
@@ -66,20 +131,52 @@ class MeshCorePacketClassifier:
         msg_type = packet.get("type")
 
         is_direct = msg_type == "PRIV"
-        is_ack = False
-        category = "unknown"
+        is_ack = code is not None
+        is_text = text is not None
 
-        if code is not None:
-            is_ack = True
-            category = "ack"
-        elif text is not None:
-            category = "text"
+        # Determine action / category / reason
+        if is_ack:
+            return ClassificationResult(
+                action="ignore",
+                category="ack",
+                reason=REASON_ACK,
+                channel_index=None,
+                packet_id=packet_id,
+                sender_id=sender_id,
+                is_direct_message=False,
+                is_ack=True,
+                is_text=False,
+                routeable=False,
+            )
 
-        return {
-            "category": category,
-            "is_direct_message": is_direct,
-            "channel_index": channel_index if not is_direct else None,
-            "packet_id": packet_id,
-            "sender_id": sender_id,
-            "is_ack": is_ack,
-        }
+        if is_text:
+            # TODO(tranche-B): DM filtering policy may become configurable.
+            # For now all text packets (both CHAN and PRIV) are relayed.
+            reason = REASON_DIRECT_TEXT if is_direct else REASON_CHANNEL_TEXT
+            return ClassificationResult(
+                action="relay",
+                category="text",
+                reason=reason,
+                channel_index=channel_index if not is_direct else None,
+                packet_id=packet_id,
+                sender_id=sender_id,
+                is_direct_message=is_direct,
+                is_ack=False,
+                is_text=True,
+                routeable=True,
+            )
+
+        # Unknown / empty / unrecognised — silently ignore.
+        reason = REASON_EMPTY if not packet else REASON_UNKNOWN
+        return ClassificationResult(
+            action="ignore",
+            category="unknown",
+            reason=reason,
+            channel_index=None,
+            packet_id=packet_id,
+            sender_id=sender_id,
+            is_direct_message=False,
+            is_ack=False,
+            is_text=False,
+            routeable=False,
+        )

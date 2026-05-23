@@ -46,11 +46,15 @@ For MeshCore, the adapter would need to synthesize `target_native_ref` from appl
 
 ## Pacing and Queue Ownership
 
-All three adapters need send pacing. The adapter-owned queue pattern works for all of them, but the constraints differ wildly.
+All three adapters need send pacing, but the current implementations differ.
 
-Meshtastic's firmware asks for roughly 0.5 seconds between packets. MeshCore's firmware minimum delay is stricter at around 2 seconds. Matrix has no per-message rate limit worth worrying about at typical meshnet scale.
+Meshtastic uses an adapter-owned outbound queue (`MeshtasticOutboundQueue`) that spaces sends with a configurable delay (`message_delay_seconds`, default 0.5s). Messages are enqueued and processed by a queue worker. Queue overflow is explicit: when full, new enqueues are rejected with a transient error. Queue stats (depth, enqueued, sent, failed, rejected) are visible in diagnostics. Being queued or locally accepted means the local node accepted the packet, not that RF transmission or remote reception occurred.
 
-The queue being adapter-owned means each adapter sets its own pacing. This is **protocol-neutral** by design. No shared pacing constant or assumption leaks between adapters.
+MeshCore currently sends directly through the session to the SDK client without an intermediary queue. The adapter accepts a `message_delay_seconds` config field as a reserved pacing parameter, but it is not enforced at send time. When implemented, pacing will introduce a minimum delay between outbound sends. There is no queue, no retry, and no requeue. A successful send means local node acceptance, not mesh delivery, ACK receipt, or RF confirmation.
+
+Matrix has no per-message rate limit worth worrying about at typical meshnet scale. MEDRE does not model Matrix rate-limit headers or adaptive transport backoff as runtime policy. M_LIMIT_EXCEEDED / HTTP 429 responses are classified as transient and retried with bounded backoff.
+
+The pacing architecture being adapter-owned means each adapter controls its own send timing. This is **protocol-neutral** by design. No shared pacing constant or assumption leaks between adapters.
 
 ## Metadata Richness
 
