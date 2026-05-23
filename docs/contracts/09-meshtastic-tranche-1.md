@@ -54,12 +54,12 @@ AdapterCapabilities(
     delivery_receipts=False,
     store_and_forward=False,
     direct_messages=False,
-    max_text_bytes=512,
-    max_text_chars=512,
+    max_text_bytes=227,
+    max_text_chars=None,
 )
 ```
 
-This is an honest declaration. The adapter does what it says and nothing more. `max_text_bytes=512` and `max_text_chars=512` advertise the transport's willingness to handle payloads up to that size. The renderer does not enforce truncation in tranche 1. `direct_messages=False` means outbound DM delivery is not supported, even though inbound DM metadata is preserved in `metadata.native.data`.
+This is an honest declaration. The adapter does what it says and nothing more. `max_text_bytes=227` (configurable via `MeshtasticConfig.max_text_bytes`, default 227) advertises the transport's byte budget for final rendered radio text. The renderer enforces UTF-8 byte-budget truncation after all prefix, reply, and reaction formatting is applied. `max_text_chars` is `None` as MEDRE does not enforce a character limit separately from the byte budget. `direct_messages=False` means outbound DM delivery is not supported, even though inbound DM metadata is preserved in `metadata.native.data`.
 
 ## Configuration (MeshtasticConfig)
 
@@ -78,6 +78,7 @@ This is an honest declaration. The adapter does what it says and nothing more. `
 | `message_delay_seconds`            | `float`                                   | No       | Minimum delay between outbound messages (pacing). Defaults to `0.5`. Must be >= 0. |
 | `startup_backlog_suppress_seconds` | `float`                                   | No       | Seconds after start to suppress stale backlog packets. Defaults to `5.0`.          |
 | `sync_timeout_ms`                  | `int`                                     | No       | Timeout in milliseconds for sync operations. Defaults to `30000`.                  |
+| `max_text_bytes`                   | `int`                                     | No       | Maximum UTF-8 byte budget for final radio text. Defaults to `227`. Must be >= 0.   |
 
 ## Reply Relation Flow
 
@@ -251,7 +252,7 @@ These are explicitly out of scope for tranche 1:
 - **ACK tracking.** No explicit acknowledgment tracking. ACK packets are classified and dropped.
 - **Admin portnum.** No admin packet handling.
 - **Remote hardware portnum.** No remote hardware control.
-- **Renderer truncation enforcement.** The renderer notes Meshtastic payload size limits but does not truncate in tranche 1.
+- **Renderer truncation enforcement.** UTF-8 byte-budget truncation is now applied after final radio text rendering (see `feat/meshtastic-byte-budget-rendering` tranche).
 
 ---
 

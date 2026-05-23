@@ -138,6 +138,7 @@ class FakeMeshtasticClient:
 
 
 # Default capabilities for the fake Meshtastic adapter.
+# Derives max_text_bytes from MeshtasticConfig to avoid duplicating the default.
 _FAKE_MESHTASTIC_CAPABILITIES = AdapterCapabilities(
     text=True,
     title=False,
@@ -153,8 +154,8 @@ _FAKE_MESHTASTIC_CAPABILITIES = AdapterCapabilities(
     channels=True,
     async_delivery=True,
     mesh_routing=True,
-    max_text_bytes=512,
-    max_text_chars=512,
+    max_text_bytes=MeshtasticConfig.max_text_bytes,
+    max_text_chars=None,
 )
 
 
@@ -211,6 +212,25 @@ class FakeMeshtasticAdapter(AdapterContract):
         self._classifier = MeshtasticPacketClassifier(config)
         self._fake_client = FakeMeshtasticClient()
         self._deliver_failure: bool = False
+        # Build per-config capabilities matching the real adapter pattern.
+        self._capabilities = AdapterCapabilities(
+            text=True,
+            title=False,
+            replies="native",
+            reactions="native",
+            edits="unsupported",
+            deletes="unsupported",
+            attachments=False,
+            metadata_fields=True,
+            delivery_receipts=False,
+            store_and_forward=False,
+            direct_messages=False,
+            channels=True,
+            async_delivery=True,
+            mesh_routing=True,
+            max_text_bytes=config.max_text_bytes,
+            max_text_chars=None,
+        )
 
     @property
     def fake_client(self) -> FakeMeshtasticClient:
@@ -246,7 +266,7 @@ class FakeMeshtasticAdapter(AdapterContract):
             platform=self.platform,
             role=self.role,
             version="0.1.0",
-            capabilities=_FAKE_MESHTASTIC_CAPABILITIES,
+            capabilities=self._capabilities,
             health="healthy" if self._started else "unknown",
         )
 

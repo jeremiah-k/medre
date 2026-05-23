@@ -77,15 +77,15 @@ class TestMeshtasticAdapterCapabilities:
 
         assert _FAKE_MESHTASTIC_CAPABILITIES.direct_messages is False
 
-    def test_capabilities_max_text_bytes_512(self) -> None:
+    def test_capabilities_max_text_bytes_227(self) -> None:
         from medre.adapters.fake_meshtastic import _FAKE_MESHTASTIC_CAPABILITIES
 
-        assert _FAKE_MESHTASTIC_CAPABILITIES.max_text_bytes == 512
+        assert _FAKE_MESHTASTIC_CAPABILITIES.max_text_bytes == 227
 
-    def test_capabilities_max_text_chars_512(self) -> None:
+    def test_capabilities_max_text_chars_none(self) -> None:
         from medre.adapters.fake_meshtastic import _FAKE_MESHTASTIC_CAPABILITIES
 
-        assert _FAKE_MESHTASTIC_CAPABILITIES.max_text_chars == 512
+        assert _FAKE_MESHTASTIC_CAPABILITIES.max_text_chars is None
 
 
 class TestRealMeshtasticCapabilities:

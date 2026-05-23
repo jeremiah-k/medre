@@ -74,6 +74,13 @@ class MeshtasticConfig:
         allows downstream consumers expecting mmrelay's ``meshtastic_*``
         fields to interoperate with medre-relayed messages.  Default:
         ``False``.
+    max_text_bytes:
+        Maximum UTF-8 byte budget for the final radio text after
+        rendering.  Applied after all prefix, reply, and reaction
+        formatting is complete.  Default: ``227``, informed by the
+        MMRelay ``DEFAULT_MESSAGE_TRUNCATE_BYTES`` constant.  ``0``
+        means the final text renders as an empty string.  Env override:
+        ``MEDRE_ADAPTER__<TOKEN>__MAX_TEXT_BYTES``.
     """
 
     adapter_id: str
@@ -91,6 +98,7 @@ class MeshtasticConfig:
     matrix_relay_prefix: str = "[{longname}/{meshnet_name}]: "
     radio_relay_prefix: str = "{shortname5}[M]: "
     mmrelay_compatibility: bool = False
+    max_text_bytes: int = 227
 
     def validate(self) -> Self:
         """Validate the configuration and return *self* for chaining.
@@ -127,5 +135,17 @@ class MeshtasticConfig:
         if self.connection_type == "ble" and not self.ble_address:
             raise MeshtasticConfigError(
                 "ble_address is required when connection_type is 'ble'"
+            )
+        if isinstance(self.max_text_bytes, bool):
+            raise MeshtasticConfigError(
+                "max_text_bytes must be an int, got bool"
+            )
+        if not isinstance(self.max_text_bytes, int):
+            raise MeshtasticConfigError(
+                f"max_text_bytes must be an int, got {type(self.max_text_bytes).__name__}"
+            )
+        if self.max_text_bytes < 0:
+            raise MeshtasticConfigError(
+                f"max_text_bytes must be >= 0, got {self.max_text_bytes}"
             )
         return self

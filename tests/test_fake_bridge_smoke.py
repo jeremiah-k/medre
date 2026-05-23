@@ -1011,6 +1011,7 @@ class TestRenderingContract:
             assert isinstance(result.metadata, dict)
             assert result.metadata.get("renderer") == "meshtastic"
             assert "original_length" in result.metadata
+            assert "rendered_length" in result.metadata
             # No truncation — short message, truncated defaults to False.
             assert result.truncated is False
         finally:
@@ -1082,11 +1083,11 @@ class TestRenderingContract:
             await _clean_stop(app)
 
     @pytest.mark.asyncio
-    async def test_no_truncation_for_long_text(
+    async def test_long_text_truncated_by_byte_budget(
         self,
         tmp_paths: MedrePaths,
     ) -> None:
-        """Text is passed through in full without truncation (no max length)."""
+        """Long text is truncated to the Meshtastic byte budget (227 bytes)."""
         config = _mx_mesh_config()
         route = _route_mx_to_mesh()
         app = await _build_and_start(config, tmp_paths)
@@ -1100,9 +1101,10 @@ class TestRenderingContract:
 
             mesh = app.adapters["fake_meshtastic"]
             result = mesh.delivered_payloads[0]
-            assert result.truncated is False
-            assert len(str(result.payload.get("text", ""))) == 600
+            assert result.truncated is True
+            assert len(result.payload.get("text", "").encode("utf-8")) <= 227
             assert result.metadata.get("original_length") == 600
+            assert result.metadata.get("rendered_length") == 227
         finally:
             await _clean_stop(app)
 

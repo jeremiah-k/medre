@@ -723,7 +723,7 @@ This is an honest list. Everything here is real.
 
 10. **Synchronous client creation.** `_create_client()` is synchronous and blocking. For TCP, this blocks until the initial device config is received. In an async context, this blocks the event loop during startup.
 
-11. **512-byte text limit.** The adapter's capabilities declare `max_text_bytes=512` and `max_text_chars=512`. The renderer notes this but does not enforce it. Messages exceeding this limit may be truncated or rejected by the radio firmware.
+11. **227-byte text budget (configurable).** The adapter's capabilities declare `max_text_bytes=227` by default (configurable via `MeshtasticConfig.max_text_bytes`). The renderer enforces UTF-8 byte-budget truncation after all prefix, reply, and reaction formatting is applied. Multi-byte UTF-8 codepoints are never split. `0` means the final text renders as empty.
 
 12. **No DM support.** The adapter capabilities declare `direct_messages=False`. Direct messages are classified by the packet classifier (`is_direct_message`) but are processed identically to broadcast messages.
 

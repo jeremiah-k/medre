@@ -78,8 +78,10 @@ from medre.core.contracts.adapter import (
 )
 from medre.core.rendering.renderer import RenderingResult
 
-# Capabilities for the Meshtastic transport adapter.
-_MESHTASTIC_CAPABILITIES = AdapterCapabilities(
+# Base capabilities for the Meshtastic transport adapter (invariant flags).
+# Instance capabilities are constructed in __init__ with the configured
+# max_text_bytes.
+_MESHTASTIC_CAPS_FLAGS: dict[str, object] = dict(
     text=True,
     title=False,
     replies="native",
@@ -94,8 +96,7 @@ _MESHTASTIC_CAPABILITIES = AdapterCapabilities(
     channels=True,
     async_delivery=True,
     mesh_routing=True,
-    max_text_bytes=512,
-    max_text_chars=512,
+    max_text_chars=None,
 )
 
 
@@ -126,7 +127,10 @@ class MeshtasticAdapter(AdapterContract):
         config.validate()
         self._config = config
         self.adapter_id = config.adapter_id
-        self._capabilities = _MESHTASTIC_CAPABILITIES
+        self._capabilities = AdapterCapabilities(
+            **_MESHTASTIC_CAPS_FLAGS,
+            max_text_bytes=config.max_text_bytes,
+        )
         self._session: MeshtasticSession | None = None
         self._client: Any = None  # mirrors session.client for diagnostics
         self._codec = MeshtasticCodec(config.adapter_id, config)

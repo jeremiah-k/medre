@@ -23,8 +23,11 @@ Selection is via the rendering pipeline's platform registry: when the
 pipeline populates the adapter's platform as ``"meshtastic"``, the renderer
 matches on that platform string directly.
 
-Text messages, replies, and reactions are supported.  No truncation is applied — the
-full message text is passed through unchanged.
+Text messages, replies, and reactions are supported.  UTF-8 byte-budget
+truncation is applied after final radio text rendering (including prefix,
+reply, and reaction formatting).  Multi-byte UTF-8 codepoints are never
+split.  Truncation metadata and the ``RenderingResult.truncated`` flag
+report whether the text was trimmed.
 
 **Cross-platform reaction rendering (MMRelay-compatible).**
 When a reaction originates from a *different* adapter than the Meshtastic
@@ -80,6 +83,15 @@ class MeshtasticRenderer:
     def __init__(self, config: MeshtasticConfig | None = None) -> None:
         self._radio_relay_prefix = config.radio_relay_prefix if config else ""
         self._meshnet_name = config.meshnet_name if config else ""
+        # Import at runtime to avoid circular imports; the default is
+        # sourced from MeshtasticConfig.max_text_bytes rather than
+        # duplicated here.
+        if config is not None:
+            self._max_text_bytes = config.max_text_bytes
+        else:
+            from medre.config.adapters.meshtastic import MeshtasticConfig as _MC
+
+            self._max_text_bytes = _MC.max_text_bytes
 
     # ------------------------------------------------------------------
     # Capability check
@@ -221,9 +233,12 @@ class MeshtasticRenderer:
           Sets ``reply_id`` if a Meshtastic packet ID is available.
           Does **not** set ``emoji=1``.
 
-        No truncation is applied to regular messages — the full message
-        text is passed through unchanged.  Cross-platform reaction
-        previews are abbreviated to 40 characters.
+        Cross-platform reaction previews are abbreviated to 40 characters.
+
+        UTF-8 byte-budget truncation is applied after final radio text
+        rendering (including prefix, reply, and reaction formatting).
+        The byte budget defaults to 227 (``MeshtasticConfig.max_text_bytes``)
+        and is configurable per adapter instance.
 
         Parameters
         ----------
@@ -315,9 +330,21 @@ class MeshtasticRenderer:
             if prefix:
                 content["text"] = f"{prefix}{content['text']}"
 
+        # -- UTF-8 byte-budget truncation after final rendering ------
+        final_text = str(content.get("text", ""))
+        truncated_text, was_truncated, original_bytes, rendered_bytes = (
+            self._truncate_utf8_bytes(final_text, self._max_text_bytes)
+        )
+        content["text"] = truncated_text
+
         metadata: dict[str, object] = {
             "renderer": self.name,
-            "original_length": len(str(content.get("text", ""))),
+            "original_length": len(final_text),
+            "rendered_length": len(truncated_text),
+            "original_text_bytes": original_bytes,
+            "rendered_text_bytes": rendered_bytes,
+            "max_text_bytes": self._max_text_bytes,
+            "truncated": was_truncated,
         }
         if prefix:
             metadata["radio_relay_prefix"] = prefix
@@ -330,11 +357,50 @@ class MeshtasticRenderer:
             target_channel=target_channel,
             payload=content,
             metadata=metadata,
+            truncated=was_truncated,
         )
 
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _truncate_utf8_bytes(
+        text: str, max_bytes: int
+    ) -> tuple[str, bool, int, int]:
+        """Truncate *text* to at most *max_bytes* UTF-8 bytes.
+
+        Parameters
+        ----------
+        text:
+            The text to potentially truncate.
+        max_bytes:
+            Maximum number of UTF-8 bytes allowed.  Must be >= 0
+            (validation is handled by ``MeshtasticConfig.validate()``).
+
+        Returns
+        -------
+        tuple[str, bool, int, int]
+            ``(truncated_text, was_truncated, original_byte_count,
+            rendered_byte_count)``.
+        """
+        if max_bytes == 0:
+            original = len(text.encode("utf-8"))
+            return ("", original > 0, original, 0)
+
+        encoded = text.encode("utf-8")
+        original_bytes = len(encoded)
+
+        if original_bytes <= max_bytes:
+            return (text, False, original_bytes, original_bytes)
+
+        # Slice to byte budget and decode with errors="ignore" to
+        # avoid splitting multi-byte UTF-8 codepoints.
+        truncated_bytes = encoded[:max_bytes]
+        truncated_text = truncated_bytes.decode("utf-8", errors="ignore")
+        rendered_bytes = len(truncated_text.encode("utf-8"))
+
+        return (truncated_text, True, original_bytes, rendered_bytes)
 
     @staticmethod
     def _is_native_reaction(event: CanonicalEvent, target_adapter: str) -> bool:
