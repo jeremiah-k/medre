@@ -12,8 +12,10 @@ All client lifecycle (creation, login, sync, teardown) is delegated to
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import random
+from types import MappingProxyType
 from typing import Any
 
 import msgspec
@@ -64,12 +66,39 @@ _DELIVERY_BACKOFF_BASE: float = 0.5  # 500ms
 _DELIVERY_BACKOFF_JITTER: float = 0.25
 
 
+class _NioRateLimitError(Exception):
+    """Internal sentinel for nio rate-limit responses.
+
+    Raised inside the retry loop when ``room_send`` returns a response
+    with ``M_LIMIT_EXCEEDED`` or HTTP 429.  Caught by the transient
+    handler and retried with backoff.  Not exposed outside this module.
+    """
+
+
 def _is_transient_error(exc: BaseException) -> bool:
     """Classify an exception as transient (retry-able) or permanent.
 
     Network-level errors from nio / aiohttp are considered transient.
-    MatrixSendError and other application-level errors are permanent.
+    Internal rate-limit sentinals are transient.
+    ``asyncio.TimeoutError``, ``TimeoutError``, ``OSError``,
+    ``ConnectionError``, and ``aiohttp.ClientError`` subclasses are
+    all transient.
+
+    ``MatrixSendError`` and other application-level errors are **not**
+    transient and fall through to the permanent path.
     """
+    # Internal rate-limit sentinel
+    if isinstance(exc, _NioRateLimitError):
+        return True
+
+    # asyncio.TimeoutError / TimeoutError
+    if isinstance(exc, (asyncio.TimeoutError, TimeoutError)):
+        return True
+
+    # OSError and its subclasses (ConnectionError, etc.)
+    if isinstance(exc, OSError):
+        return True
+
     # Common nio/aiohttp transient error patterns
     exc_name = type(exc).__name__
     exc_module = type(exc).__module__ or ""
@@ -77,14 +106,11 @@ def _is_transient_error(exc: BaseException) -> bool:
     # nio network errors
     if exc_name in (
         "TransportProtocolError",
-        "ConnectionError",
         "LocalProtocolError",
         "ClientConnectorError",
         "ServerDisconnectedError",
         "ClientOSError",
         "ServerTimeoutError",
-        "asyncio.TimeoutError",
-        "TimeoutError",
     ):
         return True
 
@@ -92,11 +118,63 @@ def _is_transient_error(exc: BaseException) -> bool:
     if "aiohttp" in exc_module and "Error" in exc_name:
         return True
 
-    # OSError and its subclasses (network layer)
-    if isinstance(exc, OSError):
-        return True
-
     return False
+
+
+def _is_nio_rate_limited_response(response: Any) -> bool:
+    """Return True if a nio response indicates a rate-limit error.
+
+    Checks for ``M_LIMIT_EXCEEDED`` errcode or HTTP 429 status on
+    response objects that lack an ``event_id`` (i.e. nio ErrorResponse
+    or similar).
+    """
+    # Already a success response
+    if hasattr(response, "event_id"):
+        return False
+    errcode = getattr(response, "errcode", None) or ""
+    if isinstance(errcode, str) and "M_LIMIT_EXCEEDED" in errcode.upper():
+        return True
+    status = getattr(response, "status_code", None)
+    if status == 429:
+        return True
+    return False
+
+
+def _is_nio_permanent_response(response: Any) -> bool:
+    """Return True if a nio response indicates a permanent error.
+
+    Checks for ``M_FORBIDDEN``, ``M_NOT_FOUND``, or invalid-room
+    errcodes on response objects that lack an ``event_id``.
+    """
+    if hasattr(response, "event_id"):
+        return False
+    errcode = str(getattr(response, "errcode", "") or "").upper()
+    if errcode in ("M_FORBIDDEN", "M_NOT_FOUND", "M_UNKNOWN"):
+        return True
+    msg = str(response).upper()
+    if "NOT_FOUND" in msg or "FORBIDDEN" in msg:
+        return True
+    return False
+
+
+def _matrix_txn_id(result: RenderingResult, room_id: str) -> str:
+    """Compute a deterministic Matrix transaction ID for idempotent sends.
+
+    Deterministic inputs: ``result.event_id``, ``result.target_adapter``,
+    ``result.target_channel``, ``room_id``.  Produces a ``medre_``-prefixed
+    38-character identifier (7 prefix + 32 hex chars / first 32 of sha256).
+
+    The transaction ID does **not** include the message body, ensuring that
+    content changes do not affect the idempotency key.
+    """
+    parts = [
+        result.event_id,
+        result.target_adapter,
+        result.target_channel or "",
+        room_id,
+    ]
+    digest = hashlib.sha256(":".join(parts).encode("utf-8")).hexdigest()
+    return f"medre_{digest[:32]}"
 
 
 def _matrix_display_name(room: Any, sender: str) -> str:
@@ -389,20 +467,38 @@ class MatrixAdapter(AdapterContract):
         ------
         MatrixSendError
             If the room is encrypted but ``crypto_enabled`` is ``False``.
+            The error message is operator-readable and ``transient=False``.
         """
         if self._session is None:
             return
         if self._session.crypto_enabled:
             return
 
-        # Track 4 — use session room_state cache first
+        _encrypted_msg = (
+            "Matrix room is encrypted but E2EE crypto is not active; "
+            "cannot send encrypted message"
+        )
+
+        # Track 4 — use session room-state cache first
         room_state = self._session.room_state(room_id)
         if room_state == "encrypted":
             raise MatrixSendError(
-                f"Room {room_id} is encrypted but E2EE crypto is not active; "
-                f"cannot send encrypted message",
+                _encrypted_msg,
                 transient=False,
             )
+        if room_state == "plaintext":
+            # Room is known plaintext — allow send
+            return
+
+        # "unknown" — fall back to client.rooms check
+        rooms = getattr(client, "rooms", None)
+        if rooms is not None and isinstance(rooms, dict):
+            room_obj = rooms.get(room_id)
+            if room_obj is not None and getattr(room_obj, "encrypted", False):
+                raise MatrixSendError(
+                    _encrypted_msg,
+                    transient=False,
+                )
         if room_state == "plaintext":
             # Room is known plaintext — allow send
             return
@@ -506,6 +602,11 @@ class MatrixAdapter(AdapterContract):
         # must never leak into the homeserver content.
         message_type = content.pop("_matrix_event_type", "m.room.message")
 
+        # Compute a deterministic transaction ID once before the retry
+        # loop so all retry attempts reuse the same txn_id.  This allows
+        # the Matrix homeserver to deduplicate retries.
+        txn_id = _matrix_txn_id(result, room_id)
+
         # Track 5 — bounded retry for transient errors
         last_exc: BaseException | None = None
         for attempt in range(_MAX_DELIVERY_RETRIES):
@@ -515,28 +616,38 @@ class MatrixAdapter(AdapterContract):
                     message_type=message_type,
                     content=content,
                     ignore_unverified_devices=self._should_ignore_unverified_devices(),
+                    txn_id=txn_id,
                 )
 
-                # Check for nio error responses
-                if hasattr(response, "event_id"):
-                    event_id = response.event_id
-                    if not event_id:
-                        raise AdapterPermanentError(
-                            "homeserver returned empty/missing event_id; "
-                            "delivery may not have been recorded"
-                        )
-                    return AdapterDeliveryResult(
-                        native_message_id=event_id,
-                        native_channel_id=room_id,
-                    )
-                else:
-                    # Error response (nio ErrorResponse or similar)
+                # Check for nio error responses (no event_id)
+                if not hasattr(response, "event_id"):
+                    # Rate-limit response → transient, retry
+                    if _is_nio_rate_limited_response(response):
+                        raise _NioRateLimitError(str(response))
+
+                    # Permanent error response (M_FORBIDDEN, M_NOT_FOUND, etc.)
+                    if _is_nio_permanent_response(response):
+                        raise AdapterPermanentError(str(response))
+
+                    # Unknown error response — treat as permanent
                     raise AdapterPermanentError(str(response))
+
+                event_id = response.event_id
+                if not event_id:
+                    raise AdapterPermanentError(
+                        "homeserver returned empty/missing event_id; "
+                        "delivery may not have been recorded"
+                    )
+                return AdapterDeliveryResult(
+                    native_message_id=event_id,
+                    native_channel_id=room_id,
+                    metadata=MappingProxyType({"matrix_txn_id": txn_id}),
+                )
 
             except MatrixSendError as exc:
                 # Session-layer error → convert to runtime boundary error.
-                self._transient_delivery_failures += 1
                 if exc.transient:
+                    self._transient_delivery_failures += 1
                     raise AdapterSendError(str(exc), transient=True) from exc
                 else:
                     self._permanent_delivery_failures += 1
@@ -559,8 +670,9 @@ class MatrixAdapter(AdapterContract):
                         await asyncio.sleep(actual_delay)
                         continue
                     # Exhausted retries — still transient so pipeline may
-                    # retry at its own level.
-                    self._permanent_delivery_failures += 1
+                    # retry at its own level.  Do NOT increment the
+                    # permanent-delivery counter; this is a transient
+                    # exhaustion, not a permanent failure.
                     raise AdapterSendError(
                         f"Delivery failed after {_MAX_DELIVERY_RETRIES} "
                         f"transient retries: {exc}",
