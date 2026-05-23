@@ -89,7 +89,7 @@ class TestMeshtasticInboundToFakeOutbound:
         rp = RenderingPipeline()
         rp.register(
             MeshtasticRenderer(
-                configs={"fake-out": MeshtasticConfig(adapter_id="fake-out")}
+                configs={"fake-out": MeshtasticConfig(adapter_id="fake-out", radio_relay_prefix="")}
             ),
             priority=50,
         )
