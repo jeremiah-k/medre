@@ -110,7 +110,8 @@ async def _collect_storage_data_from_backend(
                 worst_category = "success"
                 for r in receipt_dicts:
                     if r.get("status") in ("failed", "dead_lettered"):
-                        fk = infer_failure_kind(
+                        # Use persisted failure_kind first, fall back to inference.
+                        fk = r.get("failure_kind") or infer_failure_kind(
                             r.get("error"),
                             r.get("status", ""),
                         )
@@ -121,11 +122,27 @@ async def _collect_storage_data_from_backend(
                             worst_category = cat
                             break
 
+                # If no failed/dead_lettered receipts set the category,
+                # check suppressed receipts for classification.
+                if worst_category == "success":
+                    for r in receipt_dicts:
+                        if r.get("status") == "suppressed":
+                            fk = r.get("failure_kind") or infer_failure_kind(
+                                r.get("error"),
+                                r.get("status", ""),
+                            )
+                            if first_failure_kind is None:
+                                first_failure_kind = fk
+                            cat = failure_category(fk)
+                            if cat != "success":
+                                worst_category = cat
+                                break
+
                 has_replay = any(r.get("source") == "replay" for r in receipt_dicts)
                 has_native_refs = len(native_refs) > 0
 
                 # Determine overall classification for the event.
-                if failed_count == 0:
+                if failed_count == 0 and worst_category == "success":
                     classification = "success"
                 elif worst_category != "success":
                     classification = worst_category
