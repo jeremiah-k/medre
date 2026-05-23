@@ -591,8 +591,9 @@ class TestDuplicateEventId:
 class TestEmptyPayload:
     """Empty payload dicts must not crash the adapter."""
 
-    async def test_empty_meshtastic_decoded_text_not_crash(self) -> None:
-        """A Meshtastic packet with empty decoded text processes fine."""
+    async def test_empty_meshtastic_decoded_text_not_published(self) -> None:
+        """A Meshtastic packet with empty decoded text is not published
+        (empty text is classified as ignore)."""
         adapter = MeshtasticAdapter(
             MeshtasticConfig(adapter_id="mesh-empty", connection_type="fake")
         )
@@ -607,12 +608,11 @@ class TestEmptyPayload:
                 "id": 8888,
                 "decoded": {
                     "portnum": "text_message",
-                    "text": "",  # empty text
+                    "text": "",  # empty text → action=ignore
                 },
             }
             await adapter.simulate_inbound(pkt)
-            assert len(collector.events) == 1
-            assert collector.events[0].payload.get("body") == ""
+            assert len(collector.events) == 0
         finally:
             await adapter.stop()
 

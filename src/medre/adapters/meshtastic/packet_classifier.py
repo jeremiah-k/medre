@@ -216,8 +216,8 @@ class MeshtasticPacketClassifier:
 
     Classification works correctly for both MEDRE-normalised portnum strings
     and real symbolic ``*_APP`` portnum names.  Numeric portnum resolution
-    uses the ``_NUMERIC_PORTNUM_MAP`` which is **fixture scaffold only** —
-    see ``normalize_portnum()`` for details.
+    uses the ``_NUMERIC_PORTNUM_MAP`` which is **fixture scaffold only**
+    (see :func:`normalize_portnum` for details).
 
     Parameters
     ----------
