@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -51,6 +52,7 @@ from medre.core.planning.delivery_plan import (
     RetryPolicy,
 )
 from medre.core.rendering.renderer import RenderingResult
+from medre.runtime.evidence._bundle import collect_evidence_bundle
 from medre.runtime.reporting import delivery_receipt_to_report_dict
 
 # ---------------------------------------------------------------------------
@@ -171,6 +173,106 @@ def _mock_send_response(event_id: str = "$sent-unif-001") -> MagicMock:
     resp = MagicMock()
     resp.event_id = event_id
     return resp
+
+
+# ---------------------------------------------------------------------------
+# Sample TOML config & fixture (moved from test_evidence_cli.py)
+# ---------------------------------------------------------------------------
+
+CONFIG_FAKE_ADAPTERS = """\
+[runtime]
+name = "test-evidence"
+
+[logging]
+level = "INFO"
+
+[storage]
+backend = "sqlite"
+path = "{state}/test_evidence.db"
+
+[adapters.matrix.main]
+enabled = true
+adapter_kind = "fake"
+homeserver = "https://matrix.test"
+user_id = "@bot:test"
+access_token = "syt_super_secret_token_12345"
+room_allowlist = ["!room:test"]
+encryption_mode = "plaintext"
+
+[adapters.meshtastic.radio]
+enabled = true
+adapter_kind = "fake"
+connection_type = "serial"
+serial_port = "/dev/ttyACM0"
+meshnet_name = "TestMesh"
+
+[routes.bridge]
+source_adapters = ["main"]
+dest_adapters = ["radio"]
+directionality = "source_to_dest"
+enabled = true
+"""
+
+
+@pytest.fixture()
+def config_fake(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Write fake-adapter config to temp file with MEDRE_HOME isolation."""
+    (tmp_path / "state").mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+    p = tmp_path / "config.toml"
+    p.write_text(CONFIG_FAKE_ADAPTERS)
+    return p
+
+
+async def _make_populated_db_with_suppressed(
+    db_path: str,
+    event_id: str = "ev-suppressed-001",
+    failure_kind: str = "loop_suppressed",
+    error: str | None = "Loop suppressed: event already delivered to target",
+) -> str:
+    """Create a DB with a suppressed receipt carrying a persisted failure_kind.
+
+    Returns the event_id.
+    """
+    from medre.core.events.canonical import CanonicalEvent, DeliveryReceipt
+    from medre.core.events.kinds import EventKind
+    from medre.core.events.metadata import EventMetadata
+    from medre.core.storage.sqlite import SQLiteStorage
+
+    storage = SQLiteStorage(db_path)
+    await storage.initialize()
+
+    event = CanonicalEvent(
+        event_id=event_id,
+        event_kind=EventKind.MESSAGE_TEXT,
+        schema_version=1,
+        timestamp=datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
+        source_adapter="main",
+        source_transport_id="matrix",
+        source_channel_id="!room:test",
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload={"text": "suppressed evidence test"},
+        metadata=EventMetadata(),
+    )
+    await storage.append(event)
+
+    receipt = DeliveryReceipt(
+        receipt_id="rcpt-supp-001",
+        event_id=event_id,
+        delivery_plan_id="dp-supp-001",
+        target_adapter="radio",
+        status="suppressed",
+        source="live",
+        failure_kind=failure_kind,
+        error=error,
+        created_at=datetime(2026, 1, 1, 0, 0, 1, tzinfo=timezone.utc),
+    )
+    await storage.append_receipt(receipt)
+
+    await storage.close()
+    return event_id
 
 
 # ===================================================================
@@ -1170,3 +1272,152 @@ class TestFailureKindStatusConsistency:
             DeliveryFailureKind.DUPLICATE_SUPPRESSED,
         ):
             assert kind.is_retryable is False
+
+
+# ---------------------------------------------------------------------------
+# Tests: suppressed-only incident summary classification
+# (moved from test_evidence_cli.py)
+# ---------------------------------------------------------------------------
+
+
+class TestSuppressedIncidentSummary:
+    """Incident summary for suppressed-only receipts with failure_kind."""
+
+    @pytest.mark.asyncio
+    async def test_suppressed_loop_only_is_permanent(self, config_fake: Path) -> None:
+        """Suppressed receipt with failure_kind=loop_suppressed → permanent."""
+        db_path = str(config_fake.parent / "state" / "test_evidence.db")
+        event_id = await _make_populated_db_with_suppressed(
+            db_path,
+            event_id="ev-supp-loop-001",
+            failure_kind="loop_suppressed",
+        )
+
+        report = await collect_evidence_bundle(
+            str(config_fake),
+            event_id=event_id,
+        )
+        summary = report["sections"]["storage"]["data"]["incident_summary"]
+        assert summary["classification"] == "permanent", (
+            f"Expected 'permanent' for loop_suppressed, got "
+            f"{summary['classification']!r}"
+        )
+        assert summary["first_failure_kind"] == "loop_suppressed"
+        assert (
+            summary["failed_count"] == 0
+        ), "suppressed receipts must not increment failed_count"
+
+    @pytest.mark.asyncio
+    async def test_suppressed_capacity_only_is_operational(
+        self, config_fake: Path
+    ) -> None:
+        """Suppressed receipt with failure_kind=capacity_rejection → operational."""
+        db_path = str(config_fake.parent / "state" / "test_evidence.db")
+        event_id = await _make_populated_db_with_suppressed(
+            db_path,
+            event_id="ev-supp-cap-001",
+            failure_kind="capacity_rejection",
+            error="delivery_capacity_exceeded",
+        )
+
+        report = await collect_evidence_bundle(
+            str(config_fake),
+            event_id=event_id,
+        )
+        summary = report["sections"]["storage"]["data"]["incident_summary"]
+        assert summary["classification"] == "operational", (
+            f"Expected 'operational' for capacity_rejection, got "
+            f"{summary['classification']!r}"
+        )
+        assert summary["first_failure_kind"] == "capacity_rejection"
+        assert summary["failed_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_suppressed_shutdown_only_is_operational(
+        self, config_fake: Path
+    ) -> None:
+        """Suppressed receipt with failure_kind=shutdown_rejection → operational."""
+        db_path = str(config_fake.parent / "state" / "test_evidence.db")
+        event_id = await _make_populated_db_with_suppressed(
+            db_path,
+            event_id="ev-supp-shutdown-001",
+            failure_kind="shutdown_rejection",
+            error="delivery_rejected_shutdown",
+        )
+
+        report = await collect_evidence_bundle(
+            str(config_fake),
+            event_id=event_id,
+        )
+        summary = report["sections"]["storage"]["data"]["incident_summary"]
+        assert summary["classification"] == "operational", (
+            f"Expected 'operational' for shutdown_rejection, got "
+            f"{summary['classification']!r}"
+        )
+        assert summary["first_failure_kind"] == "shutdown_rejection"
+        assert summary["failed_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_suppressed_count_increments(self, config_fake: Path) -> None:
+        """suppressed_count is populated correctly for suppressed-only events."""
+        db_path = str(config_fake.parent / "state" / "test_evidence.db")
+        event_id = await _make_populated_db_with_suppressed(
+            db_path,
+            event_id="ev-supp-count-001",
+            failure_kind="loop_suppressed",
+        )
+
+        report = await collect_evidence_bundle(
+            str(config_fake),
+            event_id=event_id,
+        )
+        summary = report["sections"]["storage"]["data"]["incident_summary"]
+        assert (
+            summary["suppressed_count"] == 1
+        ), f"Expected suppressed_count=1, got {summary['suppressed_count']}"
+        assert summary["failed_count"] == 0
+        assert summary["sent_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_suppressed_recommended_commands_match_classification(
+        self, config_fake: Path
+    ) -> None:
+        """Recommended commands match the classification for suppressed events."""
+        db_path = str(config_fake.parent / "state" / "test_evidence.db")
+        event_id = await _make_populated_db_with_suppressed(
+            db_path,
+            event_id="ev-supp-cmds-001",
+            failure_kind="loop_suppressed",
+        )
+
+        report = await collect_evidence_bundle(
+            str(config_fake),
+            event_id=event_id,
+        )
+        summary = report["sections"]["storage"]["data"]["incident_summary"]
+        cmds = summary["recommended_commands"]
+        assert len(cmds) > 0, "Expected non-empty recommended_commands"
+        cmd_text = " ".join(cmds)
+        # permanent classification recommends inspect/evidence commands
+        assert (
+            "inspect" in cmd_text
+        ), f"Expected 'inspect' in recommended commands for permanent: {cmds}"
+
+    @pytest.mark.asyncio
+    async def test_suppressed_not_success(self, config_fake: Path) -> None:
+        """Suppressed-only events are NEVER classified as success."""
+        db_path = str(config_fake.parent / "state" / "test_evidence.db")
+        event_id = await _make_populated_db_with_suppressed(
+            db_path,
+            event_id="ev-supp-not-success-001",
+            failure_kind="loop_suppressed",
+        )
+
+        report = await collect_evidence_bundle(
+            str(config_fake),
+            event_id=event_id,
+        )
+        summary = report["sections"]["storage"]["data"]["incident_summary"]
+        assert (
+            summary["classification"] != "success"
+        ), "Suppressed-only events must not be classified as 'success'"

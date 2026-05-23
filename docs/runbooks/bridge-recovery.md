@@ -430,13 +430,13 @@ GROUP BY e.source_adapter;
 
 Not all events without receipts are truly orphaned:
 
-| Scenario                                               | Has receipt?           | Action                                                            |
-| ------------------------------------------------------ | ---------------------- | ----------------------------------------------------------------- |
-| Event stored, delivery in progress when crash occurred | No                     | Replay candidate                                                  |
-| Event stored, no routes matched                        | No                     | Not an orphan — no routes were configured for this event's source |
-| Event stored, loop prevented delivery                  | `suppressed` receipt   | Not an orphan — loop prevention worked correctly                  |
-| Event stored, capacity exceeded                        | `suppressed` receipt   | Replay candidate (after increasing capacity limits)               |
-| Event stored, delivery sent before crash               | Yes (receipt written)  | Not an orphan — check receipt status                              |
+| Scenario                                               | Has receipt?          | Action                                                            |
+| ------------------------------------------------------ | --------------------- | ----------------------------------------------------------------- |
+| Event stored, delivery in progress when crash occurred | No                    | Replay candidate                                                  |
+| Event stored, no routes matched                        | No                    | Not an orphan — no routes were configured for this event's source |
+| Event stored, loop prevented delivery                  | `suppressed` receipt  | Not an orphan — loop prevention worked correctly                  |
+| Event stored, capacity exceeded                        | `suppressed` receipt  | Replay candidate (after increasing capacity limits)               |
+| Event stored, delivery sent before crash               | Yes (receipt written) | Not an orphan — check receipt status                              |
 
 To distinguish genuine orphans from expected undelivered events:
 

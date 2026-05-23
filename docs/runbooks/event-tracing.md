@@ -354,12 +354,12 @@ The evidence bundle includes timeline evidence for specific failure scenarios
 when `--event` or `--replay-run` is provided. Available drill timeline evidence
 types:
 
-| Evidence type               | When it appears                                                                 | What it tells you                                                                                                |
-| --------------------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `replay_duplicate_risk`     | BEST_EFFORT replay produces receipts for events that already have live receipts | Multiple outbound deliveries for the same event. Use `source` field to distinguish live from replay.             |
-| `adapter_transient_failure` | Transient adapter failure triggers retry chain                                  | Check `attempt_number` progression and `parent_receipt_id` lineage. Each retry is a separate receipt.            |
+| Evidence type               | When it appears                                                                 | What it tells you                                                                                                                |
+| --------------------------- | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `replay_duplicate_risk`     | BEST_EFFORT replay produces receipts for events that already have live receipts | Multiple outbound deliveries for the same event. Use `source` field to distinguish live from replay.                             |
+| `adapter_transient_failure` | Transient adapter failure triggers retry chain                                  | Check `attempt_number` progression and `parent_receipt_id` lineage. Each retry is a separate receipt.                            |
 | `shutdown_rejection`        | In-flight delivery cancelled during runtime shutdown                            | `status="suppressed"` receipt persisted. Check `outbound_failed` counter (process-local, lost on restart) for additional signal. |
-| `degraded_live_health`      | Adapter reports degraded/failed health after startup                            | Event may have been delivered to a degraded adapter. Check the adapter's `.error` field in live health output.   |
+| `degraded_live_health`      | Adapter reports degraded/failed health after startup                            | Event may have been delivered to a degraded adapter. Check the adapter's `.error` field in live health output.                   |
 
 To drill into these scenarios:
 
