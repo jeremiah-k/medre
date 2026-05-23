@@ -1136,9 +1136,7 @@ class TestDeadLetterIncidentSummary:
         assert "first_failure_kind" in summary
 
     @pytest.mark.asyncio
-    async def test_dead_lettered_additive_fields_probe(
-        self, config_fake: Path
-    ) -> None:
+    async def test_dead_lettered_additive_fields_probe(self, config_fake: Path) -> None:
         """Probe for additive fields implementation agents may add.
 
         These fields are not yet guaranteed to exist; this test documents
@@ -1158,9 +1156,7 @@ class TestDeadLetterIncidentSummary:
         # When implementation adds dead_lettered_count, it should be >= 1
         dl_count = summary.get("dead_lettered_count")
         if dl_count is not None:
-            assert dl_count >= 1, (
-                f"dead_lettered_count should be >= 1, got {dl_count}"
-            )
+            assert dl_count >= 1, f"dead_lettered_count should be >= 1, got {dl_count}"
 
         # When implementation adds suppressed_count, it should be >= 0
         suppressed_count = summary.get("suppressed_count")
@@ -1206,9 +1202,7 @@ class TestDeadLetterIncidentSummary:
         assert receipt_data.get("attempt_number") == 6
 
     @pytest.mark.asyncio
-    async def test_incident_summary_json_no_secrets(
-        self, config_fake: Path
-    ) -> None:
+    async def test_incident_summary_json_no_secrets(self, config_fake: Path) -> None:
         """Incident summary JSON output never contains secret values."""
         db_path = str(config_fake.parent / "state" / "test_evidence.db")
         event_id = await _make_populated_db_with_dead_letter(db_path)
@@ -1228,9 +1222,7 @@ class TestDeadLetterIncidentSummary:
         assert "sk_" not in lower
 
     @pytest.mark.asyncio
-    async def test_evidence_json_stable_across_calls(
-        self, config_fake: Path
-    ) -> None:
+    async def test_evidence_json_stable_across_calls(self, config_fake: Path) -> None:
         """Evidence JSON output is structurally stable across multiple calls."""
         db_path = str(config_fake.parent / "state" / "test_evidence.db")
         await _make_populated_db(db_path)

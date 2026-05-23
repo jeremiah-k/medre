@@ -1028,42 +1028,42 @@ medre evidence --config /path/to/config.toml --json | jq '.sections.diagnostics_
 
 Look for `classifier_packets_*` fields:
 
-| Counter | What it means |
-| --- | --- |
-| `classifier_packets_seen` | Total packets examined |
-| `classifier_packets_relayed` | Packets proceeding to the pipeline |
-| `classifier_packets_ignored` | Skipped: ack/admin, telemetry, position, nodeinfo, direct messages, empty text |
-| `classifier_packets_dropped` | Rejected: encrypted packets, malformed payloads |
-| `classifier_packets_deferred` | Held for future: detection sensor, unknown portnum, plugin-only |
+| Counter                       | What it means                                                                  |
+| ----------------------------- | ------------------------------------------------------------------------------ |
+| `classifier_packets_seen`     | Total packets examined                                                         |
+| `classifier_packets_relayed`  | Packets proceeding to the pipeline                                             |
+| `classifier_packets_ignored`  | Skipped: ack/admin, telemetry, position, nodeinfo, direct messages, empty text |
+| `classifier_packets_dropped`  | Rejected: encrypted packets, malformed payloads                                |
+| `classifier_packets_deferred` | Held for future: detection sensor, unknown portnum, plugin-only                |
 
 Sub-counters break down by reason:
 
-| Sub-counter | Classification reason |
-| --- | --- |
-| `classifier_packets_malformed` | Dropped: no valid decoded payload |
-| `classifier_packets_encrypted_dropped` | Dropped: packet is encrypted |
-| `classifier_packets_detection_sensor_deferred` | Deferred: detection sensor portnum |
-| `classifier_packets_dm_ignored` | Ignored: direct message to a specific node |
-| `classifier_packets_empty_text_ignored` | Ignored: text message with empty body |
-| `classifier_packets_unknown_portnum_deferred` | Deferred: unknown or custom portnum |
+| Sub-counter                                    | Classification reason                      |
+| ---------------------------------------------- | ------------------------------------------ |
+| `classifier_packets_malformed`                 | Dropped: no valid decoded payload          |
+| `classifier_packets_encrypted_dropped`         | Dropped: packet is encrypted               |
+| `classifier_packets_detection_sensor_deferred` | Deferred: detection sensor portnum         |
+| `classifier_packets_dm_ignored`                | Ignored: direct message to a specific node |
+| `classifier_packets_empty_text_ignored`        | Ignored: text message with empty body      |
+| `classifier_packets_unknown_portnum_deferred`  | Deferred: unknown or custom portnum        |
 
 **Important:** These are **aggregate counters**, not per-packet records. They explain how many packets were classified and what aggregate decisions were made. They do **not** mean live validation — the classifier is a pure function that examines packet structure, not a real-time validator. They do **not** persist a record of every individual ignored, dropped, or deferred packet. Counters reset on adapter restart (in-memory only).
 
 ### 14.9 Summary: Evidence Non-Guarantees
 
-| Question | Answer | Evidence available? |
-| --- | --- | --- |
-| Delivered where? | Receipt shows target adapter, channel, native message ID, route | Yes (receipt + timeline) |
-| Retried why? | Receipt lineage shows failure kind, attempt number, retry policy | Yes (recovery context) |
-| Suppressed why (loop)? | Route-trace or self-loop guard fired | Yes (receipt failure_kind) |
-| Suppressed why (duplicate)? | Native-ref dedup at ingress | No receipt — counters only |
-| Dead-lettered why? | Retry exhaustion after transient failures | Yes (receipt chain) |
-| Queued but RF-confirmed? | Meshtastic `sent` means local node only | Yes (queue stats, but no RF ack) |
-| Matrix tx_id used? | Deterministic dedup reduces duplicates | Yes (receipt metadata) |
-| Matrix tx_id exactly-once? | No — homeserver dedup window is finite | No — this is not guaranteed |
-| Matrix E2EE blocked? | Undecryptable events counted in diagnostics | Yes (undecryptable_event_count) |
-| Meshtastic classifier stats? | Aggregate inbound skip counts | Yes (diagnostics classifier_*) |
-| Classifier stats per-packet? | No — aggregate only, reset on restart | No — in-memory counters only |
+| Question                     | Answer                                                           | Evidence available?              |
+| ---------------------------- | ---------------------------------------------------------------- | -------------------------------- |
+| Delivered where?             | Receipt shows target adapter, channel, native message ID, route  | Yes (receipt + timeline)         |
+| Retried why?                 | Receipt lineage shows failure kind, attempt number, retry policy | Yes (recovery context)           |
+| Suppressed why (loop)?       | Route-trace or self-loop guard fired                             | Yes (receipt failure_kind)       |
+| Suppressed why (duplicate)?  | Native-ref dedup at ingress                                      | No receipt — counters only       |
+| Dead-lettered why?           | Retry exhaustion after transient failures                        | Yes (receipt chain)              |
+| Queued but RF-confirmed?     | Meshtastic `sent` means local node only                          | Yes (queue stats, but no RF ack) |
+| Matrix tx_id used?           | Deterministic dedup reduces duplicates                           | Yes (receipt metadata)           |
+| Matrix tx_id exactly-once?   | No — homeserver dedup window is finite                           | No — this is not guaranteed      |
+| Matrix E2EE blocked?         | Undecryptable events counted in diagnostics                      | Yes (undecryptable_event_count)  |
+| Meshtastic classifier stats? | Aggregate inbound skip counts                                    | Yes (diagnostics classifier\_\*) |
+| Classifier stats per-packet? | No — aggregate only, reset on restart                            | No — in-memory counters only     |
 
 ## 15. Related Documentation
 

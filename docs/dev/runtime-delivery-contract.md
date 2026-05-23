@@ -51,29 +51,29 @@ This document describes how MEDRE routes, delivers, tracks, and recovers events.
 
 `DeliveryReceipt` (src/medre/core/events/canonical.py):
 
-| Field              | Type                                                                     | Description                    |
-| ------------------ | ------------------------------------------------------------------------ | ------------------------------ |
-| sequence           | int                                                                      | Autoincrement PK               |
-| receipt_id         | str                                                                      | UUID ("rcpt-...")              |
-| event_id           | str                                                                      | Canonical event ID             |
-| delivery_plan_id   | str                                                                      | Plan identifier                |
-| target_adapter     | str                                                                      | Target adapter name            |
-| target_channel     | str or None                                                              | Target channel                 |
-| route_id           | str                                                                      | Route that triggered delivery  |
+| Field              | Type                                                                                  | Description                    |
+| ------------------ | ------------------------------------------------------------------------------------- | ------------------------------ |
+| sequence           | int                                                                                   | Autoincrement PK               |
+| receipt_id         | str                                                                                   | UUID ("rcpt-...")              |
+| event_id           | str                                                                                   | Canonical event ID             |
+| delivery_plan_id   | str                                                                                   | Plan identifier                |
+| target_adapter     | str                                                                                   | Target adapter name            |
+| target_channel     | str or None                                                                           | Target channel                 |
+| route_id           | str                                                                                   | Route that triggered delivery  |
 | status             | Literal["accepted","queued","sent","confirmed","suppressed","failed","dead_lettered"] | Delivery status                |
-| error              | str or None                                                              | Sanitized error message        |
-| failure_kind       | str or None                                                              | Failure classification         |
-| adapter_message_id | str or None                                                              | Native message ID from adapter |
-| next_retry_at      | datetime or None                                                         | Scheduled retry time           |
-| attempt_number     | int                                                                      | 1-indexed attempt              |
-| parent_receipt_id  | str or None                                                              | Previous receipt in lineage    |
-| source             | Literal["live","retry","replay"]                                         | How this attempt was triggered |
-| replay_run_id      | str or None                                                              | Populated when source="replay" |
-| retry_max_attempts | int or None                                                              | From RetryPolicy               |
-| retry_backoff_base | float or None                                                            | From RetryPolicy               |
-| retry_max_delay    | float or None                                                            | From RetryPolicy               |
-| retry_jitter       | bool or None                                                             | From RetryPolicy               |
-| created_at         | datetime                                                                 | Timestamp                      |
+| error              | str or None                                                                           | Sanitized error message        |
+| failure_kind       | str or None                                                                           | Failure classification         |
+| adapter_message_id | str or None                                                                           | Native message ID from adapter |
+| next_retry_at      | datetime or None                                                                      | Scheduled retry time           |
+| attempt_number     | int                                                                                   | 1-indexed attempt              |
+| parent_receipt_id  | str or None                                                                           | Previous receipt in lineage    |
+| source             | Literal["live","retry","replay"]                                                      | How this attempt was triggered |
+| replay_run_id      | str or None                                                                           | Populated when source="replay" |
+| retry_max_attempts | int or None                                                                           | From RetryPolicy               |
+| retry_backoff_base | float or None                                                                         | From RetryPolicy               |
+| retry_max_delay    | float or None                                                                         | From RetryPolicy               |
+| retry_jitter       | bool or None                                                                          | From RetryPolicy               |
+| created_at         | datetime                                                                              | Timestamp                      |
 
 ## Delivery Failure Classification
 
@@ -167,30 +167,30 @@ All evidence described here is **best-effort** and **local-process scoped**. It 
 
 The `inspect` and `evidence` commands expose a delivery explanation/summary shape for a given event. When available, the JSON output includes these fields:
 
-| Field | Type | Description |
-| --- | --- | --- |
-| `event_id` | string | Canonical event ID |
-| `event_kind` | string | Event kind (e.g., `message.created`) |
-| `source_adapter` | string | Adapter that produced the inbound event |
-| `route_id` | string or null | Route that triggered this delivery |
-| `target_adapter` | string or null | Target adapter for this delivery |
-| `target_channel` | string or null | Target channel on the destination adapter |
-| `status` | string | Final delivery status: `sent`, `confirmed`, `suppressed`, `failed`, `dead_lettered`, `queued`, `accepted`. The `suppressed` status covers loop/capacity/shutdown rejection receipts persisted where event/target context exists; `duplicate_suppressed` remains reserved and is not emitted in pre-storage dedup. |
-| `failure_kind` | string or null | Classification of failure (see Delivery Failure Classification above) |
-| `retryable` | boolean | Whether the failure kind is retryable (only `ADAPTER_TRANSIENT`) |
-| `attempt_number` | integer | 1-indexed attempt count |
-| `retry_max_attempts` | integer or null | Maximum retry attempts from RetryPolicy |
-| `retry_backoff_base` | float or null | Backoff base from RetryPolicy |
-| `retry_max_delay` | float or null | Max delay cap from RetryPolicy |
-| `retry_jitter` | boolean or null | Whether jitter is enabled |
-| `next_retry_at` | string or null | ISO 8601 timestamp for next scheduled retry |
-| `adapter_message_id` | string or null | Native message ID from the target adapter (e.g., Matrix event ID, Meshtastic packet ID) |
-| `error` | string or null | Sanitized error message |
-| `source` | string | How this attempt was triggered: `live`, `retry`, or `replay` |
-| `replay_run_id` | string or null | Populated when `source="replay"` |
-| `parent_receipt_id` | string or null | Previous receipt in retry lineage |
-| `receipt_id` | string | Unique receipt identifier (`rcpt-...`) |
-| `created_at` | string | ISO 8601 timestamp of receipt creation |
+| Field                | Type            | Description                                                                                                                                                                                                                                                                                                       |
+| -------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `event_id`           | string          | Canonical event ID                                                                                                                                                                                                                                                                                                |
+| `event_kind`         | string          | Event kind (e.g., `message.created`)                                                                                                                                                                                                                                                                              |
+| `source_adapter`     | string          | Adapter that produced the inbound event                                                                                                                                                                                                                                                                           |
+| `route_id`           | string or null  | Route that triggered this delivery                                                                                                                                                                                                                                                                                |
+| `target_adapter`     | string or null  | Target adapter for this delivery                                                                                                                                                                                                                                                                                  |
+| `target_channel`     | string or null  | Target channel on the destination adapter                                                                                                                                                                                                                                                                         |
+| `status`             | string          | Final delivery status: `sent`, `confirmed`, `suppressed`, `failed`, `dead_lettered`, `queued`, `accepted`. The `suppressed` status covers loop/capacity/shutdown rejection receipts persisted where event/target context exists; `duplicate_suppressed` remains reserved and is not emitted in pre-storage dedup. |
+| `failure_kind`       | string or null  | Classification of failure (see Delivery Failure Classification above)                                                                                                                                                                                                                                             |
+| `retryable`          | boolean         | Whether the failure kind is retryable (only `ADAPTER_TRANSIENT`)                                                                                                                                                                                                                                                  |
+| `attempt_number`     | integer         | 1-indexed attempt count                                                                                                                                                                                                                                                                                           |
+| `retry_max_attempts` | integer or null | Maximum retry attempts from RetryPolicy                                                                                                                                                                                                                                                                           |
+| `retry_backoff_base` | float or null   | Backoff base from RetryPolicy                                                                                                                                                                                                                                                                                     |
+| `retry_max_delay`    | float or null   | Max delay cap from RetryPolicy                                                                                                                                                                                                                                                                                    |
+| `retry_jitter`       | boolean or null | Whether jitter is enabled                                                                                                                                                                                                                                                                                         |
+| `next_retry_at`      | string or null  | ISO 8601 timestamp for next scheduled retry                                                                                                                                                                                                                                                                       |
+| `adapter_message_id` | string or null  | Native message ID from the target adapter (e.g., Matrix event ID, Meshtastic packet ID)                                                                                                                                                                                                                           |
+| `error`              | string or null  | Sanitized error message                                                                                                                                                                                                                                                                                           |
+| `source`             | string          | How this attempt was triggered: `live`, `retry`, or `replay`                                                                                                                                                                                                                                                      |
+| `replay_run_id`      | string or null  | Populated when `source="replay"`                                                                                                                                                                                                                                                                                  |
+| `parent_receipt_id`  | string or null  | Previous receipt in retry lineage                                                                                                                                                                                                                                                                                 |
+| `receipt_id`         | string          | Unique receipt identifier (`rcpt-...`)                                                                                                                                                                                                                                                                            |
+| `created_at`         | string          | ISO 8601 timestamp of receipt creation                                                                                                                                                                                                                                                                            |
 
 ### Per-Adapter Delivery State
 
@@ -217,15 +217,15 @@ Each adapter contributes adapter-specific metadata to delivery evidence:
 
 The `failure_kind_detail` field is derived from error patterns and provides a more specific classification than `failure_kind` without changing the `DeliveryFailureKind` enum. Current values:
 
-| `failure_kind_detail` | Condition |
-| --- | --- |
-| `e2ee_blocked` | Matrix encrypted/E2EE decryption or blocking errors |
+| `failure_kind_detail`       | Condition                                                                                            |
+| --------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `e2ee_blocked`              | Matrix encrypted/E2EE decryption or blocking errors                                                  |
 | `meshtastic_queue_rejected` | Meshtastic adapter queue-full errors (requires "queue" + "full" or "enqueue rejected" in error text) |
-| (original `failure_kind`) | Default — no specialised pattern matched |
+| (original `failure_kind`)   | Default — no specialised pattern matched                                                             |
 
 The `delivery_state_by_adapter` dict in the incident summary provides per-adapter delivery state. Shape:
 
-```
+```text
 {
   "<target_adapter>": {
     "status": str | None,
@@ -246,23 +246,23 @@ Each entry selects the receipt with the highest `attempt_number` for that adapte
 
 The evidence bundle's storage section includes an `incident_summary` for scoped events with fields:
 
-| Field | Description |
-| --- | --- |
-| `event_id` | The canonical event ID |
-| `event_kind` | Event kind |
-| `source_adapter` | Source adapter |
-| `first_failure_kind` | Best-effort inferred failure kind from error patterns |
-| `classification` | One of: `success`, `retryable`, `permanent`, `operational`, `unknown` |
-| `replay_receipts_present` | Whether any replay-sourced receipts exist |
-| `native_refs_present` | Whether native transport references exist |
-| `receipt_count` | Total number of delivery receipts |
-| `failed_count` | Count of `failed` or `dead_lettered` receipts |
-| `sent_count` | Count of `sent` receipts |
-| `dead_lettered_count` | Count of `dead_lettered` receipts |
-| `suppressed_count` | Count of receipts with `status="suppressed"` (covers loop_suppressed, capacity_rejection, shutdown_rejection) |
-| `sent_unconfirmed_count` | Count of `sent` receipts (not yet confirmed by transport) |
+| Field                       | Description                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `event_id`                  | The canonical event ID                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `event_kind`                | Event kind                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `source_adapter`            | Source adapter                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `first_failure_kind`        | Best-effort inferred failure kind from error patterns                                                                                                                                                                                                                                                                                                                                                                              |
+| `classification`            | One of: `success`, `retryable`, `permanent`, `operational`, `unknown`                                                                                                                                                                                                                                                                                                                                                              |
+| `replay_receipts_present`   | Whether any replay-sourced receipts exist                                                                                                                                                                                                                                                                                                                                                                                          |
+| `native_refs_present`       | Whether native transport references exist                                                                                                                                                                                                                                                                                                                                                                                          |
+| `receipt_count`             | Total number of delivery receipts                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `failed_count`              | Count of `failed` or `dead_lettered` receipts                                                                                                                                                                                                                                                                                                                                                                                      |
+| `sent_count`                | Count of `sent` receipts                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `dead_lettered_count`       | Count of `dead_lettered` receipts                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `suppressed_count`          | Count of receipts with `status="suppressed"` (covers loop_suppressed, capacity_rejection, shutdown_rejection)                                                                                                                                                                                                                                                                                                                      |
+| `sent_unconfirmed_count`    | Count of `sent` receipts (not yet confirmed by transport)                                                                                                                                                                                                                                                                                                                                                                          |
 | `delivery_state_by_adapter` | Per-adapter delivery state dict keyed by target_adapter. Each value includes: `status`, `attempt_number`, `native_message_id`, `adapter_message_id`, `failure_kind`, `failure_kind_detail`, `retryable`, `next_retry_at`. The `failure_kind_detail` field provides a more specific classification derived from error patterns (e.g., `e2ee_blocked`, `meshtastic_queue_rejected`) without changing the `DeliveryFailureKind` enum. |
-| `recommended_commands` | Suggested CLI commands for investigation |
-| `commands` | Structured command list (primary + specialized) |
+| `recommended_commands`      | Suggested CLI commands for investigation                                                                                                                                                                                                                                                                                                                                                                                           |
+| `commands`                  | Structured command list (primary + specialized)                                                                                                                                                                                                                                                                                                                                                                                    |
 
 The `classification` field is derived from `infer_failure_kind()` which reconstructs a best-effort failure kind from error message patterns. It is not authoritative — it is a heuristic.

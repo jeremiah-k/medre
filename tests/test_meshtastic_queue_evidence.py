@@ -348,9 +348,9 @@ class TestAdapterDiagnosticsClassifierCounters:
             ]
             for key in classifier_keys:
                 assert key in diag, f"Missing classifier counter: {key}"
-                assert isinstance(diag[key], int), (
-                    f"Classifier counter {key} should be int, got {type(diag[key])}"
-                )
+                assert isinstance(
+                    diag[key], int
+                ), f"Classifier counter {key} should be int, got {type(diag[key])}"
         finally:
             await adapter.stop()
 

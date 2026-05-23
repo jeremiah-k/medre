@@ -90,7 +90,6 @@ async def _collect_storage_data_from_backend(
                     infer_failure_kind,
                     recommended_commands,
                 )
-
                 from medre.runtime.reporting import (
                     delivery_receipt_to_report_dict as _receipt_to_report,
                 )
@@ -161,9 +160,7 @@ async def _collect_storage_data_from_backend(
                     1 for r in receipt_dicts if r.get("status") == "dead_lettered"
                 )
                 suppressed_count = sum(
-                    1
-                    for r in receipt_dicts
-                    if r.get("status") == "suppressed"
+                    1 for r in receipt_dicts if r.get("status") == "suppressed"
                 )
                 sent_unconfirmed_count = sum(
                     1 for r in receipt_dicts if r.get("status") == "sent"

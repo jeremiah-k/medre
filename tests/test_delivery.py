@@ -1529,7 +1529,8 @@ class TestFailureKindStatusConsistency:
     def test_all_non_transient_kinds_are_not_retryable(self) -> None:
         """Every failure kind except ADAPTER_TRANSIENT is not retryable."""
         non_transient = [
-            k for k in DeliveryFailureKind
+            k
+            for k in DeliveryFailureKind
             if k is not DeliveryFailureKind.ADAPTER_TRANSIENT
         ]
         for kind in non_transient:
@@ -1537,5 +1538,8 @@ class TestFailureKindStatusConsistency:
 
     def test_skipped_status_never_has_retryable_kind(self) -> None:
         """Skipped outcomes should not have a retryable failure_kind."""
-        for kind in (DeliveryFailureKind.LOOP_SUPPRESSED, DeliveryFailureKind.DUPLICATE_SUPPRESSED):
+        for kind in (
+            DeliveryFailureKind.LOOP_SUPPRESSED,
+            DeliveryFailureKind.DUPLICATE_SUPPRESSED,
+        ):
             assert kind.is_retryable is False

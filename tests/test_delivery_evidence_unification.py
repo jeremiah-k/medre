@@ -29,9 +29,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -51,7 +51,6 @@ from medre.core.planning.delivery_plan import (
     RetryPolicy,
 )
 from medre.core.rendering.renderer import RenderingResult
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -73,7 +72,12 @@ def _make_receipt(
     from medre.core.events.canonical import DeliveryReceipt
 
     valid_statuses = (
-        "accepted", "queued", "sent", "confirmed", "failed", "dead_lettered",
+        "accepted",
+        "queued",
+        "sent",
+        "confirmed",
+        "failed",
+        "dead_lettered",
         "suppressed",
     )
     assert status in valid_statuses, f"Invalid receipt status: {status!r}"
@@ -105,7 +109,11 @@ def _make_outcome(
     from typing import cast
 
     valid_statuses = (
-        "success", "queued", "transient_failure", "permanent_failure", "skipped",
+        "success",
+        "queued",
+        "transient_failure",
+        "permanent_failure",
+        "skipped",
     )
     assert status in valid_statuses, f"Invalid outcome status: {status!r}"
     return DeliveryOutcome(
@@ -401,17 +409,13 @@ class TestLoopSuppressedVisibility:
 
     def test_capacity_rejection_suppressed_receipt(self) -> None:
         """Capacity rejection produces a suppressed receipt."""
-        receipt = _make_receipt(
-            status="suppressed", failure_kind="capacity_rejection"
-        )
+        receipt = _make_receipt(status="suppressed", failure_kind="capacity_rejection")
         assert receipt.status == "suppressed"
         assert receipt.failure_kind == "capacity_rejection"
 
     def test_shutdown_rejection_suppressed_receipt(self) -> None:
         """Shutdown rejection produces a suppressed receipt."""
-        receipt = _make_receipt(
-            status="suppressed", failure_kind="shutdown_rejection"
-        )
+        receipt = _make_receipt(status="suppressed", failure_kind="shutdown_rejection")
         assert receipt.status == "suppressed"
         assert receipt.failure_kind == "shutdown_rejection"
 
