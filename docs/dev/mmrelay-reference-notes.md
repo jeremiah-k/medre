@@ -111,7 +111,7 @@ dispositions:
 
 MEDRE's packet classifier uses a 4-action model (`relay`, `ignore`,
 `drop`, `deferred`) instead of MMRelay's 3-action `RELAY / PLUGIN_ONLY / DROP`
-model.  See the "Where MEDRE intentionally differs" section below for
+model. See the "Where MEDRE intentionally differs" section below for
 details.
 
 ## Matrix stable transaction-id retry
@@ -124,9 +124,8 @@ adapter now uses its own deterministic transaction ID derived from
 with `medre_`. This reduces the probability of duplicate sends on
 retry — the homeserver deduplicates within its transaction-ID window.
 This is **at-most-once within the dedup window**, not exactly-once
-delivery. No code was copied from MMRelay; the concept of a stable
-transaction ID is a Matrix protocol feature that both projects use
-independently.
+delivery. A stable transaction ID is a standard Matrix protocol
+feature — both projects use the same `txn_id` mechanism independently.
 
 ## Meshtastic queue explicit size checks / pacing
 
@@ -219,12 +218,12 @@ MMRelay evaluates packets in priority order:
 
 Key behaviors:
 
-- **Encrypted packets** default to `PLUGIN_ONLY`.  Plugins may decrypt
+- **Encrypted packets** default to `PLUGIN_ONLY`. Plugins may decrypt
   and handle them, but the relay core does not attempt decryption.
 - **Detection sensor** packets default to `PLUGIN_ONLY` if plugins are
-  loaded; otherwise `DROP`.  When `detection_sensor_enabled=True` in
+  loaded; otherwise `DROP`. When `detection_sensor_enabled=True` in
   MMRelay config, they become `RELAY`.
-- **DM (direct messages)** are not relayed by default in MMRelay.  Plugins
+- **DM (direct messages)** are not relayed by default in MMRelay. Plugins
   see DMs first and may relay them, but the core relay skips them.
 - **Channel mapping** is the final gate: even a `RELAY` packet is dropped
   if no Matrix channel is mapped for the packet's Meshtastic channel
@@ -233,37 +232,37 @@ Key behaviors:
 ### Startup stale/backlog/clock-skew suppression
 
 MMRelay drops packets received within `STARTUP_PACKET_DRAIN_SECS` of the
-first process-lifetime connect.  It also drops packets whose `rxTime` is
+first process-lifetime connect. It also drops packets whose `rxTime` is
 older than `RELAY_START_TIME` (adjusted for clock skew between the radio
-and the host).  This prevents relaying stale backlog that accumulated
+and the host). This prevents relaying stale backlog that accumulated
 while the relay was offline.
 
 ### Where MEDRE intentionally differs
 
 MEDRE uses a **4-action model** instead of MMRelay's 3-action model:
 
-| Action     | Meaning                                              |
-|------------|------------------------------------------------------|
-| `relay`    | Text message proceeds to decode and publish          |
-| `ignore`   | Packet is skipped with no side effects               |
-| `drop`     | Packet is rejected (malformed, encrypted)            |
-| `deferred` | Packet is set aside for future handling (plugins)    |
+| Action     | Meaning                                           |
+| ---------- | ------------------------------------------------- |
+| `relay`    | Text message proceeds to decode and publish       |
+| `ignore`   | Packet is skipped with no side effects            |
+| `drop`     | Packet is rejected (malformed, encrypted)         |
+| `deferred` | Packet is set aside for future handling (plugins) |
 
 Key differences:
 
 1. **`deferred` action**: MMRelay's `PLUGIN_ONLY` maps roughly to
-   MEDRE's `deferred`.     MEDRE does not have a plugin system yet, so
-   deferred packets are counted and logged but not processed.  If
+   MEDRE's `deferred`. MEDRE does not have a plugin system yet, so
+   deferred packets are counted and logged but not processed. If
    MEDRE later adds a plugin/extension path, deferred packets will
    be the entry point.
 
 2. **Encrypted packets → `drop`**: MMRelay treats encrypted as
-   `PLUGIN_ONLY` (plugins may decrypt).  MEDRE conservatively drops
+   `PLUGIN_ONLY` (plugins may decrypt). MEDRE conservatively drops
    encrypted packets because there is no decryption infrastructure yet.
    This may change to `deferred` when a decryption plugin exists.
 
 3. **Detection sensor → `deferred`**: MMRelay relays detection sensor
-   data when enabled.  MEDRE defers all detection sensor packets because
+   data when enabled. MEDRE defers all detection sensor packets because
    there is no handler for them yet.
 
 4. **Unknown portnums → `deferred`**: MMRelay drops unknown types.
@@ -271,7 +270,7 @@ Key differences:
    classifier changes.
 
 5. **Explicit reason strings**: Every MEDRE classification includes a
-   human-readable `reason` string explaining the decision.  This supports
+   human-readable `reason` string explaining the decision. This supports
    structured logging and diagnostics without string-matching on
    category names.
 
@@ -279,14 +278,14 @@ Key differences:
    counters in the adapter (seen, relayed, ignored, dropped, deferred,
    malformed, encrypted, detection_sensor, DM, empty_text, unknown_portnum).
    These are exposed via `diagnostics()` for observability without
-   external tools.  MMRelay does not expose equivalent counters.
+   external tools. MMRelay does not expose equivalent counters.
 
 7. **`ClassificationResult` dataclass**: MEDRE returns a frozen dataclass
-   from the classifier instead of a dict.  The dataclass carries action,
+   from the classifier instead of a dict. The dataclass carries action,
    category, reason, and all metadata fields in a typed, immutable
-   structure.  MMRelay uses dicts throughout.
+   structure. MMRelay uses dicts throughout.
 
 8. **No policy DSL**: MEDRE does not implement MMRelay's per-portnum
-   config overrides or chat-type config DSL.  Classification policy is
-   coded directly in the classifier decision tree.  A policy DSL may be
+   config overrides or chat-type config DSL. Classification policy is
+   coded directly in the classifier decision tree. A policy DSL may be
    added in a future tranche.
