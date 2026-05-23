@@ -155,7 +155,7 @@ direction):
 
 2. **No delivery**: The target adapter has zero delivered payloads.
 
-3. **No receipt**: No `DeliveryReceipt` is persisted for the skipped delivery.
+3. **Suppressed receipt**: A `DeliveryReceipt` with `status="suppressed"` is persisted for the skipped delivery when event/target context exists.
 
 4. **Accounting**: `loop_prevented >= 1`.
 

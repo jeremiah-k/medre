@@ -88,7 +88,7 @@ All tests should pass in under 30 seconds total.
 | `TestMeshtasticToMatrix`         | Meshtastic -> Matrix            | Event stored, receipt sent, inbound native ref, outbound native ref, accounting       |
 | `TestBidirectionalBridge`        | Matrix <-> Meshtastic           | Both directions deliver, no cross-contamination, two receipts                         |
 | `TestFanoutDelivery`             | Matrix -> Meshtastic + MeshCore | Both targets receive delivery, two receipts, two native refs, error isolation         |
-| `TestLoopPrevention`             | Self-loop                       | Delivery skipped, loop_prevented counter incremented, no receipt                      |
+| `TestLoopPrevention`             | Self-loop                       | Delivery skipped, loop_prevented counter incremented, `status="suppressed"` receipt persisted |
 | `TestReplyRelationPreservation`  | Reply event bridge              | Relations preserved in storage, fallback text rendered correctly                      |
 | `TestRenderingContract`          | Various                         | RenderingResult shape, empty payload handling, unsupported kind = failure, truncation |
 | `TestSnapshotReflectsBridgeFlow` | After delivery                  | Accounting counters, route stats, JSON-safe snapshot                                  |
