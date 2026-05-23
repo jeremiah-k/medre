@@ -5,7 +5,7 @@ Covers diagnostics truthfulness gaps found during audit:
   - LXMF teardown clears connected/router_running flags.
   - LXMF reconnect_attempts reset on successful reconnect.
   - Matrix _last_reconnect_error cleared on sync recovery.
-  - Meshtastic adapter diagnostics includes queue_total_dropped.
+  - Meshtastic adapter diagnostics includes queue_total_rejected (explicit queue-full rejection).
 
 All tests use fake mode or mocks — no real transport dependency required.
 """
@@ -267,7 +267,7 @@ class TestLxmfTeardownClearsConnected:
 
 
 class TestMeshtasticAdapterDiagnosticsQueueRejected:
-    """MeshtasticAdapter.diagnostics() must include queue_total_rejected."""
+    """MeshtasticAdapter.diagnostics() must include queue_total_rejected (explicit queue-full rejection)."""
 
     async def test_diagnostics_includes_queue_total_rejected(
         self, make_adapter_context
