@@ -22,10 +22,13 @@ Validation rules
 - ``message_delay_seconds`` ≥ 0, ``default_channel`` ≥ 0,
   ``sync_timeout_ms`` > 0.
 - ``max_text_bytes`` ≥ 0, must be ``int`` (``bool`` rejected explicitly).
+- ``startup_backlog_suppress_seconds`` ≥ 0, must be ``int`` or ``float``
+  (``bool`` rejected explicitly).
 """
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
 from typing import Literal, Self
@@ -148,6 +151,25 @@ class MeshCoreConfig:
         if self.max_text_bytes < 0:
             raise MeshCoreConfigError(
                 f"max_text_bytes must be >= 0, got {self.max_text_bytes}"
+            )
+
+        if isinstance(self.startup_backlog_suppress_seconds, bool):
+            raise MeshCoreConfigError(
+                "startup_backlog_suppress_seconds must be an int or float, got bool"
+            )
+        if not isinstance(self.startup_backlog_suppress_seconds, (int, float)):
+            raise MeshCoreConfigError(
+                f"startup_backlog_suppress_seconds must be an int or float, "
+                f"got {type(self.startup_backlog_suppress_seconds).__name__}"
+            )
+        if not math.isfinite(self.startup_backlog_suppress_seconds):
+            raise MeshCoreConfigError(
+                "startup_backlog_suppress_seconds must be finite"
+            )
+        if self.startup_backlog_suppress_seconds < 0:
+            raise MeshCoreConfigError(
+                f"startup_backlog_suppress_seconds must be >= 0, "
+                f"got {self.startup_backlog_suppress_seconds}"
             )
 
         # Non-fake connection type validation

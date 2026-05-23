@@ -113,30 +113,30 @@ packet_dict["toId"] = interface._node_num_to_id(packet_dict["to"])
 
 ### 2.2 Key Packet Shape Findings for MEDRE
 
-| Finding                                                                                | Status                       |
-| -------------------------------------------------------------------------------------- | ---------------------------- |
-| `fromId`/`toId` are populated by interface's `_node_num_to_id` lookup, not by firmware | **Confirmed**                |
-| `to` (int) is always present; `toId` may be `None` for unknown nodes                   | **Confirmed**                |
-| `decoded.portnum` is the protobuf enum **name** string (e.g., `"TEXT_MESSAGE_APP"`)    | **Confirmed**                |
-| `decoded.payload` is raw bytes, decoded into `decoded.text` by `_on_text_receive`      | **Confirmed**                |
-| `decoded.replyId` is an optional int                                                   | **Confirmed**                |
-| `decoded.emoji` is an optional int (1 = emoji)                                         | **Confirmed**                |
-| `channel` may be absent → MEDRE defaults to `None`/`0`                                 | **Correct**                  |
-| `id` is always present (MeshPacket requires it)                                        | **Correct**                  |
-| `rxTime` is used for backlog suppression (rxTime < connect time → stale)               | **Not implemented in MEDRE** |
-| `encrypted` flag exists on real packets                                                | **Not handled in MEDRE**     |
+| Finding                                                                                | Status                   |
+| -------------------------------------------------------------------------------------- | ------------------------ |
+| `fromId`/`toId` are populated by interface's `_node_num_to_id` lookup, not by firmware | **Confirmed**            |
+| `to` (int) is always present; `toId` may be `None` for unknown nodes                   | **Confirmed**            |
+| `decoded.portnum` is the protobuf enum **name** string (e.g., `"TEXT_MESSAGE_APP"`)    | **Confirmed**            |
+| `decoded.payload` is raw bytes, decoded into `decoded.text` by `_on_text_receive`      | **Confirmed**            |
+| `decoded.replyId` is an optional int                                                   | **Confirmed**            |
+| `decoded.emoji` is an optional int (1 = emoji)                                         | **Confirmed**            |
+| `channel` may be absent → MEDRE defaults to `None`/`0`                                 | **Correct**              |
+| `id` is always present (MeshPacket requires it)                                        | **Correct**              |
+| `rxTime` is used for backlog suppression (rxTime < connect time → stale)               | **Implemented in MEDRE** |
+| `encrypted` flag exists on real packets                                                | **Not handled in MEDRE** |
 
 ### 2.3 Gaps Between MEDRE Fixtures and Real Shapes
 
-| MEDRE Assumption                                      | Real Behavior                                                                 | Gap                                                                           |
-| ----------------------------------------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `decoded` always contains `text` key for text packets | `text` is **added** by `_on_text_receive` after decoding from `payload` bytes | MEDRE fixtures set `text` directly, which matches the post-processed shape    |
-| `channel` always present                              | May be absent in sparse callbacks; `MessageToDict` omits default values       | MEDRE classifiers handle missing channel correctly                            |
-| `from` (numeric) always matches `fromId` hex          | `fromId` requires node DB lookup; may be `None` if node unknown               | MEDRE handles `fromId` fallback to numeric `from` correctly                   |
-| No `encrypted` field tested                           | Real encrypted packets carry `encrypted: true`                                | MEDRE has no encrypted packet handling — out of scope for tranche 1           |
-| No `rxTime` field tested                              | Real packets carry `rxTime` for backlog suppression                           | MEDRE has no backlog suppression — future tranche item                        |
-| No `decoded.emoji` field tested                       | Real packets may carry `emoji: 1` for reactions                               | MEDRE has no reaction support — out of scope                                  |
-| No `decoded.payload` bytes field                      | Real packets carry raw `payload` bytes alongside decoded fields               | MEDRE codec reads `decoded.text` not `payload` — matches post-processed shape |
+| MEDRE Assumption                                      | Real Behavior                                                                 | Gap                                                                                     |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `decoded` always contains `text` key for text packets | `text` is **added** by `_on_text_receive` after decoding from `payload` bytes | MEDRE fixtures set `text` directly, which matches the post-processed shape              |
+| `channel` always present                              | May be absent in sparse callbacks; `MessageToDict` omits default values       | MEDRE classifiers handle missing channel correctly                                      |
+| `from` (numeric) always matches `fromId` hex          | `fromId` requires node DB lookup; may be `None` if node unknown               | MEDRE handles `fromId` fallback to numeric `from` correctly                             |
+| No `encrypted` field tested                           | Real encrypted packets carry `encrypted: true`                                | MEDRE has no encrypted packet handling — out of scope for tranche 1                     |
+| No `rxTime` field tested                              | Real packets carry `rxTime` for backlog suppression                           | MEDRE implements backlog suppression via shared utility (`startup_backlog_suppress.py`) |
+| No `decoded.emoji` field tested                       | Real packets may carry `emoji: 1` for reactions                               | MEDRE has no reaction support — out of scope                                            |
+| No `decoded.payload` bytes field                      | Real packets carry raw `payload` bytes alongside decoded fields               | MEDRE codec reads `decoded.text` not `payload` — matches post-processed shape           |
 
 ---
 
@@ -330,8 +330,14 @@ MMRelay drops packets received within `STARTUP_PACKET_DRAIN_SECS = 15.0`
 seconds of the first process-lifetime connect, and also drops packets whose
 `rxTime < RELAY_START_TIME` (adjusted for clock skew).
 
-MEDRE has no backlog suppression yet. The config field
-`startup_backlog_suppress_seconds` exists but is not implemented.
+MEDRE implements startup backlog suppression: the adapter's
+`_check_startup_backlog_suppress` delegates cutoff comparison to the
+transport-neutral helper
+`medre.core.policies.startup_backlog_suppress.should_suppress_startup_backlog`,
+while Meshtastic-specific rxTime extraction lives in
+`medre.adapters.meshtastic.startup_backlog`. The
+`startup_backlog_suppress_seconds` config field controls the window;
+a value of 0 disables suppression.
 
 ### 4.7 ACK Handling
 
@@ -449,19 +455,19 @@ Future real send implementation should:
 
 ## 6. What Remains Unverified
 
-| Area                                               | Status                                       | Risk     |
-| -------------------------------------------------- | -------------------------------------------- | -------- |
-| Real TCP/serial/BLE connection lifecycle           | Not tested                                   | Medium   |
-| mtjk callback packet shapes match fixtures exactly | Not verified with hardware capture           | Medium   |
-| PortNum numeric enum values (MEDRE scaffold)       | Verified against protobuf → mismatches found | **High** |
-| Startup backlog suppression behavior               | Not verified                                 | Medium   |
-| ACK tracking and correlation                       | Not verified                                 | Low      |
-| Firmware/radio send ID behavior                    | Not verified                                 | Low      |
-| Telemetry/position/nodeinfo payload shapes         | Not verified                                 | Low      |
-| Node database / name cache behavior                | Not verified                                 | Medium   |
-| Payload size limits and truncation                 | Not verified                                 | Low      |
-| Python protobuf `MessageToDict` output shape       | Verified through mtjk source                 | Low      |
-| `fromId` population from node DB                   | Verified through mtjk source                 | Low      |
+| Area                                               | Status                                                   | Risk     |
+| -------------------------------------------------- | -------------------------------------------------------- | -------- |
+| Real TCP/serial/BLE connection lifecycle           | Not tested                                               | Medium   |
+| mtjk callback packet shapes match fixtures exactly | Not verified with hardware capture                       | Medium   |
+| PortNum numeric enum values (MEDRE scaffold)       | Verified against protobuf → mismatches found             | **High** |
+| Startup backlog suppression behavior               | Implemented (shared utility), not verified with hardware | Medium   |
+| ACK tracking and correlation                       | Not verified                                             | Low      |
+| Firmware/radio send ID behavior                    | Not verified                                             | Low      |
+| Telemetry/position/nodeinfo payload shapes         | Not verified                                             | Low      |
+| Node database / name cache behavior                | Not verified                                             | Medium   |
+| Payload size limits and truncation                 | Not verified                                             | Low      |
+| Python protobuf `MessageToDict` output shape       | Verified through mtjk source                             | Low      |
+| `fromId` population from node DB                   | Verified through mtjk source                             | Low      |
 
 ---
 
@@ -483,16 +489,16 @@ Future real send implementation should:
 
 ## 8. MEDRE Assumptions Still Tranche-1 Scaffold Only
 
-| MEDRE Assumption                            | Status                                      | Action Required                                              |
-| ------------------------------------------- | ------------------------------------------- | ------------------------------------------------------------ |
-| Numeric PortNum map values                  | **Scaffold only** — does not match protobuf | Downgrade to explicit scaffold; add optional protobuf import |
-| `max_text_bytes=512` / `max_text_chars=512` | **Implemented** — now `max_text_bytes=227` (configurable), `max_text_chars=None`; renderer enforces UTF-8 byte truncation | `feat/meshtastic-byte-budget-rendering` |
-| `startup_backlog_suppress_seconds`          | **Scaffold** — not implemented              | Future tranche                                               |
-| `connection_type` values                    | **Scaffold** — no real connection code      | Future tranche                                               |
-| `sync_timeout_ms`                           | **Scaffold** — no sync operations           | Future tranche                                               |
-| Outbound queue pacing                       | **Scaffold** — `process_one` is no-op       | Future tranche                                               |
-| Host/port/serial_port config fields         | **Scaffold** — no real connection code      | Future tranche                                               |
-| Channel mapping (channel_index → name)      | **Scaffold** — not used                     | Future tranche                                               |
+| MEDRE Assumption                            | Status                                                                                                                    | Action Required                                              |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| Numeric PortNum map values                  | **Scaffold only** — does not match protobuf                                                                               | Downgrade to explicit scaffold; add optional protobuf import |
+| `max_text_bytes=512` / `max_text_chars=512` | **Implemented** — now `max_text_bytes=227` (configurable), `max_text_chars=None`; renderer enforces UTF-8 byte truncation | `feat/meshtastic-byte-budget-rendering`                      |
+| `startup_backlog_suppress_seconds`          | **Implemented** — adapter delegates to `startup_backlog_suppress.py` shared utility                                       | Current tranche                                              |
+| `connection_type` values                    | **Scaffold** — no real connection code                                                                                    | Future tranche                                               |
+| `sync_timeout_ms`                           | **Scaffold** — no sync operations                                                                                         | Future tranche                                               |
+| Outbound queue pacing                       | **Scaffold** — `process_one` is no-op                                                                                     | Future tranche                                               |
+| Host/port/serial_port config fields         | **Scaffold** — no real connection code                                                                                    | Future tranche                                               |
+| Channel mapping (channel_index → name)      | **Scaffold** — not used                                                                                                   | Future tranche                                               |
 
 ---
 

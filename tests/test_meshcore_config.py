@@ -323,3 +323,106 @@ class TestMeshCoreConfigNonFakeRequiresField:
         )
         with pytest.raises(MeshCoreConfigError, match="ble_address.*ble"):
             config.validate()
+
+
+class TestMeshCoreConfigStartupBacklogSuppressSeconds:
+    """startup_backlog_suppress_seconds validation: type, range, and edge cases."""
+
+    def test_default_is_5(self) -> None:
+        config = MeshCoreConfig(adapter_id="meshcore-1")
+        assert config.startup_backlog_suppress_seconds == 5.0
+
+    def test_custom_float_is_valid(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1", startup_backlog_suppress_seconds=10.0
+        )
+        assert config.validate().startup_backlog_suppress_seconds == 10.0
+
+    def test_int_is_valid(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1", startup_backlog_suppress_seconds=10
+        )
+        assert config.validate().startup_backlog_suppress_seconds == 10
+
+    def test_zero_is_valid(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1", startup_backlog_suppress_seconds=0
+        )
+        assert config.validate().startup_backlog_suppress_seconds == 0
+
+    def test_zero_float_is_valid(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1", startup_backlog_suppress_seconds=0.0
+        )
+        assert config.validate().startup_backlog_suppress_seconds == 0.0
+
+    def test_negative_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1", startup_backlog_suppress_seconds=-1.0
+        )
+        with pytest.raises(
+            MeshCoreConfigError,
+            match="startup_backlog_suppress_seconds must be >= 0",
+        ):
+            config.validate()
+
+    def test_negative_int_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1", startup_backlog_suppress_seconds=-5
+        )
+        with pytest.raises(
+            MeshCoreConfigError,
+            match="startup_backlog_suppress_seconds must be >= 0",
+        ):
+            config.validate()
+
+    def test_bool_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            startup_backlog_suppress_seconds=True,  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            MeshCoreConfigError,
+            match="startup_backlog_suppress_seconds must be an int or float, got bool",
+        ):
+            config.validate()
+
+    def test_false_bool_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            startup_backlog_suppress_seconds=False,  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            MeshCoreConfigError,
+            match="startup_backlog_suppress_seconds must be an int or float, got bool",
+        ):
+            config.validate()
+
+    def test_string_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1",
+            startup_backlog_suppress_seconds="5",  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            MeshCoreConfigError,
+            match="startup_backlog_suppress_seconds must be an int or float, got str",
+        ):
+            config.validate()
+
+    def test_infinity_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1", startup_backlog_suppress_seconds=float("inf")
+        )
+        with pytest.raises(
+            MeshCoreConfigError, match="startup_backlog_suppress_seconds"
+        ):
+            config.validate()
+
+    def test_nan_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1", startup_backlog_suppress_seconds=float("nan")
+        )
+        with pytest.raises(
+            MeshCoreConfigError, match="startup_backlog_suppress_seconds"
+        ):
+            config.validate()

@@ -133,7 +133,6 @@ from tests.helpers.live_harness import (
     LiveRequirement,
     assert_no_secret_leak,
     bounded,
-    live_env_status,
 )
 
 # ---------------------------------------------------------------------------
@@ -188,7 +187,9 @@ def _validate_live_env_from(
 
     if ct == "tcp":
         reqs.append(
-            LiveRequirement("MESHTASTIC_HOST", description="Node hostname or IP for TCP")
+            LiveRequirement(
+                "MESHTASTIC_HOST", description="Node hostname or IP for TCP"
+            )
         )
     elif ct == "serial":
         reqs.append(
@@ -624,18 +625,22 @@ class TestMeshtasticLiveSmoke:
 
     # -- Documentation tests (always pass) ----------------------------------
 
-    async def test_backlog_suppression_not_implemented_note(self):
-        """Document: startup backlog suppression is not implemented.
+    async def test_backlog_suppression_implemented_note(self):
+        """Document: startup backlog suppression is implemented.
 
-        This test always passes.  It exists to document that
-        ``startup_backlog_suppress_seconds`` is a config field with no
-        runtime implementation.  Real nodes replay buffered packets on
-        TCP connect; MEDRE does not yet filter these.
+        This test always passes.  It documents that
+        ``startup_backlog_suppress_seconds`` is wired into the Meshtastic
+        adapter's inbound path.  Cutoff comparison lives in the
+        transport-neutral helper
+        ``medre.core.policies.startup_backlog_suppress.should_suppress_startup_backlog``,
+        while Meshtastic-specific rxTime extraction lives in
+        ``medre.adapters.meshtastic.startup_backlog``.  Real nodes
+        replay buffered packets on TCP connect; MEDRE filters stale
+        packets whose rxTime predates the suppression window.
         """
-        # startup_backlog_suppress_seconds exists in MeshtasticConfig
-        # but is not enforced in the adapter's _on_packet path.
-        # Future implementation: compare packet rxTime against
-        # adapter start time and drop stale packets.
+        # startup_backlog_suppress_seconds is enforced in the adapter's
+        # _check_startup_backlog_suppress via the shared utility.
+        # See tests/test_meshtastic_startup_backlog.py for full coverage.
         pass
 
     async def test_inbound_dm_not_supported_note(self):
@@ -814,13 +819,21 @@ class TestMeshtasticBoundedLiveTests:
         ctx = _make_context()
 
         try:
-            await bounded(adapter.start(ctx), 15.0, "test_live_start_and_health: adapter.start()")
-            info = await bounded(adapter.health_check(), 15.0, "test_live_start_and_health: health_check()")
+            await bounded(
+                adapter.start(ctx), 15.0, "test_live_start_and_health: adapter.start()"
+            )
+            info = await bounded(
+                adapter.health_check(),
+                15.0,
+                "test_live_start_and_health: health_check()",
+            )
             assert info.health in ("healthy", "unknown")
             assert info.adapter_id == "meshtastic-live-smoke"
             assert info.platform == "meshtastic"
         finally:
-            await bounded(adapter.stop(), 10.0, "test_live_start_and_health: adapter.stop()")
+            await bounded(
+                adapter.stop(), 10.0, "test_live_start_and_health: adapter.stop()"
+            )
 
     @require_live_send
     async def test_live_deliver_with_transmit(self):
@@ -832,20 +845,30 @@ class TestMeshtasticBoundedLiveTests:
         ctx = _make_context()
 
         try:
-            await bounded(adapter.start(ctx), 15.0, "test_live_deliver_with_transmit: adapter.start()")
+            await bounded(
+                adapter.start(ctx),
+                15.0,
+                "test_live_deliver_with_transmit: adapter.start()",
+            )
             ts = int(time.time())
             result_obj = _make_rendering_result(
                 text=f"MEDRE live bounded test (ts={ts}) - safe to ignore",
                 event_id=f"evt-live-{ts}",
                 channel_index=int(MESHTASTIC_CHANNEL_INDEX),
             )
-            delivery = await bounded(adapter.deliver(result_obj), 15.0, "test_live_deliver_with_transmit: adapter.deliver()")
+            delivery = await bounded(
+                adapter.deliver(result_obj),
+                15.0,
+                "test_live_deliver_with_transmit: adapter.deliver()",
+            )
             assert delivery is not None
             assert delivery.native_channel_id is not None
             # Delivery was accepted (queued for transmit)
             assert "enqueued" in delivery.delivery_note
         finally:
-            await bounded(adapter.stop(), 10.0, "test_live_deliver_with_transmit: adapter.stop()")
+            await bounded(
+                adapter.stop(), 10.0, "test_live_deliver_with_transmit: adapter.stop()"
+            )
 
     @require_live_send
     async def test_live_bounded_start_stop_deliver(self):
@@ -857,19 +880,35 @@ class TestMeshtasticBoundedLiveTests:
         ctx = _make_context()
 
         try:
-            await bounded(adapter.start(ctx), 15.0, "test_live_bounded_start_stop_deliver: adapter.start()")
+            await bounded(
+                adapter.start(ctx),
+                15.0,
+                "test_live_bounded_start_stop_deliver: adapter.start()",
+            )
 
-            info = await bounded(adapter.health_check(), 15.0, "test_live_bounded_start_stop_deliver: health_check()")
+            info = await bounded(
+                adapter.health_check(),
+                15.0,
+                "test_live_bounded_start_stop_deliver: health_check()",
+            )
             assert info.health in ("healthy", "unknown")
 
             result_obj = _make_rendering_result(
                 text="MEDRE bounded lifecycle test - safe to ignore",
                 event_id="evt-lifecycle-001",
             )
-            delivery = await bounded(adapter.deliver(result_obj), 15.0, "test_live_bounded_start_stop_deliver: adapter.deliver()")
+            delivery = await bounded(
+                adapter.deliver(result_obj),
+                15.0,
+                "test_live_bounded_start_stop_deliver: adapter.deliver()",
+            )
             assert delivery is not None
         finally:
-            await bounded(adapter.stop(), 10.0, "test_live_bounded_start_stop_deliver: adapter.stop()")
+            await bounded(
+                adapter.stop(),
+                10.0,
+                "test_live_bounded_start_stop_deliver: adapter.stop()",
+            )
 
     async def test_live_stop_idempotency(self):
         """stop() called multiple times on a live adapter is safe."""
@@ -880,13 +919,21 @@ class TestMeshtasticBoundedLiveTests:
         ctx = _make_context()
 
         try:
-            await bounded(adapter.start(ctx), 15.0, "test_live_stop_idempotency: adapter.start()")
+            await bounded(
+                adapter.start(ctx), 15.0, "test_live_stop_idempotency: adapter.start()"
+            )
         finally:
-            await bounded(adapter.stop(), 10.0, "test_live_stop_idempotency: adapter.stop() #1")
+            await bounded(
+                adapter.stop(), 10.0, "test_live_stop_idempotency: adapter.stop() #1"
+            )
             # Idempotent second stop
-            await bounded(adapter.stop(), 10.0, "test_live_stop_idempotency: adapter.stop() #2")
+            await bounded(
+                adapter.stop(), 10.0, "test_live_stop_idempotency: adapter.stop() #2"
+            )
             # Idempotent third stop
-            await bounded(adapter.stop(), 10.0, "test_live_stop_idempotency: adapter.stop() #3")
+            await bounded(
+                adapter.stop(), 10.0, "test_live_stop_idempotency: adapter.stop() #3"
+            )
 
         assert adapter.diagnostics()["started"] is False
 
@@ -899,7 +946,9 @@ class TestMeshtasticBoundedLiveTests:
         ctx = _make_context()
 
         try:
-            await bounded(adapter.start(ctx), 15.0, "test_live_diagnostics_shape: adapter.start()")
+            await bounded(
+                adapter.start(ctx), 15.0, "test_live_diagnostics_shape: adapter.start()"
+            )
             diag = adapter.diagnostics()
 
             # Adapter-level keys
@@ -928,7 +977,9 @@ class TestMeshtasticBoundedLiveTests:
             assert "permanent_delivery_failures" in session
             assert "last_error" in session
         finally:
-            await bounded(adapter.stop(), 10.0, "test_live_diagnostics_shape: adapter.stop()")
+            await bounded(
+                adapter.stop(), 10.0, "test_live_diagnostics_shape: adapter.stop()"
+            )
 
     async def test_live_no_secret_leakage_in_diagnostics(self):
         """diagnostics() does NOT expose serial paths, host IPs, or secrets."""
@@ -939,7 +990,11 @@ class TestMeshtasticBoundedLiveTests:
         ctx = _make_context()
 
         try:
-            await bounded(adapter.start(ctx), 15.0, "test_live_no_secret_leakage_in_diagnostics: adapter.start()")
+            await bounded(
+                adapter.start(ctx),
+                15.0,
+                "test_live_no_secret_leakage_in_diagnostics: adapter.start()",
+            )
             diag = adapter.diagnostics()
 
             # Collect secret-like values from env to check against
@@ -952,4 +1007,8 @@ class TestMeshtasticBoundedLiveTests:
                 leak_candidates.append(MESHTASTIC_BLE_ADDRESS)
             assert_no_secret_leak(diag, leak_candidates)
         finally:
-            await bounded(adapter.stop(), 10.0, "test_live_no_secret_leakage_in_diagnostics: adapter.stop()")
+            await bounded(
+                adapter.stop(),
+                10.0,
+                "test_live_no_secret_leakage_in_diagnostics: adapter.stop()",
+            )

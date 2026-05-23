@@ -8,6 +8,7 @@ passing it to :class:`MeshtasticAdapter`.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Literal, Self
 
@@ -137,9 +138,7 @@ class MeshtasticConfig:
                 "ble_address is required when connection_type is 'ble'"
             )
         if isinstance(self.max_text_bytes, bool):
-            raise MeshtasticConfigError(
-                "max_text_bytes must be an int, got bool"
-            )
+            raise MeshtasticConfigError("max_text_bytes must be an int, got bool")
         if not isinstance(self.max_text_bytes, int):
             raise MeshtasticConfigError(
                 f"max_text_bytes must be an int, got {type(self.max_text_bytes).__name__}"
@@ -147,5 +146,23 @@ class MeshtasticConfig:
         if self.max_text_bytes < 0:
             raise MeshtasticConfigError(
                 f"max_text_bytes must be >= 0, got {self.max_text_bytes}"
+            )
+        if isinstance(self.startup_backlog_suppress_seconds, bool):
+            raise MeshtasticConfigError(
+                "startup_backlog_suppress_seconds must be an int or float, got bool"
+            )
+        if not isinstance(self.startup_backlog_suppress_seconds, (int, float)):
+            raise MeshtasticConfigError(
+                f"startup_backlog_suppress_seconds must be an int or float, "
+                f"got {type(self.startup_backlog_suppress_seconds).__name__}"
+            )
+        if not math.isfinite(self.startup_backlog_suppress_seconds):
+            raise MeshtasticConfigError(
+                "startup_backlog_suppress_seconds must be finite"
+            )
+        if self.startup_backlog_suppress_seconds < 0:
+            raise MeshtasticConfigError(
+                f"startup_backlog_suppress_seconds must be >= 0, "
+                f"got {self.startup_backlog_suppress_seconds}"
             )
         return self

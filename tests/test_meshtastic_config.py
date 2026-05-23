@@ -168,3 +168,119 @@ class TestMeshtasticConfigInvalid:
             serial_port="/dev/ttyUSB0",
         )
         assert config.validate() is config
+
+    # -- startup_backlog_suppress_seconds validation --
+
+    def test_startup_backlog_default_is_valid(self) -> None:
+        config = MeshtasticConfig(adapter_id="mesh-1")
+        assert config.startup_backlog_suppress_seconds == 5.0
+        assert config.validate() is config
+
+    def test_startup_backlog_zero_is_valid(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", startup_backlog_suppress_seconds=0
+        )
+        assert config.validate() is config
+
+    def test_startup_backlog_positive_int_is_valid(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", startup_backlog_suppress_seconds=10
+        )
+        assert config.validate() is config
+
+    def test_startup_backlog_positive_float_is_valid(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", startup_backlog_suppress_seconds=2.5
+        )
+        assert config.validate() is config
+
+    def test_startup_backlog_bool_raises(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", startup_backlog_suppress_seconds=True  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            MeshtasticConfigError, match="startup_backlog_suppress_seconds"
+        ):
+            config.validate()
+
+    def test_startup_backlog_false_bool_raises(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", startup_backlog_suppress_seconds=False  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            MeshtasticConfigError, match="startup_backlog_suppress_seconds"
+        ):
+            config.validate()
+
+    def test_startup_backlog_negative_raises(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", startup_backlog_suppress_seconds=-1.0
+        )
+        with pytest.raises(
+            MeshtasticConfigError, match="startup_backlog_suppress_seconds"
+        ):
+            config.validate()
+
+    def test_startup_backlog_string_raises(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", startup_backlog_suppress_seconds="5"  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            MeshtasticConfigError, match="startup_backlog_suppress_seconds"
+        ):
+            config.validate()
+
+    def test_startup_backlog_none_raises(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", startup_backlog_suppress_seconds=None  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            MeshtasticConfigError, match="startup_backlog_suppress_seconds"
+        ):
+            config.validate()
+
+    def test_startup_backlog_inf_raises(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", startup_backlog_suppress_seconds=float("inf")
+        )
+        with pytest.raises(
+            MeshtasticConfigError, match="startup_backlog_suppress_seconds"
+        ):
+            config.validate()
+
+    def test_startup_backlog_negative_inf_raises(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", startup_backlog_suppress_seconds=float("-inf")
+        )
+        with pytest.raises(
+            MeshtasticConfigError, match="startup_backlog_suppress_seconds"
+        ):
+            config.validate()
+
+    def test_startup_backlog_nan_raises(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", startup_backlog_suppress_seconds=float("nan")
+        )
+        with pytest.raises(
+            MeshtasticConfigError, match="startup_backlog_suppress_seconds"
+        ):
+            config.validate()
+
+    def test_max_text_bytes_bool_raises(self) -> None:
+        config = MeshtasticConfig(adapter_id="mesh-1", max_text_bytes=True)  # type: ignore[arg-type]
+        with pytest.raises(MeshtasticConfigError, match="max_text_bytes"):
+            config.validate()
+
+    def test_max_text_bytes_string_raises(self) -> None:
+        config = MeshtasticConfig(adapter_id="mesh-1", max_text_bytes="227")  # type: ignore[arg-type]
+        with pytest.raises(MeshtasticConfigError, match="max_text_bytes"):
+            config.validate()
+
+    def test_max_text_bytes_negative_raises(self) -> None:
+        config = MeshtasticConfig(adapter_id="mesh-1", max_text_bytes=-1)
+        with pytest.raises(MeshtasticConfigError, match="max_text_bytes"):
+            config.validate()
+
+    def test_max_text_bytes_zero_is_valid(self) -> None:
+        config = MeshtasticConfig(adapter_id="mesh-1", max_text_bytes=0)
+        assert config.validate() is config

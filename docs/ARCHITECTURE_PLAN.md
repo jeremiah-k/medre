@@ -89,12 +89,12 @@ These are adapter runtime errors — NOT config validation errors.
 
 ## 1. Layer Ownership Rules
 
-| Layer            | May Import From                                                           | Must Not Import From                        |
-| ---------------- | ------------------------------------------------------------------------- | ------------------------------------------- |
-| `medre.core`     | `medre.core` only (with narrowly scoped internal dependency notes)        | `medre.adapters`, `medre.config`            |
-| `medre.config`   | `medre.config` (including `config.adapters` and `config.routes`)          | `medre.adapters`, `medre.runtime`           |
-| `medre.adapters` | `medre.core.contracts.adapter`, `medre.config.adapters.*`, `medre.core.*` | —                                           |
-| `medre.runtime`  | `medre.core.*`, `medre.config.*`, `medre.adapters.*`                      | —                                           |
+| Layer            | May Import From                                                           | Must Not Import From              |
+| ---------------- | ------------------------------------------------------------------------- | --------------------------------- |
+| `medre.core`     | `medre.core` only (with narrowly scoped internal dependency notes)        | `medre.adapters`, `medre.config`  |
+| `medre.config`   | `medre.config` (including `config.adapters` and `config.routes`)          | `medre.adapters`, `medre.runtime` |
+| `medre.adapters` | `medre.core.contracts.adapter`, `medre.config.adapters.*`, `medre.core.*` | —                                 |
+| `medre.runtime`  | `medre.core.*`, `medre.config.*`, `medre.adapters.*`                      | —                                 |
 
 - Concrete adapters depend inward on core contracts and config models.
 - `medre.config.adapters.matrix_credentials` is the canonical owner of credential file operations.
@@ -168,7 +168,7 @@ medre/
 │   ├── lifecycle/           # states, manager
 │   ├── observability/       # logging, metrics (Diagnostician)
 │   ├── planning/            # delivery_plan, fallback_resolution, relation_resolution
-│   ├── policies/            # empty
+│   ├── policies/            # transport-neutral policy helpers
 │   ├── rendering/           # renderer, text
 │   ├── routing/             # models, router, stats
 │   ├── runtime/             # accounting, capabilities, capacity,
@@ -210,7 +210,8 @@ MMRelay is NOT a dependency, import target, vendor source, or copy target for ME
 - Decide disposition of remaining contract/doc documents (audit records vs current specifications)
 - Evaluate merging `core/diagnostics/` into `core/observability/`
 - Deduplicate `_SECRET_KEY_PATTERNS` between `core/runtime/diagnostic_contract.py` and `core/observability/sanitization.py`
-- Delete empty packages `core/policies/` and `core/transforms/`
+- The `core/policies/` directory contains transport-neutral pure policy helpers (e.g., startup backlog suppression window logic). Transport-specific extraction/parsing lives in each adapter package. `core` never imports from `adapters`; adapter-specific helpers live in adapter packages.
+- Delete empty package `core/transforms/`
 
 ## 5. Deferred Tranches
 
