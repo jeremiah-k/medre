@@ -23,7 +23,6 @@ from medre.core.rendering.renderer import RenderingResult
 # Helpers
 # ---------------------------------------------------------------------------
 
-
 def _make_renderer(
     target_adapter: str = "mesh-1",
     *,
@@ -39,7 +38,6 @@ def _make_renderer(
         max_text_bytes=max_text_bytes,
     )
     return MeshtasticRenderer(configs={target_adapter: config})
-
 
 def _make_event(
     event_id: str = "evt-1",
@@ -60,7 +58,6 @@ def _make_event(
         payload=payload or {"body": "hello mesh"},
         metadata=EventMetadata(),
     )
-
 
 def _make_relation(
     relation_type: str = "reply",
@@ -84,11 +81,9 @@ def _make_relation(
         fallback_text=fallback_text,
     )
 
-
 # ===================================================================
 # Constructor validation
 # ===================================================================
-
 
 class TestMeshtasticRendererConstructor:
     """MeshtasticRenderer constructor validation."""
@@ -126,11 +121,9 @@ class TestMeshtasticRendererConstructor:
         with pytest.raises(KeyError, match="radio-a"):
             await renderer.render(event, "unknown-radio")
 
-
 # ===================================================================
 # Basic rendering (target_adapter = "mesh-node")
 # ===================================================================
-
 
 class TestMeshtasticRenderer:
     """MeshtasticRenderer output and dispatch tests."""
@@ -247,11 +240,9 @@ class TestMeshtasticRenderer:
         assert result.truncated is True
         assert result.payload["text"] != long_text
 
-
 # ===================================================================
 # _meshtastic_reply_id_from_relation
 # ===================================================================
-
 
 class TestNativeReplyIdFromRelation:
     """Tests for MeshtasticRenderer._meshtastic_reply_id_from_relation."""
@@ -320,11 +311,9 @@ class TestNativeReplyIdFromRelation:
             MeshtasticRenderer._meshtastic_reply_id_from_relation(rel, "mesh-1") == 77
         )
 
-
 # ===================================================================
 # Structured reply rendering
 # ===================================================================
-
 
 class TestRendererStructuredReply:
     """Renderer reply rendering with/without native ref."""
@@ -399,11 +388,9 @@ class TestRendererStructuredReply:
         assert result.payload["reply_id"] == 10
         assert result.payload["channel_index"] == 2
 
-
 # ===================================================================
 # Structured reaction rendering
 # ===================================================================
-
 
 class TestRendererStructuredReaction:
     """Renderer reaction rendering with/without native ref."""
@@ -487,7 +474,6 @@ class TestRendererStructuredReaction:
         result = await renderer.render(event, "mesh-1", target_channel="4")
         assert result.payload["channel_index"] == 4
         assert "meshnet_name" in result.payload
-
 
 class TestMeshtasticRendererForeignRefs:
     """MeshtasticRenderer must not use native refs from other adapters."""
@@ -577,11 +563,9 @@ class TestMeshtasticRendererForeignRefs:
         assert "reply_id" not in result.payload
         assert "emoji" not in result.payload
 
-
 # ===================================================================
 # Helper factories for Matrix-originated events
 # ===================================================================
-
 
 def _make_matrix_event(
     event_id: str = "mx-evt-1",
@@ -610,7 +594,6 @@ def _make_matrix_event(
         payload=payload or {"body": "👍"},
         metadata=EventMetadata(native=NativeMetadata(data=native_data)),
     )
-
 
 def _make_cross_platform_relation(
     key: str = "👍",
@@ -641,11 +624,9 @@ def _make_cross_platform_relation(
         metadata=metadata,
     )
 
-
 # ===================================================================
 # Cross-platform (Matrix→Meshtastic) MMRelay descriptive reactions
 # ===================================================================
-
 
 class TestCrossPlatformReactionDescriptive:
     """Matrix-originated reactions render as MMRelay descriptive text."""
@@ -883,7 +864,6 @@ class TestCrossPlatformReactionDescriptive:
         result = await renderer.render(event, "mesh-1")
         assert result.payload["reply_id"] == 88
         assert "emoji" not in result.payload
-
 
 # ===================================================================
 # Test D: Matrix→Meshtastic comprehensive reaction rendering
