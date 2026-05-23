@@ -112,22 +112,6 @@ class TestExtractRxTimeReject:
         assert extract_meshtastic_rx_time({"rxTime": -0.5}) is None
 
 
-class TestExtractRxTimeEdge:
-    """Zero and negative epochs are rejected."""
-
-    def test_zero_int(self) -> None:
-        assert extract_meshtastic_rx_time({"rxTime": 0}) is None
-
-    def test_zero_float(self) -> None:
-        assert extract_meshtastic_rx_time({"rxTime": 0.0}) is None
-
-    def test_negative_int(self) -> None:
-        assert extract_meshtastic_rx_time({"rxTime": -1}) is None
-
-    def test_negative_float(self) -> None:
-        assert extract_meshtastic_rx_time({"rxTime": -0.5}) is None
-
-
 class TestExtractRxTimeMisc:
     """Other edge cases for rxTime extraction."""
 

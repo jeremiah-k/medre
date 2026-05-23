@@ -208,7 +208,6 @@ class MeshtasticAdapter(AdapterContract):
 
         self.ctx = ctx
         self._mark_started(ctx)
-        self._adapter_start_epoch = time.time()
 
         # Create session and delegate lifecycle
         self._session = MeshtasticSession(
@@ -226,6 +225,11 @@ class MeshtasticAdapter(AdapterContract):
             self._session = None
             self._client = None
             raise
+
+        # Session-scoped startup backlog baseline — set AFTER session connects
+        self._adapter_start_epoch = time.time()
+        self._startup_backlog_packets_seen = 0
+        self._startup_backlog_packets_suppressed = 0
 
         # Mirror session client for diagnostics
         self._client = self._session.client

@@ -556,6 +556,38 @@ class TestStartupBacklogDiagnostics:
 
         await adapter.stop()
 
+    async def test_restart_resets_session_scoped_state(self) -> None:
+        """stop()+start() resets epoch and suppression counters."""
+        config = make_meshtastic_config(startup_backlog_suppress_seconds=10.0)
+        adapter = MeshtasticAdapter(config)
+        ctx = _make_context()
+
+        # First start
+        await adapter.start(ctx)
+        first_epoch = adapter.diagnostics()["adapter_start_epoch"]
+
+        # Stop and restart
+        await adapter.stop()
+
+        before_restart = time.time()
+        await adapter.start(ctx)
+        after_restart = time.time()
+
+        diag = adapter.diagnostics()
+
+        # Epoch should have changed (new start time)
+        assert diag["adapter_start_epoch"] != first_epoch
+        assert before_restart <= diag["adapter_start_epoch"] <= after_restart
+
+        # Counters must be reset to 0
+        assert diag["startup_backlog_packets_seen"] == 0
+        assert diag["startup_backlog_packets_suppressed"] == 0
+
+        # Config value preserved
+        assert diag["startup_backlog_suppress_seconds"] == 10.0
+
+        await adapter.stop()
+
 
 # ---------------------------------------------------------------------------
 # _on_packet callback path

@@ -408,3 +408,21 @@ class TestMeshCoreConfigStartupBacklogSuppressSeconds:
             match="startup_backlog_suppress_seconds must be an int or float, got str",
         ):
             config.validate()
+
+    def test_infinity_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1", startup_backlog_suppress_seconds=float("inf")
+        )
+        with pytest.raises(
+            MeshCoreConfigError, match="startup_backlog_suppress_seconds"
+        ):
+            config.validate()
+
+    def test_nan_raises(self) -> None:
+        config = MeshCoreConfig(
+            adapter_id="meshcore-1", startup_backlog_suppress_seconds=float("nan")
+        )
+        with pytest.raises(
+            MeshCoreConfigError, match="startup_backlog_suppress_seconds"
+        ):
+            config.validate()

@@ -261,6 +261,8 @@ class FakeMeshtasticAdapter(AdapterContract):
         self._mark_started(ctx)
         self._started = True
         self._adapter_start_epoch = time.time()
+        self._startup_backlog_packets_seen = 0
+        self._startup_backlog_packets_suppressed = 0
         ctx.logger.info("FakeMeshtasticAdapter %s started", self.adapter_id)
 
     async def stop(self, timeout: float = 5.0) -> None:

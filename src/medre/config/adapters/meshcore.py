@@ -28,6 +28,7 @@ Validation rules
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
 from typing import Literal, Self
@@ -160,6 +161,10 @@ class MeshCoreConfig:
             raise MeshCoreConfigError(
                 f"startup_backlog_suppress_seconds must be an int or float, "
                 f"got {type(self.startup_backlog_suppress_seconds).__name__}"
+            )
+        if not math.isfinite(self.startup_backlog_suppress_seconds):
+            raise MeshCoreConfigError(
+                "startup_backlog_suppress_seconds must be finite"
             )
         if self.startup_backlog_suppress_seconds < 0:
             raise MeshCoreConfigError(
