@@ -122,7 +122,7 @@ class MeshCoreRenderer:
 
         * ``text``: extracted text from the event payload, truncated
           to the configured ``max_text_bytes`` UTF-8 byte budget.
-        * ``channel_index``: parsed from *target_channel* or ``0``.
+        * ``channel_index``: parsed from *target_channel* or ``config.default_channel``.
         * ``meshnet_name``: the configured mesh network name.
 
         **Target-aware config resolution.** The renderer resolves the
@@ -160,12 +160,10 @@ class MeshCoreRenderer:
         text = str(event.payload.get("body", event.payload.get("text", "")))
 
         # Parse channel index from target_channel
-        channel_index = 0
-        if target_channel is not None:
-            try:
-                channel_index = int(target_channel)
-            except (ValueError, TypeError):
-                channel_index = 0
+        try:
+            channel_index = int(target_channel)  # type: ignore[arg-type]
+        except (ValueError, TypeError):
+            channel_index = adapter_config.default_channel
 
         # -- UTF-8 byte-budget truncation after final rendering ------
         truncated_text, was_truncated, original_bytes, rendered_bytes = (

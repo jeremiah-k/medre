@@ -21,11 +21,13 @@ def _make_config(
     *,
     max_text_bytes: int = 512,
     meshnet_name: str = "",
+    default_channel: int = 0,
 ) -> MeshCoreConfig:
     return MeshCoreConfig(
         adapter_id=adapter_id,
         max_text_bytes=max_text_bytes,
         meshnet_name=meshnet_name,
+        default_channel=default_channel,
     )
 
 
@@ -193,13 +195,31 @@ class TestMeshCoreRendererBasic:
         renderer = _make_renderer()
         event = _make_event()
         result = await renderer.render(event, "meshcore_node")
+        # Default config has default_channel=0
         assert result.payload["channel_index"] == 0
 
-    async def test_render_non_numeric_channel_defaults_to_zero(self) -> None:
+    async def test_render_non_numeric_channel_falls_back_to_config(self) -> None:
         renderer = _make_renderer()
         event = _make_event()
         result = await renderer.render(event, "meshcore_node", target_channel="abc")
+        # Default config has default_channel=0
         assert result.payload["channel_index"] == 0
+
+    async def test_render_nonzero_default_channel_with_none_target(self) -> None:
+        """None target_channel falls back to config.default_channel."""
+        cfg = _make_config("mc-chan", default_channel=7)
+        renderer = MeshCoreRenderer(configs={"mc-chan": cfg})
+        event = _make_event()
+        result = await renderer.render(event, "mc-chan")
+        assert result.payload["channel_index"] == 7
+
+    async def test_render_nonzero_default_channel_with_invalid_target(self) -> None:
+        """Non-numeric target_channel falls back to config.default_channel."""
+        cfg = _make_config("mc-chan", default_channel=5)
+        renderer = MeshCoreRenderer(configs={"mc-chan": cfg})
+        event = _make_event()
+        result = await renderer.render(event, "mc-chan", target_channel="invalid")
+        assert result.payload["channel_index"] == 5
 
     async def test_render_returns_rendering_result(self) -> None:
         renderer = _make_renderer()

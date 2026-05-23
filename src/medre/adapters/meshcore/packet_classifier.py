@@ -14,7 +14,7 @@ frozen :class:`ClassificationResult`.  It has no side effects.
 
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError, dataclass, fields
+from dataclasses import dataclass
 from typing import Any, Literal
 
 # ---------------------------------------------------------------------------
@@ -30,7 +30,9 @@ ClassificationAction = Literal["relay", "ignore", "drop", "deferred"]
 * ``"deferred"`` – hold for later evaluation (reserved for future policy).
 """
 
-ClassificationCategory = Literal["text", "direct_message", "ack", "malformed", "unknown"]
+ClassificationCategory = Literal[
+    "text", "direct_message", "ack", "malformed", "unknown"
+]
 """Packet content category."""
 
 # ---------------------------------------------------------------------------
@@ -40,8 +42,9 @@ ClassificationCategory = Literal["text", "direct_message", "ack", "malformed", "
 REASON_CHANNEL_TEXT = "channel_text_packet"
 REASON_DIRECT_TEXT = "direct_text_packet"
 REASON_ACK = "ack_packet"
-REASON_UNKNOWN = "unknown_packet"
 REASON_EMPTY_TEXT = "empty_text_packet"
+REASON_MALFORMED = "malformed_packet"
+REASON_UNKNOWN = "unknown_packet"
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +103,14 @@ class MeshCorePacketClassifier:
       ``type``=``"CHAN"``, ``txt_type``.
     * **ACK**: has ``code``.
 
+    .. note::
+
+       ``direct_messages=False`` in capabilities means MEDRE does not model
+       outbound DM initiation/targeting.  Inbound PRIV packets are still
+       relayed.  This is NOT a contradiction; it is a scope statement about
+       outbound capability.  See ``adapter.py`` near ``_MESHCORE_CAPS_BASE``
+       for the corresponding note.
+
     Parameters
     ----------
     config:
@@ -134,7 +145,7 @@ class MeshCorePacketClassifier:
         is_ack = code is not None
         is_text = text is not None
 
-        # Determine action / category / reason
+        # --- ACK packets (code field present) → ignore --------------------
         if is_ack:
             return ClassificationResult(
                 action="ignore",
@@ -149,7 +160,9 @@ class MeshCorePacketClassifier:
                 routeable=False,
             )
 
+        # --- Text packets ------------------------------------------------
         if is_text:
+            # Determine category from type; keep type distinction for empty.
             if is_direct:
                 category: ClassificationCategory = "direct_message"
                 reason = REASON_DIRECT_TEXT
@@ -160,6 +173,23 @@ class MeshCorePacketClassifier:
                 # Text present but no recognised type — treat as generic text.
                 category = "text"
                 reason = REASON_CHANNEL_TEXT
+
+            # Empty/whitespace-only text → ignore (keep type distinction).
+            if text.strip() == "":
+                return ClassificationResult(
+                    action="ignore",
+                    category=category,
+                    reason=REASON_EMPTY_TEXT,
+                    channel_index=channel_index if not is_direct else None,
+                    packet_id=packet_id,
+                    sender_id=sender_id,
+                    is_direct_message=is_direct,
+                    is_ack=False,
+                    is_text=True,
+                    routeable=False,
+                )
+
+            # Non-empty text → relay.
             return ClassificationResult(
                 action="relay",
                 category=category,
@@ -173,7 +203,8 @@ class MeshCorePacketClassifier:
                 routeable=True,
             )
 
-        # No text, no code — check for unrecognised type vs malformed.
+        # --- No text, no code --------------------------------------------
+        # Unrecognised type (not PRIV/CHAN) → deferred.
         if msg_type is not None and msg_type not in ("PRIV", "CHAN"):
             return ClassificationResult(
                 action="deferred",
@@ -188,12 +219,13 @@ class MeshCorePacketClassifier:
                 routeable=False,
             )
 
-        # Malformed: empty dict, random fields, or PRIV/CHAN without text.
-        reason = REASON_EMPTY_TEXT if not packet else REASON_UNKNOWN
+        # Everything else → drop (malformed).
+        # Covers: empty dict {}, random fields with no text/code/type,
+        # PRIV/CHAN without text.
         return ClassificationResult(
-            action="deferred",
+            action="drop",
             category="malformed",
-            reason=reason,
+            reason=REASON_MALFORMED,
             channel_index=None,
             packet_id=packet_id,
             sender_id=sender_id,

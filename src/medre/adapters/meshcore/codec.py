@@ -74,6 +74,8 @@ class MeshCoreCodec:
         classification = self._classifier.classify(packet)
         if classification.is_ack:
             raise MeshCoreCodecError("ACK packets are not decodable as text events")
+        # Codec decodes only text-shaped packets (text / direct_message categories).
+        # Adapter gates relay policy via ClassificationResult.action before reaching codec.
         if classification.category not in ("text", "direct_message"):
             raise MeshCoreCodecError(
                 f"unsupported MeshCore packet category for decode: {classification.category!r}"

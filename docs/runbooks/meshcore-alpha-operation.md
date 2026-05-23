@@ -782,7 +782,7 @@ This is an honest list. Everything here is real.
 
 10. **No metrics.** There is no Prometheus endpoint, no counters, no histograms. The only observability is log output and the `health_check()` return value.
 
-11. **512-byte text limit.** The adapter's capabilities declare `max_text_bytes=512` and `max_text_chars=512`. The renderer notes this but does not enforce it. The MeshCore wire protocol has a 255-byte frame payload maximum. Messages exceeding the wire limit may be truncated or rejected by the firmware.
+11. **512-byte text limit.** The adapter's capabilities declare `max_text_bytes=512` (configurable) and `max_text_chars=None` (UTF-8 bytes enforced, not characters). The renderer enforces target-aware UTF-8 byte-budget truncation after final rendering. The MeshCore wire protocol has a 255-byte frame payload maximum. Messages exceeding the wire limit may be truncated or rejected by the firmware.
 
 12. **No DM support (outbound).** The adapter capabilities declare `direct_messages=False`. This means MEDRE does not model explicit outbound DM targeting. It does **not** mean the transport cannot relay inbound PRIV packets. Direct messages are classified by the packet classifier (`is_direct_message`) and relayed identically to channel messages. Relaying an inbound private message is not the same as initiating a direct message. See `packet_classifier.py` for the inline note.
 

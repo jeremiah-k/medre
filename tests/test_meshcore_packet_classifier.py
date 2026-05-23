@@ -187,9 +187,9 @@ class TestPacketClassifierMissingFields:
         assert result.is_ack is False
         assert result.sender_id is None
         assert result.packet_id is None
-        assert result.action == "deferred"
+        assert result.action == "drop"
         assert result.routeable is False
-        assert result.reason == "empty_text_packet"
+        assert result.reason == "malformed_packet"
 
 
 class TestPacketClassifierAck:
@@ -244,7 +244,82 @@ class TestPacketClassifierUnknown:
         packet = {"foo": "bar"}
         result = cls.classify(packet)
         assert result.category == "malformed"
-        assert result.action == "deferred"
+        assert result.action == "drop"
+        assert result.reason == "malformed_packet"
+
+
+class TestPacketClassifierEmptyText:
+    """Empty/whitespace-only text is ignored (not relayed)."""
+
+    def test_empty_string_text_channel(self) -> None:
+        cls = MeshCorePacketClassifier()
+        packet = {"text": "", "type": "CHAN", "channel_idx": 0}
+        result = cls.classify(packet)
+        assert result.action == "ignore"
+        assert result.category == "text"
+        assert result.reason == "empty_text_packet"
+        assert result.routeable is False
+        assert result.is_text is True
+
+    def test_whitespace_only_text_channel(self) -> None:
+        cls = MeshCorePacketClassifier()
+        packet = {"text": "   \t\n  ", "type": "CHAN", "channel_idx": 0}
+        result = cls.classify(packet)
+        assert result.action == "ignore"
+        assert result.category == "text"
+        assert result.reason == "empty_text_packet"
+        assert result.routeable is False
+
+    def test_empty_string_text_dm(self) -> None:
+        cls = MeshCorePacketClassifier()
+        packet = {"text": "", "type": "PRIV", "pubkey_prefix": "abc"}
+        result = cls.classify(packet)
+        assert result.action == "ignore"
+        assert result.category == "direct_message"
+        assert result.reason == "empty_text_packet"
+        assert result.routeable is False
+        assert result.is_text is True
+
+    def test_whitespace_only_text_dm(self) -> None:
+        cls = MeshCorePacketClassifier()
+        packet = {"text": "  ", "type": "PRIV", "pubkey_prefix": "abc"}
+        result = cls.classify(packet)
+        assert result.action == "ignore"
+        assert result.category == "direct_message"
+        assert result.reason == "empty_text_packet"
+        assert result.routeable is False
+
+
+class TestPacketClassifierMalformed:
+    """PRIV/CHAN without text are malformed (drop)."""
+
+    def test_priv_no_text(self) -> None:
+        cls = MeshCorePacketClassifier()
+        packet = {"type": "PRIV", "pubkey_prefix": "abc", "sender_timestamp": 42}
+        result = cls.classify(packet)
+        assert result.action == "drop"
+        assert result.category == "malformed"
+        assert result.reason == "malformed_packet"
+        assert result.routeable is False
+
+    def test_chan_no_text(self) -> None:
+        cls = MeshCorePacketClassifier()
+        packet = {"type": "CHAN", "channel_idx": 0, "sender_timestamp": 42}
+        result = cls.classify(packet)
+        assert result.action == "drop"
+        assert result.category == "malformed"
+        assert result.reason == "malformed_packet"
+        assert result.routeable is False
+
+    def test_text_no_type_relays(self) -> None:
+        """Text present but no recognised type — treat as generic text, relay."""
+        cls = MeshCorePacketClassifier()
+        packet = {"text": "hello", "sender_timestamp": 1}
+        result = cls.classify(packet)
+        assert result.action == "relay"
+        assert result.category == "text"
+        assert result.reason == "channel_text_packet"
+        assert result.routeable is True
 
 
 class TestClassificationResultFrozen:

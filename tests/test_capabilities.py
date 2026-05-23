@@ -441,7 +441,7 @@ class TestFakeMeshCoreCapabilities:
         assert caps.channels is True
         assert caps.mesh_routing is True
         assert caps.max_text_bytes == 512
-        assert caps.max_text_chars == 512
+        assert caps.max_text_chars is None
 
     def test_capability_serialization_matches(self) -> None:
         from medre.adapters.fake_meshcore import _FAKE_MESHCORE_CAPABILITIES
@@ -478,7 +478,7 @@ class TestFakeMeshCoreCapabilities:
         config = MeshCoreConfig(adapter_id="caps-test", max_text_bytes=2048)
         adapter = MeshCoreAdapter(config)
         assert adapter._capabilities.max_text_bytes == 2048
-        assert adapter._capabilities.max_text_chars == 2048
+        assert adapter._capabilities.max_text_chars is None
 
     @pytest.mark.asyncio
     async def test_health_check_capabilities_serializable(

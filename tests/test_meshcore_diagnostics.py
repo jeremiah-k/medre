@@ -80,6 +80,19 @@ def _unknown_packet(sender: str = "unk", timestamp: int = 5) -> dict[str, Any]:
     }
 
 
+def _empty_text_packet(
+    text: str = "", msg_type: str = "CHAN", channel: int = 0
+) -> dict[str, Any]:
+    return {
+        "text": text,
+        "type": msg_type,
+        "channel_idx": channel if msg_type == "CHAN" else None,
+        "pubkey_prefix": "abc123",
+        "sender_timestamp": 77,
+        "txt_type": 0,
+    }
+
+
 def _assert_counter_keys_zero(diag: dict[str, Any]) -> None:
     """Assert all classifier counter keys are present and zero."""
     assert diag["classifier_packets_seen"] == 0
@@ -87,6 +100,11 @@ def _assert_counter_keys_zero(diag: dict[str, Any]) -> None:
     assert diag["classifier_packets_ignored"] == 0
     assert diag["classifier_packets_dropped"] == 0
     assert diag["classifier_packets_deferred"] == 0
+    assert diag["classifier_packets_ack_ignored"] == 0
+    assert diag["classifier_packets_empty_text_ignored"] == 0
+    assert diag["classifier_packets_unknown_deferred"] == 0
+    assert diag["classifier_packets_dm_relayed"] == 0
+    assert diag["classifier_packets_malformed"] == 0
     assert diag["inbound_published"] == 0
 
 
@@ -98,6 +116,11 @@ def _assert_counter_primitives(diag: dict[str, Any]) -> None:
         "classifier_packets_ignored",
         "classifier_packets_dropped",
         "classifier_packets_deferred",
+        "classifier_packets_ack_ignored",
+        "classifier_packets_empty_text_ignored",
+        "classifier_packets_unknown_deferred",
+        "classifier_packets_dm_relayed",
+        "classifier_packets_malformed",
         "inbound_published",
     ):
         assert key in diag, f"Missing key {key!r} in diagnostics"
@@ -147,10 +170,148 @@ class TestTextRelayCounters:
         diag = adapter.diagnostics()
         assert diag["classifier_packets_seen"] == 1
         assert diag["classifier_packets_relayed"] == 1
-        assert diag["classifier_packets_ignored"] == 0
-        assert diag["classifier_packets_dropped"] == 0
-        assert diag["classifier_packets_deferred"] == 0
         assert diag["inbound_published"] == 1
+
+
+# ===================================================================
+# Sub-counters
+# ===================================================================
+
+
+class TestSubCounters:
+    """Diagnostics sub-counters for ack, empty_text, unknown, dm, malformed."""
+
+    async def test_ack_sub_counter(self, make_adapter_context) -> None:
+        adapter = FakeMeshCoreAdapter()
+        ctx = make_adapter_context("mc-diag")
+        await adapter.start(ctx)
+
+        await adapter.simulate_inbound(_ack_packet())
+
+        diag = adapter.diagnostics()
+        assert diag["classifier_packets_ack_ignored"] == 1
+        assert diag["classifier_packets_empty_text_ignored"] == 0
+        assert diag["classifier_packets_unknown_deferred"] == 0
+        assert diag["classifier_packets_dm_relayed"] == 0
+        assert diag["classifier_packets_malformed"] == 0
+
+    async def test_empty_text_sub_counter(self, make_adapter_context) -> None:
+        adapter = FakeMeshCoreAdapter()
+        ctx = make_adapter_context("mc-diag")
+        await adapter.start(ctx)
+
+        await adapter.simulate_inbound(_empty_text_packet(text="   "))
+
+        diag = adapter.diagnostics()
+        assert diag["classifier_packets_empty_text_ignored"] == 1
+        assert diag["classifier_packets_ack_ignored"] == 0
+
+    async def test_unknown_sub_counter(self, make_adapter_context) -> None:
+        adapter = FakeMeshCoreAdapter()
+        ctx = make_adapter_context("mc-diag")
+        await adapter.start(ctx)
+
+        await adapter.simulate_inbound(_unknown_packet())
+
+        diag = adapter.diagnostics()
+        assert diag["classifier_packets_unknown_deferred"] == 1
+        assert diag["classifier_packets_malformed"] == 0
+
+    async def test_dm_relayed_sub_counter(self, make_adapter_context) -> None:
+        adapter = FakeMeshCoreAdapter()
+        ctx = make_adapter_context("mc-diag")
+        await adapter.start(ctx)
+
+        await adapter.simulate_inbound(_dm_text_packet(text="dm hello"))
+
+        diag = adapter.diagnostics()
+        assert diag["classifier_packets_dm_relayed"] == 1
+        assert diag["classifier_packets_relayed"] == 1
+
+    async def test_channel_text_does_not_increment_dm_sub_counter(
+        self, make_adapter_context
+    ) -> None:
+        adapter = FakeMeshCoreAdapter()
+        ctx = make_adapter_context("mc-diag")
+        await adapter.start(ctx)
+
+        await adapter.simulate_inbound(_channel_text_packet(text="channel msg"))
+
+        diag = adapter.diagnostics()
+        assert diag["classifier_packets_dm_relayed"] == 0
+        assert diag["classifier_packets_relayed"] == 1
+
+    async def test_malformed_sub_counter(self, make_adapter_context) -> None:
+        adapter = FakeMeshCoreAdapter()
+        ctx = make_adapter_context("mc-diag")
+        await adapter.start(ctx)
+
+        await adapter.simulate_inbound(_empty_packet())
+
+        diag = adapter.diagnostics()
+        assert diag["classifier_packets_malformed"] == 1
+        assert diag["classifier_packets_dropped"] == 1
+
+    async def test_mixed_sub_counters_accumulate(self, make_adapter_context) -> None:
+        adapter = FakeMeshCoreAdapter()
+        ctx = make_adapter_context("mc-diag")
+        await adapter.start(ctx)
+
+        await adapter.simulate_inbound(_ack_packet())
+        await adapter.simulate_inbound(_empty_text_packet(text=""))
+        await adapter.simulate_inbound(_unknown_packet())
+        await adapter.simulate_inbound(_dm_text_packet(text="dm"))
+        await adapter.simulate_inbound(_empty_packet())
+        await adapter.simulate_inbound(_channel_text_packet(text="chan"))
+
+        diag = adapter.diagnostics()
+        assert diag["classifier_packets_ack_ignored"] == 1
+        assert diag["classifier_packets_empty_text_ignored"] == 1
+        assert diag["classifier_packets_unknown_deferred"] == 1
+        assert diag["classifier_packets_dm_relayed"] == 1
+        assert diag["classifier_packets_malformed"] == 1
+        assert diag["classifier_packets_seen"] == 6
+
+    async def test_real_adapter_ack_sub_counter(self, make_adapter_context) -> None:
+        config = _make_config(connection_type="fake")
+        adapter = MeshCoreAdapter(config)
+        ctx = make_adapter_context("mc-diag")
+        await adapter.start(ctx)
+
+        await adapter.simulate_inbound(_ack_packet())
+
+        diag = adapter.diagnostics()
+        assert diag["classifier_packets_ack_ignored"] == 1
+
+    async def test_real_adapter_malformed_sub_counter(
+        self, make_adapter_context
+    ) -> None:
+        config = _make_config(connection_type="fake")
+        adapter = MeshCoreAdapter(config)
+        ctx = make_adapter_context("mc-diag")
+        await adapter.start(ctx)
+
+        await adapter.simulate_inbound(_empty_packet())
+
+        diag = adapter.diagnostics()
+        assert diag["classifier_packets_malformed"] == 1
+
+    async def test_sub_counters_reset_on_restart(self, make_adapter_context) -> None:
+        adapter = FakeMeshCoreAdapter()
+        ctx = make_adapter_context("mc-diag")
+        await adapter.start(ctx)
+
+        await adapter.simulate_inbound(_ack_packet())
+        await adapter.simulate_inbound(_empty_packet())
+
+        diag = adapter.diagnostics()
+        assert diag["classifier_packets_ack_ignored"] == 1
+        assert diag["classifier_packets_malformed"] == 1
+
+        await adapter.stop()
+        await adapter.start(ctx)
+
+        _assert_counter_keys_zero(adapter.diagnostics())
 
     async def test_fake_multiple_text_packets_accumulate(
         self, make_adapter_context
@@ -190,7 +351,7 @@ class TestTextRelayCounters:
 
 
 class TestIgnoredPackets:
-    """ACK packets increment seen/ignored; unknown/malformed increment seen/deferred."""
+    """ACK packets increment seen/ignored; unknown increments seen/deferred; malformed increments seen/dropped."""
 
     async def test_fake_ack_increments_seen_ignored_only(
         self, make_adapter_context
@@ -207,7 +368,7 @@ class TestIgnoredPackets:
         assert diag["classifier_packets_relayed"] == 0
         assert diag["inbound_published"] == 0
 
-    async def test_fake_empty_packet_increments_seen_deferred_only(
+    async def test_fake_empty_packet_increments_seen_dropped_only(
         self, make_adapter_context
     ) -> None:
         adapter = FakeMeshCoreAdapter()
@@ -218,7 +379,7 @@ class TestIgnoredPackets:
 
         diag = adapter.diagnostics()
         assert diag["classifier_packets_seen"] == 1
-        assert diag["classifier_packets_deferred"] == 1
+        assert diag["classifier_packets_dropped"] == 1
         assert diag["classifier_packets_relayed"] == 0
         assert diag["inbound_published"] == 0
 
@@ -293,6 +454,11 @@ class TestFakeAdapterParity:
             "classifier_packets_ignored",
             "classifier_packets_dropped",
             "classifier_packets_deferred",
+            "classifier_packets_ack_ignored",
+            "classifier_packets_empty_text_ignored",
+            "classifier_packets_unknown_deferred",
+            "classifier_packets_dm_relayed",
+            "classifier_packets_malformed",
             "inbound_published",
         ]
         for key in counter_keys:
