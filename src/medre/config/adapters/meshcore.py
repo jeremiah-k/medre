@@ -21,6 +21,7 @@ Validation rules
   never embedded in configuration metadata.
 - ``message_delay_seconds`` ≥ 0, ``default_channel`` ≥ 0,
   ``sync_timeout_ms`` > 0.
+- ``max_text_bytes`` ≥ 0, must be ``int`` (``bool`` rejected explicitly).
 """
 
 from __future__ import annotations
@@ -85,6 +86,11 @@ class MeshCoreConfig:
     node_config:
         Opaque dict for future node-specific settings.  Must not
         contain secret/private-key fields.
+    max_text_bytes:
+        Maximum UTF-8 byte budget for the final radio text after
+        rendering.  Default: ``512``.  ``0`` means the final text
+        renders as an empty string.  Must be a non-negative integer;
+        ``bool`` is rejected explicitly.
     """
 
     adapter_id: str
@@ -103,6 +109,7 @@ class MeshCoreConfig:
     identity: str | None = None
     pubkey: str | None = None
     node_config: dict[str, object] = field(default_factory=dict)
+    max_text_bytes: int = 512
 
     def validate(self) -> Self:
         """Validate the configuration and return *self* for chaining.
@@ -131,6 +138,16 @@ class MeshCoreConfig:
         if self.sync_timeout_ms <= 0:
             raise MeshCoreConfigError(
                 f"sync_timeout_ms must be > 0, got {self.sync_timeout_ms}"
+            )
+        if isinstance(self.max_text_bytes, bool):
+            raise MeshCoreConfigError("max_text_bytes must be an int, got bool")
+        if not isinstance(self.max_text_bytes, int):
+            raise MeshCoreConfigError(
+                f"max_text_bytes must be an int, got {type(self.max_text_bytes).__name__}"
+            )
+        if self.max_text_bytes < 0:
+            raise MeshCoreConfigError(
+                f"max_text_bytes must be >= 0, got {self.max_text_bytes}"
             )
 
         # Non-fake connection type validation

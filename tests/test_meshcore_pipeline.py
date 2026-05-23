@@ -25,6 +25,12 @@ from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite import SQLiteStorage
 
 
+def _make_renderer(*adapter_ids: str) -> MeshCoreRenderer:
+    """Create MeshCoreRenderer with configs for given adapter IDs."""
+    configs = {aid: MeshCoreConfig(adapter_id=aid) for aid in adapter_ids}
+    return MeshCoreRenderer(configs=configs)
+
+
 def _make_contact_packet(
     text: str = "hello pipeline",
     sender: str = "abc123",
@@ -80,7 +86,7 @@ async def _make_pipeline(
     out_adapter = FakeMeshCoreAdapter(out_config)
 
     rp = rendering_pipeline or RenderingPipeline()
-    rp.register(MeshCoreRenderer(), priority=50)
+    rp.register(_make_renderer(out_adapter_id, "fake_meshcore"), priority=50)
     rp.register_adapter_platform(out_adapter_id, "meshcore")
     rp.register(TextRenderer(), priority=100)
 
@@ -121,7 +127,7 @@ class TestMeshCorePipelineIntegration:
     async def test_meshcore_renderer_registered(self) -> None:
         """MeshCoreRenderer can be registered in the rendering pipeline."""
         rp = RenderingPipeline()
-        rp.register(MeshCoreRenderer(), priority=50)
+        rp.register(_make_renderer("meshcore_node"), priority=50)
         rp.register_adapter_platform("meshcore_node", "meshcore")
         rp.register(TextRenderer(), priority=100)
 
@@ -147,7 +153,7 @@ class TestMeshCorePipelineIntegration:
     async def test_text_renderer_fallback_for_non_meshcore(self) -> None:
         """TextRenderer handles events for non-MeshCore adapters."""
         rp = RenderingPipeline()
-        rp.register(MeshCoreRenderer(), priority=50)
+        rp.register(_make_renderer("meshcore_node"), priority=50)
         rp.register(TextRenderer(), priority=100)
 
         event = CanonicalEvent(
@@ -219,7 +225,7 @@ class TestMeshCorePipelineIntegration:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(MeshCoreRenderer(), priority=50)
+        rp.register(_make_renderer("local-mesh", "mc-in"), priority=50)
         rp.register_adapter_platform("local-mesh", "meshcore")
         rp.register(TextRenderer(), priority=100)
 
@@ -322,7 +328,7 @@ class TestMeshCoreNativeRefPersistence:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(MeshCoreRenderer(), priority=50)
+        rp.register(_make_renderer("meshcore-out", "meshcore-in"), priority=50)
         rp.register_adapter_platform("meshcore-out", "meshcore")
         rp.register(TextRenderer(), priority=100)
 
@@ -376,7 +382,10 @@ class TestMeshCoreNativeRefPersistence:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(MeshCoreRenderer(), priority=50)
+        rp.register(
+            _make_renderer("meshcore-fail-out", "meshcore-fail-in"),
+            priority=50,
+        )
         rp.register_adapter_platform("meshcore-fail-out", "meshcore")
         rp.register(TextRenderer(), priority=100)
 
@@ -521,7 +530,7 @@ class TestMeshCorePlatformRendererSelection:
 
         # 3. RenderingPipeline with MeshCoreRenderer via platform registry
         rp = RenderingPipeline()
-        rp.register(MeshCoreRenderer(), priority=50)
+        rp.register(_make_renderer("field-out", "field-node"), priority=50)
         rp.register(TextRenderer(), priority=100)
 
         # 4. PipelineRunner — start() calls _populate_renderer_platforms()

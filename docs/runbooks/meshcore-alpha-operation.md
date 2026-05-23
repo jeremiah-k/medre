@@ -231,7 +231,7 @@ Additional validation rules:
 - `identity` (if provided) must be a non-empty string.
 - `pubkey` (if provided) must be a non-empty hex string.
 - `node_config` must not contain keys named `private_key`, `secret`, or `password`.
-- `message_delay_seconds` >= 0, `default_channel` >= 0, `sync_timeout_ms` > 0.
+- `message_delay_seconds` >= 0, `default_channel` >= 0, `sync_timeout_ms` > 0. Note: `message_delay_seconds` is accepted and validated but not currently enforced at send time; it is reserved for future pacing.
 
 Invalid configurations raise `MeshCoreConfigError` before any connection attempt.
 
@@ -453,7 +453,7 @@ There is no periodic "still alive" log. Silence is normal when no events arrive.
 
 ### 7.4 Outbound send path
 
-`deliver(result)` accepts a `RenderingResult`, and the outbound path calls `send_text()` on the session (which delegates to `send_chan_msg()` or `send_msg()` on the SDK client):
+`deliver(result)` accepts a `RenderingResult`, and the outbound path calls `send_text()` on the session (which delegates to `send_chan_msg()` or `send_msg()` on the SDK client). The adapter sends directly through the session without an intermediary queue. A successful send means local node acceptance, not mesh delivery or RF confirmation.
 
 - **Channel messages:** `await mc.commands.send_chan_msg(chan, msg)` returns `Event` with `type == OK` on success or `type == ERROR` on failure.
 - **Direct messages:** `await mc.commands.send_msg(dst, msg)` returns `Event` with `type == MSG_SENT` and `payload["expected_ack"]` on success, or `type == ERROR` on failure.
@@ -563,7 +563,7 @@ Behavior:
 
 ### 9.4 Duplicate-send risk
 
-Because the adapter has no outbound retry, there is **no duplicate-send risk from the adapter itself** in the current scaffold. Each delivery attempt is made exactly once.
+Because the adapter has no outbound retry, there is **no duplicate-send risk from the adapter itself** in the current scaffold. Each delivery attempt is made once; if it fails, the adapter does not retry. This is a scaffold property (no retry loop), not a delivery guarantee.
 
 However, if `send_msg_with_retry()` is used in the future:
 
@@ -605,8 +605,8 @@ Operators should expect loss and plan accordingly. The adapter does not provide 
 ### 10.3 Outbound delivery validation (requires real node)
 
 1. Start the adapter with a real node connection (TCP or serial).
-2. Enqueue a message via `deliver(rendering_result)`.
-3. Confirm the SDK `send_chan_msg()` or `send_msg()` call completes.
+2. Send a message via `deliver(rendering_result)`.
+3. Confirm the SDK `send_chan_msg()` or `send_msg()` call completes. This confirms local node acceptance only, not mesh delivery, ACK receipt, RF confirmation, or remote-node reception.
 4. Check the remote node for the message.
 
 ### 10.4 Manual SDK validation (independent of adapter)
@@ -782,9 +782,9 @@ This is an honest list. Everything here is real.
 
 10. **No metrics.** There is no Prometheus endpoint, no counters, no histograms. The only observability is log output and the `health_check()` return value.
 
-11. **512-byte text limit.** The adapter's capabilities declare `max_text_bytes=512` and `max_text_chars=512`. The renderer notes this but does not enforce it. The MeshCore wire protocol has a 255-byte frame payload maximum. Messages exceeding the wire limit may be truncated or rejected by the firmware.
+11. **512-byte text limit.** The adapter's capabilities declare `max_text_bytes=512` (configurable) and `max_text_chars=None` (UTF-8 bytes enforced, not characters). The renderer enforces target-aware UTF-8 byte-budget truncation after final rendering. The MeshCore wire protocol has a 255-byte frame payload maximum. Messages exceeding the wire limit may be truncated or rejected by the firmware.
 
-12. **No DM support.** The adapter capabilities declare `direct_messages=False`. Direct messages are classified by the packet classifier (`is_direct_message`) but are processed identically to channel messages.
+12. **No DM support (outbound).** The adapter capabilities declare `direct_messages=False`. This means MEDRE does not model explicit outbound DM targeting. It does **not** mean the transport cannot relay inbound PRIV packets. Direct messages are classified by the packet classifier (`is_direct_message`) and relayed identically to channel messages. Relaying an inbound private message is not the same as initiating a direct message. See `packet_classifier.py` for the inline note.
 
 13. **Identity collision risk.** The `pubkey_prefix` used as `sender_id` is a truncated prefix (default 12 hex chars / 6 bytes). Two different nodes could theoretically share the same prefix. Do not assume `sender_id` is globally unique.
 
@@ -810,7 +810,7 @@ MeshCore uses always-on E2EE (AES-128 + 2-byte HMAC). This means all messages ar
 
 ### 14.5 Duty cycle
 
-LoRa radio nodes enforce duty cycle limits on transmission. The adapter's pacing (`message_delay_seconds`, default 0.5s) helps avoid overwhelming the radio, but high-volume sending may still hit firmware limits.
+LoRa radio nodes enforce duty cycle limits on transmission. The adapter accepts a `message_delay_seconds` config field (default 0.5s) as a reserved pacing parameter. It is not currently enforced at send time. MeshCore sends directly through the session without an intermediary queue. Operators sending at high volume may hit firmware-imposed duty cycle limits. When implemented, pacing will introduce a minimum delay between outbound sends to avoid overwhelming the radio.
 
 ### 14.6 expected_ack collision risk
 
@@ -965,30 +965,62 @@ Core MEDRE tests pass without it. Only real connectivity modes require the SDK.
 - **Hardware/Network:** Not available (no MeshCore radio node connected)
 - **Failures/Notes:** Live validation has not been performed in this environment. Alpha operation requires a real MeshCore radio node with the environment variables configured. Without these, all live tests skip automatically. See the smoke test runbook (`docs/runbooks/meshcore-live-smoke.md`) for detailed setup and environment variable instructions.
 
-## 16. Explicit Unsupported Features
+## 16. Send Success vs. Delivery Confirmation
+
+A successful return from `deliver()` means the adapter called the SDK send method and received an `OK` (channel) or `MSG_SENT` (direct) result. This is **local node acceptance**. It does not mean:
+
+- The message was transmitted over RF.
+- Any remote node received the message.
+- An ACK was received (direct messages carry `expected_ack`, but the adapter does not track or correlate ACKs).
+- The message was delivered end-to-end across the mesh.
+
+Channel messages return `OK`/`ERROR` with no `expected_ack`. There is no per-recipient delivery confirmation for channel messages. Direct messages carry `expected_ack` for ACK correlation, but ACKs are not guaranteed and the adapter does not track them.
+
+The adapter has no outbound queue. Sends go directly through the session to the SDK client. There is no retry, no requeue, no backlog, no at-least-once enforcement at the adapter level.
+
+## 17. Target-Aware Rendering and Classifier Diagnostics
+
+### 17.1 Target-aware UTF-8 byte-budget rendering
+
+When implemented in this tranche, MeshCore rendering will be target-aware. The renderer will resolve the target adapter's declared `max_text_bytes` capability and budget the rendered text to fit within that byte limit. Because MeshCore payloads are UTF-8 encoded, the budget operates on UTF-8 byte count, not character count. Messages that exceed the byte budget after rendering will be truncated to fit. This behavior is implementation in progress; it is not live-validated against radio hardware.
+
+### 17.2 Classifier action taxonomy and diagnostics
+
+When implemented in this tranche, the MeshCore packet classifier will sort inbound packets into an action taxonomy:
+
+| Action     | Meaning                                                    |
+| ---------- | ---------------------------------------------------------- |
+| `relay`    | Packet is a text message and should be processed inbound   |
+| `ignore`   | Packet is a known non-text type (e.g., ACK) and is dropped |
+| `drop`     | Packet is malformed, unprocessable, or violates policy     |
+| `deferred` | Packet requires async resolution before a final decision   |
+
+Aggregate in-memory diagnostics counters will track how many packets fall into each category. These counters explain aggregate inbound skips and processing decisions. They are best-effort and in-memory only: they do not persist across restarts, do not record per-packet decisions, do not constitute live validation, and do not provide exactly-once accounting. Counter values may be approximate under concurrent send/receive pressure.
+
+## 18. Explicit Unsupported Features
 
 The following features are not supported in alpha mode. Do not attempt to use them. They are listed here so you do not have to wonder.
 
-| Feature                              | Status                                                    | Notes                                                         |
-| ------------------------------------ | --------------------------------------------------------- | ------------------------------------------------------------- |
-| Real client connections              | Scaffolded                                                | `start()` raises `MeshCoreConnectionError` for non-fake types |
-| Automatic reconnection               | Not implemented at adapter level                          | SDK supports `auto_reconnect` param, not wired                |
-| Outbound retry                       | Not implemented                                           | Failed sends are permanently dropped                          |
-| ACK / delivery confirmation tracking | Not implemented                                           | `expected_ack` is not tracked or correlated                   |
-| Direct message routing               | Not supported                                             | DMs classified but processed identically to channel messages  |
-| Reply threading                      | Not supported                                             | MeshCore protocol has no native reply mechanism               |
-| Reactions                            | Not supported                                             | MeshCore protocol has no reaction mechanism                   |
-| Edits                                | Not supported                                             | MeshCore protocol has no edit mechanism                       |
-| Deletes                              | Not supported                                             | MeshCore protocol has no delete mechanism                     |
-| Attachments / files                  | Not supported                                             | Binary payload not handled                                    |
-| Telemetry decoding                   | Not supported                                             | Non-text events are silently dropped                          |
-| Position / GPS decoding              | Not supported                                             | Non-text events are silently dropped                          |
-| Contact list caching                 | Not supported                                             | Contact list available via SDK but not cached by adapter      |
-| Multi-node mesh testing              | Not tested                                                | Alpha has only been validated with a single node              |
-| BLE connectivity                     | Implemented at session layer, hardware validation pending | BLE factory path wired, mock tests pass                       |
-| Backlog suppression                  | Config field exists, not wired                            | `startup_backlog_suppress_seconds` accepted but not used      |
-| Store-and-forward                    | Not supported                                             | No message persistence across restarts                        |
-| Rate limiting / flow control         | Not implemented                                           | Only basic pacing via `message_delay_seconds`                 |
-| Cross-transport orchestration        | Not in scope                                              | No bridge between MeshCore and other transports               |
-| Bridge-policy redesign               | Not in scope                                              | No policy changes for MeshCore integration                    |
-| Non-MeshCore transports              | Not in scope                                              | This runbook covers MeshCore only                             |
+| Feature                              | Status                                                    | Notes                                                                                   |
+| ------------------------------------ | --------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Real client connections              | Scaffolded                                                | `start()` raises `MeshCoreConnectionError` for non-fake types                           |
+| Automatic reconnection               | Not implemented at adapter level                          | SDK supports `auto_reconnect` param, not wired                                          |
+| Outbound retry                       | Not implemented                                           | Failed sends are permanently dropped                                                    |
+| ACK / delivery confirmation tracking | Not implemented                                           | `expected_ack` is not tracked or correlated                                             |
+| Direct message routing               | Not supported                                             | DMs classified but processed identically to channel messages                            |
+| Reply threading                      | Not supported                                             | MeshCore protocol has no native reply mechanism                                         |
+| Reactions                            | Not supported                                             | MeshCore protocol has no reaction mechanism                                             |
+| Edits                                | Not supported                                             | MeshCore protocol has no edit mechanism                                                 |
+| Deletes                              | Not supported                                             | MeshCore protocol has no delete mechanism                                               |
+| Attachments / files                  | Not supported                                             | Binary payload not handled                                                              |
+| Telemetry decoding                   | Not supported                                             | Non-text events are silently dropped                                                    |
+| Position / GPS decoding              | Not supported                                             | Non-text events are silently dropped                                                    |
+| Contact list caching                 | Not supported                                             | Contact list available via SDK but not cached by adapter                                |
+| Multi-node mesh testing              | Not tested                                                | Alpha has only been validated with a single node                                        |
+| BLE connectivity                     | Implemented at session layer, hardware validation pending | BLE factory path wired, mock tests pass                                                 |
+| Backlog suppression                  | Config field exists, not wired                            | `startup_backlog_suppress_seconds` accepted but not used                                |
+| Store-and-forward                    | Not supported                                             | No message persistence across restarts                                                  |
+| Rate limiting / flow control         | Not implemented                                           | `message_delay_seconds` accepted as config but not enforced; reserved for future pacing |
+| Cross-transport orchestration        | Not in scope                                              | No bridge between MeshCore and other transports                                         |
+| Bridge-policy redesign               | Not in scope                                              | No policy changes for MeshCore integration                                              |
+| Non-MeshCore transports              | Not in scope                                              | This runbook covers MeshCore only                                                       |

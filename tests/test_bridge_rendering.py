@@ -24,6 +24,7 @@ from medre.adapters.lxmf.renderer import LxmfRenderer
 from medre.adapters.matrix.renderer import MatrixRenderer
 from medre.adapters.meshcore.renderer import MeshCoreRenderer
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
+from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.events import CanonicalEvent, EventMetadata, EventRelation, NativeRef
 from medre.core.rendering.renderer import RenderingPipeline
@@ -73,7 +74,12 @@ def _make_pipeline() -> RenderingPipeline:
         priority=10,
     )
     pipeline.register(MatrixRenderer(), priority=20)
-    pipeline.register(MeshCoreRenderer(), priority=30)
+    pipeline.register(
+        MeshCoreRenderer(
+            configs={"meshcore-target": MeshCoreConfig(adapter_id="meshcore-target")}
+        ),
+        priority=30,
+    )
     pipeline.register(LxmfRenderer(), priority=40)
     return pipeline
 

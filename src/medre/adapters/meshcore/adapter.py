@@ -43,6 +43,7 @@ instances spawned by inbound packet callbacks and drains them on stop.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
@@ -53,7 +54,12 @@ from medre.adapters.meshcore.codec import MeshCoreCodec
 from medre.adapters.meshcore.errors import (
     MeshCoreSendError,
 )
-from medre.adapters.meshcore.packet_classifier import MeshCorePacketClassifier
+from medre.adapters.meshcore.packet_classifier import (
+    REASON_ACK,
+    REASON_EMPTY_TEXT,
+    REASON_UNKNOWN,
+    MeshCorePacketClassifier,
+)
 from medre.adapters.meshcore.session import MeshCoreSession
 from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.core.contracts.adapter import (
@@ -69,8 +75,10 @@ from medre.core.contracts.adapter import (
 from medre.core.rendering.renderer import RenderingResult
 from medre.core.runtime.diagnostic_contract import sanitize_diagnostic_mapping
 
-# Capabilities for the MeshCore transport adapter.
-_MESHCORE_CAPABILITIES = AdapterCapabilities(
+# Base capabilities for the MeshCore transport adapter.
+# max_text_bytes is overridden per-instance from config.
+# max_text_chars is None because UTF-8 bytes are enforced, not characters.
+_MESHCORE_CAPS_BASE = AdapterCapabilities(
     text=True,
     title=False,
     replies="unsupported",
@@ -81,12 +89,15 @@ _MESHCORE_CAPABILITIES = AdapterCapabilities(
     metadata_fields=False,
     delivery_receipts=False,
     store_and_forward=False,
+    # direct_messages=False: MEDRE does not initiate outbound DMs. Inbound
+    # PRIV packets are still relayed (relay != DM initiation). See
+    # packet_classifier.py for the relay-side note.
     direct_messages=False,
     channels=True,
     async_delivery=True,
     mesh_routing=True,
     max_text_bytes=512,
-    max_text_chars=512,
+    max_text_chars=None,
 )
 
 
@@ -94,8 +105,8 @@ class MeshCoreAdapter(AdapterContract):
     """Transport adapter for MeshCore nodes.
 
     Connects to a MeshCore node, receives event payloads, and publishes
-    them as canonical events.  Outbound rendered payloads are enqueued
-    for paced delivery.
+    them as canonical events.  Outbound rendered payloads are delivered
+    directly via the session for local acceptance.
 
     The adapter delegates SDK client lifecycle to a
     :class:`~medre.adapters.meshcore.session.MeshCoreSession` instance.
@@ -117,7 +128,11 @@ class MeshCoreAdapter(AdapterContract):
         config.validate()
         self._config = config
         self.adapter_id = config.adapter_id
-        self._capabilities = _MESHCORE_CAPABILITIES
+        self._capabilities = dataclasses.replace(
+            _MESHCORE_CAPS_BASE,
+            max_text_bytes=config.max_text_bytes,
+            max_text_chars=None,
+        )
         self._client: Any = None
         self._codec = MeshCoreCodec(config.adapter_id, config)
         self._classifier = MeshCorePacketClassifier(config)
@@ -125,10 +140,41 @@ class MeshCoreAdapter(AdapterContract):
         self._started: bool = False
         self._background_tasks: set[asyncio.Task] = set()
 
+        # Aggregate in-memory classifier counters (reset on restart).
+        self._classifier_packets_seen: int = 0
+        self._classifier_packets_relayed: int = 0
+        self._classifier_packets_ignored: int = 0
+        self._classifier_packets_dropped: int = 0
+        self._classifier_packets_deferred: int = 0
+        self._classifier_packets_ack_ignored: int = 0
+        self._classifier_packets_empty_text_ignored: int = 0
+        self._classifier_packets_unknown_deferred: int = 0
+        self._classifier_packets_dm_relayed: int = 0
+        self._classifier_packets_malformed: int = 0
+        self._inbound_published: int = 0
+
         # Session boundary — owns SDK lifecycle.
         self._session: MeshCoreSession | None = None
 
     # -- Lifecycle ----------------------------------------------------------
+
+    def _reset_inbound_counters(self) -> None:
+        """Zero all aggregate in-memory classifier counters.
+
+        Called from :meth:`start` so that a reused adapter instance
+        begins with a clean slate on every (re)start.
+        """
+        self._classifier_packets_seen = 0
+        self._classifier_packets_relayed = 0
+        self._classifier_packets_ignored = 0
+        self._classifier_packets_dropped = 0
+        self._classifier_packets_deferred = 0
+        self._classifier_packets_ack_ignored = 0
+        self._classifier_packets_empty_text_ignored = 0
+        self._classifier_packets_unknown_deferred = 0
+        self._classifier_packets_dm_relayed = 0
+        self._classifier_packets_malformed = 0
+        self._inbound_published = 0
 
     async def start(self, ctx: AdapterContext) -> None:
         """Connect to the MeshCore node and begin receiving events.
@@ -148,6 +194,8 @@ class MeshCoreAdapter(AdapterContract):
         """
         if self._started:
             return
+
+        self._reset_inbound_counters()
 
         self.ctx = ctx
         self._mark_started(ctx)
@@ -234,7 +282,7 @@ class MeshCoreAdapter(AdapterContract):
     # -- Outbound delivery --------------------------------------------------
 
     async def deliver(self, result: RenderingResult) -> AdapterDeliveryResult | None:
-        """Enqueue a pre-rendered payload for paced delivery.
+        """Deliver a pre-rendered payload via the session for local acceptance.
 
         The *result.payload* is expected to be a MeshCore-ready content
         dict already rendered by
@@ -345,10 +393,10 @@ class MeshCoreAdapter(AdapterContract):
 
         try:
             classification = self._classifier.classify(packet)
-            # Only process text packets in tranche 1
-            if classification["category"] != "text":
-                return
-            if classification["is_ack"]:
+            self._increment_classifier_counters(classification)
+
+            # Gate: only relay action packets enter the codec pipeline
+            if classification.action != "relay":
                 return
 
             canonical = self._codec.decode(packet)
@@ -378,6 +426,7 @@ class MeshCoreAdapter(AdapterContract):
         try:
             if self.ctx is not None:
                 await self.publish_inbound(canonical)
+                self._inbound_published += 1
         except Exception:
             if self.ctx is not None:
                 self.ctx.logger.exception(
@@ -408,15 +457,52 @@ class MeshCoreAdapter(AdapterContract):
             )
 
         classification = self._classifier.classify(packet)
-        if classification["category"] != "text":
-            return
-        if classification["is_ack"]:
+        self._increment_classifier_counters(classification)
+
+        # Gate: only relay action packets enter the codec pipeline
+        if classification.action != "relay":
             return
 
         canonical = self._codec.decode(packet)
         await self.publish_inbound(canonical)
+        self._inbound_published += 1
 
     # -- Diagnostics --------------------------------------------------------
+
+    def _increment_classifier_counters(self, classification: Any) -> None:
+        """Increment aggregate classifier counters based on a ClassificationResult.
+
+        Parameters
+        ----------
+        classification:
+            A :class:`~medre.adapters.meshcore.packet_classifier.ClassificationResult`.
+        """
+        self._classifier_packets_seen += 1
+
+        action = classification.action
+        if action == "relay":
+            self._classifier_packets_relayed += 1
+        elif action == "ignore":
+            self._classifier_packets_ignored += 1
+        elif action == "drop":
+            self._classifier_packets_dropped += 1
+        elif action == "deferred":
+            self._classifier_packets_deferred += 1
+
+        # Sub-counters (reason/action specific)
+        if classification.reason == REASON_ACK:
+            self._classifier_packets_ack_ignored += 1
+        elif classification.reason == REASON_EMPTY_TEXT:
+            self._classifier_packets_empty_text_ignored += 1
+        elif classification.reason == REASON_UNKNOWN:
+            self._classifier_packets_unknown_deferred += 1
+        elif (
+            classification.action == "relay"
+            and classification.category == "direct_message"
+        ):
+            self._classifier_packets_dm_relayed += 1
+        elif classification.category == "malformed":
+            self._classifier_packets_malformed += 1
 
     def diagnostics(self) -> dict[str, Any]:
         """Return adapter-level diagnostics composed from session state.
@@ -429,6 +515,17 @@ class MeshCoreAdapter(AdapterContract):
             "platform": self.platform,
             "started": self._started,
             "mode": self._config.connection_type,
+            "classifier_packets_seen": self._classifier_packets_seen,
+            "classifier_packets_relayed": self._classifier_packets_relayed,
+            "classifier_packets_ignored": self._classifier_packets_ignored,
+            "classifier_packets_dropped": self._classifier_packets_dropped,
+            "classifier_packets_deferred": self._classifier_packets_deferred,
+            "classifier_packets_ack_ignored": self._classifier_packets_ack_ignored,
+            "classifier_packets_empty_text_ignored": self._classifier_packets_empty_text_ignored,
+            "classifier_packets_unknown_deferred": self._classifier_packets_unknown_deferred,
+            "classifier_packets_dm_relayed": self._classifier_packets_dm_relayed,
+            "classifier_packets_malformed": self._classifier_packets_malformed,
+            "inbound_published": self._inbound_published,
         }
         if self._session is not None:
             base["session"] = sanitize_diagnostic_mapping(self._session.diagnostics())

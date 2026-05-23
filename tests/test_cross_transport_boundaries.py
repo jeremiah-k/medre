@@ -34,8 +34,9 @@ from pathlib import Path
 
 import pytest
 
-from medre.core.events import CanonicalEvent, EventMetadata
+from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.config.adapters.meshtastic import MeshtasticConfig
+from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.rendering.renderer import RenderingResult
 from medre.runtime.architecture_report import _SDK_PACKAGES
 
@@ -98,6 +99,22 @@ def _adapter_modules(transport: str) -> list[str]:
 def _sibling_transports(transport: str) -> tuple[str, ...]:
     """Return the other three transports (siblings)."""
     return tuple(t for t in _ADAPTER_TRANSPORTS if t != transport)
+
+
+def _make_renderer_instance(cls_name: str, cls):
+    """Instantiate a renderer class with the appropriate configuration."""
+    if cls_name == "MeshtasticRenderer":
+        return cls(
+            configs={
+                "t": MeshtasticConfig(adapter_id="t"),
+                "meshtastic_node": MeshtasticConfig(adapter_id="meshtastic_node"),
+            }
+        )
+    if cls_name == "MeshCoreRenderer":
+        return cls(
+            configs={"meshcore_node": MeshCoreConfig(adapter_id="meshcore_node")}
+        )
+    return cls()
 
 
 # ===================================================================
@@ -311,14 +328,7 @@ class TestRendererBoundary:
         _transport, mod_name, cls_name = renderer_info
         mod = _load_module(mod_name)
         cls = getattr(mod, cls_name)
-        instance = (
-            cls(configs={
-                "t": MeshtasticConfig(adapter_id="t"),
-                "meshtastic_node": MeshtasticConfig(adapter_id="meshtastic_node"),
-            })
-            if cls_name == "MeshtasticRenderer"
-            else cls()
-        )
+        instance = _make_renderer_instance(cls_name, cls)
         assert not hasattr(
             instance, "deliver"
         ), f"{cls_name} must not have a deliver method"
@@ -328,14 +338,7 @@ class TestRendererBoundary:
         _transport, mod_name, cls_name = renderer_info
         mod = _load_module(mod_name)
         cls = getattr(mod, cls_name)
-        instance = (
-            cls(configs={
-                "t": MeshtasticConfig(adapter_id="t"),
-                "meshtastic_node": MeshtasticConfig(adapter_id="meshtastic_node"),
-            })
-            if cls_name == "MeshtasticRenderer"
-            else cls()
-        )
+        instance = _make_renderer_instance(cls_name, cls)
         assert not hasattr(instance, "send"), f"{cls_name} must not have a send method"
 
     def test_renderer_has_no_start_method(self, renderer_info) -> None:
@@ -343,14 +346,7 @@ class TestRendererBoundary:
         _transport, mod_name, cls_name = renderer_info
         mod = _load_module(mod_name)
         cls = getattr(mod, cls_name)
-        instance = (
-            cls(configs={
-                "t": MeshtasticConfig(adapter_id="t"),
-                "meshtastic_node": MeshtasticConfig(adapter_id="meshtastic_node"),
-            })
-            if cls_name == "MeshtasticRenderer"
-            else cls()
-        )
+        instance = _make_renderer_instance(cls_name, cls)
         assert not hasattr(
             instance, "start"
         ), f"{cls_name} must not have a start method"
@@ -360,14 +356,7 @@ class TestRendererBoundary:
         _transport, mod_name, cls_name = renderer_info
         mod = _load_module(mod_name)
         cls = getattr(mod, cls_name)
-        instance = (
-            cls(configs={
-                "t": MeshtasticConfig(adapter_id="t"),
-                "meshtastic_node": MeshtasticConfig(adapter_id="meshtastic_node"),
-            })
-            if cls_name == "MeshtasticRenderer"
-            else cls()
-        )
+        instance = _make_renderer_instance(cls_name, cls)
         assert not hasattr(instance, "stop"), f"{cls_name} must not have a stop method"
 
     def test_renderer_has_no_connect_method(self, renderer_info) -> None:
@@ -375,14 +364,7 @@ class TestRendererBoundary:
         _transport, mod_name, cls_name = renderer_info
         mod = _load_module(mod_name)
         cls = getattr(mod, cls_name)
-        instance = (
-            cls(configs={
-                "t": MeshtasticConfig(adapter_id="t"),
-                "meshtastic_node": MeshtasticConfig(adapter_id="meshtastic_node"),
-            })
-            if cls_name == "MeshtasticRenderer"
-            else cls()
-        )
+        instance = _make_renderer_instance(cls_name, cls)
         assert not hasattr(
             instance, "connect"
         ), f"{cls_name} must not have a connect method"
@@ -392,14 +374,7 @@ class TestRendererBoundary:
         _transport, mod_name, cls_name = renderer_info
         mod = _load_module(mod_name)
         cls = getattr(mod, cls_name)
-        instance = (
-            cls(configs={
-                "t": MeshtasticConfig(adapter_id="t"),
-                "meshtastic_node": MeshtasticConfig(adapter_id="meshtastic_node"),
-            })
-            if cls_name == "MeshtasticRenderer"
-            else cls()
-        )
+        instance = _make_renderer_instance(cls_name, cls)
         assert not hasattr(
             instance, "publish"
         ), f"{cls_name} must not have a publish method"
@@ -444,14 +419,7 @@ class TestRendererBoundary:
         _transport, mod_name, cls_name = renderer_info
         mod = _load_module(mod_name)
         cls = getattr(mod, cls_name)
-        renderer = (
-            cls(configs={
-                "t": MeshtasticConfig(adapter_id="t"),
-                "meshtastic_node": MeshtasticConfig(adapter_id="meshtastic_node"),
-            })
-            if cls_name == "MeshtasticRenderer"
-            else cls()
-        )
+        renderer = _make_renderer_instance(cls_name, cls)
 
         event = CanonicalEvent(
             event_id="evt-1",

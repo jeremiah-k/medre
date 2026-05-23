@@ -77,6 +77,8 @@ Meshtastic adapter diagnostics expose aggregate inbound classification counters 
 
 MeshCore has an alpha operation runbook based on SDK source extraction (version 2.3.7, audited from PyPI). The adapter design follows the same pattern as Matrix and Meshtastic. Real connectivity (TCP, serial, BLE) is specified but implementation status is at the `designed` or `fake-tested` level for most capabilities.
 
+MeshCore sends directly through the session without an intermediary outbound queue. A successful send means local node acceptance, not mesh delivery, ACK receipt, RF confirmation, or remote-node reception. The `message_delay_seconds` config field is accepted but not currently enforced; it is reserved for future pacing. Target-aware UTF-8 byte-budget rendering and a classifier action taxonomy (`relay`/`ignore`/`drop`/`deferred`) with aggregate in-memory diagnostics counters are implementation in progress for this tranche. These counters explain aggregate inbound skips; they do not constitute live validation, per-packet persistence, or exactly-once accounting.
+
 See `docs/runbooks/meshcore-alpha-operation.md` and `docs/contracts/19-meshcore-connectivity-readiness.md` for SDK findings.
 
 ### LXMF
@@ -109,7 +111,7 @@ These apply to all transports unless specifically noted.
 
 10. **Meshtastic-specific.** Inbound processing is text messages only. Telemetry, position, and nodeinfo portnum types are not processed inbound.
 
-11. **MeshCore-specific.** SDK findings are based on source extraction, not hardware testing. BLE connectivity is not implemented.
+11. **MeshCore-specific.** SDK findings are based on source extraction, not hardware testing. BLE is implemented at the session layer (`MeshCore.create_ble()` path wired); hardware validation against a real BLE node is pending. Mock-based BLE validation tests pass without hardware.
 
 12. **LXMF-specific.** Multi-hop mesh delivery is not tested. E2EE beyond Reticulum's native link-layer encryption is not in scope.
 

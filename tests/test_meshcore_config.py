@@ -69,6 +69,7 @@ class TestMeshCoreConfigValid:
         assert config.identity is None
         assert config.pubkey is None
         assert config.node_config == {}
+        assert config.max_text_bytes == 512
 
     def test_validate_returns_self_for_chaining(self) -> None:
         config = MeshCoreConfig(adapter_id="meshcore-1")
@@ -171,6 +172,55 @@ class TestMeshCoreConfigInvalid:
     def test_negative_sync_timeout_raises(self) -> None:
         config = MeshCoreConfig(adapter_id="meshcore-1", sync_timeout_ms=-1)
         with pytest.raises(MeshCoreConfigError, match="sync_timeout_ms"):
+            config.validate()
+
+
+class TestMeshCoreConfigMaxTextBytes:
+    """max_text_bytes validation: type, range, and edge cases."""
+
+    def test_default_is_512(self) -> None:
+        config = MeshCoreConfig(adapter_id="meshcore-1")
+        assert config.max_text_bytes == 512
+
+    def test_custom_value_is_valid(self) -> None:
+        config = MeshCoreConfig(adapter_id="meshcore-1", max_text_bytes=1024)
+        assert config.validate().max_text_bytes == 1024
+
+    def test_zero_is_valid(self) -> None:
+        config = MeshCoreConfig(adapter_id="meshcore-1", max_text_bytes=0)
+        assert config.validate().max_text_bytes == 0
+
+    def test_negative_raises(self) -> None:
+        config = MeshCoreConfig(adapter_id="meshcore-1", max_text_bytes=-1)
+        with pytest.raises(MeshCoreConfigError, match="max_text_bytes must be >= 0"):
+            config.validate()
+
+    def test_bool_raises(self) -> None:
+        config = MeshCoreConfig(adapter_id="meshcore-1", max_text_bytes=True)  # type: ignore[arg-type]
+        with pytest.raises(
+            MeshCoreConfigError, match="max_text_bytes must be an int, got bool"
+        ):
+            config.validate()
+
+    def test_false_bool_raises(self) -> None:
+        config = MeshCoreConfig(adapter_id="meshcore-1", max_text_bytes=False)  # type: ignore[arg-type]
+        with pytest.raises(
+            MeshCoreConfigError, match="max_text_bytes must be an int, got bool"
+        ):
+            config.validate()
+
+    def test_non_int_raises(self) -> None:
+        config = MeshCoreConfig(adapter_id="meshcore-1", max_text_bytes="512")  # type: ignore[arg-type]
+        with pytest.raises(
+            MeshCoreConfigError, match="max_text_bytes must be an int, got str"
+        ):
+            config.validate()
+
+    def test_float_raises(self) -> None:
+        config = MeshCoreConfig(adapter_id="meshcore-1", max_text_bytes=512.0)  # type: ignore[arg-type]
+        with pytest.raises(
+            MeshCoreConfigError, match="max_text_bytes must be an int, got float"
+        ):
             config.validate()
 
 

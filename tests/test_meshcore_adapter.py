@@ -118,10 +118,10 @@ class TestMeshCoreAdapterCapabilities:
 
         assert _FAKE_MESHCORE_CAPABILITIES.max_text_bytes == 512
 
-    def test_capabilities_max_text_chars_512(self) -> None:
+    def test_capabilities_max_text_chars_none(self) -> None:
         from medre.adapters.fake_meshcore import _FAKE_MESHCORE_CAPABILITIES
 
-        assert _FAKE_MESHCORE_CAPABILITIES.max_text_chars == 512
+        assert _FAKE_MESHCORE_CAPABILITIES.max_text_chars is None
 
 
 class TestRealMeshCoreCapabilities:
@@ -147,6 +147,27 @@ class TestRealMeshCoreCapabilities:
         assert real_caps.direct_messages == _FAKE_MESHCORE_CAPABILITIES.direct_messages
         assert real_caps.max_text_bytes == _FAKE_MESHCORE_CAPABILITIES.max_text_bytes
         assert real_caps.max_text_chars == _FAKE_MESHCORE_CAPABILITIES.max_text_chars
+
+    def test_real_adapter_capabilities_default_512(self) -> None:
+        """Default config produces max_text_bytes=512 in capabilities."""
+        config = _make_config()
+        adapter = MeshCoreAdapter(config)
+        assert adapter._capabilities.max_text_bytes == 512
+        assert adapter._capabilities.max_text_chars is None
+
+    def test_real_adapter_capabilities_custom_max_text_bytes(self) -> None:
+        """Custom max_text_bytes in config propagates to capabilities."""
+        config = _make_config(max_text_bytes=1024)
+        adapter = MeshCoreAdapter(config)
+        assert adapter._capabilities.max_text_bytes == 1024
+        assert adapter._capabilities.max_text_chars is None
+
+    def test_real_adapter_capabilities_zero_max_text_bytes(self) -> None:
+        """Zero max_text_bytes is accepted and propagated."""
+        config = _make_config(max_text_bytes=0)
+        adapter = MeshCoreAdapter(config)
+        assert adapter._capabilities.max_text_bytes == 0
+        assert adapter._capabilities.max_text_chars is None
 
 
 # ===================================================================

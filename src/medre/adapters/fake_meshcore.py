@@ -31,7 +31,12 @@ from types import MappingProxyType
 from typing import Any
 
 from medre.adapters.meshcore.codec import MeshCoreCodec
-from medre.adapters.meshcore.packet_classifier import MeshCorePacketClassifier
+from medre.adapters.meshcore.packet_classifier import (
+    REASON_ACK,
+    REASON_EMPTY_TEXT,
+    REASON_UNKNOWN,
+    MeshCorePacketClassifier,
+)
 from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.core.contracts.adapter import (
     AdapterCapabilities,
@@ -141,7 +146,7 @@ _FAKE_MESHCORE_CAPABILITIES = AdapterCapabilities(
     async_delivery=True,
     mesh_routing=True,
     max_text_bytes=512,
-    max_text_chars=512,
+    max_text_chars=None,
 )
 
 
@@ -199,6 +204,19 @@ class FakeMeshCoreAdapter(AdapterContract):
         self._fake_client = FakeMeshCoreClient()
         self._deliver_failure: bool = False
 
+        # Aggregate in-memory classifier counters (reset on restart).
+        self._classifier_packets_seen: int = 0
+        self._classifier_packets_relayed: int = 0
+        self._classifier_packets_ignored: int = 0
+        self._classifier_packets_dropped: int = 0
+        self._classifier_packets_deferred: int = 0
+        self._classifier_packets_ack_ignored: int = 0
+        self._classifier_packets_empty_text_ignored: int = 0
+        self._classifier_packets_unknown_deferred: int = 0
+        self._classifier_packets_dm_relayed: int = 0
+        self._classifier_packets_malformed: int = 0
+        self._inbound_published: int = 0
+
     @property
     def fake_client(self) -> FakeMeshCoreClient:
         """The underlying fake client for test inspection."""
@@ -213,8 +231,27 @@ class FakeMeshCoreAdapter(AdapterContract):
 
     # -- Lifecycle ----------------------------------------------------------
 
+    def _reset_inbound_counters(self) -> None:
+        """Zero all aggregate in-memory classifier counters.
+
+        Called from :meth:`start` so that a reused adapter instance
+        begins with a clean slate on every (re)start.
+        """
+        self._classifier_packets_seen = 0
+        self._classifier_packets_relayed = 0
+        self._classifier_packets_ignored = 0
+        self._classifier_packets_dropped = 0
+        self._classifier_packets_deferred = 0
+        self._classifier_packets_ack_ignored = 0
+        self._classifier_packets_empty_text_ignored = 0
+        self._classifier_packets_unknown_deferred = 0
+        self._classifier_packets_dm_relayed = 0
+        self._classifier_packets_malformed = 0
+        self._inbound_published = 0
+
     async def start(self, ctx: AdapterContext) -> None:
         """Store the context and mark the adapter as started."""
+        self._reset_inbound_counters()
         self.ctx = ctx
         self._mark_started(ctx)
         self._started = True
@@ -249,6 +286,17 @@ class FakeMeshCoreAdapter(AdapterContract):
             "mode": "fake",
             "delivered_count": len(self.delivered_payloads),
             "inbound_count": len(self.inbound_events),
+            "classifier_packets_seen": self._classifier_packets_seen,
+            "classifier_packets_relayed": self._classifier_packets_relayed,
+            "classifier_packets_ignored": self._classifier_packets_ignored,
+            "classifier_packets_dropped": self._classifier_packets_dropped,
+            "classifier_packets_deferred": self._classifier_packets_deferred,
+            "classifier_packets_ack_ignored": self._classifier_packets_ack_ignored,
+            "classifier_packets_empty_text_ignored": self._classifier_packets_empty_text_ignored,
+            "classifier_packets_unknown_deferred": self._classifier_packets_unknown_deferred,
+            "classifier_packets_dm_relayed": self._classifier_packets_dm_relayed,
+            "classifier_packets_malformed": self._classifier_packets_malformed,
+            "inbound_published": self._inbound_published,
         }
 
     # -- Outbound delivery --------------------------------------------------
@@ -349,13 +397,40 @@ class FakeMeshCoreAdapter(AdapterContract):
             )
 
         classification = self._classifier.classify(packet)
-        if classification["category"] != "text":
-            return
-        if classification["is_ack"]:
+        self._classifier_packets_seen += 1
+
+        action = classification.action
+        if action == "relay":
+            self._classifier_packets_relayed += 1
+        elif action == "ignore":
+            self._classifier_packets_ignored += 1
+        elif action == "drop":
+            self._classifier_packets_dropped += 1
+        elif action == "deferred":
+            self._classifier_packets_deferred += 1
+
+        # Sub-counters (reason/action specific)
+        if classification.reason == REASON_ACK:
+            self._classifier_packets_ack_ignored += 1
+        elif classification.reason == REASON_EMPTY_TEXT:
+            self._classifier_packets_empty_text_ignored += 1
+        elif classification.reason == REASON_UNKNOWN:
+            self._classifier_packets_unknown_deferred += 1
+        elif (
+            classification.action == "relay"
+            and classification.category == "direct_message"
+        ):
+            self._classifier_packets_dm_relayed += 1
+        elif classification.category == "malformed":
+            self._classifier_packets_malformed += 1
+
+        # Gate: only relay action packets enter the codec pipeline
+        if classification.action != "relay":
             return
 
         canonical = self._codec.decode(packet)
         await self.publish_inbound(canonical)
+        self._inbound_published += 1
         self.inbound_events.append(canonical)
         _trim(self.inbound_events)
 
