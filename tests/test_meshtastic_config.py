@@ -284,3 +284,43 @@ class TestMeshtasticConfigInvalid:
     def test_max_text_bytes_zero_is_valid(self) -> None:
         config = MeshtasticConfig(adapter_id="mesh-1", max_text_bytes=0)
         assert config.validate() is config
+
+    # -- queue_send_max_attempts validation --
+
+    def test_queue_send_max_attempts_default_is_3(self) -> None:
+        config = MeshtasticConfig(adapter_id="mesh-1")
+        assert config.queue_send_max_attempts == 3
+
+    def test_queue_send_max_attempts_positive_int_valid(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", queue_send_max_attempts=5
+        )
+        assert config.validate().queue_send_max_attempts == 5
+
+    def test_queue_send_max_attempts_bool_raises(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", queue_send_max_attempts=True  # type: ignore[arg-type]
+        )
+        with pytest.raises(MeshtasticConfigError, match="queue_send_max_attempts"):
+            config.validate()
+
+    def test_queue_send_max_attempts_string_raises(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", queue_send_max_attempts="3"  # type: ignore[arg-type]
+        )
+        with pytest.raises(MeshtasticConfigError, match="queue_send_max_attempts"):
+            config.validate()
+
+    def test_queue_send_max_attempts_zero_raises(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", queue_send_max_attempts=0
+        )
+        with pytest.raises(MeshtasticConfigError, match="queue_send_max_attempts"):
+            config.validate()
+
+    def test_queue_send_max_attempts_negative_raises(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", queue_send_max_attempts=-1
+        )
+        with pytest.raises(MeshtasticConfigError, match="queue_send_max_attempts"):
+            config.validate()

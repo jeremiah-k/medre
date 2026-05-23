@@ -231,16 +231,24 @@ class TestQueueProcessingCounters:
         assert q.total_dequeued == 1
 
     async def test_process_one_increments_failed_on_error(self) -> None:
-        q = MeshtasticOutboundQueue()
+        """Unknown exceptions are treated as transient and requeued.
+
+        With bounded retry (default max_attempts=3), an unknown exception
+        like RuntimeError causes the item to be front-requeued rather than
+        dropped.  To verify failed/exhausted behavior, use max_attempts=1.
+        """
+        q = MeshtasticOutboundQueue(max_attempts=1)
 
         async def failing_send(item):
             raise RuntimeError("send failed")
 
         await q.enqueue({"text": "hello"}, channel_index=0)
-        with pytest.raises(RuntimeError, match="send failed"):
-            await q.process_one(send_fn=failing_send)
+        result = await q.process_one(send_fn=failing_send)
 
+        # Item exhausted and dropped (max_attempts=1 → no retries).
+        assert result is None
         assert q.total_failed == 1
+        assert q.total_exhausted == 1
         assert q.total_sent == 0
         assert q.total_dequeued == 1
 

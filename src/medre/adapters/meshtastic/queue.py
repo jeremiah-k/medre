@@ -1,4 +1,4 @@
-"""Meshtastic outbound queue with pacing and send support.
+"""Meshtastic outbound queue with pacing and bounded retry.
 
 :class:`MeshtasticOutboundQueue` manages outbound message pacing for the
 Meshtastic adapter.  It owns the delay between messages and provides
@@ -17,11 +17,32 @@ Meshtastic-specific sleeping.
 
 Failure semantics
 -----------------
-When *send_fn* raises an exception during ``process_one``, the dequeued
-item is **permanently dropped** — it is NOT requeued or retried.  The
-queue increments ``total_failed`` and re-raises the exception to the
-caller.  Production-grade retry / requeue logic is explicitly deferred
-to future work.  This is a scaffold design choice, not a bug.
+When *send_fn* raises an exception during ``process_one``, the behaviour
+depends on the exception type and remaining retry budget:
+
+* ``asyncio.CancelledError`` — re-raised immediately; the item is
+  **not** requeued or dropped.
+* :class:`~medre.adapters.meshtastic.errors.MeshtasticSendError` with
+  ``transient=True`` — the item is **front-requeued** (``appendleft``)
+  if the attempt count is below ``max_attempts``; otherwise it is
+  counted as exhausted (``total_exhausted`` + ``total_failed``) and
+  dropped.
+* :class:`~medre.adapters.meshtastic.errors.MeshtasticSendError` with
+  ``transient=False`` — the item is **not** retried; it is counted as
+  a permanent failure (``total_permanent_failed`` + ``total_failed``)
+  and dropped.
+* Any other ``Exception`` — treated conservatively as transient and
+  front-requeued with the same bounded retry logic.
+
+Front requeue (``appendleft``) preserves urgency and FIFO ordering for
+the failed item; the bounded ``max_attempts`` prevents starvation.
+
+.. note::
+
+   "Deliver success" at the adapter boundary still means **local queue
+   acceptance only** — it does **not** imply RF confirmation, ACK
+   receipt, or durable delivery.  The queue owns local-only retry
+   semantics.
 
 Queue bounds
 ------------
@@ -87,12 +108,17 @@ class QueueDeliveryResult:
 
 
 class MeshtasticOutboundQueue:
-    """Outbound queue with pacing for Meshtastic messages.
+    """Outbound queue with pacing and bounded retry for Meshtastic messages.
 
     The internal ``deque`` is intentionally created without ``maxlen`` so
     that capacity is enforced explicitly at ``enqueue()`` time, allowing
     the queue to reject with ``transient=True`` rather than silently
     evicting the oldest item.
+
+    When a transient send failure occurs, the item is front-requeued
+    (``appendleft``) up to ``max_attempts`` times.  This preserves
+    urgency and FIFO ordering for the failed item while bounding
+    starvation.
 
     Parameters
     ----------
@@ -107,12 +133,16 @@ class MeshtasticOutboundQueue:
           with ``transient=True`` when full.
         * ``0``, negative, or ``bool`` — **invalid**; raises
           ``ValueError`` at construction time.
+    max_attempts:
+        Maximum send attempts per item (first attempt + retries).
+        Must be a positive ``int``.  Default: ``3``.
     """
 
     def __init__(
         self,
         delay_between_messages: float = 0.5,
         max_queue_size: int | None = _DEFAULT_MAX_QUEUE_SIZE,
+        max_attempts: int = 3,
     ) -> None:
         # Validate max_queue_size: None=unbounded, positive int=bounded.
         if max_queue_size is not None:
@@ -122,8 +152,16 @@ class MeshtasticOutboundQueue:
                 raise ValueError("max_queue_size must be int or None")
             if max_queue_size <= 0:
                 raise ValueError("max_queue_size must be > 0 or None")
+        # Validate max_attempts: positive int only.
+        if isinstance(max_attempts, bool):
+            raise ValueError("max_attempts must not be a bool")
+        if not isinstance(max_attempts, int):
+            raise ValueError("max_attempts must be an int")
+        if max_attempts <= 0:
+            raise ValueError("max_attempts must be > 0")
         self._delay = delay_between_messages
         self._max_queue_size = max_queue_size
+        self._max_attempts = max_attempts
         self._queue: deque[dict[str, Any]] = deque()
         self._last_send_time: float = 0.0
         self._total_sent: int = 0
@@ -131,6 +169,9 @@ class MeshtasticOutboundQueue:
         self._total_enqueued: int = 0
         self._total_dequeued: int = 0
         self._total_rejected: int = 0
+        self._total_requeued: int = 0
+        self._total_exhausted: int = 0
+        self._total_permanent_failed: int = 0
 
     @property
     def delay_between_messages(self) -> float:
@@ -141,6 +182,11 @@ class MeshtasticOutboundQueue:
     def max_queue_size(self) -> int | None:
         """Maximum queue capacity, or ``None`` if unbounded."""
         return self._max_queue_size
+
+    @property
+    def max_attempts(self) -> int:
+        """Maximum send attempts per queued item."""
+        return self._max_attempts
 
     @property
     def queue_depth(self) -> int:
@@ -201,6 +247,7 @@ class MeshtasticOutboundQueue:
                 "payload": dict(payload),
                 "channel_index": channel_index,
                 "event_id": event_id,
+                "_attempt": 1,  # internal retry counter; not sent to radio
             }
         )
         self._total_enqueued += 1
@@ -236,6 +283,12 @@ class MeshtasticOutboundQueue:
         populated with the native packet ID (if the send result exposes
         one).
 
+        On transient failure the item is front-requeued (``appendleft``)
+        if its attempt count is below ``max_attempts``; otherwise the
+        item is dropped as exhausted.  Permanent failures are never
+        retried.  ``asyncio.CancelledError`` is re-raised without
+        touching the item's attempt counter or dropping it.
+
         Parameters
         ----------
         send_fn:
@@ -268,9 +321,30 @@ class MeshtasticOutboundQueue:
 
         try:
             send_result = await send_fn(item)
-        except Exception:
-            self._total_failed += 1
+        except asyncio.CancelledError:
+            # Re-raise immediately; do NOT swallow or requeue.
             raise
+        except MeshtasticSendError as exc:
+            if not exc.transient:
+                # Permanent failure: no retry.
+                self._total_failed += 1
+                self._total_permanent_failed += 1
+                _logger.warning(
+                    "MeshtasticOutboundQueue: permanent send failure; "
+                    "dropping item (attempt %d/%d)",
+                    item.get("_attempt", 1),
+                    self._max_attempts,
+                )
+                return None
+            # Transient: front-requeue if attempts remain.
+            self._handle_transient_failure(item)
+            return None
+        except Exception:
+            # Unknown exception: treat conservatively as transient for
+            # bounded retry.  This ensures unexpected errors don't
+            # silently drop items while still bounding starvation.
+            self._handle_transient_failure(item)
+            return None
 
         self._last_send_time = time.monotonic()
         self._total_sent += 1
@@ -290,6 +364,43 @@ class MeshtasticOutboundQueue:
         )
 
         return QueueDeliveryResult(item=item, delivery_result=delivery_result)
+
+    def _handle_transient_failure(self, item: dict[str, Any]) -> None:
+        """Handle a transient failure: front-requeue or exhaust.
+
+        Increments the internal ``_attempt`` counter on the item.
+        If attempts remain, the item is requeued to the **front**
+        (``appendleft``) so it is retried before newer items.
+        If the budget is exhausted, the item is dropped and counted
+        in ``total_exhausted`` and ``total_failed``.
+
+        Parameters
+        ----------
+        item:
+            The dequeued item dict carrying ``_attempt`` metadata.
+        """
+        current_attempt = item.get("_attempt", 1)
+        next_attempt = current_attempt + 1
+        if next_attempt <= self._max_attempts:
+            # Bump attempt counter and front-requeue for immediate retry.
+            item["_attempt"] = next_attempt
+            self._queue.appendleft(item)
+            self._total_requeued += 1
+            _logger.info(
+                "MeshtasticOutboundQueue: transient failure; "
+                "front-requeue item (attempt %d/%d)",
+                next_attempt,
+                self._max_attempts,
+            )
+        else:
+            # Exhausted: drop and count.
+            self._total_failed += 1
+            self._total_exhausted += 1
+            _logger.warning(
+                "MeshtasticOutboundQueue: item exhausted %d attempts; "
+                "dropping",
+                self._max_attempts,
+            )
 
     @property
     def pending_count(self) -> int:
@@ -322,6 +433,21 @@ class MeshtasticOutboundQueue:
         return self._total_rejected
 
     @property
+    def total_requeued(self) -> int:
+        """Total number of items front-requeued after transient failure."""
+        return self._total_requeued
+
+    @property
+    def total_exhausted(self) -> int:
+        """Total number of items dropped after exhausting all attempts."""
+        return self._total_exhausted
+
+    @property
+    def total_permanent_failed(self) -> int:
+        """Total number of items dropped due to permanent send failure."""
+        return self._total_permanent_failed
+
+    @property
     def queue_health(self) -> dict[str, Any]:
         """Snapshot of the queue's operational state.
 
@@ -330,8 +456,11 @@ class MeshtasticOutboundQueue:
         dict
             Keys: ``pending_count``, ``total_sent``, ``total_failed``,
             ``total_enqueued``, ``total_dequeued``, ``total_rejected``,
-            ``max_queue_size``, ``utilization_pct``,
-            ``delay_between_messages``, ``last_send_time``.
+            ``total_requeued``, ``total_exhausted``,
+            ``total_permanent_failed``,
+            ``max_queue_size``, ``max_attempts``,
+            ``utilization_pct``, ``delay_between_messages``,
+            ``last_send_time``.
         """
         max_sz = self._max_queue_size
         util = (
@@ -344,7 +473,11 @@ class MeshtasticOutboundQueue:
             "total_enqueued": self._total_enqueued,
             "total_dequeued": self._total_dequeued,
             "total_rejected": self._total_rejected,
+            "total_requeued": self._total_requeued,
+            "total_exhausted": self._total_exhausted,
+            "total_permanent_failed": self._total_permanent_failed,
             "max_queue_size": max_sz,
+            "max_attempts": self._max_attempts,
             "utilization_pct": util,
             "delay_between_messages": self._delay,
             "last_send_time": self._last_send_time,
