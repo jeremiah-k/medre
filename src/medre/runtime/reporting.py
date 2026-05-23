@@ -73,7 +73,7 @@ def _to_iso_or_none(dt: datetime | None) -> str | None:
 def _derive_failure_kind_detail(
     failure_kind: str | None,
     error: str | None,
-    target_adapter: str,
+    target_adapter: str,  # noqa: ARG001 – kept for API compatibility
 ) -> str | None:
     """Derive a conservative *failure_kind_detail* from error context.
 
@@ -105,9 +105,11 @@ def _derive_failure_kind_detail(
         )
     ):
         return "e2ee_blocked"
-    # Meshtastic queue-full / rejection — require queue+full together or
-    # "enqueue rejected" to avoid classifying generic Meshtastic errors.
-    if "meshtastic" in target_adapter.lower():
+    # Meshtastic queue-full / rejection — detect from error text rather
+    # than target_adapter so adapters with non-standard IDs (e.g.
+    # radio/mesh/test-full) are still recognised.  Conservative guard:
+    # "meshtastic" must appear in the error text itself.
+    if "meshtastic" in err:
         if ("queue" in err and "full" in err) or "enqueue rejected" in err:
             return "meshtastic_queue_rejected"
     # Default: preserve the original failure_kind.
@@ -121,16 +123,22 @@ def _compute_retryable(
 ) -> bool:
     """Determine whether a receipt represents a retryable delivery state.
 
-    Rules:
+    Rules (evaluated in order; first match wins):
 
-    * ``adapter_transient`` → ``True``.
-    * A scheduled ``next_retry_at`` → ``True`` regardless of status.
-    * All other states (permanent, reserved, suppression, dead-lettered)
-      → ``False``.
+    * ``status == "dead_lettered"`` → ``False`` (terminal).
+    * ``status == "suppressed"`` → ``False`` (terminal).
+    * ``next_retry_at is not None`` → ``True`` (scheduled retry).
+    * ``status == "failed"`` and ``failure_kind == "adapter_transient"``
+      → ``True``.
+    * Everything else → ``False``.
     """
+    if status == "dead_lettered":
+        return False
+    if status == "suppressed":
+        return False
     if next_retry_at is not None:
         return True
-    if failure_kind == "adapter_transient":
+    if status == "failed" and failure_kind == "adapter_transient":
         return True
     return False
 

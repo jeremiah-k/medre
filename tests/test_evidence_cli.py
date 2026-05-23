@@ -1185,6 +1185,76 @@ class TestDeadLetterIncidentSummary:
         )
 
     @pytest.mark.asyncio
+    async def test_delivery_state_by_adapter_includes_target_channel(
+        self, config_fake: Path
+    ) -> None:
+        """delivery_state_by_adapter state entries include target_channel.
+
+        The enriched receipt dicts from delivery_receipt_to_report_dict
+        always include target_channel.  The per-adapter state summary
+        must propagate this field so that CLI consumers can identify
+        the target channel without cross-referencing the full receipt
+        list.
+        """
+        from medre.core.events.canonical import CanonicalEvent, DeliveryReceipt
+        from medre.core.events.kinds import EventKind
+        from medre.core.events.metadata import EventMetadata
+        from medre.core.storage.sqlite import SQLiteStorage
+
+        db_path = str(config_fake.parent / "state" / "test_evidence.db")
+        event_id = "ev-target-ch-001"
+
+        storage = SQLiteStorage(db_path)
+        await storage.initialize()
+
+        event = CanonicalEvent(
+            event_id=event_id,
+            event_kind=EventKind.MESSAGE_TEXT,
+            schema_version=1,
+            timestamp=datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
+            source_adapter="main",
+            source_transport_id="matrix",
+            source_channel_id="!room:test",
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"text": "target channel test"},
+            metadata=EventMetadata(),
+        )
+        await storage.append(event)
+
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-tch-001",
+            event_id=event_id,
+            delivery_plan_id="dp-tch-001",
+            target_adapter="radio",
+            target_channel="ch-42",
+            route_id="route-tch",
+            status="sent",
+            source="live",
+            created_at=datetime(2026, 1, 1, 0, 0, 1, tzinfo=timezone.utc),
+        )
+        await storage.append_receipt(receipt)
+        await storage.close()
+
+        report = await collect_evidence_bundle(
+            str(config_fake),
+            event_id=event_id,
+        )
+        summary = report["sections"]["storage"]["data"]["incident_summary"]
+        state_by_adapter = summary["delivery_state_by_adapter"]
+        assert "radio" in state_by_adapter, (
+            f"Expected 'radio' in delivery_state_by_adapter, "
+            f"got keys: {list(state_by_adapter)}"
+        )
+        radio_state = state_by_adapter["radio"]
+        assert "target_channel" in radio_state, (
+            f"delivery_state_by_adapter entry missing 'target_channel' key. "
+            f"Available keys: {sorted(radio_state.keys())}"
+        )
+        assert radio_state["target_channel"] == "ch-42"
+
+    @pytest.mark.asyncio
     async def test_dead_lettered_receipt_timeline_includes_retry_fields(
         self, config_fake: Path
     ) -> None:

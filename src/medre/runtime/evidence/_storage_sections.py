@@ -192,6 +192,9 @@ async def _collect_storage_data_from_backend(
                         "attempt_number": best.get("attempt_number"),
                         "native_message_id": best.get("native_message_id"),
                         "adapter_message_id": best.get("adapter_message_id"),
+                        # TODO: future delivery_state_by_target can distinguish
+                        # multiple channels per adapter.
+                        "target_channel": best.get("target_channel"),
                         "failure_kind": best.get("failure_kind"),
                         "failure_kind_detail": best.get("failure_kind_detail"),
                         "retryable": best.get("retryable"),

@@ -51,6 +51,7 @@ from medre.core.planning.delivery_plan import (
     RetryPolicy,
 )
 from medre.core.rendering.renderer import RenderingResult
+from medre.runtime.reporting import delivery_receipt_to_report_dict
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -170,6 +171,228 @@ def _mock_send_response(event_id: str = "$sent-unif-001") -> MagicMock:
     resp = MagicMock()
     resp.event_id = event_id
     return resp
+
+
+# ===================================================================
+# 0a. _compute_retryable through delivery_receipt_to_report_dict
+# ===================================================================
+
+
+class TestComputeRetryable:
+    """Retryable flag derivation from receipt fields via public report dict.
+
+    Rules under test:
+    * ``dead_lettered`` + ``adapter_transient`` → retryable ``False``.
+    * ``suppressed`` + ``adapter_transient`` → retryable ``False``.
+    * ``failed`` + ``adapter_transient`` + no ``next_retry_at`` → ``True``.
+    * ``failed`` + ``adapter_permanent`` → ``False``.
+    * Any receipt with ``next_retry_at`` → ``True`` unless status is
+      ``dead_lettered`` or ``suppressed``.
+    """
+
+    def test_dead_lettered_adapter_transient_not_retryable(self) -> None:
+        """Dead-lettered receipt with adapter_transient is not retryable."""
+        receipt = _make_receipt(
+            status="dead_lettered",
+            failure_kind="adapter_transient",
+            error="Retry exhausted after 3 attempts",
+        )
+        report = delivery_receipt_to_report_dict(receipt)
+        assert report["retryable"] is False
+
+    def test_suppressed_adapter_transient_not_retryable(self) -> None:
+        """Suppressed receipt with adapter_transient is not retryable."""
+        receipt = _make_receipt(
+            status="suppressed",
+            failure_kind="adapter_transient",
+            error="Suppressed by loop guard",
+        )
+        report = delivery_receipt_to_report_dict(receipt)
+        assert report["retryable"] is False
+
+    def test_failed_adapter_transient_no_retry_at_is_retryable(self) -> None:
+        """Failed receipt with adapter_transient and no next_retry_at is retryable."""
+        receipt = _make_receipt(
+            status="failed",
+            failure_kind="adapter_transient",
+            error="ConnectionError: timeout",
+        )
+        report = delivery_receipt_to_report_dict(receipt)
+        assert report["retryable"] is True
+
+    def test_failed_adapter_permanent_not_retryable(self) -> None:
+        """Failed receipt with adapter_permanent is not retryable."""
+        receipt = _make_receipt(
+            status="failed",
+            failure_kind="adapter_permanent",
+            error="ValueError: malformed payload",
+        )
+        report = delivery_receipt_to_report_dict(receipt)
+        assert report["retryable"] is False
+
+    def test_next_retry_at_makes_failed_retryable(self) -> None:
+        """Failed receipt with next_retry_at scheduled is retryable."""
+        receipt = _make_receipt(
+            status="failed",
+            failure_kind="adapter_transient",
+            error="ConnectionError: timeout",
+        )
+        # Override next_retry_at — _make_receipt doesn't expose it directly.
+        receipt = DeliveryReceipt(
+            receipt_id=receipt.receipt_id,
+            event_id=receipt.event_id,
+            delivery_plan_id=receipt.delivery_plan_id,
+            target_adapter=receipt.target_adapter,
+            target_channel=receipt.target_channel,
+            route_id=receipt.route_id,
+            status="failed",
+            failure_kind="adapter_transient",
+            error="ConnectionError: timeout",
+            attempt_number=2,
+            next_retry_at=datetime.now(timezone.utc),
+            created_at=receipt.created_at,
+        )
+        report = delivery_receipt_to_report_dict(receipt)
+        assert report["retryable"] is True
+
+    def test_dead_lettered_with_next_retry_at_not_retryable(self) -> None:
+        """Dead-lettered receipt with next_retry_at is still not retryable."""
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-dl-retry",
+            event_id="evt-dl-retry",
+            delivery_plan_id="plan-dl-retry",
+            target_adapter="adapter-dl",
+            target_channel="ch-0",
+            route_id="route-dl",
+            status="dead_lettered",
+            failure_kind="adapter_transient",
+            error="Retry exhausted after 3 attempts",
+            attempt_number=4,
+            next_retry_at=datetime.now(timezone.utc),
+            created_at=datetime.now(timezone.utc),
+        )
+        report = delivery_receipt_to_report_dict(receipt)
+        assert report["retryable"] is False
+
+    def test_suppressed_with_next_retry_at_not_retryable(self) -> None:
+        """Suppressed receipt with next_retry_at is still not retryable."""
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-supp-retry",
+            event_id="evt-supp-retry",
+            delivery_plan_id="plan-supp-retry",
+            target_adapter="adapter-supp",
+            target_channel="ch-0",
+            route_id="route-supp",
+            status="suppressed",
+            failure_kind="loop_suppressed",
+            error="Loop prevented delivery",
+            attempt_number=1,
+            next_retry_at=datetime.now(timezone.utc),
+            created_at=datetime.now(timezone.utc),
+        )
+        report = delivery_receipt_to_report_dict(receipt)
+        assert report["retryable"] is False
+
+
+# ===================================================================
+# 0b. _derive_failure_kind_detail through delivery_receipt_to_report_dict
+# ===================================================================
+
+
+class TestDeriveFailureKindDetail:
+    """Failure-kind detail derivation from error context via public report dict.
+
+    Patterns under test:
+    * Meshtastic queue-full / enqueue-rejected error with adapter name
+      containing "meshtastic" → ``"meshtastic_queue_rejected"``.
+    * Meshtastic queue error with adapter name "radio" (config alias) →
+      ``"meshtastic_queue_rejected"`` (error text is authoritative).
+    * Unrelated error where neither ``queue+full`` nor ``enqueue rejected``
+      are present → original ``failure_kind``.
+    * No ``failure_kind`` at all → ``None``.
+    """
+
+    def test_meshtastic_adapter_queue_full_rejected(self) -> None:
+        """target_adapter='meshtastic' with queue-full error produces
+        failure_kind_detail='meshtastic_queue_rejected'."""
+        receipt = _make_receipt(
+            status="failed",
+            failure_kind="adapter_transient",
+            error="Meshtastic outbound queue is full; enqueue rejected (1/1)",
+        )
+        receipt = DeliveryReceipt(
+            receipt_id=receipt.receipt_id,
+            event_id=receipt.event_id,
+            delivery_plan_id=receipt.delivery_plan_id,
+            target_adapter="meshtastic",
+            target_channel="ch-0",
+            route_id=receipt.route_id,
+            status="failed",
+            failure_kind="adapter_transient",
+            error="Meshtastic outbound queue is full; enqueue rejected (1/1)",
+            attempt_number=1,
+            created_at=receipt.created_at,
+        )
+        report = delivery_receipt_to_report_dict(receipt)
+        assert report["failure_kind_detail"] == "meshtastic_queue_rejected"
+
+    def test_radio_adapter_meshtastic_queue_error_detail(self) -> None:
+        """target_adapter='radio' (config alias) with Meshtastic queue-full
+        error text produces failure_kind_detail='meshtastic_queue_rejected'.
+
+        The error text is the authoritative source — adapter IDs like
+        'radio' are common config aliases for Meshtastic adapters.
+        """
+        receipt = _make_receipt(
+            status="failed",
+            failure_kind="adapter_transient",
+            error="Meshtastic outbound queue is full; enqueue rejected (1/1)",
+        )
+        receipt = DeliveryReceipt(
+            receipt_id=receipt.receipt_id,
+            event_id=receipt.event_id,
+            delivery_plan_id=receipt.delivery_plan_id,
+            target_adapter="radio",
+            target_channel="ch-0",
+            route_id=receipt.route_id,
+            status="failed",
+            failure_kind="adapter_transient",
+            error="Meshtastic outbound queue is full; enqueue rejected (1/1)",
+            attempt_number=1,
+            created_at=receipt.created_at,
+        )
+        report = delivery_receipt_to_report_dict(receipt)
+        assert report["failure_kind_detail"] == "meshtastic_queue_rejected"
+
+    def test_unrelated_error_preserves_failure_kind(self) -> None:
+        """Error without queue/full or enqueue-rejected patterns preserves
+        original failure_kind as failure_kind_detail."""
+        receipt = _make_receipt(
+            status="failed",
+            failure_kind="adapter_transient",
+            error="ConnectionError: timeout",
+        )
+        receipt = DeliveryReceipt(
+            receipt_id=receipt.receipt_id,
+            event_id=receipt.event_id,
+            delivery_plan_id=receipt.delivery_plan_id,
+            target_adapter="meshtastic",
+            target_channel="ch-0",
+            route_id=receipt.route_id,
+            status="failed",
+            failure_kind="adapter_transient",
+            error="ConnectionError: timeout",
+            attempt_number=1,
+            created_at=receipt.created_at,
+        )
+        report = delivery_receipt_to_report_dict(receipt)
+        assert report["failure_kind_detail"] == "adapter_transient"
+
+    def test_no_failure_kind_returns_none(self) -> None:
+        """Receipt with no failure_kind produces None failure_kind_detail."""
+        receipt = _make_receipt(status="sent")
+        report = delivery_receipt_to_report_dict(receipt)
+        assert report["failure_kind_detail"] is None
 
 
 # ===================================================================
@@ -397,10 +620,12 @@ class TestLoopSuppressedVisibility:
     def test_loop_suppressed_enum_value(self) -> None:
         assert DeliveryFailureKind.LOOP_SUPPRESSED.value == "loop_suppressed"
 
-    def test_skipped_outcome_for_loop_no_receipt(self) -> None:
-        """Loop-suppressed outcome is 'skipped' with no receipt in the
-        DeliveryOutcome.  The pipeline may persist a separate suppressed
-        receipt outside the outcome when event/target context exists."""
+    def test_skipped_outcome_without_receipt_helper_only(self) -> None:
+        """Helper-constructed skipped outcome has no receipt by default.
+
+        This tests the helper's default behaviour, not the pipeline contract.
+        The pipeline may persist a separate suppressed receipt outside the
+        outcome when event/target context exists."""
         outcome = _make_outcome(
             status="skipped",
             error="loop_prevented",
@@ -408,6 +633,59 @@ class TestLoopSuppressedVisibility:
         assert outcome.status == "skipped"
         assert outcome.receipt is None
         assert "loop" in (outcome.error or "")
+
+    def test_loop_suppressed_outcome_with_suppressed_receipt(self) -> None:
+        """Loop-suppressed DeliveryOutcome may carry a suppressed receipt.
+
+        The pipeline persists suppressed receipts for loop/capacity/shutdown
+        when event/target context exists.  Only duplicate_suppressed remains
+        pre-storage (no receipt) because no event has been stored yet."""
+        receipt = _make_receipt(
+            status="suppressed",
+            failure_kind="loop_suppressed",
+            error="Loop prevented delivery",
+        )
+        outcome = _make_outcome(
+            status="skipped",
+            failure_kind=DeliveryFailureKind.LOOP_SUPPRESSED,
+            receipt=receipt,
+            error="Loop prevented delivery",
+        )
+        assert outcome.status == "skipped"
+        assert outcome.receipt is not None
+        assert outcome.receipt.status == "suppressed"
+        assert outcome.receipt.failure_kind == "loop_suppressed"
+        assert outcome.failure_kind is DeliveryFailureKind.LOOP_SUPPRESSED
+
+    def test_capacity_rejection_outcome_with_suppressed_receipt(self) -> None:
+        """Capacity-rejection outcome may carry a suppressed receipt."""
+        receipt = _make_receipt(
+            status="suppressed",
+            failure_kind="capacity_rejection",
+            error="delivery_capacity_exceeded",
+        )
+        outcome = _make_outcome(
+            status="skipped",
+            receipt=receipt,
+            error="delivery_capacity_exceeded",
+        )
+        assert outcome.receipt is not None
+        assert outcome.receipt.status == "suppressed"
+
+    def test_shutdown_rejection_outcome_with_suppressed_receipt(self) -> None:
+        """Shutdown-rejection outcome may carry a suppressed receipt."""
+        receipt = _make_receipt(
+            status="suppressed",
+            failure_kind="shutdown_rejection",
+            error="Pipeline shutdown in progress",
+        )
+        outcome = _make_outcome(
+            status="skipped",
+            receipt=receipt,
+            error="Pipeline shutdown in progress",
+        )
+        assert outcome.receipt is not None
+        assert outcome.receipt.status == "suppressed"
 
     def test_suppressed_receipt_status_is_valid(self) -> None:
         """Pipeline persists receipts with status='suppressed' for
