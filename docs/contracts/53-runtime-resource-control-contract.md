@@ -151,9 +151,9 @@ MeshCore adapters face similar bandwidth constraints. Additionally:
 Default backpressure policy for radio adapters:
 
 - Queue depth: **small** (5-20 messages).
-- Policy: **drop oldest** — keep the freshest data, discard stale commands.
-- No retry on backpressure drops.
-- Log every drop as a diagnostic event.
+- Policy: **explicit rejection** — reject enqueue when full, raise transient error; caller decides retry.
+- No silent drops; every rejected item is counted in `queue_total_rejected`.
+- Log every rejection as a diagnostic event.
 
 ## 8. Matrix/LXMF Async Caveats
 
@@ -213,7 +213,7 @@ global_delivery_limit = 500
 # Default per-adapter queue depth (overridden per-adapter below).
 default_queue_depth = 50
 
-# Default backpressure policy: "drop_oldest", "drop_newest", "block", "fail"
+# Default backpressure policy: "reject", "block", "fail"
 default_policy = "fail"
 
 # Block timeout in seconds (only used when policy = "block").
@@ -222,7 +222,7 @@ block_timeout_seconds = 5
 # Per-adapter overrides.
 [runtime.resource_control.adapters.meshtastic_radio]
 queue_depth = 10
-policy = "drop_oldest"
+policy = "reject"
 
 [runtime.resource_control.adapters.matrix_bot]
 queue_depth = 100
@@ -384,7 +384,7 @@ The following from the design sections (2–13) are **deferred to v2**:
 
 - **Per-adapter outbound queues.** v1 uses a global semaphore, not per-adapter queue structures.
 - **Per-adapter queue depth limits.** No per-adapter isolation; the global limit is the only bound.
-- **Backpressure policies** (drop oldest, drop newest, block, fail). v1 uses semaphore-based capacity control with timeout.
+- **Backpressure policies** (reject, block, fail). v1 uses semaphore-based capacity control with timeout.
 - **Replay rate limiting** (producer-side throttle). v1 bounds replay concurrency but does not rate-limit replay event production.
 - **Per-route queues.** Delivery remains inline within the pipeline runner.
 - **Block policy with per-adapter delivery tasks.** Requires architectural changes to PipelineRunner.
@@ -398,7 +398,7 @@ The following from the design sections (2–13) are **deferred to v2**:
 
 ## 15. v2 Implementation — CapacityController and Capacity Bounds
 
-v2 introduces `CapacityController` as a centralized capacity manager, wires `ReplayEngine` into `RuntimeBuilder` with capacity and shutdown participation, and adds bounded adapter-level queues where applicable. The design sections (2–13) described per-adapter outbound queues with backpressure policies; v2 delivers this through a combination of the global `CapacityController` (reject-with-diagnostics default) and adapter-level bounding (drop-oldest for Meshtastic).
+v2 introduces `CapacityController` as a centralized capacity manager, wires `ReplayEngine` into `RuntimeBuilder` with capacity and shutdown participation, and adds bounded adapter-level queues where applicable. The design sections (2–13) described per-adapter outbound queues with backpressure policies; v2 delivers this through a combination of the global `CapacityController` (reject-with-diagnostics default) and adapter-level bounding (explicit rejection for Meshtastic).
 
 **What v2 does not change:** MEDRE remains best-effort. No exactly-once guarantees, no transactional delivery guarantees, no persistent in-flight recovery. Radio transports remain probabilistic. Queue bounds prevent unbounded accumulation but not data loss under extreme pressure.
 
@@ -454,11 +454,11 @@ v2 adds bounded internal queues at the adapter level to prevent unbounded memory
 
 #### Meshtastic — deque with maxlen
 
-`MeshtasticOutboundQueue` (in `src/medre/adapters/meshtastic/queue.py`) uses a `deque(maxlen=max_queue_size)` (default 1024). When the deque is at capacity:
+`MeshtasticOutboundQueue` (in `src/medre/adapters/meshtastic/queue.py`) uses an unbounded deque with explicit enqueue-time capacity enforcement (default `max_queue_size=1024`). When the queue is at capacity:
 
-- **Policy: drop-oldest.** The deque silently drops the leftmost (oldest) item when `append()` would exceed capacity.
-- `total_dropped` counter is incremented for each dropped item.
-- A WARNING log is emitted: `"MeshtasticOutboundQueue full (N items); dropping oldest"`.
+- **Policy: explicit rejection.** `enqueue()` raises `MeshtasticSendError(transient=True)` instead of accepting the item. Existing queued items are never evicted.
+- `queue_total_rejected` counter is incremented for each rejected enqueue attempt.
+- `queue_max_size` and `queue_utilization_pct` are exposed in diagnostics.
 
 This prevents unbounded growth in long-duration runs where outbound throughput exceeds send capacity. Failed items during `process_one` are permanently dropped (not requeued).
 
@@ -496,7 +496,7 @@ When capacity is exhausted, the system applies one of three behaviors depending 
 | ------------------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | `PipelineRunner` delivery | **Reject** — return `permanent_failure` with `CAPACITY_REJECTION`/`SHUTDOWN_REJECTION`; increment diagnostics | N/A (reject is the only policy at this layer)                                                                                         |
 | `ReplayEngine` delivery   | **Reject** — return `error` with `replay_capacity_exceeded`/`replay_rejected_shutdown`; increment diagnostics | N/A (reject is the only policy at this layer)                                                                                         |
-| Meshtastic outbound queue | **Drop-oldest** — `deque(maxlen)` silently discards oldest item; increment `total_dropped`                    | `max_queue_size=None` for unbounded (not recommended)                                                                                 |
+| Meshtastic outbound queue | **Explicit rejection** — `enqueue()` raises `MeshtasticSendError(transient=True)`; increment `queue_total_rejected` | `max_queue_size=None` for unbounded (not recommended)                                                                                 |
 | Design reference (§3)     | —                                                                                                             | **Drop-newest** — preserves earliest queued items, loses newest arrivals. Appropriate for command-and-control where ordering matters. |
 
 **Default: reject with diagnostics increment.** The `CapacityController` rejects work when capacity is exhausted or when shutdown has been signaled. Each rejection increments a counter visible in `snapshot()`. The caller records the failure in its outcome (delivery or replay) and moves on. No retry is attempted — capacity rejection is a backpressure signal, not a transient error.
@@ -521,7 +521,9 @@ Adapter-level queue metrics (Meshtastic):
 
 | Counter         | Type    | Description                                                      |
 | --------------- | ------- | ---------------------------------------------------------------- |
-| `total_dropped` | Counter | Items dropped from the Meshtastic outbound queue due to overflow |
+| `queue_total_rejected` | Counter | Enqueue attempts rejected due to the Meshtastic outbound queue being full |
+| `queue_max_size`       | Gauge   | Configured maximum queue size (or `None` for unbounded)                    |
+| `queue_utilization_pct`| Gauge   | Current queue utilization as a percentage of `queue_max_size`             |
 | `queue_depth`   | Gauge   | Current number of items in the Meshtastic outbound queue         |
 
 ### 15.8 What v2 Does NOT Implement
@@ -529,7 +531,7 @@ Adapter-level queue metrics (Meshtastic):
 The following from the design sections (2–13) remain deferred:
 
 - **Per-adapter outbound queues for Matrix, LXMF, MeshCore.** Only Meshtastic has an explicit bounded queue.
-- **Operator-configurable backpressure policy per adapter.** The policy is hardcoded: reject for capacity, drop-oldest for Meshtastic.
+- **Operator-configurable backpressure policy per adapter.** The policy is hardcoded: explicit rejection for capacity (including Meshtastic).
 - **Block policy with per-adapter delivery tasks.** Requires architectural changes to PipelineRunner.
 - **Per-route queues.** Delivery remains inline within the pipeline runner.
 - **Replay rate limiting** (producer-side throttle). v2 bounds replay concurrency but does not rate-limit replay event production.

@@ -29,10 +29,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Any
 from unittest.mock import AsyncMock
-
-import pytest
 
 from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
@@ -51,7 +48,6 @@ from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage.sqlite import SQLiteStorage
 from tests.helpers.meshtastic_bridge import make_adapter_context, make_text_packet
-
 
 # ===================================================================
 # 1. Meshtastic inbound -> fake outbound
@@ -91,7 +87,12 @@ class TestMeshtasticInboundToFakeOutbound:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register(
+            MeshtasticRenderer(
+                configs={"fake-out": MeshtasticConfig(adapter_id="fake-out", radio_relay_prefix="")}
+            ),
+            priority=50,
+        )
         rp.register_adapter_platform("fake-out", "meshtastic")
         rp.register(TextRenderer(), priority=100)
 
@@ -153,7 +154,14 @@ class TestMeshtasticInboundToFakeOutbound:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register(
+            MeshtasticRenderer(
+                configs={
+                    "bridge-fake-out2": MeshtasticConfig(adapter_id="bridge-fake-out2")
+                }
+            ),
+            priority=50,
+        )
         rp.register_adapter_platform("bridge-fake-out2", "meshtastic")
         rp.register(TextRenderer(), priority=100)
 
@@ -215,7 +223,14 @@ class TestMeshtasticInboundToFakeOutbound:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register(
+            MeshtasticRenderer(
+                configs={
+                    "bridge-fake-out3": MeshtasticConfig(adapter_id="bridge-fake-out3")
+                }
+            ),
+            priority=50,
+        )
         rp.register_adapter_platform("bridge-fake-out3", "meshtastic")
         rp.register(TextRenderer(), priority=100)
 
@@ -277,7 +292,16 @@ class TestMeshtasticInboundToFakeOutbound:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register(
+            MeshtasticRenderer(
+                configs={
+                    "bridge-fake-receipt": MeshtasticConfig(
+                        adapter_id="bridge-fake-receipt"
+                    )
+                }
+            ),
+            priority=50,
+        )
         rp.register_adapter_platform("bridge-fake-receipt", "meshtastic")
         rp.register(TextRenderer(), priority=100)
 
@@ -402,7 +426,12 @@ class TestMeshtasticInboundToFakeOutbound:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register(
+            MeshtasticRenderer(
+                configs={"bridge-ch-out": MeshtasticConfig(adapter_id="bridge-ch-out")}
+            ),
+            priority=50,
+        )
         rp.register_adapter_platform("bridge-ch-out", "meshtastic")
         rp.register(TextRenderer(), priority=100)
 
@@ -466,7 +495,14 @@ class TestMeshtasticInboundToFakeOutbound:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register(
+            MeshtasticRenderer(
+                configs={
+                    "bridge-reply-out": MeshtasticConfig(adapter_id="bridge-reply-out")
+                }
+            ),
+            priority=50,
+        )
         rp.register_adapter_platform("bridge-reply-out", "meshtastic")
         rp.register(TextRenderer(), priority=100)
 
@@ -565,7 +601,14 @@ class TestFakeInboundToMeshtasticOutbound:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register(
+            MeshtasticRenderer(
+                configs={
+                    "bridge-mesh-out": MeshtasticConfig(adapter_id="bridge-mesh-out")
+                }
+            ),
+            priority=50,
+        )
         rp.register_adapter_platform("bridge-mesh-out", "meshtastic")
         rp.register(TextRenderer(), priority=100)
 
@@ -657,7 +700,14 @@ class TestFakeInboundToMeshtasticOutbound:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register(
+            MeshtasticRenderer(
+                configs={
+                    "bridge-mesh-nref": MeshtasticConfig(adapter_id="bridge-mesh-nref")
+                }
+            ),
+            priority=50,
+        )
         rp.register_adapter_platform("bridge-mesh-nref", "meshtastic")
         rp.register(TextRenderer(), priority=100)
 
@@ -739,7 +789,14 @@ class TestFakeInboundToMeshtasticOutbound:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register(
+            MeshtasticRenderer(
+                configs={
+                    "bridge-mesh-qh": MeshtasticConfig(adapter_id="bridge-mesh-qh")
+                }
+            ),
+            priority=50,
+        )
         rp.register_adapter_platform("bridge-mesh-qh", "meshtastic")
         rp.register(TextRenderer(), priority=100)
 
@@ -812,7 +869,14 @@ class TestFakeInboundToMeshtasticOutbound:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register(
+            MeshtasticRenderer(
+                configs={
+                    "bridge-mesh-rend": MeshtasticConfig(adapter_id="bridge-mesh-rend")
+                }
+            ),
+            priority=50,
+        )
         rp.register(TextRenderer(), priority=100)
 
         runner = PipelineRunner(
@@ -888,7 +952,14 @@ class TestFakeInboundToMeshtasticOutbound:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register(
+            MeshtasticRenderer(
+                configs={
+                    "bridge-mesh-acc": MeshtasticConfig(adapter_id="bridge-mesh-acc")
+                }
+            ),
+            priority=50,
+        )
         rp.register_adapter_platform("bridge-mesh-acc", "meshtastic")
         rp.register(TextRenderer(), priority=100)
 

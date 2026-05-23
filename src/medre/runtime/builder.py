@@ -223,30 +223,63 @@ def _register_adapter_renderers(
     enforced by the test suite.
 
     When *config* is provided, transport-specific renderer config is
-    extracted and passed to renderers that accept it (e.g.
-    ``MeshtasticRenderer`` receives the first ``MeshtasticConfig`` so
-    that ``radio_relay_prefix`` is available, ``MatrixRenderer`` receives
-    it for ``matrix_relay_prefix``).
+    extracted and passed to renderers that accept it:
+
+    * ``MeshtasticRenderer`` receives a mapping of ALL Meshtastic adapter
+      configs (``adapter_id → MeshtasticConfig``) so that rendering is
+      target-adapter-aware in multi-radio setups.
+    * ``MatrixRenderer`` receives the first MeshtasticConfig's
+      ``mmrelay_compatibility``, ``meshnet_name``, and
+      ``matrix_relay_prefix`` fields for mmrelay interop.  Full
+      MatrixRenderer redesign for multi-Meshtastic awareness is deferred.
     """
-    # Collect MeshtasticConfig for MeshtasticRenderer, if available.
-    meshtastic_config: Any = None
+    # Collect ALL MeshtasticConfigs for target-aware rendering.
+    meshtastic_configs: dict[str, Any] = {}
+    first_meshtastic_config: Any = None
     if config is not None:
         for _transport, _adapter_id, rtc in config.adapters.all_configs():
             if _transport == "meshtastic" and getattr(rtc, "config", None) is not None:
-                meshtastic_config = rtc.config
-                break
+                meshtastic_configs[_adapter_id] = rtc.config
+                if first_meshtastic_config is None:
+                    first_meshtastic_config = rtc.config
+        # Fallback: if no real configs but Meshtastic adapters exist (e.g.
+        # adapter_kind="fake" where rtc.config is None), synthesize defaults
+        # so the renderer is registered and target-aware rendering works.
+        if not meshtastic_configs and config.adapters.meshtastic:
+            import importlib
+
+            _meshtastic_mod = importlib.import_module(
+                "medre.config.adapters.meshtastic"
+            )
+            _MConfig = _meshtastic_mod.MeshtasticConfig
+            for adapter_id in config.adapters.meshtastic:
+                meshtastic_configs[adapter_id] = _MConfig(
+                    adapter_id=adapter_id,
+                    radio_relay_prefix="",
+                )
+            if meshtastic_configs:
+                first_meshtastic_config = next(iter(meshtastic_configs.values()))
 
     for module_path, class_name in _ADAPTER_RENDERER_SPECS:
         try:
             mod = __import__(module_path, fromlist=[class_name])
             renderer_cls = getattr(mod, class_name)
-            # Pass MeshtasticConfig when constructing MeshtasticRenderer.
-            if class_name == "MeshtasticRenderer" and meshtastic_config is not None:
-                pipeline.register(renderer_cls(config=meshtastic_config), priority=50)
-            elif class_name == "MatrixRenderer" and meshtastic_config is not None:
-                mmrelay_compat = meshtastic_config.mmrelay_compatibility
-                meshnet_name = meshtastic_config.meshnet_name
-                matrix_relay_prefix = meshtastic_config.matrix_relay_prefix
+            # Pass all MeshtasticConfigs when constructing MeshtasticRenderer.
+            # Only register when configs are available — the renderer rejects
+            # an empty mapping at construction.
+            if class_name == "MeshtasticRenderer":
+                if not meshtastic_configs:
+                    continue
+                pipeline.register(
+                    renderer_cls(configs=meshtastic_configs),
+                    priority=50,
+                )
+            elif class_name == "MatrixRenderer" and first_meshtastic_config is not None:
+                # MatrixRenderer uses first MeshtasticConfig for
+                # mmrelay_compatibility — full redesign deferred.
+                mmrelay_compat = first_meshtastic_config.mmrelay_compatibility
+                meshnet_name = first_meshtastic_config.meshnet_name
+                matrix_relay_prefix = first_meshtastic_config.matrix_relay_prefix
                 pipeline.register(
                     renderer_cls(
                         mmrelay_compat=mmrelay_compat,

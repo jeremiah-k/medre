@@ -11,18 +11,18 @@ This note compares them across the dimensions that matter for MEDRE's abstractio
 
 ## Comparison Table
 
-| Dimension       | Matrix                    | Meshtastic                   | MeshCore                        |
-| --------------- | ------------------------- | ---------------------------- | ------------------------------- |
-| Role            | Presentation              | Transport/Radio              | Transport/Radio                 |
-| Identity        | MXID (`@user:server.org`) | NodeNum (int) + fromId (str) | Ed25519 pubkey (32B hex)        |
-| Channels        | Room ID string            | Channel index (0-7)          | Channel index (0-7) + encrypted |
-| Message ID      | Event ID string           | Packet ID int                | Sender timestamp int            |
-| Wire format     | JSON events               | Protobuf                     | Custom binary                   |
-| Reply mechanism | `m.in_reply_to`           | `replyId` int                | None native                     |
-| Payload limit   | ~100 KB                   | ~227 bytes (configurable)    | 184 bytes                       |
-| Encryption      | Homeserver TLS            | Optional per-packet          | Always-on E2EE                  |
-| ACK model       | Sync `/sync` confirm      | Async ROUTING_APP            | Async ACK event + CRC           |
-| Send returns    | Event ID string           | MeshPacket protobuf          | Event + expected_ack + timeout  |
+| Dimension       | Matrix                    | Meshtastic                              | MeshCore                        |
+| --------------- | ------------------------- | --------------------------------------- | ------------------------------- |
+| Role            | Presentation              | Transport/Radio                         | Transport/Radio                 |
+| Identity        | MXID (`@user:server.org`) | NodeNum (int) + fromId (str)            | Ed25519 pubkey (32B hex)        |
+| Channels        | Room ID string            | Channel index (0-7)                     | Channel index (0-7) + encrypted |
+| Message ID      | Event ID string           | Packet ID int                           | Sender timestamp int            |
+| Wire format     | JSON events               | Protobuf                                | Custom binary                   |
+| Reply mechanism | `m.in_reply_to`           | `replyId` int                           | None native                     |
+| Payload limit   | ~100 KB                   | ~227 bytes (configurable, target-aware) | 184 bytes                       |
+| Encryption      | Homeserver TLS            | Optional per-packet                     | Always-on E2EE                  |
+| ACK model       | Sync `/sync` confirm      | Async ROUTING_APP                       | Async ACK event + CRC           |
+| Send returns    | Event ID string           | MeshPacket protobuf                     | Event + expected_ack + timeout  |
 
 ## Identity and Addressing
 
@@ -60,9 +60,11 @@ The `NativeMetadata.data` dict swallows all of these without structural assumpti
 
 ## Payload Constraints
 
-Matrix allows messages up to roughly 100 KB. Meshtastic caps at around 227 bytes (configurable via ``max_text_bytes``). MeshCore caps at 184 bytes.
+Matrix allows messages up to roughly 100 KB. Meshtastic caps at around 227 bytes (configurable via `max_text_bytes`). MeshCore caps at 184 bytes.
 
 The `max_text_bytes` / `max_text_chars` capabilities declaration handles this cleanly. Each adapter declares its limit at registration time, and the routing/planning layer respects it. This is **protocol-neutral**.
+
+Meshtastic rendering is **target-adapter aware**: when multiple Meshtastic adapters are configured with different `max_text_bytes`, `radio_relay_prefix`, or `meshnet_name` values, the renderer resolves the target adapter's config at render time so each radio receives correctly-budgeted text.
 
 ## Send Results
 

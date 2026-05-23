@@ -508,10 +508,14 @@ class MeshtasticAdapter(AdapterContract):
             "queue_pending": self._queue.pending_count,
             "queue_total_sent": self._queue.total_sent,
             "queue_total_failed": self._queue.total_failed,
-            "queue_total_dropped": self._queue.total_dropped,
-            "drain_task_running": (
-                drain_task is not None and not drain_task.done()
-            ),
+            "queue_total_enqueued": self._queue.total_enqueued,
+            "queue_total_dequeued": self._queue.total_dequeued,
+            "queue_total_rejected": self._queue.total_rejected,
+            "queue_max_size": self._queue.max_queue_size,
+            "queue_utilization_pct": self._queue.queue_health["utilization_pct"],
+            "queue_delay_between_messages": self._queue.delay_between_messages,
+            "queue_last_send_time": self._queue.queue_health["last_send_time"],
+            "drain_task_running": (drain_task is not None and not drain_task.done()),
             "background_tasks": len(self._background_tasks),
         }
 

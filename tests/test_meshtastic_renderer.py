@@ -6,7 +6,10 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
+from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.events import (
     CanonicalEvent,
     EventMetadata,
@@ -16,6 +19,25 @@ from medre.core.events import (
 )
 from medre.core.rendering.renderer import RenderingResult
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _make_renderer(
+    target_adapter: str = "mesh-1",
+    *,
+    radio_relay_prefix: str = "",
+    meshnet_name: str = "",
+    max_text_bytes: int = 227,
+) -> MeshtasticRenderer:
+    """Create a MeshtasticRenderer with a single-adapter config mapping."""
+    config = MeshtasticConfig(
+        adapter_id=target_adapter,
+        radio_relay_prefix=radio_relay_prefix,
+        meshnet_name=meshnet_name,
+        max_text_bytes=max_text_bytes,
+    )
+    return MeshtasticRenderer(configs={target_adapter: config})
 
 def _make_event(
     event_id: str = "evt-1",
@@ -36,7 +58,6 @@ def _make_event(
         payload=payload or {"body": "hello mesh"},
         metadata=EventMetadata(),
     )
-
 
 def _make_relation(
     relation_type: str = "reply",
@@ -60,17 +81,60 @@ def _make_relation(
         fallback_text=fallback_text,
     )
 
+# ===================================================================
+# Constructor validation
+# ===================================================================
+
+class TestMeshtasticRendererConstructor:
+    """MeshtasticRenderer constructor validation."""
+
+    def test_empty_configs_raises_value_error(self) -> None:
+        """Empty configs mapping raises ValueError."""
+        with pytest.raises(ValueError, match="at least one"):
+            MeshtasticRenderer(configs={})
+
+    def test_none_configs_raises_type_error(self) -> None:
+        """None configs raises TypeError (keyword-only, required)."""
+        with pytest.raises(TypeError):
+            MeshtasticRenderer()  # type: ignore[call-arg]
+
+    def test_single_config_works(self) -> None:
+        """Single-entry configs mapping is valid."""
+        config = MeshtasticConfig(adapter_id="radio-1")
+        renderer = MeshtasticRenderer(configs={"radio-1": config})
+        assert renderer.name == "meshtastic"
+
+    def test_multiple_configs_works(self) -> None:
+        """Multiple-entry configs mapping is valid."""
+        configs = {
+            "radio-a": MeshtasticConfig(adapter_id="radio-a"),
+            "radio-b": MeshtasticConfig(adapter_id="radio-b"),
+        }
+        renderer = MeshtasticRenderer(configs=configs)
+        assert renderer.name == "meshtastic"
+
+    async def test_unknown_target_adapter_raises_key_error(self) -> None:
+        """Rendering to an unknown target_adapter raises KeyError."""
+        config = MeshtasticConfig(adapter_id="radio-a")
+        renderer = MeshtasticRenderer(configs={"radio-a": config})
+        event = _make_event()
+        with pytest.raises(KeyError, match="radio-a"):
+            await renderer.render(event, "unknown-radio")
+
+# ===================================================================
+# Basic rendering (target_adapter = "mesh-node")
+# ===================================================================
 
 class TestMeshtasticRenderer:
     """MeshtasticRenderer output and dispatch tests."""
 
     def test_name_is_meshtastic(self) -> None:
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-node")
         assert renderer.name == "meshtastic"
 
     def test_can_render_meshtastic_platform(self) -> None:
         """Renderer matches when target_platform is meshtastic."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-node")
         event = _make_event()
         assert (
             renderer.can_render(event, "local-radio", target_platform="meshtastic")
@@ -78,7 +142,7 @@ class TestMeshtasticRenderer:
         )
 
     def test_can_render_non_meshtastic(self) -> None:
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-node")
         event = _make_event()
         assert (
             renderer.can_render(event, "fake_presentation", target_platform="fake")
@@ -86,7 +150,7 @@ class TestMeshtasticRenderer:
         )
 
     def test_can_render_rejects_matrix(self) -> None:
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-node")
         event = _make_event()
         assert (
             renderer.can_render(event, "matrix_instance", target_platform="matrix")
@@ -95,92 +159,90 @@ class TestMeshtasticRenderer:
 
     def test_can_render_without_platform_returns_false(self) -> None:
         """Without platform info, renderer cannot match (no prefix fallback)."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-node")
         event = _make_event()
         assert renderer.can_render(event, "meshtastic_node") is False
 
     async def test_render_basic_text(self) -> None:
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-node")
         event = _make_event(payload={"body": "hello mesh"})
-        result = await renderer.render(event, "meshtastic_node")
+        result = await renderer.render(event, "mesh-node")
         assert isinstance(result, RenderingResult)
         assert result.payload["text"] == "hello mesh"
         assert result.payload["channel_index"] == 0
 
     async def test_render_empty_text(self) -> None:
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-node")
         event = _make_event(payload={"body": ""})
-        result = await renderer.render(event, "meshtastic_node")
+        result = await renderer.render(event, "mesh-node")
         assert result.payload["text"] == ""
 
     async def test_render_extracts_body_field(self) -> None:
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-node")
         event = _make_event(payload={"body": "specific body"})
-        result = await renderer.render(event, "meshtastic_node")
+        result = await renderer.render(event, "mesh-node")
         assert "body" not in result.payload
         assert result.payload["text"] == "specific body"
 
     async def test_render_falls_back_to_text_field(self) -> None:
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-node")
         event = _make_event(payload={"text": "fallback text"})
-        result = await renderer.render(event, "meshtastic_node")
+        result = await renderer.render(event, "mesh-node")
         assert result.payload["text"] == "fallback text"
 
     async def test_render_target_channel_propagation(self) -> None:
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-node")
         event = _make_event()
-        result = await renderer.render(event, "meshtastic_node", target_channel="3")
+        result = await renderer.render(event, "mesh-node", target_channel="3")
         assert result.target_channel == "3"
         assert result.payload["channel_index"] == 3
 
     async def test_render_default_channel_when_no_target(self) -> None:
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-node")
         event = _make_event()
-        result = await renderer.render(event, "meshtastic_node")
+        result = await renderer.render(event, "mesh-node")
         assert result.payload["channel_index"] == 0
 
     async def test_render_non_numeric_channel_defaults_to_zero(self) -> None:
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-node")
         event = _make_event()
-        result = await renderer.render(event, "meshtastic_node", target_channel="abc")
+        result = await renderer.render(event, "mesh-node", target_channel="abc")
         assert result.payload["channel_index"] == 0
 
     async def test_render_returns_rendering_result(self) -> None:
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-node")
         event = _make_event()
-        result = await renderer.render(event, "meshtastic_node")
+        result = await renderer.render(event, "mesh-node")
         assert isinstance(result, RenderingResult)
         assert result.event_id == "evt-1"
-        assert result.target_adapter == "meshtastic_node"
+        assert result.target_adapter == "mesh-node"
 
     async def test_render_includes_meshnet_name(self) -> None:
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-node")
         event = _make_event()
-        result = await renderer.render(event, "meshtastic_node")
+        result = await renderer.render(event, "mesh-node")
         assert "meshnet_name" in result.payload
         assert result.payload["meshnet_name"] == ""
 
     async def test_render_metadata_includes_renderer(self) -> None:
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-node")
         event = _make_event()
-        result = await renderer.render(event, "meshtastic_node")
+        result = await renderer.render(event, "mesh-node")
         assert result.metadata["renderer"] == "meshtastic"
 
     async def test_render_long_text_truncated_to_byte_budget(self) -> None:
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-node")
         long_text = "x" * 500
         event = _make_event(payload={"body": long_text})
-        result = await renderer.render(event, "meshtastic_node")
+        result = await renderer.render(event, "mesh-node")
         # Default max_text_bytes is 227; text should be truncated
         assert len(result.payload["text"].encode("utf-8")) <= 227
         assert result.truncated is True
         assert result.payload["text"] != long_text
 
-
 # ===================================================================
 # _meshtastic_reply_id_from_relation
 # ===================================================================
-
 
 class TestNativeReplyIdFromRelation:
     """Tests for MeshtasticRenderer._meshtastic_reply_id_from_relation."""
@@ -249,18 +311,16 @@ class TestNativeReplyIdFromRelation:
             MeshtasticRenderer._meshtastic_reply_id_from_relation(rel, "mesh-1") == 77
         )
 
-
 # ===================================================================
 # Structured reply rendering
 # ===================================================================
-
 
 class TestRendererStructuredReply:
     """Renderer reply rendering with/without native ref."""
 
     async def test_reply_with_numeric_native_ref_sets_reply_id(self) -> None:
         """Reply with numeric native_message_id → reply_id in payload, plain text."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         rel = _make_relation(
             relation_type="reply",
             native_message_id="99",
@@ -281,7 +341,7 @@ class TestRendererStructuredReply:
 
     async def test_reply_without_native_ref_plain_text(self) -> None:
         """Reply without numeric native ref → plain text, no fallback prefix."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         rel = _make_relation(
             relation_type="reply",
             native_message_id=None,
@@ -298,7 +358,7 @@ class TestRendererStructuredReply:
 
     async def test_reply_with_non_numeric_ref_plain_text(self) -> None:
         """Reply with non-numeric native_message_id → plain text, no fallback prefix."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         rel = _make_relation(
             relation_type="reply",
             native_message_id="$abc:room.server",
@@ -315,7 +375,7 @@ class TestRendererStructuredReply:
 
     async def test_reply_preserves_channel_index(self) -> None:
         """Reply rendering preserves target channel."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         rel = _make_relation(
             relation_type="reply",
             native_message_id="10",
@@ -328,18 +388,16 @@ class TestRendererStructuredReply:
         assert result.payload["reply_id"] == 10
         assert result.payload["channel_index"] == 2
 
-
 # ===================================================================
 # Structured reaction rendering
 # ===================================================================
-
 
 class TestRendererStructuredReaction:
     """Renderer reaction rendering with/without native ref."""
 
     async def test_reaction_with_numeric_ref_sets_reply_id_and_emoji(self) -> None:
         """Reaction with numeric native ref → reply_id + emoji=1."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         rel = _make_relation(
             relation_type="reaction",
             native_message_id="55",
@@ -356,7 +414,7 @@ class TestRendererStructuredReaction:
 
     async def test_reaction_uses_key_from_relation(self) -> None:
         """Reaction text comes from relation.key when present."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         rel = _make_relation(
             relation_type="reaction",
             native_message_id="55",
@@ -371,7 +429,7 @@ class TestRendererStructuredReaction:
 
     async def test_reaction_falls_back_to_payload_key(self) -> None:
         """Reaction text falls back to payload key/body when relation.key is None."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         rel = _make_relation(
             relation_type="reaction",
             native_message_id="55",
@@ -386,7 +444,7 @@ class TestRendererStructuredReaction:
 
     async def test_reaction_without_native_ref_readable_fallback(self) -> None:
         """Reaction without native ref → readable fallback, no emoji field."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         rel = _make_relation(
             relation_type="reaction",
             native_message_id=None,
@@ -403,7 +461,7 @@ class TestRendererStructuredReaction:
 
     async def test_reaction_preserves_channel_and_meshnet(self) -> None:
         """Reaction rendering preserves channel_index and meshnet_name."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         rel = _make_relation(
             relation_type="reaction",
             native_message_id="7",
@@ -417,13 +475,12 @@ class TestRendererStructuredReaction:
         assert result.payload["channel_index"] == 4
         assert "meshnet_name" in result.payload
 
-
 class TestMeshtasticRendererForeignRefs:
     """MeshtasticRenderer must not use native refs from other adapters."""
 
     async def test_foreign_native_ref_not_used_for_reply(self) -> None:
         """Matrix native ref must not produce reply_id when rendering to Meshtastic."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         foreign_ref = NativeRef(
             adapter="matrix-1", native_channel_id="!r", native_message_id="123"
         )
@@ -442,7 +499,7 @@ class TestMeshtasticRendererForeignRefs:
 
     async def test_foreign_native_ref_not_used_for_reaction(self) -> None:
         """Matrix native ref must not produce reply_id + emoji when rendering reaction to Meshtastic."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         foreign_ref = NativeRef(
             adapter="matrix-1", native_channel_id="!r", native_message_id="123"
         )
@@ -461,7 +518,7 @@ class TestMeshtasticRendererForeignRefs:
 
     async def test_mmrelay_metadata_fallback_for_reply(self) -> None:
         """Relation with metadata meshtastic_reply_id renders reply_id=id even without native ref."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         rel = EventRelation(
             relation_type="reply",
             target_event_id=None,
@@ -476,7 +533,7 @@ class TestMeshtasticRendererForeignRefs:
 
     async def test_mmrelay_metadata_fallback_for_reaction(self) -> None:
         """Relation with metadata meshtastic_reply_id renders reply_id + emoji=1."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         rel = EventRelation(
             relation_type="reaction",
             target_event_id=None,
@@ -492,7 +549,7 @@ class TestMeshtasticRendererForeignRefs:
 
     async def test_non_numeric_mmrelay_id_falls_back(self) -> None:
         """Non-numeric meshtastic_reply_id in metadata falls back to readable text."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         rel = EventRelation(
             relation_type="reaction",
             target_event_id=None,
@@ -506,11 +563,9 @@ class TestMeshtasticRendererForeignRefs:
         assert "reply_id" not in result.payload
         assert "emoji" not in result.payload
 
-
 # ===================================================================
 # Helper factories for Matrix-originated events
 # ===================================================================
-
 
 def _make_matrix_event(
     event_id: str = "mx-evt-1",
@@ -539,7 +594,6 @@ def _make_matrix_event(
         payload=payload or {"body": "👍"},
         metadata=EventMetadata(native=NativeMetadata(data=native_data)),
     )
-
 
 def _make_cross_platform_relation(
     key: str = "👍",
@@ -570,18 +624,16 @@ def _make_cross_platform_relation(
         metadata=metadata,
     )
 
-
 # ===================================================================
 # Cross-platform (Matrix→Meshtastic) MMRelay descriptive reactions
 # ===================================================================
-
 
 class TestCrossPlatformReactionDescriptive:
     """Matrix-originated reactions render as MMRelay descriptive text."""
 
     async def test_descriptive_text_with_reply_id(self) -> None:
         """Matrix reaction with Meshtastic mapping → descriptive text + reply_id."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         rel = _make_cross_platform_relation(
             key="👍",
             fallback_text="hello from mesh",
@@ -601,7 +653,7 @@ class TestCrossPlatformReactionDescriptive:
 
     async def test_descriptive_text_without_reply_id(self) -> None:
         """Matrix reaction without Meshtastic mapping → descriptive text only."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         rel = _make_cross_platform_relation(
             key="❤️",
             fallback_text="some original",
@@ -617,7 +669,7 @@ class TestCrossPlatformReactionDescriptive:
 
     async def test_no_emoji_field_set(self) -> None:
         """Cross-platform reactions never set emoji=1."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         rel = _make_cross_platform_relation(
             key="🔥",
             fallback_text="msg",
@@ -629,13 +681,11 @@ class TestCrossPlatformReactionDescriptive:
 
     async def test_compact_prefix_strips_spaces_preserves_casing(self) -> None:
         """Display name spaces are stripped in the prefix; casing preserved."""
-        from unittest.mock import MagicMock
-
-        config = MagicMock()
-        config.radio_relay_prefix = "[{longname}] "
-        config.meshnet_name = "testnet"
-        config.max_text_bytes = 227
-        renderer = MeshtasticRenderer(config=config)
+        renderer = _make_renderer(
+            "mesh-1",
+            radio_relay_prefix="[{longname}] ",
+            meshnet_name="testnet",
+        )
 
         rel = _make_cross_platform_relation(
             key="👍",
@@ -655,13 +705,10 @@ class TestCrossPlatformReactionDescriptive:
 
     async def test_compact_prefix_not_lowercased(self) -> None:
         """Casing is preserved: 'MeshUser' stays 'MeshUser', not 'meshuser'."""
-        from unittest.mock import MagicMock
-
-        config = MagicMock()
-        config.radio_relay_prefix = "[{longname}] "
-        config.meshnet_name = ""
-        config.max_text_bytes = 227
-        renderer = MeshtasticRenderer(config=config)
+        renderer = _make_renderer(
+            "mesh-1",
+            radio_relay_prefix="[{longname}] ",
+        )
 
         rel = _make_cross_platform_relation(key="👋", fallback_text="hi")
         event = _make_matrix_event(
@@ -674,7 +721,7 @@ class TestCrossPlatformReactionDescriptive:
 
     async def test_abbreviated_preview_40_chars(self) -> None:
         """Original text preview is abbreviated to 40 chars + '...'."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         long_text = "A" * 60
         rel = _make_cross_platform_relation(
             key="👍",
@@ -690,7 +737,7 @@ class TestCrossPlatformReactionDescriptive:
 
     async def test_abbreviated_preview_short_text_unchanged(self) -> None:
         """Short original text is not truncated."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         rel = _make_cross_platform_relation(
             key="👍",
             fallback_text="short msg",
@@ -702,7 +749,7 @@ class TestCrossPlatformReactionDescriptive:
 
     async def test_newlines_normalised_to_spaces(self) -> None:
         """Newlines in original text are replaced with spaces."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         rel = _make_cross_platform_relation(
             key="👍",
             fallback_text="line one\nline two\nline three",
@@ -715,7 +762,7 @@ class TestCrossPlatformReactionDescriptive:
 
     async def test_quoted_reply_lines_stripped(self) -> None:
         """Quoted reply lines (> ...) are stripped from preview."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         rel = _make_cross_platform_relation(
             key="👍",
             fallback_text="> quoted line\nactual message",
@@ -728,7 +775,7 @@ class TestCrossPlatformReactionDescriptive:
 
     async def test_original_text_from_metadata_preferred(self) -> None:
         """relation.metadata['original_text'] takes priority over fallback_text."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         rel = _make_cross_platform_relation(
             key="👍",
             fallback_text="fallback text",
@@ -752,7 +799,7 @@ class TestCrossPlatformReactionDescriptive:
 
     async def test_falls_back_to_payload_body(self) -> None:
         """When no fallback_text, uses event payload body/text."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         rel = _make_cross_platform_relation(
             key="👍",
             fallback_text=None,
@@ -767,7 +814,7 @@ class TestCrossPlatformReactionDescriptive:
 
     async def test_preserves_channel_and_meshnet(self) -> None:
         """Cross-platform reaction preserves channel_index and meshnet_name."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         rel = _make_cross_platform_relation(
             key="😀",
             fallback_text="hi",
@@ -780,7 +827,7 @@ class TestCrossPlatformReactionDescriptive:
 
     async def test_metadata_includes_descriptive_reaction_flag(self) -> None:
         """Result metadata has descriptive_reaction=True for cross-platform."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         rel = _make_cross_platform_relation(
             key="👍",
             fallback_text="test",
@@ -791,7 +838,7 @@ class TestCrossPlatformReactionDescriptive:
 
     async def test_no_radio_relay_prefix_in_metadata_for_descriptive(self) -> None:
         """Descriptive reactions embed their own prefix; no separate prefix metadata."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         rel = _make_cross_platform_relation(
             key="👍",
             fallback_text="test",
@@ -802,7 +849,7 @@ class TestCrossPlatformReactionDescriptive:
 
     async def test_mmrelay_metadata_reply_id_still_works(self) -> None:
         """Cross-platform reaction with mmrelay metadata gets reply_id."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         # No native ref (meshtastic_reply_id=None in helper means no native ref)
         # but we add meshtastic_reply_id via metadata
         rel = EventRelation(
@@ -817,7 +864,6 @@ class TestCrossPlatformReactionDescriptive:
         result = await renderer.render(event, "mesh-1")
         assert result.payload["reply_id"] == 88
         assert "emoji" not in result.payload
-
 
 # ===================================================================
 # Test D: Matrix→Meshtastic comprehensive reaction rendering
@@ -834,13 +880,11 @@ class TestMatrixToMeshtasticReactionComprehensive:
 
     async def test_comprehensive_descriptive_reaction(self) -> None:
         """All Test D requirements in one test: spaces, casing, reply_id, no emoji."""
-        from unittest.mock import MagicMock
-
-        config = MagicMock()
-        config.radio_relay_prefix = "[{longname}] "
-        config.meshnet_name = "mynet"
-        config.max_text_bytes = 227
-        renderer = MeshtasticRenderer(config=config)
+        renderer = _make_renderer(
+            "mesh-1",
+            radio_relay_prefix="[{longname}] ",
+            meshnet_name="mynet",
+        )
 
         rel = _make_cross_platform_relation(
             key="👍",
@@ -878,7 +922,7 @@ class TestMatrixToMeshtasticReactionComprehensive:
 
     async def test_no_prefix_space_before_reacted(self) -> None:
         """Without a prefix template, text starts with 'reacted'."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         rel = _make_cross_platform_relation(
             key="👍",
             fallback_text="test",
@@ -894,13 +938,10 @@ class TestMatrixToMeshtasticReactionComprehensive:
 
     async def test_compact_prefix_no_trailing_space_adds_separator(self) -> None:
         """Prefix without trailing space gets separator space before 'reacted'."""
-        from unittest.mock import MagicMock
-
-        config = MagicMock()
-        config.radio_relay_prefix = "[{longname}]"
-        config.meshnet_name = ""
-        config.max_text_bytes = 227
-        renderer = MeshtasticRenderer(config=config)
+        renderer = _make_renderer(
+            "mesh-1",
+            radio_relay_prefix="[{longname}]",
+        )
 
         rel = _make_cross_platform_relation(
             key="👍",
@@ -930,7 +971,7 @@ class TestMatrixToMeshtasticNoMapping:
 
     async def test_no_mapping_descriptive_text_no_reply_id(self) -> None:
         """Matrix reaction with no Meshtastic mapping → descriptive text, no reply_id."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         # No native ref, no meshtastic_reply_id
         rel = EventRelation(
             relation_type="reaction",
@@ -953,7 +994,7 @@ class TestMatrixToMeshtasticNoMapping:
 
     async def test_no_mapping_minimal_metadata_no_crash(self) -> None:
         """Matrix reaction with minimal metadata still renders without crash."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         rel = EventRelation(
             relation_type="reaction",
             target_event_id=None,
@@ -990,7 +1031,7 @@ class TestNativeReactionPreserved:
 
     async def test_native_reaction_emoji_1(self) -> None:
         """Native Meshtastic reaction still sets emoji=1."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         rel = _make_relation(
             relation_type="reaction",
             native_message_id="55",
@@ -1008,7 +1049,7 @@ class TestNativeReactionPreserved:
 
     async def test_native_reaction_no_reply_id_fallback(self) -> None:
         """Native reaction without reply_id → readable fallback."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         rel = _make_relation(
             relation_type="reaction",
             native_message_id=None,
@@ -1024,7 +1065,7 @@ class TestNativeReactionPreserved:
 
     async def test_native_reaction_with_mmrelay_meta(self) -> None:
         """Native reaction with mmrelay metadata still gets emoji=1."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         rel = EventRelation(
             relation_type="reaction",
             target_event_id=None,
@@ -1052,13 +1093,10 @@ class TestMatrixDisplayNameInPrefix:
 
     async def test_longname_in_prefix_from_matrix_display_name(self) -> None:
         """radio_relay_prefix {longname} uses Matrix display name."""
-        from unittest.mock import MagicMock
-
-        config = MagicMock()
-        config.radio_relay_prefix = "[{longname}]: "
-        config.meshnet_name = ""
-        config.max_text_bytes = 227
-        renderer = MeshtasticRenderer(config=config)
+        renderer = _make_renderer(
+            "mesh-1",
+            radio_relay_prefix="[{longname}]: ",
+        )
 
         event = CanonicalEvent(
             event_id="mx-1",
@@ -1088,13 +1126,10 @@ class TestMatrixDisplayNameInPrefix:
 
     async def test_prefix_uses_display_name_not_mxid(self) -> None:
         """Prefix shows display name, not raw MXID like @user:server."""
-        from unittest.mock import MagicMock
-
-        config = MagicMock()
-        config.radio_relay_prefix = "{longname}: "
-        config.meshnet_name = ""
-        config.max_text_bytes = 227
-        renderer = MeshtasticRenderer(config=config)
+        renderer = _make_renderer(
+            "mesh-1",
+            radio_relay_prefix="{longname}: ",
+        )
 
         event = CanonicalEvent(
             event_id="mx-2",
@@ -1133,7 +1168,7 @@ class TestByteBudgetTruncation:
 
     async def test_under_budget_ascii_unchanged(self) -> None:
         """ASCII text well under the byte budget is unchanged."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         text = "hello mesh"
         event = _make_event(payload={"body": text})
         result = await renderer.render(event, "mesh-1")
@@ -1142,13 +1177,11 @@ class TestByteBudgetTruncation:
 
     async def test_over_budget_ascii_truncates_after_prefix(self) -> None:
         """ASCII text over budget truncates to fit within max_text_bytes."""
-        from unittest.mock import MagicMock
-
-        config = MagicMock()
-        config.radio_relay_prefix = "[{longname}]: "
-        config.meshnet_name = ""
-        config.max_text_bytes = 20
-        renderer = MeshtasticRenderer(config=config)
+        renderer = _make_renderer(
+            "mesh-1",
+            radio_relay_prefix="[{longname}]: ",
+            max_text_bytes=20,
+        )
 
         event = CanonicalEvent(
             event_id="evt-trunc",
@@ -1176,7 +1209,7 @@ class TestByteBudgetTruncation:
 
     async def test_utf8_characters_not_split(self) -> None:
         """Multi-byte UTF-8 characters are never split mid-sequence."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         # Each emoji is 4 bytes in UTF-8
         emojis = "😀" * 100  # 400 bytes total
         event = _make_event(payload={"body": emojis})
@@ -1189,13 +1222,7 @@ class TestByteBudgetTruncation:
 
     async def test_max_text_bytes_zero_renders_empty(self) -> None:
         """max_text_bytes == 0 renders empty text."""
-        from unittest.mock import MagicMock
-
-        config = MagicMock()
-        config.radio_relay_prefix = ""
-        config.meshnet_name = ""
-        config.max_text_bytes = 0
-        renderer = MeshtasticRenderer(config=config)
+        renderer = _make_renderer("mesh-1", max_text_bytes=0)
 
         event = _make_event(payload={"body": "hello world"})
         result = await renderer.render(event, "mesh-1")
@@ -1211,7 +1238,7 @@ class TestByteBudgetTruncation:
 
     async def test_truncation_metadata_keys(self) -> None:
         """Metadata includes byte-budget evidence keys."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         text = "A" * 500
         event = _make_event(payload={"body": text})
         result = await renderer.render(event, "mesh-1")
@@ -1231,7 +1258,7 @@ class TestByteBudgetTruncation:
 
     async def test_metadata_byte_counts_match_final_text(self) -> None:
         """rendered_text_bytes and rendered_length match the actual truncated text."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         text = "x" * 300
         event = _make_event(payload={"body": text})
         result = await renderer.render(event, "mesh-1")
@@ -1243,7 +1270,7 @@ class TestByteBudgetTruncation:
 
     async def test_no_truncation_metadata_when_under_budget(self) -> None:
         """Under budget: truncated is False, byte counts and lengths match."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         text = "short"
         event = _make_event(payload={"body": text})
         result = await renderer.render(event, "mesh-1")
@@ -1264,44 +1291,31 @@ class TestMeshtasticConfigMaxTextBytes:
     """MeshtasticConfig max_text_bytes field validation."""
 
     def test_default_max_text_bytes_is_227(self) -> None:
-        from medre.config.adapters.meshtastic import MeshtasticConfig
-
         config = MeshtasticConfig(adapter_id="test")
         assert config.max_text_bytes == 227
 
     def test_rejects_negative_max_text_bytes(self) -> None:
-        import pytest
-
         from medre.config.adapters.errors import MeshtasticConfigError
-        from medre.config.adapters.meshtastic import MeshtasticConfig
 
         config = MeshtasticConfig(adapter_id="test", max_text_bytes=-1)
         with pytest.raises(MeshtasticConfigError, match="max_text_bytes"):
             config.validate()
 
     def test_rejects_bool_max_text_bytes(self) -> None:
-        import pytest
-
         from medre.config.adapters.errors import MeshtasticConfigError
-        from medre.config.adapters.meshtastic import MeshtasticConfig
 
         config = MeshtasticConfig(adapter_id="test", max_text_bytes=True)  # type: ignore[arg-type]
         with pytest.raises(MeshtasticConfigError, match="max_text_bytes"):
             config.validate()
 
     def test_rejects_float_max_text_bytes(self) -> None:
-        import pytest
-
         from medre.config.adapters.errors import MeshtasticConfigError
-        from medre.config.adapters.meshtastic import MeshtasticConfig
 
         config = MeshtasticConfig(adapter_id="test", max_text_bytes=227.5)  # type: ignore[arg-type]
         with pytest.raises(MeshtasticConfigError, match="max_text_bytes"):
             config.validate()
 
     def test_zero_max_text_bytes_allowed(self) -> None:
-        from medre.config.adapters.meshtastic import MeshtasticConfig
-
         config = MeshtasticConfig(adapter_id="test", max_text_bytes=0)
         config.validate()  # should not raise
 
@@ -1316,7 +1330,6 @@ class TestAdapterCapabilitiesConfigured:
 
     def test_real_adapter_default_max_text_bytes(self) -> None:
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
-        from medre.config.adapters.meshtastic import MeshtasticConfig
 
         config = MeshtasticConfig(adapter_id="caps-test")
         adapter = MeshtasticAdapter(config)
@@ -1324,7 +1337,6 @@ class TestAdapterCapabilitiesConfigured:
 
     def test_real_adapter_custom_max_text_bytes(self) -> None:
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
-        from medre.config.adapters.meshtastic import MeshtasticConfig
 
         config = MeshtasticConfig(adapter_id="caps-test", max_text_bytes=100)
         adapter = MeshtasticAdapter(config)
@@ -1338,7 +1350,6 @@ class TestAdapterCapabilitiesConfigured:
 
     def test_fake_adapter_custom_max_text_bytes(self) -> None:
         from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
-        from medre.config.adapters.meshtastic import MeshtasticConfig
 
         config = MeshtasticConfig(adapter_id="fake-custom", max_text_bytes=50)
         adapter = FakeMeshtasticAdapter(config)
@@ -1355,13 +1366,11 @@ class TestDescriptiveReactionByteBudget:
 
     async def test_descriptive_reaction_truncates(self) -> None:
         """Long descriptive reaction text is truncated to byte budget."""
-        from unittest.mock import MagicMock
-
-        config = MagicMock()
-        config.radio_relay_prefix = "[{longname}] "
-        config.meshnet_name = ""
-        config.max_text_bytes = 30
-        renderer = MeshtasticRenderer(config=config)
+        renderer = _make_renderer(
+            "mesh-1",
+            radio_relay_prefix="[{longname}] ",
+            max_text_bytes=30,
+        )
 
         rel = _make_cross_platform_relation(
             key="👍",
@@ -1381,7 +1390,7 @@ class TestDescriptiveReactionByteBudget:
 
     async def test_native_reaction_keeps_reply_id_and_emoji(self) -> None:
         """Native emoji reaction keeps reply_id/emoji while text is byte-budgeted."""
-        renderer = MeshtasticRenderer()
+        renderer = _make_renderer("mesh-1")
         # Native reaction from same adapter
         rel = _make_relation(
             relation_type="reaction",
@@ -1400,3 +1409,90 @@ class TestDescriptiveReactionByteBudget:
         assert len(result.payload["text"].encode("utf-8")) <= 227
         assert result.truncated is False
 
+
+# ===================================================================
+# Target-aware renderer tests
+# ===================================================================
+
+
+class TestTargetAwareMeshtasticRenderer:
+    """MeshtasticRenderer resolves per-adapter config at render time."""
+
+    async def test_two_adapters_different_byte_budgets(self) -> None:
+        """Rendering to adapter A uses 100-byte budget, adapter B uses 500."""
+        config_a = MeshtasticConfig(adapter_id="radio-a", max_text_bytes=100)
+        config_b = MeshtasticConfig(adapter_id="radio-b", max_text_bytes=500)
+
+        renderer = MeshtasticRenderer(
+            configs={"radio-a": config_a, "radio-b": config_b},
+        )
+
+        long_text = "x" * 400
+        event = _make_event(payload={"body": long_text})
+
+        # Adapter A: 100-byte budget
+        result_a = await renderer.render(event, "radio-a")
+        assert len(result_a.payload["text"].encode("utf-8")) <= 100
+        assert result_a.truncated is True
+        assert result_a.metadata["max_text_bytes"] == 100
+
+        # Adapter B: 500-byte budget
+        result_b = await renderer.render(event, "radio-b")
+        assert len(result_b.payload["text"].encode("utf-8")) <= 500
+        assert result_b.truncated is False
+        assert result_b.metadata["max_text_bytes"] == 500
+
+    async def test_two_adapters_different_prefixes(self) -> None:
+        """Prefix matches target adapter, not a random one."""
+        config_a = MeshtasticConfig(
+            adapter_id="radio-a",
+            radio_relay_prefix="[A]: ",
+            max_text_bytes=227,
+        )
+        config_b = MeshtasticConfig(
+            adapter_id="radio-b",
+            radio_relay_prefix="[B]: ",
+            max_text_bytes=227,
+        )
+
+        renderer = MeshtasticRenderer(
+            configs={"radio-a": config_a, "radio-b": config_b},
+        )
+
+        event = _make_event(payload={"body": "hello"})
+
+        result_a = await renderer.render(event, "radio-a")
+        assert result_a.payload["text"].startswith("[A]: ")
+
+        result_b = await renderer.render(event, "radio-b")
+        assert result_b.payload["text"].startswith("[B]: ")
+
+    async def test_unknown_target_adapter_raises_key_error(self) -> None:
+        """Unknown target_adapter raises KeyError — no fallback."""
+        config_a = MeshtasticConfig(adapter_id="radio-a", max_text_bytes=100)
+        config_b = MeshtasticConfig(adapter_id="radio-b", max_text_bytes=500)
+
+        renderer = MeshtasticRenderer(
+            configs={"radio-a": config_a, "radio-b": config_b},
+        )
+
+        event = _make_event(payload={"body": "fallback test"})
+        with pytest.raises(KeyError, match="unknown-radio"):
+            await renderer.render(event, "unknown-radio")
+
+    async def test_metadata_reports_target_adapter_budget(self) -> None:
+        """Metadata max_text_bytes matches the target adapter's config."""
+        config_a = MeshtasticConfig(adapter_id="radio-a", max_text_bytes=100)
+        config_b = MeshtasticConfig(adapter_id="radio-b", max_text_bytes=500)
+
+        renderer = MeshtasticRenderer(
+            configs={"radio-a": config_a, "radio-b": config_b},
+        )
+
+        event = _make_event(payload={"body": "short"})
+
+        result_a = await renderer.render(event, "radio-a")
+        assert result_a.metadata["max_text_bytes"] == 100
+
+        result_b = await renderer.render(event, "radio-b")
+        assert result_b.metadata["max_text_bytes"] == 500

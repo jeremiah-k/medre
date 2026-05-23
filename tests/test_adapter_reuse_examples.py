@@ -23,6 +23,7 @@ import pytest
 from medre.adapters.matrix.renderer import MatrixRenderer
 from medre.adapters.meshtastic.codec import MeshtasticCodec
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
+from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.metadata import EventMetadata
 from medre.core.rendering.renderer import RenderingResult
@@ -98,7 +99,11 @@ class TestMeshtasticRendererStandalone:
         event = _make_event(
             payload={"body": "hello from matrix"},
         )
-        renderer = MeshtasticRenderer(config=None)
+        renderer = MeshtasticRenderer(
+            configs={
+                "mesh-1": MeshtasticConfig(adapter_id="mesh-1", radio_relay_prefix="")
+            }
+        )
         result = await renderer.render(
             event, target_adapter="mesh-1", target_channel="3"
         )
@@ -136,7 +141,9 @@ class TestMeshtasticCodecStandalone:
         assert isinstance(result, CanonicalEvent)
         assert "hello mesh" in str(result.payload.get("body", ""))
         assert result.source_adapter == "mesh-1"
-        assert isinstance(result.event_kind, str) and result.event_kind.startswith("message")
+        assert isinstance(result.event_kind, str) and result.event_kind.startswith(
+            "message"
+        )
 
 
 # ======================================================================

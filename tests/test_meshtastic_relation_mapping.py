@@ -99,7 +99,12 @@ class TestMatrixToMeshtasticOutboundNativeRef:
 
         # -- Rendering pipeline --------------------------------------------
         rp = RenderingPipeline()
-        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register(
+            MeshtasticRenderer(
+                configs={_RADIO_ADAPTER: MeshtasticConfig(adapter_id=_RADIO_ADAPTER)}
+            ),
+            priority=50,
+        )
         rp.register_adapter_platform(_RADIO_ADAPTER, "meshtastic")
         rp.register(TextRenderer(), priority=100)
 
@@ -347,7 +352,12 @@ class TestMeshtasticToMatrixReplyResolution:
             priority=50,
         )
         rp.register_adapter_platform(_MATRIX_ADAPTER, "matrix")
-        rp.register(MeshtasticRenderer(), priority=40)
+        rp.register(
+            MeshtasticRenderer(
+                configs={_RADIO_ADAPTER: MeshtasticConfig(adapter_id=_RADIO_ADAPTER)}
+            ),
+            priority=40,
+        )
         rp.register_adapter_platform(_RADIO_ADAPTER, "meshtastic")
         rp.register(TextRenderer(), priority=100)
 
@@ -588,7 +598,12 @@ class TestPipelineTextEnrichmentForReactions:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register(
+            MeshtasticRenderer(
+                configs={_RADIO_ADAPTER: MeshtasticConfig(adapter_id=_RADIO_ADAPTER)}
+            ),
+            priority=50,
+        )
         rp.register_adapter_platform(_RADIO_ADAPTER, "meshtastic")
         rp.register(TextRenderer(), priority=100)
 
@@ -642,7 +657,9 @@ class TestMeshtasticRendererEnrichedReactionText:
     async def test_renders_original_text_preview(self) -> None:
         """Reaction with enriched fallback_text shows original message,
         not the reaction event body."""
-        renderer = MeshtasticRenderer()
+        renderer = MeshtasticRenderer(
+            configs={"mesh-1": MeshtasticConfig(adapter_id="mesh-1")}
+        )
 
         rel = EventRelation(
             relation_type="reaction",
@@ -806,7 +823,12 @@ class TestMatrixReplyToMeshtasticNativeReplyId:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register(
+            MeshtasticRenderer(
+                configs={_MESH_ADAPTER: MeshtasticConfig(adapter_id=_MESH_ADAPTER, radio_relay_prefix="")}
+            ),
+            priority=50,
+        )
         rp.register_adapter_platform(_MESH_ADAPTER, "meshtastic")
         rp.register(TextRenderer(), priority=100)
 
@@ -888,7 +910,12 @@ class TestMatrixReplyMissingMappingNoCrash:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register(
+            MeshtasticRenderer(
+                configs={_MESH_ADAPTER: MeshtasticConfig(adapter_id=_MESH_ADAPTER, radio_relay_prefix="")}
+            ),
+            priority=50,
+        )
         rp.register_adapter_platform(_MESH_ADAPTER, "meshtastic")
         rp.register(TextRenderer(), priority=100)
 
@@ -1026,7 +1053,12 @@ class TestMatrixToMatrixReplyLinksOnMeshnet:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register(
+            MeshtasticRenderer(
+                configs={_MESH_ADAPTER: MeshtasticConfig(adapter_id=_MESH_ADAPTER, radio_relay_prefix="")}
+            ),
+            priority=50,
+        )
         rp.register_adapter_platform(_MESH_ADAPTER, "meshtastic")
         rp.register(TextRenderer(), priority=100)
 

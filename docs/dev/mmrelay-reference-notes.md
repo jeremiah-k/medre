@@ -5,8 +5,8 @@
 > **Last audited:** 2026-05-22.
 
 This document summarizes conceptual behavior observed in the MMRelay
-(`meshtastic-matrix-relay`) codebase.  It exists so that MEDRE contributors
-can understand *what* MMRelay does and *why*, without needing to read the
+(`meshtastic-matrix-relay`) codebase. It exists so that MEDRE contributors
+can understand _what_ MMRelay does and _why_, without needing to read the
 original source.
 
 ---
@@ -65,17 +65,17 @@ original source.
 ## Auth sidecar credentials
 
 MMRelay stores Matrix credentials in a JSON file alongside its YAML
-config.  The file contains the access token.  This is a convenience
-pattern for single-user deployments.  MEDRE uses environment-variable
+config. The file contains the access token. This is a convenience
+pattern for single-user deployments. MEDRE uses environment-variable
 overrides (`MEDRE_ADAPTER__<TOKEN>__ACCESS_TOKEN`) and its own
 credential sidecar module (`medre.config.adapters.matrix_credentials`).
 
 ## Message-map reply/reaction correlation
 
 MMRelay maintains an in-memory mapping between Meshtastic packet IDs
-and Matrix event IDs.  When a Meshtastic packet arrives with a
+and Matrix event IDs. When a Meshtastic packet arrives with a
 `replyId`, MMRelay looks up the corresponding Matrix event to construct
-a proper Matrix reply.  Similarly, when a Matrix reaction is detected,
+a proper Matrix reply. Similarly, when a Matrix reaction is detected,
 the mapping is used to find the Meshtastic packet ID for the
 `replyId` field in the outbound radio message.
 
@@ -85,16 +85,16 @@ storage in SQLite is the authoritative mapping, and the
 
 ## broadcast_enabled gate
 
-MMRelay has a `broadcast_enabled` config flag.  When `False`, outbound
-Meshtastic sends are suppressed entirely.  This allows running the
-relay in listen-only mode.  MEDRE does not have an equivalent gate in
+MMRelay has a `broadcast_enabled` config flag. When `False`, outbound
+Meshtastic sends are suppressed entirely. This allows running the
+relay in listen-only mode. MEDRE does not have an equivalent gate in
 the current tranche; the adapter always attempts delivery.
 
 ## Startup stale/backlog suppression
 
 MMRelay drops packets received within `STARTUP_PACKET_DRAIN_SECS` of
-the first process-lifetime connect.  It also drops packets whose
-`rxTime < RELAY_START_TIME` (adjusted for clock skew).  MEDRE has a
+the first process-lifetime connect. It also drops packets whose
+`rxTime < RELAY_START_TIME` (adjusted for clock skew). MEDRE has a
 `startup_backlog_suppress_seconds` config field but does not wire it
 to filtering logic yet.
 
@@ -115,9 +115,9 @@ current tranche.
 
 ## Matrix stable transaction-id retry
 
-MMRelay uses `txn_id` on Matrix `room_send` calls.  The homeserver
+MMRelay uses `txn_id` on Matrix `room_send` calls. The homeserver
 deduplicates events with the same transaction ID within a time window,
-allowing safe retries without duplicate messages.  MEDRE's Matrix
+allowing safe retries without duplicate messages. MEDRE's Matrix
 adapter does not yet provide this idempotency surface; Matrix
 transaction-id retry is deferred to a future tranche.
 
@@ -128,12 +128,20 @@ applies `DEFAULT_MESSAGE_DELAY` seconds between consecutive sends.
 The minimum delay is enforced at `MINIMUM_MESSAGE_DELAY` seconds.
 
 MEDRE's `MeshtasticOutboundQueue` uses a deque-based architecture with
-configurable `message_delay_seconds` pacing.  The concept is shared;
+configurable `message_delay_seconds` pacing. The concept is shared;
 the implementation is independent.
+
+**Queue overflow semantics differ from MMRelay.** When the queue is at
+capacity, MEDRE raises `MeshtasticSendError(transient=True)` instead of
+silently evicting the oldest item. This explicit rejection allows the
+pipeline to classify the failure as `ADAPTER_TRANSIENT` and retry the
+delivery. Queue stats (depth, max size, enqueued, sent, failed,
+rejected) are visible in adapter diagnostics. Queued / locally
+accepted does not mean RF-delivered.
 
 ## UTF-8 byte truncation (default 227 bytes)
 
-MMRelay defines `DEFAULT_MESSAGE_TRUNCATE_BYTES = 227`.  After
+MMRelay defines `DEFAULT_MESSAGE_TRUNCATE_BYTES = 227`. After
 assembling the final radio text (prefix + body), the text is:
 
 1. Encoded to UTF-8 bytes.
@@ -142,8 +150,8 @@ assembling the final radio text (prefix + body), the text is:
    codepoints.
 
 MEDRE implements this conceptually in the Meshtastic renderer as
-`_truncate_utf8_bytes(text, max_bytes)`.  The default `max_text_bytes`
-in `MeshtasticConfig` is `227`, informed by MMRelay's constant.  The
+`_truncate_utf8_bytes(text, max_bytes)`. The default `max_text_bytes`
+in `MeshtasticConfig` is `227`, informed by MMRelay's constant. The
 MEDRE implementation is independent code following the same conceptual
 approach.
 
@@ -152,14 +160,14 @@ approach.
 ## Stale MEDRE branches are not source material
 
 Stale MEDRE branches (e.g., `mclub/*`, old feature branches) are **not**
-source material for this or any other tranche.  They may contain
-outdated or abandoned code.  Only the current branch state and the
+source material for this or any other tranche. They may contain
+outdated or abandoned code. Only the current branch state and the
 MMRelay reference are considered.
 
 ## MEDRE canonical design remains authoritative
 
 MEDRE's canonical design documents and contracts override any
-behavioral observations recorded here.  Specifically:
+behavioral observations recorded here. Specifically:
 
 - **Canonical events** (`CanonicalEvent`) are MEDRE's internal
   representation, not copied from any reference.

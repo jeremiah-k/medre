@@ -221,11 +221,19 @@ class TestMeshtasticRendererIsolation:
     """Meshtastic renderer does not deliver."""
 
     def test_renderer_has_no_deliver_method(self) -> None:
-        renderer = MeshtasticRenderer()
+        renderer = MeshtasticRenderer(
+            configs={
+                "mesh-1": MeshtasticConfig(adapter_id="mesh-1", radio_relay_prefix="")
+            }
+        )
         assert not hasattr(renderer, "deliver")
 
     def test_renderer_has_no_send_method(self) -> None:
-        renderer = MeshtasticRenderer()
+        renderer = MeshtasticRenderer(
+            configs={
+                "mesh-1": MeshtasticConfig(adapter_id="mesh-1", radio_relay_prefix="")
+            }
+        )
         assert not hasattr(renderer, "send")
         assert not hasattr(renderer, "sendText")
 
@@ -244,7 +252,13 @@ class TestMeshtasticRendererIsolation:
             ), f"Renderer must not import delivery code; found: {line!r}"
 
     async def test_renderer_returns_rendering_result_not_delivery(self) -> None:
-        renderer = MeshtasticRenderer()
+        renderer = MeshtasticRenderer(
+            configs={
+                "meshtastic_node": MeshtasticConfig(
+                    adapter_id="meshtastic_node", radio_relay_prefix=""
+                )
+            }
+        )
         event = CanonicalEvent(
             event_id="evt-1",
             event_kind="message.created",

@@ -5,7 +5,7 @@ Covers diagnostics truthfulness gaps found during audit:
   - LXMF teardown clears connected/router_running flags.
   - LXMF reconnect_attempts reset on successful reconnect.
   - Matrix _last_reconnect_error cleared on sync recovery.
-  - Meshtastic adapter diagnostics includes queue_total_dropped.
+  - Meshtastic adapter diagnostics includes queue_total_rejected (explicit queue-full rejection).
 
 All tests use fake mode or mocks — no real transport dependency required.
 """
@@ -262,14 +262,14 @@ class TestLxmfTeardownClearsConnected:
 
 
 # ===================================================================
-# GAP E: MeshtasticAdapter.diagnostics() includes queue_total_dropped
+# GAP E: MeshtasticAdapter.diagnostics() includes queue_total_rejected
 # ===================================================================
 
 
-class TestMeshtasticAdapterDiagnosticsQueueDropped:
-    """MeshtasticAdapter.diagnostics() must include queue_total_dropped."""
+class TestMeshtasticAdapterDiagnosticsQueueRejected:
+    """MeshtasticAdapter.diagnostics() must include queue_total_rejected (explicit queue-full rejection)."""
 
-    async def test_diagnostics_includes_queue_total_dropped(
+    async def test_diagnostics_includes_queue_total_rejected(
         self, make_adapter_context
     ) -> None:
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
@@ -280,12 +280,12 @@ class TestMeshtasticAdapterDiagnosticsQueueDropped:
         await adapter.start(ctx)
 
         diag = adapter.diagnostics()
-        assert "queue_total_dropped" in diag
-        assert diag["queue_total_dropped"] == 0
+        assert "queue_total_rejected" in diag
+        assert diag["queue_total_rejected"] == 0
 
         await adapter.stop()
 
-    async def test_diagnostics_shows_dropped_count(self, make_adapter_context) -> None:
+    async def test_diagnostics_shows_rejected_count(self, make_adapter_context) -> None:
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 
         config = _make_meshtastic_config(connection_type="fake")
@@ -293,11 +293,11 @@ class TestMeshtasticAdapterDiagnosticsQueueDropped:
         ctx = make_adapter_context("mesh-test")
         await adapter.start(ctx)
 
-        # Manually increment dropped counter to verify it surfaces
-        adapter._queue._total_dropped = 5
+        # Manually increment rejected counter to verify it surfaces
+        adapter._queue._total_rejected = 5
 
         diag = adapter.diagnostics()
-        assert diag["queue_total_dropped"] == 5
+        assert diag["queue_total_rejected"] == 5
 
         await adapter.stop()
 

@@ -33,7 +33,6 @@ from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite import SQLiteStorage
 from tests.helpers.meshtastic_bridge import make_adapter_context, make_text_packet
 
-
 # ===================================================================
 # 3. Error mapping bridge
 # ===================================================================
@@ -77,7 +76,12 @@ class TestMeshtasticBridgeErrorMapping:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register(
+            MeshtasticRenderer(
+                configs={"err-mesh-out": MeshtasticConfig(adapter_id="err-mesh-out")}
+            ),
+            priority=50,
+        )
         rp.register_adapter_platform("err-mesh-out", "meshtastic")
         rp.register(TextRenderer(), priority=100)
 
@@ -169,7 +173,12 @@ class TestMeshtasticBridgeErrorMapping:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register(
+            MeshtasticRenderer(
+                configs={"perm-mesh-out": MeshtasticConfig(adapter_id="perm-mesh-out")}
+            ),
+            priority=50,
+        )
         rp.register_adapter_platform("perm-mesh-out", "meshtastic")
         rp.register(TextRenderer(), priority=100)
 
@@ -271,7 +280,15 @@ class TestMeshtasticBridgeErrorMapping:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register(
+            MeshtasticRenderer(
+                configs={
+                    "iso-mesh-out": MeshtasticConfig(adapter_id="iso-mesh-out"),
+                    "iso-good-out": MeshtasticConfig(adapter_id="iso-good-out"),
+                }
+            ),
+            priority=50,
+        )
         rp.register_adapter_platform("iso-mesh-out", "meshtastic")
         rp.register_adapter_platform("iso-good-out", "meshtastic")
         rp.register(TextRenderer(), priority=100)

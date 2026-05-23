@@ -910,7 +910,9 @@ class TestMeshtasticBoundedLiveTests:
             assert isinstance(diag["queue_pending"], int)
             assert isinstance(diag["queue_total_sent"], int)
             assert isinstance(diag["queue_total_failed"], int)
-            assert isinstance(diag["queue_total_dropped"], int)
+            assert isinstance(diag["queue_total_rejected"], int)
+            assert isinstance(diag["queue_max_size"], int | type(None))
+            assert isinstance(diag["queue_utilization_pct"], float)
             assert isinstance(diag["background_tasks"], int)
 
             # Session-level keys

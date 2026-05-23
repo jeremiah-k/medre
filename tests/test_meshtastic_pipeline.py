@@ -71,7 +71,7 @@ async def _make_pipeline(
     out_adapter = FakeMeshtasticAdapter(out_config)
 
     rp = rendering_pipeline or RenderingPipeline()
-    rp.register(MeshtasticRenderer(), priority=50)
+    rp.register(MeshtasticRenderer(configs={out_adapter_id: out_config}), priority=50)
     rp.register_adapter_platform(out_adapter_id, "meshtastic")
     rp.register(TextRenderer(), priority=100)
 
@@ -112,7 +112,14 @@ class TestMeshtasticPipelineIntegration:
     async def test_meshtastic_renderer_registered(self) -> None:
         """MeshtasticRenderer can be registered in the rendering pipeline."""
         rp = RenderingPipeline()
-        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register(
+            MeshtasticRenderer(
+                configs={
+                    "meshtastic_node": MeshtasticConfig(adapter_id="meshtastic_node", radio_relay_prefix="")
+                }
+            ),
+            priority=50,
+        )
         rp.register_adapter_platform("meshtastic_node", "meshtastic")
         rp.register(TextRenderer(), priority=100)
 
@@ -138,7 +145,12 @@ class TestMeshtasticPipelineIntegration:
     async def test_text_renderer_fallback_for_non_meshtastic(self) -> None:
         """TextRenderer handles events for non-Meshtastic adapters."""
         rp = RenderingPipeline()
-        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register(
+            MeshtasticRenderer(
+                configs={"mesh-1": MeshtasticConfig(adapter_id="mesh-1")}
+            ),
+            priority=50,
+        )
         rp.register(TextRenderer(), priority=100)
 
         event = CanonicalEvent(
@@ -212,7 +224,12 @@ class TestMeshtasticPipelineIntegration:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register(
+            MeshtasticRenderer(
+                configs={"local-radio": MeshtasticConfig(adapter_id="local-radio")}
+            ),
+            priority=50,
+        )
         rp.register_adapter_platform("local-radio", "meshtastic")
         rp.register(TextRenderer(), priority=100)
 
@@ -348,7 +365,7 @@ class TestMeshtasticNativeRefPersistence:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register(MeshtasticRenderer(configs={"mesh-out": out_config}), priority=50)
         rp.register_adapter_platform("mesh-out", "meshtastic")
         rp.register(TextRenderer(), priority=100)
 
@@ -400,7 +417,9 @@ class TestMeshtasticNativeRefPersistence:
         router = Router(routes=[route])
 
         rp = RenderingPipeline()
-        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register(
+            MeshtasticRenderer(configs={"mesh-fail-out": out_config}), priority=50
+        )
         rp.register_adapter_platform("mesh-fail-out", "meshtastic")
         rp.register(TextRenderer(), priority=100)
 
@@ -728,7 +747,12 @@ class TestMeshtasticPlatformRendererSelection:
 
         # 3. RenderingPipeline with MeshtasticRenderer via platform registry
         rp = RenderingPipeline()
-        rp.register(MeshtasticRenderer(), priority=50)
+        rp.register(
+            MeshtasticRenderer(
+                configs={"radio-out": MeshtasticConfig(adapter_id="radio-out")}
+            ),
+            priority=50,
+        )
         rp.register(TextRenderer(), priority=100)
 
         # 4. PipelineRunner — start() calls _populate_renderer_platforms()

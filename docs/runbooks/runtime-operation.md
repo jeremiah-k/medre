@@ -1262,7 +1262,7 @@ Some adapters maintain their own bounded internal queues in addition to the glob
 
 | Adapter    | Queue mechanism      | Default bound | Overflow policy                                  |
 | ---------- | -------------------- | ------------- | ------------------------------------------------ |
-| Meshtastic | `deque(maxlen=1024)` | 1024 items    | Drop-oldest, `total_dropped` counter incremented |
+| Meshtastic | unbounded deque with explicit enqueue cap | 1024 items (default) | Explicit rejection when full, `queue_total_rejected` counter incremented |
 
 Other adapters (Matrix, LXMF, MeshCore) rely on the `CapacityController` semaphore and their transport's own flow control.
 
@@ -1371,7 +1371,7 @@ When a single inbound event routes to multiple targets (fan-out), each target ge
 Capacity bounds (semaphores, adapter-level queues) prevent unbounded memory accumulation. They do **not** prevent data loss:
 
 - When the capacity semaphore is exhausted, new deliveries are rejected (permanently failed).
-- When an adapter-level queue overflows, items are dropped silently (drop-oldest).
+- When an adapter-level queue is full, new enqueue attempts are explicitly rejected (the caller receives a transient `MeshtasticSendError`).
 - Under extreme pressure, the runtime sheds load to protect process stability.
 
 This is an explicit design tradeoff: runtime stability over delivery completeness. Operators must monitor capacity timeout counters and tune limits accordingly.

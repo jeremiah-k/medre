@@ -503,7 +503,7 @@ The Meshtastic adapter exposes the following fields in `diagnostics()`:
 | `queue_pending`       | int  | Items currently in the outbound queue             |
 | `queue_total_sent`    | int  | Cumulative successful sends                       |
 | `queue_total_failed`  | int  | Cumulative send failures                          |
-| `queue_total_dropped` | int  | Cumulative items dropped from queue               |
+| `queue_total_rejected` | int  | Cumulative enqueue attempts rejected due to full queue |
 | `drain_task_running`  | bool | Whether the background queue-drain task is active |
 | `background_tasks`    | int  | Number of tracked background tasks                |
 

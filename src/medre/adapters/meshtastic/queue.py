@@ -25,11 +25,16 @@ to future work.  This is a scaffold design choice, not a bug.
 
 Queue bounds
 ------------
-The internal deque is bounded by ``max_queue_size`` (default 1024).
-When the queue is full, the **oldest** item is silently dropped to make
-room for the new enqueue.  This prevents unbounded memory growth in
-long-duration runs where outbound throughput exceeds send capacity.
-The ``total_dropped`` counter tracks how many items were shed.
+The internal deque is intentionally unbounded. ``max_queue_size`` is enforced explicitly at enqueue time so existing accepted items are never silently evicted.
+When the queue is full, ``enqueue()`` raises
+:class:`~medre.adapters.meshtastic.errors.MeshtasticSendError` with
+``transient=True`` instead of accepting the item.  The caller receives
+the exception and can classify the failure as transient for pipeline
+retry.  Existing queued items are **never evicted** to make room for
+new ones — the rejection is explicit.
+
+The ``total_rejected`` counter tracks how many enqueue attempts were
+rejected due to a full queue.
 
 .. note::
 
@@ -47,12 +52,13 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Awaitable, Callable
 
+from medre.adapters.meshtastic.errors import MeshtasticSendError
 from medre.adapters.meshtastic.packet_snapshot import json_safe
 from medre.core.contracts.adapter import AdapterDeliveryResult
 
 _logger = logging.getLogger(__name__)
 
-# Default maximum queue size.  When full, oldest items are dropped.
+# Default maximum queue size.  When full, enqueue raises MeshtasticSendError.
 _DEFAULT_MAX_QUEUE_SIZE: int = 1024
 
 
@@ -83,14 +89,24 @@ class QueueDeliveryResult:
 class MeshtasticOutboundQueue:
     """Outbound queue with pacing for Meshtastic messages.
 
+    The internal ``deque`` is intentionally created without ``maxlen`` so
+    that capacity is enforced explicitly at ``enqueue()`` time, allowing
+    the queue to reject with ``transient=True`` rather than silently
+    evicting the oldest item.
+
     Parameters
     ----------
     delay_between_messages:
         Minimum delay in seconds between consecutive outbound messages.
     max_queue_size:
-        Maximum number of queued items.  When exceeded, the oldest item
-        is silently dropped.  ``None`` means unbounded (not recommended
-        for production).
+        Maximum number of queued items.
+
+        * ``None`` — unbounded (not recommended for production).
+        * Positive ``int`` — bounded; ``enqueue()`` raises
+          :class:`~medre.adapters.meshtastic.errors.MeshtasticSendError`
+          with ``transient=True`` when full.
+        * ``0``, negative, or ``bool`` — **invalid**; raises
+          ``ValueError`` at construction time.
     """
 
     def __init__(
@@ -98,15 +114,23 @@ class MeshtasticOutboundQueue:
         delay_between_messages: float = 0.5,
         max_queue_size: int | None = _DEFAULT_MAX_QUEUE_SIZE,
     ) -> None:
+        # Validate max_queue_size: None=unbounded, positive int=bounded.
+        if max_queue_size is not None:
+            if isinstance(max_queue_size, bool):
+                raise ValueError("max_queue_size must not be a bool")
+            if not isinstance(max_queue_size, int):
+                raise ValueError("max_queue_size must be int or None")
+            if max_queue_size <= 0:
+                raise ValueError("max_queue_size must be > 0 or None")
         self._delay = delay_between_messages
         self._max_queue_size = max_queue_size
-        self._queue: deque[dict[str, Any]] = deque(
-            maxlen=max_queue_size,
-        )
+        self._queue: deque[dict[str, Any]] = deque()
         self._last_send_time: float = 0.0
         self._total_sent: int = 0
         self._total_failed: int = 0
-        self._total_dropped: int = 0
+        self._total_enqueued: int = 0
+        self._total_dequeued: int = 0
+        self._total_rejected: int = 0
 
     @property
     def delay_between_messages(self) -> float:
@@ -123,11 +147,6 @@ class MeshtasticOutboundQueue:
         """Current number of items waiting in the queue."""
         return len(self._queue)
 
-    @property
-    def total_dropped(self) -> int:
-        """Number of items dropped due to queue overflow."""
-        return self._total_dropped
-
     async def enqueue(
         self,
         payload: dict[str, Any],
@@ -137,8 +156,12 @@ class MeshtasticOutboundQueue:
     ) -> None:
         """Enqueue a payload for delivery.
 
-        When the queue is at capacity, the oldest item is silently
-        dropped and ``total_dropped`` is incremented.
+        When the queue is at capacity, raises
+        :class:`~medre.adapters.meshtastic.errors.MeshtasticSendError`
+        with ``transient=True`` instead of accepting the item.  The
+        caller (typically :class:`MeshtasticAdapter.deliver`) catches
+        this and maps it to an :class:`AdapterSendError(transient=True)`
+        for pipeline retry classification.
 
         Parameters
         ----------
@@ -152,18 +175,26 @@ class MeshtasticOutboundQueue:
         event_id:
             Optional canonical event ID that originated this send.
             Stored outside the payload so it is never sent to the radio.
+
+        Raises
+        ------
+        MeshtasticSendError
+            When the queue is at capacity (``transient=True``).
         """
-        # Detect overflow: deque with maxlen silently drops from the
-        # left (oldest) when append would exceed capacity.
         if (
             self._max_queue_size is not None
             and len(self._queue) >= self._max_queue_size
         ):
-            self._total_dropped += 1
+            self._total_rejected += 1
             _logger.warning(
-                "MeshtasticOutboundQueue full (%d items); dropping oldest (event_id=%s)",
+                "MeshtasticOutboundQueue full (%d/%d); rejecting enqueue",
+                len(self._queue),
                 self._max_queue_size,
-                self._queue[0].get("event_id", "?"),
+            )
+            raise MeshtasticSendError(
+                "Meshtastic outbound queue is full "
+                f"({len(self._queue)}/{self._max_queue_size})",
+                transient=True,
             )
         self._queue.append(
             {
@@ -172,6 +203,7 @@ class MeshtasticOutboundQueue:
                 "event_id": event_id,
             }
         )
+        self._total_enqueued += 1
 
     async def dequeue(self) -> dict[str, Any] | None:
         """Dequeue the next payload, or ``None`` if the queue is empty.
@@ -184,6 +216,7 @@ class MeshtasticOutboundQueue:
         """
         if not self._queue:
             return None
+        self._total_dequeued += 1
         return self._queue.popleft()
 
     async def process_one(
@@ -274,6 +307,21 @@ class MeshtasticOutboundQueue:
         return self._total_failed
 
     @property
+    def total_enqueued(self) -> int:
+        """Total number of items successfully enqueued (not rejected)."""
+        return self._total_enqueued
+
+    @property
+    def total_dequeued(self) -> int:
+        """Total number of items dequeued for processing."""
+        return self._total_dequeued
+
+    @property
+    def total_rejected(self) -> int:
+        """Total number of enqueue attempts rejected due to full queue."""
+        return self._total_rejected
+
+    @property
     def queue_health(self) -> dict[str, Any]:
         """Snapshot of the queue's operational state.
 
@@ -281,12 +329,23 @@ class MeshtasticOutboundQueue:
         -------
         dict
             Keys: ``pending_count``, ``total_sent``, ``total_failed``,
+            ``total_enqueued``, ``total_dequeued``, ``total_rejected``,
+            ``max_queue_size``, ``utilization_pct``,
             ``delay_between_messages``, ``last_send_time``.
         """
+        max_sz = self._max_queue_size
+        util = (
+            round(len(self._queue) / max_sz * 100, 1) if max_sz and max_sz > 0 else 0.0
+        )
         return {
             "pending_count": self.pending_count,
             "total_sent": self._total_sent,
             "total_failed": self._total_failed,
+            "total_enqueued": self._total_enqueued,
+            "total_dequeued": self._total_dequeued,
+            "total_rejected": self._total_rejected,
+            "max_queue_size": max_sz,
+            "utilization_pct": util,
             "delay_between_messages": self._delay,
             "last_send_time": self._last_send_time,
         }

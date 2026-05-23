@@ -663,7 +663,7 @@ When a Meshtastic adapter is running, `diagnostics()` returns:
 
 ```text
 adapter_id, platform, started, connection_type,
-queue_pending, queue_total_sent, queue_total_failed, queue_total_dropped,
+queue_pending, queue_total_sent, queue_total_failed, queue_total_rejected,
 background_tasks
 ```
 
@@ -869,7 +869,7 @@ SOAK_DURATION_SECONDS=120 pytest tests/test_soak.py::TestMeshtasticSoak -m live 
 | Messages succeeded                                                | Successful delivery count             | Soak test output          |
 | Messages failed                                                   | Failed delivery count                 | Soak test output          |
 | `queue_pending` at end                                            | Pending queue depth at end            | `diagnostics()`           |
-| `queue_total_sent` / `queue_total_failed` / `queue_total_dropped` | Cumulative queue stats                | `diagnostics()`           |
+| `queue_total_sent` / `queue_total_failed` / `queue_total_rejected` | Cumulative queue stats                | `diagnostics()`           |
 | Health throughout                                                 | Min/max health states                 | Periodic `health_check()` |
 | `transient_delivery_failures`                                     | Transient failure count               | `diagnostics()`           |
 | `permanent_delivery_failures`                                     | Permanent failure count               | `diagnostics()`           |
@@ -893,7 +893,7 @@ Defines the procedure for capturing a full `diagnostics()` snapshot from a runni
 
 ```text
 adapter_id, platform, started, connection_type,
-queue_pending, queue_total_sent, queue_total_failed, queue_total_dropped,
+queue_pending, queue_total_sent, queue_total_failed, queue_total_rejected,
 background_tasks
 ```
 

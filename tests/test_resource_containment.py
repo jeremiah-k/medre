@@ -455,25 +455,30 @@ class TestMeshtasticQueueBounds:
             await q.enqueue({"text": f"msg-{i}"}, channel_index=0)
         assert q.queue_depth == 3
 
-    async def test_queue_drops_oldest_when_full(self) -> None:
-        """When the queue is full, the oldest item is dropped."""
+    async def test_queue_rejects_when_full(self) -> None:
+        """When the queue is full, enqueue raises MeshtasticSendError."""
+        import pytest
+
+        from medre.adapters.meshtastic.errors import MeshtasticSendError
         from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
 
         q = MeshtasticOutboundQueue(max_queue_size=3)
         for i in range(3):
             await q.enqueue({"text": f"msg-{i}"}, channel_index=0)
         assert q.queue_depth == 3
-        assert q.total_dropped == 0
+        assert q.total_rejected == 0
 
-        # Enqueue one more — should trigger drop.
-        await q.enqueue({"text": "msg-overflow"}, channel_index=0)
+        # Enqueue one more — should trigger rejection.
+        with pytest.raises(MeshtasticSendError, match="queue is full") as exc_info:
+            await q.enqueue({"text": "msg-overflow"}, channel_index=0)
+        assert exc_info.value.transient is True
         assert q.queue_depth == 3
-        assert q.total_dropped == 1
+        assert q.total_rejected == 1
 
-        # The oldest (msg-0) should be gone; newest should be present.
+        # The oldest (msg-0) should still be present — items are NOT evicted.
         item = await q.dequeue()
         assert item is not None
-        assert item["payload"]["text"] == "msg-1"  # msg-0 was dropped
+        assert item["payload"]["text"] == "msg-0"
 
     async def test_queue_unbounded_mode(self) -> None:
         """max_queue_size=None allows unbounded growth."""
@@ -483,16 +488,24 @@ class TestMeshtasticQueueBounds:
         for i in range(2000):
             await q.enqueue({"text": f"msg-{i}"}, channel_index=0)
         assert q.queue_depth == 2000
-        assert q.total_dropped == 0
+        assert q.total_rejected == 0
 
-    async def test_queue_total_dropped_counter(self) -> None:
-        """total_dropped accumulates across multiple overflows."""
+    async def test_queue_total_rejected_counter(self) -> None:
+        """total_rejected accumulates across multiple rejections."""
+        import pytest
+
+        from medre.adapters.meshtastic.errors import MeshtasticSendError
         from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
 
         q = MeshtasticOutboundQueue(max_queue_size=2)
-        for i in range(6):
+        for i in range(2):
             await q.enqueue({"text": f"msg-{i}"}, channel_index=0)
-        assert q.total_dropped == 4  # 6 enqueues - 2 capacity
+        # The next 4 should all be rejected.
+        for _ in range(4):
+            with pytest.raises(MeshtasticSendError):
+                await q.enqueue({"text": "overflow"}, channel_index=0)
+        assert q.total_rejected == 4
+        assert q.queue_depth == 2
 
 
 # ===================================================================
