@@ -153,12 +153,17 @@ The pipeline classifies delivery failures using `DeliveryFailureKind`:
 | `PLANNER_FAILURE`    | Routing/planning error                                          | No        |
 | `RENDERER_FAILURE`   | Rendering error                                                 | No        |
 | `ADAPTER_TRANSIENT`  | Timeout, connection reset                                       | Yes       |
-| `ADAPTER_PERMANENT`  | Business-logic rejection                                        | No        |
+| `ADAPTER_PERMANENT`  | Business-logic rejection (including channel-not-found)          | No        |
 | `ADAPTER_MISSING`    | Adapter ID not registered                                       | No        |
-| `TARGET_NOT_FOUND`   | Channel not found _(reserved — not currently emitted)_          | No        |
 | `DEADLINE_EXCEEDED`  | Plan deadline passed                                            | No        |
 | `CAPACITY_REJECTION` | Capacity controller exhausted or timed out while accepting work | No        |
 | `SHUTDOWN_REJECTION` | Runtime shutdown cancelled delivery before capacity acquire     | No        |
+| `LOOP_SUPPRESSED`    | Self-loop or route-trace guard fired                            | No        |
+
+`TARGET_NOT_FOUND` and `DUPLICATE_SUPPRESSED` were removed from the enum.
+Channel-not-found and target-address failures map to `ADAPTER_PERMANENT`.
+Duplicate native-ref suppression returns empty outcomes before storage and
+produces no `DeliveryReceipt`.
 
 `CAPACITY_REJECTION` is used when the capacity controller's semaphore is
 exhausted but the controller is still accepting work. `SHUTDOWN_REJECTION`

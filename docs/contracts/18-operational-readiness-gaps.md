@@ -217,7 +217,7 @@ Contract 05 defines a complete plugin API: `Plugin` protocol, `PluginContext`, `
 
 ### 8.1 What Exists
 
-- `DeliveryFailureKind` taxonomy with 9 categories (PLANNER_FAILURE, RENDERER_FAILURE, ADAPTER_TRANSIENT, ADAPTER_PERMANENT, ADAPTER_MISSING, TARGET_NOT_FOUND, DEADLINE_EXCEEDED, CAPACITY_REJECTION, SHUTDOWN_REJECTION).
+- `DeliveryFailureKind` taxonomy with 9 categories (PLANNER_FAILURE, RENDERER_FAILURE, ADAPTER_TRANSIENT, ADAPTER_PERMANENT, ADAPTER_MISSING, DEADLINE_EXCEEDED, CAPACITY_REJECTION, SHUTDOWN_REJECTION, LOOP_SUPPRESSED). `TARGET_NOT_FOUND` and `DUPLICATE_SUPPRESSED` were removed — channel-not-found failures map to ADAPTER_PERMANENT; duplicate suppression returns empty outcomes before storage.
 - `RetryExecutor` for backoff computation, exhaustion detection, and retry/dead-letter receipt construction.
 - `DeliveryReceipt` with `attempt_number` and `parent_receipt_id` for receipt lineage.
 - Dead-letter receipt appended after the primary failed receipt on retry exhaustion.

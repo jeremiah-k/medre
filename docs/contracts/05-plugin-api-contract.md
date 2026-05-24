@@ -1,5 +1,10 @@
 # Plugin API Contract
 
+> **Status:** Active
+> **Classification:** Normative (Phase 1 scaffolding only)
+> **Authority:** Target plugin API; Phase 1 provides boundary scaffolding, not runtime implementation
+> **Last reviewed:** 2026-05-24
+>
 > Extracted from: [Modular Event Communications Runtime Specification](../spec/modular-event-engine-spec.md), Sections 12.3, 19, 20
 > Version: 0.1.0 (Draft)
 

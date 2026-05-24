@@ -1,5 +1,10 @@
 # Diagnostics Consistency Audit
 
+> **Status:** Historical
+> **Classification:** Audit
+> **Authority:** Cross-adapter diagnostics audit observations; no code changes proposed
+> **Last reviewed:** 2026-05-24
+>
 > Contract version: 1
 > Last updated: 2026-05-09
 > Track: 9 (Transport Capability Contracts)

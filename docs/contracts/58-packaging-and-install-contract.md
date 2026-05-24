@@ -1,5 +1,10 @@
 # Packaging and Install Contract
 
+> **Status:** Active
+> **Classification:** Normative
+> **Authority:** Active packaging contract governing package metadata, install boundaries, and import isolation
+> **Last reviewed:** 2026-05-24
+>
 > Contract version: 2
 > Last updated: 2026-05-16
 > Track: 2 (Packaging & Metadata), Track 10 (Import Boundary Validation)

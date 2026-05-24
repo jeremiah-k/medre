@@ -1,5 +1,10 @@
 # Delivery Semantics Matrix
 
+> **Status:** Active
+> **Classification:** Normative
+> **Authority:** Cross-transport delivery comparison; supersedes delivery sections of `65-constrained-transport-comparison.md`
+> **Last reviewed:** 2026-05-24
+>
 > Contract version: 1
 > Last updated: 2026-05-09
 > Track: 9 (Transport Capability Contracts)

@@ -1,5 +1,10 @@
 # Meshtastic Source-of-Truth Audit
 
+> **Status:** Historical
+> **Classification:** Audit
+> **Authority:** Point-in-time audit of mtjk SDK and MMRelay; not current authority for adapter behaviour
+> **Last reviewed:** 2026-05-24
+>
 > Contract version: 3
 > Last updated: 2026-05-24
 

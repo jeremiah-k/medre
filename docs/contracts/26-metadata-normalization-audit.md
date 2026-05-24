@@ -1,5 +1,10 @@
 # Metadata Normalization Audit Observations
 
+> **Status:** Historical
+> **Classification:** Audit
+> **Authority:** Audit observations on cross-transport metadata flow; no code changes proposed
+> **Last reviewed:** 2026-05-24
+>
 > Last updated: 2026-05-10
 > Scope: Track 9 — Metadata Normalization Across Matrix/Meshtastic/MeshCore/LXMF
 > Status: Audit observations. No code changes proposed.

@@ -1,5 +1,10 @@
 # Session Boundary Contract
 
+> **Status:** Active
+> **Classification:** Normative
+> **Authority:** Locked-in session boundary contract for beta; governs session ownership and extraction boundaries
+> **Last reviewed:** 2026-05-24
+>
 > Contract version: 1
 > Last updated: 2026-05-09
 > Track: 9 (Transport Capability Contracts)

@@ -1,7 +1,12 @@
 # 65: Constrained Transport Comparison
 
-**Status:** Draft  
-**Scope:** MEDRE adapter families, protocol neutrality audit
+> **Status:** Superseded
+> **Classification:** Superseded
+> **Authority:** Superseded by `22-delivery-semantics-matrix.md` (delivery behavior) and `23-identity-and-addressing.md` (identity)
+> **Last reviewed:** 2026-05-24
+>
+> **Status:** Draft  
+> **Scope:** MEDRE adapter families, protocol neutrality audit
 
 ## Overview
 

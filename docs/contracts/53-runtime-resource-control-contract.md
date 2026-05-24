@@ -1,9 +1,13 @@
 # Contract 53 — Runtime Resource Control Contract
 
-**Status:** Active — CapacityController wired; adapter-level queue bounds in Meshtastic; design sections 2–13 remain as reference
-**Scope:** Resource control for the MEDRE runtime: delivery concurrency limits, replay event limiting, shutdown drain, capacity timeout behavior, capacity exhaustion behavior, and diagnostics. Sections 2–13 are design reference — some decisions deferred. Section 14 describes the v1 implementation. Section 15 describes the v2 implementation.
-**Audience:** Runtime builders, adapter authors, operators, future implementors.
-**References:** Contract 47 (Runtime Assembly), Contract 48 (Runtime Observability), Contract 31 (Session Boundary), Contract 49 (Routing and Bridge), Contract 54 (Runtime Shutdown), Contract 59 (Runtime Durability), Contract 60 (Runtime Cancellation).
+> **Status:** Active
+> **Classification:** Normative
+> **Authority:** Authoritative specification for capacity limits, backpressure, delivery throttling, and resource containment
+> **Last reviewed:** 2026-05-24
+>
+> **Scope:** Resource control for the MEDRE runtime: delivery concurrency limits, replay event limiting, shutdown drain, capacity timeout behavior, capacity exhaustion behavior, and diagnostics. Sections 2–13 are design reference — some decisions deferred. Section 14 describes the v1 implementation. Section 15 describes the v2 implementation.
+> **Audience:** Runtime builders, adapter authors, operators, future implementors.
+> **References:** Contract 47 (Runtime Assembly), Contract 48 (Runtime Observability), Contract 31 (Session Boundary), Contract 49 (Routing and Bridge), Contract 54 (Runtime Shutdown), Contract 59 (Runtime Durability), Contract 60 (Runtime Cancellation).
 
 Every agent or document that references MEDRE capacity limits, backpressure semantics, delivery throttling, or resource containment must defer to this contract.
 

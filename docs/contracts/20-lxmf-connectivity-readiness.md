@@ -1,5 +1,10 @@
 # LXMF/Reticulum Connectivity Readiness
 
+> **Status:** Assessment
+> **Classification:** Assessment
+> **Authority:** Readiness assessment for LXMF/Reticulum SDKs; does not claim production connectivity
+> **Last reviewed:** 2026-05-24
+>
 > Contract version: 2
 > Last updated: 2026-05-12
 > Track: 1 (Contract)

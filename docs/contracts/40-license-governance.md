@@ -1,5 +1,10 @@
 # License Governance
 
+> **Status:** Active
+> **Classification:** Governance
+> **Authority:** License governance record; GPL-3.0-or-later decision effective 2026-05-12
+> **Last reviewed:** 2026-05-24
+>
 > Contract version: 2
 > Last updated: 2026-05-12
 > Track: 10 (License Governance + Beta Governance Formalization)

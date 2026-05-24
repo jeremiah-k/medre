@@ -1,5 +1,9 @@
 # Routing and Delivery Planning Contract
 
+> Contract version: 2
+> Last updated: 2026-05-24
+> Status: Active. Defines routing, delivery planning, failure taxonomy, and receipt semantics.
+> Disposition: Normative. Align with `DeliveryFailureKind` in `src/medre/core/planning/delivery_plan.py`.
 > Extracted from: `docs/spec/modular-event-engine-spec.md` Sections 3, 4, 7, 8, 10, 12
 > This document is self-contained. An implementer can build routing and delivery planning from these definitions without re-reading the full spec.
 
@@ -625,10 +629,10 @@ class DeliveryFailureKind(Enum):
     ADAPTER_TRANSIENT = "adapter_transient"   # Timeout, connection error (retryable)
     ADAPTER_PERMANENT = "adapter_permanent"   # Business logic rejection (permanent)
     ADAPTER_MISSING = "adapter_missing"       # No runtime adapter instance for target ID (permanent)
-    TARGET_NOT_FOUND = "target_not_found"     # Reserved. Not currently emitted by any adapter. ADAPTER_PERMANENT covers all permanent adapter errors including channel-not-found conditions.
     DEADLINE_EXCEEDED = "deadline_exceeded"   # Delivery plan deadline passed (permanent)
     CAPACITY_REJECTION = "capacity_rejection" # Capacity controller exhausted or timed out (permanent)
     SHUTDOWN_REJECTION = "shutdown_rejection" # Runtime shutdown cancelled delivery (permanent)
+    LOOP_SUPPRESSED = "loop_suppressed"       # Loop-prevention guard fired (permanent)
 ```
 
 Classification rules:
@@ -638,12 +642,12 @@ Classification rules:
 | `PLANNER_FAILURE`    | Routing / planning | No        | Exception during `route_event()`                                                                                                                                                |
 | `RENDERER_FAILURE`   | Rendering          | No        | Exception during `render()`                                                                                                                                                     |
 | `ADAPTER_TRANSIENT`  | Adapter delivery   | **Yes**   | `TimeoutError`, `ConnectionError`, `OSError` hierarchy                                                                                                                          |
-| `ADAPTER_PERMANENT`  | Adapter delivery   | No        | All other adapter exceptions                                                                                                                                                    |
+| `ADAPTER_PERMANENT`  | Adapter delivery   | No        | All other adapter exceptions (including channel-not-found and target-address failures)                                                                                          |
 | `ADAPTER_MISSING`    | Adapter lookup     | No        | Target adapter ID has no runtime adapter instance                                                                                                                               |
-| `TARGET_NOT_FOUND`   | Adapter delivery   | No        | **Reserved — not currently emitted.** No adapter produces this at runtime. `ADAPTER_PERMANENT` is used for all permanent adapter errors including channel-not-found conditions. |
 | `DEADLINE_EXCEEDED`  | Deadline check     | No        | `plan.deadline < now`                                                                                                                                                           |
 | `CAPACITY_REJECTION` | Capacity gate      | No        | Capacity controller semaphore exhausted or timed out                                                                                                                            |
 | `SHUTDOWN_REJECTION` | Capacity gate      | No        | Runtime shutdown cancelled delivery before capacity acquire                                                                                                                     |
+| `LOOP_SUPPRESSED`    | Loop prevention    | No        | Self-loop or route-trace guard fired                                                                                                                                            |
 
 The classification drives retry decisions and `DeliveryOutcome.failure_kind`.
 
@@ -678,7 +682,7 @@ Retry is owned by the `RetryWorker`, a single-process background worker that pol
 
 **Not auto-retried:**
 
-- `ADAPTER_PERMANENT`, `RENDERER_FAILURE`, `PLANNER_FAILURE`, `DEADLINE_EXCEEDED`, `ADAPTER_MISSING`, `TARGET_NOT_FOUND`, `CAPACITY_REJECTION`, `SHUTDOWN_REJECTION` — these are permanent or operational failures. No automatic retry is attempted.
+- `ADAPTER_PERMANENT`, `RENDERER_FAILURE`, `PLANNER_FAILURE`, `DEADLINE_EXCEEDED`, `ADAPTER_MISSING`, `LOOP_SUPPRESSED`, `CAPACITY_REJECTION`, `SHUTDOWN_REJECTION` — these are permanent or operational failures. No automatic retry is attempted.
 
 **Retry flow:**
 

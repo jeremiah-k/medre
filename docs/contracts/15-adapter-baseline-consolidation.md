@@ -1,5 +1,10 @@
 # Adapter Baseline Consolidation: Consistency Audit
 
+> **Status:** Superseded
+> **Classification:** Superseded
+> **Authority:** Superseded by `21-adapter-operational-contract.md`, `22-delivery-semantics-matrix.md`, and `23-identity-and-addressing.md`
+> **Last reviewed:** 2026-05-24
+>
 > Contract version: 1
 > Last updated: 2026-05-08
 > Track: 2 (Adapter Baseline Consolidation)

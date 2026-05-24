@@ -1,5 +1,10 @@
 # Meshtastic Connection Boundary Design Note
 
+> **Status:** Design note only
+> **Classification:** Design Note
+> **Authority:** Records design constraints for future real connection; no implementation exists
+> **Last reviewed:** 2026-05-24
+>
 > Contract version: 1
 > Last updated: 2026-05-08
 > Status: Design note only — no implementation.

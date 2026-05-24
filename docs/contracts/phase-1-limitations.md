@@ -1,7 +1,8 @@
 # Phase 1 Limitations
 
-> Document version: 3
-> Last updated: 2026-05-08
+> Document version: 4
+> Last updated: 2026-05-24
+> Status: Active. Records Phase 1 constraints and locked-in behavioral contracts.
 
 This document explicitly records what Phase 1 does **not** implement, what is reserved for future phases, and what behavioral contracts are locked in as stable.
 
@@ -13,7 +14,7 @@ This document explicitly records what Phase 1 does **not** implement, what is re
 
 | Feature                   | Location                                              | Status                                                                                                                                                                              |
 | ------------------------- | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Delivery failure taxonomy | `DeliveryFailureKind` enum                            | 9 categories: PLANNER_FAILURE, RENDERER_FAILURE, ADAPTER_TRANSIENT, ADAPTER_PERMANENT, ADAPTER_MISSING, TARGET_NOT_FOUND, DEADLINE_EXCEEDED, CAPACITY_REJECTION, SHUTDOWN_REJECTION |
+| Delivery failure taxonomy | `DeliveryFailureKind` enum                            | 9 categories: PLANNER_FAILURE, RENDERER_FAILURE, ADAPTER_TRANSIENT, ADAPTER_PERMANENT, ADAPTER_MISSING, DEADLINE_EXCEEDED, CAPACITY_REJECTION, SHUTDOWN_REJECTION, LOOP_SUPPRESSED. `TARGET_NOT_FOUND` and `DUPLICATE_SUPPRESSED` were removed — channel-not-found failures map to ADAPTER_PERMANENT; duplicate suppression returns empty outcomes before storage with no receipt. |
 | RetryExecutor             | `RetryExecutor` class                                 | Backoff computation, exhaustion detection, retry/dead-letter receipt construction                                                                                                   |
 | Receipt lineage           | `DeliveryReceipt.attempt_number`, `parent_receipt_id` | Explicit 1-indexed attempt numbering and parent linkage                                                                                                                             |
 | Lineage persistence       | `delivery_receipts` table columns                     | `attempt_number INTEGER NOT NULL DEFAULT 1`, `parent_receipt_id TEXT`                                                                                                               |
@@ -27,7 +28,7 @@ This document explicitly records what Phase 1 does **not** implement, what is re
 
 | Guarantee                    | Description                                                                          |
 | ---------------------------- | ------------------------------------------------------------------------------------ |
-| Failure taxonomy complete    | Every delivery failure is classified into one of 6 `DeliveryFailureKind` members     |
+| Failure taxonomy complete    | Every delivery failure is classified into one of 9 `DeliveryFailureKind` members   |
 | Receipt lineage ordered      | Receipts linked by `attempt_number` and `parent_receipt_id`; queryable in order      |
 | Target-scoped isolation      | One target's failure does not affect sibling targets; each has its own receipt chain |
 | Append-only receipts         | Dead-letter receipt appended AFTER primary receipt; ordering preserved               |

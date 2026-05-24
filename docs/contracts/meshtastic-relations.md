@@ -1,5 +1,10 @@
 # Meshtastic Relations and MMRelay Metadata
 
+> **Status:** Active
+> **Classification:** Normative
+> **Authority:** Current contract for Meshtastic relation mapping and renderer config resolution
+> **Last reviewed:** 2026-05-24
+>
 > Contract version: 3
 > Last updated: 2026-05-24
 

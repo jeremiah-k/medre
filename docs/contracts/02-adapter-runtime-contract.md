@@ -1,5 +1,10 @@
 # Adapter Runtime Contract
 
+> **Status:** Active
+> **Classification:** Normative
+> **Authority:** Primary contract for adapter protocol, lifecycle, capabilities, and registry
+> **Last reviewed:** 2026-05-24
+>
 > Source: [Modular Event Communications Runtime Specification](../spec/modular-event-engine-spec.md), Sections 9, 14, 15, 16, 17
 > Version: 0.1.0 (extracted from spec draft)
 

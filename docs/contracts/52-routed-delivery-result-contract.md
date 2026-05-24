@@ -1,9 +1,13 @@
 # Contract 52 — Routed Delivery Result Contract
 
-**Status:** Active
-**Scope:** Authoritative specification for how the route layer preserves adapter delivery semantics, how `AdapterDeliveryResult` flows through routing, self-loop guard behavior, per-destination result separation, failure attribution, and delivery finality guarantees.
-**Audience:** Runtime builders, adapter authors, pipeline authors, operators, test harnesses.
-**References:** Contract 49 (Routing and Bridge), Contract 50 (Runtime Topology), Contract 51 (Route Attribution), Contract 31 (Session Boundary).
+> **Status:** Active
+> **Classification:** Normative
+> **Authority:** Authoritative specification for routed delivery outcomes, per-destination results, and delivery finality
+> **Last reviewed:** 2026-05-24
+>
+> **Scope:** Authoritative specification for how the route layer preserves adapter delivery semantics, how `AdapterDeliveryResult` flows through routing, self-loop guard behavior, per-destination result separation, failure attribution, and delivery finality guarantees.
+> **Audience:** Runtime builders, adapter authors, pipeline authors, operators, test harnesses.
+> **References:** Contract 49 (Routing and Bridge), Contract 50 (Runtime Topology), Contract 51 (Route Attribution), Contract 31 (Session Boundary).
 
 Every agent or document that references routed delivery outcomes, per-destination results, self-loop behavior, delivery finality, or duplicate-send semantics must defer to this contract.
 

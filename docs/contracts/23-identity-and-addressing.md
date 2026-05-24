@@ -1,5 +1,10 @@
 # Identity and Addressing Across Transports
 
+> **Status:** Active
+> **Classification:** Normative
+> **Authority:** Canonical cross-transport identity reference; supersedes identity sections of `12` and `65`
+> **Last reviewed:** 2026-05-24
+>
 > Contract version: 1
 > Last updated: 2026-05-09
 > Track: 9 (Transport Capability Contracts)

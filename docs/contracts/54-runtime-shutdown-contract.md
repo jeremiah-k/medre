@@ -1,9 +1,13 @@
 # Contract 54 — Runtime Shutdown Contract
 
-**Status:** Active — CapacityController-based drain with replay participation; per-adapter restart and graceful connection drain deferred
-**Scope:** Shutdown ordering, in-flight work handling, drain timeout behavior, queue drain, replay cancellation, persistence guarantees, and timeout behavior for the MEDRE runtime.
-**Audience:** Runtime builders, adapter authors, operators.
-**References:** Contract 47 (Runtime Assembly), Contract 48 (Runtime Observability), Contract 31 (Session Boundary), Contract 53 (Resource Control), Contract 59 (Runtime Durability), Contract 60 (Runtime Cancellation).
+> **Status:** Active
+> **Classification:** Normative
+> **Authority:** Authoritative specification for shutdown ordering, in-flight work handling, drain timeout, and persistence guarantees
+> **Last reviewed:** 2026-05-24
+>
+> **Scope:** Shutdown ordering, in-flight work handling, drain timeout behavior, queue drain, replay cancellation, persistence guarantees, and timeout behavior for the MEDRE runtime.
+> **Audience:** Runtime builders, adapter authors, operators.
+> **References:** Contract 47 (Runtime Assembly), Contract 48 (Runtime Observability), Contract 31 (Session Boundary), Contract 53 (Resource Control), Contract 59 (Runtime Durability), Contract 60 (Runtime Cancellation).
 
 **Non-guarantees (explicit):** MEDRE remains best-effort. The runtime provides no replay deduplication, no exactly-once delivery guarantee, no transactional delivery guarantees, no persistent queue, no per-adapter restart, and no distributed coordination. Radio transports remain probabilistic. No persistent in-flight recovery. No replay resume after shutdown. These are all deferred or out of scope.
 

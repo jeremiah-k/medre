@@ -1,5 +1,10 @@
 # Operational Risk Register
 
+> **Status:** Assessment
+> **Classification:** Assessment
+> **Authority:** Operational risk register for beta; honest assessment of risks by category and severity
+> **Last reviewed:** 2026-05-24
+>
 > Contract version: 1
 > Last updated: 2026-05-10
 > Track: Beta Operational Risk (Track 6)

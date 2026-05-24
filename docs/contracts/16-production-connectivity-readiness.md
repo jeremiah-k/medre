@@ -1,5 +1,10 @@
 # Production Connectivity Readiness
 
+> **Status:** Assessment
+> **Classification:** Assessment
+> **Authority:** Per-adapter readiness assessment; cross-transport view superseded by `28-alpha-readiness-report.md`
+> **Last reviewed:** 2026-05-24
+>
 > Contract version: 4
 > Last updated: 2026-05-09
 > Track: 8 (Production Connectivity Readiness)

@@ -1,8 +1,10 @@
 # Operational Evidence Runbook
 
-> Last updated: 2026-05-12
-> Status: Partially populated. Current deterministic suite: 4596 passed, 25 skipped,
-> 63 deselected (2026-05-12). Live evidence: Matrix historical 2026-05-10
+> Last updated: 2026-05-24
+> Status: Partially populated. Current deterministic suite: 3237 passed, 4 skipped,
+> 63 deselected (2026-05-11, §5.1). A larger run of 4596 passed was recorded 2026-05-12
+> (Contract 62 §2), but the primary evidence anchor in §5.1 remains 3237 from 2026-05-11.
+> Live evidence: Matrix historical H-tier 2026-05-10
 > (plaintext 13/13, E2EE 7/7). Matrix sk.community live attempt 2026-05-12:
 > NOT EXECUTED (access token rejected `M_UNKNOWN_TOKEN`; see §1.4).
 > Matrix matrix.org live attempt 2026-05-12:
@@ -13,6 +15,7 @@
 > node DB verification, device metrics capture). ACK classified UNRELIABLE,
 > delivery classified BEST EFFORT.
 > Meshtastic MEDRE adapter live tests: NOT EXECUTED (mtjk not in project venv).
+> Meshtastic `queued`/`sent` = local queue acceptance / local SDK send return, not RF confirmation (Contract 61 §3.8.3).
 > MeshCore: NOT EXECUTED. Hardware probe (2026-05-12) identified CP2104 `/dev/ttyUSB0`
 > (stable by-id, likely T-Beam, no serial chatter). MeshCore firmware flash pending follow-up validation.
 > LXMF: NOT EXECUTED. Local source repos available at `/home/jeremiah/dev` for Reticulum
@@ -24,6 +27,7 @@
 > Maturity matrix: `docs/contracts/62-adapter-operational-maturity-matrix.md`.
 > Live procedures: `docs/runbooks/live-operational-evidence.md`.
 > Longrun validation: `docs/runbooks/longrun-validation.md`.
+> Capability status anchor: `docs/STATUS.md`.
 
 This document is the consolidated operational evidence record for each validated
 transport. Each transport section contains fields for actual test date,
@@ -263,6 +267,7 @@ pytest tests/test_matrix_live.py::TestMatrixLiveSmoke::test_inbound_message_rece
 
 > **Evidence tier:** R (real-live-runtime, recorded 2026-05-12 against real hardware via serial). Prior H-tier evidence from 2026-05-10 remains valid for historical reference. Track 2 follow-up evidence added 2026-05-12.
 > **Live procedures:** `docs/runbooks/live-operational-evidence.md` §2.
+> **Queue local-acceptance note:** Per Contract 61 §3.8.3, Meshtastic is the only adapter where `deliver()` returns `native_message_id=None` initially. The delivery lifecycle is two-phase: `queued` (local queue acceptance, not yet sent to radio) then `sent` (queue drain completed radio send). Neither `queued` nor `sent` means RF confirmation, remote-node receipt, or ACK. If the process crashes between phases, evidence correctly shows `queued` with no `sent` receipt. The queue is in-memory and non-durable across process restart. This applies to all Meshtastic maturity evidence in this section.
 
 ### 2.0 Serial Live Validation Evidence (Tier: R — recorded 2026-05-12)
 
@@ -496,8 +501,8 @@ During the validation session, a second node appeared in the mesh:
 
 > **Evidence tier:** NOT EXECUTED. No live evidence of any tier. S-tier unit tests pass.
 > **Live procedures:** `docs/runbooks/live-operational-evidence.md` §2.14.
-> **Hardware probe (2026-05-12):** CP2104 `/dev/ttyUSB0` (stable by-id, likely T-Beam) — no serial chatter observed. MeshCore firmware source available at `/home/jeremiah/dev`. `esptool` available via pipx. Firmware flash and live validation pending follow-up work.
-> **Maturity:** Alpha (Tier 2) per Contract 62 §3.3. Cannot promote beyond alpha until hardware-validated live evidence is recorded.
+> **Hardware probe (2026-05-12):** CP2104 `/dev/ttyUSB0` (stable by-id, likely T-Beam) — no serial chatter observed. Serial path confirmed NOT VIABLE for MeshCore SDK (companion heartbeat protocol, not MeshCore serial). BLE preconditions met but connection NOT ATTEMPTED. MeshCore firmware source available at `/home/jeremiah/dev`. `esptool` available via pipx. Firmware flash and live validation pending follow-up work.
+> **Maturity:** Alpha (Tier 2) / Experimental for hardware path per Contract 62 §3.3. Cannot promote beyond alpha until hardware-validated live evidence is recorded.
 
 ### 3.1 Live Smoke Test Evidence (Tier: NOT EXECUTED)
 
@@ -554,7 +559,8 @@ During the validation session, a second node appeared in the mesh:
 > **Evidence tier:** NOT EXECUTED. No live evidence of any tier. S-tier unit tests pass.
 > **Live procedures:** `docs/runbooks/live-operational-evidence.md` §2.15.
 > **Context (2026-05-12):** Local source repos available at `/home/jeremiah/dev` for LXMF and Reticulum. Reticulum live path setup (install from source, configure transport, generate identity) pending follow-up validation.
-> **Maturity:** Alpha (Tier 2) with experimental downgrade risk per Contract 62 §5.4. Cannot promote until Reticulum live path validated and delivery state model confirmed against real network.
+> **Hardware probe (2026-05-12):** RNode KISS probe to ttyUSB0 (CP2104) returned NO RESPONSE at 115200 and 57600 baud. Serial path BLOCKED for LXMF/Reticulum. Requires RNode firmware verification or alternative transport interface.
+> **Maturity:** Experimental / SDK-validated per Contract 62 §3.4. Cannot promote until Reticulum live path validated and delivery state model confirmed against real network.
 
 ### 4.1 Live Smoke Test Evidence (Tier: NOT EXECUTED)
 

@@ -1,5 +1,10 @@
 # Resource Containment Review
 
+> **Status:** Assessment
+> **Classification:** Assessment
+> **Authority:** Resource containment risk review per session; no runtime redesign proposed
+> **Last reviewed:** 2026-05-24
+>
 > Contract version: 1
 > Last updated: 2026-05-10
 > Track: 9 (Transport Capability Contracts)

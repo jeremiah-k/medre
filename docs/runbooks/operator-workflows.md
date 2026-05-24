@@ -287,18 +287,24 @@ Receipts persisted to storage have a finer-grained lifecycle:
 
 The `failure_kind` field on receipts classifies failures:
 
-| Kind                   | Retryable | When                                                                                                                                                                         |
-| ---------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `adapter_transient`    | Yes       | Timeout, network error, connection reset                                                                                                                                     |
-| `adapter_permanent`    | No        | Malformed payload, business-logic rejection                                                                                                                                  |
-| `adapter_missing`      | No        | Target adapter not registered in the runtime                                                                                                                                 |
-| `planner_failure`      | No        | Routing or planning misconfiguration                                                                                                                                         |
-| `renderer_failure`     | No        | No renderer registered for the event kind                                                                                                                                    |
-| `capacity_rejection`   | No        | All in-flight delivery slots occupied                                                                                                                                        |
-| `duplicate_suppressed` | No        | Reserved — defined in the enum but not currently emitted as a receipt or outcome. Duplicate native-ref suppression happens before routing and returns an empty outcome list. |
-| `loop_suppressed`      | No        | Route-trace or self-loop prevention blocked the delivery                                                                                                                     |
+| Kind                 | Retryable | When                                                                                                           |
+| -------------------- | --------- | -------------------------------------------------------------------------------------------------------------- |
+| `adapter_transient`  | Yes       | Timeout, network error, connection reset                                                                       |
+| `adapter_permanent`  | No        | Malformed payload, business-logic rejection                                                                    |
+| `adapter_missing`    | No        | Target adapter not registered in the runtime                                                                   |
+| `planner_failure`    | No        | Routing or planning misconfiguration                                                                           |
+| `renderer_failure`   | No        | No renderer registered for the event kind                                                                      |
+| `deadline_exceeded`  | No        | Delivery plan deadline passed                                                                                  |
+| `capacity_rejection` | No        | All in-flight delivery slots occupied                                                                          |
+| `shutdown_rejection` | No        | Runtime shutdown cancelled delivery                                                                            |
+| `loop_suppressed`    | No        | Route-trace or self-loop prevention blocked the delivery                                                       |
 
 Only `adapter_transient` is retryable.
+
+> **Note:** `TARGET_NOT_FOUND` and `DUPLICATE_SUPPRESSED` were removed from the enum.
+> Channel-not-found and target-address failures map to `adapter_permanent`.
+> Duplicate native-ref suppression happens before routing and returns an empty
+> outcome list — no receipt is produced.
 
 ### Retry and Replay
 
@@ -930,7 +936,7 @@ Two types of suppression exist:
 
 This means the route-trace or self-loop guard prevented delivery. The receipt uses `status="suppressed"` (the persisted receipt lifecycle status), not the in-flight `DeliveryOutcome.status="skipped"`.
 
-**Duplicate suppressed** — silent at the receipt level. If an event was suppressed by native-ref dedup at ingress, there will be no receipt at all. The event was never stored. Check `RuntimeAccounting.loop_prevented` counters (in diagnostics) for the aggregate count. The `DUPLICATE_SUPPRESSED` failure kind is reserved but not currently emitted — the runtime does not safely persist the duplicate path without creating a new event.
+**Duplicate suppressed** — silent at the receipt level. If an event was suppressed by native-ref dedup at ingress, there will be no receipt at all. The event was never stored. Check `RuntimeAccounting.loop_prevented` counters (in diagnostics) for the aggregate count. `DUPLICATE_SUPPRESSED` was removed from the enum — the runtime does not produce a receipt or outcome for duplicate suppression.
 
 ### 14.4 "Dead-lettered why?"
 
