@@ -91,6 +91,17 @@ class _FakeAdapter:
         self._last_health = health
 
 
+class _FakeDiagnosticAdapter(_FakeAdapter):
+    """Adapter that exposes a synchronous diagnostics() method."""
+
+    def __init__(self, diag_data: dict[str, Any] | None = None, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._diag_data = diag_data or {"connected": True, "health": "healthy"}
+
+    def diagnostics(self) -> dict[str, Any]:
+        return dict(self._diag_data)
+
+
 @dataclass
 class _FakeRuntimeLimits:
     max_inflight_deliveries: int = 50
@@ -298,12 +309,51 @@ _EXPECTED_RUNTIME_SNAPSHOT_TOP_KEYS: frozenset[str] = frozenset(
         "routes",
         "schema_version",
         "snapshot_at",
+        "snapshot_scope",
         "startup",
         "unstable",
     }
 )
 
 _EXPECTED_DIAG_SNAPSHOT_KEYS: frozenset[str] = frozenset({"routes", "replay"})
+
+# ---------------------------------------------------------------------------
+# Tranche 3 — expected-key constants for diagnostics schema.
+# ---------------------------------------------------------------------------
+
+_EXPECTED_RETRY_KEYS: frozenset[str] = frozenset(
+    {
+        "dead_lettered",
+        "enabled",
+        "failed",
+        "last_run_at",
+        "live_refresh",
+        "processed",
+        "running",
+        "scope",
+        "succeeded",
+    }
+)
+
+_EXPECTED_PIPELINE_DIAGNOSTICS_KEYS: frozenset[str] = frozenset({"running"})
+
+# Diagnostics section top-level keys.
+_EXPECTED_DIAGNOSTICS_SECTION_KEYS: frozenset[str] = frozenset(
+    {
+        "adapters",
+        "live_refresh",
+        "pipeline",
+        "runtime_events",
+        "scope",
+    }
+)
+
+# Adapter diagnostics entries always carry the common diagnostic keys
+# (from normalize_diagnostics) plus the "adapter" key when adapter_hint
+# is supplied.  "transport_specific" appears conditionally.
+_EXPECTED_ADAPTER_DIAGNOSTICS_KEYS: frozenset[str] = COMMON_DIAGNOSTIC_KEYS | frozenset(
+    {"adapter"}
+)
 
 
 # ===================================================================
@@ -519,6 +569,121 @@ class TestRuntimeSnapshotSchemaConsistency:
         app = _make_fake_app()
         snap = build_runtime_snapshot(app)
         assert snap["startup"]["startup_health"] is None
+
+
+class TestDiagnosticsSectionSchemaStability:
+    """Diagnostics section shape and retry sub-shape are stable."""
+
+    def test_diagnostics_section_has_expected_keys(self) -> None:
+        app = _make_fake_app()
+        snap = build_runtime_snapshot(app)
+        assert set(snap["diagnostics"].keys()) == _EXPECTED_DIAGNOSTICS_SECTION_KEYS
+
+    def test_diagnostics_pipeline_has_expected_keys(self) -> None:
+        app = _make_fake_app()
+        snap = build_runtime_snapshot(app)
+        assert (
+            set(snap["diagnostics"]["pipeline"].keys())
+            == _EXPECTED_PIPELINE_DIAGNOSTICS_KEYS
+        )
+
+    def test_diagnostics_pipeline_running_is_bool_or_none(self) -> None:
+        app = _make_fake_app()
+        snap = build_runtime_snapshot(app)
+        val = snap["diagnostics"]["pipeline"]["running"]
+        assert val is None or isinstance(val, bool)
+
+    def test_diagnostics_scope_is_process_local(self) -> None:
+        app = _make_fake_app()
+        snap = build_runtime_snapshot(app)
+        assert snap["diagnostics"]["scope"] == "process_local"
+
+    def test_diagnostics_live_refresh_is_false(self) -> None:
+        app = _make_fake_app()
+        snap = build_runtime_snapshot(app)
+        assert snap["diagnostics"]["live_refresh"] is False
+
+    def test_diagnostics_adapters_is_dict(self) -> None:
+        app = _make_fake_app()
+        snap = build_runtime_snapshot(app)
+        assert isinstance(snap["diagnostics"]["adapters"], dict)
+
+    def test_diagnostics_runtime_events_is_dict_or_none(self) -> None:
+        app = _make_fake_app()
+        snap = build_runtime_snapshot(app)
+        val = snap["diagnostics"]["runtime_events"]
+        assert val is None or isinstance(val, dict)
+
+    def test_adapter_diagnostics_entry_has_expected_keys(self) -> None:
+        """Adapter that exposes diagnostics() produces normalised entry."""
+        adapter = _FakeDiagnosticAdapter(
+            adapter_id="diag-adapter",
+            diag_data={"connected": True, "health": "healthy", "latency_ms": 42},
+        )
+        app = _make_fake_app(adapters={"diag-adapter": adapter})
+        snap = build_runtime_snapshot(app)
+        adapter_diag = snap["diagnostics"]["adapters"]["diag-adapter"]
+        assert set(adapter_diag.keys()) == _EXPECTED_ADAPTER_DIAGNOSTICS_KEYS | {
+            "transport_specific"
+        }
+        # Non-common keys land in transport_specific.
+        assert "transport_specific" in adapter_diag
+        assert adapter_diag["transport_specific"]["latency_ms"] == 42
+
+    def test_adapter_diagnostics_entry_from_error_has_error_key(self) -> None:
+        """Adapter whose diagnostics() raises produces error entry."""
+
+        class _ErrorAdapter(_FakeAdapter):
+            def diagnostics(self) -> None:
+                raise RuntimeError("boom")
+
+        app = _make_fake_app(adapters={"err-adapter": _ErrorAdapter()})
+        snap = build_runtime_snapshot(app)
+        err_diag = snap["diagnostics"]["adapters"]["err-adapter"]
+        assert "error" in err_diag
+        assert "status" in err_diag
+
+    def test_adapter_without_diagnostics_omitted_from_section(self) -> None:
+        """Adapter without diagnostics() is silently omitted."""
+        adapter = _FakeAdapter(adapter_id="plain-adapter")
+        app = _make_fake_app(adapters={"plain-adapter": adapter})
+        snap = build_runtime_snapshot(app)
+        assert "plain-adapter" not in snap["diagnostics"]["adapters"]
+
+
+class TestRetrySchemaStability:
+    """Retry section key shape is stable."""
+
+    def test_retry_has_expected_keys(self) -> None:
+        app = _make_fake_app()
+        snap = build_runtime_snapshot(app)
+        assert set(snap["retry"].keys()) == _EXPECTED_RETRY_KEYS
+
+    def test_retry_default_values(self) -> None:
+        app = _make_fake_app()
+        retry = build_runtime_snapshot(app)["retry"]
+        assert retry["enabled"] is False
+        assert retry["running"] is False
+        assert retry["processed"] == 0
+        assert retry["succeeded"] == 0
+        assert retry["failed"] == 0
+        assert retry["dead_lettered"] == 0
+        assert retry["last_run_at"] is None
+        assert retry["scope"] == "process_local"
+        assert retry["live_refresh"] is False
+
+    def test_retry_values_are_correct_types(self) -> None:
+        app = _make_fake_app()
+        retry = build_runtime_snapshot(app)["retry"]
+        assert isinstance(retry["enabled"], bool)
+        assert isinstance(retry["running"], bool)
+        assert isinstance(retry["processed"], int)
+        assert isinstance(retry["succeeded"], int)
+        assert isinstance(retry["failed"], int)
+        assert isinstance(retry["dead_lettered"], int)
+        assert retry["last_run_at"] is None or isinstance(retry["last_run_at"], str)
+        assert isinstance(retry["scope"], str)
+        assert isinstance(retry["live_refresh"], bool)
 
 
 # ===================================================================

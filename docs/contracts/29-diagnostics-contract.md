@@ -162,16 +162,17 @@ The `RuntimeSnapshot` dataclass and `capture_runtime_snapshot()` pure function e
 
 The snapshot contains these top-level sections:
 
-| Section                  | Source                                          |
-| ------------------------ | ----------------------------------------------- |
-| `adapters`               | Sorted list of normalized adapter health dicts  |
-| `renderer_registry`      | `RenderingPipeline.status_summary()`            |
-| `event_bus_status`       | `EventBus.status_summary()`                     |
-| `storage_backend_status` | Placeholder `{"status": "not_yet_implemented"}` |
-| `replay_backend_status`  | Placeholder `{"status": "not_yet_implemented"}` |
-| `queue_status`           | Placeholder `{"status": "not_yet_implemented"}` |
-| `backpressure_status`    | Placeholder `{"status": "not_yet_implemented"}` |
-| `task_status`            | Placeholder `{"status": "not_yet_implemented"}` |
+| Section                  | Source                                                                                  |
+| ------------------------ | --------------------------------------------------------------------------------------- |
+| `adapters`               | Sorted list of normalized adapter health dicts                                          |
+| `renderer_registry`      | `RenderingPipeline.status_summary()`                                                    |
+| `event_bus_status`       | `EventBus.status_summary()`                                                             |
+| `storage_backend_status` | `{"status": "unavailable"}` when no data provided                                       |
+| `replay_backend_status`  | `{"status": "unavailable"}` when no data provided                                       |
+| `route_topology`         | `{"status": "unavailable"}` when no router is configured or routing data is unavailable |
+| `queue_status`           | `{"status": "unavailable"}` when no data provided                                       |
+| `backpressure_status`    | `{"status": "unavailable"}` when no data provided                                       |
+| `task_status`            | `{"status": "unavailable"}` when no data provided                                       |
 
 ### 6.2 Adapter-Level Serialization
 

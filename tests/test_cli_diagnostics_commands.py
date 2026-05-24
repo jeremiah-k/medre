@@ -89,6 +89,14 @@ class TestDiagnostics:
         parsed = json.loads(output)
         assert len(parsed) > 0
 
+    def test_plain_diagnostics_snapshot_scope_build(
+        self, config_with_routes: Path
+    ) -> None:
+        """Plain 'medre diagnostics' emits top-level snapshot_scope='build'."""
+        output = _run_cli("diagnostics", "--config", str(config_with_routes))
+        parsed = json.loads(output)
+        assert parsed["snapshot_scope"] == "build"
+
     def test_diagnostics_missing_config(self, tmp_path: Path) -> None:
         """Missing config file exits nonzero with clear error."""
         _, stderr = _run_cli_both(
@@ -176,6 +184,26 @@ encryption_mode = "plaintext"
         )
         parsed = json.loads(output)
         assert isinstance(parsed, dict)
+
+    def test_refresh_health_snapshot_scope_live(
+        self,
+        fake_single_config: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """--refresh-health emits top-level snapshot_scope='live'."""
+        for var in ("MEDRE_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME"):
+            monkeypatch.delenv(var, raising=False)
+        monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+
+        output = _run_cli(
+            "diagnostics",
+            "--refresh-health",
+            "--config",
+            str(fake_single_config),
+        )
+        parsed = json.loads(output)
+        assert parsed["snapshot_scope"] == "live"
 
     def test_refresh_health_has_live_health(
         self,
@@ -400,3 +428,4 @@ encryption_mode = "plaintext"
         assert parsed["health"]["live_health"] is None
         assert parsed["health"]["live_refresh"] is False
         assert parsed["health"]["scope"] == "startup"
+        assert parsed["snapshot_scope"] == "build"

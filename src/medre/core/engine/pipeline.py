@@ -300,8 +300,14 @@ class PipelineRunner:
         self._capacity_controller: CapacityController | None = None
         self._delivery_rejection_count: int = 0
         self._inflight_deliveries: dict[str, InflightDelivery] = {}
+        self._running: bool = False
 
     # -- Lifecycle ----------------------------------------------------------
+
+    @property
+    def running(self) -> bool:
+        """Whether the pipeline has been started and not yet stopped."""
+        return self._running
 
     async def start(self) -> None:
         """Register pipeline middleware with the event bus.
@@ -311,16 +317,36 @@ class PipelineRunner:
         On startup the runner populates the rendering pipeline's platform
         registry from the configured adapters so that renderer selection
         can use platform identity rather than adapter-name heuristics.
+
+        Idempotent: calling ``start()`` when already running returns
+        immediately without re-registering middleware.
         """
-        self._middleware = _PipelineLoggingMiddleware()
-        self._config.event_bus.add_middleware(self._middleware, priority=100)
+        if self._running:
+            self._log.debug(
+                "PipelineRunner.start() called while already running; skipping"
+            )
+            return
 
-        # Populate the rendering pipeline's platform registry from the
-        # configured adapters so that transport-specific renderers can
-        # match on platform identity instead of adapter-name prefixes
-        # or ad-hoc known-adapters sets.
-        self._populate_renderer_platforms()
+        middleware_registered = False
+        try:
+            self._middleware = _PipelineLoggingMiddleware()
+            self._config.event_bus.add_middleware(self._middleware, priority=100)
+            middleware_registered = True
+            self._populate_renderer_platforms()
+        except BaseException:
+            if middleware_registered and self._middleware is not None:
+                try:
+                    self._config.event_bus.remove_middleware(self._middleware)
+                except Exception:
+                    self._log.debug(
+                        "Failed to rollback middleware after startup error",
+                        exc_info=True,
+                    )
+            self._middleware = None
+            self._running = False
+            raise
 
+        self._running = True
         self._log.info("PipelineRunner started")
 
     def _populate_renderer_platforms(self) -> None:
@@ -353,6 +379,7 @@ class PipelineRunner:
         if self._middleware is not None:
             self._config.event_bus.remove_middleware(self._middleware)
             self._middleware = None
+        self._running = False
         self._log.info("PipelineRunner stopped")
 
     def drain_abandoned_deliveries(self) -> list[InflightDelivery]:

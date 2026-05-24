@@ -399,6 +399,7 @@ class TestSnapshotReadability:
             "routes",
             "schema_version",
             "snapshot_at",
+            "snapshot_scope",
             "startup",
             "unstable",
         ]

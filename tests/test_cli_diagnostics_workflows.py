@@ -23,6 +23,14 @@ class TestDiagnosticsWorkflow:
         parsed = json.loads(output)
         assert isinstance(parsed, dict)
 
+    def test_diagnostics_has_snapshot_scope_build(
+        self, config_fake_multi: Path
+    ) -> None:
+        """Plain diagnostics emits snapshot_scope='build'."""
+        output = _run_cli("diagnostics", "--config", str(config_fake_multi))
+        parsed = json.loads(output)
+        assert parsed["snapshot_scope"] == "build"
+
     def test_diagnostics_has_schema_version(self, config_fake_multi: Path) -> None:
         output = _run_cli("diagnostics", "--config", str(config_fake_multi))
         parsed = json.loads(output)
