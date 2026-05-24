@@ -4,10 +4,6 @@
 > **Classification:** Superseded
 > **Authority:** Superseded by `23-identity-and-addressing.md` (canonical cross-transport identity reference)
 > **Last reviewed:** 2026-05-24
->
-> **Status:** Draft
-> **Scope:** Tracks 1 (adapter identity concepts) and 4 (canonical identity pressure) from the PC specification
-> **Related:** 65-constrained-transport-comparison.md, 02-adapter-runtime-contract.md
 
 ## Overview
 

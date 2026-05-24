@@ -1,9 +1,11 @@
 # Routing and Delivery Planning Contract
 
+> **Status:** Active
+> **Classification:** Normative
+> **Authority:** Primary routing/planning contract — routing, delivery planning, failure taxonomy, receipt semantics. Align with `DeliveryFailureKind` in `src/medre/core/planning/delivery_plan.py`.
+> **Last reviewed:** 2026-05-24
+>
 > Contract version: 2
-> Last updated: 2026-05-24
-> Status: Active. Defines routing, delivery planning, failure taxonomy, and receipt semantics.
-> Disposition: Normative. Align with `DeliveryFailureKind` in `src/medre/core/planning/delivery_plan.py`.
 > Extracted from: `docs/spec/modular-event-engine-spec.md` Sections 3, 4, 7, 8, 10, 12
 > This document is self-contained. An implementer can build routing and delivery planning from these definitions without re-reading the full spec.
 
