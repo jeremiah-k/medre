@@ -1,13 +1,26 @@
-# Release Hygiene Audit
+# Release Hygiene Audit — Historical Audit Record
 
-> Last updated: 2026-05-10
+> **Classification: Historical audit record. Frozen at commit `7046ecc` (2026-05-10). Not authoritative for current project status.**
+> **This audit has NOT been re-executed against subsequent commits.** Findings below reflect the codebase as it existed at the audit commit. Any resolution or qualification noted inline is based on post-audit knowledge, not re-audit.
+> **Development Status: Alpha.** MEDRE has not entered beta. Any references to beta readiness or beta release below are from the audit context and do not indicate current beta status.
+>
+> Contract version: 2
+> Audit commit: `7046ecc`
+> Audit date: 2026-05-10
+> Re-audit status: Not re-audited since original. Findings may be stale — see inline qualifications.
+> Last updated: 2026-05-24 (disposition cleanup: added historical classification header, qualified stale findings)
 > Track: Beta Release Hygiene (Track 7)
-> Status: Audit report with findings and actions taken. Updated with packaging/reproducibility audit findings.
+> Disposition: Historical snapshot. Fixes applied during/after audit are recorded in §7. Unresolved findings are qualified as historical, not current blockers.
 
-This document records the release hygiene audit performed on MEDRE at head
+This document records the release hygiene audit performed on MEDRE at commit
 `7046ecc` (2026-05-10). It covers pyproject metadata, README accuracy, stale
 artifacts, contradictory operational claims, SDK leakage in public APIs,
 test markers, and live-test exclusion guarantees.
+
+> **This is a historical snapshot.** The codebase has evolved since `7046ecc`.
+> Findings marked "FIXED" were fixed at or shortly after the audit. Findings
+> marked "Not Fixed" or "Requires Project Decision" may or may not still apply —
+> a fresh audit is required to determine current status.
 
 ## 1. pyproject.toml Metadata
 
@@ -50,32 +63,27 @@ tooling expect.
 
 ## 2. README Accuracy
 
-### 2.1 Current State
+> **Historical finding (2026-05-10).** The README has since been substantially updated. This section records what was observed at the audit commit and is preserved for historical continuity only.
 
-The README (`README.md`) contains only the project name and a blank line:
+### 2.1 Current State (at Audit Commit `7046ecc`)
+
+The README (`README.md`) at the audit commit contained only the project name and a blank line:
 
 ```markdown
 # medre (Modular Event-driven Routing Engine)
 ```
 
-**This is not sufficient for a beta release.** The README should, at minimum,
-describe what MEDRE is, how to install it, and link to developer environment
-documentation.
+**This was not sufficient for a beta release at the time of audit.** The README has since been expanded with project description, supported transports, installation instructions, and license declaration. This finding is historically resolved.
 
-### 2.2 Action Taken
+### 2.2 Action Taken (Historical)
 
-None. README expansion requires project-level decisions about tone, scope,
-and audience. A placeholder README is acceptable for pre-beta development
-but not for a published beta.
+None at audit time. README expansion required project-level decisions about tone, scope,
+and audience. **Post-audit update:** README has since been expanded with project description, transport list, and license. This finding is historically resolved.
 
-### 2.3 Recommendation
+### 2.3 Recommendation (Historical)
 
-Before beta, update README.md to include:
-
-1. One-paragraph project description.
-2. Installation instructions (link to `docs/runbooks/developer-environment.md`).
-3. List of supported transports with maturity classification (link to contract 37).
-4. License declaration.
+~~Before beta, update README.md to include:~~
+**Historically resolved.** README now includes: project description, installation instructions, supported transports with maturity classification, and license declaration.
 
 ## 3. Stale Artifacts
 
@@ -238,12 +246,12 @@ Total live tests: ~57 (matches the "57 deselected" count from unit suite runs).
 
 ### 7.2 Reported but Not Fixed (Requires Project Decision)
 
-| #   | Finding                                                                               | Why Not Fixed                                         | Recommendation                                       |
-| --- | ------------------------------------------------------------------------------------- | ----------------------------------------------------- | ---------------------------------------------------- |
-| F4  | README.md is effectively empty                                                        | Requires project decisions on content, tone, audience | Expand before beta.                                  |
-| F5  | Missing `[project.urls]` in pyproject.toml                                            | Requires public repo URL decision                     | Add before publishing to PyPI.                       |
-| F6  | Missing `[project.authors]` in pyproject.toml                                         | Requires author identity decision                     | Add before publishing.                               |
-| F7  | `meshcore` audited version discrepancy (contract 34 says 2.2.5, pyproject says 2.3.7) | Requires verifying which was actually tested          | Update contract 34 section 4.5 with correct version. |
+| #   | Finding                                                                               | Why Not Fixed                                         | Recommendation                                       | Historical Qualification                                                                                                                      |
+| --- | ------------------------------------------------------------------------------------- | ----------------------------------------------------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| F4  | README.md is effectively empty                                                        | Requires project decisions on content, tone, audience | ~~Expand before beta.~~ **Historically resolved.**   | README has since been expanded. This finding was true at audit commit but no longer reflects the current state. Qualified as historically resolved (2026-05-24). |
+| F5  | Missing `[project.urls]` in pyproject.toml                                            | Requires public repo URL decision                     | Add before publishing to PyPI.                       | Stale — re-audit needed to confirm current state.                                                                                             |
+| F6  | Missing `[project.authors]` in pyproject.toml                                         | Requires author identity decision                     | Add before publishing.                               | Stale — re-audit needed to confirm current state.                                                                                             |
+| F7  | `meshcore` audited version discrepancy (contract 34 says 2.2.5, pyproject says 2.3.7) | Requires verifying which was actually tested          | Update contract 34 section 4.5 with correct version. | Stale — re-audit needed to confirm current state.                                                                                             |
 
 ### 7.3 Confirmed Clean
 
@@ -302,4 +310,4 @@ Total live tests: ~57 (matches the "57 deselected" count from unit suite runs).
 
 ### 8.5 README Install Guidance
 
-The README now includes installation instructions with maturity tiers. The developer-environment runbook provides complete setup guidance. The `pubsub` manual-install instruction has been removed from the runbook since `PyPubSub` is now pulled by the `[meshtastic]` extra.
+> **Historical note (2026-05-10).** The README now includes installation instructions with maturity tiers. The developer-environment runbook provides complete setup guidance. The `pubsub` manual-install instruction has been removed from the runbook since `PyPubSub` is now pulled by the `[meshtastic]` extra. This section is preserved as a historical record of the post-audit state; the README may have evolved further since this writing.

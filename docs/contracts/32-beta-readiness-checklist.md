@@ -1,13 +1,19 @@
-# Beta Readiness Checklist
+# Beta Readiness Checklist — PLANNING CRITERIA
 
-> Contract version: 4
-> Last updated: 2026-05-12
+> **Classification: Planning criteria (pre-beta gate). Project has NOT entered beta.**
+> **Development Status: Alpha.** The `Development Status :: Beta` trove classifier is NOT in effect.
+> The project remains at Alpha until a beta tag/gate is formally cut against this checklist's criteria.
+>
+> Contract version: 5
+> Last updated: 2026-05-24
 > Track: 8 (README Operator Positioning), Track 9 (Beta Checklist Update), Track 12 (Beta Candidate Closure), M14 Inbound Validation Attempt
-> Supersedes: Version 3 (2026-05-12). Consolidates hardware probe findings, fixes stale license claims, aligns with Contract 62 maturity matrix.
-> Status: Checklist. Defines what must be true before beta release.
+> Supersedes: Version 4 (2026-05-12). Tranche 1 disposition cleanup: reclassified as planning criteria; qualified historical evidence per Contract 61 H/C/S/R tiers; corrected Development Status claim from Beta to Alpha.
+> Disposition: Normative beta-entry gate. Defines what must be true before a beta release tag is cut. This document does not declare or imply that MEDRE is in beta.
 > Head: (current)
 >
 > **M14 Update (2026-05-12):** Inbound test infrastructure (`test_inbound_message_received`) is complete and validates all M14 requirements: sender attribution, room attribution, canonical event shape (`event_kind`, `source_adapter`, `payload`), `source_native_ref` (Matrix event*id, adapter name), and diagnostics counters (`inbound_published >= 1`). The test waits 30 s for a third-party message with `xfail` on timeout. **Homeserver `matrix.sk.community` confirmed reachable and healthy.** No `MATRIX*\*`env vars are set in the current session — all 13 live tests skip cleanly. Previous credential attempt produced`M_UNKNOWN_TOKEN`. Blocker: need fresh `MATRIX_ACCESS_TOKEN` obtained via password-to-token exchange (`curl -X POST https://matrix.sk.community/_matrix/client/v3/login`). A second Matrix account or manual message during the test window is needed to complete third-party inbound validation.
+>
+> **Historical evidence note:** Live validation results recorded in this document (Matrix, Meshtastic) are classified as **Tier H (Historical)** per Contract 61 §2.1. They were recorded on 2026-05-10 and have NOT been re-confirmed against the current codebase. They must not be presented as evidence of current behavior. Upgrade to Tier C or R requires re-execution at the current commit.
 
 This document is the beta readiness checklist for the MEDRE framework. It defines three tiers: must-have before beta, should-have before beta, and explicitly deferred. It records per-transport beta blockers, live-test requirements, docs/runbook requirements, and packaging/dependency requirements.
 
@@ -324,7 +330,7 @@ A beta release requires:
 3. **All live test results recorded in runbooks.** → Currently 2/4 recorded (Matrix ✅, Meshtastic ✅; MeshCore and LXMF not yet run).
 4. **All four contract documents (29-32) published.** → ✅ All published.
 5. **No critical regressions in existing unit test suite.** → ✅ 4596 passed, 25 skipped, 63 deselected. Clean suite.
-6. **License governance resolved.** → ✅ GPL-3.0-or-later selected. LICENSE file added. pyproject.toml, README, contracts 40–45 updated. Development Status updated to Beta.
+6. **License governance resolved.** → ✅ GPL-3.0-or-later selected. LICENSE file added. pyproject.toml, README, contracts 40–45 updated. Development Status classifier remains Alpha; it will be updated to Beta only when a beta tag/gate is formally cut against this checklist's criteria.
 
 Should-have items (S1-S11) are strongly recommended. If any remain unsatisfied at beta, they must be documented as known limitations in the release notes. Governance should-haves (S6a-S6d) are satisfied.
 

@@ -34,7 +34,7 @@ and what import boundaries must hold.
 | **Distribution name** | `medre`                                        | Single-word, lowercase                 |
 | **Version**           | `0.1.0`                                        | Semantic dotted notation               |
 | **License**           | `GPL-3.0-or-later`                             | See contract 42 for governance context |
-| **Status classifier** | `Development Status :: 4 - Beta`               | Pre-beta; not production-ready         |
+| **Status classifier** | `Development Status :: 3 - Alpha`              | Pre-release; APIs may change; no stable public API; not production-ready |
 | **Requires Python**   | `>=3.11`                                       |                                        |
 | **Build system**      | `setuptools>=68`                               |                                        |
 | **Source layout**     | `src/` (via `[tool.setuptools.packages.find]`) |                                        |

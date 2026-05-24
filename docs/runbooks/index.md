@@ -1,7 +1,7 @@
 # Runbook Index
 
 > Last updated: 2026-05-21
-> Status: **Alpha.** Runbooks are living documents. Check the individual runbook for its specific status and last-updated date.
+> Status: **Pre-release / Alpha.** Runbooks are living documents. Check the individual runbook for its specific status and last-updated date.
 
 This index lists all runbooks in `docs/runbooks/`. For per-transport capability status, see `docs/STATUS.md`.
 
