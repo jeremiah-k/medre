@@ -45,18 +45,18 @@ This is source-driven because Matrix rendering embeds mesh provenance metadata (
 
 The `native_message_refs` table stores one row per observed native message:
 
-| Column               | Type       | Notes                                                  |
-| -------------------- | ---------- | ------------------------------------------------------ |
-| `id`                 | TEXT PK    | Unique record ID                                       |
-| `event_id`           | TEXT FK    | References `canonical_events.event_id`                 |
-| `adapter`            | TEXT       | Adapter that owns this native ID (e.g. `radio-alpha`)  |
-| `native_channel_id`  | TEXT       | Channel ID, or `NULL` for channelless transports       |
-| `native_message_id`  | TEXT       | Native transport message ID (packet ID, event ID, etc) |
-| `native_thread_id`   | TEXT       | Thread ID, or `NULL`                                   |
-| `native_relation_id` | TEXT       | Reserved, currently unused                             |
-| `direction`          | TEXT       | `"inbound"` or `"outbound"`                            |
-| `metadata`           | TEXT       | JSON metadata blob                                     |
-| `created_at`         | TEXT       | ISO timestamp                                          |
+| Column               | Type    | Notes                                                  |
+| -------------------- | ------- | ------------------------------------------------------ |
+| `id`                 | TEXT PK | Unique record ID                                       |
+| `event_id`           | TEXT FK | References `canonical_events.event_id`                 |
+| `adapter`            | TEXT    | Adapter that owns this native ID (e.g. `radio-alpha`)  |
+| `native_channel_id`  | TEXT    | Channel ID, or `NULL` for channelless transports       |
+| `native_message_id`  | TEXT    | Native transport message ID (packet ID, event ID, etc) |
+| `native_thread_id`   | TEXT    | Thread ID, or `NULL`                                   |
+| `native_relation_id` | TEXT    | Reserved, currently unused                             |
+| `direction`          | TEXT    | `"inbound"` or `"outbound"`                            |
+| `metadata`           | TEXT    | JSON metadata blob                                     |
+| `created_at`         | TEXT    | ISO timestamp                                          |
 
 A `UNIQUE(adapter, native_channel_id, native_message_id)` constraint prevents duplicate mappings. Because SQL treats `NULL != NULL`, the storage layer performs a resolve-before-insert check to handle `NULL` channel IDs correctly.
 
@@ -172,14 +172,14 @@ When a Meshtastic tapback targets a packet from the same radio adapter, the reso
 
 All resolution and enrichment failures degrade gracefully:
 
-| Scenario                                     | Fallback behavior                                               |
-| -------------------------------------------- | --------------------------------------------------------------- |
-| Inbound reply with unknown `replyId`         | Plain text, no `m.in_reply_to`, no `reply_id`                  |
-| Inbound reaction with unknown target         | Emote or plain text without structured reply metadata           |
-| Cross-platform reaction, no target native ref| Descriptive text without `reply_id`                             |
-| Target adapter not in renderer configs       | `KeyError` at render time (configuration error, not data error) |
-| Storage lookup failure during enrichment     | Relation preserved unchanged, degraded rendering               |
-| Native triple already seen (dedup)           | Event suppressed entirely, no delivery outcomes                |
+| Scenario                                      | Fallback behavior                                               |
+| --------------------------------------------- | --------------------------------------------------------------- |
+| Inbound reply with unknown `replyId`          | Plain text, no `m.in_reply_to`, no `reply_id`                   |
+| Inbound reaction with unknown target          | Emote or plain text without structured reply metadata           |
+| Cross-platform reaction, no target native ref | Descriptive text without `reply_id`                             |
+| Target adapter not in renderer configs        | `KeyError` at render time (configuration error, not data error) |
+| Storage lookup failure during enrichment      | Relation preserved unchanged, degraded rendering                |
+| Native triple already seen (dedup)            | Event suppressed entirely, no delivery outcomes                 |
 
 Missing mappings never crash the pipeline. Every resolution path has a safe text-only fallback.
 

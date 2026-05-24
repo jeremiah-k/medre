@@ -463,9 +463,7 @@ class TestDistinctChannels:
 class TestListNativeRefsForEvent:
     """list_native_refs_for_event returns all native refs for a given event."""
 
-    async def test_empty_when_no_refs(
-        self, temp_storage: SQLiteStorage
-    ) -> None:
+    async def test_empty_when_no_refs(self, temp_storage: SQLiteStorage) -> None:
         """An event with no stored native refs returns an empty list."""
         event = make_storage_event(event_id="evt-no-nrefs")
         await temp_storage.append(event)
@@ -473,9 +471,7 @@ class TestListNativeRefsForEvent:
         refs = await temp_storage.list_native_refs_for_event("evt-no-nrefs")
         assert refs == []
 
-    async def test_returns_single_ref(
-        self, temp_storage: SQLiteStorage
-    ) -> None:
+    async def test_returns_single_ref(self, temp_storage: SQLiteStorage) -> None:
         """One stored native ref is returned correctly."""
         event = make_storage_event(event_id="evt-single-nref")
         await temp_storage.append(event)
@@ -668,7 +664,9 @@ class TestRelationResolverWithStorage:
             key=None,
             fallback_text=None,
         )
-        event = make_storage_event(event_id="evt-pre-resolved", relations=(resolved_rel,))
+        event = make_storage_event(
+            event_id="evt-pre-resolved", relations=(resolved_rel,)
+        )
 
         resolver = RelationResolver(storage=temp_storage)
         result = await resolver.resolve_event_relations(event)
