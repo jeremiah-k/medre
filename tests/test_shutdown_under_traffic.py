@@ -683,7 +683,6 @@ class TestFailureKindDetailDrainTimeout:
         detail = _derive_failure_kind_detail(
             failure_kind="shutdown_rejection",
             error="shutdown_drain_timeout",
-            target_adapter="fake_dst",
         )
         assert detail == "shutdown_drain_timeout"
 
@@ -695,7 +694,6 @@ class TestFailureKindDetailDrainTimeout:
         detail = _derive_failure_kind_detail(
             failure_kind="shutdown_rejection",
             error="delivery_rejected_shutdown",
-            target_adapter="fake_dst",
         )
         assert detail == "shutdown_rejection"
 

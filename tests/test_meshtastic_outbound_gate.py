@@ -380,7 +380,6 @@ class TestSuppressionFailureClassification:
         detail = _derive_failure_kind_detail(
             failure_kind="adapter_permanent",
             error="outbound suppressed: listen_only mode",
-            target_adapter="radio-a",
         )
         assert detail == "meshtastic_outbound_suppressed"
 
@@ -388,7 +387,6 @@ class TestSuppressionFailureClassification:
         detail = _derive_failure_kind_detail(
             failure_kind="adapter_permanent",
             error="Outbound Suppressed: listen_only Mode",
-            target_adapter="radio-a",
         )
         assert detail == "meshtastic_outbound_suppressed"
 
@@ -396,7 +394,6 @@ class TestSuppressionFailureClassification:
         detail = _derive_failure_kind_detail(
             failure_kind="adapter_permanent",
             error="some other permanent error",
-            target_adapter="radio-a",
         )
         assert detail == "adapter_permanent"
 
@@ -404,7 +401,6 @@ class TestSuppressionFailureClassification:
         detail = _derive_failure_kind_detail(
             failure_kind=None,
             error="outbound suppressed: listen_only mode",
-            target_adapter="radio-a",
         )
         assert detail is None
 
@@ -413,7 +409,6 @@ class TestSuppressionFailureClassification:
         detail = _derive_failure_kind_detail(
             failure_kind="adapter_transient",
             error="queue is full: cannot enqueue",
-            target_adapter="radio-a",
         )
         assert detail == "meshtastic_queue_rejected"
 

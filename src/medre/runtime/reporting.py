@@ -73,7 +73,6 @@ def _to_iso_or_none(dt: datetime | None) -> str | None:
 def _derive_failure_kind_detail(
     failure_kind: str | None,
     error: str | None,
-    target_adapter: str,  # noqa: ARG001 – kept for API compatibility
 ) -> str | None:
     """Derive a conservative *failure_kind_detail* from error context.
 
@@ -206,7 +205,6 @@ def delivery_receipt_to_report_dict(
     fk_detail: str | None = _derive_failure_kind_detail(
         receipt.failure_kind,
         receipt.error,
-        receipt.target_adapter,
     )
     retryable: bool = _compute_retryable(
         receipt.failure_kind,
@@ -229,7 +227,7 @@ def delivery_receipt_to_report_dict(
         "route_id": receipt.route_id,
         "source": receipt.source,
         # Retry policy fields (from DeliveryReceipt struct).
-        # Safe getattr defaults for duck-typed compatibility.
+        # Tolerant report construction for optional retry fields.
         "retry_max_attempts": _retry_max_attempts,
         "retry_backoff_base": _retry_backoff_base,
         "retry_max_delay": _retry_max_delay,

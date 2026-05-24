@@ -479,7 +479,6 @@ class TestQueueLifecycleFailureKindDetail:
         detail = _derive_failure_kind_detail(
             failure_kind="adapter_transient",
             error="queue drain cancelled during shutdown",
-            target_adapter="radio-a",
         )
         assert detail == "meshtastic_queue_drain_cancelled"
 
@@ -490,7 +489,6 @@ class TestQueueLifecycleFailureKindDetail:
         detail = _derive_failure_kind_detail(
             failure_kind="adapter_transient",
             error="queue abandoned on crash",
-            target_adapter="radio-a",
         )
         assert detail == "meshtastic_queue_drain_cancelled"
 
@@ -501,7 +499,6 @@ class TestQueueLifecycleFailureKindDetail:
         detail = _derive_failure_kind_detail(
             failure_kind="adapter_transient",
             error="queue is full; enqueue rejected",
-            target_adapter="radio-a",
         )
         assert detail == "meshtastic_queue_rejected"
 
