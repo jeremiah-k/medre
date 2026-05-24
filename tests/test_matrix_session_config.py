@@ -11,7 +11,10 @@ import pytest
 from medre.adapters.matrix.errors import MatrixConnectionError
 from medre.adapters.matrix.session import MatrixSession
 from medre.config.adapters.errors import MatrixConfigError
-from tests.helpers.matrix_session import make_matrix_config, mock_nio  # noqa: F401
+from tests.helpers.matrix_session import (  # noqa: F401, F811
+    make_matrix_config,
+    mock_nio,
+)
 
 # ===================================================================
 # TestMatrixConfigEncryption
@@ -112,7 +115,9 @@ class TestMatrixConfigEncryption:
 class TestE2EEDefaultDerivation:
     """e2ee_required works without operator-supplied device_id (store_path from builder)."""
 
-    async def test_e2ee_required_without_device_id_discovers_it(self, tmp_path) -> None:
+    async def test_e2ee_required_without_device_id_discovers_it(
+        self, mock_nio, tmp_path  # noqa: F811
+    ) -> None:
         """e2ee_required starts with store_path set and discovers device_id
         via whoami() when device_id is not configured."""
         import medre.adapters.matrix.compat as compat
@@ -141,7 +146,9 @@ class TestE2EEDefaultDerivation:
         finally:
             compat.HAS_E2EE = original
 
-    async def test_e2ee_required_without_store_path_raises(self) -> None:
+    async def test_e2ee_required_without_store_path_raises(
+        self, mock_nio  # noqa: F811
+    ) -> None:
         """e2ee_required without store_path raises — no tempdir fallback."""
         import medre.adapters.matrix.compat as compat
 
@@ -160,7 +167,9 @@ class TestE2EEDefaultDerivation:
         finally:
             compat.HAS_E2EE = original
 
-    async def test_e2ee_required_uses_configured_store_when_set(self) -> None:
+    async def test_e2ee_required_uses_configured_store_when_set(
+        self, mock_nio  # noqa: F811
+    ) -> None:
         """When store_path is explicitly configured, it is used as-is."""
         import medre.adapters.matrix.compat as compat
 
@@ -190,7 +199,9 @@ class TestE2EEDefaultDerivation:
         assert not hasattr(session_mod, "_default_store_path")
         assert not hasattr(session_mod, "_DEFAULT_STORE_DIR_TEMPLATE")
 
-    async def test_e2ee_optional_attempts_crypto_without_device(self, tmp_path) -> None:
+    async def test_e2ee_optional_attempts_crypto_without_device(
+        self, mock_nio, tmp_path  # noqa: F811
+    ) -> None:
         """e2ee_optional with HAS_E2EE=True, store_path set, no device_id
         attempts crypto and discovers device_id via whoami()."""
         import medre.adapters.matrix.compat as compat
@@ -272,7 +283,9 @@ class TestE2EEDependencyDetection:
 class TestBlocker3ClientConfigFailure:
     """Blocker 3: ClientConfig(encryption_enabled=True) failure handling."""
 
-    async def test_client_config_succeeds_crypto_enabled(self) -> None:
+    async def test_client_config_succeeds_crypto_enabled(
+        self, mock_nio  # noqa: F811
+    ) -> None:
         """ClientConfig succeeds → crypto_enabled=True."""
         import medre.adapters.matrix.compat as compat
 
@@ -293,7 +306,9 @@ class TestBlocker3ClientConfigFailure:
         finally:
             compat.HAS_E2EE = original
 
-    async def test_client_config_raises_matrix_connection_error(self) -> None:
+    async def test_client_config_raises_matrix_connection_error(
+        self, mock_nio  # noqa: F811
+    ) -> None:
         """ClientConfig raises → MatrixConnectionError raised, crypto_enabled stays False."""
         import medre.adapters.matrix.compat as compat
 
@@ -314,7 +329,9 @@ class TestBlocker3ClientConfigFailure:
             compat.HAS_E2EE = original
             mock_nio.ClientConfig.side_effect = None
 
-    async def test_client_closed_on_config_failure(self) -> None:
+    async def test_client_closed_on_config_failure(
+        self, mock_nio  # noqa: F811
+    ) -> None:
         """If AsyncClient was created but ClientConfig fails, client is closed."""
         import medre.adapters.matrix.compat as compat
 
