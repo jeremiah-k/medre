@@ -193,9 +193,8 @@ def delivery_receipt_to_report_dict(
     error_value: str | None = (
         sanitize_error(receipt.error) if receipt.error else receipt.error
     )
-    # Use getattr for enrichment fields so duck-typed receipt fakes that
-    # lack newly-added attributes (next_retry_at, retry policy, etc.)
-    # remain compatible without raising AttributeError.
+    # Use getattr for optional enrichment fields that may be absent on
+    # minimal test receipts or focused helper structs.
     _next_retry_at: datetime | None = getattr(receipt, "next_retry_at", None)
     _retry_max_attempts: int | None = getattr(receipt, "retry_max_attempts", None)
     _retry_backoff_base: float | None = getattr(receipt, "retry_backoff_base", None)

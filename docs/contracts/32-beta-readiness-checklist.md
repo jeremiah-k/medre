@@ -462,6 +462,6 @@ Two experimental transports are deferred from beta scope:
 2. MeshCore and LXMF live validation depends on hardware/infrastructure that may not be available on the PC's timeline. Their alpha-operational status is already honestly documented in the README, the maturity classification contract (Contract 62), and §1.4 above.
 3. The deferred experimental transport model aligns with Contract 38 (RC criteria) §1.2, which explicitly allows transports without live evidence to be "explicitly labeled 'alpha-operational, not live-validated'."
 
-**Accepted direction:** Scoped beta — Matrix and Meshtastic as beta-candidate transports; MeshCore and LXMF deferred as alpha/experimental until real adapter send/receive validation is completed. Bounded. 5. Shipping beta with two transports clearly labeled "alpha-operational" is more honest than delaying beta indefinitely for hardware access.
+**Accepted direction:** Scoped beta — Matrix and Meshtastic as beta-candidate transports; MeshCore and LXMF deferred as alpha/experimental until real adapter send/receive validation is completed. Shipping beta with two transports clearly labeled "alpha-operational" is more honest than delaying beta indefinitely for hardware access.
 
 The PC should make the final call. This recommendation is based on evidence, not urgency.
