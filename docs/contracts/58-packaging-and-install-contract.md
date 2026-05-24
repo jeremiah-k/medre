@@ -144,8 +144,6 @@ All fake adapters are importable and instantiable without optional SDKs:
 | `FakeLxmfAdapter`         | `medre.adapters.fakes.lxmf`         | `config: LxmfConfig`       |
 | `FakePresentationAdapter` | `medre.adapters.fakes.presentation` | `adapter_id: str`          |
 
-All are re-exported from `medre.adapters.__init__`.
-
 ### 7.1 Fake Adapter Dependencies
 
 Some fake adapters (meshtastic, meshcore, lxmf) import from their adapter

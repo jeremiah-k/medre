@@ -274,6 +274,10 @@ class TestNoTransportSdkInRuntimeCore:
             pytest.skip(f"{module_name} not importable")
         lines = _import_lines(source)
 
+        # Exclude imports from fake adapter modules — they reference transport
+        # names as path segments (e.g. medre.adapters.fakes.meshtastic)
+        # but are NOT real SDK imports.
+        lines = [l for l in lines if "medre.adapters.fakes." not in l]
         banned = _banned_imports(lines, _SDK_PACKAGES)
         assert banned == [], f"{module_name} imports transport SDKs: {banned}"
 

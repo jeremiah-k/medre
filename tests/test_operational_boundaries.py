@@ -553,8 +553,8 @@ class TestDiagnosticsNoTransportCoupling:
 
     This extends the checks in ``test_runtime_durability_boundaries.py``
     (section 1) to cover the full diagnostics subsystem including
-    ``core.runtime.diagnostics``, ``core.runtime.health``,
-    ``core.runtime.diagnostic_contract``, and ``core.runtime.supervision``.
+    ``core.supervision.diagnostics``, ``core.supervision.health``,
+    ``core.supervision.diagnostic_contract``, and ``core.supervision.supervision``.
     """
 
     _DIAGNOSTICS_SOURCE_MODULES = [

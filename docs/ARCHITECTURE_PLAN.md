@@ -117,8 +117,8 @@ Both imports target the same pure-function module (`core/observability/sanitizat
 
 | Source                    | Import                                            | Guard                     |
 | ------------------------- | ------------------------------------------------- | ------------------------- |
-| `core/engine/pipeline.py` | `CapacityController` from `core.runtime.capacity` | `if TYPE_CHECKING:` block |
-| `core/storage/replay.py`  | `CapacityController` from `core.runtime.capacity` | `if TYPE_CHECKING:` block |
+| `core/engine/pipeline.py` | `CapacityController` from `core.supervision.capacity` | `if TYPE_CHECKING:` block |
+| `core/storage/replay.py`  | `CapacityController` from `core.supervision.capacity` | `if TYPE_CHECKING:` block |
 
 ## 2. Package Tree
 
@@ -129,12 +129,14 @@ medre/
 ├── py.typed
 ├── adapters/                # concrete adapter implementations only
 │   ├── __init__.py          # lightweight package marker / docstring only
-│   ├── fake_lxmf.py
-│   ├── fake_matrix.py
-│   ├── fake_meshcore.py
-│   ├── fake_meshtastic.py
-│   ├── fake_presentation.py
-│   ├── fake_transport.py
+│   ├── fakes/               # fake adapters for testing/dev
+│   │   ├── __init__.py
+│   │   ├── lxmf.py
+│   │   ├── matrix.py
+│   │   ├── meshcore.py
+│   │   ├── meshtastic.py
+│   │   ├── presentation.py
+│   │   └── transport.py
 │   ├── matrix/              # adapter, auth, cli, codec, errors, session, etc.
 │   ├── meshtastic/
 │   ├── lxmf/
@@ -171,7 +173,7 @@ medre/
 │   ├── policies/            # transport-neutral policy helpers
 │   ├── rendering/           # renderer, text
 │   ├── routing/             # models, router, stats
-│   ├── runtime/             # accounting, capabilities, capacity,
+│   ├── supervision/         # accounting, capabilities, capacity,
 │   │                        # diagnostic_contract, diagnostics, health, supervision
 │   ├── storage/             # backend, replay, sqlite
 └── interop/                 # mmrelay wire-format constants
@@ -205,7 +207,7 @@ MMRelay is NOT a dependency, import target, vendor source, or copy target for ME
 ## 4. Remaining Follow-Up Work
 
 - ~~Rename `core/runtime/` → `core/supervision/` to eliminate naming collision with top-level `runtime/`~~ — done
-- Move fake adapters to `medre.adapters.fakes/` subdirectory
+- ~~Move fake adapters to `medre.adapters.fakes/` subdirectory~~ — done
 - Decide disposition of remaining contract/doc documents (audit records vs current specifications)
 - Evaluate merging `core/diagnostics/` into `core/observability/` — evaluated and deferred; semantic scopes differ (diagnostics normalizes cross-adapter health metadata; observability owns structured logging and secret filtering)
 - ~~Deduplicate `_SECRET_KEY_PATTERNS` between `core/runtime/diagnostic_contract.py` and `core/observability/sanitization.py`~~ — done; canonical definition in `core/observability/sanitization.py`, imported by `diagnostic_contract.py`

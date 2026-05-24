@@ -430,6 +430,10 @@ def _transport_for(module: str) -> str | None:
     rest = module[len(prefix) :]
     parts = rest.split(".")
     transport = parts[0] if parts else None
+    # New package layout: medre.adapters.fakes.<transport>
+    if transport == "fakes" and len(parts) >= 2:
+        return parts[1]
+    # Legacy flat modules: fake_<transport>
     if transport and transport in _FAKE_TO_TRANSPORT:
         transport = _FAKE_TO_TRANSPORT[transport]
     return transport

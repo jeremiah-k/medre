@@ -61,8 +61,9 @@ compat guard entirely. No adapter touches another adapter's transport.
 
 **Per-transport contents:** `adapter.py`, `codec.py`, `renderer.py`,
 `session.py`, `config.py`, `errors.py`, `compat.py`.
-**Fakes:** `fake_matrix.py`, `fake_meshtastic.py`, `fake_meshcore.py`,
-`fake_lxmf.py` at the `adapters/` level.
+**Fakes:** `medre.adapters.fakes/` subdirectory containing `matrix.py`,
+`meshtastic.py`, `meshcore.py`, `lxmf.py`, `presentation.py`, and
+`transport.py`.
 
 ### `config/` — configuration layer
 

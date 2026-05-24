@@ -530,6 +530,10 @@ class TestNoTransportSDKImports:
             pytest.skip(f"Module {module_name} not importable")
 
         lines = _import_lines(source)
+        # Exclude imports from fake adapter modules — they reference transport
+        # names as path segments (e.g. medre.adapters.fakes.meshtastic)
+        # but are NOT real SDK imports.
+        lines = [l for l in lines if "medre.adapters.fakes." not in l]
         for sdk in _QUEUE_SDK_PACKAGES:
             for line in lines:
                 assert not re.search(
@@ -556,6 +560,9 @@ class TestNoTransportSDKImports:
         # only check import lines (not full source text).
         if module_name in _SDK_IMPORT_ONLY_MODULES:
             lines = _import_lines(source)
+            # Exclude imports from fake adapter modules — they reference
+            # transport names as path segments but are NOT real SDK imports.
+            lines = [l for l in lines if "medre.adapters.fakes." not in l]
             for sdk in _QUEUE_SDK_PACKAGES:
                 for line in lines:
                     assert not re.search(
