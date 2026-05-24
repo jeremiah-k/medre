@@ -667,6 +667,8 @@ queue_pending, queue_total_sent, queue_total_failed, queue_total_rejected,
 background_tasks
 ```
 
+> **Queue counter semantics:** `queue_total_sent` counts local SDK send confirmations only — not RF delivery or remote-node receipt. `queue_pending` reflects items in the adapter-local in-memory queue. Both counters reset on process restart. When `outbound_mode = "listen_only"` is set, suppressed deliveries are rejected before enqueue and do not increment `queue_total_sent`. See `docs/runbooks/meshtastic-alpha-operation.md` section 9.1a.
+
 **Session-level (nested under `session`):**
 
 ```text

@@ -380,6 +380,8 @@ When `stop()` is called:
 4. `_client` is set to `None`, `_session` is set to `None`, `_started` is set to `False`.
 5. A shutdown log line is emitted: `"MeshtasticAdapter mesh-alpha stopped"`.
 
+**Shutdown queue abandonment — non-guarantee:** Items remaining in the outbound queue at shutdown are **not** persisted, **not** requeued, and **not** recovered on restart. The adapter-local outbound queue is in-memory and non-durable. If the process terminates (graceful or ungraceful) with pending items in the queue, those items are lost. This is a documented non-guarantee — durable queue persistence and crash-recovery are deferred to a future implementation. Operators requiring delivery assurance must ensure the queue is drained before shutdown or accept the loss of in-flight items.
+
 Shutdown is **idempotent** — calling `stop()` on an already-stopped adapter is a no-op.
 
 ### 6.4 Start/stop cycle safety
@@ -561,6 +563,34 @@ EventRelation(
 3. `send_one()` applies pacing delay (`message_delay_seconds`, default 0.5s) and calls `client.sendText()`.
 
 In fake mode, `send_one()` returns `None` — no real send occurs.
+
+**Delivery confirmation levels — operators must distinguish these:**
+
+| Stage | Meaning | Not the same as |
+| ----- | ------- | --------------- |
+| Enqueued / queued | Accepted into the adapter-local in-memory outbound queue | RF transmission or remote receipt |
+| Sent / SDK accepted | `client.sendText()` returned a `MeshPacket` — the local node accepted the packet for radio transmission | Any remote node received the packet; RF transmission completed |
+| RF delivered / remote ACK | **Unavailable.** The adapter does not track remote-node delivery or ACK. | N/A |
+
+A successful `send_one()` only confirms local-node acceptance. Whether the packet was actually transmitted over LoRa or received by any remote node is unknown. Do not treat `total_sent` or a `sent` receipt as RF delivery confirmation.
+
+### 9.1a Outbound Gate (`outbound_mode`)
+
+The Meshtastic adapter supports an outbound gate controlled by `outbound_mode` (default `"enabled"`):
+
+| `outbound_mode` | Inbound reception | Outbound delivery | Evidence / receipt |
+| --------------- | ----------------- | ----------------- | ------------------ |
+| `"enabled"` | Normal | Normal | Normal |
+| `"listen_only"` | Normal | **Suppressed** — `deliver()` rejects outbound payloads without RF transmission | Non-retryable adapter failure with detail `outbound suppressed: listen_only mode` |
+
+When `outbound_mode = "listen_only"`:
+
+- The adapter connects normally and processes inbound radio packets.
+- Outbound messages are suppressed before any RF transmission. The adapter's `deliver()` method rejects the payload as a non-retryable failure.
+- Delivery receipts reflect the suppression as an intentional operator-configured gate, not a transport failure.
+- Enable via TOML: `outbound_mode = "listen_only"`, or environment variable: `MEDRE_ADAPTER__RADIO__OUTBOUND_MODE=listen_only`.
+
+This mode is useful for monitoring a mesh network without contributing RF traffic, or for deploying a receive-only relay node.
 
 ### 9.2 Retry semantics (bounded adapter-local retry)
 
@@ -991,5 +1021,7 @@ The following features are not supported in alpha mode. Do not attempt to use th
 | Store-and-forward            | Not supported                             | No message persistence across restarts                                                                                                                                        |
 | Rate limiting / flow control | Not implemented                           | Only basic pacing via `message_delay_seconds`                                                                                                                                 |
 | Transmit guard               | Implemented (`MESHTASTIC_LIVE_SEND`)      | RF transmission gated by env var; connect/health allowed without it                                                                                                           |
+| Outbound gate                | Implemented (`outbound_mode`)             | `outbound_mode = "listen_only"` suppresses all outbound delivery; inbound reception unaffected. See section 9.1a                                                             |
+| Shutdown queue durability    | **Non-guarantee**                         | Outbound queue items remaining at shutdown are lost — not persisted, not requeued, not recovered on restart. Durable queue is deferred. See section 6.3                     |
 | Non-Meshtastic transports    | Not in scope                              | This runbook covers Meshtastic only                                                                                                                                           |
 | Multi-transport bridging     | Not in scope                              | No bridge between Meshtastic and other transports                                                                                                                             |

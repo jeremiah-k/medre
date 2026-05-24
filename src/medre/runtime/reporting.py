@@ -117,6 +117,9 @@ def _derive_failure_kind_detail(
     # still recognised.
     if ("queue" in err and "full" in err) or "enqueue rejected" in err:
         return "meshtastic_queue_rejected"
+    # Meshtastic outbound gate suppression — listen_only mode.
+    if "outbound suppressed" in err and "listen_only" in err:
+        return "meshtastic_outbound_suppressed"
     # Default: preserve the original failure_kind.
     return failure_kind
 

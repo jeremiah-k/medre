@@ -284,6 +284,20 @@ path works end-to-end. Radio transmission to remote nodes is fire-and-forget —
 `success=True` means the local radio accepted the packet, not that a remote
 node received it. See `docs/contracts/36-radio-limitations.md`.
 
+**Outbound gate (`outbound_mode`):** The Meshtastic adapter supports
+`outbound_mode = "listen_only"` to suppress all RF transmission while
+continuing to receive inbound packets. When set, outbound deliveries are
+rejected as non-retryable failures. This is useful for monitoring the mesh
+without contributing RF traffic. Enable via TOML (`outbound_mode = "listen_only"`)
+or environment variable (`MEDRE_ADAPTER__RADIO__OUTBOUND_MODE=listen_only`).
+See `docs/runbooks/configuration.md` (Outbound Gate Semantics).
+
+**Queued/sent is not RF delivered:** A delivery receipt showing `status="sent"`
+for the Meshtastic adapter means the local node accepted the packet for radio
+transmission. It does not mean any remote node received it. The adapter does
+not provide RF delivery confirmation or remote ACK. See
+`docs/runbooks/meshtastic-alpha-operation.md` section 9.1.
+
 ## 6. Meshtastic → Matrix
 
 > **⚠️ Higher risk section.** Meshtastic inbound callback reliability is a

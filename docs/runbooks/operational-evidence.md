@@ -429,6 +429,10 @@ During the validation session, a second node appeared in the mesh:
 | BLE connectivity                                                    | Not tested.                                                                                                                       |
 | Multi-hop delivery                                                  | Not tested.                                                                                                                       |
 
+**Outbound gate (`outbound_mode = "listen_only"`) evidence note:** When the Meshtastic adapter is configured with `outbound_mode = "listen_only"`, outbound delivery is suppressed before RF transmission. Suppressed deliveries appear as non-retryable adapter failures in delivery receipts with detail `outbound suppressed: listen_only mode`. This is intentional operator-configured suppression, not a transport failure. Queue counters (`queue_total_sent`, `queue_pending`) do not reflect suppressed items — they are rejected before enqueue. Inbound evidence and diagnostics are unaffected. See `docs/runbooks/configuration.md` (Outbound Gate Semantics).
+
+**Shutdown queue abandonment note:** Items remaining in the Meshtastic adapter-local outbound queue at shutdown are lost — not persisted, not requeued, not recovered on restart. The queue is in-memory and non-durable. This is a documented non-guarantee. Delivery receipts already written to SQLite survive, but in-flight queue items do not.
+
 ### 2.1 Live Smoke Test Evidence (Tier: H — recorded 2026-05-10)
 
 | Field                              | Value                                                                                                                                                                                                                                                                                                      |

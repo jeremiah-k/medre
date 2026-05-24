@@ -187,6 +187,9 @@ class MeshtasticAdapter(AdapterContract):
         self._startup_backlog_packets_seen: int = 0
         self._startup_backlog_packets_suppressed: int = 0
 
+        # Outbound gate suppression counter
+        self._outbound_gate_suppressed: int = 0
+
     # -- Lifecycle ----------------------------------------------------------
 
     async def start(self, ctx: AdapterContext) -> None:
@@ -357,6 +360,13 @@ class MeshtasticAdapter(AdapterContract):
         # Fake mode does not require start (queue is always available).
         if not self._started and self._config.connection_type != "fake":
             raise AdapterPermanentError("Adapter not started")
+
+        # Outbound gate: suppress radio sends when listen_only.
+        if self._config.outbound_mode == "listen_only":
+            self._outbound_gate_suppressed += 1
+            raise AdapterPermanentError(
+                "outbound suppressed: listen_only mode"
+            )
 
         payload = dict(result.payload)
         channel_index = payload.get("channel_index", self._config.default_channel)
@@ -741,6 +751,9 @@ class MeshtasticAdapter(AdapterContract):
             "startup_backlog_packets_suppressed": self._startup_backlog_packets_suppressed,
             "startup_backlog_suppress_seconds": self._config.startup_backlog_suppress_seconds,
             "adapter_start_epoch": self._adapter_start_epoch,
+            # Outbound gate
+            "outbound_mode": self._config.outbound_mode,
+            "outbound_gate_suppressed": self._outbound_gate_suppressed,
         }
 
         if self._session is not None:

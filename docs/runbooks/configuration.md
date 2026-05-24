@@ -235,6 +235,7 @@ message_delay_seconds = 0.5
 startup_backlog_suppress_seconds = 5.0
 sync_timeout_ms = 30000
 # max_text_bytes = 227              # UTF-8 byte budget for final radio text
+# outbound_mode = "enabled"         # enabled or listen_only
 ```
 
 | Field                              | Type               | Default       | Description                                                                                         |
@@ -254,6 +255,28 @@ sync_timeout_ms = 30000
 | `startup_backlog_suppress_seconds` | float              | `5.0`         | Seconds after start to suppress stale backlog packets.                                              |
 | `sync_timeout_ms`                  | int                | `30000`       | Timeout for sync operations in milliseconds.                                                        |
 | `max_text_bytes`                   | int                | `227`         | Maximum UTF-8 byte budget for final radio text. Applied after all rendering.                        |
+| `outbound_mode`                    | string             | `"enabled"`   | Outbound gate: `"enabled"` allows RF transmission; `"listen_only"` suppresses all outbound delivery. Inbound reception is unaffected. See [Outbound Gate Semantics](#outbound-gate-semantics-meshtastic). |
+
+#### Outbound Gate Semantics (Meshtastic)
+
+The `outbound_mode` field controls whether the Meshtastic adapter transmits outbound messages:
+
+| Value          | Inbound | Outbound delivery | Delivery receipt / evidence |
+| -------------- | ------- | ----------------- | --------------------------- |
+| `"enabled"`    | Normal  | Normal            | Normal                      |
+| `"listen_only"` | Normal | **Suppressed** — `deliver()` rejects outbound payloads without RF transmission | Non-retryable adapter failure or suppressed detail (`outbound suppressed: listen_only mode`) |
+
+When `outbound_mode = "listen_only"`:
+
+- The adapter connects normally and receives inbound radio packets.
+- Outbound messages routed to this adapter are suppressed before RF transmission. The adapter's `deliver()` method rejects the payload as a non-retryable failure.
+- Delivery receipts reflect the suppression. The evidence/detail string is `outbound suppressed: listen_only mode` (or equivalent adapter-level detail).
+- This is an intentional operator gate, not a bug. It allows monitoring a mesh without transmitting.
+- Operators can enable this via TOML or environment variable:
+
+```bash
+export MEDRE_ADAPTER__RADIO__OUTBOUND_MODE=listen_only
+```
 
 ### `[adapters.meshcore.INSTANCE_NAME]`
 
@@ -730,6 +753,7 @@ Each transport exposes its config dataclass fields as override targets. The `ena
 | `radio_relay_prefix`               | string | `MEDRE_ADAPTER__RADIO__RADIO_RELAY_PREFIX={shortname5}[M]:`  |
 | `mmrelay_compatibility`            | bool   | `MEDRE_ADAPTER__RADIO__MMRELAY_COMPATIBILITY=false`          |
 | `max_text_bytes`                   | int    | `MEDRE_ADAPTER__RADIO__MAX_TEXT_BYTES=227`                   |
+| `outbound_mode`                    | string | `MEDRE_ADAPTER__RADIO__OUTBOUND_MODE=listen_only`            |
 
 **MeshCore** (fields from `MeshCoreConfig`):
 

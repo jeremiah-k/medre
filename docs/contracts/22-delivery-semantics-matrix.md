@@ -181,6 +181,10 @@ Consolidated delivery behavior per adapter. This table summarizes what each adap
 - All four adapters treat not-connected and SDK-not-initialized as **permanent** errors (not retryable). An adapter that cannot reach its transport should not be retried without intervention.
 - `native_message_id` and `native_channel_id` are always platform-provided. Adapters must never fabricate these values. The pipeline must not backfill `native_channel_id` or any other native ref field from route configuration.
 
+**Meshtastic outbound gate (`outbound_mode`):** The Meshtastic adapter supports `outbound_mode` with values `"enabled"` (default) and `"listen_only"`. When `outbound_mode = "listen_only"`, `deliver()` rejects all outbound payloads as non-retryable failures before RF transmission, with evidence detail `outbound suppressed: listen_only mode`. Inbound reception is unaffected. This is an intentional operator-configured gate, not a transport failure. See `docs/runbooks/configuration.md` (Outbound Gate Semantics).
+
+**Meshtastic shutdown queue non-guarantee:** The Meshtastic adapter-local outbound queue is in-memory and non-durable. Items remaining at process termination are lost — not persisted, not requeued, not recovered on restart. Durable queue persistence is a documented non-guarantee. Operators requiring delivery assurance must ensure the queue is drained before shutdown.
+
 **Exception handling in Matrix `deliver()`:** The Matrix adapter catches `Exception` (not `BaseException`) in its `deliver()` error path. `CancelledError` is explicitly re-raised before the broad catch, ensuring asyncio task cancellation propagates correctly to the caller. This is a contract-level requirement: no adapter may swallow `CancelledError`.
 
 ### 4.8 Ordering
