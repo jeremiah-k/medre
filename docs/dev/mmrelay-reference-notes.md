@@ -87,8 +87,10 @@ storage in SQLite is the authoritative mapping, and the
 
 MMRelay has a `broadcast_enabled` config flag. When `False`, outbound
 Meshtastic sends are suppressed entirely. This allows running the
-relay in listen-only mode. MEDRE does not have an equivalent gate in
-the current implementation; the adapter always attempts delivery.
+relay in listen-only mode. MEDRE provides an equivalent gate via the
+`outbound_mode` config field: setting `outbound_mode = "listen_only"`
+suppresses all outbound radio sends while the adapter continues
+receiving and classifying inbound traffic.
 
 ## Startup stale/backlog suppression
 

@@ -331,7 +331,8 @@ class FakeMeshtasticAdapter(AdapterContract):
         Raises
         ------
         AdapterPermanentError
-            If *result* is not a :class:`RenderingResult`.
+            If *result* is not a :class:`RenderingResult`, or if
+            ``outbound_mode`` is ``"listen_only"``.
         AdapterSendError
             If ``set_deliver_failure(True)`` was called.
         """
@@ -342,16 +343,19 @@ class FakeMeshtasticAdapter(AdapterContract):
                 f"the inbound path."
             )
 
-        if self._deliver_failure:
-            raise AdapterSendError(
-                "FakeMeshtasticAdapter: simulated send failure", transient=True
-            )
-
         # Outbound gate: suppress radio sends when listen_only.
+        # Checked before _deliver_failure so listen_only always wins (mirrors
+        # real adapter where listen_only is checked immediately after type
+        # validation).
         if self._config.outbound_mode == "listen_only":
             self._outbound_gate_suppressed += 1
             raise AdapterPermanentError(
                 "outbound suppressed: listen_only mode"
+            )
+
+        if self._deliver_failure:
+            raise AdapterSendError(
+                "FakeMeshtasticAdapter: simulated send failure", transient=True
             )
 
         self.delivered_payloads.append(result)

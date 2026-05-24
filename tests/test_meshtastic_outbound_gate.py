@@ -483,6 +483,27 @@ class TestFakeAdapterGateMirror:
         assert diag["outbound_mode"] == "listen_only"
         assert diag["outbound_gate_suppressed"] == 0
 
+    @pytest.mark.asyncio
+    async def test_fake_listen_only_beats_deliver_failure(self) -> None:
+        """listen_only gate fires before _deliver_failure so it always wins."""
+        config = MeshtasticConfig(
+            adapter_id="fake-priority", outbound_mode="listen_only"
+        )
+        adapter = FakeMeshtasticAdapter(config)
+        ctx = _make_ctx("fake-priority")
+        await adapter.start(ctx)
+
+        # Enable simulated failure — but listen_only should fire first.
+        adapter.set_deliver_failure(True)
+        result = _make_result()
+        with pytest.raises(AdapterPermanentError) as exc_info:
+            await adapter.deliver(result)
+        assert "outbound suppressed: listen_only mode" in str(exc_info.value)
+        # Not the simulated failure error.
+        assert "simulated send failure" not in str(exc_info.value)
+        assert adapter._outbound_gate_suppressed == 1
+        assert len(adapter.delivered_payloads) == 0
+
 
 # ---------------------------------------------------------------------------
 # Env override

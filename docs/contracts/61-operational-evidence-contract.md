@@ -223,6 +223,8 @@ Delivery evidence may include adapter-specific metadata:
 | `queue_total_failed`        | Meshtastic | Total messages that failed to send from the queue.                                                                 |
 | `queue_total_rejected`      | Meshtastic | Total messages rejected because the queue was full.                                                                |
 | `queue_pending`             | Meshtastic | Current number of pending messages in the queue.                                                                   |
+| `outbound_mode`             | Meshtastic | Configured outbound gate mode: `enabled` or `listen_only`.                                                         |
+| `outbound_gate_suppressed`  | Meshtastic | Count of outbound deliveries suppressed by the listen-only gate.                                                   |
 
 #### 3.8.2 Suppression Evidence Fields
 

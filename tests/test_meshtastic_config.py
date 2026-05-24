@@ -318,3 +318,26 @@ class TestMeshtasticConfigInvalid:
         config = MeshtasticConfig(adapter_id="mesh-1", queue_send_max_attempts=-1)
         with pytest.raises(MeshtasticConfigError, match="queue_send_max_attempts"):
             config.validate()
+
+    # -- outbound_mode validation --
+
+    def test_outbound_mode_default_is_enabled(self) -> None:
+        config = MeshtasticConfig(adapter_id="mesh-1")
+        assert config.outbound_mode == "enabled"
+
+    def test_outbound_mode_enabled_is_valid(self) -> None:
+        config = MeshtasticConfig(adapter_id="mesh-1", outbound_mode="enabled")
+        assert config.validate() is config
+        assert config.outbound_mode == "enabled"
+
+    def test_outbound_mode_listen_only_is_valid(self) -> None:
+        config = MeshtasticConfig(adapter_id="mesh-1", outbound_mode="listen_only")
+        assert config.validate() is config
+        assert config.outbound_mode == "listen_only"
+
+    def test_outbound_mode_invalid_raises(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", outbound_mode="disabled"  # type: ignore[arg-type]
+        )
+        with pytest.raises(MeshtasticConfigError, match="outbound_mode"):
+            config.validate()

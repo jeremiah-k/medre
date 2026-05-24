@@ -89,6 +89,7 @@ adapter_kind = "fake"
 connection_type = "fake"
 meshnet_name = "MyMesh"
 # max_text_bytes = 227  # UTF-8 byte budget for final radio text (default 227)
+# outbound_mode = "enabled"   # "enabled" (send) or "listen_only" (suppress outbound radio)
 
 # --- MeshCore adapter (fake, disabled by default) ---
 # To use a real MeshCore radio, change adapter_kind to "real", enabled to true,
