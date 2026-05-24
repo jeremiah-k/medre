@@ -1247,7 +1247,6 @@ class TestChannelRoomMapEndToEnd:
             EventMetadata,
             EventRelation,
             NativeMessageRef,
-            NativeRef,
         )
         from medre.core.events.bus import EventBus
         from medre.core.planning import FallbackResolver, RelationResolver

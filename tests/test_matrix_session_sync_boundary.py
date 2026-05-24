@@ -17,8 +17,6 @@ import logging
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from medre.adapters.matrix.session import MatrixSession
 from tests.helpers.matrix_session import (
     make_matrix_config,
@@ -120,8 +118,9 @@ class TestMegolmEventHistorySuppression:
         event = _make_megolm_event()
         room = _make_room()
 
-        with patch.object(logger, "warning") as mock_warning, \
-             patch.object(logger, "debug") as mock_debug:
+        with patch.object(logger, "warning") as mock_warning, patch.object(
+            logger, "debug"
+        ) as mock_debug:
             await session._on_megolm_event(room, event)
             mock_warning.assert_not_called()
             mock_debug.assert_called()
@@ -160,9 +159,7 @@ class TestMegolmEventHistorySuppression:
 class TestLiveUndecryptableDedup:
     """Live undecryptable dedup: same key within 60s -> DEBUG only."""
 
-    async def test_repeated_same_key_one_warning_rest_debug(
-        self, mock_nio
-    ) -> None:
+    async def test_repeated_same_key_one_warning_rest_debug(self, mock_nio) -> None:
         """Repeated live events with same room:session_id produce one WARNING."""
         config = make_matrix_config()
         logger = logging.getLogger("test.dedup")
@@ -183,16 +180,16 @@ class TestLiveUndecryptableDedup:
             )
             room = _make_room(room_id="!room:server")
 
-            with patch.object(logger, "warning") as mock_warning, \
-                 patch.object(logger, "debug") as mock_debug:
+            with patch.object(logger, "warning") as mock_warning, patch.object(
+                logger, "debug"
+            ) as mock_debug:
                 await session._on_megolm_event(room, event1)
                 await session._on_megolm_event(room, event2)
                 # Only first should produce WARNING
                 assert mock_warning.call_count == 1
                 # Second should produce DEBUG (rate-limited)
                 debug_calls = [
-                    c for c in mock_debug.call_args_list
-                    if "Rate-limited" in str(c)
+                    c for c in mock_debug.call_args_list if "Rate-limited" in str(c)
                 ]
                 assert len(debug_calls) == 1
         finally:
@@ -263,7 +260,9 @@ class TestUndecryptableDedupPruning:
 
         assert len(session._undecryptable_dedup) == 2
 
-    async def test_rate_limiting_suppresses_repeated_live_events(self, mock_nio) -> None:
+    async def test_rate_limiting_suppresses_repeated_live_events(
+        self, mock_nio
+    ) -> None:
         """Within the dedup window, repeated live events are suppressed."""
         config = make_matrix_config()
         logger = logging.getLogger("test.pruning_rate_limit")
@@ -281,14 +280,14 @@ class TestUndecryptableDedupPruning:
             )
             room = _make_room(room_id="!room:server")
 
-            with patch.object(logger, "warning") as mock_warning, \
-                 patch.object(logger, "debug") as mock_debug:
+            with patch.object(logger, "warning") as mock_warning, patch.object(
+                logger, "debug"
+            ) as mock_debug:
                 await session._on_megolm_event(room, event)
                 await session._on_megolm_event(room, event)
                 assert mock_warning.call_count == 1
                 rate_limited = [
-                    c for c in mock_debug.call_args_list
-                    if "Rate-limited" in str(c)
+                    c for c in mock_debug.call_args_list if "Rate-limited" in str(c)
                 ]
                 assert len(rate_limited) == 1
         finally:
@@ -358,8 +357,9 @@ class TestRoomEncryptionEventLogging:
         room = _make_room(room_id="!enc:server")
         event = MagicMock(name="RoomEncryptionEvent")
 
-        with patch.object(logger, "info") as mock_info, \
-             patch.object(logger, "debug") as mock_debug:
+        with patch.object(logger, "info") as mock_info, patch.object(
+            logger, "debug"
+        ) as mock_debug:
             await session._on_room_encryption_event(room, event)
             mock_info.assert_not_called()
             mock_debug.assert_called_once()
@@ -399,8 +399,9 @@ class TestRoomEncryptionEventLogging:
         room2 = _make_room(room_id="!room2:server")
         event = MagicMock(name="RoomEncryptionEvent")
 
-        with patch.object(logger, "info") as mock_info, \
-             patch.object(logger, "debug") as mock_debug:
+        with patch.object(logger, "info") as mock_info, patch.object(
+            logger, "debug"
+        ) as mock_debug:
             await session._on_room_encryption_event(room1, event)
             await session._on_room_encryption_event(room2, event)
             mock_info.assert_not_called()
@@ -470,8 +471,9 @@ class TestBacklogSummaryLogLevel:
         mock_client.sync = AsyncMock(side_effect=_gated_sync)
 
         try:
-            with patch.object(logger, "debug") as mock_debug, \
-                 patch.object(logger, "info") as mock_info:
+            with patch.object(logger, "debug") as mock_debug, patch.object(
+                logger, "info"
+            ) as mock_info:
                 await session.start()
 
                 # Record how many debug calls exist before boundary.
@@ -498,9 +500,7 @@ class TestBacklogSummaryLogLevel:
                 assert session.is_live, "Sync task did not set is_live in time"
 
                 # Scan only post-boundary debug calls for the summary message.
-                post_boundary_debugs = (
-                    mock_debug.call_args_list[debug_before_boundary:]
-                )
+                post_boundary_debugs = mock_debug.call_args_list[debug_before_boundary:]
                 summary_found = any(
                     "suppressed" in str(call) and "undecryptable" in str(call)
                     for call in post_boundary_debugs

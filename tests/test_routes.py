@@ -15,7 +15,6 @@ from medre.config.routes import (
     RouteDirectionality,
     RouteRetryConfig,
 )
-from medre.core.routing.router import Router
 
 # ---------------------------------------------------------------------------
 # BridgePolicy

@@ -20,11 +20,8 @@ Covers:
 from __future__ import annotations
 
 import json
-import os
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -387,8 +384,7 @@ class TestStorageOnlyNoAdapterSdkImports:
         ]
         for pattern in adapter_sdk_patterns:
             assert pattern not in source, (
-                f"Bundle module should not import adapter SDKs, "
-                f"found: {pattern!r}"
+                f"Bundle module should not import adapter SDKs, " f"found: {pattern!r}"
             )
 
 

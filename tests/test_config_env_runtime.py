@@ -68,7 +68,9 @@ class TestMeshCoreEnvCreatedRuntime:
     """MeshCore adapters created from env can be built by RuntimeBuilder."""
 
     def test_two_meshcore_env_adapters_build(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_paths: MedrePaths,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Two env-created MeshCore adapters build through RuntimeBuilder."""
         monkeypatch.setenv("MEDRE_ADAPTER__MESHCORE_TBEAM__TRANSPORT", "meshcore")
@@ -92,7 +94,9 @@ class TestMeshCoreEnvCreatedRuntime:
         assert adapters["meshcore-lab"].platform == "meshcore"
 
     def test_meshcore_env_adapter_distinct_instances(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_paths: MedrePaths,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Two env-created MeshCore adapters produce distinct instances."""
         monkeypatch.setenv("MEDRE_ADAPTER__MESHCORE_A__TRANSPORT", "meshcore")
@@ -123,7 +127,9 @@ class TestLxmfEnvCreatedRuntime:
     """LXMF adapters created from env can be built by RuntimeBuilder."""
 
     def test_two_lxmf_env_adapters_build(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_paths: MedrePaths,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Two env-created LXMF adapters build through RuntimeBuilder."""
         monkeypatch.setenv("MEDRE_ADAPTER__LXMF_SENDER__TRANSPORT", "lxmf")
@@ -149,7 +155,9 @@ class TestLxmfEnvCreatedRuntime:
         assert adapters["lxmf-receiver"].platform == "lxmf"
 
     def test_lxmf_env_adapter_distinct_instances(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_paths: MedrePaths,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_paths: MedrePaths,
     ) -> None:
         """Two env-created LXMF adapters produce distinct instances."""
         monkeypatch.setenv("MEDRE_ADAPTER__LXMF_ALPHA__TRANSPORT", "lxmf")

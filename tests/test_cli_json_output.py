@@ -234,9 +234,7 @@ class TestInspectEventJsonOutput:
 
     def test_inspect_event_metadata(self, seeded_db: str) -> None:
         """Inspect event JSON output contains event metadata."""
-        output = _run_cli(
-            "inspect", "event", _EVENT_ID, "--storage-path", seeded_db
-        )
+        output = _run_cli("inspect", "event", _EVENT_ID, "--storage-path", seeded_db)
         event = json.loads(output)
 
         assert event["event_id"] == _EVENT_ID
@@ -245,9 +243,7 @@ class TestInspectEventJsonOutput:
 
     def test_inspect_event_native_ref_data(self, seeded_db: str) -> None:
         """Inspect event JSON output includes source_native_ref if present."""
-        output = _run_cli(
-            "inspect", "event", _EVENT_ID, "--storage-path", seeded_db
-        )
+        output = _run_cli("inspect", "event", _EVENT_ID, "--storage-path", seeded_db)
         event = json.loads(output)
 
         # The event should have basic fields present; native ref data is
@@ -287,9 +283,9 @@ class TestEvidenceStoragePathJsonOutput:
         assert storage_section["status"] in ("passed", "partial")
 
         nrefs = storage_section["data"]["native_refs_for_event"]
-        assert nrefs is not None and len(nrefs) >= 1, (
-            "Expected at least one native ref in storage section"
-        )
+        assert (
+            nrefs is not None and len(nrefs) >= 1
+        ), "Expected at least one native ref in storage section"
         nref = nrefs[0]
         for key in (
             "adapter",
@@ -303,14 +299,14 @@ class TestEvidenceStoragePathJsonOutput:
         # resolves_to must be present and populated.
         resolves_to = nref["resolves_to"]
         if isinstance(resolves_to, dict):
-            assert resolves_to.get("type") == "event", (
-                f"resolves_to dict should have type='event', got {resolves_to.get('type')!r}"
-            )
+            assert (
+                resolves_to.get("type") == "event"
+            ), f"resolves_to dict should have type='event', got {resolves_to.get('type')!r}"
         else:
             # String form: should resolve to the known event_id.
-            assert resolves_to == _EVENT_ID, (
-                f"resolves_to should be {_EVENT_ID!r}, got {resolves_to!r}"
-            )
+            assert (
+                resolves_to == _EVENT_ID
+            ), f"resolves_to should be {_EVENT_ID!r}, got {resolves_to!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -325,13 +321,11 @@ class TestJsonOutputSafety:
         """Assert the JSON text contains no forbidden patterns."""
         lower = json_text.lower()
         assert "traceback" not in lower, f"{label}: JSON contains 'traceback'"
-        assert "access_token" not in lower, (
-            f"{label}: JSON contains 'access_token'"
-        )
+        assert "access_token" not in lower, f"{label}: JSON contains 'access_token'"
         for secret in _FORBIDDEN_SECRET_VALUES:
-            assert secret not in json_text, (
-                f"{label}: JSON contains forbidden secret value {secret!r}"
-            )
+            assert (
+                secret not in json_text
+            ), f"{label}: JSON contains forbidden secret value {secret!r}"
 
     def test_smoke_json_no_secrets(self) -> None:
         """Smoke --json output does not contain secrets or tracebacks."""
@@ -348,9 +342,7 @@ class TestJsonOutputSafety:
 
     def test_inspect_event_json_no_secrets(self, seeded_db: str) -> None:
         """Inspect event JSON output does not contain secrets or tracebacks."""
-        output = _run_cli(
-            "inspect", "event", _EVENT_ID, "--storage-path", seeded_db
-        )
+        output = _run_cli("inspect", "event", _EVENT_ID, "--storage-path", seeded_db)
         self._assert_no_forbidden_content(output, "inspect event")
 
     def test_evidence_json_no_secrets(self, seeded_db: str) -> None:
@@ -371,6 +363,6 @@ class TestJsonOutputSafety:
         # The serialized string must not contain known test secret patterns.
         serialized = json.dumps(report, sort_keys=True)
         for secret in _FORBIDDEN_SECRET_VALUES:
-            assert secret not in serialized, (
-                f"json.dumps output contains forbidden secret value {secret!r}"
-            )
+            assert (
+                secret not in serialized
+            ), f"json.dumps output contains forbidden secret value {secret!r}"

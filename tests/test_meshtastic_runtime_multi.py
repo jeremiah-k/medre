@@ -17,9 +17,7 @@ All adapters are fake — no live hardware or network required.
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -165,16 +163,16 @@ class TestMeshtasticRuntimeMulti:
             # -- Assertion 3: radio-a config meshnet_name == "RadioA" ----------
             cfg_a = config.adapters.meshtastic["radio-a"].config
             assert cfg_a is not None, "radio-a has no MeshtasticConfig"
-            assert cfg_a.meshnet_name == "RadioA", (
-                f"radio-a meshnet_name={cfg_a.meshnet_name!r}, expected 'RadioA'"
-            )
+            assert (
+                cfg_a.meshnet_name == "RadioA"
+            ), f"radio-a meshnet_name={cfg_a.meshnet_name!r}, expected 'RadioA'"
 
             # -- Assertion 4: radio-b config meshnet_name == "RadioB" ----------
             cfg_b = config.adapters.meshtastic["radio-b"].config
             assert cfg_b is not None, "radio-b has no MeshtasticConfig"
-            assert cfg_b.meshnet_name == "RadioB", (
-                f"radio-b meshnet_name={cfg_b.meshnet_name!r}, expected 'RadioB'"
-            )
+            assert (
+                cfg_b.meshnet_name == "RadioB"
+            ), f"radio-b meshnet_name={cfg_b.meshnet_name!r}, expected 'RadioB'"
 
             # -- Assertion 5: Independent configs (meshnet_name and channel) ---
             assert cfg_a.meshnet_name != cfg_b.meshnet_name, (
@@ -196,8 +194,7 @@ class TestMeshtasticRuntimeMulti:
             route_a = matched_a[0]
             target_ids_a = [t.adapter for t in route_a.targets]
             assert "matrix-fake" in target_ids_a, (
-                f"radio-a route targets {target_ids_a} do not include "
-                f"'matrix-fake'"
+                f"radio-a route targets {target_ids_a} do not include " f"'matrix-fake'"
             )
 
             # -- Assertion 7: Route matrix-fake → radio-b exists ---------------
@@ -210,8 +207,7 @@ class TestMeshtasticRuntimeMulti:
             route_m = matched_m[0]
             target_ids_m = [t.adapter for t in route_m.targets]
             assert "radio-b" in target_ids_m, (
-                f"matrix-fake route targets {target_ids_m} do not include "
-                f"'radio-b'"
+                f"matrix-fake route targets {target_ids_m} do not include " f"'radio-b'"
             )
 
         finally:

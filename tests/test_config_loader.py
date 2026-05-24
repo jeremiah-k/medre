@@ -522,7 +522,7 @@ class TestLoggingValidation:
         """overrides.nio = 123 → ConfigValidationError."""
         p = _write_config(
             tmp_path,
-            "[runtime]\n[logging]\nlevel = \"INFO\"\n[logging.overrides]\nnio = 123\n",
+            '[runtime]\n[logging]\nlevel = "INFO"\n[logging.overrides]\nnio = 123\n',
         )
         with pytest.raises(ConfigValidationError, match="invalid level"):
             load_config(str(p))

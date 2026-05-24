@@ -11,7 +11,6 @@ import pytest
 from medre.adapters.matrix.errors import MatrixConnectionError
 from medre.adapters.matrix.session import MatrixSession
 from medre.config.adapters.errors import MatrixConfigError
-from medre.config.adapters.matrix import MatrixConfig
 from tests.helpers.matrix_session import make_matrix_config, mock_nio  # noqa: F401
 
 # ===================================================================

@@ -322,28 +322,43 @@ class TestMeshtasticDiagnostics:
             diag_str = str(diag)
 
             # Fake mode should not leak any connection parameters
-            for sensitive in ("password", "secret", "token", "api_key",
-                              "private_key", "auth_token"):
-                assert sensitive not in diag_str, (
-                    f"Sensitive word {sensitive!r} found in diagnostics"
-                )
+            for sensitive in (
+                "password",
+                "secret",
+                "token",
+                "api_key",
+                "private_key",
+                "auth_token",
+            ):
+                assert (
+                    sensitive not in diag_str
+                ), f"Sensitive word {sensitive!r} found in diagnostics"
 
             # Recursively scan diagnostics for sensitive key substrings
             # at any nesting depth.
-            sensitive_keys = {"password", "secret", "token", "api_key",
-                              "private_key", "auth_token", "host",
-                              "serial_port"}
+            sensitive_keys = {
+                "password",
+                "secret",
+                "token",
+                "api_key",
+                "private_key",
+                "auth_token",
+                "host",
+                "serial_port",
+            }
+
             def _check(obj, path=""):
                 if isinstance(obj, dict):
                     for k, v in obj.items():
                         fp = f"{path}.{k}" if path else k
-                        assert k not in sensitive_keys, (
-                            f"Sensitive key {k!r} found at {fp}"
-                        )
+                        assert (
+                            k not in sensitive_keys
+                        ), f"Sensitive key {k!r} found at {fp}"
                         _check(v, fp)
                 elif isinstance(obj, list):
                     for i, item in enumerate(obj):
                         _check(item, f"{path}[{i}]")
+
             _check(diag)
         finally:
             await _bounded(adapter.stop())
@@ -659,7 +674,8 @@ class TestMeshtasticQueueMetrics:
 
         for i in range(5):
             result_obj = _make_rendering_result(
-                text=f"msg-{i}", event_id=f"e-{i}",
+                text=f"msg-{i}",
+                event_id=f"e-{i}",
             )
             await _bounded(adapter.deliver(result_obj))
 
@@ -682,9 +698,9 @@ class TestMeshtasticQueueMetrics:
         )
         for key in required_keys:
             assert key in diag, f"Missing key {key!r} in diagnostics"
-            assert isinstance(diag[key], int), (
-                f"Key {key!r} should be int, got {type(diag[key]).__name__}"
-            )
+            assert isinstance(
+                diag[key], int
+            ), f"Key {key!r} should be int, got {type(diag[key]).__name__}"
 
     async def test_drain_task_running_false_before_start(self):
         """Before start(), diagnostics shows drain_task_running=False."""

@@ -88,9 +88,15 @@ class TestMatrixSessionLifecycle:
         try:
             await session.start()
             calls = mock_nio.AsyncClient.return_value.add_event_callback.call_args_list
-            registered_event_sets = [set(call.args[1]) for call in calls if len(call.args) >= 2]
-            assert any(mock_nio.InviteMemberEvent in events for events in registered_event_sets)
-            assert any(mock_nio.ReactionEvent in events for events in registered_event_sets)
+            registered_event_sets = [
+                set(call.args[1]) for call in calls if len(call.args) >= 2
+            ]
+            assert any(
+                mock_nio.InviteMemberEvent in events for events in registered_event_sets
+            )
+            assert any(
+                mock_nio.ReactionEvent in events for events in registered_event_sets
+            )
         finally:
             await session.stop()
 
@@ -547,7 +553,10 @@ def _no_reaction_importlib():
             return _empty_mod
         return importlib.import_module(name, *a, **kw)
 
-    return patch("medre.adapters.matrix.session.importlib.import_module", side_effect=_fake_import)
+    return patch(
+        "medre.adapters.matrix.session.importlib.import_module",
+        side_effect=_fake_import,
+    )
 
 
 class TestReactionEventClassesHelper:
@@ -697,9 +706,9 @@ class TestReactionEventClassesHelper:
             sys.modules["nio.events.room_events"] = room_events_mod
 
             result = _reaction_event_classes(nio_mod)
-            assert result == (cls,), (
-                f"Expected importlib fallback to find ReactionEvent, got {result}"
-            )
+            assert result == (
+                cls,
+            ), f"Expected importlib fallback to find ReactionEvent, got {result}"
         finally:
             # Restore sys.modules
             if saved_nio is None:
@@ -857,9 +866,7 @@ class TestEnsureJoinedRooms:
             await session.start()
             mock_client = mock_nio.AsyncClient.return_value
             mock_client.rooms = {}
-            results = await session.ensure_joined_rooms(
-                ["!a:server", "!b:server"]
-            )
+            results = await session.ensure_joined_rooms(["!a:server", "!b:server"])
             assert results == {"!a:server": True, "!b:server": True}
             assert mock_client.join.call_count == 2
         finally:
@@ -904,9 +911,7 @@ class TestEnsureJoinedRooms:
                 return resp
 
             mock_client.join = AsyncMock(side_effect=_conditional_join)
-            results = await session.ensure_joined_rooms(
-                ["!bad:server", "!good:server"]
-            )
+            results = await session.ensure_joined_rooms(["!bad:server", "!good:server"])
             assert results["!bad:server"] is False
             assert results["!good:server"] is True
         finally:
@@ -962,6 +967,7 @@ class TestRegisterInviteCallback:
         class _Boom:
             def __getattr__(self, name: str) -> None:
                 raise AttributeError(f"no attribute {name}")
+
         failing_nio.events = _Boom()
 
         with patch.dict(sys.modules, {"nio": failing_nio, "nio.events": _Boom()}):
@@ -981,7 +987,9 @@ class TestRegisterInviteCallback:
         del stripped_events.InviteMemberEvent
         stripped_nio.events = stripped_events
 
-        with patch.dict(sys.modules, {"nio": stripped_nio, "nio.events": stripped_events}):
+        with patch.dict(
+            sys.modules, {"nio": stripped_nio, "nio.events": stripped_events}
+        ):
             session._register_invite_callback()
         session._client.add_event_callback.assert_not_called()
 
@@ -1303,9 +1311,9 @@ class TestInviteHandling:
                 for call in calls
                 if len(call[0]) >= 2
             )
-            assert invite_registered, (
-                "InviteMemberEvent not found in any add_event_callback call"
-            )
+            assert (
+                invite_registered
+            ), "InviteMemberEvent not found in any add_event_callback call"
         finally:
             await session.stop()
 
@@ -1369,15 +1377,11 @@ class TestEnsureJoinedCancellationSafety:
             mock_client.join = AsyncMock(side_effect=_slow_join)
 
             # Leader starts ensure_joined
-            leader_task = asyncio.create_task(
-                session.ensure_joined("!room:server")
-            )
+            leader_task = asyncio.create_task(session.ensure_joined("!room:server"))
             await join_started.wait()
 
             # Waiter starts ensure_joined — gets the in-flight task
-            waiter_task = asyncio.create_task(
-                session.ensure_joined("!room:server")
-            )
+            waiter_task = asyncio.create_task(session.ensure_joined("!room:server"))
             await asyncio.sleep(0)  # let waiter enter shield
 
             # Cancel the waiter

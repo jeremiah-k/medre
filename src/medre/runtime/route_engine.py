@@ -558,9 +558,7 @@ def _expand_channel_room_map_route(
                         event_kinds=event_kinds,
                         channel=room_id,
                     ),
-                    targets=[
-                        RouteTarget(adapter=meshtastic_id, channel=ch)
-                    ],
+                    targets=[RouteTarget(adapter=meshtastic_id, channel=ch)],
                     enabled=rc.enabled,
                 )
             )
@@ -576,9 +574,7 @@ def _expand_channel_room_map_route(
                         event_kinds=event_kinds,
                         channel=ch,
                     ),
-                    targets=[
-                        RouteTarget(adapter=matrix_id, channel=room_id)
-                    ],
+                    targets=[RouteTarget(adapter=matrix_id, channel=room_id)],
                     enabled=rc.enabled,
                 )
             )

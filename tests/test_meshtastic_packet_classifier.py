@@ -747,7 +747,9 @@ class TestClassificationActionTests:
     def test_relay_result_includes_all_metadata(self) -> None:
         """A relay result preserves all metadata fields."""
         cls = MeshtasticPacketClassifier()
-        packet = _make_text_packet(text="hello", sender="!sender1", channel=3, packet_id=99)
+        packet = _make_text_packet(
+            text="hello", sender="!sender1", channel=3, packet_id=99
+        )
         packet["decoded"]["replyId"] = 55
         packet["decoded"]["emoji"] = 1
         result = cls.classify(packet)

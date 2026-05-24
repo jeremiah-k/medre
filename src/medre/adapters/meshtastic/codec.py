@@ -100,9 +100,7 @@ class MeshtasticCodec:
 
         sender = classification.from_id or ""
         pkt_channel = (
-            channel_index
-            if channel_index is not None
-            else classification.channel_index
+            channel_index if channel_index is not None else classification.channel_index
         )
         # Fall back to the configured default channel when the packet
         # does not carry an explicit channel index.  Without this,

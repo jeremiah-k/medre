@@ -117,9 +117,7 @@ def live_env_status(requirements: Iterable[LiveRequirement]) -> LiveEnvStatus:
             if req.secret:
                 redacted_values[req.env_name] = "<redacted>"
             else:
-                redacted_values[req.env_name] = redact_env_value(
-                    req.env_name, raw
-                )
+                redacted_values[req.env_name] = redact_env_value(req.env_name, raw)
 
     return LiveEnvStatus(
         enabled=len(missing) == 0,
@@ -156,9 +154,7 @@ def redact_env_value(name: str, value: str | None) -> str:
     return value
 
 
-def assert_no_secret_leak(
-    obj: object, secret_values: Iterable[str]
-) -> None:
+def assert_no_secret_leak(obj: object, secret_values: Iterable[str]) -> None:
     """Assert that no secret value appears in the serialized form of *obj*.
 
     Serialises *obj* via ``json.dumps(..., default=str)`` (which handles
@@ -219,9 +215,7 @@ async def bounded(coro: Awaitable[_T], timeout: float, label: str) -> _T:
     try:
         return await asyncio.wait_for(coro, timeout=timeout)
     except asyncio.TimeoutError:
-        raise RuntimeError(
-            f"Live test timed out after {timeout}s: {label}"
-        ) from None
+        raise RuntimeError(f"Live test timed out after {timeout}s: {label}") from None
 
 
 # ---------------------------------------------------------------------------

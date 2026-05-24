@@ -7,7 +7,6 @@ output all expose consistent native metadata.
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -154,9 +153,9 @@ async def test_inspect_includes_native_metadata(temp_storage: SQLiteStorage) -> 
         _NATIVE_CHANNEL_ID,
         _NATIVE_MESSAGE_ID,
     )
-    assert resolved_event_id == _EVENT_ID, (
-        f"resolve_native_ref returned {resolved_event_id!r}, expected {_EVENT_ID!r}"
-    )
+    assert (
+        resolved_event_id == _EVENT_ID
+    ), f"resolve_native_ref returned {resolved_event_id!r}, expected {_EVENT_ID!r}"
 
     # Also verify the timeline module returns the event with native refs.
     tl = await assemble_event_timeline(temp_storage, _EVENT_ID)
@@ -243,21 +242,21 @@ async def test_evidence_commands_reference_existing_cli_names(
             "medre config",
         )
         for cmd in all_commands:
-            assert isinstance(cmd, str) and cmd.startswith("medre "), (
-                f"Command {cmd!r} does not start with 'medre '"
-            )
-            assert cmd.startswith(known_prefixes), (
-                f"Command {cmd!r} does not match any known CLI prefix"
-            )
+            assert isinstance(cmd, str) and cmd.startswith(
+                "medre "
+            ), f"Command {cmd!r} does not start with 'medre '"
+            assert cmd.startswith(
+                known_prefixes
+            ), f"Command {cmd!r} does not match any known CLI prefix"
 
         # The specialized list should include the evidence command for this event.
         evidence_cmds = [c for c in cmds_struct["specialized"] if "evidence" in c]
-        assert len(evidence_cmds) >= 1, (
-            "Expected at least one specialized evidence command"
-        )
-        assert _EVENT_ID in evidence_cmds[0], (
-            f"Specialized evidence command should reference event_id {_EVENT_ID!r}"
-        )
+        assert (
+            len(evidence_cmds) >= 1
+        ), "Expected at least one specialized evidence command"
+        assert (
+            _EVENT_ID in evidence_cmds[0]
+        ), f"Specialized evidence command should reference event_id {_EVENT_ID!r}"
     finally:
         await storage.close()
 
@@ -291,7 +290,13 @@ async def test_evidence_report_native_ref_canonical_keys(
     }
 
     # Canonical keys present.
-    for key in ("adapter", "native_channel_id", "native_message_id", "direction", "resolves_to"):
+    for key in (
+        "adapter",
+        "native_channel_id",
+        "native_message_id",
+        "direction",
+        "resolves_to",
+    ):
         assert key in ref_dict, f"Canonical key {key!r} missing from ref dict"
 
     # Legacy aliases present.
@@ -338,13 +343,13 @@ async def test_trace_receipt_includes_failure_kind_and_native_channel_id(
     data = receipt_entries[0]["data"]
 
     # failure_kind must be present and match what was set on the receipt.
-    assert data["failure_kind"] == "adapter_permanent_failure", (
-        f"Expected failure_kind='adapter_permanent_failure', got {data['failure_kind']!r}"
-    )
+    assert (
+        data["failure_kind"] == "adapter_permanent_failure"
+    ), f"Expected failure_kind='adapter_permanent_failure', got {data['failure_kind']!r}"
     # native_channel_id must be present and populated from target_channel.
-    assert data["native_channel_id"] == _NATIVE_CHANNEL_ID, (
-        f"Expected native_channel_id={_NATIVE_CHANNEL_ID!r}, got {data['native_channel_id']!r}"
-    )
+    assert (
+        data["native_channel_id"] == _NATIVE_CHANNEL_ID
+    ), f"Expected native_channel_id={_NATIVE_CHANNEL_ID!r}, got {data['native_channel_id']!r}"
 
 
 @pytest.mark.asyncio
@@ -361,9 +366,9 @@ async def test_trace_native_ref_includes_resolves_to(tmp_path: Path) -> None:
 
     # resolves_to must be present and populated with the event_id.
     assert "resolves_to" in data, "resolves_to key missing from native_ref entry data"
-    assert data["resolves_to"] == _EVENT_ID, (
-        f"Expected resolves_to={_EVENT_ID!r}, got {data['resolves_to']!r}"
-    )
+    assert (
+        data["resolves_to"] == _EVENT_ID
+    ), f"Expected resolves_to={_EVENT_ID!r}, got {data['resolves_to']!r}"
 
 
 @pytest.mark.asyncio
@@ -381,14 +386,14 @@ async def test_orchestration_report_delivery_receipts_include_expanded_keys(
         config_path,
         storage_path=db_path,
     )
-    assert report["status"] == "passed", (
-        f"Expected passed, got {report['status']}: {report.get('fail_reasons', [])}"
-    )
+    assert (
+        report["status"] == "passed"
+    ), f"Expected passed, got {report['status']}: {report.get('fail_reasons', [])}"
 
     receipts = report["delivery_receipts"]
-    assert isinstance(receipts, list) and len(receipts) >= 1, (
-        "Expected at least one delivery receipt in orchestration report"
-    )
+    assert (
+        isinstance(receipts, list) and len(receipts) >= 1
+    ), "Expected at least one delivery receipt in orchestration report"
 
     required_keys = (
         "event_id",
@@ -440,9 +445,7 @@ async def test_replay_timeline_receipt_includes_failure_kind_and_native_channel_
     assert result["status"] == "complete"
     assert result["receipt_count"] == 1
 
-    receipt_entries = [
-        e for e in result["timeline"] if e["entry_type"] == "receipt"
-    ]
+    receipt_entries = [e for e in result["timeline"] if e["entry_type"] == "receipt"]
     assert len(receipt_entries) == 1, "Expected exactly one receipt timeline entry"
 
     # entry_type (kind/type field) must be present on the entry.
@@ -451,10 +454,10 @@ async def test_replay_timeline_receipt_includes_failure_kind_and_native_channel_
     data = receipt_entries[0]["data"]
 
     # failure_kind must be present and match the receipt.
-    assert data["failure_kind"] == "adapter_permanent_failure", (
-        f"Expected failure_kind='adapter_permanent_failure', got {data['failure_kind']!r}"
-    )
+    assert (
+        data["failure_kind"] == "adapter_permanent_failure"
+    ), f"Expected failure_kind='adapter_permanent_failure', got {data['failure_kind']!r}"
     # native_channel_id must be present and populated from target_channel.
-    assert data["native_channel_id"] == _NATIVE_CHANNEL_ID, (
-        f"Expected native_channel_id={_NATIVE_CHANNEL_ID!r}, got {data['native_channel_id']!r}"
-    )
+    assert (
+        data["native_channel_id"] == _NATIVE_CHANNEL_ID
+    ), f"Expected native_channel_id={_NATIVE_CHANNEL_ID!r}, got {data['native_channel_id']!r}"

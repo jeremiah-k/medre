@@ -93,7 +93,9 @@ class TestChannelRoomMapConfig:
 
     def test_reject_list(self) -> None:
         with pytest.raises(ConfigValidationError, match="must be a table"):
-            RouteConfig.from_toml_dict("bad", self._base(channel_room_map=[{"0": "!r:t"}]))
+            RouteConfig.from_toml_dict(
+                "bad", self._base(channel_room_map=[{"0": "!r:t"}])
+            )
 
     # --- rejection: channel key validation ---
 
@@ -531,7 +533,9 @@ class TestChannelRoomMapExpansion:
         rc = self._crm_config()
         rcs = RouteConfigSet(routes=(rc,))
         with pytest.raises(RouteValidationError, match="one Matrix and one Meshtastic"):
-            build_runtime_routes(rcs, {"matrix_adapter": "lxmf", "mesh_adapter": "meshcore"})
+            build_runtime_routes(
+                rcs, {"matrix_adapter": "lxmf", "mesh_adapter": "meshcore"}
+            )
 
     def test_explicit_route_ignores_adapter_platforms(self) -> None:
         """Non-channel_room_map routes work fine with empty adapter_platforms."""
@@ -581,7 +585,9 @@ class TestChannelRoomMapExpansion:
         )
         rcs = RouteConfigSet(routes=(rc,))
         with pytest.raises(RouteValidationError, match="exactly one source"):
-            build_runtime_routes(rcs, {"a": "matrix", "b": "matrix", "mesh_adapter": "meshtastic"})
+            build_runtime_routes(
+                rcs, {"a": "matrix", "b": "matrix", "mesh_adapter": "meshtastic"}
+            )
 
     def test_empty_dest_adapters_raises(self) -> None:
         """Directly constructed RouteConfig with empty dest_adapters raises RouteValidationError."""
@@ -615,7 +621,9 @@ class TestChannelRoomMapExpansion:
         )
         rcs = RouteConfigSet(routes=(rc,))
         with pytest.raises(RouteValidationError, match="exactly one source"):
-            build_runtime_routes(rcs, {"matrix_adapter": "matrix", "a": "meshtastic", "b": "meshtastic"})
+            build_runtime_routes(
+                rcs, {"matrix_adapter": "matrix", "a": "meshtastic", "b": "meshtastic"}
+            )
 
     def test_valid_one_source_one_dest_expands(self) -> None:
         """Valid one-source/one-dest config still expands correctly."""
@@ -655,9 +663,7 @@ class TestChannelRoomMapExpansion:
             match=r"cannot determine platform for dest adapter.*unknown_adapter",
         ):
             # Source platform is found, but dest is missing → hits lines 491-492
-            build_runtime_routes(
-                rcs, {"matrix_adapter": "matrix"}
-            )
+            build_runtime_routes(rcs, {"matrix_adapter": "matrix"})
 
     def test_reversed_platform_order_expands_correctly(self) -> None:
         """Meshtastic source, Matrix dest (reversed order) with bidirectional
