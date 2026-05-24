@@ -122,6 +122,11 @@ CREATE TABLE IF NOT EXISTS delivery_receipts (
     created_at TEXT NOT NULL
 );
 
+-- delivery_status view: one row per unique (delivery_plan_id, target_adapter,
+-- target_channel) tuple, projecting the latest receipt via MAX(sequence).
+-- COALESCE(target_channel, '') in GROUP BY ensures that NULL and '' channels
+-- are treated as the same group, avoiding duplicate rows when some receipts
+-- have NULL and others have '' for target_channel.
 CREATE VIEW IF NOT EXISTS delivery_status AS
 SELECT dr.sequence, dr.receipt_id, dr.event_id, dr.delivery_plan_id,
        dr.target_adapter, dr.target_channel, dr.route_id, dr.status, dr.error,
@@ -132,8 +137,8 @@ SELECT dr.sequence, dr.receipt_id, dr.event_id, dr.delivery_plan_id,
        dr.retry_max_delay, dr.retry_jitter, dr.created_at
 FROM delivery_receipts dr
 JOIN (
-    SELECT delivery_plan_id, target_adapter, MAX(sequence) AS max_seq
-    FROM delivery_receipts GROUP BY delivery_plan_id, target_adapter
+    SELECT delivery_plan_id, target_adapter, target_channel, MAX(sequence) AS max_seq
+    FROM delivery_receipts GROUP BY delivery_plan_id, target_adapter, COALESCE(target_channel, '')
 ) latest ON dr.sequence = latest.max_seq;
 
 CREATE TABLE IF NOT EXISTS plugin_state (
@@ -168,7 +173,7 @@ DROP INDEX IF EXISTS idx_nrefs_event_id;
 CREATE INDEX IF NOT EXISTS idx_nrefs_event_created
     ON native_message_refs(event_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_receipts_plan
-    ON delivery_receipts(delivery_plan_id, target_adapter, attempt_number, sequence);
+    ON delivery_receipts(delivery_plan_id, target_adapter, target_channel, attempt_number, sequence);
 CREATE INDEX IF NOT EXISTS idx_receipts_event
     ON delivery_receipts(event_id, sequence);
 CREATE INDEX IF NOT EXISTS idx_receipts_replay_run
@@ -346,9 +351,16 @@ SELECT event_id FROM native_message_refs
 WHERE adapter = ? AND native_channel_id IS ? AND native_message_id = ?
 """
 
-_DELIVERY_STATUS_VIEW = """
+_DELIVERY_STATUS_VIEW_NO_CHANNEL = """
 SELECT * FROM delivery_status
 WHERE delivery_plan_id = ? AND target_adapter = ?
+ORDER BY sequence DESC LIMIT 1
+"""
+
+_DELIVERY_STATUS_VIEW_WITH_CHANNEL = """
+SELECT * FROM delivery_status
+WHERE delivery_plan_id = ? AND target_adapter = ?
+  AND target_channel IS ?
 """
 
 _SELECT_RECEIPTS_FOR_PLAN = """
@@ -1218,13 +1230,43 @@ class SQLiteStorage:
         )
 
     async def delivery_status(
-        self, delivery_plan_id: str, target_adapter: str
+        self,
+        delivery_plan_id: str,
+        target_adapter: str,
+        target_channel: str | None = None,
     ) -> DeliveryReceipt | None:
-        """Return the latest receipt for a delivery plan / adapter pair."""
-        row = await self._read_one(
-            _DELIVERY_STATUS_VIEW,
-            (delivery_plan_id, target_adapter),
-        )
+        """Return the latest receipt for a delivery plan / adapter pair.
+
+        Parameters
+        ----------
+        delivery_plan_id:
+            The delivery plan to look up.
+        target_adapter:
+            The target adapter to filter on.
+        target_channel:
+            Optional channel name.  When provided, the query is restricted
+            to receipts matching this exact channel value (``IS ?`` semantics
+            handle NULL-safe comparison).  When ``None`` (default), the
+            channel filter is omitted and the latest receipt across **all**
+            channels for the given plan + adapter is returned — preserving
+            backward compatibility with pre-channel callers.
+
+        Returns
+        -------
+        DeliveryReceipt | None
+            The latest-matching receipt, or ``None`` when no receipt exists
+            for the given combination.
+        """
+        if target_channel is None:
+            row = await self._read_one(
+                _DELIVERY_STATUS_VIEW_NO_CHANNEL,
+                (delivery_plan_id, target_adapter),
+            )
+        else:
+            row = await self._read_one(
+                _DELIVERY_STATUS_VIEW_WITH_CHANNEL,
+                (delivery_plan_id, target_adapter, target_channel),
+            )
         return _row_to_receipt(row) if row else None
 
     async def list_receipts_for_plan(

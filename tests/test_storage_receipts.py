@@ -568,7 +568,7 @@ class TestReceiptQueryHelpers:
     async def test_delivery_status_still_works_after_index_change(
         self, temp_storage: SQLiteStorage
     ) -> None:
-        """delivery_status view still functions with the updated 4-column index."""
+        """delivery_status view still functions with the updated 5-column index."""
         event = make_storage_event(event_id="evt-idx-verify")
         await temp_storage.append(event)
 
@@ -588,6 +588,218 @@ class TestReceiptQueryHelpers:
         assert status is not None
         assert status.status == "confirmed"
         assert status.attempt_number == 3
+
+
+# ===================================================================
+# Channel-aware delivery_status queries
+# ===================================================================
+
+
+class TestDeliveryStatusByChannel:
+    """delivery_status groups by target_channel; optional channel filter
+    distinguishes receipts for the same plan+adapter but different channels.
+    """
+
+    @staticmethod
+    def _make_channel_receipt(
+        receipt_id: str,
+        event_id: str,
+        delivery_plan_id: str,
+        target_adapter: str,
+        target_channel: str | None,
+        status: str = "sent",
+        attempt_number: int = 1,
+    ) -> DeliveryReceipt:
+        return DeliveryReceipt(
+            receipt_id=receipt_id,
+            event_id=event_id,
+            delivery_plan_id=delivery_plan_id,
+            target_adapter=target_adapter,
+            target_channel=target_channel,
+            status=status,  # type: ignore[arg-type]
+            attempt_number=attempt_number,
+        )
+
+    async def test_same_plan_adapter_different_channels_distinct(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """delivery_status with target_channel distinguishes two channels
+        under the same plan + adapter."""
+        event = make_storage_event(event_id="evt-ch-distinct")
+        await temp_storage.append(event)
+
+        await temp_storage.append_receipt(
+            self._make_channel_receipt(
+                "rcpt-ch-a", "evt-ch-distinct", "plan-ch", "adapter_ch", "channel-a",
+                status="sent",
+            )
+        )
+        await temp_storage.append_receipt(
+            self._make_channel_receipt(
+                "rcpt-ch-b", "evt-ch-distinct", "plan-ch", "adapter_ch", "channel-b",
+                status="failed",
+            )
+        )
+
+        status_a = await temp_storage.delivery_status("plan-ch", "adapter_ch", "channel-a")
+        status_b = await temp_storage.delivery_status("plan-ch", "adapter_ch", "channel-b")
+
+        assert status_a is not None
+        assert status_a.receipt_id == "rcpt-ch-a"
+        assert status_a.target_channel == "channel-a"
+        assert status_a.status == "sent"
+
+        assert status_b is not None
+        assert status_b.receipt_id == "rcpt-ch-b"
+        assert status_b.target_channel == "channel-b"
+        assert status_b.status == "failed"
+
+    async def test_channel_filter_returns_none_for_unknown_channel(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """delivery_status with a non-existent channel returns None even when
+        the plan + adapter has receipts on other channels."""
+        event = make_storage_event(event_id="evt-ch-none")
+        await temp_storage.append(event)
+
+        await temp_storage.append_receipt(
+            self._make_channel_receipt(
+                "rcpt-ch-exist", "evt-ch-none", "plan-none", "adapter_none", "channel-x",
+            )
+        )
+
+        status = await temp_storage.delivery_status("plan-none", "adapter_none", "channel-z")
+        assert status is None
+
+    async def test_no_channel_filter_returns_latest_across_all_channels(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """delivery_status without target_channel returns the latest receipt
+        across all channels for that plan + adapter."""
+        event = make_storage_event(event_id="evt-ch-latest")
+        await temp_storage.append(event)
+
+        # Receipt on channel-a (earlier sequence).
+        await temp_storage.append_receipt(
+            self._make_channel_receipt(
+                "rcpt-late-a", "evt-ch-latest", "plan-late", "adapter_late", "channel-a",
+                status="sent",
+            )
+        )
+        # Receipt on channel-b (later sequence).
+        await temp_storage.append_receipt(
+            self._make_channel_receipt(
+                "rcpt-late-b", "evt-ch-latest", "plan-late", "adapter_late", "channel-b",
+                status="confirmed",
+            )
+        )
+
+        status = await temp_storage.delivery_status("plan-late", "adapter_late")
+        assert status is not None
+        assert status.receipt_id == "rcpt-late-b"
+        assert status.status == "confirmed"
+
+    async def test_channel_progression_returns_latest_for_channel(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Multiple receipts on the same channel: delivery_status with
+        target_channel returns the latest receipt for that channel only."""
+        event = make_storage_event(event_id="evt-ch-prog")
+        await temp_storage.append(event)
+
+        for i, st in enumerate(["queued", "sent", "confirmed"]):
+            await temp_storage.append_receipt(
+                self._make_channel_receipt(
+                    f"rcpt-prog-{i}", "evt-ch-prog", "plan-prog", "adapter_prog",
+                    "channel-prog", status=st, attempt_number=i + 1,
+                )
+            )
+
+        status = await temp_storage.delivery_status("plan-prog", "adapter_prog", "channel-prog")
+        assert status is not None
+        assert status.status == "confirmed"
+        assert status.attempt_number == 3
+
+    async def test_null_channel_receipt_queryable_without_filter(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """A receipt with target_channel=None (the default) is returned by
+        the no-channel filter variant of delivery_status."""
+        event = make_storage_event(event_id="evt-ch-null")
+        await temp_storage.append(event)
+
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-null-ch",
+            event_id="evt-ch-null",
+            delivery_plan_id="plan-null",
+            target_adapter="adapter_null",
+            target_channel=None,
+            status="sent",
+        )
+        await temp_storage.append_receipt(receipt)
+
+        status = await temp_storage.delivery_status("plan-null", "adapter_null")
+        assert status is not None
+        assert status.receipt_id == "rcpt-null-ch"
+        assert status.target_channel is None
+
+    async def test_null_channel_distinguishable_from_named_channel(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """A named-channel filter does NOT match a NULL-channel receipt."""
+        event = make_storage_event(event_id="evt-ch-mix")
+        await temp_storage.append(event)
+
+        await temp_storage.append_receipt(
+            DeliveryReceipt(
+                receipt_id="rcpt-mix-null",
+                event_id="evt-ch-mix",
+                delivery_plan_id="plan-mix",
+                target_adapter="adapter_mix",
+                target_channel=None,
+                status="sent",
+            )
+        )
+        await temp_storage.append_receipt(
+            self._make_channel_receipt(
+                "rcpt-mix-named", "evt-ch-mix", "plan-mix", "adapter_mix", "channel-named",
+                status="failed",
+            )
+        )
+
+        # Filter for named channel returns only the named receipt.
+        status_named = await temp_storage.delivery_status(
+            "plan-mix", "adapter_mix", "channel-named"
+        )
+        assert status_named is not None
+        assert status_named.receipt_id == "rcpt-mix-named"
+
+        # No-channel filter returns latest across both (named one is later).
+        status_all = await temp_storage.delivery_status("plan-mix", "adapter_mix")
+        assert status_all is not None
+        assert status_all.receipt_id == "rcpt-mix-named"
+
+    async def test_existing_two_arg_callers_unbroken(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Existing callers that pass only (plan_id, adapter) still work
+        identically to before the channel parameter was added."""
+        event = make_storage_event(event_id="evt-ch-compat")
+        await temp_storage.append(event)
+
+        for i, st in enumerate(["queued", "sent", "confirmed"]):
+            await temp_storage.append_receipt(
+                self._make_channel_receipt(
+                    f"rcpt-compat-{i}", "evt-ch-compat", "plan-compat",
+                    "adapter_compat", "some-channel",
+                    status=st, attempt_number=i + 1,
+                )
+            )
+
+        status = await temp_storage.delivery_status("plan-compat", "adapter_compat")
+        assert status is not None
+        assert status.status == "confirmed"
+        assert status.receipt_id == "rcpt-compat-2"
 
 
 # ===================================================================

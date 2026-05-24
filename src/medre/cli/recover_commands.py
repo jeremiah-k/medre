@@ -62,6 +62,10 @@ async def _build_event_recovery_runbook(
             "failure_kind": inferred,
             "category": cat,
         }
+        if getattr(r, "target_channel", None):
+            entry["target_channel"] = r.target_channel
+        if getattr(r, "route_id", None):
+            entry["route_id"] = r.route_id
         if error_msg:
             entry["error"] = error_msg
         # Include replay context if present.
@@ -234,8 +238,15 @@ async def _recover(
                     print(f"  Failed targets ({len(failed_targets)}):")
                     for ft in failed_targets:
                         fk = ft.get("failure_kind", "unknown")
+                        target_line = ft['target_adapter']
+                        ch = ft.get("target_channel")
+                        if ch:
+                            target_line += f"/{ch}"
+                        route = ft.get("route_id")
+                        if route:
+                            target_line += f" route={route}"
                         print(
-                            f"    {ft['target_adapter']}: {ft['status']} "
+                            f"    {target_line}: {ft['status']} "
                             f"({fk}, attempt {ft['attempt_number']})"
                         )
                     # Show classification summary.
@@ -246,8 +257,14 @@ async def _recover(
                         for cat in ("retryable", "permanent", "operational", "unknown"):
                             items = fc.get(cat, [])
                             if items:
-                                adapters = ", ".join(i["target_adapter"] for i in items)
-                                print(f"    {cat}: {adapters}")
+                                labels = []
+                                for i in items:
+                                    label = i["target_adapter"]
+                                    ch = i.get("target_channel")
+                                    if ch:
+                                        label += f"/{ch}"
+                                    labels.append(label)
+                                print(f"    {cat}: {', '.join(labels)}")
                 else:
                     print("  Failed targets: none")
                 if runbook.get("recommended_commands"):

@@ -408,11 +408,11 @@ class TestStorageIndexes:
         )
 
     async def test_receipts_plan_index(self, temp_storage: SQLiteStorage) -> None:
-        """idx_receipts_plan on delivery_receipts(delivery_plan_id, target_adapter, attempt_number, sequence)."""
+        """idx_receipts_plan on delivery_receipts(delivery_plan_id, target_adapter, target_channel, attempt_number, sequence)."""
         indexes = await self._index_columns(temp_storage, "delivery_receipts")
         assert "idx_receipts_plan" in indexes
         assert indexes["idx_receipts_plan"] == frozenset(
-            {"delivery_plan_id", "target_adapter", "attempt_number", "sequence"}
+            {"delivery_plan_id", "target_adapter", "target_channel", "attempt_number", "sequence"}
         )
 
     async def test_receipts_event_index(self, temp_storage: SQLiteStorage) -> None:
