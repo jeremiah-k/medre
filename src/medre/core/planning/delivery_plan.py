@@ -504,7 +504,9 @@ class DeliveryOutcome:
     status:
         Categorised outcome:
         ``"success"`` – adapter accepted the event.
-        ``"queued"`` – delivery was accepted asynchronously.
+        ``"queued"`` – delivery was accepted locally (enqueued) but not
+        yet sent to the external platform; the receipt has
+        ``status="queued"``.
         ``"transient_failure"`` – a retryable error occurred.
         ``"permanent_failure"`` – an unrecoverable error occurred.
         ``"skipped"`` – delivery was intentionally skipped (e.g. no

@@ -594,12 +594,12 @@ async def test_cancel_mid_event_skips_remaining_stages(cancel_env) -> None:
 
     # Remaining stages should be skipped due to cancellation.
     for r in results[1:]:
-        assert r.status == "skipped", (
-            f"Stage {r.stage} expected 'skipped', got '{r.status}'"
-        )
-        assert r.error == "replay_cancelled", (
-            f"Stage {r.stage} expected error 'replay_cancelled', got '{r.error}'"
-        )
+        assert (
+            r.status == "skipped"
+        ), f"Stage {r.stage} expected 'skipped', got '{r.status}'"
+        assert (
+            r.error == "replay_cancelled"
+        ), f"Stage {r.stage} expected error 'replay_cancelled', got '{r.error}'"
 
 
 # ===================================================================
@@ -679,9 +679,9 @@ async def test_best_effort_cancel_skips_deliver(cancel_env) -> None:
 
     # Only one event processed (5 stages for BEST_EFFORT).
     event_ids = {r.event_id for r in results}
-    assert event_ids == {"evt-be-cancel-0"}, (
-        f"Expected only first event, got {event_ids}"
-    )
+    assert event_ids == {
+        "evt-be-cancel-0"
+    }, f"Expected only first event, got {event_ids}"
 
     # store stage passed.
     store_results = [r for r in results if r.stage == "store"]
@@ -689,16 +689,18 @@ async def test_best_effort_cancel_skips_deliver(cancel_env) -> None:
     assert store_results[0].status == "passed"
 
     # Remaining stages for first event are skipped.
-    skipped = [r for r in results if r.status == "skipped" and r.error == "replay_cancelled"]
-    assert len(skipped) == 4, (
-        f"Expected 4 skipped stages (route,plan,render,deliver), got {len(skipped)}"
-    )
+    skipped = [
+        r for r in results if r.status == "skipped" and r.error == "replay_cancelled"
+    ]
+    assert (
+        len(skipped) == 4
+    ), f"Expected 4 skipped stages (route,plan,render,deliver), got {len(skipped)}"
 
     # No delivery receipts persisted for any event.
     receipt_rows = await env.storage._read_all(
         "SELECT * FROM delivery_receipts WHERE source = 'replay'",
         (),
     )
-    assert len(receipt_rows) == 0, (
-        "Cancelled replay should not produce delivery receipts"
-    )
+    assert (
+        len(receipt_rows) == 0
+    ), "Cancelled replay should not produce delivery receipts"

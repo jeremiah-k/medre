@@ -582,16 +582,16 @@ class TestMultiRadioSourceConfig:
 
 
 # ---------------------------------------------------------------------------
-# Runtime assembly tests (source_configs only, no scalar defaults)
+# Runtime assembly tests (source_configs only)
 # ---------------------------------------------------------------------------
 
 
 class TestRuntimeAssemblySourceConfig:
     """MatrixRenderer behavior under runtime assembly configuration.
 
-    Runtime assembly passes ``source_configs`` only — no scalar defaults
-    from any Meshtastic config.  Unknown / non-Meshtastic sources render
-    plain Matrix output without Meshtastic prefix or metadata contamination.
+    Runtime assembly passes ``source_configs`` only.  Unknown / non-Meshtastic
+    sources render plain Matrix output without Meshtastic prefix or metadata
+    contamination.
     """
 
     @staticmethod
@@ -664,8 +664,8 @@ class TestRuntimeAssemblySourceConfig:
             native_data={"longname": "Charlie", "packet_id": "77"},
         )
         result = await renderer.render(event, "matrix-1")
-        # No prefix (scalar defaults are empty)
+        # No prefix (source_configs has no matching entry)
         assert result.payload["body"] == "hello mesh"
-        # No mmrelay metadata (scalar default is False)
+        # No mmrelay metadata (no matching source_config)
         assert "meshtastic_id" not in result.payload
         assert "meshtastic_meshnet" not in result.payload

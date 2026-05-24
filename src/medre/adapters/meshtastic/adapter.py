@@ -674,9 +674,7 @@ class MeshtasticAdapter(AdapterContract):
                     )
                 )
                 self._inbound_futures.add(future)
-                future.add_done_callback(
-                    lambda f: self._inbound_futures.discard(f)
-                )
+                future.add_done_callback(lambda f: self._inbound_futures.discard(f))
         except Exception:
             if self.ctx is not None:
                 self.ctx.logger.exception(

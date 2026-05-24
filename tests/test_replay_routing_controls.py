@@ -6,7 +6,7 @@ Covers:
 * Replay run_id in attribution
 * Disabled routes during replay
 * Replay does not mutate canonical events
-* Direct constructor scalar defaults
+* Unchanged behavior verification
 """
 
 from __future__ import annotations
@@ -616,7 +616,7 @@ class TestReplayNoMutation:
 
 
 # ===================================================================
-# 14. Direct constructor scalar defaults
+# 14. Unchanged behavior verification
 # ===================================================================
 
 

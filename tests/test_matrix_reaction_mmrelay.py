@@ -62,8 +62,12 @@ class _StubMeshtasticConfig:
 
 
 # Source-config mappings for common test patterns.
-_SRC_MESHTASTIC = {"mesh-1": _StubMeshtasticConfig(adapter_id="mesh-1", mmrelay_compatibility=True)}
-_SRC_MATRIX = {"matrix-1": _StubMeshtasticConfig(adapter_id="matrix-1", mmrelay_compatibility=True)}
+_SRC_MESHTASTIC = {
+    "mesh-1": _StubMeshtasticConfig(adapter_id="mesh-1", mmrelay_compatibility=True)
+}
+_SRC_MATRIX = {
+    "matrix-1": _StubMeshtasticConfig(adapter_id="matrix-1", mmrelay_compatibility=True)
+}
 
 
 def _make_config(**overrides: Any) -> MatrixConfig:

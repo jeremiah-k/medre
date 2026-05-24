@@ -51,7 +51,6 @@ from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite import SQLiteStorage
 
-
 # ===================================================================
 # Shared helper for source_configs construction
 # ===================================================================
@@ -71,6 +70,7 @@ class _StubMeshtasticConfig:
         self.meshnet_name = meshnet_name
         self.matrix_relay_prefix = matrix_relay_prefix
         self.mmrelay_compatibility = mmrelay_compatibility
+
 
 # Fixed IDs used across both tests for traceability.
 _CANON_EVENT_ID = "canon-matrix-original"

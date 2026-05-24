@@ -230,10 +230,8 @@ def _register_adapter_renderers(
       target-adapter-aware in multi-radio setups.
     * ``MatrixRenderer`` receives all Meshtastic adapter configs via
       ``source_configs`` for per-source-adapter config resolution (multi-radio
-      support).  No scalar defaults from any Meshtastic config — unknown
-      sources render plain Matrix output.  Scalar constructor parameters
-      (``mmrelay_compat``, ``meshnet_name``, ``matrix_relay_prefix``) remain
-      available for direct constructor use in unit tests.
+      support).  Unknown sources render plain Matrix output without
+      Meshtastic prefix or metadata contamination.
     """
     # Collect ALL MeshtasticConfigs for target-aware rendering.
     meshtastic_configs: dict[str, Any] = {}
@@ -299,8 +297,7 @@ def _register_adapter_renderers(
             elif class_name == "MatrixRenderer" and meshtastic_configs:
                 # MatrixRenderer uses all MeshtasticConfigs via source_configs
                 # for per-source-adapter config resolution (multi-radio
-                # support).  No scalar defaults from any Meshtastic config —
-                # unknown sources render plain Matrix output.
+                # support).  Unknown sources render plain Matrix output.
                 pipeline.register(
                     renderer_cls(
                         source_configs=meshtastic_configs,

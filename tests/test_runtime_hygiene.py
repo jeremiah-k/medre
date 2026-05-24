@@ -1124,6 +1124,6 @@ class TestMeshtasticInboundLifecycleGuard:
         # This should complete without error and without publishing.
         await adapter._on_packet_async(canonical)
 
-        assert len(published) == 0, (
-            "_on_packet_async should have been guarded by _started=False"
-        )
+        assert (
+            len(published) == 0
+        ), "_on_packet_async should have been guarded by _started=False"

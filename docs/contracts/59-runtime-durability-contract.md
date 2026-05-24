@@ -50,11 +50,11 @@ Storage `close()` flushes SQLite WAL buffers. Deliveries that complete within th
 
 The runtime enforces two independent concurrency bounds via `CapacityController`:
 
-| Resource                  | Bound                                      | Mechanism                                            |
-| ------------------------- | ------------------------------------------ | ---------------------------------------------------- |
-| In-flight deliveries      | `max_inflight_deliveries` (default 100)    | Semaphore                                            |
-| In-flight replay events   | `max_inflight_replay_events` (default 100) | Semaphore                                            |
-| Meshtastic outbound queue | `max_queue_size` (default 1024)            | internal deque with explicit enqueue-time rejection      |
+| Resource                  | Bound                                      | Mechanism                                           |
+| ------------------------- | ------------------------------------------ | --------------------------------------------------- |
+| In-flight deliveries      | `max_inflight_deliveries` (default 100)    | Semaphore                                           |
+| In-flight replay events   | `max_inflight_replay_events` (default 100) | Semaphore                                           |
+| Meshtastic outbound queue | `max_queue_size` (default 1024)            | internal deque with explicit enqueue-time rejection |
 
 These bounds prevent unbounded memory growth from concurrent operations or queue accumulation. See Contract 53 for full capacity semantics.
 
@@ -97,19 +97,19 @@ Operators are responsible for database backup, log rotation, and monitoring disk
 
 The following state is **lost** on process termination (crash, shutdown, or restart):
 
-| State                                                                                                 | Nature                       | Impact of Loss                                           |
-| ----------------------------------------------------------------------------------------------------- | ---------------------------- | -------------------------------------------------------- |
-| In-flight deliveries                                                                                  | Semaphore-tracked coroutines | No receipt, no retry, no recovery                        |
-| Active replay runs                                                                                    | Async generator iterations   | Must re-initiate manually                                |
-| ReplaySummary (completed replay results)                                                              | In-memory dataclass          | Must re-run replay to regenerate                         |
+| State                                                                                                 | Nature                        | Impact of Loss                                                                               |
+| ----------------------------------------------------------------------------------------------------- | ----------------------------- | -------------------------------------------------------------------------------------------- |
+| In-flight deliveries                                                                                  | Semaphore-tracked coroutines  | No receipt, no retry, no recovery                                                            |
+| Active replay runs                                                                                    | Async generator iterations    | Must re-initiate manually                                                                    |
+| ReplaySummary (completed replay results)                                                              | In-memory dataclass           | Must re-run replay to regenerate                                                             |
 | Meshtastic outbound queue (`MeshtasticOutboundQueue` internal deque)                                  | In-memory `collections.deque` | All queued-but-unsent items lost; events survive in SQLite but have no receipt or native ref |
-| `CapacityController` internal gauges (`delivery_timeouts`, `delivery_rejections`, etc.)               | In-memory counters           | Reset to zero on every startup                           |
-| `RouteStats` per-route counters                                                                       | In-memory counters           | No historical route statistics                           |
-| `RuntimeAccounting` counters                                                                          | In-memory counters           | Reset to zero on every startup                           |
-| Retry snapshot counters (`retry_processed`, `retry_succeeded`, `retry_failed`, `retry_dead_lettered`) | In-memory counters           | Reset to zero on every startup; reflect current run only |
-| Adapter health / connection state                                                                     | In-memory                    | Adapters reconnect from scratch on restart               |
-| `Diagnostician` counters                                                                              | In-memory                    | Reset to zero on every startup                           |
-| `BootSummary`                                                                                         | In-memory                    | Recomputed on next startup                               |
+| `CapacityController` internal gauges (`delivery_timeouts`, `delivery_rejections`, etc.)               | In-memory counters            | Reset to zero on every startup                                                               |
+| `RouteStats` per-route counters                                                                       | In-memory counters            | No historical route statistics                                                               |
+| `RuntimeAccounting` counters                                                                          | In-memory counters            | Reset to zero on every startup                                                               |
+| Retry snapshot counters (`retry_processed`, `retry_succeeded`, `retry_failed`, `retry_dead_lettered`) | In-memory counters            | Reset to zero on every startup; reflect current run only                                     |
+| Adapter health / connection state                                                                     | In-memory                     | Adapters reconnect from scratch on restart                                                   |
+| `Diagnostician` counters                                                                              | In-memory                     | Reset to zero on every startup                                                               |
+| `BootSummary`                                                                                         | In-memory                     | Recomputed on next startup                                                                   |
 
 ### 4.1 No Recovery of In-Flight Work
 

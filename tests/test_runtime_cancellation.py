@@ -796,9 +796,7 @@ class TestShutdownDuringReplay:
         assert snap["global"]["last_cancelled_at"] is not None
 
     @pytest.mark.asyncio
-    async def test_stop_calls_replay_engine_cancel(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    async def test_stop_calls_replay_engine_cancel(self, tmp_paths: MedrePaths) -> None:
         """MedreApp.stop() calls replay_engine.cancel() during Phase 1.
 
         Verifies that after stop(), the replay engine's is_cancelled flag
@@ -822,9 +820,9 @@ class TestShutdownDuringReplay:
         await app.stop()
 
         # After stop, the replay engine should be cancelled.
-        assert replay_engine.is_cancelled, (
-            "Replay engine should be cancelled after MedreApp.stop()"
-        )
+        assert (
+            replay_engine.is_cancelled
+        ), "Replay engine should be cancelled after MedreApp.stop()"
 
     @pytest.mark.asyncio
     async def test_stop_cancels_inflight_replay_early(
@@ -882,9 +880,9 @@ class TestShutdownDuringReplay:
         assert replay_engine.is_cancelled
         # We expect some results but not all 20 (strict has 1 stage per event).
         # If replay was fast enough to finish before stop(), that's also fine.
-        assert len(collected_results) <= 20, (
-            f"Expected <= 20 results, got {len(collected_results)}"
-        )
+        assert (
+            len(collected_results) <= 20
+        ), f"Expected <= 20 results, got {len(collected_results)}"
 
 
 # =====================================================================
@@ -1376,15 +1374,13 @@ class TestDrainAbandonedEvidencePersistence:
             )
 
             r = receipts[0]
-            assert r.status == "suppressed", (
-                f"Expected 'suppressed', got '{r.status}'"
-            )
-            assert r.failure_kind == "shutdown_rejection", (
-                f"Expected 'shutdown_rejection', got '{r.failure_kind}'"
-            )
-            assert r.error == "shutdown_drain_timeout", (
-                f"Expected 'shutdown_drain_timeout', got '{r.error}'"
-            )
+            assert r.status == "suppressed", f"Expected 'suppressed', got '{r.status}'"
+            assert (
+                r.failure_kind == "shutdown_rejection"
+            ), f"Expected 'shutdown_rejection', got '{r.failure_kind}'"
+            assert (
+                r.error == "shutdown_drain_timeout"
+            ), f"Expected 'shutdown_drain_timeout', got '{r.error}'"
             assert r.event_id == event.event_id
             assert r.attempt_number == 1
             assert r.source == "live"

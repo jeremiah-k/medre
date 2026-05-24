@@ -6,7 +6,7 @@ Tests cover:
 - Unknown replyId fallback (no crash)
 - Renderer emote fallback emits KEY_REACTION_KEY
 - Codec decodes KEY_REACTION_KEY into rel.key
-- Direct constructor scalar defaults without KEY_REACTION_KEY
+- Rendering without KEY_REACTION_KEY
 - KEY_REACTION_KEY constant verification
 """
 
@@ -56,7 +56,9 @@ class _StubMeshtasticConfig:
 
 
 # Source-config mappings for common test patterns.
-_SRC_MESHTASTIC = {"mesh-1": _StubMeshtasticConfig(adapter_id="mesh-1", mmrelay_compatibility=True)}
+_SRC_MESHTASTIC = {
+    "mesh-1": _StubMeshtasticConfig(adapter_id="mesh-1", mmrelay_compatibility=True)
+}
 
 
 def _make_config(**overrides: Any) -> MatrixConfig:

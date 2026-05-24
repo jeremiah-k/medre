@@ -687,7 +687,7 @@ class TestBuildRouteAdapterBoundaryReport:
         )
 
     def test_backward_compatible_runtime_to_adapter_alias(self) -> None:
-        """runtime_to_adapter is a direct constructor scalar defaults alias for forbidden section."""
+        """runtime_to_adapter is a short report alias for the forbidden section."""
         graph = self._make_graph(
             ModuleInfo(
                 module="medre.runtime.engine",

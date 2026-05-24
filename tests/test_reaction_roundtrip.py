@@ -51,7 +51,6 @@ from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite import SQLiteStorage
 
-
 # Shared constants
 _RADIO_ALPHA = "radio-alpha"
 _RADIO_BRAVO = "radio-bravo"
@@ -79,6 +78,7 @@ class _StubMeshtasticConfig:
         self.meshnet_name = meshnet_name
         self.matrix_relay_prefix = matrix_relay_prefix
         self.mmrelay_compatibility = mmrelay_compatibility
+
 
 # =========================================================================
 # Helpers

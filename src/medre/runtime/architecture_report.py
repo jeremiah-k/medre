@@ -394,7 +394,7 @@ class RouteAdapterBoundaryReport:
     runtime_assembly_points: BoundarySection
     dynamic_scan_errors: BoundarySection
 
-    # Direct constructor scalar defaults aliases
+    # Short report aliases
     @property
     def runtime_to_adapter(self) -> BoundarySection:
         return self.forbidden_runtime_adapter

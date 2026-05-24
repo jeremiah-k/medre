@@ -504,13 +504,13 @@ class PipelineRunner:
         # Deliver to all targets independently with error isolation.
         outcomes = await self.deliver_to_targets(event, deliveries)
 
-        succeeded = sum(1 for o in outcomes if o.status == "success")
-        failed = len(outcomes) - succeeded
+        accepted = sum(1 for o in outcomes if o.status in {"success", "queued"})
+        failed = len(outcomes) - accepted
         self._log.info(
-            "Pipeline complete: event_id=%s targets=%d succeeded=%d failed=%d",
+            "Pipeline complete: event_id=%s targets=%d accepted=%d failed=%d",
             event.event_id,
             len(deliveries),
-            succeeded,
+            accepted,
             failed,
         )
 
@@ -966,9 +966,7 @@ class PipelineRunner:
             # Look up the most recent "queued" receipt for this
             # event + adapter to inherit plan/route context.
             try:
-                await self._append_queued_to_sent_receipt(
-                    record=record, now=now
-                )
+                await self._append_queued_to_sent_receipt(record=record, now=now)
             except Exception:
                 self._log.exception(
                     "Failed to append supplemental sent receipt: "
@@ -1018,16 +1016,47 @@ class PipelineRunner:
             return
 
         # Find the most recent "queued" receipt targeting this adapter.
-        queued_receipt: DeliveryReceipt | None = None
-        for r in existing:
-            if (
-                r.status == "queued"
-                and r.target_adapter == record.adapter
-            ):
-                queued_receipt = r
+        # Match by event_id (implicit via list_receipts_for_event),
+        # adapter, and — when available — target_channel.
+        candidates: list[DeliveryReceipt] = [
+            r
+            for r in existing
+            if r.status == "queued" and r.target_adapter == record.adapter
+        ]
 
-        if queued_receipt is None:
+        if not candidates:
             return
+
+        if record.native_channel_id is not None:
+            # Narrow to exact channel match.
+            channel_matches = [
+                r for r in candidates if r.target_channel == record.native_channel_id
+            ]
+            if not channel_matches:
+                self._log.debug(
+                    "No queued receipt matched channel %s for "
+                    "event_id=%s adapter=%s; skipping supplemental receipt",
+                    record.native_channel_id,
+                    record.event_id,
+                    record.adapter,
+                )
+                return
+            # Most recent (last in list) wins — handles retries.
+            queued_receipt = channel_matches[-1]
+        else:
+            # No channel on record — disambiguate by count.
+            if len(candidates) == 1:
+                queued_receipt = candidates[0]
+            else:
+                self._log.debug(
+                    "Ambiguous queued receipt correlation: %d candidates "
+                    "for event_id=%s adapter=%s with no channel; "
+                    "skipping supplemental receipt",
+                    len(candidates),
+                    record.event_id,
+                    record.adapter,
+                )
+                return
 
         supplemental = DeliveryReceipt(
             sequence=0,
@@ -1035,8 +1064,7 @@ class PipelineRunner:
             event_id=record.event_id,
             delivery_plan_id=queued_receipt.delivery_plan_id,
             target_adapter=record.adapter,
-            target_channel=record.native_channel_id
-            or queued_receipt.target_channel,
+            target_channel=record.native_channel_id or queued_receipt.target_channel,
             route_id=queued_receipt.route_id,
             status="sent",
             error=None,
@@ -1444,13 +1472,20 @@ class PipelineRunner:
                         self._route_stats.record_delivered(route.id)
                     if self._runtime_accounting is not None:
                         self._runtime_accounting.record_outbound_delivered()
+                    # When the adapter returned delivery_status="enqueued",
+                    # the receipt has status="queued" — expose that in
+                    # DeliveryOutcome so callers can distinguish local
+                    # acceptance from confirmed delivery.
+                    delivery_status: Literal["success", "queued"] = (
+                        "queued" if receipt.status == "queued" else "success"
+                    )
                     return DeliveryOutcome(
                         event_id=event.event_id,
                         target_adapter=adapter_id,
                         target_channel=target.channel,
                         route_id=route.id,
                         delivery_plan_id=route_plan.plan_id,
-                        status="success",
+                        status=delivery_status,
                         failure_kind=None,
                         receipt=receipt,
                         error=None,
@@ -1849,8 +1884,7 @@ class PipelineRunner:
             error: str | None = None
             _log_status = _adapter_delivery_status
             self._log.info(
-                "Delivered: event_id=%s → adapter=%s plan=%s attempt=%d "
-                "status=%s",
+                "Delivered: event_id=%s → adapter=%s plan=%s attempt=%d " "status=%s",
                 event.event_id,
                 adapter_id,
                 plan.plan_id,

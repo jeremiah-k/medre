@@ -392,7 +392,7 @@ class TestCollectReplaySummary:
 
 
 # ---------------------------------------------------------------------------
-# Direct constructor scalar defaults: collect_replay_state unchanged
+# Unchanged behavior: collect_replay_state
 # ---------------------------------------------------------------------------
 
 

@@ -595,9 +595,9 @@ class TestDrainTimeoutAbandonedEvidence:
         await asyncio.sleep(0.05)
 
         # Verify inflight tracking is populated.
-        assert len(runner._inflight_deliveries) > 0, (
-            "Expected inflight delivery tracking to be populated"
-        )
+        assert (
+            len(runner._inflight_deliveries) > 0
+        ), "Expected inflight delivery tracking to be populated"
 
         # Simulate shutdown: stop accepting work and trigger drain timeout.
         cc.stop_accepting()
@@ -605,9 +605,9 @@ class TestDrainTimeoutAbandonedEvidence:
         # Drain will time out immediately (0.05s).  Use pipeline runner's
         # drain_abandoned_deliveries to get the evidence.
         abandoned = runner.drain_abandoned_deliveries()
-        assert len(abandoned) >= 1, (
-            f"Expected at least 1 abandoned delivery, got {len(abandoned)}"
-        )
+        assert (
+            len(abandoned) >= 1
+        ), f"Expected at least 1 abandoned delivery, got {len(abandoned)}"
 
         inflight = abandoned[0]
         assert isinstance(inflight, InflightDelivery)

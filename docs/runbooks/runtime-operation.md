@@ -287,25 +287,25 @@ When shutdown begins (SIGTERM, SIGINT, or programmatic):
 
 ### What Gets Drained vs Cancelled
 
-| Category                              | Behavior                                                                     |
-| ------------------------------------- | ---------------------------------------------------------------------------- |
-| In-flight adapter deliveries          | **Drained** — awaited up to `shutdown_drain_timeout_seconds`, then cancelled |
+| Category                              | Behavior                                                                                                                                                                                                           |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| In-flight adapter deliveries          | **Drained** — awaited up to `shutdown_drain_timeout_seconds`, then cancelled                                                                                                                                       |
 | Abandoned in-flight deliveries        | **Evidence persisted** — each abandoned delivery gets a `status="suppressed"` receipt with `failure_kind=shutdown_rejection`, `error="shutdown_drain_timeout"`, and `failure_kind_detail="shutdown_drain_timeout"` |
-| Adapter receive loops                 | Cancelled immediately on adapter `stop()`                                    |
-| Replay events                         | Cancelled; completed delivery receipts are preserved                         |
-| Route statistics, diagnostic counters | **Lost** — in-memory only                                                    |
+| Adapter receive loops                 | Cancelled immediately on adapter `stop()`                                                                                                                                                                          |
+| Replay events                         | Cancelled; completed delivery receipts are preserved                                                                                                                                                               |
+| Route statistics, diagnostic counters | **Lost** — in-memory only                                                                                                                                                                                          |
 
 ### Drain-Abandoned Evidence
 
 When the drain deadline expires with in-flight deliveries still active, the runtime persists structured abandonment evidence before continuing shutdown. Each abandoned delivery produces a `DeliveryReceipt` with:
 
-| Field                | Value                                                                  |
-| -------------------- | ---------------------------------------------------------------------- |
-| `status`             | `suppressed`                                                           |
-| `failure_kind`       | `shutdown_rejection` (reuses existing enum)                            |
-| `error`              | `shutdown_drain_timeout`                                               |
-| `failure_kind_detail`| `shutdown_drain_timeout` (derived from error by `reporting.py`)        |
-| `attempt_number`     | `1`                                                                    |
+| Field                 | Value                                                           |
+| --------------------- | --------------------------------------------------------------- |
+| `status`              | `suppressed`                                                    |
+| `failure_kind`        | `shutdown_rejection` (reuses existing enum)                     |
+| `error`               | `shutdown_drain_timeout`                                        |
+| `failure_kind_detail` | `shutdown_drain_timeout` (derived from error by `reporting.py`) |
+| `attempt_number`      | `1`                                                             |
 
 Each receipt includes the `event_id`, `route_id`, `target_adapter`, `target_channel`, and `delivery_plan_id` of the abandoned delivery. Receipts are persisted to SQLite storage and survive shutdown — they are retrievable via `medre inspect receipts` after the runtime exits.
 
@@ -728,14 +728,14 @@ The snapshot is written to `{state_dir}/shutdown-snapshot.json` (resolved accord
 
 **What is lost on shutdown:**
 
-| Data                                     | Lost? | Why                                                    |
-| ---------------------------------------- | ----- | ------------------------------------------------------ |
+| Data                                     | Lost?     | Why                                                                                        |
+| ---------------------------------------- | --------- | ------------------------------------------------------------------------------------------ |
 | In-flight deliveries (not yet completed) | Partially | Evidence receipt persisted with `shutdown_drain_timeout` detail; actual delivery abandoned |
-| Runtime accounting counters              | Yes   | Process-local; not persisted                           |
-| RouteStats per-route counters            | Yes   | Process-local; not persisted                           |
-| CapacityController gauges                | Yes   | Process-local; reset on startup                        |
-| Active replay runs                       | Yes   | Must re-initiate manually                              |
-| Runtime events buffer                    | Yes   | Process-local; use `--snapshot-on-shutdown` to capture |
+| Runtime accounting counters              | Yes       | Process-local; not persisted                                                               |
+| RouteStats per-route counters            | Yes       | Process-local; not persisted                                                               |
+| CapacityController gauges                | Yes       | Process-local; reset on startup                                                            |
+| Active replay runs                       | Yes       | Must re-initiate manually                                                                  |
+| Runtime events buffer                    | Yes       | Process-local; use `--snapshot-on-shutdown` to capture                                     |
 
 **Second interrupt (repeated Ctrl-C):**
 
@@ -851,14 +851,14 @@ This section summarizes what MEDRE state survives restarts and what is lost. For
 
 ### What Is NOT Persisted (Lost on Process Termination)
 
-| State                                       | Nature                        | Impact                            |
-| ------------------------------------------- | ----------------------------- | --------------------------------- |
+| State                                       | Nature                                                                                                                      | Impact                                            |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
 | In-flight deliveries                        | Evidence persisted as `suppressed` receipts with `failure_kind_detail=shutdown_drain_timeout`; delivery itself is abandoned | No retry, no recovery — but identity is auditable |
-| Active replay runs                          | Lost on crash or shutdown     | Must re-initiate manually         |
-| Runtime counters (`inbound_accepted`, etc.) | Process-local only            | Reset to zero on every startup    |
-| RouteStats per-route counters               | Process-local only            | No historical route statistics    |
-| CapacityController gauges                   | Process-local only            | Reset on startup                  |
-| Adapter health/connection state             | Process-local only            | Adapters reconnect from scratch   |
+| Active replay runs                          | Lost on crash or shutdown                                                                                                   | Must re-initiate manually                         |
+| Runtime counters (`inbound_accepted`, etc.) | Process-local only                                                                                                          | Reset to zero on every startup                    |
+| RouteStats per-route counters               | Process-local only                                                                                                          | No historical route statistics                    |
+| CapacityController gauges                   | Process-local only                                                                                                          | Reset on startup                                  |
+| Adapter health/connection state             | Process-local only                                                                                                          | Adapters reconnect from scratch                   |
 
 ### Crash Recovery
 
