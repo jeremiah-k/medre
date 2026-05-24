@@ -8,19 +8,14 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-import pytest
-
 from medre.core.events import (
     CanonicalEvent,
     DeliveryReceipt,
     EventMetadata,
     EventRelation,
-    NativeRef,
 )
 from medre.core.storage import EventFilter, SQLiteStorage
-
 from tests.helpers.storage import make_storage_event
-
 
 # ===================================================================
 # Delivery receipts

@@ -19,8 +19,8 @@ from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Router
 from medre.core.routing.stats import RouteStats
-from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage.backend import StorageBackend
+from medre.core.supervision.accounting import RuntimeAccounting
 
 
 def make_adapter_context(

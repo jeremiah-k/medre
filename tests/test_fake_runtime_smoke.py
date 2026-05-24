@@ -25,8 +25,8 @@ from typing import Any
 
 import pytest
 
-from medre.adapters.fake_matrix import FakeMatrixAdapter
-from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
+from medre.adapters.fakes.matrix import FakeMatrixAdapter
+from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
 from medre.config.model import (
     AdapterConfigSet,
     LoggingConfig,
@@ -619,7 +619,7 @@ class TestFailureKindIntegration:
     @pytest.mark.asyncio
     async def test_adapter_transient(self, tmp_paths: MedrePaths) -> None:
         """ADAPTER_TRANSIENT: FakeMeshtastic raises AdapterSendError(transient=True)."""
-        from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
+        from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
 
         config = RuntimeConfig(
             runtime=RuntimeOptions(name="transient-test"),
@@ -910,25 +910,17 @@ class TestFailureKindIntegration:
             await clean_stop(app)
 
     @pytest.mark.asyncio
-    async def test_target_not_found_reserved(self) -> None:
-        """TARGET_NOT_FOUND: reserved enum member (not emitted by any adapter).
+    async def test_channel_not_found_classified_as_adapter_permanent(self) -> None:
+        """A permanent AdapterSendError mentioning 'channel not found' is
+        classified as ADAPTER_PERMANENT (not a separate failure kind).
 
-        No adapter currently emits TARGET_NOT_FOUND at runtime.  All permanent
-        adapter errors — including channel-not-found conditions — are classified
-        as ADAPTER_PERMANENT.  This test verifies:
-          1. The enum member exists and is non-retryable (taxonomy integrity).
-          2. A permanent AdapterSendError is classified as ADAPTER_PERMANENT,
-             confirming TARGET_NOT_FOUND remains unused in the live pipeline.
+        TARGET_NOT_FOUND was removed from the enum because no adapter ever
+        emitted it — all permanent adapter errors including channel-not-found
+        conditions map to ADAPTER_PERMANENT.
         """
         from medre.core.contracts.adapter import AdapterSendError
         from medre.core.planning.delivery_plan import RetryExecutor
 
-        # A permanent adapter error (even one mentioning "channel not found")
-        # is classified as ADAPTER_PERMANENT, not TARGET_NOT_FOUND.
         err = AdapterSendError("target channel not found", transient=False)
         kind = RetryExecutor.classify_failure(err, adapter_registered=True)
         assert kind == DeliveryFailureKind.ADAPTER_PERMANENT
-
-        # Verify the TARGET_NOT_FOUND enum member exists and is non-retryable.
-        assert DeliveryFailureKind.TARGET_NOT_FOUND.value == "target_not_found"
-        assert not DeliveryFailureKind.TARGET_NOT_FOUND.is_retryable

@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
+from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.adapters.meshtastic.errors import (
     MeshtasticSendError,

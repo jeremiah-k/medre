@@ -64,7 +64,6 @@ src/medre/
         routing/
         runtime/         (capabilities, diagnostic contract, health)
         storage/         (SQLite storage)
-        transforms/
     plugins/
         __init__.py      (empty, reserved)
 ```

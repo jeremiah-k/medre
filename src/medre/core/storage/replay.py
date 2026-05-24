@@ -96,8 +96,8 @@ from medre.core.storage.backend import DEFAULT_QUERY_LIMIT, EventFilter, Storage
 
 if TYPE_CHECKING:
     from medre.core.observability.metrics import Diagnostician
-    from medre.core.runtime.accounting import RuntimeAccounting
-    from medre.core.runtime.capacity import CapacityController
+    from medre.core.supervision.accounting import RuntimeAccounting
+    from medre.core.supervision.capacity import CapacityController
 
 
 _logger = logging.getLogger(__name__)
@@ -925,15 +925,46 @@ class ReplayEngine:
         self._diagnostician = diagnostician
         self._capacity_controller: CapacityController | None = capacity_controller
         self._accounting: RuntimeAccounting | None = accounting
+        self._cancel_event: asyncio.Event = asyncio.Event()
 
     def set_capacity_controller(self, cc: CapacityController) -> None:
-        """Wire a :class:`~medre.core.runtime.capacity.CapacityController`.
+        """Wire a :class:`~medre.core.supervision.capacity.CapacityController`.
 
         When set, :meth:`_stage_deliver` acquires a replay slot
         before delivery in BEST_EFFORT mode and releases it on
         completion.
         """
         self._capacity_controller = cc
+
+    # -- Cancellation -------------------------------------------------------
+
+    def cancel(self) -> None:
+        """Request cancellation of any in-flight replay.
+
+        Idempotent: calling more than once is harmless.  After
+        cancellation the engine's ``replay()`` async generator stops
+        iterating new events and skips remaining stages for the
+        current event, producing ``ReplayResult(status="skipped",
+        error="replay_cancelled")`` for each abandoned stage.
+
+        The cancellation signal persists until :meth:`reset_cancellation`
+        is called (or a new :class:`ReplayEngine` is constructed).
+        """
+        self._cancel_event.set()
+        _logger.info("Replay cancellation requested")
+
+    @property
+    def is_cancelled(self) -> bool:
+        """Return ``True`` if cancellation has been requested."""
+        return self._cancel_event.is_set()
+
+    def reset_cancellation(self) -> None:
+        """Clear the cancellation signal so a new replay can proceed.
+
+        Useful when a :class:`ReplayEngine` instance is reused across
+        multiple replay operations (e.g. in long-lived runtimes).
+        """
+        self._cancel_event.clear()
 
     # -- Public API ---------------------------------------------------------
 
@@ -977,6 +1008,12 @@ class ReplayEngine:
 
         if request.correlation_ids is not None:
             async for event_id, event in self._iter_by_ids(request):
+                if self._cancel_event.is_set():
+                    _logger.info(
+                        "Replay cancelled — skipping remaining %d event(s)",
+                        len(request.correlation_ids) - sum(1 for _ in []),
+                    )
+                    return
                 if event is None:
                     async for result in self._replay_missing(event_id, stages):
                         yield result
@@ -990,6 +1027,9 @@ class ReplayEngine:
         else:
             event_filter = _request_to_filter(request)
             async for event in self._storage.query(event_filter):  # type: ignore[union-attr]
+                if self._cancel_event.is_set():
+                    _logger.info("Replay cancelled — stopping event iteration")
+                    return
                 async for result in self._replay_event_safe(
                     event,
                     stages,
@@ -1162,6 +1202,17 @@ class ReplayEngine:
         _verify_immutability(event, event.event_id)
 
         for stage in stages:
+            # Check cancellation between stages — skip remaining stages
+            # for this event if cancellation was requested mid-event.
+            if self._cancel_event.is_set():
+                yield ReplayResult(
+                    event_id=event.event_id,
+                    stage=stage,
+                    status="skipped",
+                    error="replay_cancelled",
+                    lineage=list(event.lineage),
+                )
+                continue
             if stage == "store":
                 result = await self._stage_store(event)
             elif stage == "route":

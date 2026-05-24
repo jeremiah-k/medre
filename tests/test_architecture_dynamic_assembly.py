@@ -167,7 +167,7 @@ class TestDynamicBuilderAssembly:
         assert not builder_in_forbidden
 
     def test_without_src_root_no_dynamic(self) -> None:
-        """Without src_root, dynamic imports are not extracted (backward compat)."""
+        """Without src_root, dynamic imports are not extracted."""
         graph = build_dependency_graph(_SRC)
         report = build_route_adapter_boundary_report(graph)
         # Only static AST imports are in allowed section

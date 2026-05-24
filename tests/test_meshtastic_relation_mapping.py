@@ -28,8 +28,8 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
-from medre.adapters.fake_matrix import FakeMatrixAdapter
-from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
+from medre.adapters.fakes.matrix import FakeMatrixAdapter
+from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
 from medre.adapters.matrix.codec import MatrixCodec
 from medre.adapters.matrix.renderer import MatrixRenderer
 from medre.adapters.meshtastic.codec import MeshtasticCodec
@@ -50,6 +50,27 @@ from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite import SQLiteStorage
+
+# ===================================================================
+# Shared helper for source_configs construction
+# ===================================================================
+
+
+class _StubMeshtasticConfig:
+    """Minimal duck-typed config for MatrixRenderer source_configs."""
+
+    def __init__(
+        self,
+        adapter_id: str = "radio",
+        meshnet_name: str = "",
+        matrix_relay_prefix: str = "",
+        mmrelay_compatibility: bool = False,
+    ) -> None:
+        self.adapter_id = adapter_id
+        self.meshnet_name = meshnet_name
+        self.matrix_relay_prefix = matrix_relay_prefix
+        self.mmrelay_compatibility = mmrelay_compatibility
+
 
 # Fixed IDs used across both tests for traceability.
 _CANON_EVENT_ID = "canon-matrix-original"
@@ -345,9 +366,14 @@ class TestMeshtasticToMatrixReplyResolution:
         rp = RenderingPipeline()
         rp.register(
             MatrixRenderer(
-                mmrelay_compat=True,
-                meshnet_name=_MESHNET_NAME,
-                matrix_relay_prefix="[{longname}] ",
+                source_configs={
+                    _RADIO_ADAPTER: _StubMeshtasticConfig(
+                        adapter_id=_RADIO_ADAPTER,
+                        mmrelay_compatibility=True,
+                        meshnet_name=_MESHNET_NAME,
+                        matrix_relay_prefix="[{longname}] ",
+                    ),
+                },
             ),
             priority=50,
         )
@@ -450,8 +476,13 @@ class TestMeshtasticToMatrixReplyResolution:
         rp = RenderingPipeline()
         rp.register(
             MatrixRenderer(
-                mmrelay_compat=True,
-                meshnet_name=_MESHNET_NAME,
+                source_configs={
+                    _RADIO_ADAPTER: _StubMeshtasticConfig(
+                        adapter_id=_RADIO_ADAPTER,
+                        mmrelay_compatibility=True,
+                        meshnet_name=_MESHNET_NAME,
+                    ),
+                },
             ),
             priority=50,
         )
@@ -825,7 +856,11 @@ class TestMatrixReplyToMeshtasticNativeReplyId:
         rp = RenderingPipeline()
         rp.register(
             MeshtasticRenderer(
-                configs={_MESH_ADAPTER: MeshtasticConfig(adapter_id=_MESH_ADAPTER, radio_relay_prefix="")}
+                configs={
+                    _MESH_ADAPTER: MeshtasticConfig(
+                        adapter_id=_MESH_ADAPTER, radio_relay_prefix=""
+                    )
+                }
             ),
             priority=50,
         )
@@ -912,7 +947,11 @@ class TestMatrixReplyMissingMappingNoCrash:
         rp = RenderingPipeline()
         rp.register(
             MeshtasticRenderer(
-                configs={_MESH_ADAPTER: MeshtasticConfig(adapter_id=_MESH_ADAPTER, radio_relay_prefix="")}
+                configs={
+                    _MESH_ADAPTER: MeshtasticConfig(
+                        adapter_id=_MESH_ADAPTER, radio_relay_prefix=""
+                    )
+                }
             ),
             priority=50,
         )
@@ -1055,7 +1094,11 @@ class TestMatrixToMatrixReplyLinksOnMeshnet:
         rp = RenderingPipeline()
         rp.register(
             MeshtasticRenderer(
-                configs={_MESH_ADAPTER: MeshtasticConfig(adapter_id=_MESH_ADAPTER, radio_relay_prefix="")}
+                configs={
+                    _MESH_ADAPTER: MeshtasticConfig(
+                        adapter_id=_MESH_ADAPTER, radio_relay_prefix=""
+                    )
+                }
             ),
             priority=50,
         )

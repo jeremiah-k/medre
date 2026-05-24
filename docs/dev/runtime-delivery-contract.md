@@ -205,6 +205,8 @@ Each adapter contributes adapter-specific metadata to delivery evidence:
 #### Meshtastic
 
 - **Queue state**: `queue_total_enqueued`, `queue_total_sent`, `queue_total_failed`, `queue_total_rejected`, `queue_total_requeued`, `queue_total_exhausted`, `queue_total_permanent_failed`, `queue_send_max_attempts`, `queue_pending`, `queue_max_size`. Being **queued** or **enqueued** means accepted into the adapter-local outbound queue only — this is not RF transmission. Being **sent** means the SDK/client send returned a success result and native packet ID — this is local send confirmation only, not RF delivery or remote receipt. Transient SDK send failures are retried from the adapter-local queue up to `queue_send_max_attempts`; permanent failures and exhausted retries are dropped. Retry is best-effort, adapter-local, in-memory, non-durable across process restart, and not exactly-once.
+- **Outbound gate suppression**: When `outbound_mode = "listen_only"` is configured, `deliver()` rejects outbound payloads as non-retryable adapter failures with detail `outbound suppressed: listen_only mode`. Suppressed deliveries are recorded as `failure_kind="adapter_permanent"` with `failure_kind_detail="meshtastic_outbound_suppressed"`. This is an intentional operator-configured gate, not a transport failure. Inbound reception and inbound diagnostics are unaffected. The suppression is non-retryable — the pipeline will not attempt re-delivery because the operator has explicitly disabled outbound transmission.
+- **Shutdown queue abandonment**: Items remaining in the Meshtastic adapter-local outbound queue at process termination are lost. The queue is in-memory and non-durable. Durable queue persistence and crash-recovery are deferred to a future implementation. Delivery receipts already written to SQLite survive shutdown, but in-flight queue items do not.
 - **Classifier aggregate counters**: `classifier_packets_seen`, `classifier_packets_relayed`, `classifier_packets_ignored`, `classifier_packets_dropped`, `classifier_packets_deferred`, plus reason-level sub-counters (`classifier_packets_malformed`, `classifier_packets_encrypted_dropped`, `classifier_packets_detection_sensor_deferred`, `classifier_packets_dm_ignored`, `classifier_packets_empty_text_ignored`, `classifier_packets_unknown_portnum_deferred`). These are **aggregate inbound classification counters** that explain how many packets the classifier saw and what it did with them. They do **not** mean live validation — they count decisions made by the pure-function classifier against each inbound packet. They do **not** persist a record of every individual ignored, dropped, or deferred packet; only the aggregate totals are maintained in memory and exposed via `diagnostics()`.
 
 ### Suppression Evidence
@@ -217,11 +219,12 @@ Each adapter contributes adapter-specific metadata to delivery evidence:
 
 The `failure_kind_detail` field is derived from error patterns and provides a more specific classification than `failure_kind` without changing the `DeliveryFailureKind` enum. Current values:
 
-| `failure_kind_detail`       | Condition                                                                                            |
-| --------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `e2ee_blocked`              | Matrix encrypted/E2EE decryption or blocking errors                                                  |
-| `meshtastic_queue_rejected` | Meshtastic adapter queue-full errors (requires "queue" + "full" or "enqueue rejected" in error text) |
-| (original `failure_kind`)   | Default — no specialised pattern matched                                                             |
+| `failure_kind_detail`            | Condition                                                                                            |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `e2ee_blocked`                   | Matrix encrypted/E2EE decryption or blocking errors                                                  |
+| `meshtastic_queue_rejected`      | Meshtastic adapter queue-full errors (requires "queue" + "full" or "enqueue rejected" in error text) |
+| `meshtastic_outbound_suppressed` | Meshtastic adapter outbound gate suppression when `outbound_mode = "listen_only"`                    |
+| (original `failure_kind`)        | Default — no specialised pattern matched                                                             |
 
 The `delivery_state_by_adapter` dict in the incident summary provides per-adapter delivery state. Shape:
 

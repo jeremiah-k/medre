@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = "GPL-3.0-or-later"
 classifiers = [
-  "Development Status :: 4 - Beta",
+  "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
   # License classifier omitted per PEP 639 — the `license` field above
   # is the SPDX expression and supersedes the Trove classifier.

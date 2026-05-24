@@ -1511,7 +1511,7 @@ Events carry a trace context through the pipeline. Each stage creates a span. Di
 ## 22. Proposed Package Tree
 
 > **Note:** The tree below reflects the **implemented** source layout under `src/medre/`.
-> Sections not yet populated (e.g. `core/transforms/`, `core/policies/`) contain only `__init__.py`.
+> Sections not yet populated (e.g. `core/policies/`) contain only `__init__.py`.
 
 ```text
 src/medre/
@@ -1574,26 +1574,29 @@ src/medre/
 │   │   ├── __init__.py
 │   │   ├── resolver.py           # IdentityResolver
 │   │   └── actor.py              # CanonicalActor model
-│   ├── runtime/                  # Runtime diagnostics and capabilities
+│   ├── supervision/              # Runtime diagnostics and capabilities
 │   │   ├── __init__.py
+│   │   ├── accounting.py       # Resource accounting
 │   │   ├── capabilities.py       # Adapter capability declarations
+│   │   ├── capacity.py         # Capacity controller
 │   │   ├── diagnostics.py        # Runtime diagnostics
 │   │   ├── diagnostic_contract.py # Diagnostic interfaces
-│   │   └── health.py             # Health check infrastructure
-│   ├── transforms/               # Event transform pipeline (scaffold)
-│   │   └── __init__.py
+│   │   ├── health.py             # Health check infrastructure
+│   │   └── supervision.py        # Lifecycle supervision
 │   └── policies/                 # Policy pipeline (scaffold)
 │       └── __init__.py
 │
 ├── adapters/                     # Adapter implementations
 │   ├── __init__.py
 │   ├── base.py                   # (moved to core/contracts/adapter.py) AdapterContract protocol, AdapterContext, lifecycle ABC
-│   ├── fake_transport.py         # Fake transport adapter (testing/dev)
-│   ├── fake_presentation.py      # Fake presentation adapter (testing/dev)
-│   ├── fake_matrix.py            # Fake Matrix adapter
-│   ├── fake_meshtastic.py        # Fake Meshtastic adapter
-│   ├── fake_meshcore.py          # Fake MeshCore adapter
-│   ├── fake_lxmf.py              # Fake LXMF adapter
+│   ├── fakes/                    # Fake adapters for testing/dev
+│   │   ├── __init__.py
+│   │   ├── transport.py          # Fake transport adapter (testing/dev)
+│   │   ├── presentation.py       # Fake presentation adapter (testing/dev)
+│   │   ├── matrix.py             # Fake Matrix adapter
+│   │   ├── meshtastic.py         # Fake Meshtastic adapter
+│   │   ├── meshcore.py           # Fake MeshCore adapter
+│   │   └── lxmf.py               # Fake LXMF adapter
 │   ├── matrix/                   # Matrix PRESENTATION adapter
 │   │   ├── __init__.py
 │   │   ├── adapter.py            # MatrixAdapter implementation

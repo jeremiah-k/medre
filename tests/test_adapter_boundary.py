@@ -457,7 +457,7 @@ class TestFakeAdapterErrorClassification:
     async def test_fake_meshcore_failure_classifies_transient(self) -> None:
         """FakeMeshCoreAdapter simulated failure raises AdapterSendError
         that classify_failure maps to ADAPTER_TRANSIENT."""
-        from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
+        from medre.adapters.fakes.meshcore import FakeMeshCoreAdapter
         from medre.core.planning.delivery_plan import (
             DeliveryFailureKind,
             RetryExecutor,
@@ -477,7 +477,7 @@ class TestFakeAdapterErrorClassification:
     async def test_fake_meshtastic_failure_classifies_transient(self) -> None:
         """FakeMeshtasticAdapter simulated failure raises AdapterSendError
         that classify_failure maps to ADAPTER_TRANSIENT."""
-        from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
+        from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
         from medre.core.planning.delivery_plan import (
             DeliveryFailureKind,
             RetryExecutor,
@@ -497,7 +497,7 @@ class TestFakeAdapterErrorClassification:
     async def test_fake_lxmf_failure_classifies_transient(self) -> None:
         """FakeLxmfAdapter simulated failure raises AdapterSendError
         that classify_failure maps to ADAPTER_TRANSIENT."""
-        from medre.adapters.fake_lxmf import FakeLxmfAdapter
+        from medre.adapters.fakes.lxmf import FakeLxmfAdapter
         from medre.core.planning.delivery_plan import (
             DeliveryFailureKind,
             RetryExecutor,

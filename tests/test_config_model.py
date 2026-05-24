@@ -8,7 +8,7 @@ Covers:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import pytest
@@ -18,7 +18,6 @@ from medre.config.model import (
     _is_set_annotation,
     _is_tuple_annotation,
 )
-
 
 # ---------------------------------------------------------------------------
 # _is_tuple_annotation

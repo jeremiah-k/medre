@@ -26,8 +26,8 @@ from medre.core.lifecycle.states import (
     is_valid_transition,
     require_valid_transition,
 )
-from medre.core.runtime.health import normalize_adapter_health
-from medre.core.runtime.supervision import (
+from medre.core.supervision.health import normalize_adapter_health
+from medre.core.supervision.supervision import (
     RuntimeHealth,
     classify_runtime_health,
 )

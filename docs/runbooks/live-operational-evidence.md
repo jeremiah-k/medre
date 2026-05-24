@@ -667,6 +667,8 @@ queue_pending, queue_total_sent, queue_total_failed, queue_total_rejected,
 background_tasks
 ```
 
+> **Queue counter semantics:** `queue_total_sent` counts local SDK send confirmations only — not RF delivery or remote-node receipt. `queue_pending` reflects items in the adapter-local in-memory queue. Both counters reset on process restart. When `outbound_mode = "listen_only"` is set, suppressed deliveries are rejected before enqueue and do not increment `queue_total_sent`. See `docs/runbooks/meshtastic-alpha-operation.md` section 9.1a.
+
 **Session-level (nested under `session`):**
 
 ```text
@@ -860,22 +862,22 @@ SOAK_DURATION_SECONDS=120 pytest tests/test_soak.py::TestMeshtasticSoak -m live 
 
 #### §2.9 Observations to Record
 
-| Field                                                             | What to observe                       | Source                    |
-| ----------------------------------------------------------------- | ------------------------------------- | ------------------------- |
-| Runtime duration (seconds)                                        | Actual wall-clock duration            | Soak test output          |
-| Connection type                                                   | serial / tcp                          | Config                    |
-| Connection stability                                              | Number of disconnect/reconnect events | `diagnostics()` delta     |
-| Messages sent                                                     | Outbound count during runtime         | Soak test output          |
-| Messages succeeded                                                | Successful delivery count             | Soak test output          |
-| Messages failed                                                   | Failed delivery count                 | Soak test output          |
-| `queue_pending` at end                                            | Pending queue depth at end            | `diagnostics()`           |
+| Field                                                              | What to observe                       | Source                    |
+| ------------------------------------------------------------------ | ------------------------------------- | ------------------------- |
+| Runtime duration (seconds)                                         | Actual wall-clock duration            | Soak test output          |
+| Connection type                                                    | serial / tcp                          | Config                    |
+| Connection stability                                               | Number of disconnect/reconnect events | `diagnostics()` delta     |
+| Messages sent                                                      | Outbound count during runtime         | Soak test output          |
+| Messages succeeded                                                 | Successful delivery count             | Soak test output          |
+| Messages failed                                                    | Failed delivery count                 | Soak test output          |
+| `queue_pending` at end                                             | Pending queue depth at end            | `diagnostics()`           |
 | `queue_total_sent` / `queue_total_failed` / `queue_total_rejected` | Cumulative queue stats                | `diagnostics()`           |
-| Health throughout                                                 | Min/max health states                 | Periodic `health_check()` |
-| `transient_delivery_failures`                                     | Transient failure count               | `diagnostics()`           |
-| `permanent_delivery_failures`                                     | Permanent failure count               | `diagnostics()`           |
-| `last_packet_time`                                                | Timestamp of last received packet     | `diagnostics()`           |
-| Diagnostics snapshot at start                                     | All session fields at t=0             | `diagnostics()`           |
-| Diagnostics snapshot at end                                       | All session fields at t=duration      | `diagnostics()`           |
+| Health throughout                                                  | Min/max health states                 | Periodic `health_check()` |
+| `transient_delivery_failures`                                      | Transient failure count               | `diagnostics()`           |
+| `permanent_delivery_failures`                                      | Permanent failure count               | `diagnostics()`           |
+| `last_packet_time`                                                 | Timestamp of last received packet     | `diagnostics()`           |
+| Diagnostics snapshot at start                                      | All session fields at t=0             | `diagnostics()`           |
+| Diagnostics snapshot at end                                        | All session fields at t=duration      | `diagnostics()`           |
 
 #### §2.9 NOT EXECUTED (current machine)
 

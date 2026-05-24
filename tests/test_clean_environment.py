@@ -294,12 +294,13 @@ class TestCleanEnvironmentImportBoundaries:
     _SUBPACKAGES: list[str] = [
         "medre",
         "medre.adapters",
-        "medre.adapters.fake_transport",
-        "medre.adapters.fake_matrix",
-        "medre.adapters.fake_meshtastic",
-        "medre.adapters.fake_meshcore",
-        "medre.adapters.fake_lxmf",
-        "medre.adapters.fake_presentation",
+        "medre.adapters.fakes",
+        "medre.adapters.fakes.transport",
+        "medre.adapters.fakes.matrix",
+        "medre.adapters.fakes.meshtastic",
+        "medre.adapters.fakes.meshcore",
+        "medre.adapters.fakes.lxmf",
+        "medre.adapters.fakes.presentation",
         "medre.adapters.matrix",
         "medre.adapters.matrix.compat",
         "medre.adapters.meshtastic",
@@ -327,10 +328,9 @@ class TestCleanEnvironmentImportBoundaries:
         "medre.core.lifecycle",
         "medre.core.identity",
         "medre.core.rendering",
-        "medre.core.transforms",
         "medre.core.policies",
         "medre.core.planning",
-        "medre.core.runtime",
+        "medre.core.supervision",
         "medre.interop",
         "medre.runtime",
         "medre.runtime.builder",
@@ -340,7 +340,7 @@ class TestCleanEnvironmentImportBoundaries:
         "medre.config.routes",
         "medre.runtime.snapshot",
         "medre.runtime.boot_summary",
-        "medre.core.runtime.capacity",
+        "medre.core.supervision.capacity",
         "medre.runtime.observability",
         "medre.runtime.run_session",
         "medre.plugins",
@@ -624,7 +624,7 @@ class TestPackageLayout:
     def test_no_setup_py(self) -> None:
         """Modern project should not need setup.py (src layout + pyproject.toml)."""
         setup_py = _REPO_ROOT / "setup.py"
-        # setup.py may exist for backward compat but should not be required
+        # setup.py may exist but should not be required
         if setup_py.is_file():
             # If it exists, it should be minimal / deprecated
             content = setup_py.read_text()

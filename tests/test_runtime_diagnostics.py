@@ -32,7 +32,7 @@ from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.core.routing.router import Router
 
-_diagnostics: Any = importlib.import_module("medre.core.runtime.diagnostics")
+_diagnostics: Any = importlib.import_module("medre.core.supervision.diagnostics")
 RuntimeSnapshot = _diagnostics.RuntimeSnapshot
 _AdapterHealthInput = _diagnostics._AdapterHealthInput
 _NOT_YET_IMPLEMENTED = _diagnostics._NOT_YET_IMPLEMENTED

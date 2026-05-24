@@ -2,7 +2,7 @@
 
 > **Purpose:** Conceptual reference for MEDRE developers.
 > **Source:** Local inspection of a meshtastic-matrix-relay clone.
-> **Last audited:** 2026-05-22.
+> **Last audited:** 2026-05-24.
 
 This document summarizes conceptual behavior observed in the MMRelay
 (`meshtastic-matrix-relay`) codebase. It exists so that MEDRE contributors
@@ -87,8 +87,10 @@ storage in SQLite is the authoritative mapping, and the
 
 MMRelay has a `broadcast_enabled` config flag. When `False`, outbound
 Meshtastic sends are suppressed entirely. This allows running the
-relay in listen-only mode. MEDRE does not have an equivalent gate in
-the current tranche; the adapter always attempts delivery.
+relay in listen-only mode. MEDRE provides an equivalent gate via the
+`outbound_mode` config field: setting `outbound_mode = "listen_only"`
+suppresses all outbound radio sends while the adapter continues
+receiving and classifying inbound traffic.
 
 ## Startup stale/backlog suppression
 
@@ -171,7 +173,7 @@ approach.
 ## Stale MEDRE branches are not source material
 
 Stale MEDRE branches (e.g., `mclub/*`, old feature branches) are **not**
-source material for this or any other tranche. They may contain
+source material for this or any other development phase. They may contain
 outdated or abandoned code. Only the current branch state and the
 MMRelay reference are considered.
 
@@ -293,4 +295,36 @@ Key differences:
 8. **No policy DSL**: MEDRE does not implement MMRelay's per-portnum
    config overrides or chat-type config DSL. Classification policy is
    coded directly in the classifier decision tree. A policy DSL may be
-   added in a future tranche.
+   added in a planned update.
+
+9. **DM filtering location**: MMRelay filters third-party-directed packets
+   (messages where `to` is neither the local node nor broadcast) at the
+   classification layer — they are returned early and never reach the
+   relay. MEDRE's classifier marks direct messages addressed to the local
+   node with the `ignore` action and reason `"direct message to specific
+node"`, preserving visibility via diagnostics counters. Third-party
+   packets (neither local nor broadcast) are similarly ignored. Neither
+   system relays DMs by default, but MEDRE explicitly classifies and
+   counts them.
+
+10. **Empty text handling**: MEDRE explicitly classifies text messages
+    with empty or whitespace-only payloads as `ignore` with reason
+    `"empty text"`. MMRelay does not have a dedicated empty-text check
+    at the classification layer — empty payloads may pass through to the
+    relay path and result in a blank Matrix message.
+
+11. **Malformed packet handling**: MEDRE explicitly classifies packets
+    with missing or unparseable `decoded` payloads as `drop` with reason
+    `"malformed or missing decoded payload"`. MMRelay does not have a
+    dedicated malformed-packet classification — packets without a
+    `decoded` key may raise an exception or be silently skipped depending
+    on the code path.
+
+12. **Config-driven vs coded classification policy**: MMRelay's classifier
+    is config-driven: per-portnum overrides in the YAML configuration can
+    force any portnum to RELAY or DROP, and the catch-all default is
+    configurable. MEDRE's classification policy is a coded decision tree
+    in the packet classifier module. There is no user-facing
+    configuration for overriding classification outcomes. This means
+    MEDRE's behavior is predictable and testable but not runtime-tunable
+    without code changes.

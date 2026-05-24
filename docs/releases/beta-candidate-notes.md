@@ -8,6 +8,13 @@ This document records the beta candidate state of medre as of 2026-05-12. It is
 an honest assessment of what works, what is validated, what is not, and what
 remains unresolved. It does not overclaim.
 
+**Disposition:** This is a historical planning snapshot and beta-entry candidate
+record dated 2026-05-12. It is not a release declaration. As of this writing,
+MEDRE's package Development Status classifier is **Alpha / pre-release**
+(`"Development Status :: 3 - Alpha"` in `pyproject.toml`). The project has not
+entered Beta. This document retains its original title and date as a historical
+artifact of the beta-readiness evaluation.
+
 ## Quick Start
 
 ```bash
@@ -92,7 +99,7 @@ The following live validations require future hardware/software operations. They
 | MeshCore live smoke test                   | MeshCore   | MeshCore firmware running on CP2104 device | Pending |
 | Reticulum install from local source        | LXMF       | Configure transport, generate identity     | Pending |
 | LXMF live smoke test                       | LXMF       | Running Reticulum instance                 | Pending |
-| Matrix current-tranche live re-run         | Matrix     | Valid credentials (token or password)      | Pending |
+| Matrix current-pass live re-run            | Matrix     | Valid credentials (token or password)      | Pending |
 | Meshtastic adapter live re-run             | Meshtastic | `mtjk` in project venv                     | Pending |
 
 ## Known Limitations
@@ -198,11 +205,11 @@ See `README.md` for the full architecture description.
 - Not a Reticulum/LXMF network operator (single-node direct delivery only).
 - Not security-audited by a third party.
 
-## Changed Files (This Tranche)
+## Changed Files (2026-05-12 Work Batch)
 
 ### Track 5: License
 
-- `pyproject.toml`: License updated to `GPL-3.0-or-later`, classifier added, dev status updated to Beta.
+- `pyproject.toml`: License updated to `GPL-3.0-or-later`. License Trove classifier omitted per PEP 639 (see Contract 66). Development Status remains Alpha/pre-release.
 - `LICENSE`: Added. Standard FSF GPLv3 text with copyright holder placeholder.
 - `README.md`: License section updated.
 - `docs/contracts/40-license-governance.md`: Version 2. License decision recorded.

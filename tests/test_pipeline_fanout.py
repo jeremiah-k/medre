@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from medre.adapters.fake_presentation import FakePresentationAdapter
-from medre.adapters.fake_transport import FakeTransportAdapter
+from medre.adapters.fakes.presentation import FakePresentationAdapter
+from medre.adapters.fakes.transport import FakeTransportAdapter
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.observability.metrics import Diagnostician
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
@@ -235,7 +235,7 @@ class TestFanoutScaling:
         temp_storage: SQLiteStorage,
     ) -> None:
         """Fanout to 5 targets where all fail: 5 permanent_failure outcomes."""
-        from medre.adapters.fake_presentation import FaultyPresentationAdapter
+        from medre.adapters.fakes.presentation import FaultyPresentationAdapter
 
         targets = [f"broken-{i}" for i in range(5)]
         adapters = {
@@ -340,7 +340,7 @@ class TestFanoutScaling:
         temp_storage: SQLiteStorage,
     ) -> None:
         """Fanout: 2 good + 1 transient-faulty + 1 permanent-faulty."""
-        from medre.adapters.fake_presentation import FaultyPresentationAdapter
+        from medre.adapters.fakes.presentation import FaultyPresentationAdapter
 
         good_a = FakePresentationAdapter(adapter_id="good-a")
         good_b = FakePresentationAdapter(adapter_id="good-b")

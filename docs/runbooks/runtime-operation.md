@@ -287,12 +287,41 @@ When shutdown begins (SIGTERM, SIGINT, or programmatic):
 
 ### What Gets Drained vs Cancelled
 
-| Category                              | Behavior                                                                     |
-| ------------------------------------- | ---------------------------------------------------------------------------- |
-| In-flight adapter deliveries          | **Drained** — awaited up to `shutdown_drain_timeout_seconds`, then cancelled |
-| Adapter receive loops                 | Cancelled immediately on adapter `stop()`                                    |
-| Replay events                         | Cancelled; completed delivery receipts are preserved                         |
-| Route statistics, diagnostic counters | **Lost** — in-memory only                                                    |
+| Category                              | Behavior                                                                                                                                                                                                           |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| In-flight adapter deliveries          | **Drained** — awaited up to `shutdown_drain_timeout_seconds`, then cancelled                                                                                                                                       |
+| Abandoned in-flight deliveries        | **Evidence persisted** — each abandoned delivery gets a `status="suppressed"` receipt with `failure_kind=shutdown_rejection`, `error="shutdown_drain_timeout"`, and `failure_kind_detail="shutdown_drain_timeout"` |
+| Adapter receive loops                 | Cancelled immediately on adapter `stop()`                                                                                                                                                                          |
+| Replay events                         | Cancelled; completed delivery receipts are preserved                                                                                                                                                               |
+| Route statistics, diagnostic counters | **Lost** — in-memory only                                                                                                                                                                                          |
+
+### Drain-Abandoned Evidence
+
+When the drain deadline expires with in-flight deliveries still active, the runtime persists structured abandonment evidence before continuing shutdown. Each abandoned delivery produces a `DeliveryReceipt` with:
+
+| Field                 | Value                                                           |
+| --------------------- | --------------------------------------------------------------- |
+| `status`              | `suppressed`                                                    |
+| `failure_kind`        | `shutdown_rejection` (reuses existing enum)                     |
+| `error`               | `shutdown_drain_timeout`                                        |
+| `failure_kind_detail` | `shutdown_drain_timeout` (derived from error by `reporting.py`) |
+| `attempt_number`      | `1`                                                             |
+
+Each receipt includes the `event_id`, `route_id`, `target_adapter`, `target_channel`, and `delivery_plan_id` of the abandoned delivery. Receipts are persisted to SQLite storage and survive shutdown — they are retrievable via `medre inspect receipts` after the runtime exits.
+
+**Post-shutdown inspection:**
+
+```bash
+# Find events abandoned during drain timeout
+medre inspect receipts --event <event_id> --storage-path /path/to/medre.sqlite
+
+# SQL to find all drain-abandoned receipts
+sqlite3 /path/to/medre.sqlite \
+  "SELECT event_id, route_id, target_adapter, created_at
+   FROM delivery_receipts
+   WHERE status = 'suppressed' AND error = 'shutdown_drain_timeout'
+   ORDER BY created_at DESC;"
+```
 
 ### Shutdown Timeout
 
@@ -330,18 +359,18 @@ cp examples/env/docker.env.example .env
 
 Key variables:
 
-| Variable                                      | Purpose                                             |
-| --------------------------------------------- | --------------------------------------------------- |
-| `MEDRE_HOME`                                  | Root data directory inside container (`/opt/medre`) |
-| `MEDRE_LOG_LEVEL`                             | Log verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR`  |
-| `MEDRE_ADAPTER__MAIN__ENABLED`                | Enable Matrix adapter                               |
-| `MEDRE_ADAPTER__MAIN__HOMESERVER`             | Matrix homeserver URL                               |
-| `MEDRE_ADAPTER__MAIN__USER_ID`                | Matrix user ID                                      |
-| `MEDRE_ADAPTER__MAIN__ACCESS_TOKEN`           | Matrix access token                                 |
-| `MEDRE_ADAPTER__MAIN__ROOM_ALLOWLIST`         | Comma-separated room IDs                            |
-| `MEDRE_ADAPTER__RADIO__ENABLED`               | Enable Meshtastic adapter                           |
-| `MEDRE_ADAPTER__RADIO__CONNECTION_TYPE`       | Connection mode: `serial`, `tcp`, `ble`, `fake`     |
-| `MEDRE_ADAPTER__RADIO__SERIAL_PORT`           | Serial device path                                  |
+| Variable                                | Purpose                                             |
+| --------------------------------------- | --------------------------------------------------- |
+| `MEDRE_HOME`                            | Root data directory inside container (`/opt/medre`) |
+| `MEDRE_LOG_LEVEL`                       | Log verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR`  |
+| `MEDRE_ADAPTER__MAIN__ENABLED`          | Enable Matrix adapter                               |
+| `MEDRE_ADAPTER__MAIN__HOMESERVER`       | Matrix homeserver URL                               |
+| `MEDRE_ADAPTER__MAIN__USER_ID`          | Matrix user ID                                      |
+| `MEDRE_ADAPTER__MAIN__ACCESS_TOKEN`     | Matrix access token                                 |
+| `MEDRE_ADAPTER__MAIN__ROOM_ALLOWLIST`   | Comma-separated room IDs                            |
+| `MEDRE_ADAPTER__RADIO__ENABLED`         | Enable Meshtastic adapter                           |
+| `MEDRE_ADAPTER__RADIO__CONNECTION_TYPE` | Connection mode: `serial`, `tcp`, `ble`, `fake`     |
+| `MEDRE_ADAPTER__RADIO__SERIAL_PORT`     | Serial device path                                  |
 
 Mount a volume at `MEDRE_HOME` for persistent state:
 
@@ -699,14 +728,14 @@ The snapshot is written to `{state_dir}/shutdown-snapshot.json` (resolved accord
 
 **What is lost on shutdown:**
 
-| Data                                     | Lost? | Why                                                    |
-| ---------------------------------------- | ----- | ------------------------------------------------------ |
-| In-flight deliveries (not yet completed) | Yes   | In-memory only; cancelled during drain                 |
-| Runtime accounting counters              | Yes   | Process-local; not persisted                           |
-| RouteStats per-route counters            | Yes   | Process-local; not persisted                           |
-| CapacityController gauges                | Yes   | Process-local; reset on startup                        |
-| Active replay runs                       | Yes   | Must re-initiate manually                              |
-| Runtime events buffer                    | Yes   | Process-local; use `--snapshot-on-shutdown` to capture |
+| Data                                     | Lost?     | Why                                                                                        |
+| ---------------------------------------- | --------- | ------------------------------------------------------------------------------------------ |
+| In-flight deliveries (not yet completed) | Partially | Evidence receipt persisted with `shutdown_drain_timeout` detail; actual delivery abandoned |
+| Runtime accounting counters              | Yes       | Process-local; not persisted                                                               |
+| RouteStats per-route counters            | Yes       | Process-local; not persisted                                                               |
+| CapacityController gauges                | Yes       | Process-local; reset on startup                                                            |
+| Active replay runs                       | Yes       | Must re-initiate manually                                                                  |
+| Runtime events buffer                    | Yes       | Process-local; use `--snapshot-on-shutdown` to capture                                     |
 
 **Second interrupt (repeated Ctrl-C):**
 
@@ -822,14 +851,14 @@ This section summarizes what MEDRE state survives restarts and what is lost. For
 
 ### What Is NOT Persisted (Lost on Process Termination)
 
-| State                                       | Nature                        | Impact                            |
-| ------------------------------------------- | ----------------------------- | --------------------------------- |
-| In-flight deliveries                        | Lost on crash or cancellation | No receipt, no retry, no recovery |
-| Active replay runs                          | Lost on crash or shutdown     | Must re-initiate manually         |
-| Runtime counters (`inbound_accepted`, etc.) | Process-local only            | Reset to zero on every startup    |
-| RouteStats per-route counters               | Process-local only            | No historical route statistics    |
-| CapacityController gauges                   | Process-local only            | Reset on startup                  |
-| Adapter health/connection state             | Process-local only            | Adapters reconnect from scratch   |
+| State                                       | Nature                                                                                                                      | Impact                                            |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| In-flight deliveries                        | Evidence persisted as `suppressed` receipts with `failure_kind_detail=shutdown_drain_timeout`; delivery itself is abandoned | No retry, no recovery — but identity is auditable |
+| Active replay runs                          | Lost on crash or shutdown                                                                                                   | Must re-initiate manually                         |
+| Runtime counters (`inbound_accepted`, etc.) | Process-local only                                                                                                          | Reset to zero on every startup                    |
+| RouteStats per-route counters               | Process-local only                                                                                                          | No historical route statistics                    |
+| CapacityController gauges                   | Process-local only                                                                                                          | Reset on startup                                  |
+| Adapter health/connection state             | Process-local only                                                                                                          | Adapters reconnect from scratch                   |
 
 ### Crash Recovery
 
@@ -1260,8 +1289,8 @@ When a delivery or replay event cannot acquire a slot within `delivery_acquire_t
 
 Some adapters maintain their own bounded internal queues in addition to the global capacity semaphores:
 
-| Adapter    | Queue mechanism      | Default bound | Overflow policy                                  |
-| ---------- | -------------------- | ------------- | ------------------------------------------------ |
+| Adapter    | Queue mechanism                           | Default bound        | Overflow policy                                                          |
+| ---------- | ----------------------------------------- | -------------------- | ------------------------------------------------------------------------ |
 | Meshtastic | unbounded deque with explicit enqueue cap | 1024 items (default) | Explicit rejection when full, `queue_total_rejected` counter incremented |
 
 Other adapters (Matrix, LXMF, MeshCore) rely on the `CapacityController` semaphore and their transport's own flow control.

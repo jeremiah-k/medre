@@ -87,7 +87,11 @@ def _make_lxmf_canonical_event(
         parent_event_id=None,
         lineage=(),
         relations=(),
-        payload={"body": content, "portnum": "lxmf", **({"title": title} if title else {})},
+        payload={
+            "body": content,
+            "portnum": "lxmf",
+            **({"title": title} if title else {}),
+        },
         metadata=EventMetadata(
             native=NativeMetadata(
                 data={
@@ -224,9 +228,7 @@ class TestLxmfNativeRefStorage:
         )
         await temp_storage.store_native_ref(nref)
 
-        resolved = await temp_storage.resolve_native_ref(
-            "lxmf-test", None, "bb" * 32
-        )
+        resolved = await temp_storage.resolve_native_ref("lxmf-test", None, "bb" * 32)
         assert resolved == "ce-nref-1"
 
     async def test_lxmf_inbound_native_ref_resolves(self, temp_storage) -> None:
@@ -250,9 +252,7 @@ class TestLxmfNativeRefStorage:
         )
         await temp_storage.store_native_ref(nref)
 
-        resolved = await temp_storage.resolve_native_ref(
-            "lxmf-test", None, "dd" * 32
-        )
+        resolved = await temp_storage.resolve_native_ref("lxmf-test", None, "dd" * 32)
         assert resolved == "ce-inbound-1"
 
 

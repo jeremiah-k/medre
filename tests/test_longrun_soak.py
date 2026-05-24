@@ -47,7 +47,7 @@ from medre.core.diagnostics.replay_metrics import ReplayMetrics
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.metadata import EventMetadata, RoutingMetadata
 from medre.core.routing.stats import RouteStats
-from medre.core.runtime.capacity import CapacityController
+from medre.core.supervision.capacity import CapacityController
 from medre.runtime.app import MedreApp, RuntimeState
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.snapshot import (

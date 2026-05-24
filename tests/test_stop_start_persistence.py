@@ -38,13 +38,13 @@ from typing import cast
 
 import pytest
 
-from medre.adapters.fake_presentation import FakePresentationAdapter
+from medre.adapters.fakes.presentation import FakePresentationAdapter
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.events import CanonicalEvent, EventMetadata, NativeRef
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
-from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage.backend import StorageBackend
 from medre.core.storage.sqlite import SQLiteStorage
+from medre.core.supervision.accounting import RuntimeAccounting
 from tests.helpers.bridge import make_pipeline_config
 from tests.helpers.pipeline import make_event
 

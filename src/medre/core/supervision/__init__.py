@@ -2,13 +2,13 @@
 
 Package-level imports
 ---------------------
-* From :mod:`~medre.core.runtime.accounting`:
+* From :mod:`~medre.core.supervision.accounting`:
   ``RuntimeAccounting``, ``RuntimeCounters``.
-* From :mod:`~medre.core.runtime.capacity`:
+* From :mod:`~medre.core.supervision.capacity`:
   ``CapacityController``.
-* From :mod:`~medre.core.runtime.health`:
+* From :mod:`~medre.core.supervision.health`:
   ``VALID_HEALTH_STRINGS``, ``normalize_adapter_health``.
-* From :mod:`~medre.core.runtime.supervision`:
+* From :mod:`~medre.core.supervision.supervision`:
   ``RuntimeHealth``, ``AdapterFailureSeverity``, ``StartupOutcome``,
   ``classify_runtime_health``, ``classify_adapter_failure_severity``,
   ``classify_startup_outcome``, ``runtime_supervision_snapshot``.

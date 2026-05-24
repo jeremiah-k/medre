@@ -17,10 +17,7 @@ from pathlib import Path
 import pytest
 
 from tests.helpers.cli import (
-    CONFIG_FAKE_MULTI,
-    CONFIG_SINGLE_ADAPTER,
     _run_cli,
-    _run_cli_both,
     _run_cli_raw,
 )
 

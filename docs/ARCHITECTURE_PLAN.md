@@ -115,10 +115,10 @@ Both imports target the same pure-function module (`core/observability/sanitizat
 
 **Type-only coupling** (acceptable, no runtime dependency):
 
-| Source                    | Import                                            | Guard                     |
-| ------------------------- | ------------------------------------------------- | ------------------------- |
-| `core/engine/pipeline.py` | `CapacityController` from `core.runtime.capacity` | `if TYPE_CHECKING:` block |
-| `core/storage/replay.py`  | `CapacityController` from `core.runtime.capacity` | `if TYPE_CHECKING:` block |
+| Source                    | Import                                                | Guard                     |
+| ------------------------- | ----------------------------------------------------- | ------------------------- |
+| `core/engine/pipeline.py` | `CapacityController` from `core.supervision.capacity` | `if TYPE_CHECKING:` block |
+| `core/storage/replay.py`  | `CapacityController` from `core.supervision.capacity` | `if TYPE_CHECKING:` block |
 
 ## 2. Package Tree
 
@@ -129,12 +129,14 @@ medre/
 ├── py.typed
 ├── adapters/                # concrete adapter implementations only
 │   ├── __init__.py          # lightweight package marker / docstring only
-│   ├── fake_lxmf.py
-│   ├── fake_matrix.py
-│   ├── fake_meshcore.py
-│   ├── fake_meshtastic.py
-│   ├── fake_presentation.py
-│   ├── fake_transport.py
+│   ├── fakes/               # fake adapters for testing/dev
+│   │   ├── __init__.py
+│   │   ├── lxmf.py
+│   │   ├── matrix.py
+│   │   ├── meshcore.py
+│   │   ├── meshtastic.py
+│   │   ├── presentation.py
+│   │   └── transport.py
 │   ├── matrix/              # adapter, auth, cli, codec, errors, session, etc.
 │   ├── meshtastic/
 │   ├── lxmf/
@@ -171,11 +173,10 @@ medre/
 │   ├── policies/            # transport-neutral policy helpers
 │   ├── rendering/           # renderer, text
 │   ├── routing/             # models, router, stats
-│   ├── runtime/             # accounting, capabilities, capacity,
+│   ├── supervision/         # accounting, capabilities, capacity,
 │   │                        # diagnostic_contract, diagnostics, health, supervision
 │   ├── storage/             # backend, replay, sqlite
-│   └── transforms/          # empty
-├── interop/                 # mmrelay wire-format constants
+└── interop/                 # mmrelay wire-format constants
 ├── plugins/                 # scaffolding only: Plugin protocol, PluginCapability enum
 └── runtime/                 # app, builder, retry, route_engine,
                               # boot_summary, drill, smoke, snapshot, timeline, trace,
@@ -187,13 +188,13 @@ medre/
 
 - Config validation errors are `ValueError` subclasses, not adapter runtime error subclasses.
 - Matrix credential sidecar helpers are owned by the config layer for testability.
-- `medre.core.runtime/` is distinct from top-level `medre.runtime/`.
+- `medre.core.supervision/` is distinct from top-level `medre.runtime/`.
 - Route configuration dataclasses are owned by `medre.config.routes`, not `medre.runtime`. Runtime route expansion and topology remain in `medre.runtime.route_engine`.
 
 Current canonical module homes:
 
 - Adapter base contracts live in `medre.core.contracts.adapter`.
-- Core runtime helper types live under `medre.core.runtime/`.
+- Core runtime helper types live under `medre.core.supervision/`.
 - Adapter config dataclasses live in `medre.config.adapters.*`.
 - Route config models live in `medre.config.routes`; runtime expansion and topology live in `medre.runtime.route_engine`.
 
@@ -205,13 +206,13 @@ MMRelay is NOT a dependency, import target, vendor source, or copy target for ME
 
 ## 4. Remaining Follow-Up Work
 
-- Rename `core/runtime/` → `core/supervision/` to eliminate naming collision with top-level `runtime/`
-- Move fake adapters to `medre.adapters.fakes/` subdirectory
+- ~~Rename `core/runtime/` → `core/supervision/` to eliminate naming collision with top-level `runtime/`~~ — done
+- ~~Move fake adapters to `medre.adapters.fakes/` subdirectory~~ — done
 - Decide disposition of remaining contract/doc documents (audit records vs current specifications)
-- Evaluate merging `core/diagnostics/` into `core/observability/`
-- Deduplicate `_SECRET_KEY_PATTERNS` between `core/runtime/diagnostic_contract.py` and `core/observability/sanitization.py`
+- Evaluate merging `core/diagnostics/` into `core/observability/` — evaluated and deferred; semantic scopes differ (diagnostics normalizes cross-adapter health metadata; observability owns structured logging and secret filtering)
+- ~~Deduplicate `_SECRET_KEY_PATTERNS` between `core/runtime/diagnostic_contract.py` and `core/observability/sanitization.py`~~ — done; canonical definition in `core/observability/sanitization.py`, imported by `diagnostic_contract.py`
 - The `core/policies/` directory contains transport-neutral pure policy helpers (e.g., startup backlog suppression window logic). Transport-specific extraction/parsing lives in each adapter package. `core` never imports from `adapters`; adapter-specific helpers live in adapter packages.
-- Delete empty package `core/transforms/`
+- ~~Delete empty package `core/transforms/`~~ — done
 
 ## 5. Deferred Tranches
 

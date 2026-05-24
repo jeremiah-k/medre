@@ -35,9 +35,9 @@ from typing import Any
 
 import pytest
 
-from medre.adapters.fake_matrix import FakeMatrixAdapter
-from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
-from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
+from medre.adapters.fakes.matrix import FakeMatrixAdapter
+from medre.adapters.fakes.meshcore import FakeMeshCoreAdapter
+from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
 from medre.config.model import (
     AdapterConfigSet,
     LoggingConfig,

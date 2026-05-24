@@ -17,15 +17,12 @@ import pytest
 from medre.config.paths import MedrePaths, resolve
 from medre.runtime.app import RuntimeState
 from medre.runtime.builder import RuntimeBuilder
-from medre.runtime.snapshot import SCHEMA_VERSION, build_runtime_snapshot
-
+from medre.runtime.snapshot import build_runtime_snapshot
 from tests.helpers.fake_runtime import (
     build_and_start,
     clean_stop,
     make_multi_adapter_config,
-    wait_until,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

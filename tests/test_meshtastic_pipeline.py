@@ -11,7 +11,7 @@ import tempfile
 from datetime import datetime, timezone
 from typing import Any
 
-from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
+from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
@@ -115,7 +115,9 @@ class TestMeshtasticPipelineIntegration:
         rp.register(
             MeshtasticRenderer(
                 configs={
-                    "meshtastic_node": MeshtasticConfig(adapter_id="meshtastic_node", radio_relay_prefix="")
+                    "meshtastic_node": MeshtasticConfig(
+                        adapter_id="meshtastic_node", radio_relay_prefix=""
+                    )
                 }
             ),
             priority=50,

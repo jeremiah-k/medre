@@ -37,10 +37,9 @@ from medre.config.model import (
     RuntimeOptions,
     StorageConfig,
 )
-
 from medre.config.paths import MedrePaths, MedrePathsError, resolve
-from medre.core.observability.log_levels import VALID_LEVEL_NAMES
 from medre.config.routes import RouteConfigSet
+from medre.core.observability.log_levels import VALID_LEVEL_NAMES
 
 # ---------------------------------------------------------------------------
 # Config source enum
@@ -222,7 +221,11 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
     canonical_level = log_data.get("level", "INFO").upper()
     canonical_format = log_data.get("format", "text").lower()
     raw_overrides = log_data.get("overrides", {})
-    canonical_overrides = {k: v.upper() for k, v in raw_overrides.items()} if raw_overrides else raw_overrides
+    canonical_overrides = (
+        {k: v.upper() for k, v in raw_overrides.items()}
+        if raw_overrides
+        else raw_overrides
+    )
 
     logging = LoggingConfig(
         level=canonical_level,
@@ -406,7 +409,10 @@ def _validate_logging_section(log_data: dict) -> None:
                     f"{logger_name!r}. Keys must be non-empty strings.",
                     section_path="logging.overrides",
                 )
-            if not isinstance(level_val, str) or level_val.upper() not in VALID_LEVEL_NAMES:
+            if (
+                not isinstance(level_val, str)
+                or level_val.upper() not in VALID_LEVEL_NAMES
+            ):
                 raise ConfigValidationError(
                     f"[logging] overrides[{logger_name!r}] has invalid level "
                     f"{level_val!r}. Must be one of: "

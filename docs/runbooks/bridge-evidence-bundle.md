@@ -807,6 +807,22 @@ PYTHONPATH=src medre smoke --drill <drill_name> --storage-path /tmp/medre-smoke.
 8. **Pre-beta.** Exit codes, receipt schemas, drill names, and report shapes
    may change before beta. Always verify against the current code.
 
+9. **Meshtastic outbound gate suppression.** When the Meshtastic adapter is
+   configured with `outbound_mode = "listen_only"`, outbound deliveries are
+   suppressed before RF transmission. Suppressed deliveries appear in the
+   evidence bundle as non-retryable adapter failures with detail
+   `outbound suppressed: listen_only mode`. This is intentional operator-configured
+   suppression, not a transport failure. The evidence bundle records these
+   failures honestly — they are not hidden from the receipt trail. Inbound
+   evidence is unaffected. See `docs/runbooks/configuration.md`
+   (Outbound Gate Semantics).
+
+10. **Meshtastic shutdown queue abandonment.** Items remaining in the Meshtastic
+    adapter's in-memory outbound queue at shutdown are lost — not persisted,
+    not requeued, not recovered on restart. The adapter-local queue is non-durable.
+    Delivery receipts already written to SQLite survive, but in-flight queue
+    items do not. This is a documented non-guarantee.
+
 ## 8. Cross-References
 
 - [Fake Bridge Smoke Runbook](fake-bridge-smoke-runbook.md) — smoke command

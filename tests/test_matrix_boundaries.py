@@ -13,8 +13,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from medre.adapters.fake_matrix import FakeMatrixAdapter
-from medre.adapters.fake_presentation import FakePresentationAdapter
+from medre.adapters.fakes.matrix import FakeMatrixAdapter
+from medre.adapters.fakes.presentation import FakePresentationAdapter
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.codec import MatrixCodec
 from medre.adapters.matrix.errors import MatrixSendError
@@ -177,7 +177,7 @@ class TestMatrixBoundaries:
         temp_storage,
     ) -> None:
         """Failed Matrix delivery must not store an outbound native ref."""
-        from medre.adapters.fake_presentation import FaultyPresentationAdapter
+        from medre.adapters.fakes.presentation import FaultyPresentationAdapter
         from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
         from medre.core.events.bus import EventBus
         from medre.core.planning import FallbackResolver, RelationResolver

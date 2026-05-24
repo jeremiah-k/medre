@@ -245,7 +245,7 @@ class TestMeshCoreFakeAdapterOperability:
         WHY: Import-time SDK coupling would make the fake adapter unusable in
         clean environments — exactly where it is needed most.
         """
-        from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
+        from medre.adapters.fakes.meshcore import FakeMeshCoreAdapter
 
         assert FakeMeshCoreAdapter is not None
 
@@ -262,7 +262,7 @@ class TestMeshCoreFakeAdapterOperability:
         sdk_names = ("meshcore",)
         # Import fresh to detect side-effects.
 
-        importlib.import_module("medre.adapters.fake_meshcore")
+        importlib.import_module("medre.adapters.fakes.meshcore")
         for sdk in sdk_names:
             if sdk in _SESSION_BASELINE_SDK_MODULES:
                 continue  # SDK was loaded before this test session.
@@ -277,7 +277,7 @@ class TestMeshCoreFakeAdapterOperability:
         constructor required SDK types, the fake adapter would be useless
         for isolated testing.
         """
-        from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
+        from medre.adapters.fakes.meshcore import FakeMeshCoreAdapter
         from medre.config.adapters.meshcore import MeshCoreConfig
 
         config = MeshCoreConfig(adapter_id="test_op_boundary")
@@ -292,7 +292,7 @@ class TestMeshCoreFakeAdapterOperability:
         must fulfill.  If the fake adapter's lifecycle required SDK calls,
         it could not stand in for the real adapter in integration tests.
         """
-        from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
+        from medre.adapters.fakes.meshcore import FakeMeshCoreAdapter
         from medre.config.adapters.meshcore import MeshCoreConfig
 
         config = MeshCoreConfig(adapter_id="test_op_lifecycle")
@@ -309,7 +309,7 @@ class TestMeshCoreFakeAdapterOperability:
         replay tests.  If the fake delivery path required SDK types, those
         tests would fail in clean environments.
         """
-        from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
+        from medre.adapters.fakes.meshcore import FakeMeshCoreAdapter
         from medre.config.adapters.meshcore import MeshCoreConfig
         from medre.core.rendering.renderer import RenderingResult
 
@@ -338,7 +338,7 @@ class TestMeshCoreFakeAdapterOperability:
         and does not depend on SDK state that only exists after a real radio
         connection.
         """
-        from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
+        from medre.adapters.fakes.meshcore import FakeMeshCoreAdapter
         from medre.config.adapters.meshcore import MeshCoreConfig
 
         config = MeshCoreConfig(adapter_id="test_lifecycle_diag")
@@ -427,7 +427,7 @@ class TestMeshCoreDiagnosticSafety:
         any transport (HTTP API, file, log aggregator) without pickling or
         custom encoders that might accidentally serialize SDK internals.
         """
-        from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
+        from medre.adapters.fakes.meshcore import FakeMeshCoreAdapter
         from medre.config.adapters.meshcore import MeshCoreConfig
 
         config = MeshCoreConfig(adapter_id="test_diag_safe")
@@ -448,7 +448,7 @@ class TestMeshCoreDiagnosticSafety:
         identity data in their repr().  If diagnostics exposes them, any
         logging or API serialization could leak sensitive state.
         """
-        from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
+        from medre.adapters.fakes.meshcore import FakeMeshCoreAdapter
         from medre.config.adapters.meshcore import MeshCoreConfig
 
         config = MeshCoreConfig(adapter_id="test_no_sdk_leak")
@@ -471,7 +471,7 @@ class TestMeshCoreDiagnosticSafety:
         """
         import json
 
-        from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
+        from medre.adapters.fakes.meshcore import FakeMeshCoreAdapter
         from medre.config.adapters.meshcore import MeshCoreConfig
 
         config = MeshCoreConfig(adapter_id="test_diag_str_safe")

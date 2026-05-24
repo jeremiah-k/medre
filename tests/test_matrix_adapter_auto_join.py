@@ -19,7 +19,6 @@ from tests.helpers.matrix_session import (
     make_matrix_context,
 )
 
-
 # ===================================================================
 # Part D — auto-join integration
 # ===================================================================
@@ -136,9 +135,7 @@ class TestAdapterDeliverAutoJoin:
         finally:
             await adapter.stop()
 
-    async def test_deliver_does_not_auto_join_unconfigured_room(
-        self, mock_nio
-    ) -> None:
+    async def test_deliver_does_not_auto_join_unconfigured_room(self, mock_nio) -> None:
         """deliver() does NOT auto-join a room not in auto_join_rooms."""
         config = make_matrix_config(
             auto_join_rooms=("!configured:server",),

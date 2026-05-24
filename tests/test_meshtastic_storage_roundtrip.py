@@ -230,14 +230,10 @@ class TestMeshtasticNativeRefStorage:
         )
         await temp_storage.store_native_ref(nref)
 
-        resolved = await temp_storage.resolve_native_ref(
-            "mesh-test", "2", "200"
-        )
+        resolved = await temp_storage.resolve_native_ref("mesh-test", "2", "200")
         assert resolved == "ce-nref-1"
 
-    async def test_meshtastic_inbound_native_ref_resolves(
-        self, temp_storage
-    ) -> None:
+    async def test_meshtastic_inbound_native_ref_resolves(self, temp_storage) -> None:
         """An inbound Meshtastic native ref resolves to the correct event."""
         event = _make_meshtastic_canonical_event(
             event_id="ce-inbound-1",
@@ -259,9 +255,7 @@ class TestMeshtasticNativeRefStorage:
         )
         await temp_storage.store_native_ref(nref)
 
-        resolved = await temp_storage.resolve_native_ref(
-            "mesh-test", "0", "300"
-        )
+        resolved = await temp_storage.resolve_native_ref("mesh-test", "0", "300")
         assert resolved == "ce-inbound-1"
 
     async def test_meshtastic_reply_relation_preserves_native_target(
@@ -345,9 +339,7 @@ class TestMeshtasticStorageCounts:
         count = await temp_storage.count_events()
         assert count == 5
 
-    async def test_receipt_count_with_meshtastic_delivery(
-        self, temp_storage
-    ) -> None:
+    async def test_receipt_count_with_meshtastic_delivery(self, temp_storage) -> None:
         """Receipt count reflects Meshtastic delivery receipts."""
         event = _make_meshtastic_canonical_event(event_id="ce-rcpt-1")
         await temp_storage.append(event)

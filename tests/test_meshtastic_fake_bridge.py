@@ -31,7 +31,7 @@ import logging
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
-from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
+from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
 from medre.config.adapters.meshtastic import MeshtasticConfig
@@ -45,8 +45,8 @@ from medre.core.planning.relation_resolution import RelationResolver
 from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
-from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage.sqlite import SQLiteStorage
+from medre.core.supervision.accounting import RuntimeAccounting
 from tests.helpers.meshtastic_bridge import make_adapter_context, make_text_packet
 
 # ===================================================================
@@ -89,7 +89,11 @@ class TestMeshtasticInboundToFakeOutbound:
         rp = RenderingPipeline()
         rp.register(
             MeshtasticRenderer(
-                configs={"fake-out": MeshtasticConfig(adapter_id="fake-out", radio_relay_prefix="")}
+                configs={
+                    "fake-out": MeshtasticConfig(
+                        adapter_id="fake-out", radio_relay_prefix=""
+                    )
+                }
             ),
             priority=50,
         )
@@ -743,13 +747,13 @@ class TestFakeInboundToMeshtasticOutbound:
         packet = make_text_packet(text="nref check", packet_id=44444)
         await fake_in_adapter.simulate_inbound(packet)
 
-        # Delivery receipt is 'sent' for local acceptance.
+        # Delivery receipt is 'queued' for enqueue-only adapters.
         rows = await temp_storage._read_all(
             "SELECT * FROM delivery_receipts WHERE target_adapter = ?",
             ("bridge-mesh-nref",),
         )
         assert len(rows) == 1
-        assert rows[0]["status"] == "sent"
+        assert rows[0]["status"] == "queued"
 
         # NO outbound native ref stored (native_message_id is None).
         # The real adapter returns None for native_message_id, so no

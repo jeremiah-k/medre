@@ -21,8 +21,8 @@ from medre.core.events.metadata import EventMetadata
 from medre.core.observability.classification import infer_failure_kind
 from medre.core.planning.delivery_plan import RetryExecutor, RetryPolicy
 from medre.core.routing.models import Route, RouteSource, RouteTarget
-from medre.core.runtime.accounting import RuntimeAccounting
-from medre.core.runtime.capacity import CapacityController
+from medre.core.supervision.accounting import RuntimeAccounting
+from medre.core.supervision.capacity import CapacityController
 
 # ---------------------------------------------------------------------------
 # RetryWorker (shutdown variant)
@@ -360,7 +360,7 @@ class TestRetryShutdownRealPipeline:
         """Real pipeline creates due receipt, worker starts then stops cleanly."""
         import uuid
 
-        from medre.adapters.fake_presentation import FakePresentationAdapter
+        from medre.adapters.fakes.presentation import FakePresentationAdapter
         from medre.core.contracts.adapter import AdapterContext
         from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
         from medre.core.events.bus import EventBus

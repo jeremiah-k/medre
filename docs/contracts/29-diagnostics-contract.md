@@ -146,7 +146,7 @@ All exceptions are converted to `str()` before inclusion. All complex objects ar
 
 ### 6.1 Runtime Snapshot Layer
 
-Location: `src/medre/core/runtime/diagnostics.py`
+Location: `src/medre/core/supervision/diagnostics.py`
 
 The `RuntimeSnapshot` dataclass and `capture_runtime_snapshot()` pure function enforce deterministic serialization:
 
@@ -174,7 +174,7 @@ Adapters that return plain dicts from `diagnostics()` (Matrix, Meshtastic, MeshC
 
 ### 6.3 Health Normalization Layer
 
-Location: `src/medre/core/runtime/health.py`
+Location: `src/medre/core/supervision/health.py`
 
 `normalize_adapter_health()` projects `AdapterInfo` + optional `AdapterState` into a JSON-safe dict with a fixed health vocabulary of six strings: `"healthy"`, `"degraded"`, `"failed"`, `"unknown"`, `"starting"`, `"stopping"`. This is a read-only projection. It does not add health polling, circuit breakers, or auto-degrade logic.
 

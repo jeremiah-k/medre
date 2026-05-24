@@ -284,6 +284,20 @@ path works end-to-end. Radio transmission to remote nodes is fire-and-forget —
 `success=True` means the local radio accepted the packet, not that a remote
 node received it. See `docs/contracts/36-radio-limitations.md`.
 
+**Outbound gate (`outbound_mode`):** The Meshtastic adapter supports
+`outbound_mode = "listen_only"` to suppress all RF transmission while
+continuing to receive inbound packets. When set, outbound deliveries are
+rejected as non-retryable failures. This is useful for monitoring the mesh
+without contributing RF traffic. Enable via TOML (`outbound_mode = "listen_only"`)
+or environment variable (`MEDRE_ADAPTER__RADIO__OUTBOUND_MODE=listen_only`).
+See `docs/runbooks/configuration.md` (Outbound Gate Semantics).
+
+**Queued/sent is not RF delivered:** A delivery receipt showing `status="sent"`
+for the Meshtastic adapter means the local node accepted the packet for radio
+transmission. It does not mean any remote node received it. The adapter does
+not provide RF delivery confirmation or remote ACK. See
+`docs/runbooks/meshtastic-alpha-operation.md` section 9.1.
+
 ## 6. Meshtastic → Matrix
 
 > **⚠️ Higher risk section.** Meshtastic inbound callback reliability is a
@@ -393,20 +407,20 @@ output suitable for archival or comparison.
 
 ## 8. Troubleshooting
 
-| Symptom                                  | Cause                                | Fix                                                                                                                                                                            |
-| ---------------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Symptom                                  | Cause                                | Fix                                                                                                                                                   |
+| ---------------------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `"access_token must be non-empty"`       | Empty access token in config         | Run `medre adapter matrix auth login --homeserver ... --user ...` to save credentials to the sidecar, or fill in `access_token` manually in the TOML. |
-| `"serial_port required"`                 | No serial device path configured     | Check USB connection. Run `ls /dev/ttyACM* /dev/ttyUSB*` to find the device. Set `serial_port` in config.                                                                      |
-| Permission denied on serial port         | User not in `dialout` group          | `sudo usermod -aG dialout $USER` then log out and back in.                                                                                                                     |
-| `"host is required"`                     | TCP connection type without host     | Set `host` in `[adapters.meshtastic.radio]`, or switch `connection_type` to `"serial"`.                                                                                        |
-| Matrix adapter not healthy               | Invalid or expired access token      | Re-run `medre adapter matrix auth login` to obtain a fresh token, or verify token via Element.                                                                                 |
-| Radio not responding                     | Connection issue or firmware problem | Check USB cable, verify firmware version, try the Meshtastic CLI tool (`meshtastic --info`).                                                                                   |
-| No messages arriving                     | Room allowlist mismatch              | Ensure `room_allowlist` contains the actual room ID (format: `!opaque:server`).                                                                                                |
-| Matrix adapter starts but radio fails    | Radio SDK not installed              | Run `pip install -e ".[meshtastic]"`. Verify with `medre adapters`.                                                                                                            |
-| Radio adapter starts but Matrix fails    | Matrix SDK not installed             | Run `pip install -e ".[matrix]"`. Verify with `medre adapters`.                                                                                                                |
-| Inbound Meshtastic packets not processed | Known gap — callback reliability     | Document observation. Try restarting the runtime. Check firmware version.                                                                                                      |
-| Duplicate messages on radio              | Retry policy producing duplicates    | Expected behavior with retry (up to 3 attempts). See `docs/contracts/36-radio-limitations.md`.                                                                                 |
-| Health stays `degraded`                  | Reconnect cycle in progress          | Wait for reconnect or check transport availability.                                                                                                                            |
+| `"serial_port required"`                 | No serial device path configured     | Check USB connection. Run `ls /dev/ttyACM* /dev/ttyUSB*` to find the device. Set `serial_port` in config.                                             |
+| Permission denied on serial port         | User not in `dialout` group          | `sudo usermod -aG dialout $USER` then log out and back in.                                                                                            |
+| `"host is required"`                     | TCP connection type without host     | Set `host` in `[adapters.meshtastic.radio]`, or switch `connection_type` to `"serial"`.                                                               |
+| Matrix adapter not healthy               | Invalid or expired access token      | Re-run `medre adapter matrix auth login` to obtain a fresh token, or verify token via Element.                                                        |
+| Radio not responding                     | Connection issue or firmware problem | Check USB cable, verify firmware version, try the Meshtastic CLI tool (`meshtastic --info`).                                                          |
+| No messages arriving                     | Room allowlist mismatch              | Ensure `room_allowlist` contains the actual room ID (format: `!opaque:server`).                                                                       |
+| Matrix adapter starts but radio fails    | Radio SDK not installed              | Run `pip install -e ".[meshtastic]"`. Verify with `medre adapters`.                                                                                   |
+| Radio adapter starts but Matrix fails    | Matrix SDK not installed             | Run `pip install -e ".[matrix]"`. Verify with `medre adapters`.                                                                                       |
+| Inbound Meshtastic packets not processed | Known gap — callback reliability     | Document observation. Try restarting the runtime. Check firmware version.                                                                             |
+| Duplicate messages on radio              | Retry policy producing duplicates    | Expected behavior with retry (up to 3 attempts). See `docs/contracts/36-radio-limitations.md`.                                                        |
+| Health stays `degraded`                  | Reconnect cycle in progress          | Wait for reconnect or check transport availability.                                                                                                   |
 
 ### Logging and dependency noise
 

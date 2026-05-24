@@ -1,5 +1,6 @@
 """Tests for SQLiteStorage: idempotent native refs, source_native_ref round-trip,
-relation target_native_thread_id, and NULL channel native ref idempotency.
+relation target_native_thread_id, NULL channel native ref idempotency,
+list_native_refs_for_event, and RelationResolver integration.
 """
 
 from __future__ import annotations
@@ -15,10 +16,9 @@ from medre.core.events import (
     NativeMessageRef,
     NativeRef,
 )
+from medre.core.planning.relation_resolution import RelationResolver
 from medre.core.storage import SQLiteStorage
-
 from tests.helpers.storage import make_storage_event
-
 
 # ===================================================================
 # Idempotent native refs
@@ -337,3 +337,475 @@ class TestNullChannelNativeRefIdempotency:
         )
         assert len(rows) == 1
         assert rows[0]["id"] == "nref-null-1"
+
+    async def test_null_channel_resolve_round_trip(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """A native ref with native_channel_id=None can be stored and resolved."""
+        event = make_storage_event(event_id="evt-null-rt")
+        await temp_storage.append(event)
+
+        ref = NativeMessageRef(
+            id="nref-null-rt",
+            event_id="evt-null-rt",
+            adapter="meshcore",
+            native_channel_id=None,
+            native_message_id="pkt-42",
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="inbound",
+        )
+        await temp_storage.store_native_ref(ref)
+
+        resolved = await temp_storage.resolve_native_ref("meshcore", None, "pkt-42")
+        assert resolved == "evt-null-rt"
+
+        # Also confirm that a non-matching adapter returns None.
+        assert await temp_storage.resolve_native_ref("other", None, "pkt-42") is None
+
+
+# ===================================================================
+# Same native message ID on different channels stays distinct
+# ===================================================================
+
+
+class TestDistinctChannels:
+    """The same native_message_id on different channels maps to different events."""
+
+    async def test_same_message_id_different_channels(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Two refs with same native_message_id but different channels resolve independently."""
+        event_a = make_storage_event(event_id="evt-ch-a")
+        event_b = make_storage_event(event_id="evt-ch-b")
+        await temp_storage.append(event_a)
+        await temp_storage.append(event_b)
+
+        ref_a = NativeMessageRef(
+            id="nref-ch-a",
+            event_id="evt-ch-a",
+            adapter="matrix",
+            native_channel_id="!roomA:server",
+            native_message_id="$msg-42",
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="inbound",
+        )
+        ref_b = NativeMessageRef(
+            id="nref-ch-b",
+            event_id="evt-ch-b",
+            adapter="matrix",
+            native_channel_id="!roomB:server",
+            native_message_id="$msg-42",
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="inbound",
+        )
+        await temp_storage.store_native_ref(ref_a)
+        await temp_storage.store_native_ref(ref_b)
+
+        assert (
+            await temp_storage.resolve_native_ref("matrix", "!roomA:server", "$msg-42")
+            == "evt-ch-a"
+        )
+        assert (
+            await temp_storage.resolve_native_ref("matrix", "!roomB:server", "$msg-42")
+            == "evt-ch-b"
+        )
+
+    async def test_same_message_id_different_adapters(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Same message ID on different adapters resolves independently."""
+        event_x = make_storage_event(event_id="evt-ad-x")
+        event_y = make_storage_event(event_id="evt-ad-y")
+        await temp_storage.append(event_x)
+        await temp_storage.append(event_y)
+
+        ref_x = NativeMessageRef(
+            id="nref-ad-x",
+            event_id="evt-ad-x",
+            adapter="adapter_x",
+            native_channel_id="ch-1",
+            native_message_id="msg-99",
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="inbound",
+        )
+        ref_y = NativeMessageRef(
+            id="nref-ad-y",
+            event_id="evt-ad-y",
+            adapter="adapter_y",
+            native_channel_id="ch-1",
+            native_message_id="msg-99",
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="inbound",
+        )
+        await temp_storage.store_native_ref(ref_x)
+        await temp_storage.store_native_ref(ref_y)
+
+        assert (
+            await temp_storage.resolve_native_ref("adapter_x", "ch-1", "msg-99")
+            == "evt-ad-x"
+        )
+        assert (
+            await temp_storage.resolve_native_ref("adapter_y", "ch-1", "msg-99")
+            == "evt-ad-y"
+        )
+
+
+# ===================================================================
+# list_native_refs_for_event
+# ===================================================================
+
+
+class TestListNativeRefsForEvent:
+    """list_native_refs_for_event returns all native refs for a given event."""
+
+    async def test_empty_when_no_refs(self, temp_storage: SQLiteStorage) -> None:
+        """An event with no stored native refs returns an empty list."""
+        event = make_storage_event(event_id="evt-no-nrefs")
+        await temp_storage.append(event)
+
+        refs = await temp_storage.list_native_refs_for_event("evt-no-nrefs")
+        assert refs == []
+
+    async def test_returns_single_ref(self, temp_storage: SQLiteStorage) -> None:
+        """One stored native ref is returned correctly."""
+        event = make_storage_event(event_id="evt-single-nref")
+        await temp_storage.append(event)
+
+        ref = NativeMessageRef(
+            id="nref-single",
+            event_id="evt-single-nref",
+            adapter="slack",
+            native_channel_id="C123",
+            native_message_id="123.456",
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="outbound",
+            created_at=datetime(2025, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
+        )
+        await temp_storage.store_native_ref(ref)
+
+        refs = await temp_storage.list_native_refs_for_event("evt-single-nref")
+        assert len(refs) == 1
+        assert refs[0].id == "nref-single"
+        assert refs[0].adapter == "slack"
+        assert refs[0].native_channel_id == "C123"
+        assert refs[0].native_message_id == "123.456"
+        assert refs[0].direction == "outbound"
+        assert refs[0].event_id == "evt-single-nref"
+
+    async def test_multiple_adapter_refs_for_same_event(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Multiple native refs from different adapters for the same event are retrievable."""
+        event = make_storage_event(event_id="evt-multi-adapters")
+        await temp_storage.append(event)
+
+        t0 = datetime(2025, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
+        t1 = datetime(2025, 6, 1, 12, 0, 1, tzinfo=timezone.utc)
+        t2 = datetime(2025, 6, 1, 12, 0, 2, tzinfo=timezone.utc)
+
+        ref_matrix = NativeMessageRef(
+            id="nref-matrix",
+            event_id="evt-multi-adapters",
+            adapter="matrix",
+            native_channel_id="!room:server",
+            native_message_id="$m1",
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="outbound",
+            created_at=t0,
+        )
+        ref_slack = NativeMessageRef(
+            id="nref-slack",
+            event_id="evt-multi-adapters",
+            adapter="slack",
+            native_channel_id="C_GENERAL",
+            native_message_id="1700000000.000001",
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="outbound",
+            created_at=t1,
+        )
+        ref_mesh = NativeMessageRef(
+            id="nref-mesh",
+            event_id="evt-multi-adapters",
+            adapter="meshtastic",
+            native_channel_id=None,
+            native_message_id="mesh-42",
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="outbound",
+            created_at=t2,
+        )
+        await temp_storage.store_native_ref(ref_matrix)
+        await temp_storage.store_native_ref(ref_slack)
+        await temp_storage.store_native_ref(ref_mesh)
+
+        refs = await temp_storage.list_native_refs_for_event("evt-multi-adapters")
+        assert len(refs) == 3
+
+        # Ordered by created_at ASC.
+        assert refs[0].adapter == "matrix"
+        assert refs[1].adapter == "slack"
+        assert refs[2].adapter == "meshtastic"
+
+    async def test_does_not_return_refs_from_other_events(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Refs from other events are excluded."""
+        event_a = make_storage_event(event_id="evt-a")
+        event_b = make_storage_event(event_id="evt-b")
+        await temp_storage.append(event_a)
+        await temp_storage.append(event_b)
+
+        ref_a = NativeMessageRef(
+            id="nref-a",
+            event_id="evt-a",
+            adapter="matrix",
+            native_channel_id="ch-a",
+            native_message_id="msg-a",
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="inbound",
+        )
+        ref_b = NativeMessageRef(
+            id="nref-b",
+            event_id="evt-b",
+            adapter="matrix",
+            native_channel_id="ch-b",
+            native_message_id="msg-b",
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="inbound",
+        )
+        await temp_storage.store_native_ref(ref_a)
+        await temp_storage.store_native_ref(ref_b)
+
+        refs = await temp_storage.list_native_refs_for_event("evt-a")
+        assert len(refs) == 1
+        assert refs[0].event_id == "evt-a"
+
+
+# ===================================================================
+# RelationResolver with real SQLiteStorage
+# ===================================================================
+
+
+class TestRelationResolverWithStorage:
+    """RelationResolver resolves native refs through real SQLiteStorage."""
+
+    async def test_resolve_event_relations_populates_target_event_id(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """resolve_event_relations fills target_event_id from a stored native ref mapping."""
+        # 1. Store a target event and its native ref.
+        target_event = make_storage_event(event_id="evt-target-1")
+        await temp_storage.append(target_event)
+
+        target_nref = NativeMessageRef(
+            id="nref-target-1",
+            event_id="evt-target-1",
+            adapter="discord",
+            native_channel_id="channel-1",
+            native_message_id="msg-target-abc",
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="inbound",
+        )
+        await temp_storage.store_native_ref(target_nref)
+
+        # 2. Build a source event with an unresolved relation (no target_event_id).
+        unresolved_rel = EventRelation(
+            relation_type="reply",
+            target_event_id=None,
+            target_native_ref=NativeRef(
+                adapter="discord",
+                native_channel_id="channel-1",
+                native_message_id="msg-target-abc",
+            ),
+            key=None,
+            fallback_text=None,
+        )
+        source_event = make_storage_event(
+            event_id="evt-source-1",
+            relations=(unresolved_rel,),
+        )
+
+        # 3. Resolve via RelationResolver backed by real storage.
+        resolver = RelationResolver(storage=temp_storage)
+        resolved = await resolver.resolve_event_relations(source_event)
+
+        # 4. The target_event_id should now be populated.
+        assert resolved.relations[0].target_event_id == "evt-target-1"
+        # target_native_ref is preserved.
+        assert resolved.relations[0].target_native_ref is not None
+        assert (
+            resolved.relations[0].target_native_ref.native_message_id
+            == "msg-target-abc"
+        )
+
+    async def test_resolve_event_relations_no_change_when_already_resolved(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """A relation with target_event_id already set is returned unchanged."""
+        resolved_rel = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-already-known",
+            target_native_ref=NativeRef(
+                adapter="matrix",
+                native_channel_id="!room:server",
+                native_message_id="$m1",
+            ),
+            key=None,
+            fallback_text=None,
+        )
+        event = make_storage_event(
+            event_id="evt-pre-resolved", relations=(resolved_rel,)
+        )
+
+        resolver = RelationResolver(storage=temp_storage)
+        result = await resolver.resolve_event_relations(event)
+
+        assert result.relations[0].target_event_id == "evt-already-known"
+
+    async def test_resolve_event_relations_preserves_unresolvable(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """A relation whose native ref has no stored mapping is preserved as-is."""
+        unresolved_rel = EventRelation(
+            relation_type="reaction",
+            target_event_id=None,
+            target_native_ref=NativeRef(
+                adapter="unknown_adapter",
+                native_channel_id="ch-x",
+                native_message_id="msg-not-stored",
+            ),
+            key="👍",
+            fallback_text=None,
+        )
+        event = make_storage_event(
+            event_id="evt-unresolvable", relations=(unresolved_rel,)
+        )
+
+        resolver = RelationResolver(storage=temp_storage)
+        result = await resolver.resolve_event_relations(event)
+
+        # target_event_id stays None — native ref could not be resolved.
+        assert result.relations[0].target_event_id is None
+        assert result.relations[0].target_native_ref is not None
+
+    async def test_resolve_event_relations_no_relations_returns_same_event(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """An event with no relations is returned as-is."""
+        event = make_storage_event(event_id="evt-no-rels")
+
+        resolver = RelationResolver(storage=temp_storage)
+        result = await resolver.resolve_event_relations(event)
+
+        assert result.event_id == "evt-no-rels"
+        assert result.relations == ()
+
+    async def test_resolve_relation_raises_on_no_ref_and_no_id(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """resolve_relation raises ValueError when both target_event_id and
+        target_native_ref are absent."""
+        bare_rel = EventRelation(
+            relation_type="reply",
+            target_event_id=None,
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+
+        resolver = RelationResolver(storage=temp_storage)
+        with pytest.raises(ValueError, match="target_native_ref"):
+            await resolver.resolve_relation(bare_rel)
+
+    async def test_resolve_relation_returns_already_resolved(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """A relation with target_event_id set is returned unchanged."""
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-known",
+            target_native_ref=NativeRef(
+                adapter="matrix",
+                native_channel_id="ch",
+                native_message_id="msg",
+            ),
+            key=None,
+            fallback_text=None,
+        )
+
+        resolver = RelationResolver(storage=temp_storage)
+        result = await resolver.resolve_relation(rel)
+
+        assert result.target_event_id == "evt-known"
+        # Should be the same object (already resolved path).
+        assert result is rel
+
+    async def test_resolve_relation_populates_from_storage(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """resolve_relation looks up native ref and returns new relation with target_event_id."""
+        target_event = make_storage_event(event_id="evt-rr-target")
+        await temp_storage.append(target_event)
+
+        nref = NativeMessageRef(
+            id="nref-rr-1",
+            event_id="evt-rr-target",
+            adapter="slack",
+            native_channel_id="C123",
+            native_message_id="123.456",
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="inbound",
+        )
+        await temp_storage.store_native_ref(nref)
+
+        unresolved = EventRelation(
+            relation_type="thread",
+            target_event_id=None,
+            target_native_ref=NativeRef(
+                adapter="slack",
+                native_channel_id="C123",
+                native_message_id="123.456",
+            ),
+            key=None,
+            fallback_text=None,
+        )
+
+        resolver = RelationResolver(storage=temp_storage)
+        result = await resolver.resolve_relation(unresolved)
+
+        assert result.target_event_id == "evt-rr-target"
+        assert result.target_native_ref is not None
+
+    async def test_resolve_relation_returns_original_when_unresolvable(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """resolve_relation returns the original relation when no mapping exists."""
+        unresolved = EventRelation(
+            relation_type="reply",
+            target_event_id=None,
+            target_native_ref=NativeRef(
+                adapter="ghost",
+                native_channel_id="ch-ghost",
+                native_message_id="msg-ghost",
+            ),
+            key=None,
+            fallback_text=None,
+        )
+
+        resolver = RelationResolver(storage=temp_storage)
+        result = await resolver.resolve_relation(unresolved)
+
+        assert result.target_event_id is None
+        assert result is unresolved

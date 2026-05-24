@@ -39,7 +39,7 @@ from typing import Any, cast
 
 import pytest
 
-from medre.adapters.fake_matrix import FakeMatrixAdapter
+from medre.adapters.fakes.matrix import FakeMatrixAdapter
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.compat import HAS_NIO
 from medre.adapters.matrix.renderer import MatrixRenderer
@@ -51,9 +51,9 @@ from medre.core.planning import FallbackResolver, RelationResolver
 from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
-from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage import SQLiteStorage
 from medre.core.storage.backend import StorageBackend
+from medre.core.supervision.accounting import RuntimeAccounting
 
 from .conftest import (
     _RUN_ARTIFACT_DIR,
@@ -61,11 +61,9 @@ from .conftest import (
     _write_artifact_json,
     _write_run_metadata,
 )
-from .synapse_helpers import (
-    INBOUND_FALLBACK as _INBOUND_FALLBACK,
-    INBOUND_SYNC_LOOP as _INBOUND_SYNC_LOOP,
-    wait_for_sync_or_fallback as _wait_for_sync_or_fallback,
-)
+from .synapse_helpers import INBOUND_FALLBACK as _INBOUND_FALLBACK
+from .synapse_helpers import INBOUND_SYNC_LOOP as _INBOUND_SYNC_LOOP
+from .synapse_helpers import wait_for_sync_or_fallback as _wait_for_sync_or_fallback
 
 logger = logging.getLogger(__name__)
 

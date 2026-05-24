@@ -12,7 +12,6 @@ import json
 import pytest
 
 from tests.helpers.live_harness import (
-    LiveEnvStatus,
     LiveRequirement,
     LiveSmokeResult,
     assert_no_secret_leak,
@@ -21,7 +20,6 @@ from tests.helpers.live_harness import (
     live_result_to_json,
     redact_env_value,
 )
-
 
 # ===================================================================
 # (a) redact_env_value
@@ -86,9 +84,7 @@ class TestLiveEnvStatus:
         # non-secret, innocuous name → literal value
         assert status.redacted_values["MATRIX_HOMESERVER"] == "https://synapse.local"
 
-    def test_missing_var_not_enabled(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_missing_var_not_enabled(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Missing env var → not enabled, name appears in missing tuple."""
         monkeypatch.delenv("DOES_NOT_EXIST_XYZ", raising=False)
 
@@ -148,9 +144,7 @@ class TestAssertNoSecretLeak:
     def test_dict_with_secret_raises(self) -> None:
         """Dict containing a secret value triggers AssertionError."""
         with pytest.raises(AssertionError, match="Secret value leaked"):
-            assert_no_secret_leak(
-                {"token": "syt_secret123"}, ["syt_secret123"]
-            )
+            assert_no_secret_leak({"token": "syt_secret123"}, ["syt_secret123"])
 
     def test_empty_secret_passes(self) -> None:
         """Empty secret strings are skipped and never cause failure."""

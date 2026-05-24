@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
-from medre.adapters.fake_presentation import (
+from medre.adapters.fakes.presentation import (
     FakePresentationAdapter,
 )
 from medre.core.contracts.adapter import (
@@ -42,8 +42,8 @@ from medre.core.rendering.text import TextRenderer
 from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.core.routing.router import Router
 from medre.core.routing.stats import RouteStats
-from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage.sqlite import SQLiteStorage
+from medre.core.supervision.accounting import RuntimeAccounting
 
 # ---------------------------------------------------------------------------
 # FallbackResolver that injects a retry_policy into every plan
@@ -742,7 +742,7 @@ class TestRetryRuntimeIntegration:
         """Full bridge retry: real pipeline, real storage query, native ref
         on retry success, original failed excluded from next due query."""
         from medre.config.model import RuntimeLimits
-        from medre.core.runtime.capacity import CapacityController
+        from medre.core.supervision.capacity import CapacityController
         from medre.runtime.retry import RetryWorker
 
         adapter = _TransientThenSucceedAdapter(
@@ -1101,7 +1101,7 @@ class TestRetryRuntimeIntegration:
 
             # Retry using the real RetryWorker with DIFFERENT defaults
             from medre.config.model import RuntimeLimits
-            from medre.core.runtime.capacity import CapacityController
+            from medre.core.supervision.capacity import CapacityController
             from medre.runtime.retry import RetryWorker
 
             limits = RuntimeLimits(
@@ -1142,7 +1142,7 @@ class TestRetryRuntimeIntegration:
         Proves trace/recover/evidence consistency across the retry lifecycle.
         """
         from medre.config.model import RuntimeLimits
-        from medre.core.runtime.capacity import CapacityController
+        from medre.core.supervision.capacity import CapacityController
         from medre.runtime.retry import RetryWorker
         from medre.runtime.timeline import (
             assemble_event_timeline,

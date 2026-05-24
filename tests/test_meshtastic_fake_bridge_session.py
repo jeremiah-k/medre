@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
+from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
 from medre.adapters.meshtastic.session import MeshtasticSession
@@ -66,7 +66,11 @@ class TestMeshtasticSessionCallbackBridge:
         rp = RenderingPipeline()
         rp.register(
             MeshtasticRenderer(
-                configs={"cb-fake-out": MeshtasticConfig(adapter_id="cb-fake-out", radio_relay_prefix="")}
+                configs={
+                    "cb-fake-out": MeshtasticConfig(
+                        adapter_id="cb-fake-out", radio_relay_prefix=""
+                    )
+                }
             ),
             priority=50,
         )

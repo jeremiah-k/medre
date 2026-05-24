@@ -24,10 +24,10 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-from medre.adapters.fake_lxmf import FakeLxmfAdapter
-from medre.adapters.fake_matrix import FakeMatrixAdapter
-from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
-from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
+from medre.adapters.fakes.lxmf import FakeLxmfAdapter
+from medre.adapters.fakes.matrix import FakeMatrixAdapter
+from medre.adapters.fakes.meshcore import FakeMeshCoreAdapter
+from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
 from medre.config.adapters.lxmf import LxmfConfig
 from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.config.adapters.meshtastic import MeshtasticConfig
@@ -38,8 +38,8 @@ from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.routing.stats import RouteStats
-from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage.sqlite import SQLiteStorage
+from medre.core.supervision.accounting import RuntimeAccounting
 from tests.helpers.async_utils import wait_until
 from tests.helpers.bridge import (
     make_adapter_context,

@@ -149,9 +149,9 @@ async def _run_session(app: Any, db_path: str) -> None:
     # -- Verify delivery outcomes ---------------------------------------------
     assert len(outcomes) >= 1, "Expected at least one delivery outcome"
     successful = [o for o in outcomes if o.status == "success"]
-    assert len(successful) >= 1, (
-        f"No successful deliveries; outcomes: {[o.status for o in outcomes]}"
-    )
+    assert (
+        len(successful) >= 1
+    ), f"No successful deliveries; outcomes: {[o.status for o in outcomes]}"
 
     target = successful[0].target_adapter
     assert target == "mesh_dest"
@@ -175,9 +175,9 @@ async def _run_session(app: Any, db_path: str) -> None:
     outbound_refs = [
         nr for nr in native_refs if getattr(nr, "direction", None) == "outbound"
     ]
-    assert len(outbound_refs) >= 1, (
-        "Expected at least one outbound native ref for mesh_dest"
-    )
+    assert (
+        len(outbound_refs) >= 1
+    ), "Expected at least one outbound native ref for mesh_dest"
 
     # The FakeMeshtasticAdapter generates sequential packet IDs starting at 1.
     dest_ref = outbound_refs[0]
@@ -190,9 +190,9 @@ async def _run_session(app: Any, db_path: str) -> None:
         native_channel_id=dest_ref.native_channel_id,
         native_message_id=dest_ref.native_message_id,
     )
-    assert resolved == event.event_id, (
-        f"Native ref resolved to {resolved!r}, expected {event.event_id!r}"
-    )
+    assert (
+        resolved == event.event_id
+    ), f"Native ref resolved to {resolved!r}, expected {event.event_id!r}"
 
     # -- Verify db file exists ------------------------------------------------
     assert Path(db_path).exists(), f"Storage DB file not found at {db_path}"

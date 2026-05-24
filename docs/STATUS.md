@@ -1,6 +1,6 @@
 # MEDRE Transport Capability Status
 
-> **Generated:** 2026-05-23
+> **Generated:** 2026-05-24
 >
 > **Context:** This is a living document. It tracks which MEDRE capabilities are implemented, tested, and validated across each transport adapter. It exists so operators and developers can see, at a glance, what works and what does not.
 >

@@ -41,7 +41,6 @@ from medre.config.paths import resolve
 from medre.core.routing.stats import RouteStats
 from medre.runtime.app import RuntimeState
 from medre.runtime.builder import RuntimeBuilder
-
 from tests.helpers.soak import (
     DiagnosticsSnapshot,
     SoakRuntime,

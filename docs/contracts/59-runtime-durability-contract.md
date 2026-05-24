@@ -50,11 +50,11 @@ Storage `close()` flushes SQLite WAL buffers. Deliveries that complete within th
 
 The runtime enforces two independent concurrency bounds via `CapacityController`:
 
-| Resource                  | Bound                                      | Mechanism                         |
-| ------------------------- | ------------------------------------------ | --------------------------------- |
-| In-flight deliveries      | `max_inflight_deliveries` (default 100)    | Semaphore                         |
-| In-flight replay events   | `max_inflight_replay_events` (default 100) | Semaphore                         |
-| Meshtastic outbound queue | `max_queue_size` (default 1024)            | unbounded deque with explicit enqueue-time rejection |
+| Resource                  | Bound                                      | Mechanism                                           |
+| ------------------------- | ------------------------------------------ | --------------------------------------------------- |
+| In-flight deliveries      | `max_inflight_deliveries` (default 100)    | Semaphore                                           |
+| In-flight replay events   | `max_inflight_replay_events` (default 100) | Semaphore                                           |
+| Meshtastic outbound queue | `max_queue_size` (default 1024)            | internal deque with explicit enqueue-time rejection |
 
 These bounds prevent unbounded memory growth from concurrent operations or queue accumulation. See Contract 53 for full capacity semantics.
 
@@ -97,18 +97,19 @@ Operators are responsible for database backup, log rotation, and monitoring disk
 
 The following state is **lost** on process termination (crash, shutdown, or restart):
 
-| State                                                                                                 | Nature                       | Impact of Loss                                           |
-| ----------------------------------------------------------------------------------------------------- | ---------------------------- | -------------------------------------------------------- |
-| In-flight deliveries                                                                                  | Semaphore-tracked coroutines | No receipt, no retry, no recovery                        |
-| Active replay runs                                                                                    | Async generator iterations   | Must re-initiate manually                                |
-| ReplaySummary (completed replay results)                                                              | In-memory dataclass          | Must re-run replay to regenerate                         |
-| `CapacityController` internal gauges (`delivery_timeouts`, `delivery_rejections`, etc.)               | In-memory counters           | Reset to zero on every startup                           |
-| `RouteStats` per-route counters                                                                       | In-memory counters           | No historical route statistics                           |
-| `RuntimeAccounting` counters                                                                          | In-memory counters           | Reset to zero on every startup                           |
-| Retry snapshot counters (`retry_processed`, `retry_succeeded`, `retry_failed`, `retry_dead_lettered`) | In-memory counters           | Reset to zero on every startup; reflect current run only |
-| Adapter health / connection state                                                                     | In-memory                    | Adapters reconnect from scratch on restart               |
-| `Diagnostician` counters                                                                              | In-memory                    | Reset to zero on every startup                           |
-| `BootSummary`                                                                                         | In-memory                    | Recomputed on next startup                               |
+| State                                                                                                 | Nature                        | Impact of Loss                                                                               |
+| ----------------------------------------------------------------------------------------------------- | ----------------------------- | -------------------------------------------------------------------------------------------- |
+| In-flight deliveries                                                                                  | Semaphore-tracked coroutines  | No receipt, no retry, no recovery                                                            |
+| Active replay runs                                                                                    | Async generator iterations    | Must re-initiate manually                                                                    |
+| ReplaySummary (completed replay results)                                                              | In-memory dataclass           | Must re-run replay to regenerate                                                             |
+| Meshtastic outbound queue (`MeshtasticOutboundQueue` internal deque)                                  | In-memory `collections.deque` | All queued-but-unsent items lost; events survive in SQLite but have no receipt or native ref |
+| `CapacityController` internal gauges (`delivery_timeouts`, `delivery_rejections`, etc.)               | In-memory counters            | Reset to zero on every startup                                                               |
+| `RouteStats` per-route counters                                                                       | In-memory counters            | No historical route statistics                                                               |
+| `RuntimeAccounting` counters                                                                          | In-memory counters            | Reset to zero on every startup                                                               |
+| Retry snapshot counters (`retry_processed`, `retry_succeeded`, `retry_failed`, `retry_dead_lettered`) | In-memory counters            | Reset to zero on every startup; reflect current run only                                     |
+| Adapter health / connection state                                                                     | In-memory                     | Adapters reconnect from scratch on restart                                                   |
+| `Diagnostician` counters                                                                              | In-memory                     | Reset to zero on every startup                                                               |
+| `BootSummary`                                                                                         | In-memory                     | Recomputed on next startup                                                                   |
 
 ### 4.1 No Recovery of In-Flight Work
 
@@ -161,6 +162,28 @@ Transient-failure receipts with `next_retry_at` set survive process restart. The
 
 **Capacity rejection does not persist a receipt.** If the RetryWorker cannot acquire the delivery semaphore when processing a due retry, it emits a `retry_failed` runtime event and reschedules the existing receipt's `next_retry_at` to the next worker interval. No new `DeliveryReceipt` row is created for capacity rejection. The original failed receipt remains the only record. Capacity rejection is backpressure, not a delivery failure — it does not advance `attempt_number` and does not count toward `RetryPolicy` exhaustion.
 
+## 4.5 Meshtastic Outbound Queue — Non-Durability Decision
+
+The `MeshtasticOutboundQueue` is an **in-memory, non-durable** queue (`collections.deque`). This is an intentional alpha limitation, not a bug.
+
+**Design decision:** The Meshtastic outbound queue provides local-only send ordering and bounded retry within the process lifetime. It is not a persistent queue. Items that are enqueued but not yet sent at the time of crash, shutdown, or process termination are **permanently lost**.
+
+**Evidence lifecycle (best-effort, process-scoped):**
+
+1. The pipeline stores the canonical event in SQLite **before** delivery begins (§2.1). This is durable.
+2. The adapter enqueues the rendered payload into the in-memory queue. This is **not** durable.
+3. The queue's `process_one` dequeues an item, applies pacing, and calls the SDK send function. If the process crashes between dequeue and send completion, the item is lost.
+4. On successful send, the adapter returns a `QueueDeliveryResult` with the native packet ID. The pipeline then writes a `DeliveryReceipt` and `NativeMessageRef` to SQLite (§2.2). These are durable.
+5. On transient send failure, the queue front-requeues the item for bounded retry within the process. This retry is **not** durable across restarts.
+
+**Crash/shutdown impact on queued items:**
+
+- Events whose delivery was enqueued but not yet sent: event survives in SQLite (no receipt, no native ref). Identifiable via the orphaned-events query in §7.
+- Events whose send completed but receipt was not yet written: event survives in SQLite (no receipt). Same orphaned-events query applies.
+- Queue counters (`total_enqueued`, `total_sent`, `total_failed`, `total_rejected`, `total_requeued`, `total_exhausted`, `total_permanent_failed`): reset to zero on restart. These reflect the current process run only.
+
+**Deferred work:** Durable queue recovery (persisting queued-but-unsent items across restarts) is deferred to a future release. The current contract explicitly does not provide it.
+
 ## 5. Degraded-Runtime Semantics
 
 ### 5.1 Partial Adapter Startup
@@ -202,7 +225,7 @@ The runtime does **not** degrade into a different operational mode under capacit
 | ---------------------------- | ---------------------------- | ------- | ------------------------------------------- |
 | Concurrent deliveries        | `max_inflight_deliveries`    | 100     | Reject (permanent failure with diagnostics) |
 | Concurrent replay deliveries | `max_inflight_replay_events` | 100     | Reject (error with diagnostics)             |
-| Meshtastic outbound queue    | `max_queue_size`             | 1024    | Drop-oldest                                 |
+| Meshtastic outbound queue    | `max_queue_size`             | 1024    | Reject (enqueue-time transient error)       |
 
 **Unbounded by design:**
 
@@ -266,6 +289,7 @@ The following are explicitly **not** provided:
 - **Database size bounding.** SQLite grows with event volume. No automatic pruning or retention policy.
 - **Hot restart.** The runtime is a single-process application. No zero-downtime restart mechanism.
 - **Per-adapter restart.** Individual adapters cannot be restarted without shutting down the entire runtime.
+- **Meshtastic outbound queue durability.** The Meshtastic outbound queue is in-memory and non-durable. Items queued but not sent at crash/shutdown time are permanently lost. Events survive in SQLite but have no delivery receipt or native ref. Durable queue recovery is deferred to a future release (see §4.5).
 
 ## 9. Cross-References
 

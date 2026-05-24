@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from medre.adapters.fake_matrix import FakeMatrixAdapter
+from medre.adapters.fakes.matrix import FakeMatrixAdapter
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
 from medre.core.contracts.adapter import (
@@ -20,13 +20,13 @@ from medre.core.contracts.adapter import (
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.events.kinds import EventKind
 from medre.core.rendering.renderer import RenderingResult
+from tests.helpers.matrix_adapter import make_adapter_context as _make_adapter_context
+from tests.helpers.matrix_adapter import make_fake_nio_event as _make_fake_nio_event
 from tests.helpers.matrix_adapter import (
-    make_adapter_context as _make_adapter_context,
-    make_fake_nio_event as _make_fake_nio_event,
     make_fake_reaction_event as _make_fake_reaction_event,
-    make_fake_room as _make_fake_room,
-    make_matrix_config as _make_matrix_config,
 )
+from tests.helpers.matrix_adapter import make_fake_room as _make_fake_room
+from tests.helpers.matrix_adapter import make_matrix_config as _make_matrix_config
 
 
 def _make_event(event_id: str = "evt-1") -> CanonicalEvent:

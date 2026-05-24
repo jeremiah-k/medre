@@ -35,10 +35,10 @@ path = "{state}/medre.sqlite"
 # The bot auto-joins every room listed in the channel_room_map.
 [adapters.matrix.main]
 enabled = true
-homeserver = ""                        # REQUIRED — your homeserver URL
-user_id = ""                           # REQUIRED — bot user ID (e.g. @mesh-bot:example.com)
-access_token = ""                      # REQUIRED — bot access token
-encryption_mode = "plaintext"          # plaintext for bring-up; e2ee_required once vodozemac is installed
+homeserver = ""               # REQUIRED — your homeserver URL
+user_id = ""                  # REQUIRED — bot user ID (e.g. @mesh-bot:example.com)
+access_token = ""             # REQUIRED — bot access token
+encryption_mode = "plaintext" # plaintext for bring-up; e2ee_required once vodozemac is installed
 
 # ---------------------------------------------------------------------------
 # Meshtastic transport (serial)
@@ -48,8 +48,8 @@ enabled = true
 connection_type = "serial"
 serial_port = "/dev/ttyACM0"
 meshnet_name = "medre-radio"
-matrix_relay_prefix = "[{longname}/{meshnet_name}]: "  # Meshtastic→Matrix prefix
-radio_relay_prefix = "{shortname5}[M]: "               # Matrix→Meshtastic prefix
+matrix_relay_prefix = "[{longname}/{meshnet_name}]: " # Meshtastic→Matrix prefix
+radio_relay_prefix = "{shortname5}[M]: "              # Matrix→Meshtastic prefix
 
 # # --- TCP alternative (uncomment to use instead of serial) ---
 # connection_type = "tcp"
@@ -76,4 +76,4 @@ source_adapters = ["main"]
 dest_adapters = ["radio"]
 directionality = "bidirectional"
 enabled = true
-channel_room_map = {0 = "!general:example.com", 1 = "!admin:example.com", 2 = "!alerts:example.com"}
+channel_room_map = { 0 = "!general:example.com", 1 = "!admin:example.com", 2 = "!alerts:example.com" }

@@ -221,6 +221,8 @@ class FakeMeshtasticAdapter(AdapterContract):
         self._adapter_start_epoch: float | None = None
         self._startup_backlog_packets_seen: int = 0
         self._startup_backlog_packets_suppressed: int = 0
+        # Outbound gate suppression counter
+        self._outbound_gate_suppressed: int = 0
         # Build per-config capabilities matching the real adapter pattern.
         self._capabilities = AdapterCapabilities(
             text=True,
@@ -298,6 +300,9 @@ class FakeMeshtasticAdapter(AdapterContract):
             "startup_backlog_packets_suppressed": self._startup_backlog_packets_suppressed,
             "startup_backlog_suppress_seconds": self._config.startup_backlog_suppress_seconds,
             "adapter_start_epoch": self._adapter_start_epoch,
+            # Outbound gate
+            "outbound_mode": self._config.outbound_mode,
+            "outbound_gate_suppressed": self._outbound_gate_suppressed,
         }
 
     # -- Outbound delivery --------------------------------------------------
@@ -326,7 +331,8 @@ class FakeMeshtasticAdapter(AdapterContract):
         Raises
         ------
         AdapterPermanentError
-            If *result* is not a :class:`RenderingResult`.
+            If *result* is not a :class:`RenderingResult`, or if
+            ``outbound_mode`` is ``"listen_only"``.
         AdapterSendError
             If ``set_deliver_failure(True)`` was called.
         """
@@ -336,6 +342,14 @@ class FakeMeshtasticAdapter(AdapterContract):
                 f"got {type(result).__name__}. Use simulate_inbound() for "
                 f"the inbound path."
             )
+
+        # Outbound gate: suppress radio sends when listen_only.
+        # Checked before _deliver_failure so listen_only always wins (mirrors
+        # real adapter where listen_only is checked immediately after type
+        # validation).
+        if self._config.outbound_mode == "listen_only":
+            self._outbound_gate_suppressed += 1
+            raise AdapterPermanentError("outbound suppressed: listen_only mode")
 
         if self._deliver_failure:
             raise AdapterSendError(

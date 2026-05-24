@@ -4,13 +4,13 @@ derivation from route configuration."""
 
 from __future__ import annotations
 
-from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 import pytest
 
+from medre.config.adapters.matrix import MatrixConfig
 from medre.config.model import (
     AdapterConfigSet,
     MatrixRuntimeConfig,
@@ -20,13 +20,12 @@ from medre.config.model import (
     StorageConfig,
 )
 from medre.config.paths import MedrePaths, resolve
-from medre.config.adapters.matrix import MatrixConfig
+from medre.config.routes import RouteConfig, RouteConfigSet, RouteDirectionality
 from medre.core.contracts.adapter import AdapterContract
 from medre.core.routing.router import Router
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.errors import RuntimeConfigError
 from medre.runtime.route_engine import RouteValidationError, register_routes
-from medre.config.routes import RouteConfig, RouteConfigSet, RouteDirectionality
 from tests.helpers.runtime_builder import (
     clean_path_env,
     make_fake_matrix_config,
@@ -439,9 +438,7 @@ class TestMatrixAutoJoinRoomsDerivation:
         )
         assert result["fm"] == ("!dstroom:test.org",)
 
-    def test_explicit_rooms_preserved_and_unioned(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    def test_explicit_rooms_preserved_and_unioned(self, tmp_paths: MedrePaths) -> None:
         """Explicit auto_join_rooms from config are unioned with derived rooms."""
         rt_matrix = MatrixRuntimeConfig(
             adapter_id="fm",
@@ -514,13 +511,9 @@ class TestMatrixAutoJoinRoomsDerivation:
         )
         builder = RuntimeBuilder(config, tmp_paths)
         with pytest.raises(RuntimeConfigError, match="room_allowlist.*omits"):
-            builder._derive_matrix_auto_join_rooms(
-                {"fm": "matrix", "ft": "meshtastic"}
-            )
+            builder._derive_matrix_auto_join_rooms({"fm": "matrix", "ft": "meshtastic"})
 
-    def test_room_allowlist_none_remains_none(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    def test_room_allowlist_none_remains_none(self, tmp_paths: MedrePaths) -> None:
         """room_allowlist=None is preserved (accept all rooms)."""
         rt_matrix = MatrixRuntimeConfig(
             adapter_id="fm",
@@ -558,9 +551,7 @@ class TestMatrixAutoJoinRoomsDerivation:
         assert rt_matrix.config is not None
         assert rt_matrix.config.room_allowlist is None
 
-    def test_no_matrix_adapters_returns_empty(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    def test_no_matrix_adapters_returns_empty(self, tmp_paths: MedrePaths) -> None:
         """No Matrix adapters → empty mapping (no crash)."""
         rt_mesh = MeshtasticRuntimeConfig(
             adapter_id="ft",
@@ -575,9 +566,7 @@ class TestMatrixAutoJoinRoomsDerivation:
             ),
         )
         builder = RuntimeBuilder(config, tmp_paths)
-        result = builder._derive_matrix_auto_join_rooms(
-            {"ft": "meshtastic"}
-        )
+        result = builder._derive_matrix_auto_join_rooms({"ft": "meshtastic"})
         assert result == {}
 
     def test_non_bang_channel_ignored(self, tmp_paths: MedrePaths) -> None:
@@ -663,9 +652,7 @@ class TestMatrixAutoJoinRoomsDerivation:
         # fm is source in forward (srcroom) and dest in reverse (srcroom again)
         assert result["fm"] == ("!srcroom:test.org",)
 
-    def test_bidirectional_two_matrix_adapters(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    def test_bidirectional_two_matrix_adapters(self, tmp_paths: MedrePaths) -> None:
         """Bidirectional between two Matrix adapters: each gets its source room
         and the other's source room (as target in reverse)."""
         from medre.config.routes import RouteDirectionality
@@ -741,13 +728,11 @@ class TestMatrixAutoJoinRoomsDerivation:
         )
         builder = RuntimeBuilder(config, tmp_paths)
         # Call build() — fake adapter path, but rooms are derived before construction
-        app = builder.build()
+        builder.build()
         # Verify the internal state was set
         assert builder._matrix_auto_join["fm"] == ("!autojoin:test.org",)
 
-    def test_real_adapter_receives_merged_rooms(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    def test_real_adapter_receives_merged_rooms(self, tmp_paths: MedrePaths) -> None:
         """When building a real (non-fake) Matrix adapter, the config
         has auto_join_rooms merged from route derivation."""
         rt_matrix = MatrixRuntimeConfig(
@@ -809,13 +794,13 @@ class TestMatrixAutoJoinRoomsDerivation:
                     cfg = dc_replace(cfg, auto_join_rooms=merged)
                 captured_configs.append(cfg)
                 # Return fake adapter since nio likely not installed
-                from medre.adapters.fake_matrix import FakeMatrixAdapter
+                from medre.adapters.fakes.matrix import FakeMatrixAdapter
 
                 return FakeMatrixAdapter(adapter_id="fm")
             return original_build_single(transport, adapter_id, rtc)
 
         with patch.object(builder, "_build_single_adapter", side_effect=_capture_build):
-            app = builder.build()
+            builder.build()
 
         # Verify the merged config has both rooms
         assert len(captured_configs) == 1
@@ -837,9 +822,7 @@ class TestChannelRoomMapBuilderIntegration:
     channel_room_map routes expand without RouteValidationError.
     """
 
-    def test_build_with_channel_room_map_succeeds(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    def test_build_with_channel_room_map_succeeds(self, tmp_paths: MedrePaths) -> None:
         """Full builder.build() with a channel_room_map route registers
         expanded per-channel routes on the router."""
         rt_matrix = MatrixRuntimeConfig(
@@ -973,9 +956,7 @@ class TestChannelRoomMapBuilderIntegration:
         assert "!room0:test.org" in result["fm"]
         assert "!room3:test.org" in result["fm"]
 
-    def test_disabled_route_skipped_in_auto_join(
-        self, tmp_paths: MedrePaths
-    ) -> None:
+    def test_disabled_route_skipped_in_auto_join(self, tmp_paths: MedrePaths) -> None:
         """A route with enabled=False is skipped during auto-join room
         derivation — its rooms do not appear in the auto-join set (lines 572-573)."""
         rt_matrix = MatrixRuntimeConfig(

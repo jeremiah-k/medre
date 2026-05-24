@@ -377,6 +377,7 @@ class MeshtasticOutboundQueue:
         delivery_result = AdapterDeliveryResult(
             native_message_id=native_id,
             native_channel_id=str(channel_index),
+            delivery_status="sent",
             metadata=metadata,
         )
 

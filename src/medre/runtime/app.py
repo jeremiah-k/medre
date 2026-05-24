@@ -22,20 +22,21 @@ import asyncio
 import enum
 import logging
 import time as _time
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from medre.core.lifecycle.states import AdapterState, require_valid_transition
-from medre.core.runtime.accounting import RuntimeAccounting
-from medre.core.runtime.health import (
+from medre.core.supervision.accounting import RuntimeAccounting
+from medre.core.supervision.health import (
     AdapterLiveHealth,
     LiveHealthSnapshot,
     health_to_adapter_state,
     normalize_adapter_health,
     truncate_health_error,
 )
-from medre.core.runtime.supervision import (
+from medre.core.supervision.supervision import (
     StartupOutcome,
     classify_runtime_health,
     classify_startup_outcome,
@@ -62,9 +63,9 @@ if TYPE_CHECKING:
     from medre.core.rendering.renderer import RenderingPipeline
     from medre.core.routing.router import Router
     from medre.core.routing.stats import RouteStats
-    from medre.core.runtime.capacity import CapacityController
     from medre.core.storage.replay import ReplayEngine
     from medre.core.storage.sqlite import SQLiteStorage
+    from medre.core.supervision.capacity import CapacityController
     from medre.runtime.builder import AdapterBuildFailure
     from medre.runtime.retry import RetryWorker
     from medre.runtime.route_engine import RouteEligibility, RouteStartupReadiness
@@ -329,7 +330,7 @@ class MedreApp:
 
         Iterates adapters in deterministic ``adapter_id`` order (same as
         startup),         calls each adapter's :meth:`~medre.core.contracts.adapter.AdapterContract.health_check`
-        once, builds per-adapter :class:`~medre.core.runtime.health.AdapterLiveHealth`
+        once, builds per-adapter :class:`~medre.core.supervision.health.AdapterLiveHealth`
         entries, classifies aggregate runtime health from the live results,
         and stores the resulting :class:`LiveHealthSnapshot` on the app.
 
@@ -832,7 +833,8 @@ class MedreApp:
         if self._capacity_controller is not None:
             self._capacity_controller.stop_accepting()
         if self._replay_engine is not None:
-            _logger.info("Runtime stopping — replay engine present, capacity stopped")
+            self._replay_engine.cancel()
+            _logger.info("Runtime stopping — replay engine cancelled, capacity stopped")
 
         # Stop the retry worker before draining work.
         if self._retry_worker is not None:
@@ -866,6 +868,9 @@ class MedreApp:
                     drain_snap["delivery_current"],
                     drain_snap["replay_current"],
                 )
+                # Persist structured abandonment evidence for in-flight
+                # deliveries that could not complete before the drain deadline.
+                await self._persist_drain_abandoned_evidence()
 
         # Signal shutdown to adapters and waiters.
         self.shutdown_event.set()
@@ -970,6 +975,65 @@ class MedreApp:
             await self.shutdown_event.wait()
 
     # -- Helpers -----------------------------------------------------------------
+
+    async def _persist_drain_abandoned_evidence(self) -> None:
+        """Persist structured abandonment receipts for in-flight deliveries.
+
+        Called from :meth:`stop` when the drain deadline expires with
+        deliveries still in-flight.  Produces one ``status="suppressed"``
+        :class:`DeliveryReceipt` per abandoned delivery with
+        ``failure_kind="shutdown_rejection"`` and
+        ``error="shutdown_drain_timeout"``, enabling operators to audit
+        what was lost via ``medre inspect receipts``.
+
+        Silently skips persistence when storage is unavailable or when no
+        in-flight deliveries are tracked by the pipeline runner.
+        """
+        from medre.core.events.canonical import DeliveryReceipt
+        from medre.core.planning.delivery_plan import DeliveryFailureKind
+
+        abandoned = self.pipeline_runner.drain_abandoned_deliveries()
+        if not abandoned or self.storage is None:
+            return
+
+        now = datetime.now(tz=timezone.utc)
+        persisted_count = 0
+        for inflight in abandoned:
+            receipt = DeliveryReceipt(
+                sequence=0,
+                receipt_id=f"rcpt-{uuid.uuid4()}",
+                event_id=inflight.event_id,
+                delivery_plan_id=inflight.delivery_plan_id,
+                target_adapter=inflight.target_adapter,
+                target_channel=inflight.target_channel,
+                route_id=inflight.route_id,
+                status="suppressed",
+                error="shutdown_drain_timeout",
+                failure_kind=DeliveryFailureKind.SHUTDOWN_REJECTION.value,
+                next_retry_at=None,
+                created_at=now,
+                attempt_number=1,
+                parent_receipt_id=None,
+                source=inflight.source,
+                replay_run_id=inflight.replay_run_id,
+            )
+            try:
+                await self.storage.append_receipt(receipt)
+                persisted_count += 1
+            except Exception as exc:
+                _logger.error(
+                    "Failed to persist drain-abandoned receipt for "
+                    "event_id=%s target_adapter=%s: %s",
+                    inflight.event_id,
+                    inflight.target_adapter,
+                    exc,
+                )
+
+        if persisted_count > 0:
+            _logger.info(
+                "Persisted %d drain-abandoned receipt(s) as shutdown_rejection evidence",
+                persisted_count,
+            )
 
     async def _cleanup_started_adapters(self) -> None:
         """Stop already-started adapters in reverse order during failed startup.

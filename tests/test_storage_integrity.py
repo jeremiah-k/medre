@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 import sqlite3
 import tempfile
-from datetime import datetime, timezone
+from datetime import timezone
 
 import pytest
 
@@ -22,9 +22,7 @@ from medre.core.storage.backend import (
     StorageError,
     StorageInitializationError,
 )
-
 from tests.helpers.storage import make_storage_event
-
 
 # ===================================================================
 # DuplicateEventError on duplicate append

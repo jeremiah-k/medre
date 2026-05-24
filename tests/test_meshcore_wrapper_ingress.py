@@ -10,15 +10,15 @@ No Docker, no live transports, no SDK dependencies required.
 
 from __future__ import annotations
 
-from medre.adapters.fake_matrix import FakeMatrixAdapter
+from medre.adapters.fakes.matrix import FakeMatrixAdapter
 from medre.adapters.meshcore.adapter import MeshCoreAdapter
 from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
-from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage.sqlite import SQLiteStorage
+from medre.core.supervision.accounting import RuntimeAccounting
 from tests.helpers.bridge import (
     make_adapter_context,
     make_meshcore_packet,

@@ -24,7 +24,7 @@ import pytest
 
 from medre.core.contracts.adapter import AdapterCapabilities, AdapterInfo, AdapterRole
 from medre.core.lifecycle.states import AdapterState
-from medre.core.runtime.health import (
+from medre.core.supervision.health import (
     LiveHealthSnapshot,
 )
 from medre.runtime.app import MedreApp, RuntimeState

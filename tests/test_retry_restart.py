@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
-from medre.adapters.fake_presentation import FakePresentationAdapter
+from medre.adapters.fakes.presentation import FakePresentationAdapter
 from medre.core.contracts.adapter import AdapterContext
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.events.bus import EventBus
@@ -39,8 +39,8 @@ from medre.core.rendering.text import TextRenderer
 from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.core.routing.router import Router
 from medre.core.routing.stats import RouteStats
-from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage.sqlite import SQLiteStorage
+from medre.core.supervision.accounting import RuntimeAccounting
 
 # ---------------------------------------------------------------------------
 # Custom adapter: fails N times then succeeds

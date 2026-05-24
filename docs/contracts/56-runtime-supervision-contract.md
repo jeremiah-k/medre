@@ -13,12 +13,12 @@
 
 MEDRE uses four distinct state layers. Each has a different source of truth, granularity, and update mechanism. Confusing them is the most common source of misunderstanding.
 
-| Layer              | Enum                                            | Scope                                                                                                                 | Source of Truth                        | Updated By                                                                         |
-| ------------------ | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------- |
-| **RuntimeState**   | `medre.runtime.app.RuntimeState`                | Process lifecycle: `INITIALIZED → STARTING → RUNNING → STOPPING → STOPPED`, or `→ FAILED`                             | `MedreApp.state`                       | `MedreApp.start()`, `.stop()`, unrecoverable errors                                |
-| **RuntimeHealth**  | `medre.core.runtime.supervision.RuntimeHealth`  | Aggregate adapter health: `HEALTHY`, `DEGRADED`, `FAILED`                                                             | Derived (pure function)                | `classify_runtime_health()` — called by operator or snapshot, **not** auto-updated |
-| **StartupOutcome** | `medre.core.runtime.supervision.StartupOutcome` | One-time boot result: `SUCCESS`, `PARTIAL`, `TOTAL_FAILURE`                                                           | Derived (pure function)                | `classify_startup_outcome()` — computed once during `start()`                      |
-| **AdapterState**   | `medre.core.lifecycle.states.AdapterState`      | Per-adapter lifecycle: `INITIALIZING → READY → DEGRADED / BACKPRESSURED / DISCONNECTED → STOPPING → STOPPED / FAILED` | `MedreApp._adapter_states[adapter_id]` | Build, start, stop, cleanup code paths                                             |
+| Layer              | Enum                                                | Scope                                                                                                                 | Source of Truth                        | Updated By                                                                         |
+| ------------------ | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------- |
+| **RuntimeState**   | `medre.runtime.app.RuntimeState`                    | Process lifecycle: `INITIALIZED → STARTING → RUNNING → STOPPING → STOPPED`, or `→ FAILED`                             | `MedreApp.state`                       | `MedreApp.start()`, `.stop()`, unrecoverable errors                                |
+| **RuntimeHealth**  | `medre.core.supervision.supervision.RuntimeHealth`  | Aggregate adapter health: `HEALTHY`, `DEGRADED`, `FAILED`                                                             | Derived (pure function)                | `classify_runtime_health()` — called by operator or snapshot, **not** auto-updated |
+| **StartupOutcome** | `medre.core.supervision.supervision.StartupOutcome` | One-time boot result: `SUCCESS`, `PARTIAL`, `TOTAL_FAILURE`                                                           | Derived (pure function)                | `classify_startup_outcome()` — computed once during `start()`                      |
+| **AdapterState**   | `medre.core.lifecycle.states.AdapterState`          | Per-adapter lifecycle: `INITIALIZING → READY → DEGRADED / BACKPRESSURED / DISCONNECTED → STOPPING → STOPPED / FAILED` | `MedreApp._adapter_states[adapter_id]` | Build, start, stop, cleanup code paths                                             |
 
 Key distinctions:
 
@@ -203,14 +203,14 @@ Per-adapter provenance:
 
 The following boundaries are enforced by tests:
 
-| Module                           | Must NOT import                                                                            | May import                                                                          |
-| -------------------------------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
-| `medre.core.runtime.supervision` | Transport SDKs (`nio`, `meshtastic`, `meshcore`, `RNS`, `lxmf`), concrete adapter packages | `medre.core.lifecycle.states`, `medre.core.contracts.adapter` (protocol types only) |
-| `medre.core.runtime.diagnostics` | Transport SDKs, concrete adapter packages                                                  | `medre.core.runtime.health`, `medre.core.runtime.supervision`                       |
-| `medre.core.runtime.health`      | Transport SDKs, concrete adapter packages                                                  | `medre.core.contracts.adapter` (protocol types), `medre.core.lifecycle.states`      |
-| Snapshot code                    | Transport SDKs, concrete adapter packages                                                  | Runtime core modules only                                                           |
-| Accounting code                  | Transport SDKs, concrete adapter packages                                                  | Runtime core modules only                                                           |
-| Persistence contract             | Transport SDKs, concrete adapter packages                                                  | Runtime core modules only                                                           |
+| Module                               | Must NOT import                                                                            | May import                                                                          |
+| ------------------------------------ | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| `medre.core.supervision.supervision` | Transport SDKs (`nio`, `meshtastic`, `meshcore`, `RNS`, `lxmf`), concrete adapter packages | `medre.core.lifecycle.states`, `medre.core.contracts.adapter` (protocol types only) |
+| `medre.core.supervision.diagnostics` | Transport SDKs, concrete adapter packages                                                  | `medre.core.supervision.health`, `medre.core.supervision.supervision`               |
+| `medre.core.supervision.health`      | Transport SDKs, concrete adapter packages                                                  | `medre.core.contracts.adapter` (protocol types), `medre.core.lifecycle.states`      |
+| Snapshot code                        | Transport SDKs, concrete adapter packages                                                  | Runtime core modules only                                                           |
+| Accounting code                      | Transport SDKs, concrete adapter packages                                                  | Runtime core modules only                                                           |
+| Persistence contract                 | Transport SDKs, concrete adapter packages                                                  | Runtime core modules only                                                           |
 
 ## 7. Test Coverage Requirements
 
@@ -226,7 +226,7 @@ This section documents the manual live health refresh mechanism. `MedreApp.refre
 
 ### 8.1 Types
 
-Two frozen dataclasses are defined in `src/medre/core/runtime/health.py`:
+Two frozen dataclasses are defined in `src/medre/core/supervision/health.py`:
 
 - **`AdapterLiveHealth`** — per-adapter live health result from a single `health_check()` call. Fields: `adapter_id`, `health` (VALID_HEALTH_STRINGS), `adapter_state`, `fake_or_live`, `poll_timestamp_monotonic`, `poll_timestamp_wall`, `error`. JSON-safe via `to_dict()`.
 - **`LiveHealthSnapshot`** — aggregate runtime live health from a single refresh cycle. Fields: `runtime_health`, `adapter_summary`, `adapters` (dict of `AdapterLiveHealth`), `poll_timestamp_monotonic`, `poll_timestamp_wall`, `poll_count`. JSON-safe via `to_dict()`.

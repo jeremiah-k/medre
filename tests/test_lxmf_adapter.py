@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from medre.adapters.fake_lxmf import FakeLxmfAdapter
+from medre.adapters.fakes.lxmf import FakeLxmfAdapter
 from medre.adapters.lxmf.adapter import LxmfAdapter
 from medre.adapters.lxmf.compat import HAS_LXMF
 from medre.adapters.lxmf.errors import LxmfConnectionError
@@ -93,63 +93,63 @@ class TestLxmfAdapterCapabilities:
         assert adapter.platform == "lxmf"
 
     def test_capabilities_text_true(self) -> None:
-        from medre.adapters.fake_lxmf import _FAKE_LXMF_CAPABILITIES
+        from medre.adapters.fakes.lxmf import _FAKE_LXMF_CAPABILITIES
 
         assert _FAKE_LXMF_CAPABILITIES.text is True
 
     def test_capabilities_title_true(self) -> None:
-        from medre.adapters.fake_lxmf import _FAKE_LXMF_CAPABILITIES
+        from medre.adapters.fakes.lxmf import _FAKE_LXMF_CAPABILITIES
 
         assert _FAKE_LXMF_CAPABILITIES.title is True
 
     def test_capabilities_metadata_fields_true(self) -> None:
-        from medre.adapters.fake_lxmf import _FAKE_LXMF_CAPABILITIES
+        from medre.adapters.fakes.lxmf import _FAKE_LXMF_CAPABILITIES
 
         assert _FAKE_LXMF_CAPABILITIES.metadata_fields is True
 
     def test_capabilities_direct_messages_true(self) -> None:
-        from medre.adapters.fake_lxmf import _FAKE_LXMF_CAPABILITIES
+        from medre.adapters.fakes.lxmf import _FAKE_LXMF_CAPABILITIES
 
         assert _FAKE_LXMF_CAPABILITIES.direct_messages is True
 
     def test_capabilities_replies_unsupported(self) -> None:
-        from medre.adapters.fake_lxmf import _FAKE_LXMF_CAPABILITIES
+        from medre.adapters.fakes.lxmf import _FAKE_LXMF_CAPABILITIES
 
         assert _FAKE_LXMF_CAPABILITIES.replies == "unsupported"
 
     def test_capabilities_reactions_unsupported(self) -> None:
-        from medre.adapters.fake_lxmf import _FAKE_LXMF_CAPABILITIES
+        from medre.adapters.fakes.lxmf import _FAKE_LXMF_CAPABILITIES
 
         assert _FAKE_LXMF_CAPABILITIES.reactions == "unsupported"
 
     def test_capabilities_edits_unsupported(self) -> None:
-        from medre.adapters.fake_lxmf import _FAKE_LXMF_CAPABILITIES
+        from medre.adapters.fakes.lxmf import _FAKE_LXMF_CAPABILITIES
 
         assert _FAKE_LXMF_CAPABILITIES.edits == "unsupported"
 
     def test_capabilities_deletes_unsupported(self) -> None:
-        from medre.adapters.fake_lxmf import _FAKE_LXMF_CAPABILITIES
+        from medre.adapters.fakes.lxmf import _FAKE_LXMF_CAPABILITIES
 
         assert _FAKE_LXMF_CAPABILITIES.deletes == "unsupported"
 
     def test_capabilities_attachments_false(self) -> None:
-        from medre.adapters.fake_lxmf import _FAKE_LXMF_CAPABILITIES
+        from medre.adapters.fakes.lxmf import _FAKE_LXMF_CAPABILITIES
 
         assert _FAKE_LXMF_CAPABILITIES.attachments is False
 
     def test_capabilities_max_text_chars_16384(self) -> None:
-        from medre.adapters.fake_lxmf import _FAKE_LXMF_CAPABILITIES
+        from medre.adapters.fakes.lxmf import _FAKE_LXMF_CAPABILITIES
 
         assert _FAKE_LXMF_CAPABILITIES.max_text_chars == 16384
 
     def test_capabilities_max_text_bytes_none(self) -> None:
-        from medre.adapters.fake_lxmf import _FAKE_LXMF_CAPABILITIES
+        from medre.adapters.fakes.lxmf import _FAKE_LXMF_CAPABILITIES
 
         assert _FAKE_LXMF_CAPABILITIES.max_text_bytes is None
 
     def test_capabilities_store_and_forward_true(self) -> None:
         """LXMF supports store-and-forward via propagation nodes."""
-        from medre.adapters.fake_lxmf import _FAKE_LXMF_CAPABILITIES
+        from medre.adapters.fakes.lxmf import _FAKE_LXMF_CAPABILITIES
 
         assert _FAKE_LXMF_CAPABILITIES.store_and_forward is True
 
@@ -163,7 +163,7 @@ class TestRealLxmfCapabilities:
         assert adapter.role == AdapterRole.TRANSPORT
 
     def test_real_adapter_capabilities_match_fake(self) -> None:
-        from medre.adapters.fake_lxmf import _FAKE_LXMF_CAPABILITIES
+        from medre.adapters.fakes.lxmf import _FAKE_LXMF_CAPABILITIES
 
         config = _make_config()
         adapter = LxmfAdapter(config)

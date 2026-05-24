@@ -205,7 +205,7 @@ class TestNoTransportSdkInRuntimeCore:
         "medre.runtime",
         "medre.runtime.app",
         "medre.runtime.builder",
-        "medre.core.runtime.capacity",
+        "medre.core.supervision.capacity",
         "medre.runtime.errors",
         "medre.runtime.observability",
         "medre.runtime.route_engine",
@@ -248,18 +248,17 @@ class TestNoTransportSdkInRuntimeCore:
         "medre.core.routing.models",
         "medre.core.routing.router",
         "medre.core.routing.stats",
-        "medre.core.runtime",
-        "medre.core.runtime.accounting",
-        "medre.core.runtime.capabilities",
-        "medre.core.runtime.diagnostic_contract",
-        "medre.core.runtime.diagnostics",
-        "medre.core.runtime.health",
-        "medre.core.runtime.supervision",
+        "medre.core.supervision",
+        "medre.core.supervision.accounting",
+        "medre.core.supervision.capabilities",
+        "medre.core.supervision.diagnostic_contract",
+        "medre.core.supervision.diagnostics",
+        "medre.core.supervision.health",
+        "medre.core.supervision.supervision",
         "medre.core.storage",
         "medre.core.storage.backend",
         "medre.core.storage.replay",
         "medre.core.storage.sqlite",
-        "medre.core.transforms",
     ]
 
     @pytest.mark.parametrize(
@@ -275,6 +274,10 @@ class TestNoTransportSdkInRuntimeCore:
             pytest.skip(f"{module_name} not importable")
         lines = _import_lines(source)
 
+        # Exclude imports from fake adapter modules — they reference transport
+        # names as path segments (e.g. medre.adapters.fakes.meshtastic)
+        # but are NOT real SDK imports.
+        lines = [line for line in lines if "medre.adapters.fakes." not in line]
         banned = _banned_imports(lines, _SDK_PACKAGES)
         assert banned == [], f"{module_name} imports transport SDKs: {banned}"
 
@@ -287,7 +290,7 @@ class TestNoTransportSdkInRuntimeCore:
         """Module must not import concrete adapter packages.
 
         Imports from ``medre.core.contracts.adapter`` (protocol types) and
-        ``medre.adapters.fake_*`` are permitted.
+        ``medre.adapters.fakes.*`` are permitted.
         """
         try:
             source = _source_of(module_name)

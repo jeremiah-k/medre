@@ -28,7 +28,7 @@ contributors. When in doubt, consult qualified legal counsel.
 | `LICENSE` file               | Present. Standard FSF GPLv3 text with copyright holder placeholder.                    |
 | `README.md`                  | License section updated to reflect GPL-3.0-or-later.                                   |
 | `pyproject.toml classifiers` | Includes `License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)`. |
-| `Development Status`         | Updated to `4 - Beta`.                                                                 |
+| `Development Status`         | Updated to `3 - Alpha`. Pre-release; no stable public API.                             |
 
 The license was changed from MIT to GPL-3.0-or-later on 2026-05-12 by project
 governance decision. The decision reflects the dependency reality documented in

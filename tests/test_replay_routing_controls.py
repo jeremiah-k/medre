@@ -6,14 +6,14 @@ Covers:
 * Replay run_id in attribution
 * Disabled routes during replay
 * Replay does not mutate canonical events
-* Backward compatibility
+* Unchanged behavior verification
 """
 
 from __future__ import annotations
 
 from unittest.mock import AsyncMock
 
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage import SQLiteStorage
 from medre.core.storage.replay import (
     ReplayMode,
@@ -23,14 +23,12 @@ from medre.core.storage.replay import (
     _build_summary,
     collect_replay_summary,
 )
-
 from tests.helpers.replay_routing import (
     StubPipeline,
     make_engine,
     make_replay_event,
     make_router,
 )
-
 
 # ===================================================================
 # 9. Explicit route_ids targeting
@@ -618,7 +616,7 @@ class TestReplayNoMutation:
 
 
 # ===================================================================
-# 14. Backward compatibility
+# 14. Unchanged behavior verification
 # ===================================================================
 
 

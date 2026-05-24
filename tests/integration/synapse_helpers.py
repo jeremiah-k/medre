@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import AsyncMock
 
-from medre.adapters.fake_matrix import FakeMatrixAdapter
+from medre.adapters.fakes.matrix import FakeMatrixAdapter
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.core.contracts.adapter import AdapterContext
 

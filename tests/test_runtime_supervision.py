@@ -21,7 +21,7 @@ from __future__ import annotations
 import json
 
 from medre.core.lifecycle.states import AdapterState
-from medre.core.runtime.supervision import (
+from medre.core.supervision.supervision import (
     AdapterFailureSeverity,
     RuntimeHealth,
     StartupOutcome,

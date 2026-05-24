@@ -29,15 +29,15 @@ and what import boundaries must hold.
 
 ## 3. Package Metadata
 
-| Property              | Value                                          | Notes                                  |
-| --------------------- | ---------------------------------------------- | -------------------------------------- |
-| **Distribution name** | `medre`                                        | Single-word, lowercase                 |
-| **Version**           | `0.1.0`                                        | Semantic dotted notation               |
-| **License**           | `GPL-3.0-or-later`                             | See contract 42 for governance context |
-| **Status classifier** | `Development Status :: 4 - Beta`               | Pre-beta; not production-ready         |
-| **Requires Python**   | `>=3.11`                                       |                                        |
-| **Build system**      | `setuptools>=68`                               |                                        |
-| **Source layout**     | `src/` (via `[tool.setuptools.packages.find]`) |                                        |
+| Property              | Value                                          | Notes                                                                    |
+| --------------------- | ---------------------------------------------- | ------------------------------------------------------------------------ |
+| **Distribution name** | `medre`                                        | Single-word, lowercase                                                   |
+| **Version**           | `0.1.0`                                        | Semantic dotted notation                                                 |
+| **License**           | `GPL-3.0-or-later`                             | See contract 42 for governance context                                   |
+| **Status classifier** | `Development Status :: 3 - Alpha`              | Pre-release; APIs may change; no stable public API; not production-ready |
+| **Requires Python**   | `>=3.11`                                       |                                                                          |
+| **Build system**      | `setuptools>=68`                               |                                                                          |
+| **Source layout**     | `src/` (via `[tool.setuptools.packages.find]`) |                                                                          |
 
 ### 3.1 Console Script Entry Point
 
@@ -128,23 +128,21 @@ module load time:
 - `medre.config.*`
 - `medre.runtime.builder`
 - `medre.adapters.__init__`
-- `medre.adapters.fake_*`
+- `medre.adapters.fakes.*`
 - `medre.cli`
 
 ## 7. Fake Adapters
 
 All fake adapters are importable and instantiable without optional SDKs:
 
-| Fake adapter              | Module                             | Constructor args           |
-| ------------------------- | ---------------------------------- | -------------------------- |
-| `FakeTransportAdapter`    | `medre.adapters.fake_transport`    | `adapter_id: str`          |
-| `FakeMatrixAdapter`       | `medre.adapters.fake_matrix`       | `adapter_id: str`          |
-| `FakeMeshtasticAdapter`   | `medre.adapters.fake_meshtastic`   | `config: MeshtasticConfig` |
-| `FakeMeshCoreAdapter`     | `medre.adapters.fake_meshcore`     | `config: MeshCoreConfig`   |
-| `FakeLxmfAdapter`         | `medre.adapters.fake_lxmf`         | `config: LxmfConfig`       |
-| `FakePresentationAdapter` | `medre.adapters.fake_presentation` | `adapter_id: str`          |
-
-All are re-exported from `medre.adapters.__init__`.
+| Fake adapter              | Module                              | Constructor args           |
+| ------------------------- | ----------------------------------- | -------------------------- |
+| `FakeTransportAdapter`    | `medre.adapters.fakes.transport`    | `adapter_id: str`          |
+| `FakeMatrixAdapter`       | `medre.adapters.fakes.matrix`       | `adapter_id: str`          |
+| `FakeMeshtasticAdapter`   | `medre.adapters.fakes.meshtastic`   | `config: MeshtasticConfig` |
+| `FakeMeshCoreAdapter`     | `medre.adapters.fakes.meshcore`     | `config: MeshCoreConfig`   |
+| `FakeLxmfAdapter`         | `medre.adapters.fakes.lxmf`         | `config: LxmfConfig`       |
+| `FakePresentationAdapter` | `medre.adapters.fakes.presentation` | `adapter_id: str`          |
 
 ### 7.1 Fake Adapter Dependencies
 

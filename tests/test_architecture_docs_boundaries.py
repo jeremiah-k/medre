@@ -1,9 +1,9 @@
 """Boundary tests for documentation — no active docs may reference stale paths.
 
 Checks that documentation files use current import paths for modules
-that were moved with no backward-compatibility re-export:
+that were moved with no re-export:
 
-- ``medre.runtime.capacity`` / ``src/medre/runtime/capacity.py`` → ``medre.core.runtime.capacity`` / ``src/medre/core/runtime/capacity.py``
+- ``medre.runtime.capacity`` / ``src/medre/runtime/capacity.py`` → ``medre.core.supervision.capacity`` / ``src/medre/core/runtime/capacity.py``
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ _DOC_DIRS = [
 
 # Stale path patterns that should NOT appear in active docs (without historical qualifier).
 _STALE_PATTERNS: list[tuple[str, str]] = [
-    ("medre.runtime.capacity", "Use medre.core.runtime.capacity"),
+    ("medre.runtime.capacity", "Use medre.core.supervision.capacity"),
     ("src/medre/runtime/capacity.py", "Use src/medre/core/runtime/capacity.py"),
     ("medre.observability.sanitization", "Use medre.core.observability.sanitization"),
     (

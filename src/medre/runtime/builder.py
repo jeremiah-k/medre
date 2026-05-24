@@ -44,10 +44,10 @@ from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing.router import Router
 from medre.core.routing.stats import RouteStats
-from medre.core.runtime.accounting import RuntimeAccounting
-from medre.core.runtime.capacity import CapacityController
 from medre.core.storage.replay import ReplayEngine
 from medre.core.storage.sqlite import SQLiteStorage
+from medre.core.supervision.accounting import RuntimeAccounting
+from medre.core.supervision.capacity import CapacityController
 from medre.runtime.app import MedreApp
 from medre.runtime.errors import RuntimeConfigError
 
@@ -179,19 +179,19 @@ def _build_fake_adapter(transport: str, adapter_id: str) -> AdapterContract:
     if *transport* is not recognised.
     """
     if transport == "matrix":
-        from medre.adapters.fake_matrix import FakeMatrixAdapter
+        from medre.adapters.fakes.matrix import FakeMatrixAdapter
 
         return FakeMatrixAdapter(adapter_id=adapter_id)
     if transport == "meshtastic":
-        from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
+        from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
 
         return FakeMeshtasticAdapter(adapter_id=adapter_id)
     if transport == "meshcore":
-        from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
+        from medre.adapters.fakes.meshcore import FakeMeshCoreAdapter
 
         return FakeMeshCoreAdapter(adapter_id=adapter_id)
     if transport == "lxmf":
-        from medre.adapters.fake_lxmf import FakeLxmfAdapter
+        from medre.adapters.fakes.lxmf import FakeLxmfAdapter
 
         return FakeLxmfAdapter(adapter_id=adapter_id)
     raise RuntimeConfigError(
@@ -228,22 +228,19 @@ def _register_adapter_renderers(
     * ``MeshtasticRenderer`` receives a mapping of ALL Meshtastic adapter
       configs (``adapter_id → MeshtasticConfig``) so that rendering is
       target-adapter-aware in multi-radio setups.
-    * ``MatrixRenderer`` receives the first MeshtasticConfig's
-      ``mmrelay_compatibility``, ``meshnet_name``, and
-      ``matrix_relay_prefix`` fields for mmrelay interop.  Full
-      MatrixRenderer redesign for multi-Meshtastic awareness is deferred.
+    * ``MatrixRenderer`` receives all Meshtastic adapter configs via
+      ``source_configs`` for per-source-adapter config resolution (multi-radio
+      support).  Unknown sources render plain Matrix output without
+      Meshtastic prefix or metadata contamination.
     """
     # Collect ALL MeshtasticConfigs for target-aware rendering.
     meshtastic_configs: dict[str, Any] = {}
-    first_meshtastic_config: Any = None
     # Collect ALL MeshCoreConfigs for target-aware rendering.
     meshcore_configs: dict[str, Any] = {}
     if config is not None:
         for _transport, _adapter_id, rtc in config.adapters.all_configs():
             if _transport == "meshtastic" and getattr(rtc, "config", None) is not None:
                 meshtastic_configs[_adapter_id] = rtc.config
-                if first_meshtastic_config is None:
-                    first_meshtastic_config = rtc.config
             if _transport == "meshcore" and getattr(rtc, "config", None) is not None:
                 meshcore_configs[_adapter_id] = rtc.config
         # Fallback: if no real configs but Meshtastic adapters exist (e.g.
@@ -261,8 +258,6 @@ def _register_adapter_renderers(
                     adapter_id=adapter_id,
                     radio_relay_prefix="",
                 )
-            if meshtastic_configs:
-                first_meshtastic_config = next(iter(meshtastic_configs.values()))
         # Fallback: synthesize default MeshCoreConfigs for adapters that
         # lack a real config (e.g. fake adapters in mixed configs).
         if config.adapters.meshcore:
@@ -299,17 +294,13 @@ def _register_adapter_renderers(
                     renderer_cls(configs=meshcore_configs),
                     priority=50,
                 )
-            elif class_name == "MatrixRenderer" and first_meshtastic_config is not None:
-                # MatrixRenderer uses first MeshtasticConfig for
-                # mmrelay_compatibility — full redesign deferred.
-                mmrelay_compat = first_meshtastic_config.mmrelay_compatibility
-                meshnet_name = first_meshtastic_config.meshnet_name
-                matrix_relay_prefix = first_meshtastic_config.matrix_relay_prefix
+            elif class_name == "MatrixRenderer" and meshtastic_configs:
+                # MatrixRenderer uses all MeshtasticConfigs via source_configs
+                # for per-source-adapter config resolution (multi-radio
+                # support).  Unknown sources render plain Matrix output.
                 pipeline.register(
                     renderer_cls(
-                        mmrelay_compat=mmrelay_compat,
-                        meshnet_name=meshnet_name,
-                        matrix_relay_prefix=matrix_relay_prefix,
+                        source_configs=meshtastic_configs,
                     ),
                     priority=50,
                 )

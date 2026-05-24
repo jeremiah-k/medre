@@ -43,7 +43,7 @@ graph allows — see [Operator Tooling Boundary](operator-tooling-boundary.md).
 `events.py`, `evidence.py`, `trace.py`, `drill.py`, `smoke.py`,
 `snapshot.py`, `boot_summary.py`, `errors.py`, `summaries.py`.
 
-> **Note:** `capacity.py` moved to `core/runtime/capacity.py` — see `core/` below.
+> **Note:** `capacity.py` moved to `core/supervision/capacity.py` — see `core/` below.
 
 ### `core/` — domain primitives
 
@@ -52,7 +52,7 @@ Transport-agnostic building blocks. No adapter or SDK imports.
 **Sub-packages:** `events/` (bus, canonical event, schema, kinds),
 `storage/`, `rendering/`, `routing/`, `planning/`, `policies/`,
 `engine/` (pipeline runner), `diagnostics/`, `identity/`, `lifecycle/`,
-`transforms/`, `observability/` (logging setup, diagnostic events, metrics).
+`observability/` (logging setup, diagnostic events, metrics).
 
 ### `adapters/` — transport boundary
 
@@ -61,8 +61,9 @@ compat guard entirely. No adapter touches another adapter's transport.
 
 **Per-transport contents:** `adapter.py`, `codec.py`, `renderer.py`,
 `session.py`, `config.py`, `errors.py`, `compat.py`.
-**Fakes:** `fake_matrix.py`, `fake_meshtastic.py`, `fake_meshcore.py`,
-`fake_lxmf.py` at the `adapters/` level.
+**Fakes:** `medre.adapters.fakes/` subdirectory containing `matrix.py`,
+`meshtastic.py`, `meshcore.py`, `lxmf.py`, `presentation.py`, and
+`transport.py`.
 
 ### `config/` — configuration layer
 
@@ -83,14 +84,14 @@ Owns TOML loading, model classes, environment overrides, and path resolution.
 
 ## Import rules
 
-| From                    | May import                                                                                                                    | Must not import                                           |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| `cli/` commands         | `config.*`, `runtime.*`, `core.observability.*`                                                                               | Adapter implementations, unrelated `core.*` internals     |
-| `runtime/builder`       | `core.contracts.adapter`, `config.model`, `core.*`                                                                            | Specific adapter SDK modules                              |
-| `runtime/observability` | `core.diagnostics`, `core.routing.stats`                                                                                      | Adapter code                                              |
-| `core/*`                | Other `core/*` sub-packages                                                                                                   | `adapters.*`, `runtime.*`, `cli.*`                        |
-| `adapters/<transport>/` | `core.contracts.adapter`, `core.events`, `core.rendering`                                                                     | Other adapter packages, `runtime.*`                       |
-| `config/`               | `medre.config.*` (own internals including `config.routes`), `medre.core.observability.log_levels` | `medre.adapters.*`, adapter SDKs, `medre.runtime.*` |
+| From                    | May import                                                                                        | Must not import                                       |
+| ----------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| `cli/` commands         | `config.*`, `runtime.*`, `core.observability.*`                                                   | Adapter implementations, unrelated `core.*` internals |
+| `runtime/builder`       | `core.contracts.adapter`, `config.model`, `core.*`                                                | Specific adapter SDK modules                          |
+| `runtime/observability` | `core.diagnostics`, `core.routing.stats`                                                          | Adapter code                                          |
+| `core/*`                | Other `core/*` sub-packages                                                                       | `adapters.*`, `runtime.*`, `cli.*`                    |
+| `adapters/<transport>/` | `core.contracts.adapter`, `core.events`, `core.rendering`                                         | Other adapter packages, `runtime.*`                   |
+| `config/`               | `medre.config.*` (own internals including `config.routes`), `medre.core.observability.log_levels` | `medre.adapters.*`, adapter SDKs, `medre.runtime.*`   |
 
 Key invariants:
 

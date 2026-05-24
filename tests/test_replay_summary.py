@@ -392,7 +392,7 @@ class TestCollectReplaySummary:
 
 
 # ---------------------------------------------------------------------------
-# Backward compatibility: collect_replay_state unchanged
+# Unchanged behavior: collect_replay_state
 # ---------------------------------------------------------------------------
 
 

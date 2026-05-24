@@ -44,6 +44,12 @@ class MeshtasticConfig:
         Default radio channel index for outbound messages.
     channel_mapping:
         Mapping of channel index to human-readable channel name.
+        **This is a display-label map, not a relay allowlist.** Packets
+        on unmapped channel indices are still classified normally (the
+        packet classifier does not gate on channel membership). If a
+        channel-allowlist gate is needed in the future, introduce a
+        separate ``allowed_channels`` field rather than overloading this
+        one.
     message_delay_seconds:
         Minimum delay between outbound messages (pacing).
     startup_backlog_suppress_seconds:
@@ -90,6 +96,21 @@ class MeshtasticConfig:
         exhausted the item is dropped and counted as exhausted.
         ``bool``, non-``int``, and ``<= 0`` values are invalid.
         Default: ``3``.
+    outbound_mode:
+        Controls whether outbound radio sends are enabled.
+
+        * ``"enabled"`` (default) — outbound messages are enqueued and
+          delivered normally.
+        * ``"listen_only"`` — outbound radio sends are suppressed before
+          queue enqueue.  The adapter still receives and classifies
+          inbound packets.  Suppressed deliveries raise
+          :class:`~medre.core.contracts.adapter.AdapterPermanentError`
+          with a stable prefix ``"outbound suppressed: listen_only mode"``
+          so that delivery evidence records a permanent failure with
+          ``failure_kind="adapter_permanent"`` and a derivable
+          ``failure_kind_detail="meshtastic_outbound_suppressed"``.
+
+        Invalid values are rejected by :meth:`validate`.
     """
 
     adapter_id: str
@@ -109,6 +130,7 @@ class MeshtasticConfig:
     mmrelay_compatibility: bool = False
     max_text_bytes: int = 227
     queue_send_max_attempts: int = 3
+    outbound_mode: Literal["enabled", "listen_only"] = "enabled"
 
     def validate(self) -> Self:
         """Validate the configuration and return *self* for chaining.
@@ -187,5 +209,10 @@ class MeshtasticConfig:
             raise MeshtasticConfigError(
                 f"queue_send_max_attempts must be > 0, "
                 f"got {self.queue_send_max_attempts}"
+            )
+        if self.outbound_mode not in ("enabled", "listen_only"):
+            raise MeshtasticConfigError(
+                f"outbound_mode must be one of enabled/listen_only, "
+                f"got {self.outbound_mode!r}"
             )
         return self

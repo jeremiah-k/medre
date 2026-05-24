@@ -22,10 +22,7 @@ from medre.core.events import (
     EventRelation,
     NativeMetadata,
     NativeRef,
-    RadioMetadata,
-    RoutingMetadata,
     SchemaRegistry,
-    TelemetryMetadata,
     TransportMetadata,
     schema_version_from_event,
 )

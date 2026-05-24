@@ -518,11 +518,9 @@ class TestDeliveryFailureKind:
             "ADAPTER_TRANSIENT",
             "ADAPTER_PERMANENT",
             "ADAPTER_MISSING",
-            "TARGET_NOT_FOUND",
             "DEADLINE_EXCEEDED",
             "SHUTDOWN_REJECTION",
             "CAPACITY_REJECTION",
-            "DUPLICATE_SUPPRESSED",
             "LOOP_SUPPRESSED",
         }
         actual = {m.name for m in DeliveryFailureKind}
@@ -537,11 +535,9 @@ class TestDeliveryFailureKind:
             DeliveryFailureKind.RENDERER_FAILURE,
             DeliveryFailureKind.ADAPTER_PERMANENT,
             DeliveryFailureKind.ADAPTER_MISSING,
-            DeliveryFailureKind.TARGET_NOT_FOUND,
             DeliveryFailureKind.DEADLINE_EXCEEDED,
             DeliveryFailureKind.CAPACITY_REJECTION,
             DeliveryFailureKind.SHUTDOWN_REJECTION,
-            DeliveryFailureKind.DUPLICATE_SUPPRESSED,
             DeliveryFailureKind.LOOP_SUPPRESSED,
         ]
         for kind in non_retryable:
@@ -553,7 +549,7 @@ class TestDeliveryFailureKind:
         assert DeliveryFailureKind.RENDERER_FAILURE.value == "renderer_failure"
         assert DeliveryFailureKind.ADAPTER_TRANSIENT.value == "adapter_transient"
         assert DeliveryFailureKind.ADAPTER_PERMANENT.value == "adapter_permanent"
-        assert DeliveryFailureKind.TARGET_NOT_FOUND.value == "target_not_found"
+        assert DeliveryFailureKind.ADAPTER_MISSING.value == "adapter_missing"
         assert DeliveryFailureKind.DEADLINE_EXCEEDED.value == "deadline_exceeded"
 
     def test_classify_transient_errors(self) -> None:

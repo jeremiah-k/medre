@@ -240,7 +240,7 @@ The following patterns indicate a boundary violation:
 | ------------------------------------------------------------- | ---------------------------- |
 | `medre.runtime.*` importing `nio` or `meshtastic`             | Runtime imports SDK          |
 | `medre.core.routing.*` importing `medre.runtime.*`            | Core depends on runtime      |
-| Session module importing `medre.config.routes`               | Session knows about routes   |
+| Session module importing `medre.config.routes`                | Session knows about routes   |
 | Codec importing `Router` or `route_engine`                    | Codec has routing knowledge  |
 | Renderer calling `adapter.send()` or `session.deliver()`      | Renderer performs I/O        |
 | `medre.adapters.matrix` importing `medre.adapters.meshtastic` | Cross-adapter coupling       |

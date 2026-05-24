@@ -19,8 +19,8 @@ from pathlib import Path
 
 import pytest
 
-from medre.core.runtime.accounting import RuntimeAccounting
-from medre.core.runtime.supervision import (
+from medre.core.supervision.accounting import RuntimeAccounting
+from medre.core.supervision.supervision import (
     StartupOutcome,
     classify_startup_outcome,
 )

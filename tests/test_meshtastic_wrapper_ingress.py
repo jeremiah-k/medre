@@ -9,7 +9,7 @@ No Docker, no live transports, no SDK dependencies required.
 
 from __future__ import annotations
 
-from medre.adapters.fake_matrix import FakeMatrixAdapter
+from medre.adapters.fakes.matrix import FakeMatrixAdapter
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.engine.pipeline import PipelineRunner

@@ -85,7 +85,7 @@ class TestParseFile:
         type_checking = [e for e in edges if e.is_type_checking]
         # After normalization, symbol pseudo-edges are removed; the module-level
         # edge for the CapacityController import is preserved.
-        assert any(e.target == "medre.core.runtime.capacity" for e in type_checking)
+        assert any(e.target == "medre.core.supervision.capacity" for e in type_checking)
 
 
 class TestBuildGraph:
@@ -687,7 +687,7 @@ class TestBuildRouteAdapterBoundaryReport:
         )
 
     def test_backward_compatible_runtime_to_adapter_alias(self) -> None:
-        """runtime_to_adapter is a backward-compatible alias for forbidden section."""
+        """runtime_to_adapter is a short report alias for the forbidden section."""
         graph = self._make_graph(
             ModuleInfo(
                 module="medre.runtime.engine",
@@ -1212,11 +1212,11 @@ class TestFakeTransportClassification:
         """fake_lxmf importing lxmf.codec is NOT a cross-transport violation."""
         graph = self._make_graph(
             ModuleInfo(
-                module="medre.adapters.fake_lxmf",
+                module="medre.adapters.fakes.lxmf",
                 file="adapters/fake_lxmf/__init__.py",
                 imports=[
                     ImportEdge(
-                        source="medre.adapters.fake_lxmf",
+                        source="medre.adapters.fakes.lxmf",
                         target="medre.adapters.lxmf.codec",
                         line=5,
                         kind="import_from",
@@ -1236,11 +1236,11 @@ class TestFakeTransportClassification:
         """fake_lxmf importing matrix.codec IS a cross-transport violation."""
         graph = self._make_graph(
             ModuleInfo(
-                module="medre.adapters.fake_lxmf",
+                module="medre.adapters.fakes.lxmf",
                 file="adapters/fake_lxmf/__init__.py",
                 imports=[
                     ImportEdge(
-                        source="medre.adapters.fake_lxmf",
+                        source="medre.adapters.fakes.lxmf",
                         target="medre.adapters.matrix.codec",
                         line=5,
                         kind="import_from",

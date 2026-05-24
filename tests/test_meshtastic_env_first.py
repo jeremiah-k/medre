@@ -14,7 +14,6 @@ is created from env vars. Routes must still be TOML-defined.
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from typing import Any
 

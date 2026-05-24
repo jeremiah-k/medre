@@ -42,22 +42,22 @@ Reference: `examples/env/docker.env.example`
 
 ### 2.2 Matrix Adapter Variables
 
-| Variable                                | Description                                             |
-| --------------------------------------- | ------------------------------------------------------- |
-| `MEDRE_ADAPTER__MAIN__ENABLED`          | `true` / `false`                                        |
-| `MEDRE_ADAPTER__MAIN__HOMESERVER`       | Matrix homeserver URL                                   |
-| `MEDRE_ADAPTER__MAIN__USER_ID`          | Bot user ID (e.g., `@bot:example.com`)                  |
-| `MEDRE_ADAPTER__MAIN__ACCESS_TOKEN`     | Access token (generate via Matrix API)                  |
-| `MEDRE_ADAPTER__MAIN__ROOM_ALLOWLIST`   | Comma-separated room IDs                                |
-| `MEDRE_ADAPTER__MAIN__ENCRYPTION_MODE`  | `plaintext` (default), `e2ee_required`, `e2ee_optional` |
+| Variable                               | Description                                             |
+| -------------------------------------- | ------------------------------------------------------- |
+| `MEDRE_ADAPTER__MAIN__ENABLED`         | `true` / `false`                                        |
+| `MEDRE_ADAPTER__MAIN__HOMESERVER`      | Matrix homeserver URL                                   |
+| `MEDRE_ADAPTER__MAIN__USER_ID`         | Bot user ID (e.g., `@bot:example.com`)                  |
+| `MEDRE_ADAPTER__MAIN__ACCESS_TOKEN`    | Access token (generate via Matrix API)                  |
+| `MEDRE_ADAPTER__MAIN__ROOM_ALLOWLIST`  | Comma-separated room IDs                                |
+| `MEDRE_ADAPTER__MAIN__ENCRYPTION_MODE` | `plaintext` (default), `e2ee_required`, `e2ee_optional` |
 
 ### 2.3 Meshtastic Adapter Variables
 
-| Variable                                    | Description                               |
-| ------------------------------------------- | ----------------------------------------- |
-| `MEDRE_ADAPTER__RADIO__ENABLED`             | `true` / `false`                          |
-| `MEDRE_ADAPTER__RADIO__CONNECTION_TYPE`     | `serial`, `tcp`, `ble`, `fake`            |
-| `MEDRE_ADAPTER__RADIO__SERIAL_PORT`         | Serial device path (e.g., `/dev/ttyACM0`) |
+| Variable                                | Description                               |
+| --------------------------------------- | ----------------------------------------- |
+| `MEDRE_ADAPTER__RADIO__ENABLED`         | `true` / `false`                          |
+| `MEDRE_ADAPTER__RADIO__CONNECTION_TYPE` | `serial`, `tcp`, `ble`, `fake`            |
+| `MEDRE_ADAPTER__RADIO__SERIAL_PORT`     | Serial device path (e.g., `/dev/ttyACM0`) |
 
 ### 2.4 Path Derivation from MEDRE_HOME
 

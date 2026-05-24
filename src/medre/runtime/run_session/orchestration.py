@@ -421,10 +421,7 @@ async def run_bridge_session(
         route_ids = sorted({r.route_id for r in all_receipts if r.route_id})
 
     # Receipt summaries
-    receipt_summaries = [
-        delivery_receipt_to_report_dict(r)
-        for r in all_receipts
-    ]
+    receipt_summaries = [delivery_receipt_to_report_dict(r) for r in all_receipts]
 
     # Final snapshot checks
     lifecycle = snap.get("lifecycle", {})

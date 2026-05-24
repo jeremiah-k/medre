@@ -243,7 +243,8 @@ class MeshtasticRenderer:
 
         * ``text``: extracted text from the event payload, with the
           configured ``radio_relay_prefix`` prepended if set.
-        * ``channel_index``: parsed from *target_channel* or ``0``.
+        * ``channel_index``: the adapter's ``default_channel``, overridden
+          only when *target_channel* is a valid numeric value.
         * ``meshnet_name``: the configured mesh network name.
 
         **Target-aware config resolution.** The renderer resolves the
@@ -256,8 +257,8 @@ class MeshtasticRenderer:
         * *reply* with a numeric ``target_native_ref.native_message_id`` —
           sets ``reply_id`` (int) and emits plain text without fallback
           prefix.
-        * *reply* without numeric native ref — falls back to
-          ``"[replying to: {fallback_text}] "`` prefix.
+        * *reply* without numeric native ref — emits plain text
+          without ``reply_id``; no fallback prefix is added.
         * *native reaction* (same adapter) with a numeric
           ``target_native_ref.native_message_id`` — sets ``reply_id``
           (int) and ``emoji`` (1); text is the emoji string from
@@ -284,7 +285,9 @@ class MeshtasticRenderer:
         target_adapter:
             Name of the adapter the payload is intended for.
         target_channel:
-            Target channel identifier; parsed as an integer channel index.
+            Target channel identifier; when present and a valid integer,
+            overrides the adapter's ``default_channel``.  Invalid or
+            non-numeric values fall back to ``default_channel``.
 
         Returns
         -------
@@ -305,13 +308,15 @@ class MeshtasticRenderer:
         meshnet_name = adapter_config.meshnet_name
         max_text_bytes = adapter_config.max_text_bytes
 
-        # Parse channel index from target_channel
-        channel_index = 0
+        # Resolve channel index: adapter config default, overridden only by
+        # a valid numeric target_channel.  Invalid/non-numeric values keep
+        # the adapter's default_channel (do not silently force 0).
+        channel_index = adapter_config.default_channel
         if target_channel is not None:
             try:
                 channel_index = int(target_channel)
             except (ValueError, TypeError):
-                channel_index = 0
+                pass
 
         content: dict[str, object] = {
             "channel_index": channel_index,

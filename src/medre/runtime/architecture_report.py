@@ -394,7 +394,7 @@ class RouteAdapterBoundaryReport:
     runtime_assembly_points: BoundarySection
     dynamic_scan_errors: BoundarySection
 
-    # Backward-compatible aliases
+    # Short report aliases
     @property
     def runtime_to_adapter(self) -> BoundarySection:
         return self.forbidden_runtime_adapter
@@ -421,7 +421,7 @@ def _transport_for(module: str) -> str | None:
 
     E.g. ``medre.adapters.matrix.codec`` → ``matrix``.
 
-    Fake transports like ``medre.adapters.fake_lxmf`` are normalised
+    Fake transports like ``medre.adapters.fakes.lxmf`` are normalised
     to their canonical transport name (``lxmf``).
     """
     prefix = "medre.adapters."
@@ -430,6 +430,10 @@ def _transport_for(module: str) -> str | None:
     rest = module[len(prefix) :]
     parts = rest.split(".")
     transport = parts[0] if parts else None
+    # New package layout: medre.adapters.fakes.<transport>
+    if transport == "fakes" and len(parts) >= 2:
+        return parts[1]
+    # Flat modules: fake_<transport>
     if transport and transport in _FAKE_TO_TRANSPORT:
         transport = _FAKE_TO_TRANSPORT[transport]
     return transport

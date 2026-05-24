@@ -467,3 +467,357 @@ class TestQueueRejectionTransientClassification:
         kind = RetryExecutor.classify_failure(err)
         assert kind is DeliveryFailureKind.ADAPTER_TRANSIENT
         assert kind.is_retryable is True
+
+
+class TestQueueLifecycleFailureKindDetail:
+    """failure_kind_detail patterns for Meshtastic queue lifecycle transitions."""
+
+    def test_queue_drain_cancelled_detail(self) -> None:
+        """'queue drain cancelled' derives meshtastic_queue_drain_cancelled."""
+        from medre.runtime.reporting import _derive_failure_kind_detail
+
+        detail = _derive_failure_kind_detail(
+            failure_kind="adapter_transient",
+            error="queue drain cancelled during shutdown",
+        )
+        assert detail == "meshtastic_queue_drain_cancelled"
+
+    def test_queue_abandoned_detail(self) -> None:
+        """'queue abandoned' derives meshtastic_queue_drain_cancelled."""
+        from medre.runtime.reporting import _derive_failure_kind_detail
+
+        detail = _derive_failure_kind_detail(
+            failure_kind="adapter_transient",
+            error="queue abandoned on crash",
+        )
+        assert detail == "meshtastic_queue_drain_cancelled"
+
+    def test_queue_rejected_not_confused_with_drain_cancelled(self) -> None:
+        """Queue full rejection is NOT meshtastic_queue_drain_cancelled."""
+        from medre.runtime.reporting import _derive_failure_kind_detail
+
+        detail = _derive_failure_kind_detail(
+            failure_kind="adapter_transient",
+            error="queue is full; enqueue rejected",
+        )
+        assert detail == "meshtastic_queue_rejected"
+
+    def test_delivery_status_distinguishes_enqueued(self) -> None:
+        """AdapterDeliveryResult.delivery_status field distinguishes
+        enqueued from sent."""
+        from medre.core.contracts.adapter import AdapterDeliveryResult
+
+        enqueued = AdapterDeliveryResult(
+            native_message_id=None,
+            delivery_status="enqueued",
+            delivery_note="locally enqueued",
+        )
+        sent = AdapterDeliveryResult(
+            native_message_id="123",
+            delivery_status="sent",
+        )
+        assert enqueued.delivery_status == "enqueued"
+        assert sent.delivery_status == "sent"
+        assert enqueued.native_message_id is None
+        assert sent.native_message_id == "123"
+
+    def test_default_delivery_status_is_sent(self) -> None:
+        """AdapterDeliveryResult.delivery_status defaults to 'sent'."""
+        from medre.core.contracts.adapter import AdapterDeliveryResult
+
+        result = AdapterDeliveryResult(native_message_id="42")
+        assert result.delivery_status == "sent"
+
+
+# ===================================================================
+# Supplemental receipt correlation (queued → sent by channel)
+# ===================================================================
+
+
+class TestSupplementalReceiptChannelCorrelation:
+    """_append_queued_to_sent_receipt correlates by event_id + adapter + channel.
+
+    When one event fanouts to the same adapter on multiple channels,
+    the supplemental "sent" receipt must attach to the correct queued
+    parent (matching by channel).  Ambiguous cases produce no receipt.
+    """
+
+    async def test_two_channels_correlate_correctly(self, temp_storage) -> None:
+        """One event → two queued receipts (ch 0 and ch 1) on same adapter.
+        Callback for ch 0 → sent receipt parents ch 0 queued receipt."""
+        from datetime import datetime, timezone
+
+        from medre.core.contracts.adapter import OutboundNativeRefRecord
+        from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
+        from medre.core.events.bus import EventBus
+        from medre.core.events.canonical import DeliveryReceipt
+        from medre.core.planning.fallback_resolution import FallbackResolver
+        from medre.core.planning.relation_resolution import RelationResolver
+        from medre.core.routing import Router
+
+        event_id = "evt-two-ch"
+
+        # Manually insert two queued receipts on different channels.
+        now = datetime.now(tz=timezone.utc)
+        rcpt_ch0 = DeliveryReceipt(
+            receipt_id="rcpt-ch0",
+            event_id=event_id,
+            delivery_plan_id="plan-ch0",
+            target_adapter="mesh-1",
+            target_channel="0",
+            route_id="route-a",
+            status="queued",
+            created_at=now,
+        )
+        rcpt_ch1 = DeliveryReceipt(
+            receipt_id="rcpt-ch1",
+            event_id=event_id,
+            delivery_plan_id="plan-ch1",
+            target_adapter="mesh-1",
+            target_channel="1",
+            route_id="route-b",
+            status="queued",
+            created_at=now,
+        )
+        await temp_storage.append_receipt(rcpt_ch0)
+        await temp_storage.append_receipt(rcpt_ch1)
+
+        runner = PipelineRunner(
+            PipelineConfig(
+                storage=temp_storage,
+                router=Router(routes=[]),
+                fallback_resolver=FallbackResolver(),
+                relation_resolver=RelationResolver(storage=temp_storage),
+                adapters={},
+                event_bus=EventBus(),
+            )
+        )
+
+        # Callback for channel "0".
+        record_ch0 = OutboundNativeRefRecord(
+            event_id=event_id,
+            adapter="mesh-1",
+            native_channel_id="0",
+            native_message_id="packet-0",
+        )
+        await runner._append_queued_to_sent_receipt(record=record_ch0, now=now)
+
+        # Callback for channel "1".
+        record_ch1 = OutboundNativeRefRecord(
+            event_id=event_id,
+            adapter="mesh-1",
+            native_channel_id="1",
+            native_message_id="packet-1",
+        )
+        await runner._append_queued_to_sent_receipt(record=record_ch1, now=now)
+
+        # Verify both supplemental receipts created.
+        receipts = await temp_storage.list_receipts_for_event(event_id)
+        sent_receipts = [r for r in receipts if r.status == "sent"]
+        assert len(sent_receipts) == 2
+
+        # Channel 0 sent receipt → parents ch0 queued receipt.
+        sent_ch0 = [r for r in sent_receipts if r.target_channel == "0"]
+        assert len(sent_ch0) == 1
+        assert sent_ch0[0].parent_receipt_id == "rcpt-ch0"
+        assert sent_ch0[0].delivery_plan_id == "plan-ch0"
+        assert sent_ch0[0].route_id == "route-a"
+        assert sent_ch0[0].adapter_message_id == "packet-0"
+
+        # Channel 1 sent receipt → parents ch1 queued receipt.
+        sent_ch1 = [r for r in sent_receipts if r.target_channel == "1"]
+        assert len(sent_ch1) == 1
+        assert sent_ch1[0].parent_receipt_id == "rcpt-ch1"
+        assert sent_ch1[0].delivery_plan_id == "plan-ch1"
+        assert sent_ch1[0].route_id == "route-b"
+        assert sent_ch1[0].adapter_message_id == "packet-1"
+
+    async def test_ambiguous_no_channel_produces_no_receipt(self, temp_storage) -> None:
+        """Multiple queued candidates + no channel on record → no receipt."""
+        from datetime import datetime, timezone
+
+        from medre.core.contracts.adapter import OutboundNativeRefRecord
+        from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
+        from medre.core.events.bus import EventBus
+        from medre.core.events.canonical import DeliveryReceipt
+        from medre.core.planning.fallback_resolution import FallbackResolver
+        from medre.core.planning.relation_resolution import RelationResolver
+        from medre.core.routing import Router
+
+        event_id = "evt-ambiguous"
+        now = datetime.now(tz=timezone.utc)
+
+        # Two queued receipts on different channels, same adapter.
+        await temp_storage.append_receipt(
+            DeliveryReceipt(
+                receipt_id="rcpt-a",
+                event_id=event_id,
+                delivery_plan_id="plan-a",
+                target_adapter="mesh-1",
+                target_channel="0",
+                route_id="route-x",
+                status="queued",
+                created_at=now,
+            )
+        )
+        await temp_storage.append_receipt(
+            DeliveryReceipt(
+                receipt_id="rcpt-b",
+                event_id=event_id,
+                delivery_plan_id="plan-b",
+                target_adapter="mesh-1",
+                target_channel="1",
+                route_id="route-y",
+                status="queued",
+                created_at=now,
+            )
+        )
+
+        runner = PipelineRunner(
+            PipelineConfig(
+                storage=temp_storage,
+                router=Router(routes=[]),
+                fallback_resolver=FallbackResolver(),
+                relation_resolver=RelationResolver(storage=temp_storage),
+                adapters={},
+                event_bus=EventBus(),
+            )
+        )
+
+        # Record with NO channel → ambiguous.
+        record = OutboundNativeRefRecord(
+            event_id=event_id,
+            adapter="mesh-1",
+            native_channel_id=None,
+            native_message_id="packet-amb",
+        )
+        await runner._append_queued_to_sent_receipt(record=record, now=now)
+
+        receipts = await temp_storage.list_receipts_for_event(event_id)
+        sent = [r for r in receipts if r.status == "sent"]
+        assert len(sent) == 0
+
+    async def test_single_candidate_no_channel_succeeds(self, temp_storage) -> None:
+        """One queued candidate + no channel on record → receipt appended."""
+        from datetime import datetime, timezone
+
+        from medre.core.contracts.adapter import OutboundNativeRefRecord
+        from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
+        from medre.core.events.bus import EventBus
+        from medre.core.events.canonical import DeliveryReceipt
+        from medre.core.planning.fallback_resolution import FallbackResolver
+        from medre.core.planning.relation_resolution import RelationResolver
+        from medre.core.routing import Router
+
+        event_id = "evt-single-cand"
+        now = datetime.now(tz=timezone.utc)
+
+        await temp_storage.append_receipt(
+            DeliveryReceipt(
+                receipt_id="rcpt-only",
+                event_id=event_id,
+                delivery_plan_id="plan-only",
+                target_adapter="mesh-1",
+                target_channel="0",
+                route_id="route-z",
+                status="queued",
+                created_at=now,
+            )
+        )
+
+        runner = PipelineRunner(
+            PipelineConfig(
+                storage=temp_storage,
+                router=Router(routes=[]),
+                fallback_resolver=FallbackResolver(),
+                relation_resolver=RelationResolver(storage=temp_storage),
+                adapters={},
+                event_bus=EventBus(),
+            )
+        )
+
+        # No channel but only one candidate → OK.
+        record = OutboundNativeRefRecord(
+            event_id=event_id,
+            adapter="mesh-1",
+            native_channel_id=None,
+            native_message_id="packet-single",
+        )
+        await runner._append_queued_to_sent_receipt(record=record, now=now)
+
+        receipts = await temp_storage.list_receipts_for_event(event_id)
+        sent = [r for r in receipts if r.status == "sent"]
+        assert len(sent) == 1
+        assert sent[0].parent_receipt_id == "rcpt-only"
+        assert sent[0].delivery_plan_id == "plan-only"
+        assert sent[0].adapter_message_id == "packet-single"
+
+    async def test_retry_chooses_most_recent(self, temp_storage) -> None:
+        """Multiple queued receipts on same channel (retries) → last one wins."""
+        from datetime import datetime, timedelta, timezone
+
+        from medre.core.contracts.adapter import OutboundNativeRefRecord
+        from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
+        from medre.core.events.bus import EventBus
+        from medre.core.events.canonical import DeliveryReceipt
+        from medre.core.planning.fallback_resolution import FallbackResolver
+        from medre.core.planning.relation_resolution import RelationResolver
+        from medre.core.routing import Router
+
+        event_id = "evt-retry"
+        now = datetime.now(tz=timezone.utc)
+
+        # Two queued receipts on the same channel (retry scenario).
+        await temp_storage.append_receipt(
+            DeliveryReceipt(
+                receipt_id="rcpt-first",
+                event_id=event_id,
+                delivery_plan_id="plan-v1",
+                target_adapter="mesh-1",
+                target_channel="0",
+                route_id="route-r",
+                status="queued",
+                attempt_number=1,
+                created_at=now - timedelta(minutes=5),
+            )
+        )
+        await temp_storage.append_receipt(
+            DeliveryReceipt(
+                receipt_id="rcpt-retry",
+                event_id=event_id,
+                delivery_plan_id="plan-v2",
+                target_adapter="mesh-1",
+                target_channel="0",
+                route_id="route-r",
+                status="queued",
+                attempt_number=2,
+                created_at=now,
+            )
+        )
+
+        runner = PipelineRunner(
+            PipelineConfig(
+                storage=temp_storage,
+                router=Router(routes=[]),
+                fallback_resolver=FallbackResolver(),
+                relation_resolver=RelationResolver(storage=temp_storage),
+                adapters={},
+                event_bus=EventBus(),
+            )
+        )
+
+        record = OutboundNativeRefRecord(
+            event_id=event_id,
+            adapter="mesh-1",
+            native_channel_id="0",
+            native_message_id="packet-retry",
+        )
+        await runner._append_queued_to_sent_receipt(record=record, now=now)
+
+        receipts = await temp_storage.list_receipts_for_event(event_id)
+        sent = [r for r in receipts if r.status == "sent"]
+        assert len(sent) == 1
+        # Should parent the RETRY (most recent) receipt, not the first.
+        assert sent[0].parent_receipt_id == "rcpt-retry"
+        assert sent[0].delivery_plan_id == "plan-v2"
+        assert sent[0].attempt_number == 2

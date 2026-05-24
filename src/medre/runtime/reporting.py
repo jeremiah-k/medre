@@ -32,8 +32,8 @@ def native_ref_to_report_dict(
     Canonical keys: ``adapter``, ``native_channel_id``,
     ``native_message_id``, ``direction``, ``resolves_to``.
 
-    Legacy aliases: ``channel`` (same as ``native_channel_id``),
-    ``native_id`` (same as ``native_message_id``).
+    Short report aliases: ``channel`` (same as
+    ``native_channel_id``), ``native_id`` (same as ``native_message_id``).
 
     Parameters
     ----------
@@ -50,7 +50,7 @@ def native_ref_to_report_dict(
         "native_message_id": nref.native_message_id,
         "direction": direction_value,
         "resolves_to": resolved_to_event_id or nref.event_id,
-        # Legacy aliases
+        # Short report aliases
         "channel": nref.native_channel_id or "",
         "native_id": nref.native_message_id,
     }
@@ -73,7 +73,6 @@ def _to_iso_or_none(dt: datetime | None) -> str | None:
 def _derive_failure_kind_detail(
     failure_kind: str | None,
     error: str | None,
-    target_adapter: str,  # noqa: ARG001 – kept for API compatibility
 ) -> str | None:
     """Derive a conservative *failure_kind_detail* from error context.
 
@@ -95,6 +94,11 @@ def _derive_failure_kind_detail(
     if not failure_kind:
         return None
     err = (error or "").lower()
+    # Shutdown drain-timeout abandonment — persisted by MedreApp.stop() when
+    # in-flight deliveries remain after the drain deadline expires.  Distinct
+    # from the generic shutdown_rejection recorded at capacity-acquire time.
+    if "shutdown_drain_timeout" in err:
+        return "shutdown_drain_timeout"
     # E2EE / encrypted blocking (Matrix adapters).
     # Tightened to Matrix-specific patterns only — generic "encrypted"
     # alone is insufficient (e.g. "encrypted packet" is not E2EE).
@@ -117,6 +121,14 @@ def _derive_failure_kind_detail(
     # still recognised.
     if ("queue" in err and "full" in err) or "enqueue rejected" in err:
         return "meshtastic_queue_rejected"
+    # Meshtastic outbound gate suppression — listen_only mode.
+    if "outbound suppressed" in err and "listen_only" in err:
+        return "meshtastic_outbound_suppressed"
+    # Meshtastic queue drain cancelled — shutdown or crash while items
+    # were enqueued but not yet sent.  Distinguished from queue-full
+    # rejection by the "drain cancelled" / "queue abandoned" phrasing.
+    if "queue drain cancelled" in err or "queue abandoned" in err:
+        return "meshtastic_queue_drain_cancelled"
     # Default: preserve the original failure_kind.
     return failure_kind
 
@@ -181,9 +193,8 @@ def delivery_receipt_to_report_dict(
     error_value: str | None = (
         sanitize_error(receipt.error) if receipt.error else receipt.error
     )
-    # Use getattr for enrichment fields so duck-typed receipt fakes that
-    # lack newly-added attributes (next_retry_at, retry policy, etc.)
-    # remain compatible without raising AttributeError.
+    # Use getattr for optional enrichment fields that may be absent on
+    # minimal test receipts or focused helper structs.
     _next_retry_at: datetime | None = getattr(receipt, "next_retry_at", None)
     _retry_max_attempts: int | None = getattr(receipt, "retry_max_attempts", None)
     _retry_backoff_base: float | None = getattr(receipt, "retry_backoff_base", None)
@@ -193,7 +204,6 @@ def delivery_receipt_to_report_dict(
     fk_detail: str | None = _derive_failure_kind_detail(
         receipt.failure_kind,
         receipt.error,
-        receipt.target_adapter,
     )
     retryable: bool = _compute_retryable(
         receipt.failure_kind,
@@ -216,7 +226,7 @@ def delivery_receipt_to_report_dict(
         "route_id": receipt.route_id,
         "source": receipt.source,
         # Retry policy fields (from DeliveryReceipt struct).
-        # Safe getattr defaults for duck-typed compatibility.
+        # Tolerant report construction for optional retry fields.
         "retry_max_attempts": _retry_max_attempts,
         "retry_backoff_base": _retry_backoff_base,
         "retry_max_delay": _retry_max_delay,

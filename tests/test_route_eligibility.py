@@ -24,6 +24,12 @@ from pathlib import Path
 
 import pytest
 
+from medre.config.routes import (
+    BridgePolicy,
+    RouteConfig,
+    RouteConfigSet,
+    RouteDirectionality,
+)
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.lifecycle.states import AdapterState
 from medre.core.routing import Router
@@ -37,12 +43,6 @@ from medre.runtime.route_engine import (
     UnavailableRoute,
     compute_startup_readiness,
     register_routes,
-)
-from medre.config.routes import (
-    BridgePolicy,
-    RouteConfig,
-    RouteConfigSet,
-    RouteDirectionality,
 )
 
 # ---------------------------------------------------------------------------

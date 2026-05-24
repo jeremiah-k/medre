@@ -300,7 +300,7 @@ class TestRetryTraceEvidence:
         Timeline assembly shows both receipts, correct lineage, and mixed source."""
         from unittest.mock import AsyncMock
 
-        from medre.adapters.fake_presentation import FakePresentationAdapter
+        from medre.adapters.fakes.presentation import FakePresentationAdapter
         from medre.core.contracts.adapter import AdapterContext
         from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
         from medre.core.events.bus import EventBus
@@ -315,7 +315,7 @@ class TestRetryTraceEvidence:
         from medre.core.routing.models import Route, RouteSource, RouteTarget
         from medre.core.routing.router import Router
         from medre.core.routing.stats import RouteStats
-        from medre.core.runtime.accounting import RuntimeAccounting
+        from medre.core.supervision.accounting import RuntimeAccounting
 
         class _FallbackResolverWithRetry(_BaseFallback):
             """Injects a RetryPolicy into every delivery plan."""
@@ -532,7 +532,7 @@ class TestRetryTraceEvidence:
         cycle."""
         from unittest.mock import AsyncMock
 
-        from medre.adapters.fake_presentation import FakePresentationAdapter
+        from medre.adapters.fakes.presentation import FakePresentationAdapter
         from medre.core.contracts.adapter import AdapterContext
         from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
         from medre.core.events.bus import EventBus
@@ -547,7 +547,7 @@ class TestRetryTraceEvidence:
         from medre.core.routing.models import Route, RouteSource, RouteTarget
         from medre.core.routing.router import Router
         from medre.core.routing.stats import RouteStats
-        from medre.core.runtime.accounting import RuntimeAccounting
+        from medre.core.supervision.accounting import RuntimeAccounting
         from medre.runtime.events import EventBuffer, RuntimeEventType
         from medre.runtime.retry import RetryWorker
 
@@ -680,7 +680,7 @@ class TestRetryTraceEvidence:
         processed >= 1 and succeeded >= 1."""
         from unittest.mock import AsyncMock
 
-        from medre.adapters.fake_presentation import FakePresentationAdapter
+        from medre.adapters.fakes.presentation import FakePresentationAdapter
         from medre.core.contracts.adapter import AdapterContext
         from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
         from medre.core.events.bus import EventBus
@@ -695,7 +695,7 @@ class TestRetryTraceEvidence:
         from medre.core.routing.models import Route, RouteSource, RouteTarget
         from medre.core.routing.router import Router
         from medre.core.routing.stats import RouteStats
-        from medre.core.runtime.accounting import RuntimeAccounting
+        from medre.core.supervision.accounting import RuntimeAccounting
         from medre.runtime.retry import RetryWorker, RetryWorkerState
 
         class _FallbackResolverWithRetry(_BaseFallback):

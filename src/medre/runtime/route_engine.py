@@ -38,8 +38,8 @@ from medre.core.routing.router import Router
 from medre.runtime.errors import RuntimeConfigError
 
 if TYPE_CHECKING:
-    from medre.core.lifecycle.states import AdapterState
     from medre.config.routes import RouteConfig, RouteConfigSet
+    from medre.core.lifecycle.states import AdapterState
 
 __all__ = [
     "DegradedRoute",
@@ -558,9 +558,7 @@ def _expand_channel_room_map_route(
                         event_kinds=event_kinds,
                         channel=room_id,
                     ),
-                    targets=[
-                        RouteTarget(adapter=meshtastic_id, channel=ch)
-                    ],
+                    targets=[RouteTarget(adapter=meshtastic_id, channel=ch)],
                     enabled=rc.enabled,
                 )
             )
@@ -576,9 +574,7 @@ def _expand_channel_room_map_route(
                         event_kinds=event_kinds,
                         channel=ch,
                     ),
-                    targets=[
-                        RouteTarget(adapter=matrix_id, channel=room_id)
-                    ],
+                    targets=[RouteTarget(adapter=matrix_id, channel=room_id)],
                     enabled=rc.enabled,
                 )
             )

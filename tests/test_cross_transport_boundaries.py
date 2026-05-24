@@ -136,10 +136,10 @@ class TestCoreImportBoundary:
         "medre.core.engine.pipeline",
         "medre.core.rendering.renderer",
         "medre.core.rendering.text",
-        "medre.core.runtime",
-        "medre.core.runtime.diagnostics",
-        "medre.core.runtime.health",
-        "medre.core.runtime.capabilities",
+        "medre.core.supervision",
+        "medre.core.supervision.diagnostics",
+        "medre.core.supervision.health",
+        "medre.core.supervision.capabilities",
         "medre.core.observability.logging",
         "medre.core.observability.metrics",
         "medre.core.lifecycle.states",
@@ -150,7 +150,6 @@ class TestCoreImportBoundary:
         "medre.core.planning.delivery_plan",
         "medre.core.planning.fallback_resolution",
         "medre.core.planning.relation_resolution",
-        "medre.core.transforms",
     ]
 
     @pytest.fixture(params=_CORE_MODULES)
@@ -200,9 +199,9 @@ class TestRuntimeImportBoundary:
     transport SDKs."""
 
     _RUNTIME_MODULES = [
-        "medre.core.runtime.diagnostics",
-        "medre.core.runtime.health",
-        "medre.core.runtime.capabilities",
+        "medre.core.supervision.diagnostics",
+        "medre.core.supervision.health",
+        "medre.core.supervision.capabilities",
     ]
 
     @pytest.fixture(params=_RUNTIME_MODULES)
@@ -707,11 +706,11 @@ class TestCodecBoundary:
 # ===================================================================
 
 _DIAGNOSTIC_CONTRACT_MODULES = [
-    "medre.core.runtime.diagnostics",
-    "medre.core.runtime.health",
-    "medre.core.runtime.capabilities",
+    "medre.core.supervision.diagnostics",
+    "medre.core.supervision.health",
+    "medre.core.supervision.capabilities",
     # Placeholder for future dedicated diagnostic_contract module:
-    # "medre.core.runtime.diagnostic_contract",
+    # "medre.core.supervision.diagnostic_contract",
 ]
 """Modules that form the diagnostic contract layer."""
 
@@ -913,8 +912,8 @@ _SESSION_RUNTIME_FORBIDDEN_PREFIXES = (
 )
 """Runtime implementation internals that session modules must not import.
 
-Safe diagnostic/capability types (e.g. ``medre.core.runtime.diagnostics``,
-``medre.core.runtime.capabilities``) are NOT forbidden here — sessions
+Safe diagnostic/capability types (e.g. ``medre.core.supervision.diagnostics``,
+``medre.core.supervision.capabilities``) are NOT forbidden here — sessions
 may legitimately query adapter capabilities.  Only the concrete runtime
 implementation modules (pipeline, router, storage) are disallowed.
 """
@@ -997,11 +996,11 @@ class TestSessionRuntimeContainment:
         mod = _load_module(mod_name)
         source = _read_module_source(mod)
         for line in _import_lines(source):
-            assert "medre.core.runtime.diagnostics" not in line, (
+            assert "medre.core.supervision.diagnostics" not in line, (
                 f"Session must not import runtime diagnostics; found in "
                 f"{mod_name}: {line!r}"
             )
-            assert "medre.core.runtime.health" not in line, (
+            assert "medre.core.supervision.health" not in line, (
                 f"Session must not import runtime health; found in "
                 f"{mod_name}: {line!r}"
             )
@@ -1104,9 +1103,9 @@ class TestAdapterRuntimeContainment:
             source = _read_module_source(mod)
             for line in _import_lines(source):
                 for forbidden in (
-                    "medre.core.runtime.diagnostics",
-                    "medre.core.runtime.health",
-                    "medre.core.runtime.capabilities",
+                    "medre.core.supervision.diagnostics",
+                    "medre.core.supervision.health",
+                    "medre.core.supervision.capabilities",
                 ):
                     if forbidden in line:
                         violations.append(

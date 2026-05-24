@@ -80,12 +80,12 @@ Live test adapters are configured using MEDRE's instance-scoped env var format. 
 
 > **Runtime config vs. test convenience vars.** This section describes environment variables used by the live test harness. MEDRE's runtime config system uses `MEDRE_ADAPTER__<TOKEN>__<FIELD>` as its only adapter override surface (see `docs/runbooks/configuration.md`). Some test modules may also read convenience variables like `MATRIX_HOMESERVER` or `MESHTASTIC_CONNECTION_TYPE` (without the `MEDRE_` prefix) for constructing test fixtures. These convenience vars are **test-only**. They are consumed by pytest test code, not by MEDRE's runtime config loader. If you need to override adapter config at runtime (in production or in a Docker container), always use `MEDRE_ADAPTER__<TOKEN>__<FIELD>`.
 
-| Transport | Token example | Example variables |
-|---|---|---|
-| Matrix | `MAIN` | `MEDRE_ADAPTER__MAIN__HOMESERVER`, `MEDRE_ADAPTER__MAIN__USER_ID`, `MEDRE_ADAPTER__MAIN__ACCESS_TOKEN`, `MEDRE_ADAPTER__MAIN__ROOM_ALLOWLIST` |
-| Meshtastic | `RADIO` | `MEDRE_ADAPTER__RADIO__HOST`, `MEDRE_ADAPTER__RADIO__PORT`, `MEDRE_ADAPTER__RADIO__CONNECTION_TYPE` |
-| MeshCore | `MESHCORE_RADIO` | `MEDRE_ADAPTER__MESHCORE_RADIO__HOST`, `MEDRE_ADAPTER__MESHCORE_RADIO__CONNECTION_TYPE` |
-| LXMF | `LOCAL` | `MEDRE_ADAPTER__LOCAL__CONNECTION_TYPE`, `MEDRE_ADAPTER__LOCAL__IDENTITY_PATH` |
+| Transport  | Token example    | Example variables                                                                                                                             |
+| ---------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Matrix     | `MAIN`           | `MEDRE_ADAPTER__MAIN__HOMESERVER`, `MEDRE_ADAPTER__MAIN__USER_ID`, `MEDRE_ADAPTER__MAIN__ACCESS_TOKEN`, `MEDRE_ADAPTER__MAIN__ROOM_ALLOWLIST` |
+| Meshtastic | `RADIO`          | `MEDRE_ADAPTER__RADIO__HOST`, `MEDRE_ADAPTER__RADIO__PORT`, `MEDRE_ADAPTER__RADIO__CONNECTION_TYPE`                                           |
+| MeshCore   | `MESHCORE_RADIO` | `MEDRE_ADAPTER__MESHCORE_RADIO__HOST`, `MEDRE_ADAPTER__MESHCORE_RADIO__CONNECTION_TYPE`                                                       |
+| LXMF       | `LOCAL`          | `MEDRE_ADAPTER__LOCAL__CONNECTION_TYPE`, `MEDRE_ADAPTER__LOCAL__IDENTITY_PATH`                                                                |
 
 The token is derived from the adapter's `adapter_id` by stripping non-alphanumeric characters (replaced with `_`), collapsing consecutive underscores, and uppercasing. See `docs/runbooks/configuration.md` for the full normalisation table.
 
@@ -106,7 +106,7 @@ Follow this template when adding live tests for a new transport. The pattern is 
 
 ### 4.1 File structure
 
-```
+```text
 tests/
   test_<transport>_live.py          # Live tests
   helpers/
@@ -364,9 +364,9 @@ When porting the live-test harness into a transport-specific adapter branch, fol
 
 ## 10. Related Documentation
 
-| Document | What it covers |
-|---|---|
-| `docs/dev/TESTING_GUIDE.md` | General testing guide (tiers, style, async mocking, fixtures) |
-| `docs/runbooks/operator-workflows.md` | Operator guide (smoke tests, evidence, tracing, diagnosis) |
-| `docs/runbooks/matrix-alpha-operation.md` | Full Matrix alpha setup and operation |
-| `docs/runbooks/matrix-live-smoke.md` | Matrix live smoke test instructions |
+| Document                                  | What it covers                                                |
+| ----------------------------------------- | ------------------------------------------------------------- |
+| `docs/dev/TESTING_GUIDE.md`               | General testing guide (tiers, style, async mocking, fixtures) |
+| `docs/runbooks/operator-workflows.md`     | Operator guide (smoke tests, evidence, tracing, diagnosis)    |
+| `docs/runbooks/matrix-alpha-operation.md` | Full Matrix alpha setup and operation                         |
+| `docs/runbooks/matrix-live-smoke.md`      | Matrix live smoke test instructions                           |

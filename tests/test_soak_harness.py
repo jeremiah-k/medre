@@ -35,19 +35,14 @@ storage, and a deterministic configuration.  It provides:
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
 
-from tests.helpers.soak import (
-    DiagnosticsSnapshot,
-    SoakRuntime,
-    _get_iterations,
-)
-
 from medre.runtime.app import RuntimeState
-
+from tests.helpers.soak import (
+    SoakRuntime,
+)
 
 # ---------------------------------------------------------------------------
 # Fixtures

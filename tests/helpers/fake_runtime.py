@@ -27,7 +27,6 @@ from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.runtime.app import MedreApp, RuntimeState
 from medre.runtime.builder import RuntimeBuilder
 
-
 # ---------------------------------------------------------------------------
 # Async helpers
 # ---------------------------------------------------------------------------

@@ -46,6 +46,10 @@ Matrix is the only MEDRE transport where `sent` implies server-verified persiste
 
 Meshtastic delivery is best-effort fire-and-forget at the radio layer. Expect packet loss. Expect to resend. Do not treat `sent` as delivered.
 
+**Outbound gate (`outbound_mode`):** The Meshtastic adapter supports `outbound_mode` with values `"enabled"` (default) and `"listen_only"`. When `outbound_mode = "listen_only"`, the adapter connects normally and receives inbound packets, but suppresses all outbound delivery — `deliver()` rejects payloads as non-retryable failures with detail `outbound suppressed: listen_only mode`. This is an intentional operator-configured gate for receive-only monitoring. Enable via TOML or `MEDRE_ADAPTER__RADIO__OUTBOUND_MODE=listen_only`.
+
+**Shutdown queue abandonment:** Items remaining in the Meshtastic adapter's in-memory outbound queue at shutdown are not persisted, not requeued, and not recovered on restart. The adapter-local queue is non-durable. Durable queue persistence and crash-recovery are deferred to a future implementation. Operators requiring delivery assurance must ensure the queue is drained before shutdown.
+
 ### MeshCore
 
 | Property               | Value                                                                                              |
@@ -620,7 +624,7 @@ During bridge operation, monitor these signals:
 | Signal                                 | Source               | Interpretation                                      |
 | -------------------------------------- | -------------------- | --------------------------------------------------- |
 | `capacity_rejections` growing          | `CapacityController` | Delivery concurrency is insufficient for the load   |
-| `queue_total_rejected` growing        | Meshtastic adapter   | Outbound send rate cannot keep up with inbound rate |
+| `queue_total_rejected` growing         | Meshtastic adapter   | Outbound send rate cannot keep up with inbound rate |
 | `capacity_rejections` growing (replay) | `CapacityController` | Replay concurrency is insufficient                  |
 | High `delivery_current` sustained      | `CapacityController` | Adapters are slow to complete deliveries            |
 
@@ -734,6 +738,10 @@ The bridge operation layer explicitly does **not** provide:
 7. **Queue-bound delivery completeness.** Capacity semaphores and adapter-level queue bounds prevent unbounded memory accumulation but do not guarantee that every message is delivered. Under extreme pressure, messages are dropped or rejected to protect process stability.
 
 8. **Persistent in-flight recovery.** No in-flight delivery state survives shutdown. No replay resume after restart. Cancelled deliveries are lost.
+
+9. **Adapter-local outbound queue durability.** The Meshtastic adapter's outbound queue is in-memory and non-durable. Items remaining in the queue at process termination (graceful or ungraceful) are lost. Durable queue persistence is a documented non-guarantee — it is deferred to a future implementation.
+
+10. **Outbound gate suppression is non-retryable.** When `outbound_mode = "listen_only"` is configured on a Meshtastic adapter, suppressed deliveries are classified as non-retryable adapter failures. The pipeline does not retry them because the suppression is an intentional operator decision, not a transient transport error.
 
 ## 15. Shutdown Snapshot and Bridge Evidence
 

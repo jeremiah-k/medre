@@ -8,7 +8,7 @@ new infrastructure.
 The snapshot contains:
 
 * **Adapters** – registered adapter health via
-  :func:`~medre.core.runtime.health.normalize_adapter_health`.
+  :func:`~medre.core.supervision.health.normalize_adapter_health`.
 * **Renderer registry / platform registry** – from
   :class:`~medre.core.rendering.renderer.RenderingPipeline.status_summary`.
 * **Storage / replay backend status** – placeholder summaries.
@@ -35,7 +35,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Sequence
 
-from medre.core.runtime.health import normalize_adapter_health
+from medre.core.supervision.health import normalize_adapter_health
 
 # Forward-reference type alias for Router; imported lazily inside
 # capture_route_topology to avoid hard coupling at module load.
@@ -197,7 +197,7 @@ def capture_runtime_snapshot(
     adapter_healths:
         Sequence of :class:`_AdapterHealthInput` entries describing each
         registered adapter.  Each entry's ``info`` is passed through
-        :func:`~medre.core.runtime.health.normalize_adapter_health`.
+        :func:`~medre.core.supervision.health.normalize_adapter_health`.
     renderer_pipeline:
         Optional :class:`~medre.core.rendering.renderer.RenderingPipeline`.
         When provided, its :meth:`status_summary` output is captured.

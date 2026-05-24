@@ -9,8 +9,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from medre.adapters.fake_presentation import FakePresentationAdapter
-from medre.adapters.fake_transport import FakeTransportAdapter
+from medre.adapters.fakes.presentation import FakePresentationAdapter
+from medre.adapters.fakes.transport import FakeTransportAdapter
 from medre.core.contracts.adapter import (
     AdapterInfo,
     AdapterPermanentError,
@@ -469,7 +469,7 @@ class TestDeliveryContract:
 
     async def test_fake_matrix_rejects_canonical_event(self) -> None:
         """FakeMatrixAdapter.deliver raises AdapterPermanentError on CanonicalEvent."""
-        from medre.adapters.fake_matrix import FakeMatrixAdapter
+        from medre.adapters.fakes.matrix import FakeMatrixAdapter
 
         adapter = FakeMatrixAdapter("test_m")
         event = _make_event()
@@ -478,7 +478,7 @@ class TestDeliveryContract:
 
     async def test_faulty_presentation_rejects_canonical_event(self) -> None:
         """FaultyPresentationAdapter.deliver raises TypeError on CanonicalEvent."""
-        from medre.adapters.fake_presentation import FaultyPresentationAdapter
+        from medre.adapters.fakes.presentation import FaultyPresentationAdapter
 
         adapter = FaultyPresentationAdapter(
             adapter_id="test",
@@ -618,7 +618,7 @@ class TestFaultyPresentationAdapter:
 
     async def test_always_fail_raises_runtime_error(self) -> None:
         """permanent_fail mode raises RuntimeError on every deliver."""
-        from medre.adapters.fake_presentation import FaultyPresentationAdapter
+        from medre.adapters.fakes.presentation import FaultyPresentationAdapter
 
         adapter = FaultyPresentationAdapter(
             adapter_id="always-fail",
@@ -640,7 +640,7 @@ class TestFaultyPresentationAdapter:
 
     async def test_transient_fail_raises_connection_error(self) -> None:
         """transient_fail mode raises ConnectionError (retryable)."""
-        from medre.adapters.fake_presentation import FaultyPresentationAdapter
+        from medre.adapters.fakes.presentation import FaultyPresentationAdapter
 
         adapter = FaultyPresentationAdapter(
             adapter_id="transient",
@@ -658,7 +658,7 @@ class TestFaultyPresentationAdapter:
 
     async def test_succeed_never_raises(self) -> None:
         """succeed mode never raises and stores payloads."""
-        from medre.adapters.fake_presentation import FaultyPresentationAdapter
+        from medre.adapters.fakes.presentation import FaultyPresentationAdapter
         from medre.core.contracts.adapter import AdapterDeliveryResult
 
         adapter = FaultyPresentationAdapter(
@@ -681,7 +681,7 @@ class TestFaultyPresentationAdapter:
 
     async def test_fail_n_then_succeed(self) -> None:
         """fail_n_then_succeed raises for first N calls then succeeds."""
-        from medre.adapters.fake_presentation import FaultyPresentationAdapter
+        from medre.adapters.fakes.presentation import FaultyPresentationAdapter
         from medre.core.contracts.adapter import AdapterDeliveryResult
 
         adapter = FaultyPresentationAdapter(
@@ -716,7 +716,7 @@ class TestFaultyPresentationAdapter:
 
     async def test_faulty_adapter_lifecycle(self, make_adapter_context) -> None:
         """FaultyPresentationAdapter supports start/stop lifecycle."""
-        from medre.adapters.fake_presentation import FaultyPresentationAdapter
+        from medre.adapters.fakes.presentation import FaultyPresentationAdapter
 
         adapter = FaultyPresentationAdapter(adapter_id="lifecycle")
         assert adapter.is_started is False

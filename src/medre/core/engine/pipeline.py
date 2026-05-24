@@ -62,11 +62,11 @@ from medre.core.rendering.text import TextRenderer
 from medre.core.routing.models import Route, RouteTarget
 from medre.core.routing.router import Router
 from medre.core.routing.stats import RouteStats
-from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage.backend import StorageBackend
+from medre.core.supervision.accounting import RuntimeAccounting
 
 if TYPE_CHECKING:
-    from medre.core.runtime.capacity import CapacityController
+    from medre.core.supervision.capacity import CapacityController
 
 
 # ---------------------------------------------------------------------------
@@ -146,6 +146,48 @@ class _PipelineLoggingMiddleware:
             event.event_kind,
         )
         return event
+
+
+# ---------------------------------------------------------------------------
+# In-flight delivery tracking
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class InflightDelivery:
+    """Identity record for a delivery currently in-flight in the pipeline.
+
+    Used by :meth:`PipelineRunner.drain_abandoned_deliveries` to produce
+    structured shutdown evidence when drain timeout expires.
+
+    Attributes
+    ----------
+    event_id:
+        Canonical event ID being delivered.
+    route_id:
+        Route that matched this delivery.
+    target_adapter:
+        Target adapter for this delivery.
+    target_channel:
+        Channel on the target adapter, if applicable.
+    delivery_plan_id:
+        ID of the delivery plan governing this attempt.
+    source:
+        Origin of delivery: ``"live"``, ``"retry"``, or ``"replay"``.
+    replay_run_id:
+        When ``source="replay"``, the replay run identifier.
+    acquired_at:
+        Monotonic timestamp when the delivery slot was acquired.
+    """
+
+    event_id: str
+    route_id: str
+    target_adapter: str
+    target_channel: str | None
+    delivery_plan_id: str
+    source: str
+    replay_run_id: str | None
+    acquired_at: float
 
 
 class _AdapterDeliveryError(Exception):
@@ -257,6 +299,7 @@ class PipelineRunner:
         self._runtime_accounting: RuntimeAccounting | None = config.runtime_accounting
         self._capacity_controller: CapacityController | None = None
         self._delivery_rejection_count: int = 0
+        self._inflight_deliveries: dict[str, InflightDelivery] = {}
 
     # -- Lifecycle ----------------------------------------------------------
 
@@ -294,7 +337,7 @@ class PipelineRunner:
             )
 
     def set_capacity_controller(self, cc: CapacityController) -> None:
-        """Wire a :class:`~medre.core.runtime.capacity.CapacityController`.
+        """Wire a :class:`~medre.core.supervision.capacity.CapacityController`.
 
         When set, each per-target delivery inside :meth:`_deliver_to_targets_inner`
         acquires a delivery slot before processing and releases it on
@@ -311,6 +354,24 @@ class PipelineRunner:
             self._config.event_bus.remove_middleware(self._middleware)
             self._middleware = None
         self._log.info("PipelineRunner stopped")
+
+    def drain_abandoned_deliveries(self) -> list[InflightDelivery]:
+        """Return and clear all tracked in-flight deliveries.
+
+        Called by :class:`~medre.runtime.app.MedreApp.stop()` after drain
+        timeout expires to produce structured abandonment evidence.  After
+        this call the internal registry is empty — callers own the returned
+        list and should persist receipts before releasing the data.
+
+        Returns
+        -------
+        list[InflightDelivery]
+            In-flight delivery identity records that were abandoned due to
+            drain timeout.  May be empty if all work completed in time.
+        """
+        abandoned = list(self._inflight_deliveries.values())
+        self._inflight_deliveries.clear()
+        return abandoned
 
     # -- Ingress -----------------------------------------------------------
 
@@ -382,10 +443,10 @@ class PipelineRunner:
                 # NOTE(duplicate_suppressed): No DeliveryReceipt is persisted
                 # here because this check runs at Stage 1.5 — *before* the
                 # inbound event is stored (Stage 3).  There is no persisted
-                # event_id to link a receipt to.  DUPLICATE_SUPPRESSED remains
-                # reserved in the DeliveryFailureKind enum for a future path
-                # where dedup occurs after storage.  Evidence of this
-                # suppression is recorded via RuntimeAccounting counters only.
+                # event_id to link a receipt to.  DUPLICATE_SUPPRESSED was
+                # removed from the DeliveryFailureKind enum because it was
+                # never emitted.  Evidence of this suppression is recorded
+                # via RuntimeAccounting counters only.
                 return []
 
         # Accounting: inbound event accepted past validation + dedup.
@@ -443,13 +504,13 @@ class PipelineRunner:
         # Deliver to all targets independently with error isolation.
         outcomes = await self.deliver_to_targets(event, deliveries)
 
-        succeeded = sum(1 for o in outcomes if o.status == "success")
-        failed = len(outcomes) - succeeded
+        accepted = sum(1 for o in outcomes if o.status in {"success", "queued"})
+        failed = len(outcomes) - accepted
         self._log.info(
-            "Pipeline complete: event_id=%s targets=%d succeeded=%d failed=%d",
+            "Pipeline complete: event_id=%s targets=%d accepted=%d failed=%d",
             event.event_id,
             len(deliveries),
-            succeeded,
+            accepted,
             failed,
         )
 
@@ -862,11 +923,19 @@ class PipelineRunner:
         :class:`AdapterContext.record_outbound_native_ref`.
 
         The guard against empty ``native_message_id`` is a defensive check
-        for legacy or manually-constructed records; note that
+        for manually-constructed records; note that
         :class:`OutboundNativeRefRecord` now rejects empty values at
         construction.  Catches and logs all exceptions with
         ``exc_info=True`` so that callback failures never crash the
         adapter's queue drain.
+
+        After storing the native ref, appends a supplemental delivery
+        receipt with ``status="sent"`` and the real native message ID.
+        This bridges the evidence gap for queue-based adapters: the
+        initial receipt is ``status="queued"`` (from ``delivery_status``
+        ``"enqueued"``), and this supplemental receipt records the
+        transition to "sent" when the queue drain produces a real
+        native ID.
 
         Parameters
         ----------
@@ -891,6 +960,20 @@ class PipelineRunner:
                 created_at=now,
             )
             await self._config.storage.store_native_ref(outbound_ref)
+
+            # Append a supplemental "sent" receipt to close the
+            # queued → sent evidence gap for queue-based adapters.
+            # Look up the most recent "queued" receipt for this
+            # event + adapter to inherit plan/route context.
+            try:
+                await self._append_queued_to_sent_receipt(record=record, now=now)
+            except Exception:
+                self._log.exception(
+                    "Failed to append supplemental sent receipt: "
+                    "event_id=%s adapter=%s",
+                    record.event_id,
+                    record.adapter,
+                )
         except Exception:
             self._log.exception(
                 "Failed to record delayed outbound native ref: "
@@ -899,6 +982,106 @@ class PipelineRunner:
                 record.adapter,
                 record.native_message_id,
             )
+
+    async def _append_queued_to_sent_receipt(
+        self,
+        record: OutboundNativeRefRecord,
+        now: datetime,
+    ) -> None:
+        """Append a supplemental ``status="sent"`` receipt for a queue-based
+        delivery that transitioned from enqueued to sent.
+
+        Finds the most recent ``status="queued"`` receipt for this
+        event_id + adapter, inherits its plan/route context, and appends
+        a new immutable receipt with ``status="sent"`` and the real
+        ``adapter_message_id``.
+
+        If no matching ``"queued"`` receipt is found (e.g. non-queued
+        adapter or replay context), the method returns silently.
+
+        Parameters
+        ----------
+        record:
+            The outbound native reference record from the adapter.
+        now:
+            Timestamp for the new receipt.
+        """
+        # Look up existing receipts for this event to find the
+        # queued receipt we want to supplement.
+        try:
+            existing = await self._config.storage.list_receipts_for_event(
+                record.event_id
+            )
+        except Exception:
+            return
+
+        # Find the most recent "queued" receipt targeting this adapter.
+        # Match by event_id (implicit via list_receipts_for_event),
+        # adapter, and — when available — target_channel.
+        candidates: list[DeliveryReceipt] = [
+            r
+            for r in existing
+            if r.status == "queued" and r.target_adapter == record.adapter
+        ]
+
+        if not candidates:
+            return
+
+        if record.native_channel_id is not None:
+            # Narrow to exact channel match.
+            channel_matches = [
+                r for r in candidates if r.target_channel == record.native_channel_id
+            ]
+            if not channel_matches:
+                self._log.debug(
+                    "No queued receipt matched channel %s for "
+                    "event_id=%s adapter=%s; skipping supplemental receipt",
+                    record.native_channel_id,
+                    record.event_id,
+                    record.adapter,
+                )
+                return
+            # Most recent (last in list) wins — handles retries.
+            queued_receipt = channel_matches[-1]
+        else:
+            # No channel on record — disambiguate by count.
+            if len(candidates) == 1:
+                queued_receipt = candidates[0]
+            else:
+                self._log.debug(
+                    "Ambiguous queued receipt correlation: %d candidates "
+                    "for event_id=%s adapter=%s with no channel; "
+                    "skipping supplemental receipt",
+                    len(candidates),
+                    record.event_id,
+                    record.adapter,
+                )
+                return
+
+        supplemental = DeliveryReceipt(
+            sequence=0,
+            receipt_id=f"rcpt-{uuid.uuid4()}",
+            event_id=record.event_id,
+            delivery_plan_id=queued_receipt.delivery_plan_id,
+            target_adapter=record.adapter,
+            target_channel=record.native_channel_id or queued_receipt.target_channel,
+            route_id=queued_receipt.route_id,
+            status="sent",
+            error=None,
+            failure_kind=None,
+            adapter_message_id=record.native_message_id,
+            next_retry_at=None,
+            created_at=now,
+            attempt_number=queued_receipt.attempt_number,
+            parent_receipt_id=queued_receipt.receipt_id,
+            source=queued_receipt.source,
+            replay_run_id=getattr(queued_receipt, "replay_run_id", None),
+            retry_max_attempts=getattr(queued_receipt, "retry_max_attempts", None),
+            retry_backoff_base=getattr(queued_receipt, "retry_backoff_base", None),
+            retry_max_delay=getattr(queued_receipt, "retry_max_delay", None),
+            retry_jitter=getattr(queued_receipt, "retry_jitter", None),
+        )
+        await self._config.storage.append_receipt(supplemental)
 
     # -- Stage 3-4: Routing + Planning -------------------------------------
 
@@ -1167,7 +1350,23 @@ class PipelineRunner:
                         error=capacity_error,
                         duration_ms=elapsed,
                     )
+            # Compute tracking key outside try to satisfy static analysis.
+            _inflight_key: str = (
+                f"{event.event_id}:{route.id}:{adapter_id}:{route_plan.plan_id}"
+            )
             try:
+                # Track in-flight delivery identity for shutdown evidence.
+                if self._capacity_controller is not None:
+                    self._inflight_deliveries[_inflight_key] = InflightDelivery(
+                        event_id=event.event_id,
+                        route_id=route.id,
+                        target_adapter=adapter_id,
+                        target_channel=target.channel,
+                        delivery_plan_id=route_plan.plan_id,
+                        source=source,
+                        replay_run_id=replay_run_id,
+                        acquired_at=t0,
+                    )
                 # Route-trace loop prevention: skip if this route has already
                 # been traversed in a *prior* routing pass.  The first occurrence
                 # of a route ID in the trace is the current pass — allow it.
@@ -1273,13 +1472,20 @@ class PipelineRunner:
                         self._route_stats.record_delivered(route.id)
                     if self._runtime_accounting is not None:
                         self._runtime_accounting.record_outbound_delivered()
+                    # When the adapter returned delivery_status="enqueued",
+                    # the receipt has status="queued" — expose that in
+                    # DeliveryOutcome so callers can distinguish local
+                    # acceptance from confirmed delivery.
+                    delivery_status: Literal["success", "queued"] = (
+                        "queued" if receipt.status == "queued" else "success"
+                    )
                     return DeliveryOutcome(
                         event_id=event.event_id,
                         target_adapter=adapter_id,
                         target_channel=target.channel,
                         route_id=route.id,
                         delivery_plan_id=route_plan.plan_id,
-                        status="success",
+                        status=delivery_status,
                         failure_kind=None,
                         receipt=receipt,
                         error=None,
@@ -1380,7 +1586,9 @@ class PipelineRunner:
                         duration_ms=elapsed,
                     )
             finally:
+                # Untrack in-flight delivery identity.
                 if self._capacity_controller is not None:
+                    self._inflight_deliveries.pop(_inflight_key, None)
                     await self._capacity_controller.release_delivery()
 
         return list(
@@ -1661,14 +1869,27 @@ class PipelineRunner:
         try:
             adapter_result = await deliver_fn(rendering_result)
 
-            status: Literal["sent", "failed"] = "sent"
+            # Respect the adapter's declared delivery lifecycle state.
+            # Queue-based adapters return
+            # delivery_status="enqueued" to indicate local acceptance
+            # only; synchronous adapters use the default "sent".
+            _adapter_delivery_status = (
+                getattr(adapter_result, "delivery_status", "sent")
+                if adapter_result
+                else "sent"
+            )
+            status: Literal["sent", "failed", "queued"] = (
+                "queued" if _adapter_delivery_status == "enqueued" else "sent"
+            )
             error: str | None = None
+            _log_status = _adapter_delivery_status
             self._log.info(
-                "Delivered: event_id=%s → adapter=%s plan=%s attempt=%d",
+                "Delivered: event_id=%s → adapter=%s plan=%s attempt=%d " "status=%s",
                 event.event_id,
                 adapter_id,
                 plan.plan_id,
                 attempt_number,
+                _log_status,
             )
         except asyncio.CancelledError:
             # CancelledError must propagate directly — never caught and

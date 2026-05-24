@@ -53,18 +53,15 @@ from __future__ import annotations
 
 import asyncio
 import gc
-import json
 import logging
 import time
-import urllib.request
 import warnings
 from datetime import datetime, timezone
 from typing import Any, cast
-from unittest.mock import AsyncMock
 
 import pytest
 
-from medre.adapters.fake_matrix import FakeMatrixAdapter
+from medre.adapters.fakes.matrix import FakeMatrixAdapter
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.compat import HAS_NIO
 from medre.adapters.matrix.renderer import MatrixRenderer
@@ -76,21 +73,15 @@ from medre.core.planning import FallbackResolver, RelationResolver
 from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
-from medre.core.runtime.accounting import RuntimeAccounting
 from medre.core.storage import SQLiteStorage
 from medre.core.storage.backend import StorageBackend
+from medre.core.supervision.accounting import RuntimeAccounting
 
 from .conftest import SynapseEnvironment
-from .synapse_helpers import (
-    INBOUND_FALLBACK as _INBOUND_FALLBACK,
-    INBOUND_SYNC_LOOP as _INBOUND_SYNC_LOOP,
-    IngressResult,
-    capture_sync_health as _capture_sync_health,
-    classify_fallback_reason as _classify_fallback_reason,
-    make_context as _make_context,
-    send_message_as_test_user as _send_message_as_test_user,
-    wait_for_sync_or_fallback as _wait_for_sync_or_fallback,
-)
+from .synapse_helpers import INBOUND_FALLBACK as _INBOUND_FALLBACK
+from .synapse_helpers import INBOUND_SYNC_LOOP as _INBOUND_SYNC_LOOP
+from .synapse_helpers import make_context as _make_context
+from .synapse_helpers import wait_for_sync_or_fallback as _wait_for_sync_or_fallback
 
 logger = logging.getLogger(__name__)
 

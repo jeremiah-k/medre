@@ -208,8 +208,8 @@ class TestFakeAdapterRuntimeBuild:
     async def test_build_with_fake_adapters_no_live_sdks(
         self, _temp_storage: Any
     ) -> None:
-        from medre.adapters.fake_matrix import FakeMatrixAdapter
-        from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
+        from medre.adapters.fakes.matrix import FakeMatrixAdapter
+        from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
         from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
         from medre.core.events.bus import EventBus
         from medre.core.observability.metrics import Diagnostician

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -27,13 +28,14 @@ from typing import Any
 import pytest
 
 from medre.config.model import RuntimeLimits
+from medre.core.contracts.adapter import AdapterContext
 from medre.core.diagnostics.replay_metrics import ReplayMetrics
 from medre.core.diagnostics.snapshot import build_diagnostics_snapshot
 from medre.core.lifecycle.states import AdapterState
 from medre.core.routing.stats import RouteStats
-from medre.core.runtime.accounting import RuntimeAccounting, RuntimeCounters
-from medre.core.runtime.capacity import CapacityController
-from medre.core.runtime.supervision import (
+from medre.core.supervision.accounting import RuntimeAccounting, RuntimeCounters
+from medre.core.supervision.capacity import CapacityController
+from medre.core.supervision.supervision import (
     RuntimeHealth,
     classify_runtime_health,
     classify_startup_outcome,
@@ -951,3 +953,177 @@ class TestRouteStatsGrowthNote:
         for i in range(50):
             rm.record_events_processed(f"route-{i}")
         assert len(rm.snapshot()["by_route"]) == 50
+
+
+# =====================================================================
+# 9. MeshtasticAdapter inbound-path lifecycle guard
+# =====================================================================
+
+
+class TestMeshtasticInboundLifecycleGuard:
+    """Prove that late inbound packets arriving after stop() are safely
+    rejected without crashing the adapter or leaking Futures."""
+
+    async def test_on_packet_rejected_after_stop(self) -> None:
+        """After stop(), _on_packet returns early and no coroutine is
+        scheduled via run_coroutine_threadsafe."""
+        MeshtasticAdapter = __import__(
+            "medre.adapters.meshtastic.adapter",
+            fromlist=["MeshtasticAdapter"],
+        ).MeshtasticAdapter
+        from medre.config.adapters.meshtastic import MeshtasticConfig
+
+        adapter = MeshtasticAdapter(
+            MeshtasticConfig(adapter_id="late-pkt", connection_type="fake")
+        )
+
+        published: list[Any] = []
+
+        async def _collect(event: Any) -> None:
+            published.append(event)
+
+        ctx = AdapterContext(
+            adapter_id="late-pkt",
+            event_bus=None,
+            publish_inbound=_collect,
+            logger=logging.getLogger("test.late_pkt"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+        )
+
+        await adapter.start(ctx)
+
+        # Publish one valid packet to prove normal operation works.
+        valid = {
+            "fromId": "!node1",
+            "toId": "",
+            "channel": 0,
+            "id": 1,
+            "decoded": {"portnum": "text_message", "text": "before stop"},
+        }
+        adapter._on_packet(valid)
+        await asyncio.sleep(0.1)
+        assert len(published) == 1
+
+        # Stop the adapter — _started is cleared.
+        await adapter.stop()
+
+        # Reset published list to detect any new publications.
+        published.clear()
+
+        # Simulate a late packet arriving from the SDK reader thread
+        # after stop() has been called.
+        late_pkt = {
+            "fromId": "!node2",
+            "toId": "",
+            "channel": 0,
+            "id": 2,
+            "decoded": {"portnum": "text_message", "text": "late packet"},
+        }
+        adapter._on_packet(late_pkt)  # Should be silently rejected
+
+        # Give the event loop a chance to process any scheduled coroutines.
+        await asyncio.sleep(0.1)
+
+        # No new events should have been published.
+        assert len(published) == 0, (
+            f"Late packet should have been rejected, but {len(published)} "
+            f"event(s) were published after stop()"
+        )
+
+    async def test_inbound_futures_drained_on_stop(self) -> None:
+        """Inbound Futures scheduled via run_coroutine_threadsafe are
+        tracked and drained during stop()."""
+        MeshtasticAdapter = __import__(
+            "medre.adapters.meshtastic.adapter",
+            fromlist=["MeshtasticAdapter"],
+        ).MeshtasticAdapter
+        from medre.config.adapters.meshtastic import MeshtasticConfig
+
+        adapter = MeshtasticAdapter(
+            MeshtasticConfig(adapter_id="drain-fut", connection_type="fake")
+        )
+
+        published: list[Any] = []
+
+        async def _collect(event: Any) -> None:
+            published.append(event)
+
+        ctx = AdapterContext(
+            adapter_id="drain-fut",
+            event_bus=None,
+            publish_inbound=_collect,
+            logger=logging.getLogger("test.drain_fut"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+        )
+
+        await adapter.start(ctx)
+
+        # Schedule an inbound packet.
+        pkt = {
+            "fromId": "!node1",
+            "toId": "",
+            "channel": 0,
+            "id": 10,
+            "decoded": {"portnum": "text_message", "text": "tracked"},
+        }
+        adapter._on_packet(pkt)
+
+        # The Future should be in _inbound_futures (briefly).
+        # It may have already completed, so just verify the set exists.
+        assert isinstance(adapter._inbound_futures, set)
+
+        # stop() should complete without error, draining the Futures.
+        await adapter.stop()
+
+        # After stop, _inbound_futures should be empty (cleared in drain).
+        assert len(adapter._inbound_futures) == 0
+
+    async def test_on_packet_async_guard_after_stop(self) -> None:
+        """_on_packet_async skips publish when _started is False, even if
+        called directly with a valid canonical event."""
+        MeshtasticAdapter = __import__(
+            "medre.adapters.meshtastic.adapter",
+            fromlist=["MeshtasticAdapter"],
+        ).MeshtasticAdapter
+        from medre.config.adapters.meshtastic import MeshtasticConfig
+
+        adapter = MeshtasticAdapter(
+            MeshtasticConfig(adapter_id="async-guard", connection_type="fake")
+        )
+
+        published: list[Any] = []
+
+        async def _collect(event: Any) -> None:
+            published.append(event)
+
+        ctx = AdapterContext(
+            adapter_id="async-guard",
+            event_bus=None,
+            publish_inbound=_collect,
+            logger=logging.getLogger("test.async_guard"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+        )
+
+        await adapter.start(ctx)
+        await adapter.stop()
+
+        # Directly call _on_packet_async with a dummy canonical event.
+        # Build a minimal canonical event via the codec.
+        pkt = {
+            "fromId": "!node1",
+            "toId": "",
+            "channel": 0,
+            "id": 99,
+            "decoded": {"portnum": "text_message", "text": "should not publish"},
+        }
+        canonical = adapter._codec.decode(pkt)
+
+        # This should complete without error and without publishing.
+        await adapter._on_packet_async(canonical)
+
+        assert (
+            len(published) == 0
+        ), "_on_packet_async should have been guarded by _started=False"

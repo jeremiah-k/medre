@@ -38,7 +38,6 @@ PERMANENT_KINDS: frozenset[str] = frozenset(
         "adapter_missing",
         "renderer_failure",
         "planner_failure",
-        "duplicate_suppressed",
         "loop_suppressed",
     }
 )

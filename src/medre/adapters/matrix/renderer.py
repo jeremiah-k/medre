@@ -17,7 +17,7 @@ reactions (true ``m.reaction`` or MMRelay emote fallback).
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Mapping
 
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
 from medre.core.events import CanonicalEvent, EventRelation
@@ -55,13 +55,58 @@ class MatrixRenderer:
     def __init__(
         self,
         *,
-        mmrelay_compat: bool = False,
-        meshnet_name: str = "",
-        matrix_relay_prefix: str = "",
+        source_configs: Mapping[str, Any] | None = None,
     ) -> None:
-        self._mmrelay_compat = mmrelay_compat
-        self._meshnet_name = meshnet_name
-        self._matrix_relay_prefix = matrix_relay_prefix or ""
+        self._source_configs: dict[str, Any] = dict(source_configs or {})
+
+    # ------------------------------------------------------------------
+    # Source-adapter config resolution
+    # ------------------------------------------------------------------
+
+    def _resolve_source_config(self, event: CanonicalEvent) -> Any | None:
+        """Return the source adapter config for *event*, or ``None``.
+
+        Looks up ``event.source_adapter`` in the ``source_configs`` mapping
+        supplied at construction.  Returns ``None`` when no mapping is
+        configured or the source adapter is not found — callers use
+        empty/neutral defaults (no Meshtastic prefix or metadata).
+        """
+        if not self._source_configs:
+            return None
+        return self._source_configs.get(event.source_adapter)
+
+    def _get_meshnet_name(self, event: CanonicalEvent) -> str:
+        """Resolve meshnet_name for *event*'s source adapter.
+
+        Returns the config's ``meshnet_name`` when a source config is
+        matched; otherwise returns an empty string (neutral default).
+        """
+        cfg = self._resolve_source_config(event)
+        if cfg is not None:
+            return getattr(cfg, "meshnet_name", "")
+        return ""
+
+    def _get_matrix_relay_prefix(self, event: CanonicalEvent) -> str:
+        """Resolve matrix_relay_prefix for *event*'s source adapter.
+
+        Returns the config's ``matrix_relay_prefix`` when a source config
+        is matched; otherwise returns an empty string (neutral default).
+        """
+        cfg = self._resolve_source_config(event)
+        if cfg is not None:
+            return getattr(cfg, "matrix_relay_prefix", "")
+        return ""
+
+    def _get_mmrelay_compat(self, event: CanonicalEvent) -> bool:
+        """Resolve mmrelay_compatibility for *event*'s source adapter.
+
+        Returns the config's ``mmrelay_compatibility`` when a source config
+        is matched; otherwise returns ``False`` (neutral default).
+        """
+        cfg = self._resolve_source_config(event)
+        if cfg is not None:
+            return getattr(cfg, "mmrelay_compatibility", False)
+        return False
 
     # ------------------------------------------------------------------
     # Capability check
@@ -198,7 +243,7 @@ class MatrixRenderer:
 
         # Inject mmrelay-compatible metadata when enabled (skip for
         # reactions — _render_reaction already handles all MMRelay keys).
-        if self._mmrelay_compat and not _is_reaction:
+        if self._get_mmrelay_compat(event) and not _is_reaction:
             self._inject_mmrelay_metadata(event, content)
 
         metadata: dict[str, object] = {
@@ -312,20 +357,21 @@ class MatrixRenderer:
         template is configured).  Longname / shortname are preserved
         exactly as received — no truncation or case folding.
         """
-        if not self._matrix_relay_prefix:
+        prefix = self._get_matrix_relay_prefix(event)
+        if not prefix:
             return ""
         native_data: dict[str, object] = {}
         if event.metadata and event.metadata.native:
             native_data = dict(event.metadata.native.data)
         try:
-            return self._matrix_relay_prefix.format(
+            return prefix.format(
                 longname=native_data.get("longname", ""),
                 shortname=native_data.get("shortname", ""),
-                meshnet_name=self._meshnet_name,
+                meshnet_name=self._get_meshnet_name(event),
                 from_id=native_data.get("from_id", ""),
             )
         except (KeyError, IndexError, ValueError):
-            return self._matrix_relay_prefix
+            return prefix
 
     # ------------------------------------------------------------------
     # Reaction rendering
@@ -357,7 +403,7 @@ class MatrixRenderer:
         # Extract MMRelay reply ID from relation metadata for fallback
         rel_meta = getattr(rel, "metadata", {}) or {}
 
-        if mx_event_id is not None and not self._mmrelay_compat:
+        if mx_event_id is not None and not self._get_mmrelay_compat(event):
             # True Matrix reaction — adapter will use _matrix_event_type
             # Remove default msgtype/body set at top of render()
             content.pop("msgtype", None)
@@ -409,7 +455,7 @@ class MatrixRenderer:
             content[KEY_ID] = str(native_data.get("packet_id", ""))
             content[KEY_LONGNAME] = str(native_data.get("longname", ""))
             content[KEY_SHORTNAME] = str(native_data.get("shortname", ""))
-            content[KEY_MESHNET] = self._meshnet_name
+            content[KEY_MESHNET] = self._get_meshnet_name(event)
             content[KEY_PORTNUM] = PORTNUM_TEXT
 
     # ------------------------------------------------------------------
@@ -429,17 +475,18 @@ class MatrixRenderer:
 
         If the prefix is empty, *body* is returned unchanged.
         """
-        if not self._matrix_relay_prefix:
+        prefix = self._get_matrix_relay_prefix(event)
+        if not prefix:
             return body
 
         native_data: dict[str, object] = {}
         if event.metadata and event.metadata.native:
             native_data = dict(event.metadata.native.data)
 
-        formatted_prefix = self._matrix_relay_prefix.format(
+        formatted_prefix = prefix.format(
             longname=native_data.get("longname", ""),
             shortname=native_data.get("shortname", ""),
-            meshnet_name=self._meshnet_name,
+            meshnet_name=self._get_meshnet_name(event),
             from_id=native_data.get("from_id", ""),
         )
         return f"{formatted_prefix}{body}"
@@ -479,6 +526,6 @@ class MatrixRenderer:
         content[KEY_ID] = str(native_data.get("packet_id", ""))
         content[KEY_LONGNAME] = str(native_data.get("longname", ""))
         content[KEY_SHORTNAME] = str(native_data.get("shortname", ""))
-        content[KEY_MESHNET] = self._meshnet_name
+        content[KEY_MESHNET] = self._get_meshnet_name(event)
         content[KEY_PORTNUM] = PORTNUM_TEXT
         content[KEY_TEXT] = text

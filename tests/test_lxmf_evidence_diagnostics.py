@@ -94,9 +94,7 @@ class TestEvidenceBundleWithLxmfAdapter:
         assert "sections" in bundle
         assert "config_summary" in bundle["sections"]
 
-    async def test_evidence_bundle_config_summary_includes_lxmf(
-        self, tmp_path
-    ) -> None:
+    async def test_evidence_bundle_config_summary_includes_lxmf(self, tmp_path) -> None:
         """Config summary shows the LXMF adapter in enabled adapters."""
         config_path = _lxmf_fake_config_path(tmp_path)
         bundle = await asyncio.wait_for(
@@ -163,12 +161,12 @@ class TestEvidenceBundleWithLxmfAdapter:
         )
 
         route_data = route_section.get("data", {})
-        assert route_data.get("valid") is True, (
-            f"Route validation reports invalid: {route_data}"
-        )
-        assert route_data.get("route_count", 0) >= 1, (
-            f"Expected at least one route: {route_data}"
-        )
+        assert (
+            route_data.get("valid") is True
+        ), f"Route validation reports invalid: {route_data}"
+        assert (
+            route_data.get("route_count", 0) >= 1
+        ), f"Expected at least one route: {route_data}"
 
         # Verify the Matrix→LXMF route exists in config_summary
         config_section = bundle["sections"].get("config_summary", {})

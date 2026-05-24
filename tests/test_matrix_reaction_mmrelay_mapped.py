@@ -6,7 +6,7 @@ Tests cover:
 - Unknown replyId fallback (no crash)
 - Renderer emote fallback emits KEY_REACTION_KEY
 - Codec decodes KEY_REACTION_KEY into rel.key
-- Backward compatibility without KEY_REACTION_KEY
+- Rendering without KEY_REACTION_KEY
 - KEY_REACTION_KEY constant verification
 """
 
@@ -37,6 +37,28 @@ from medre.interop.mmrelay import (
 # ---------------------------------------------------------------------------
 # Helpers (duplicated from test_matrix_reaction_mmrelay.py for standalone use)
 # ---------------------------------------------------------------------------
+
+
+class _StubMeshtasticConfig:
+    """Minimal duck-typed config for MatrixRenderer source_configs."""
+
+    def __init__(
+        self,
+        adapter_id: str = "mesh-1",
+        meshnet_name: str = "",
+        matrix_relay_prefix: str = "",
+        mmrelay_compatibility: bool = False,
+    ) -> None:
+        self.adapter_id = adapter_id
+        self.meshnet_name = meshnet_name
+        self.matrix_relay_prefix = matrix_relay_prefix
+        self.mmrelay_compatibility = mmrelay_compatibility
+
+
+# Source-config mappings for common test patterns.
+_SRC_MESHTASTIC = {
+    "mesh-1": _StubMeshtasticConfig(adapter_id="mesh-1", mmrelay_compatibility=True)
+}
 
 
 def _make_config(**overrides: Any) -> MatrixConfig:
@@ -225,9 +247,14 @@ class TestMeshtasticToMatrixMappedReaction:
     async def test_comprehensive_emote_reaction_fields(self) -> None:
         """Single test verifying all required reaction fields together."""
         renderer = MatrixRenderer(
-            mmrelay_compat=True,
-            meshnet_name="testnet",
-            matrix_relay_prefix="[{longname}] ",
+            source_configs={
+                "mesh-1": _StubMeshtasticConfig(
+                    adapter_id="mesh-1",
+                    mmrelay_compatibility=True,
+                    meshnet_name="testnet",
+                    matrix_relay_prefix="[{longname}] ",
+                ),
+            },
         )
         original_text = "Hello from mesh world this is a longer test message"
         event = _make_mesh_reaction(
@@ -270,7 +297,7 @@ class TestMeshtasticToMatrixMappedReaction:
     async def test_mapped_matrix_target_with_compat_emote(self) -> None:
         """Meshtastic reaction targeting a Matrix-originated message via
         target_native_ref still renders as m.emote when mmrelay_compat=True."""
-        renderer = MatrixRenderer(mmrelay_compat=True)
+        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
         # Build a reaction with a Matrix target native ref
         rel = EventRelation(
             relation_type="reaction",
@@ -329,7 +356,7 @@ class TestMeshtasticToMatrixUnknownReplyIdFallback:
     @pytest.mark.asyncio
     async def test_unknown_reply_id_safe_emote(self) -> None:
         """Reaction with no replyId metadata still renders safely as emote."""
-        renderer = MatrixRenderer(mmrelay_compat=True)
+        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
         event = _make_mesh_reaction(
             key="👍",
             body="👍",
@@ -350,7 +377,7 @@ class TestMeshtasticToMatrixUnknownReplyIdFallback:
     @pytest.mark.asyncio
     async def test_minimal_metadata_no_crash(self) -> None:
         """Reaction with completely empty metadata renders without crash."""
-        renderer = MatrixRenderer(mmrelay_compat=True)
+        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
         event = _make_mesh_reaction(
             key="🔥",
             body="🔥",
@@ -373,7 +400,7 @@ class TestRendererEmitsReactionKey:
 
     @pytest.mark.asyncio
     async def test_emote_fallback_emits_key_reaction_key(self) -> None:
-        renderer = MatrixRenderer(mmrelay_compat=True)
+        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
         event = _make_mesh_reaction(key="👍", body="👍", fallback_text="hello")
         result = await renderer.render(event, "matrix-1")
 
@@ -383,7 +410,7 @@ class TestRendererEmitsReactionKey:
     @pytest.mark.asyncio
     async def test_emote_fallback_emits_symbol_not_body(self) -> None:
         """KEY_REACTION_KEY carries the symbol, not the emote body text."""
-        renderer = MatrixRenderer(mmrelay_compat=True)
+        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
         event = _make_mesh_reaction(key="❤️", body="❤️", fallback_text="a message")
         result = await renderer.render(event, "matrix-1")
 

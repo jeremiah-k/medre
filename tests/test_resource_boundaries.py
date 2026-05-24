@@ -31,7 +31,7 @@ _ADAPTER_PREFIXES = (
 )
 """Concrete adapter package prefixes (excludes medre.core.contracts.adapter and fake_*)."""
 
-_RESOURCE_CONTROL_MODULES = ("medre.core.runtime.capacity",)
+_RESOURCE_CONTROL_MODULES = ("medre.core.supervision.capacity",)
 
 """Runtime resource-control modules that must stay transport-agnostic."""
 
@@ -79,7 +79,7 @@ class TestCapacityControllerSDKIsolation:
 
     def test_capacity_controller_does_not_import_transport_sdks(self) -> None:
         """Verify capacity.py source has zero references to transport SDK packages."""
-        source = _source_of("medre.core.runtime.capacity")
+        source = _source_of("medre.core.supervision.capacity")
         lines = _import_lines(source)
 
         banned_sdk = _banned_imports(lines, _SDK_PACKAGES)
@@ -105,7 +105,7 @@ class TestResourceControlAdapterIsolation:
         violations: list[str] = []
 
         # Check capacity.py
-        cap_source = _source_of("medre.core.runtime.capacity")
+        cap_source = _source_of("medre.core.supervision.capacity")
         cap_lines = _import_lines(cap_source)
         cap_banned = _banned_imports(cap_lines, _ADAPTER_PREFIXES)
         for line in cap_banned:
@@ -149,7 +149,7 @@ class TestAdapterResourceControlIsolation:
     """Adapter modules must not import resource-control or runtime limit modules."""
 
     def test_adapters_do_not_import_resource_controls(self) -> None:
-        """Check that no adapter module imports from medre.core.runtime.capacity."""
+        """Check that no adapter module imports from medre.core.supervision.capacity."""
         adapters_dir = _SRC / "medre" / "adapters"
         violations: list[str] = []
 
@@ -178,7 +178,7 @@ class TestSessionResourceControlIsolation:
         violations: list[str] = []
 
         runtime_imports = (
-            "medre.core.runtime.capacity",
+            "medre.core.supervision.capacity",
             "medre.runtime.app",
             "CapacityController",
             "RuntimeLimits",

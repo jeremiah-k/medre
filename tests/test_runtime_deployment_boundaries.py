@@ -155,7 +155,7 @@ class TestRuntimeCoreNoSdk:
     _RUNTIME_MODULES = [
         "medre.runtime.app",
         "medre.runtime.builder",
-        "medre.core.runtime.capacity",
+        "medre.core.supervision.capacity",
         "medre.runtime.snapshot",
         "medre.runtime.observability",
         "medre.runtime.boot_summary",
@@ -183,12 +183,15 @@ class TestRuntimeCoreNoSdk:
         # Config imports (medre.config.adapters.*) are pure dataclasses,
         # not third-party SDK packages — explicitly permitted per the test
         # docstring and _ADAPTER_CONFIG_ALLOWED.
+        # Fake adapter imports (medre.adapters.fakes.*) are test doubles
+        # with no SDK dependency — also explicitly permitted.
         banned = [
             line
             for line in banned
             if not any(
                 line.startswith(f"from {prefix}") for prefix in _ADAPTER_CONFIG_ALLOWED
             )
+            and not line.startswith("from medre.adapters.fakes.")
         ]
         assert banned == [], f"{module_name} imports transport SDKs: {banned}"
 
@@ -261,7 +264,7 @@ class TestRuntimeCoreModuleGuard:
         "medre.runtime",
         "medre.runtime.app",
         "medre.runtime.builder",
-        "medre.core.runtime.capacity",
+        "medre.core.supervision.capacity",
         "medre.runtime.snapshot",
         "medre.runtime.observability",
         "medre.runtime.boot_summary",
@@ -275,9 +278,9 @@ class TestRuntimeCoreModuleGuard:
         "medre.core.routing.router",
         "medre.core.routing.models",
         "medre.core.rendering.renderer",
-        "medre.core.runtime.diagnostics",
-        "medre.core.runtime.health",
-        "medre.core.runtime.accounting",
+        "medre.core.supervision.diagnostics",
+        "medre.core.supervision.health",
+        "medre.core.supervision.accounting",
     ]
 
     @pytest.mark.parametrize(
@@ -348,7 +351,7 @@ class TestRuntimeCoreNoAdapterRuntime:
     This does NOT ban:
     - ``from medre.core.contracts.adapter import AdapterContract`` (abstract base)
     - ``from medre.config.adapters.matrix import MatrixConfig`` (pure dataclass)
-    - ``from medre.adapters.fake_adapter import FakeAdapter`` (test utility)
+    - ``from medre.adapters.fakes.adapter import FakeAdapter`` (test utility)
 
     **WHY this matters**: Direct imports of concrete adapter modules would
     couple the runtime to specific transport implementations, making it
@@ -359,7 +362,7 @@ class TestRuntimeCoreNoAdapterRuntime:
     _RUNTIME_MODULES = [
         "medre.runtime.app",
         "medre.runtime.builder",
-        "medre.core.runtime.capacity",
+        "medre.core.supervision.capacity",
         "medre.runtime.snapshot",
         "medre.runtime.observability",
         "medre.runtime.boot_summary",
@@ -390,12 +393,12 @@ class TestRuntimeCoreNoAdapterRuntime:
         allowed_lines = []
         for line in lines:
             if line.startswith("from medre.adapters."):
-                # Allow fake_adapter imports (test doubles)
-                if "fake_adapter" in line:
+                # Allow fakes.adapter imports (test doubles)
+                if "fakes.adapter" in line:
                     continue
-                # Allow imports from fake_* modules (test doubles for real transports)
+                # Allow imports from fakes.* modules (test doubles for real transports)
                 if any(
-                    f"from medre.adapters.fake_{t}." in line
+                    f"from medre.adapters.fakes.{t}." in line
                     for t in ("matrix", "meshtastic", "meshcore", "lxmf")
                 ):
                     continue
@@ -414,10 +417,10 @@ class TestRuntimeCoreNoAdapterRuntime:
         allowed_lines = []
         for line in lines:
             if line.startswith("from medre.adapters."):
-                if "fake_adapter" in line:
+                if "fakes.adapter" in line:
                     continue
                 if any(
-                    f"from medre.adapters.fake_{t}." in line
+                    f"from medre.adapters.fakes.{t}." in line
                     for t in ("matrix", "meshtastic", "meshcore", "lxmf")
                 ):
                     continue
@@ -685,12 +688,12 @@ class TestCoreModulesTransportAgnostic:
         "medre.core.rendering.text",
         "medre.core.lifecycle.manager",
         "medre.core.lifecycle.states",
-        "medre.core.runtime.accounting",
-        "medre.core.runtime.capabilities",
-        "medre.core.runtime.diagnostics",
-        "medre.core.runtime.health",
-        "medre.core.runtime.supervision",
-        "medre.core.runtime.diagnostic_contract",
+        "medre.core.supervision.accounting",
+        "medre.core.supervision.capabilities",
+        "medre.core.supervision.diagnostics",
+        "medre.core.supervision.health",
+        "medre.core.supervision.supervision",
+        "medre.core.supervision.diagnostic_contract",
         "medre.core.diagnostics.replay_metrics",
         "medre.core.observability.metrics",
     ]

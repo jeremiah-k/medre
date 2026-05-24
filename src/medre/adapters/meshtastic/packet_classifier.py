@@ -44,35 +44,68 @@ REASON_UNCLASSIFIED: str = "unclassified packet"
 # --- Literal type aliases ---
 ClassificationAction = Literal["relay", "ignore", "drop", "deferred"]
 ClassificationCategory = Literal[
-    "text", "ack", "telemetry", "nodeinfo", "position", "admin", "unknown", "plugin_only"
+    "text",
+    "ack",
+    "telemetry",
+    "nodeinfo",
+    "position",
+    "admin",
+    "unknown",
+    "plugin_only",
 ]
 
-# **FIxTURE-SCAFFOLD ONLY** — This numeric map is NOT derived from the real
-# Meshtastic protobuf PortNum enum.  It is a MEDRE test fixture approximation
-# that does not claim enum accuracy.  The real protobuf PortNum values differ
-# significantly (see docs/contracts/10-meshtastic-source-audit.md for the
-# authoritative table).
-#
-# Before real connection work, this map should be replaced with values
-# imported from the optional meshtastic package.  The compat module provides
-# `get_portnum_table()` which returns real values when the dependency is
-# installed, or None otherwise.
-_NUMERIC_PORTNUM_MAP: dict[int, str] = {
-    0: "routing",  # Fixture scaffold only — real: UNKNOWN_APP
-    1: "text_message",  # TEXT_MESSAGE_APP
-    2: "text_message_ack",  # Fixture scaffold only — real: REMOTE_HARDWARE_APP
-    3: "position",  # POSITION_APP
-    4: "nodeinfo",  # NODEINFO_APP
-    5: "telemetry",  # Fixture scaffold only — real: ROUTING_APP
-    6: "store_forward",  # Fixture scaffold only — real: ADMIN_APP
-    7: "waypoint",  # Fixture scaffold only — real: TEXT_MESSAGE_COMPRESSED_APP
-    9: "audio",  # AUDIO_APP
-    10: "remote_hardware",  # Fixture scaffold only — real: DETECTION_SENSOR_APP
-    11: "private",  # Fixture scaffold only — real: ALERT_APP
-    68: "paxcounter",  # Fixture scaffold only — real: ZPS_APP
-    71: "neighbor_info",  # NEIGHBORINFO_APP
-    72: "traceroute",  # TRACEROUTE_APP
+# Protocol-correct numeric PortNum fallback derived from the Meshtastic
+# protobuf PortNum enum.  Used when the optional SDK is not available.
+# Values verified against portnums_pb2 in meshtastic/mtjk.
+_NUMERIC_PORTNUM_FALLBACK: dict[int, str] = {
+    0: "unknown",
+    1: "text_message",
+    2: "remote_hardware",
+    3: "position",
+    4: "nodeinfo",
+    5: "routing",
+    6: "admin",
+    7: "text_message_compressed",
+    8: "waypoint",
+    9: "audio",
+    10: "detection_sensor",
+    11: "alert",
+    12: "key_verification",
+    13: "remote_shell",
+    32: "reply",
+    33: "ip_tunnel",
+    34: "paxcounter",
+    67: "telemetry",
+    71: "neighborinfo",
+    72: "atak_plugin",
 }
+
+# Lazily-loaded SDK portnum table.  ``_SDK_PORTNUM_FETCHED`` distinguishes
+# not-yet-fetched from SDK-unavailable: when fetched, ``None`` means the SDK
+# was unavailable or raised during import.
+_SDK_PORTNUM_CACHE: dict[int, str] | None = None
+_SDK_PORTNUM_FETCHED: bool = False
+
+
+def _get_sdk_portnum_table() -> dict[int, str] | None:
+    """Return the SDK-derived portnum table, or ``None`` if unavailable.
+
+    Uses a lazy import of :mod:`medre.adapters.meshtastic.compat` to
+    avoid pulling the optional ``meshtastic`` SDK into ``sys.modules``
+    at classifier import time.  The result is cached after the first call.
+    """
+    global _SDK_PORTNUM_CACHE, _SDK_PORTNUM_FETCHED
+    if _SDK_PORTNUM_FETCHED:
+        return _SDK_PORTNUM_CACHE
+    _SDK_PORTNUM_FETCHED = True
+    try:
+        from medre.adapters.meshtastic.compat import get_portnum_table
+
+        _SDK_PORTNUM_CACHE = get_portnum_table()
+    except Exception:
+        _SDK_PORTNUM_CACHE = None
+    return _SDK_PORTNUM_CACHE
+
 
 _SYMBOLIC_PORTNUM_MAP: dict[str, str] = {
     "TEXT_MESSAGE_APP": "text_message",
@@ -100,24 +133,25 @@ _NORMALIZED_PORTNUMS: set[str] = {
 def normalize_portnum(value: object) -> str | None:
     """Return MEDRE's narrow normalized Meshtastic portnum string.
 
-    Supports both current MEDRE fixture strings (``"text_message"``) and
-    real symbolic Meshtastic names emitted by meshtastic-python / mtjk
-    callback dictionaries (``"TEXT_MESSAGE_APP"``).  Unknown values are
-    normalized deterministically but remain unsupported by the classifier.
-
-    .. caution::
-
-       The ``_NUMERIC_PORTNUM_MAP`` used for ``int`` values is **fixture
-       scaffold only**.  It does **not** match the real Meshtastic protobuf
-       ``PortNum`` enum (see ``docs/contracts/10-meshtastic-source-audit.md``).
-       Numeric portnum values should not be treated as protocol authority
-       until the map is replaced with values from the optional meshtastic
-       package (via ``compat.get_portnum_table()``).
+    Supports both MEDRE-normalised strings (``"text_message"``) and real
+    symbolic Meshtastic names emitted by meshtastic-python / mtjk callback
+    dictionaries (``"TEXT_MESSAGE_APP"``).  For ``int`` values, prefers
+    the SDK-derived table when the optional ``meshtastic`` package is
+    available, and falls back to a protocol-correct static map otherwise.
+    Unknown numeric values are returned as their string representation.
     """
     if value is None:
         return None
-    if isinstance(value, int):
-        return _NUMERIC_PORTNUM_MAP.get(value, str(value))
+    if isinstance(value, int) and not isinstance(value, bool):
+        # SDK-derived table takes precedence when available
+        sdk_table = _get_sdk_portnum_table()
+        if sdk_table is not None and value in sdk_table:
+            name = sdk_table[value]
+            # Strip trailing _app suffix for consistency with MEDRE names
+            if name.endswith("_app"):
+                return name.removesuffix("_app")
+            return name
+        return _NUMERIC_PORTNUM_FALLBACK.get(value, str(value))
     if isinstance(value, str):
         stripped = value.strip()
         if not stripped:
@@ -216,14 +250,22 @@ class MeshtasticPacketClassifier:
 
     Classification works correctly for both MEDRE-normalised portnum strings
     and real symbolic ``*_APP`` portnum names.  Numeric portnum resolution
-    uses the ``_NUMERIC_PORTNUM_MAP`` which is **fixture scaffold only**
+    prefers the SDK-derived table when the optional ``meshtastic`` package
+    is available, and falls back to a protocol-correct static map otherwise
     (see :func:`normalize_portnum` for details).
+
+    The classifier does **not** gate on ``channel_mapping``.  That config
+    field is a channel-index → display-name label map used by downstream
+    components (renderers, diagnostics), not a relay allowlist.  Packets
+    on unmapped channel indices classify identically to mapped ones.
 
     Parameters
     ----------
     config:
         Optional :class:`~medre.config.adapters.meshtastic.MeshtasticConfig`
-        for channel mapping lookups.
+        accepted for forward-compatibility.  The classifier does not read
+        ``config.channel_mapping`` — it is retained so future policy
+        extensions can access it without an API break.
     """
 
     def __init__(self, config: Any = None) -> None:
@@ -399,7 +441,9 @@ class MeshtasticPacketClassifier:
             action = "deferred"
             reason = REASON_PLUGIN_ONLY
         # 9. Empty text
-        elif is_text and (not isinstance(text_content, str) or not text_content.strip()):
+        elif is_text and (
+            not isinstance(text_content, str) or not text_content.strip()
+        ):
             action = "ignore"
             reason = REASON_EMPTY_TEXT
         # 10. Text message (relay)
@@ -421,7 +465,7 @@ class MeshtasticPacketClassifier:
             channel_index=channel_index,
             packet_id=packet_id,
             from_id=sender_id,
-            to_id=to_id if isinstance(to_id, str) else str(to_id) if to_id is not None else "",
+            to_id=str(to_id) if to_id is not None else "",
             is_text=is_text,
             is_ack=is_ack,
             is_encrypted=is_encrypted,

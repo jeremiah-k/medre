@@ -21,8 +21,8 @@ __all__ = ["sanitize_for_log", "sanitize_error"]
 # Secret-key detection (for sanitize_for_log)
 # ---------------------------------------------------------------------------
 
-# Patterns match the set in medre.core.runtime.diagnostic_contract
-# duplicated here to avoid a circular or heavy import at the logging layer.
+# Canonical secret-key patterns used by both the logging layer and
+# medre.core.supervision.diagnostic_contract (which imports from here).
 _SECRET_KEY_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
     re.compile(p, re.IGNORECASE)
     for p in (

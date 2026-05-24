@@ -494,18 +494,22 @@ unfilled as a checklist for the next operator.
 
 The Meshtastic adapter exposes the following fields in `diagnostics()`:
 
-| Field                 | Type | Description                                       |
-| --------------------- | ---- | ------------------------------------------------- |
-| `adapter_id`          | str  | Adapter identifier                                |
-| `platform`            | str  | Always `"meshtastic"`                             |
-| `started`             | bool | Whether the adapter has been started              |
-| `connection_type`     | str  | `fake`, `tcp`, `serial`, or `ble`                 |
-| `queue_pending`       | int  | Items currently in the outbound queue             |
-| `queue_total_sent`    | int  | Cumulative successful sends                       |
-| `queue_total_failed`  | int  | Cumulative send failures                          |
+| Field                  | Type | Description                                            |
+| ---------------------- | ---- | ------------------------------------------------------ |
+| `adapter_id`           | str  | Adapter identifier                                     |
+| `platform`             | str  | Always `"meshtastic"`                                  |
+| `started`              | bool | Whether the adapter has been started                   |
+| `connection_type`      | str  | `fake`, `tcp`, `serial`, or `ble`                      |
+| `queue_pending`        | int  | Items currently in the outbound queue                  |
+| `queue_total_sent`     | int  | Cumulative successful sends                            |
+| `queue_total_failed`   | int  | Cumulative send failures                               |
 | `queue_total_rejected` | int  | Cumulative enqueue attempts rejected due to full queue |
-| `drain_task_running`  | bool | Whether the background queue-drain task is active |
-| `background_tasks`    | int  | Number of tracked background tasks                |
+| `drain_task_running`   | bool | Whether the background queue-drain task is active      |
+| `background_tasks`     | int  | Number of tracked background tasks                     |
+
+> **Queue counter semantics:** `queue_total_sent` counts items where the local SDK/client `sendText` returned a success result — this is **local send confirmation only**, not RF delivery or remote-node receipt. `queue_pending` counts items waiting in the adapter-local in-memory queue. Both counters reset on process restart; the queue is non-durable.
+>
+> **`outbound_mode = "listen_only"` effect on diagnostics:** When the adapter is configured with `outbound_mode = "listen_only"`, outbound delivery is suppressed before RF transmission. Suppressed deliveries appear as non-retryable adapter failures with a detail like `outbound suppressed: listen_only mode`. `queue_total_sent` does not increment for suppressed deliveries. Inbound reception and inbound diagnostics counters are unaffected.
 
 **Session diagnostics** (present when adapter has been started):
 

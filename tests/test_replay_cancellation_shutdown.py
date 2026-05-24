@@ -29,17 +29,17 @@ from medre.config.model import (
     StorageConfig,
 )
 from medre.config.paths import MedrePaths
+from medre.config.routes import RouteConfig, RouteConfigSet
 from medre.core.events.canonical import CanonicalEvent, EventMetadata
-from medre.core.runtime.accounting import RuntimeAccounting
-from medre.core.runtime.capacity import CapacityController
 from medre.core.storage.replay import (
     ReplayEngine,
     ReplayMode,
     ReplayRequest,
     collect_replay_summary,
 )
+from medre.core.supervision.accounting import RuntimeAccounting
+from medre.core.supervision.capacity import CapacityController
 from medre.runtime.builder import RuntimeBuilder
-from medre.config.routes import RouteConfig, RouteConfigSet
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -436,3 +436,271 @@ async def test_replay_capacity_slot_released_on_exception(
     finally:
         blocker.set()
         secondary.deliver = original_deliver
+
+
+# ===================================================================
+# Test 4: cancel() stops iteration — remaining events never processed
+# ===================================================================
+
+
+@pytest.mark.asyncio
+async def test_cancel_stops_event_iteration(cancel_env) -> None:
+    """cancel() mid-replay stops iterating new events; already-yielded
+    results are preserved, remaining events are never touched.
+    """
+    env = cancel_env
+
+    # Seed 5 events.
+    for i in range(5):
+        await env.seed(_make_event(event_id=f"evt-iter-{i}"))
+
+    replay = ReplayEngine(
+        storage=env.storage,
+        pipeline=env.pipeline,
+        event_bus=env.app.event_bus,
+        diagnostician=env.app.diagnostician,
+    )
+
+    request = ReplayRequest(mode=ReplayMode.STRICT)
+    results: list = []
+    event_count = 0
+
+    async for result in replay.replay(request):
+        results.append(result)
+        event_count += 1
+        # After processing 2 events, cancel the replay.
+        if event_count == 2:
+            replay.cancel()
+
+    # Should have exactly 2 results (2 events × 1 stage each for STRICT).
+    assert len(results) == 2, f"Expected 2 results, got {len(results)}"
+    assert results[0].status == "passed"
+    assert results[1].status == "passed"
+    assert replay.is_cancelled
+
+
+# ===================================================================
+# Test 5: cancel() before replay starts → no events processed
+# ===================================================================
+
+
+@pytest.mark.asyncio
+async def test_cancel_before_replay_starts(cancel_env) -> None:
+    """cancel() before iterating produces zero results; all events skipped."""
+    env = cancel_env
+
+    # Seed 3 events.
+    for i in range(3):
+        await env.seed(_make_event(event_id=f"evt-pre-{i}"))
+
+    replay = ReplayEngine(
+        storage=env.storage,
+        pipeline=env.pipeline,
+        event_bus=env.app.event_bus,
+        diagnostician=env.app.diagnostician,
+    )
+
+    # Cancel before starting iteration.
+    replay.cancel()
+    assert replay.is_cancelled
+
+    request = ReplayRequest(mode=ReplayMode.STRICT)
+    results = []
+    async for result in replay.replay(request):
+        results.append(result)
+
+    # No results — the loop exits immediately on the first check.
+    assert len(results) == 0, f"Expected 0 results after pre-cancel, got {len(results)}"
+
+
+# ===================================================================
+# Test 6: cancel() idempotent — calling twice is harmless
+# ===================================================================
+
+
+@pytest.mark.asyncio
+async def test_cancel_is_idempotent(cancel_env) -> None:
+    """Calling cancel() twice does not raise and is_cancelled stays True."""
+    env = cancel_env
+    await env.seed(_make_event(event_id="evt-idem"))
+
+    replay = ReplayEngine(
+        storage=env.storage,
+        pipeline=env.pipeline,
+        event_bus=env.app.event_bus,
+        diagnostician=env.app.diagnostician,
+    )
+
+    assert not replay.is_cancelled
+
+    replay.cancel()
+    assert replay.is_cancelled
+
+    # Second call is harmless.
+    replay.cancel()
+    assert replay.is_cancelled
+
+    # Replay produces zero results.
+    request = ReplayRequest(mode=ReplayMode.STRICT)
+    results = []
+    async for result in replay.replay(request):
+        results.append(result)
+
+    assert len(results) == 0
+
+
+# ===================================================================
+# Test 7: cancel() mid-event skips remaining stages
+# ===================================================================
+
+
+@pytest.mark.asyncio
+async def test_cancel_mid_event_skips_remaining_stages(cancel_env) -> None:
+    """cancel() between stages of one event yields skipped for remaining stages.
+
+    Uses a custom pipeline that cancels the engine after the store stage,
+    so route/render/deliver stages should all be skipped with
+    error="replay_cancelled".
+    """
+    env = cancel_env
+
+    await env.seed(_make_event(event_id="evt-mid-stage"))
+
+    replay = ReplayEngine(
+        storage=env.storage,
+        pipeline=env.pipeline,
+        event_bus=env.app.event_bus,
+        diagnostician=env.app.diagnostician,
+    )
+
+    request = ReplayRequest(mode=ReplayMode.BEST_EFFORT)
+    results: list = []
+    stage_count = 0
+
+    async for result in replay.replay(request):
+        results.append(result)
+        stage_count += 1
+        # After the store stage of the first event, cancel.
+        if result.stage == "store" and result.status == "passed":
+            replay.cancel()
+
+    # Should have results for all 5 stages of BEST_EFFORT:
+    # store=passed, route=skipped, plan=skipped, render=skipped, deliver=skipped
+    assert len(results) == 5, f"Expected 5 results, got {len(results)}"
+
+    # First stage (store) should have passed.
+    assert results[0].stage == "store"
+    assert results[0].status == "passed"
+
+    # Remaining stages should be skipped due to cancellation.
+    for r in results[1:]:
+        assert (
+            r.status == "skipped"
+        ), f"Stage {r.stage} expected 'skipped', got '{r.status}'"
+        assert (
+            r.error == "replay_cancelled"
+        ), f"Stage {r.stage} expected error 'replay_cancelled', got '{r.error}'"
+
+
+# ===================================================================
+# Test 8: reset_cancellation allows new replay after cancel
+# ===================================================================
+
+
+@pytest.mark.asyncio
+async def test_reset_cancellation_allows_new_replay(cancel_env) -> None:
+    """After reset_cancellation(), a new replay processes events normally."""
+    env = cancel_env
+
+    await env.seed(_make_event(event_id="evt-reset-1"))
+    await env.seed(_make_event(event_id="evt-reset-2"))
+
+    replay = ReplayEngine(
+        storage=env.storage,
+        pipeline=env.pipeline,
+        event_bus=env.app.event_bus,
+        diagnostician=env.app.diagnostician,
+    )
+
+    # Cancel and verify no results.
+    replay.cancel()
+    request = ReplayRequest(mode=ReplayMode.STRICT)
+    results1 = []
+    async for r in replay.replay(request):
+        results1.append(r)
+    assert len(results1) == 0
+
+    # Reset and replay again — should work normally.
+    replay.reset_cancellation()
+    assert not replay.is_cancelled
+
+    results2 = []
+    async for r in replay.replay(request):
+        results2.append(r)
+
+    assert len(results2) == 2, f"Expected 2 results after reset, got {len(results2)}"
+    assert all(r.status == "passed" for r in results2)
+
+
+# ===================================================================
+# Test 9: BEST_EFFORT with cancel — delivery receipts reflect abandoned work
+# ===================================================================
+
+
+@pytest.mark.asyncio
+async def test_best_effort_cancel_skips_deliver(cancel_env) -> None:
+    """BEST_EFFORT replay with cancellation skips delivery stages.
+
+    Seeds 3 events, cancels after first event's store stage.
+    First event: store=passed, remaining stages skipped.
+    Events 2 and 3: never processed (outer loop breaks).
+    No delivery receipts are created for any event.
+    """
+    env = cancel_env
+
+    for i in range(3):
+        await env.seed(_make_event(event_id=f"evt-be-cancel-{i}"))
+
+    replay = ReplayEngine(
+        storage=env.storage,
+        pipeline=env.pipeline,
+        event_bus=env.app.event_bus,
+        diagnostician=env.app.diagnostician,
+    )
+
+    request = ReplayRequest(mode=ReplayMode.BEST_EFFORT)
+    results: list = []
+
+    async for result in replay.replay(request):
+        results.append(result)
+        # Cancel after first event's store stage.
+        if result.stage == "store" and result.status == "passed":
+            replay.cancel()
+
+    # Only one event processed (5 stages for BEST_EFFORT).
+    event_ids = {r.event_id for r in results}
+    assert event_ids == {
+        "evt-be-cancel-0"
+    }, f"Expected only first event, got {event_ids}"
+
+    # store stage passed.
+    store_results = [r for r in results if r.stage == "store"]
+    assert len(store_results) == 1
+    assert store_results[0].status == "passed"
+
+    # Remaining stages for first event are skipped.
+    skipped = [
+        r for r in results if r.status == "skipped" and r.error == "replay_cancelled"
+    ]
+    assert (
+        len(skipped) == 4
+    ), f"Expected 4 skipped stages (route,plan,render,deliver), got {len(skipped)}"
+
+    # No delivery receipts persisted for any event.
+    receipt_rows = await env.storage._read_all(
+        "SELECT * FROM delivery_receipts WHERE source = 'replay'",
+        (),
+    )
+    assert (
+        len(receipt_rows) == 0
+    ), "Cancelled replay should not produce delivery receipts"

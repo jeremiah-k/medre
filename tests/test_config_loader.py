@@ -7,7 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from medre.config.errors import ConfigFileError, ConfigNotFoundError, ConfigValidationError
+from medre.config.errors import (
+    ConfigFileError,
+    ConfigNotFoundError,
+    ConfigValidationError,
+)
 from medre.config.loader import ConfigSource, find_config, load_config
 from medre.config.model import (
     MatrixRuntimeConfig,
@@ -518,7 +522,7 @@ class TestLoggingValidation:
         """overrides.nio = 123 → ConfigValidationError."""
         p = _write_config(
             tmp_path,
-            "[runtime]\n[logging]\nlevel = \"INFO\"\n[logging.overrides]\nnio = 123\n",
+            '[runtime]\n[logging]\nlevel = "INFO"\n[logging.overrides]\nnio = 123\n',
         )
         with pytest.raises(ConfigValidationError, match="invalid level"):
             load_config(str(p))

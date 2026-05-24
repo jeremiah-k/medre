@@ -20,16 +20,12 @@ Covers:
 from __future__ import annotations
 
 import json
-import os
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 import pytest
 
 from medre.runtime.evidence._bundle import collect_evidence_bundle
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -48,8 +44,8 @@ async def _make_db_with_event_and_receipts(
         DeliveryReceipt,
         NativeMessageRef,
     )
-    from medre.core.events.metadata import EventMetadata
     from medre.core.events.kinds import EventKind
+    from medre.core.events.metadata import EventMetadata
     from medre.core.storage.sqlite import SQLiteStorage
 
     storage = SQLiteStorage(db_path)
@@ -388,8 +384,7 @@ class TestStorageOnlyNoAdapterSdkImports:
         ]
         for pattern in adapter_sdk_patterns:
             assert pattern not in source, (
-                f"Bundle module should not import adapter SDKs, "
-                f"found: {pattern!r}"
+                f"Bundle module should not import adapter SDKs, " f"found: {pattern!r}"
             )
 
 

@@ -38,7 +38,8 @@ class TestMeshtasticAdapterSendSemantics:
 
     async def test_deliver_return_none_documented(self) -> None:
         """Real adapter deliver() returns AdapterDeliveryResult with
-        delivery_note='locally enqueued' and native_message_id=None."""
+        delivery_note='locally enqueued', delivery_status='enqueued',
+        and native_message_id=None."""
         config = make_meshtastic_config(connection_type="fake")
         adapter = MeshtasticAdapter(config)
         result = make_meshtastic_rendering_result()
@@ -47,6 +48,7 @@ class TestMeshtasticAdapterSendSemantics:
         assert delivery is not None
         assert delivery.native_message_id is None
         assert delivery.delivery_note == "locally enqueued"
+        assert delivery.delivery_status == "enqueued"
 
     async def test_queue_process_one_without_send_fn_returns_none(self) -> None:
         """process_one without send_fn returns None (scaffold mode)."""

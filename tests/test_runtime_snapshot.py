@@ -768,7 +768,7 @@ class TestLiveHealthPopulated:
     def test_live_health_dict_when_state_present(self) -> None:
         """When _live_health_state has to_dict(), live_health is populated."""
         from medre.core.lifecycle.states import AdapterState
-        from medre.core.runtime.health import AdapterLiveHealth, LiveHealthSnapshot
+        from medre.core.supervision.health import AdapterLiveHealth, LiveHealthSnapshot
 
         adapter_health = AdapterLiveHealth(
             adapter_id="a1",
@@ -806,7 +806,7 @@ class TestLiveHealthPopulated:
     def test_startup_health_unchanged_after_live_refresh(self) -> None:
         """startup.startup_health remains unchanged when live health is populated."""
         from medre.core.lifecycle.states import AdapterState
-        from medre.core.runtime.health import AdapterLiveHealth, LiveHealthSnapshot
+        from medre.core.supervision.health import AdapterLiveHealth, LiveHealthSnapshot
 
         adapter_health = AdapterLiveHealth(
             adapter_id="a1",
@@ -1019,7 +1019,7 @@ class TestAccountingInSnapshot:
 
     def test_accounting_present_when_wired(self) -> None:
         """RuntimeAccounting wired → snapshot includes counters."""
-        from medre.core.runtime.accounting import RuntimeAccounting
+        from medre.core.supervision.accounting import RuntimeAccounting
 
         acc = RuntimeAccounting()
         acc.record_inbound_accepted()
@@ -1038,7 +1038,7 @@ class TestAccountingInSnapshot:
 
     def test_accounting_keys_sorted(self) -> None:
         """Accounting dict keys are sorted."""
-        from medre.core.runtime.accounting import RuntimeAccounting
+        from medre.core.supervision.accounting import RuntimeAccounting
 
         acc = RuntimeAccounting()
         app = _make_fake_app()
@@ -1345,7 +1345,7 @@ class TestLiveHealthTypes:
     def test_adapter_live_health_is_frozen(self) -> None:
         """AdapterLiveHealth is frozen (immutable)."""
         from medre.core.lifecycle.states import AdapterState
-        from medre.core.runtime.health import AdapterLiveHealth
+        from medre.core.supervision.health import AdapterLiveHealth
 
         entry = AdapterLiveHealth(
             adapter_id="test-adapter",
@@ -1361,7 +1361,7 @@ class TestLiveHealthTypes:
     def test_adapter_live_health_to_dict_json_safe(self) -> None:
         """AdapterLiveHealth.to_dict() produces JSON-safe output."""
         from medre.core.lifecycle.states import AdapterState
-        from medre.core.runtime.health import AdapterLiveHealth
+        from medre.core.supervision.health import AdapterLiveHealth
 
         entry = AdapterLiveHealth(
             adapter_id="a1",
@@ -1385,7 +1385,7 @@ class TestLiveHealthTypes:
     def test_adapter_live_health_error_defaults_none(self) -> None:
         """AdapterLiveHealth.error defaults to None when omitted."""
         from medre.core.lifecycle.states import AdapterState
-        from medre.core.runtime.health import AdapterLiveHealth
+        from medre.core.supervision.health import AdapterLiveHealth
 
         entry = AdapterLiveHealth(
             adapter_id="a1",
@@ -1400,7 +1400,7 @@ class TestLiveHealthTypes:
 
     def test_live_health_snapshot_is_frozen(self) -> None:
         """LiveHealthSnapshot is frozen (immutable)."""
-        from medre.core.runtime.health import LiveHealthSnapshot
+        from medre.core.supervision.health import LiveHealthSnapshot
 
         snap = LiveHealthSnapshot(
             runtime_health="healthy",
@@ -1422,7 +1422,7 @@ class TestLiveHealthTypes:
     def test_live_health_snapshot_to_dict_json_safe(self) -> None:
         """LiveHealthSnapshot.to_dict() produces JSON-safe output with sorted keys."""
         from medre.core.lifecycle.states import AdapterState
-        from medre.core.runtime.health import AdapterLiveHealth, LiveHealthSnapshot
+        from medre.core.supervision.health import AdapterLiveHealth, LiveHealthSnapshot
 
         adapter_health = AdapterLiveHealth(
             adapter_id="a1",
