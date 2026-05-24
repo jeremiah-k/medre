@@ -256,8 +256,8 @@ class MeshtasticRenderer:
         * *reply* with a numeric ``target_native_ref.native_message_id`` —
           sets ``reply_id`` (int) and emits plain text without fallback
           prefix.
-        * *reply* without numeric native ref — falls back to
-          ``"[replying to: {fallback_text}] "`` prefix.
+        * *reply* without numeric native ref — emits plain text
+          without ``reply_id``; no fallback prefix is added.
         * *native reaction* (same adapter) with a numeric
           ``target_native_ref.native_message_id`` — sets ``reply_id``
           (int) and ``emoji`` (1); text is the emoji string from
