@@ -38,7 +38,7 @@ from medre.adapters.fakes.presentation import FakePresentationAdapter
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.events import CanonicalEvent, EventMetadata, NativeRef
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
-from medre.core.runtime.accounting import RuntimeAccounting
+from medre.core.supervision.accounting import RuntimeAccounting
 from medre.core.storage.backend import StorageBackend
 from medre.core.storage.replay import (
     ReplayEngine,

@@ -86,9 +86,9 @@ component_management:
           threshold: 5%
 
     - component_id: core_runtime_diagnostics
-      name: Core Runtime & Diagnostics
+      name: Core Supervision & Diagnostics
       paths:
-        - src/medre/core/runtime/**
+        - src/medre/core/supervision/**
         - src/medre/core/diagnostics/**
         - src/medre/core/lifecycle/**
         - src/medre/core/observability/**

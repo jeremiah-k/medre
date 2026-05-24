@@ -441,7 +441,7 @@ class MatrixAdapter(AdapterContract):
         logged_in, sync_task_running, last_sync_error) should extract
         it from the adapter's internal attributes and pass it as the
         ``details`` dict to
-        :func:`~medre.core.runtime.health.normalize_adapter_health`.
+        :func:`~medre.core.supervision.health.normalize_adapter_health`.
         """
         # Check for sync failure — from adapter-level captured failure,
         # from live session, or from _sync_failure attribute.

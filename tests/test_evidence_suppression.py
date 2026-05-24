@@ -49,7 +49,7 @@ class TestLoopSuppressionEvidence:
         from medre.core.events.kinds import EventKind
         from medre.core.routing import Route, Router, RouteSource, RouteTarget
         from medre.core.routing.stats import RouteStats
-        from medre.core.runtime.accounting import RuntimeAccounting
+        from medre.core.supervision.accounting import RuntimeAccounting
         from medre.core.storage.sqlite import SQLiteStorage
         from tests.helpers.bridge import make_adapter_context, make_pipeline_config
 

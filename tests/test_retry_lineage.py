@@ -37,7 +37,7 @@ from medre.core.rendering.text import TextRenderer
 from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.core.routing.router import Router
 from medre.core.routing.stats import RouteStats
-from medre.core.runtime.accounting import RuntimeAccounting
+from medre.core.supervision.accounting import RuntimeAccounting
 from medre.core.storage.sqlite import SQLiteStorage
 
 # FallbackResolver that injects a retry_policy into every plan

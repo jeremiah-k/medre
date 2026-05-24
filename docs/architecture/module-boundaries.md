@@ -43,7 +43,7 @@ graph allows — see [Operator Tooling Boundary](operator-tooling-boundary.md).
 `events.py`, `evidence.py`, `trace.py`, `drill.py`, `smoke.py`,
 `snapshot.py`, `boot_summary.py`, `errors.py`, `summaries.py`.
 
-> **Note:** `capacity.py` moved to `core/runtime/capacity.py` — see `core/` below.
+> **Note:** `capacity.py` moved to `core/supervision/capacity.py` — see `core/` below.
 
 ### `core/` — domain primitives
 

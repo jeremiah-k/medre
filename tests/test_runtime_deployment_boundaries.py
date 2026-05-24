@@ -155,7 +155,7 @@ class TestRuntimeCoreNoSdk:
     _RUNTIME_MODULES = [
         "medre.runtime.app",
         "medre.runtime.builder",
-        "medre.core.runtime.capacity",
+        "medre.core.supervision.capacity",
         "medre.runtime.snapshot",
         "medre.runtime.observability",
         "medre.runtime.boot_summary",
@@ -264,7 +264,7 @@ class TestRuntimeCoreModuleGuard:
         "medre.runtime",
         "medre.runtime.app",
         "medre.runtime.builder",
-        "medre.core.runtime.capacity",
+        "medre.core.supervision.capacity",
         "medre.runtime.snapshot",
         "medre.runtime.observability",
         "medre.runtime.boot_summary",
@@ -278,9 +278,9 @@ class TestRuntimeCoreModuleGuard:
         "medre.core.routing.router",
         "medre.core.routing.models",
         "medre.core.rendering.renderer",
-        "medre.core.runtime.diagnostics",
-        "medre.core.runtime.health",
-        "medre.core.runtime.accounting",
+        "medre.core.supervision.diagnostics",
+        "medre.core.supervision.health",
+        "medre.core.supervision.accounting",
     ]
 
     @pytest.mark.parametrize(
@@ -362,7 +362,7 @@ class TestRuntimeCoreNoAdapterRuntime:
     _RUNTIME_MODULES = [
         "medre.runtime.app",
         "medre.runtime.builder",
-        "medre.core.runtime.capacity",
+        "medre.core.supervision.capacity",
         "medre.runtime.snapshot",
         "medre.runtime.observability",
         "medre.runtime.boot_summary",
@@ -688,12 +688,12 @@ class TestCoreModulesTransportAgnostic:
         "medre.core.rendering.text",
         "medre.core.lifecycle.manager",
         "medre.core.lifecycle.states",
-        "medre.core.runtime.accounting",
-        "medre.core.runtime.capabilities",
-        "medre.core.runtime.diagnostics",
-        "medre.core.runtime.health",
-        "medre.core.runtime.supervision",
-        "medre.core.runtime.diagnostic_contract",
+        "medre.core.supervision.accounting",
+        "medre.core.supervision.capabilities",
+        "medre.core.supervision.diagnostics",
+        "medre.core.supervision.health",
+        "medre.core.supervision.supervision",
+        "medre.core.supervision.diagnostic_contract",
         "medre.core.diagnostics.replay_metrics",
         "medre.core.observability.metrics",
     ]

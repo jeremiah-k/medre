@@ -241,9 +241,9 @@ class TestOperationalEvidenceNoDirectSdk:
         "medre.core.diagnostics",
         "medre.core.diagnostics.replay_metrics",
         "medre.core.diagnostics.snapshot",
-        "medre.core.runtime.diagnostics",
-        "medre.core.runtime.diagnostic_contract",
-        "medre.core.runtime.health",
+        "medre.core.supervision.diagnostics",
+        "medre.core.supervision.diagnostic_contract",
+        "medre.core.supervision.health",
         "medre.runtime.snapshot",
         "medre.runtime.boot_summary",
     ]
@@ -561,12 +561,12 @@ class TestDiagnosticsNoTransportCoupling:
         "medre.core.diagnostics",
         "medre.core.diagnostics.replay_metrics",
         "medre.core.diagnostics.snapshot",
-        "medre.core.runtime.diagnostics",
-        "medre.core.runtime.diagnostic_contract",
-        "medre.core.runtime.health",
-        "medre.core.runtime.supervision",
-        "medre.core.runtime.accounting",
-        "medre.core.runtime.capabilities",
+        "medre.core.supervision.diagnostics",
+        "medre.core.supervision.diagnostic_contract",
+        "medre.core.supervision.health",
+        "medre.core.supervision.supervision",
+        "medre.core.supervision.accounting",
+        "medre.core.supervision.capabilities",
     ]
 
     _DIAGNOSTICS_TEST_FILES = [

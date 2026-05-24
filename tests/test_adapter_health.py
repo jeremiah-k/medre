@@ -33,7 +33,7 @@ from medre.core.contracts.adapter import (
     AdapterRole,
 )
 from medre.core.lifecycle.states import AdapterState
-from medre.core.runtime.health import (
+from medre.core.supervision.health import (
     VALID_HEALTH_STRINGS,
     normalize_adapter_health,
 )

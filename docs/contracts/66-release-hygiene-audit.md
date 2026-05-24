@@ -156,8 +156,8 @@ floor pin strategy and link to contract 34, section 7 for full rationale.
 
 **Finding:** `medre.core` imports only from `medre.core.contracts.adapter`:
 
-- `medre.core.runtime.health` → `AdapterInfo` from `medre.core.contracts.adapter`
-- `medre.core.runtime.capabilities` → `AdapterCapabilities` from `medre.core.contracts.adapter`
+- `medre.core.supervision.health` → `AdapterInfo` from `medre.core.contracts.adapter`
+- `medre.core.supervision.capabilities` → `AdapterCapabilities` from `medre.core.contracts.adapter`
 - `medre.core.engine.pipeline` → `AdapterCapabilities`, `AdapterDeliveryResult`, `AdapterContract` from `medre.core.contracts.adapter`
 
 These are MEDRE-defined types in the core contracts module. **No third-party SDK

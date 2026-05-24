@@ -50,9 +50,9 @@ from medre.core.events.kinds import EventKind
 from medre.core.events.metadata import EventMetadata
 from medre.core.lifecycle.states import AdapterState
 from medre.core.routing.stats import RouteStats
-from medre.core.runtime.accounting import RuntimeAccounting
-from medre.core.runtime.capacity import CapacityController
-from medre.core.runtime.supervision import (
+from medre.core.supervision.accounting import RuntimeAccounting
+from medre.core.supervision.capacity import CapacityController
+from medre.core.supervision.supervision import (
     RuntimeHealth,
     classify_runtime_health,
     runtime_supervision_snapshot,

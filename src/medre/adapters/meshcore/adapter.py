@@ -73,7 +73,7 @@ from medre.core.contracts.adapter import (
     AdapterSendError,
 )
 from medre.core.rendering.renderer import RenderingResult
-from medre.core.runtime.diagnostic_contract import sanitize_diagnostic_mapping
+from medre.core.supervision.diagnostic_contract import sanitize_diagnostic_mapping
 
 # Base capabilities for the MeshCore transport adapter.
 # max_text_bytes is overridden per-instance from config.

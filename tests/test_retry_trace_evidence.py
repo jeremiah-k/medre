@@ -315,7 +315,7 @@ class TestRetryTraceEvidence:
         from medre.core.routing.models import Route, RouteSource, RouteTarget
         from medre.core.routing.router import Router
         from medre.core.routing.stats import RouteStats
-        from medre.core.runtime.accounting import RuntimeAccounting
+        from medre.core.supervision.accounting import RuntimeAccounting
 
         class _FallbackResolverWithRetry(_BaseFallback):
             """Injects a RetryPolicy into every delivery plan."""
@@ -547,7 +547,7 @@ class TestRetryTraceEvidence:
         from medre.core.routing.models import Route, RouteSource, RouteTarget
         from medre.core.routing.router import Router
         from medre.core.routing.stats import RouteStats
-        from medre.core.runtime.accounting import RuntimeAccounting
+        from medre.core.supervision.accounting import RuntimeAccounting
         from medre.runtime.events import EventBuffer, RuntimeEventType
         from medre.runtime.retry import RetryWorker
 
@@ -695,7 +695,7 @@ class TestRetryTraceEvidence:
         from medre.core.routing.models import Route, RouteSource, RouteTarget
         from medre.core.routing.router import Router
         from medre.core.routing.stats import RouteStats
-        from medre.core.runtime.accounting import RuntimeAccounting
+        from medre.core.supervision.accounting import RuntimeAccounting
         from medre.runtime.retry import RetryWorker, RetryWorkerState
 
         class _FallbackResolverWithRetry(_BaseFallback):

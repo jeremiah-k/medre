@@ -21,7 +21,7 @@ Common outer keys
      - ``bool | None`` – whether the transport reports an active connection.
    * - ``health``
      - ``str | None`` – one of
-       :data:`~medre.core.runtime.health.VALID_HEALTH_STRINGS`, or ``None``.
+       :data:`~medre.core.supervision.health.VALID_HEALTH_STRINGS`, or ``None``.
    * - ``mode``
      - ``str | None`` – ``"fake"``, ``"live"``, or ``None`` when unknown.
    * - ``reconnecting``

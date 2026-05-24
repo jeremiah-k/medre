@@ -33,8 +33,8 @@ from medre.config.model import (
 from medre.config.paths import MedrePaths
 from medre.core.contracts.adapter import AdapterPermanentError, AdapterSendError
 from medre.core.events.canonical import CanonicalEvent, EventMetadata
-from medre.core.runtime.accounting import RuntimeAccounting
-from medre.core.runtime.capacity import CapacityController
+from medre.core.supervision.accounting import RuntimeAccounting
+from medre.core.supervision.capacity import CapacityController
 from medre.core.storage.replay import (
     ReplayEngine,
     ReplayMode,

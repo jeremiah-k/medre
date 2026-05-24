@@ -125,8 +125,8 @@ health:
     triggers this transition.
 
     The types backing this shape are defined in
-    :class:`~medre.core.runtime.health.AdapterLiveHealth` and
-    :class:`~medre.core.runtime.health.LiveHealthSnapshot`.
+    :class:`~medre.core.supervision.health.AdapterLiveHealth` and
+    :class:`~medre.core.supervision.health.LiveHealthSnapshot`.
 adapters:
     Per-adapter static metadata (capabilities, role, version, health).
 routes:

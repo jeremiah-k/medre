@@ -85,7 +85,7 @@ class TestParseFile:
         type_checking = [e for e in edges if e.is_type_checking]
         # After normalization, symbol pseudo-edges are removed; the module-level
         # edge for the CapacityController import is preserved.
-        assert any(e.target == "medre.core.runtime.capacity" for e in type_checking)
+        assert any(e.target == "medre.core.supervision.capacity" for e in type_checking)
 
 
 class TestBuildGraph:

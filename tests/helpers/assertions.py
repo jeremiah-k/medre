@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from medre.core.runtime.accounting import RuntimeAccounting
+from medre.core.supervision.accounting import RuntimeAccounting
 
 
 def assert_receipt_status(

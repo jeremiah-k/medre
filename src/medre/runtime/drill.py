@@ -744,7 +744,7 @@ async def _drill_capacity_rejection(
 
         # Replace the capacity controller with one that has a single slot
         # and a short timeout, then exhaust it.
-        from medre.core.runtime.capacity import CapacityController
+        from medre.core.supervision.capacity import CapacityController
 
         small_cc = CapacityController(
             RuntimeLimits(

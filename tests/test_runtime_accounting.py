@@ -23,7 +23,7 @@ import sys
 
 import pytest
 
-from medre.core.runtime.accounting import RuntimeAccounting, RuntimeCounters
+from medre.core.supervision.accounting import RuntimeAccounting, RuntimeCounters
 
 # ---------------------------------------------------------------------------
 # Fresh instance
@@ -460,11 +460,11 @@ class TestRepr:
 
 class TestReExport:
     """RuntimeAccounting and RuntimeCounters are re-exported from
-    medre.core.runtime."""
+    medre.core.supervision."""
 
     def test_import_from_runtime_package(self) -> None:
-        from medre.core.runtime import RuntimeAccounting as RA
-        from medre.core.runtime import RuntimeCounters as RC
+        from medre.core.supervision import RuntimeAccounting as RA
+        from medre.core.supervision import RuntimeCounters as RC
 
         assert RA is RuntimeAccounting
         assert RC is RuntimeCounters

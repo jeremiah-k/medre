@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from medre.core.engine.pipeline import PipelineRunner
-    from medre.core.runtime.capacity import CapacityController
+    from medre.core.supervision.capacity import CapacityController
     from medre.core.storage.sqlite import SQLiteStorage
     from medre.runtime.events import EventBuffer
 

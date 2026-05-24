@@ -62,11 +62,11 @@ from medre.core.rendering.text import TextRenderer
 from medre.core.routing.models import Route, RouteTarget
 from medre.core.routing.router import Router
 from medre.core.routing.stats import RouteStats
-from medre.core.runtime.accounting import RuntimeAccounting
+from medre.core.supervision.accounting import RuntimeAccounting
 from medre.core.storage.backend import StorageBackend
 
 if TYPE_CHECKING:
-    from medre.core.runtime.capacity import CapacityController
+    from medre.core.supervision.capacity import CapacityController
 
 
 # ---------------------------------------------------------------------------
@@ -294,7 +294,7 @@ class PipelineRunner:
             )
 
     def set_capacity_controller(self, cc: CapacityController) -> None:
-        """Wire a :class:`~medre.core.runtime.capacity.CapacityController`.
+        """Wire a :class:`~medre.core.supervision.capacity.CapacityController`.
 
         When set, each per-target delivery inside :meth:`_deliver_to_targets_inner`
         acquires a delivery slot before processing and releases it on

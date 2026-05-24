@@ -17,8 +17,8 @@ from medre.config.model import RuntimeLimits
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.planning.delivery_plan import DeliveryFailureKind
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
-from medre.core.runtime.accounting import RuntimeAccounting
-from medre.core.runtime.capacity import CapacityController
+from medre.core.supervision.accounting import RuntimeAccounting
+from medre.core.supervision.capacity import CapacityController
 from medre.core.storage import SQLiteStorage
 from medre.runtime.evidence._bundle import collect_evidence_bundle
 from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline

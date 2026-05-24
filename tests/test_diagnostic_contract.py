@@ -22,7 +22,7 @@ from typing import Any
 
 import pytest
 
-from medre.core.runtime.diagnostic_contract import (
+from medre.core.supervision.diagnostic_contract import (
     COMMON_DIAGNOSTIC_KEYS,
     normalize_diagnostics,
 )
@@ -604,7 +604,7 @@ class TestNoAdapterImports:
     def test_module_imports_no_adapters(self) -> None:
         import sys
 
-        import medre.core.runtime.diagnostic_contract as mod
+        import medre.core.supervision.diagnostic_contract as mod
 
         # Collect all loaded modules that start with medre.adapters.
         [name for name in sys.modules if name.startswith("medre.adapters")]
@@ -869,7 +869,7 @@ class TestBoundedJsonSafeSanitization:
 
     def test_long_string_truncated(self) -> None:
         """Strings exceeding the bound are truncated with a length suffix."""
-        from medre.core.runtime.diagnostic_contract import _MAX_STRING_LENGTH
+        from medre.core.supervision.diagnostic_contract import _MAX_STRING_LENGTH
 
         long_val = "x" * (_MAX_STRING_LENGTH + 500)
         raw = {
@@ -938,7 +938,7 @@ class TestBoundedJsonSafeSanitization:
             "last_message_time": "2025-01-01T00:00:00",
         }
 
-        from medre.core.runtime.diagnostic_contract import sanitize_diagnostic_mapping
+        from medre.core.supervision.diagnostic_contract import sanitize_diagnostic_mapping
 
         result = sanitize_diagnostic_mapping(raw)
 
@@ -977,7 +977,7 @@ class TestPublicSanitizerAPI:
     """Tests for the public sanitize_diagnostic_value / sanitize_diagnostic_mapping."""
 
     def test_sanitize_diagnostic_value_scalars(self) -> None:
-        from medre.core.runtime.diagnostic_contract import sanitize_diagnostic_value
+        from medre.core.supervision.diagnostic_contract import sanitize_diagnostic_value
 
         assert sanitize_diagnostic_value(42) == 42
         assert sanitize_diagnostic_value(3.14) == 3.14
@@ -986,7 +986,7 @@ class TestPublicSanitizerAPI:
         assert sanitize_diagnostic_value(None) is None
 
     def test_sanitize_diagnostic_value_truncates_long_string(self) -> None:
-        from medre.core.runtime.diagnostic_contract import sanitize_diagnostic_value
+        from medre.core.supervision.diagnostic_contract import sanitize_diagnostic_value
 
         long_str = "x" * 5000
         result = sanitize_diagnostic_value(long_str)
@@ -995,19 +995,19 @@ class TestPublicSanitizerAPI:
         assert "5000 chars" in result
 
     def test_sanitize_diagnostic_value_unsafe_object(self) -> None:
-        from medre.core.runtime.diagnostic_contract import sanitize_diagnostic_value
+        from medre.core.supervision.diagnostic_contract import sanitize_diagnostic_value
 
         assert sanitize_diagnostic_value(ValueError("boom")) == "<ValueError>"
         assert sanitize_diagnostic_value(b"bytes") == "<bytes>"
 
     def test_sanitize_diagnostic_value_list(self) -> None:
-        from medre.core.runtime.diagnostic_contract import sanitize_diagnostic_value
+        from medre.core.supervision.diagnostic_contract import sanitize_diagnostic_value
 
         result = sanitize_diagnostic_value([1, b"x", "ok"])
         assert result == [1, "<bytes>", "ok"]
 
     def test_sanitize_diagnostic_value_nested_dict(self) -> None:
-        from medre.core.runtime.diagnostic_contract import sanitize_diagnostic_value
+        from medre.core.supervision.diagnostic_contract import sanitize_diagnostic_value
 
         result = sanitize_diagnostic_value({"a": 1, "password": "secret"})
         assert isinstance(result, dict)
@@ -1015,7 +1015,7 @@ class TestPublicSanitizerAPI:
         assert "password" not in result
 
     def test_sanitize_diagnostic_mapping_strips_secrets(self) -> None:
-        from medre.core.runtime.diagnostic_contract import sanitize_diagnostic_mapping
+        from medre.core.supervision.diagnostic_contract import sanitize_diagnostic_mapping
 
         raw = {
             "connected": True,
@@ -1030,7 +1030,7 @@ class TestPublicSanitizerAPI:
         assert result["node_id"] == "ABC"
 
     def test_sanitize_diagnostic_mapping_json_safe(self) -> None:
-        from medre.core.runtime.diagnostic_contract import sanitize_diagnostic_mapping
+        from medre.core.supervision.diagnostic_contract import sanitize_diagnostic_mapping
 
         raw = {
             "ok": "value",
@@ -1046,7 +1046,7 @@ class TestPublicSanitizerAPI:
 
     def test_public_symbols_in_all(self) -> None:
         """Public sanitizer symbols are listed in __all__."""
-        import medre.core.runtime.diagnostic_contract as mod
+        import medre.core.supervision.diagnostic_contract as mod
 
         assert "sanitize_diagnostic_value" in mod.__all__
         assert "sanitize_diagnostic_mapping" in mod.__all__
@@ -1064,7 +1064,7 @@ class TestRecursionAndSizeBounds:
 
     def test_max_depth_exceeded_returns_marker(self) -> None:
         """Dict nested deeper than _SANITIZE_MAX_DEPTH returns marker."""
-        from medre.core.runtime.diagnostic_contract import (
+        from medre.core.supervision.diagnostic_contract import (
             _SANITIZE_MAX_DEPTH,
             sanitize_diagnostic_value,
         )
@@ -1094,7 +1094,7 @@ class TestRecursionAndSizeBounds:
 
     def test_max_depth_scalars_still_pass(self) -> None:
         """Scalar values inside the last processable dict are intact."""
-        from medre.core.runtime.diagnostic_contract import (
+        from medre.core.supervision.diagnostic_contract import (
             _SANITIZE_MAX_DEPTH,
             sanitize_diagnostic_value,
         )
@@ -1119,7 +1119,7 @@ class TestRecursionAndSizeBounds:
 
     def test_sequence_truncation_with_marker(self) -> None:
         """Sequences longer than _SANITIZE_MAX_SEQUENCE_ITEMS are truncated."""
-        from medre.core.runtime.diagnostic_contract import (
+        from medre.core.supervision.diagnostic_contract import (
             _SANITIZE_MAX_SEQUENCE_ITEMS,
             sanitize_diagnostic_value,
         )
@@ -1139,7 +1139,7 @@ class TestRecursionAndSizeBounds:
 
     def test_sequence_within_bound_unchanged(self) -> None:
         """Sequences within the limit are not modified."""
-        from medre.core.runtime.diagnostic_contract import (
+        from medre.core.supervision.diagnostic_contract import (
             sanitize_diagnostic_value,
         )
 
@@ -1149,7 +1149,7 @@ class TestRecursionAndSizeBounds:
 
     def test_mapping_truncation_drops_excess(self) -> None:
         """Dicts with more than _SANITIZE_MAX_MAPPING_ENTRIES are truncated."""
-        from medre.core.runtime.diagnostic_contract import (
+        from medre.core.supervision.diagnostic_contract import (
             _SANITIZE_MAX_MAPPING_ENTRIES,
             sanitize_diagnostic_mapping,
         )
@@ -1171,7 +1171,7 @@ class TestRecursionAndSizeBounds:
 
     def test_mapping_within_bound_unchanged(self) -> None:
         """Dicts within the limit are fully preserved."""
-        from medre.core.runtime.diagnostic_contract import (
+        from medre.core.supervision.diagnostic_contract import (
             sanitize_diagnostic_mapping,
         )
 
@@ -1183,7 +1183,7 @@ class TestRecursionAndSizeBounds:
 
     def test_depth_bounds_dont_break_json(self) -> None:
         """Output with depth/size truncation remains JSON-safe."""
-        from medre.core.runtime.diagnostic_contract import (
+        from medre.core.supervision.diagnostic_contract import (
             _SANITIZE_MAX_DEPTH,
             sanitize_diagnostic_value,
         )
@@ -1201,7 +1201,7 @@ class TestRecursionAndSizeBounds:
 
     def test_large_sequence_json_safe(self) -> None:
         """Truncated sequence output is JSON-safe."""
-        from medre.core.runtime.diagnostic_contract import (
+        from medre.core.supervision.diagnostic_contract import (
             _SANITIZE_MAX_SEQUENCE_ITEMS,
             sanitize_diagnostic_value,
         )

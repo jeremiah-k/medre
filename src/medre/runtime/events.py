@@ -13,7 +13,7 @@ Design constraints
 * JSON-safe: every event serialises to a plain dict with ``str``/``int``/
   ``float``/``dict`` values — no SDK objects, no secrets.  Detail dicts
   are sanitised via the central diagnostics sanitizer
-  (:mod:`~medre.core.runtime.diagnostic_contract`).
+  (:mod:`~medre.core.supervision.diagnostic_contract`).
 * Read-only surface: events are emitted by the runtime; external consumers
   read via :meth:`EventBuffer.snapshot` or the runtime snapshot.
 * No async: all operations are synchronous.
@@ -33,7 +33,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from medre.core.runtime.diagnostic_contract import sanitize_diagnostic_mapping
+from medre.core.supervision.diagnostic_contract import sanitize_diagnostic_mapping
 
 __all__ = ["RuntimeEvent", "RuntimeEventType", "EventBuffer"]
 
@@ -83,7 +83,7 @@ def _sanitize_detail(detail: dict[str, Any]) -> dict[str, Any]:
     """Return a JSON-safe, bounded, secret-free copy of *detail*.
 
     Delegates to the central diagnostics sanitizer
-    (:func:`~medre.core.runtime.diagnostic_contract.sanitize_diagnostic_mapping`)
+    (:func:`~medre.core.supervision.diagnostic_contract.sanitize_diagnostic_mapping`)
     which:
 
     * Strips keys matching known secret patterns (password, api_key, etc.).

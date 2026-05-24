@@ -87,7 +87,7 @@ medre.core.engine.pipeline             PipelineRunner
 medre.core.storage.*                   persistence layer
 medre.cli.*                            CLI commands
 medre.runtime.app                      MedreApp top-level orchestrator
-medre.core.runtime.capacity            capacity controller
+medre.core.supervision.capacity            capacity controller
 ```
 
 ## Examples

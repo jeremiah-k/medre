@@ -22,7 +22,7 @@ __all__ = ["sanitize_for_log", "sanitize_error"]
 # ---------------------------------------------------------------------------
 
 # Canonical secret-key patterns used by both the logging layer and
-# medre.core.runtime.diagnostic_contract (which imports from here).
+# medre.core.supervision.diagnostic_contract (which imports from here).
 _SECRET_KEY_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
     re.compile(p, re.IGNORECASE)
     for p in (

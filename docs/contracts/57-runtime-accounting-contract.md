@@ -1,7 +1,7 @@
 # Contract 57 — Runtime Event Accounting
 
 **Status:** Approved (Track 5)
-**Module:** `medre.core.runtime.accounting`
+**Module:** `medre.core.supervision.accounting`
 **Depends on:** None (standalone, zero transport imports)
 
 ## Purpose
@@ -79,7 +79,7 @@ explicit locking.
 ## API Surface
 
 ```python
-from medre.core.runtime.accounting import RuntimeAccounting, RuntimeCounters
+from medre.core.supervision.accounting import RuntimeAccounting, RuntimeCounters
 
 # Construction
 acc = RuntimeAccounting()

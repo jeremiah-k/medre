@@ -253,7 +253,7 @@ class AdapterInfo:
     health:
         Current health status.  Adapters should use one of the six
         protocol-neutral strings defined in
-        :data:`~medre.core.runtime.health.VALID_HEALTH_STRINGS`:
+        :data:`~medre.core.supervision.health.VALID_HEALTH_STRINGS`:
         ``"healthy"``, ``"degraded"``, ``"failed"``, ``"unknown"``,
         ``"starting"``, or ``"stopping"``.  Defaults to ``"unknown"``.
     """

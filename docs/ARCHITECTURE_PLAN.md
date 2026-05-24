@@ -186,13 +186,13 @@ medre/
 
 - Config validation errors are `ValueError` subclasses, not adapter runtime error subclasses.
 - Matrix credential sidecar helpers are owned by the config layer for testability.
-- `medre.core.runtime/` is distinct from top-level `medre.runtime/`.
+- `medre.core.supervision/` is distinct from top-level `medre.runtime/`.
 - Route configuration dataclasses are owned by `medre.config.routes`, not `medre.runtime`. Runtime route expansion and topology remain in `medre.runtime.route_engine`.
 
 Current canonical module homes:
 
 - Adapter base contracts live in `medre.core.contracts.adapter`.
-- Core runtime helper types live under `medre.core.runtime/`.
+- Core runtime helper types live under `medre.core.supervision/`.
 - Adapter config dataclasses live in `medre.config.adapters.*`.
 - Route config models live in `medre.config.routes`; runtime expansion and topology live in `medre.runtime.route_engine`.
 
@@ -204,7 +204,7 @@ MMRelay is NOT a dependency, import target, vendor source, or copy target for ME
 
 ## 4. Remaining Follow-Up Work
 
-- Rename `core/runtime/` → `core/supervision/` to eliminate naming collision with top-level `runtime/`
+- ~~Rename `core/runtime/` → `core/supervision/` to eliminate naming collision with top-level `runtime/`~~ — done
 - Move fake adapters to `medre.adapters.fakes/` subdirectory
 - Decide disposition of remaining contract/doc documents (audit records vs current specifications)
 - Evaluate merging `core/diagnostics/` into `core/observability/` — evaluated and deferred; semantic scopes differ (diagnostics normalizes cross-adapter health metadata; observability owns structured logging and secret filtering)

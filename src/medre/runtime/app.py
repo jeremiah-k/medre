@@ -27,15 +27,15 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from medre.core.lifecycle.states import AdapterState, require_valid_transition
-from medre.core.runtime.accounting import RuntimeAccounting
-from medre.core.runtime.health import (
+from medre.core.supervision.accounting import RuntimeAccounting
+from medre.core.supervision.health import (
     AdapterLiveHealth,
     LiveHealthSnapshot,
     health_to_adapter_state,
     normalize_adapter_health,
     truncate_health_error,
 )
-from medre.core.runtime.supervision import (
+from medre.core.supervision.supervision import (
     StartupOutcome,
     classify_runtime_health,
     classify_startup_outcome,
@@ -62,7 +62,7 @@ if TYPE_CHECKING:
     from medre.core.rendering.renderer import RenderingPipeline
     from medre.core.routing.router import Router
     from medre.core.routing.stats import RouteStats
-    from medre.core.runtime.capacity import CapacityController
+    from medre.core.supervision.capacity import CapacityController
     from medre.core.storage.replay import ReplayEngine
     from medre.core.storage.sqlite import SQLiteStorage
     from medre.runtime.builder import AdapterBuildFailure
@@ -329,7 +329,7 @@ class MedreApp:
 
         Iterates adapters in deterministic ``adapter_id`` order (same as
         startup),         calls each adapter's :meth:`~medre.core.contracts.adapter.AdapterContract.health_check`
-        once, builds per-adapter :class:`~medre.core.runtime.health.AdapterLiveHealth`
+        once, builds per-adapter :class:`~medre.core.supervision.health.AdapterLiveHealth`
         entries, classifies aggregate runtime health from the live results,
         and stores the resulting :class:`LiveHealthSnapshot` on the app.
 

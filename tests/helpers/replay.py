@@ -16,7 +16,7 @@ from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.planning import FallbackResolver
 from medre.core.rendering import RenderingPipeline, TextRenderer
 from medre.core.routing import Router
-from medre.core.runtime.accounting import RuntimeAccounting
+from medre.core.supervision.accounting import RuntimeAccounting
 from medre.core.storage import SQLiteStorage
 from medre.core.storage.backend import StorageBackend
 from medre.core.storage.replay import ReplayEngine

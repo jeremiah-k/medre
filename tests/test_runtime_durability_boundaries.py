@@ -108,8 +108,8 @@ class TestDiagnosticsNoTransportSdk:
             "medre.core.diagnostics",
             "medre.core.diagnostics.replay_metrics",
             "medre.core.diagnostics.snapshot",
-            "medre.core.runtime.diagnostics",
-            "medre.core.runtime.health",
+            "medre.core.supervision.diagnostics",
+            "medre.core.supervision.health",
         ],
     )
     def test_no_sdk_imports(self, module_name: str) -> None:
@@ -125,7 +125,7 @@ class TestDiagnosticsNoTransportSdk:
             "medre.core.diagnostics",
             "medre.core.diagnostics.replay_metrics",
             "medre.core.diagnostics.snapshot",
-            "medre.core.runtime.diagnostics",
+            "medre.core.supervision.diagnostics",
         ],
     )
     def test_no_concrete_adapter_imports(self, module_name: str) -> None:
@@ -220,17 +220,17 @@ class TestStorageNoRuntimeInternals:
             runtime_imports == []
         ), f"replay.py imports banned runtime modules: {runtime_imports}"
 
-        # Also check medre.core.runtime.* — both TYPE_CHECKING-guarded
+        # Also check medre.core.supervision.* — both TYPE_CHECKING-guarded
         # imports (accounting, capacity) are allowed; any other would be banned.
-        core_runtime_imports = _banned_imports(lines, ("medre.core.runtime",))
+        core_runtime_imports = _banned_imports(lines, ("medre.core.supervision",))
         allowed = [
-            "from medre.core.runtime.capacity import CapacityController",
-            "from medre.core.runtime.accounting import RuntimeAccounting",
+            "from medre.core.supervision.capacity import CapacityController",
+            "from medre.core.supervision.accounting import RuntimeAccounting",
         ]
         disallowed = [line for line in core_runtime_imports if line not in allowed]
         assert (
             disallowed == []
-        ), f"replay.py imports disallowed medre.core.runtime modules: {disallowed}"
+        ), f"replay.py imports disallowed medre.core.supervision modules: {disallowed}"
 
 
 # ===================================================================

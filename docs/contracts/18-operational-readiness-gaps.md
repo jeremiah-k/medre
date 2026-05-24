@@ -122,7 +122,7 @@ queried each adapter's `health_check()` and updated the internal state registry.
 It handled illegal transitions by forcing to the reported state with a warning.
 
 **Gap:** The runtime has no periodic health polling. Health is classified at
-startup via :func:`~medre.core.runtime.supervision.classify_runtime_health` but
+startup via :func:`~medre.core.supervision.supervision.classify_runtime_health` but
 there is no watchdog, no health check interval, and no automatic state
 transition based on health degradation during steady-state operation.
 
@@ -166,7 +166,7 @@ The observability subsystem provides:
 
 ### 5.1 No Aggregate Health Endpoint
 
-There is no HTTP endpoint, CLI command, or API to query the overall health of the runtime. Health classification is available programmatically via :func:`~medre.core.runtime.supervision.classify_runtime_health` and the boot summary produced by :class:`~medre.runtime.app.MedreApp`.
+There is no HTTP endpoint, CLI command, or API to query the overall health of the runtime. Health classification is available programmatically via :func:`~medre.core.supervision.supervision.classify_runtime_health` and the boot summary produced by :class:`~medre.runtime.app.MedreApp`.
 
 An operator has no way to ask "is the system healthy?" without accessing the runtime's diagnostic snapshot programmatically.
 

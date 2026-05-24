@@ -37,9 +37,9 @@ from medre.core.diagnostics.replay_metrics import ReplayMetrics
 from medre.core.diagnostics.snapshot import build_diagnostics_snapshot
 from medre.core.observability.sanitization import sanitize_error as _sanitize_error
 from medre.core.routing.stats import RouteStats
-from medre.core.runtime.accounting import RuntimeAccounting
-from medre.core.runtime.capacity import CapacityController
-from medre.core.runtime.diagnostic_contract import (
+from medre.core.supervision.accounting import RuntimeAccounting
+from medre.core.supervision.capacity import CapacityController
+from medre.core.supervision.diagnostic_contract import (
     COMMON_DIAGNOSTIC_KEYS,
     normalize_diagnostics,
 )

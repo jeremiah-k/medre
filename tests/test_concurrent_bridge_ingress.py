@@ -26,7 +26,7 @@ from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.routing.stats import RouteStats
-from medre.core.runtime.accounting import RuntimeAccounting
+from medre.core.supervision.accounting import RuntimeAccounting
 from medre.core.storage.sqlite import SQLiteStorage
 from tests.helpers.bridge import (
     make_adapter_context,
@@ -445,7 +445,7 @@ class TestConcurrentIngressCleanShutdown:
         temp_storage: SQLiteStorage,
     ) -> None:
         from medre.config.model import RuntimeLimits
-        from medre.core.runtime.capacity import CapacityController
+        from medre.core.supervision.capacity import CapacityController
 
         s = await _build_bridge(temp_storage, prefix="t4b", routes=_bidir_routes("t4b"))
         cc = CapacityController(
@@ -486,7 +486,7 @@ class TestConcurrentIngressCleanShutdown:
         temp_storage: SQLiteStorage,
     ) -> None:
         from medre.config.model import RuntimeLimits
-        from medre.core.runtime.capacity import CapacityController
+        from medre.core.supervision.capacity import CapacityController
 
         s = await _build_bridge(temp_storage, prefix="t4c", routes=_bidir_routes("t4c"))
         cc = CapacityController(

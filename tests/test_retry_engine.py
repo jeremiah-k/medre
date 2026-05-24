@@ -25,7 +25,7 @@ from medre.core.planning.delivery_plan import (
     RetryPolicy,
 )
 from medre.core.routing.models import Route, RouteSource, RouteTarget
-from medre.core.runtime.accounting import RuntimeAccounting
+from medre.core.supervision.accounting import RuntimeAccounting
 
 # ---------------------------------------------------------------------------
 # RetryWorker under test

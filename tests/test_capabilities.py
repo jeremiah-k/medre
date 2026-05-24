@@ -20,7 +20,7 @@ from dataclasses import fields
 import pytest
 
 from medre.core.contracts.adapter import AdapterCapabilities, AdapterInfo, AdapterRole
-from medre.core.runtime.capabilities import (
+from medre.core.supervision.capabilities import (
     TransportCapabilities,
     is_capability_summary,
     serialize_adapter_capabilities,
@@ -660,7 +660,7 @@ class TestNoMutationSideEffects:
 
     def test_snapshot_does_not_mutate_adapter_info(self) -> None:
         """capture_runtime_snapshot must not mutate AdapterInfo or capabilities."""
-        from medre.core.runtime.diagnostics import (
+        from medre.core.supervision.diagnostics import (
             _AdapterHealthInput,
             capture_runtime_snapshot,
         )
@@ -727,7 +727,7 @@ class TestCapabilitySnapshotInDiagnostics:
 
     def test_capability_summary_from_snapshot_adapter(self) -> None:
         """Serialized capabilities derived from snapshot adapter entries."""
-        from medre.core.runtime.diagnostics import (
+        from medre.core.supervision.diagnostics import (
             _AdapterHealthInput,
             capture_runtime_snapshot,
         )

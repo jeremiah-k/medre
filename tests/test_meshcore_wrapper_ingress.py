@@ -17,7 +17,7 @@ from medre.core.engine.pipeline import PipelineRunner
 from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
-from medre.core.runtime.accounting import RuntimeAccounting
+from medre.core.supervision.accounting import RuntimeAccounting
 from medre.core.storage.sqlite import SQLiteStorage
 from tests.helpers.bridge import (
     make_adapter_context,

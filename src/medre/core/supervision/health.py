@@ -32,7 +32,7 @@ from typing import Any
 
 from medre.core.contracts.adapter import AdapterInfo
 from medre.core.lifecycle.states import AdapterState
-from medre.core.runtime.capabilities import serialize_adapter_capabilities
+from medre.core.supervision.capabilities import serialize_adapter_capabilities
 
 # ---------------------------------------------------------------------------
 # Health vocabulary
@@ -332,7 +332,7 @@ class LiveHealthSnapshot:
     Attributes
     ----------
     runtime_health:
-        Classified :class:`~medre.core.runtime.supervision.RuntimeHealth`.
+        Classified :class:`~medre.core.supervision.supervision.RuntimeHealth`.
     adapter_summary:
         Counts by state category (``healthy``, ``degraded``, ``failed``,
         ``transitional``, ``total``).

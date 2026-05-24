@@ -35,7 +35,7 @@ from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.events.kinds import EventKind
 from medre.core.planning.delivery_plan import DeliveryPlan, DeliveryStrategy
 from medre.core.routing.models import Route, RouteSource, RouteTarget
-from medre.core.runtime.capacity import CapacityController
+from medre.core.supervision.capacity import CapacityController
 from medre.runtime.app import RuntimeState
 from medre.runtime.builder import RuntimeBuilder
 from tests.helpers.source_reader import source_of as _source_of
@@ -68,7 +68,7 @@ _SDK_IMPORT_ONLY_MODULES = frozenset(
 )
 
 _RUNTIME_MODULES = (
-    "medre.core.runtime.capacity",
+    "medre.core.supervision.capacity",
     "medre.runtime.app",
     "medre.runtime.builder",
     "medre.runtime.observability",
