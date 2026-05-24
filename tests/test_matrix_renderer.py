@@ -275,9 +275,14 @@ class TestMatrixRendererReplySender:
         assert "> <" not in body
 
     async def test_reply_body_with_relay_prefix(self) -> None:
-        """Reply body includes relay prefix when configured."""
+        """Reply body includes relay prefix when configured via source_configs."""
         renderer = MatrixRenderer(
-            matrix_relay_prefix="[{longname}] ",
+            source_configs={
+                "transport": _StubMeshtasticConfig(
+                    adapter_id="transport",
+                    matrix_relay_prefix="[{longname}] ",
+                ),
+            },
         )
         relation = EventRelation(
             relation_type="reply",
@@ -471,19 +476,18 @@ class TestMultiRadioSourceConfig:
         result = await renderer.render(event, "matrix-1")
         assert result.payload["body"] == "[Bob/BravoNet]: hello mesh"
 
-    async def test_unknown_source_falls_back_to_defaults(self) -> None:
-        """Event from unknown source uses constructor scalar defaults."""
-        renderer = MatrixRenderer(
-            meshnet_name="DefaultNet",
-            matrix_relay_prefix="[{longname}/DefaultNet]: ",
-            source_configs=self._source_configs(),
-        )
+    async def test_unknown_source_renders_plain_output(self) -> None:
+        """Event from unknown source renders plain Matrix output (no prefix/metadata)."""
+        renderer = MatrixRenderer(source_configs=self._source_configs())
         event = _make_meshtastic_event(
             source_adapter="radio-charlie",
             native_data={"longname": "Charlie"},
         )
         result = await renderer.render(event, "matrix-1")
-        assert result.payload["body"] == "[Charlie/DefaultNet]: hello mesh"
+        # Unknown source → no prefix, plain body
+        assert result.payload["body"] == "hello mesh"
+        # No mmrelay metadata (no source config match)
+        assert "meshtastic_id" not in result.payload
 
     async def test_alpha_mmrelay_compat_enabled(self) -> None:
         """Event from radio-alpha (mmrelay_compat=True) gets mesh metadata."""
@@ -559,32 +563,22 @@ class TestMultiRadioSourceConfig:
         # but KEY_MESHNET should still be BravoNet from source config
         assert result.payload["meshtastic_meshnet"] == "BravoNet"
 
-    async def test_direct_constructor_scalar_defaults(self) -> None:
-        """Direct constructor scalar defaults (no source_configs) still works."""
-        renderer = MatrixRenderer(
-            mmrelay_compat=True,
-            meshnet_name="LegacyNet",
-            matrix_relay_prefix="[{longname}/LegacyNet]: ",
-        )
-        event = _make_meshtastic_event(
-            source_adapter="anything",
-            native_data={"longname": "User"},
+    async def test_non_meshtastic_source_ignores_meshtastic_configs(self) -> None:
+        """Non-Meshtastic source with Meshtastic source_configs renders plain output."""
+        renderer = MatrixRenderer(source_configs=self._source_configs())
+        event = _make_event(
+            event_id="evt-plain-1",
+            payload={"body": "Hello from elsewhere"},
         )
         result = await renderer.render(event, "matrix-1")
-        assert result.payload["body"] == "[User/LegacyNet]: hello mesh"
-
-    async def test_no_source_configs_event_uses_scalar_defaults(self) -> None:
-        """When source_configs is empty, scalar defaults are used for all events."""
-        renderer = MatrixRenderer(
-            meshnet_name="FallbackNet",
-            matrix_relay_prefix="[{longname}/FallbackNet]: ",
-        )
-        event = _make_meshtastic_event(
-            source_adapter="radio-alpha",
-            native_data={"longname": "Dave"},
-        )
-        result = await renderer.render(event, "matrix-1")
-        assert result.payload["body"] == "[Dave/FallbackNet]: hello mesh"
+        # Plain output — no relay prefix from any Meshtastic config
+        assert result.payload["body"] == "Hello from elsewhere"
+        # No Meshtastic metadata keys
+        assert "meshtastic_id" not in result.payload
+        assert "meshtastic_meshnet" not in result.payload
+        assert "meshtastic_longname" not in result.payload
+        # Standard Matrix content
+        assert result.payload["msgtype"] == "m.text"
 
 
 # ---------------------------------------------------------------------------

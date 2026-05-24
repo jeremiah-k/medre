@@ -51,6 +51,27 @@ from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite import SQLiteStorage
 
+
+# ===================================================================
+# Shared helper for source_configs construction
+# ===================================================================
+
+
+class _StubMeshtasticConfig:
+    """Minimal duck-typed config for MatrixRenderer source_configs."""
+
+    def __init__(
+        self,
+        adapter_id: str = "radio",
+        meshnet_name: str = "",
+        matrix_relay_prefix: str = "",
+        mmrelay_compatibility: bool = False,
+    ) -> None:
+        self.adapter_id = adapter_id
+        self.meshnet_name = meshnet_name
+        self.matrix_relay_prefix = matrix_relay_prefix
+        self.mmrelay_compatibility = mmrelay_compatibility
+
 # Fixed IDs used across both tests for traceability.
 _CANON_EVENT_ID = "canon-matrix-original"
 _MATRIX_ROOM = "!room:server"
@@ -345,9 +366,14 @@ class TestMeshtasticToMatrixReplyResolution:
         rp = RenderingPipeline()
         rp.register(
             MatrixRenderer(
-                mmrelay_compat=True,
-                meshnet_name=_MESHNET_NAME,
-                matrix_relay_prefix="[{longname}] ",
+                source_configs={
+                    _RADIO_ADAPTER: _StubMeshtasticConfig(
+                        adapter_id=_RADIO_ADAPTER,
+                        mmrelay_compatibility=True,
+                        meshnet_name=_MESHNET_NAME,
+                        matrix_relay_prefix="[{longname}] ",
+                    ),
+                },
             ),
             priority=50,
         )
@@ -450,8 +476,13 @@ class TestMeshtasticToMatrixReplyResolution:
         rp = RenderingPipeline()
         rp.register(
             MatrixRenderer(
-                mmrelay_compat=True,
-                meshnet_name=_MESHNET_NAME,
+                source_configs={
+                    _RADIO_ADAPTER: _StubMeshtasticConfig(
+                        adapter_id=_RADIO_ADAPTER,
+                        mmrelay_compatibility=True,
+                        meshnet_name=_MESHNET_NAME,
+                    ),
+                },
             ),
             priority=50,
         )

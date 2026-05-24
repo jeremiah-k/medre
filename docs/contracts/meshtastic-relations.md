@@ -30,11 +30,12 @@ This is target-driven because radio parameters (prefix, meshnet name, byte budge
 
 ### MatrixRenderer (source-adapter config)
 
-The MatrixRenderer receives optional scalar defaults (`mmrelay_compat`, `meshnet_name`, `matrix_relay_prefix`) and an optional `source_configs` mapping of adapter IDs to config objects. At render time, it resolves config by the **source adapter ID** (the adapter that produced the original event).
+The MatrixRenderer receives a `source_configs` mapping of adapter IDs to config objects. At render time, it resolves config by the **source adapter ID** (the adapter that produced the original event).
 
-- If `source_configs` is populated, the renderer looks up `event.source_adapter` in the mapping and reads per-source `meshnet_name` and `mmrelay_compatibility` from the matched config object.
-- If the source adapter is not in the mapping, or if `source_configs` is empty, the renderer falls back to the scalar defaults (`_meshnet_name`, `_mmrelay_compat`, `_matrix_relay_prefix`).
-- **Runtime assembly** passes only `source_configs` — no scalar defaults from any Meshtastic config. Unknown or non-Meshtastic sources render plain Matrix output without Meshtastic prefix or metadata. Scalar constructor parameters remain available for direct constructor use in unit tests.
+- If `source_configs` is populated, the renderer looks up `event.source_adapter` in the mapping and reads per-source `meshnet_name`, `matrix_relay_prefix`, and `mmrelay_compatibility` from the matched config object.
+- If the source adapter is not in the mapping, or if `source_configs` is empty, the renderer uses empty/neutral defaults: no relay prefix, empty meshnet name, and mmrelay_compat disabled.
+- Unknown or non-Meshtastic sources render plain Matrix output without Meshtastic prefix or metadata.
+- **Runtime assembly** passes only `source_configs` — no scalar constructor parameters. Every Meshtastic render context comes exclusively from the matched source adapter config.
 
 This is source-driven because Matrix rendering embeds mesh provenance metadata (meshnet name, MMRelay wire keys) that depends on where the message originated.
 

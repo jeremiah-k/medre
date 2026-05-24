@@ -45,6 +45,27 @@ from medre.interop.mmrelay import (
 # ---------------------------------------------------------------------------
 
 
+class _StubMeshtasticConfig:
+    """Minimal duck-typed config for MatrixRenderer source_configs."""
+
+    def __init__(
+        self,
+        adapter_id: str = "mesh-1",
+        meshnet_name: str = "",
+        matrix_relay_prefix: str = "",
+        mmrelay_compatibility: bool = False,
+    ) -> None:
+        self.adapter_id = adapter_id
+        self.meshnet_name = meshnet_name
+        self.matrix_relay_prefix = matrix_relay_prefix
+        self.mmrelay_compatibility = mmrelay_compatibility
+
+
+# Source-config mappings for common test patterns.
+_SRC_MESHTASTIC = {"mesh-1": _StubMeshtasticConfig(adapter_id="mesh-1", mmrelay_compatibility=True)}
+_SRC_MATRIX = {"matrix-1": _StubMeshtasticConfig(adapter_id="matrix-1", mmrelay_compatibility=True)}
+
+
 def _make_config(**overrides: Any) -> MatrixConfig:
     defaults = dict(
         adapter_id="matrix-1",
@@ -473,7 +494,7 @@ class TestRendererMMRelayEmoteFallback:
 
     @pytest.mark.asyncio
     async def test_mmrelay_compat_reaction_is_emote(self) -> None:
-        renderer = MatrixRenderer(mmrelay_compat=True)
+        renderer = MatrixRenderer(source_configs=_SRC_MATRIX)
         event = _make_canonical_reaction(key="👍", target_event_id="$msg-1")
         result = await renderer.render(event, "matrix-1")
 
@@ -481,7 +502,7 @@ class TestRendererMMRelayEmoteFallback:
 
     @pytest.mark.asyncio
     async def test_mmrelay_compat_reaction_has_reply_id(self) -> None:
-        renderer = MatrixRenderer(mmrelay_compat=True)
+        renderer = MatrixRenderer(source_configs=_SRC_MATRIX)
         event = _make_canonical_reaction(key="👍", target_event_id="$msg-1")
         result = await renderer.render(event, "matrix-1")
 
@@ -489,7 +510,7 @@ class TestRendererMMRelayEmoteFallback:
 
     @pytest.mark.asyncio
     async def test_mmrelay_compat_reaction_has_emoji_flag(self) -> None:
-        renderer = MatrixRenderer(mmrelay_compat=True)
+        renderer = MatrixRenderer(source_configs=_SRC_MATRIX)
         event = _make_canonical_reaction(key="👍", target_event_id="$msg-1")
         result = await renderer.render(event, "matrix-1")
 
@@ -502,7 +523,7 @@ class TestRendererMMRelayEmoteFallback:
         When no original text metadata/fallback is available, KEY_TEXT is
         the empty string.
         """
-        renderer = MatrixRenderer(mmrelay_compat=True)
+        renderer = MatrixRenderer(source_configs=_SRC_MATRIX)
         event = _make_canonical_reaction(
             key="👍", target_event_id="$msg-1", body="thumbs up"
         )
@@ -513,7 +534,7 @@ class TestRendererMMRelayEmoteFallback:
 
     @pytest.mark.asyncio
     async def test_mmrelay_compat_no_matrix_event_type(self) -> None:
-        renderer = MatrixRenderer(mmrelay_compat=True)
+        renderer = MatrixRenderer(source_configs=_SRC_MATRIX)
         event = _make_canonical_reaction(key="👍", target_event_id="$msg-1")
         result = await renderer.render(event, "matrix-1")
 
@@ -556,7 +577,7 @@ class TestRendererMMRelayEmoteFallback:
     @pytest.mark.asyncio
     async def test_no_target_falls_back_to_emote(self) -> None:
         """When target is missing, even without mmrelay_compat, use fallback."""
-        renderer = MatrixRenderer(mmrelay_compat=False)
+        renderer = MatrixRenderer()
         event = _make_canonical_reaction_no_target(key="👍", body="👍")
         result = await renderer.render(event, "matrix-1")
 
@@ -781,9 +802,14 @@ class TestMMRelayReactionBodyFormat:
     @pytest.mark.asyncio
     async def test_emote_body_has_leading_newline_and_prefix(self) -> None:
         renderer = MatrixRenderer(
-            mmrelay_compat=True,
-            meshnet_name="mynet",
-            matrix_relay_prefix="[{longname}] ",
+            source_configs={
+                "mesh-1": _StubMeshtasticConfig(
+                    adapter_id="mesh-1",
+                    mmrelay_compatibility=True,
+                    meshnet_name="mynet",
+                    matrix_relay_prefix="[{longname}] ",
+                ),
+            },
         )
         event = _make_mesh_reaction(key="❤️", body="❤️", fallback_text="hello world")
         result = await renderer.render(event, "matrix-1")
@@ -796,7 +822,7 @@ class TestMMRelayReactionBodyFormat:
 
     @pytest.mark.asyncio
     async def test_emote_body_without_prefix(self) -> None:
-        renderer = MatrixRenderer(mmrelay_compat=True)
+        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
         event = _make_mesh_reaction(key="👍", fallback_text="original msg")
         result = await renderer.render(event, "matrix-1")
 
@@ -805,7 +831,7 @@ class TestMMRelayReactionBodyFormat:
 
     @pytest.mark.asyncio
     async def test_emote_body_with_empty_original_text(self) -> None:
-        renderer = MatrixRenderer(mmrelay_compat=True)
+        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
         event = _make_mesh_reaction(key="👍", body="👍")
         result = await renderer.render(event, "matrix-1")
 
@@ -814,7 +840,7 @@ class TestMMRelayReactionBodyFormat:
 
     @pytest.mark.asyncio
     async def test_emote_body_abbreviates_long_text(self) -> None:
-        renderer = MatrixRenderer(mmrelay_compat=True)
+        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
         long_text = "A" * 50
         event = _make_mesh_reaction(key="🔥", fallback_text=long_text)
         result = await renderer.render(event, "matrix-1")
@@ -826,7 +852,7 @@ class TestMMRelayReactionBodyFormat:
 
     @pytest.mark.asyncio
     async def test_emote_body_normalizes_newlines(self) -> None:
-        renderer = MatrixRenderer(mmrelay_compat=True)
+        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
         event = _make_mesh_reaction(key="👍", fallback_text="line1\nline2\r\nline3")
         result = await renderer.render(event, "matrix-1")
 
@@ -1006,56 +1032,64 @@ class TestReactionMetadataCompleteness:
 
     @pytest.mark.asyncio
     async def test_reaction_has_meshtastic_id(self) -> None:
-        renderer = MatrixRenderer(mmrelay_compat=True)
+        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
         event = _make_mesh_reaction(packet_id="pkt-99")
         result = await renderer.render(event, "matrix-1")
         assert result.payload[KEY_ID] == "pkt-99"
 
     @pytest.mark.asyncio
     async def test_reaction_has_longname(self) -> None:
-        renderer = MatrixRenderer(mmrelay_compat=True)
+        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
         event = _make_mesh_reaction(longname="My Node Name")
         result = await renderer.render(event, "matrix-1")
         assert result.payload[KEY_LONGNAME] == "My Node Name"
 
     @pytest.mark.asyncio
     async def test_reaction_has_shortname(self) -> None:
-        renderer = MatrixRenderer(mmrelay_compat=True)
+        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
         event = _make_mesh_reaction(shortname="MNN")
         result = await renderer.render(event, "matrix-1")
         assert result.payload[KEY_SHORTNAME] == "MNN"
 
     @pytest.mark.asyncio
     async def test_reaction_has_meshnet(self) -> None:
-        renderer = MatrixRenderer(mmrelay_compat=True, meshnet_name="testnet")
+        renderer = MatrixRenderer(
+            source_configs={
+                "mesh-1": _StubMeshtasticConfig(
+                    adapter_id="mesh-1",
+                    mmrelay_compatibility=True,
+                    meshnet_name="testnet",
+                ),
+            },
+        )
         event = _make_mesh_reaction()
         result = await renderer.render(event, "matrix-1")
         assert result.payload[KEY_MESHNET] == "testnet"
 
     @pytest.mark.asyncio
     async def test_reaction_has_portnum(self) -> None:
-        renderer = MatrixRenderer(mmrelay_compat=True)
+        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
         event = _make_mesh_reaction()
         result = await renderer.render(event, "matrix-1")
         assert result.payload[KEY_PORTNUM] == PORTNUM_TEXT
 
     @pytest.mark.asyncio
     async def test_reaction_has_emoji_flag(self) -> None:
-        renderer = MatrixRenderer(mmrelay_compat=True)
+        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
         event = _make_mesh_reaction()
         result = await renderer.render(event, "matrix-1")
         assert result.payload[KEY_EMOJI] == EMOJI_FLAG_VALUE
 
     @pytest.mark.asyncio
     async def test_reaction_text_is_original_preview(self) -> None:
-        renderer = MatrixRenderer(mmrelay_compat=True)
+        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
         event = _make_mesh_reaction(key="❤️", fallback_text="the original message")
         result = await renderer.render(event, "matrix-1")
         assert result.payload[KEY_TEXT] == "the original message"
 
     @pytest.mark.asyncio
     async def test_reaction_reply_id_from_rel_metadata(self) -> None:
-        renderer = MatrixRenderer(mmrelay_compat=True)
+        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
         event = _make_mesh_reaction(
             key="👍",
             rel_metadata={"meshtastic_reply_id": "12345"},
@@ -1065,7 +1099,7 @@ class TestReactionMetadataCompleteness:
 
     @pytest.mark.asyncio
     async def test_reaction_no_reply_id_when_none_available(self) -> None:
-        renderer = MatrixRenderer(mmrelay_compat=True)
+        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
         event = _make_mesh_reaction(key="👍")
         result = await renderer.render(event, "matrix-1")
         assert KEY_REPLY_ID not in result.payload
@@ -1077,8 +1111,13 @@ class TestReactionPrefixPreservesLongname:
     @pytest.mark.asyncio
     async def test_prefix_preserves_spaces_in_longname(self) -> None:
         renderer = MatrixRenderer(
-            mmrelay_compat=True,
-            matrix_relay_prefix="[{longname}] ",
+            source_configs={
+                "mesh-1": _StubMeshtasticConfig(
+                    adapter_id="mesh-1",
+                    mmrelay_compatibility=True,
+                    matrix_relay_prefix="[{longname}] ",
+                ),
+            },
         )
         event = _make_mesh_reaction(longname="  Space Node  ")
         result = await renderer.render(event, "matrix-1")
@@ -1088,8 +1127,13 @@ class TestReactionPrefixPreservesLongname:
     @pytest.mark.asyncio
     async def test_prefix_preserves_casing(self) -> None:
         renderer = MatrixRenderer(
-            mmrelay_compat=True,
-            matrix_relay_prefix="[{longname}] ",
+            source_configs={
+                "mesh-1": _StubMeshtasticConfig(
+                    adapter_id="mesh-1",
+                    mmrelay_compatibility=True,
+                    matrix_relay_prefix="[{longname}] ",
+                ),
+            },
         )
         event = _make_mesh_reaction(longname="CamelCaseNode")
         result = await renderer.render(event, "matrix-1")
@@ -1099,8 +1143,13 @@ class TestReactionPrefixPreservesLongname:
     @pytest.mark.asyncio
     async def test_prefix_preserves_emoji_in_longname(self) -> None:
         renderer = MatrixRenderer(
-            mmrelay_compat=True,
-            matrix_relay_prefix="[{longname}] ",
+            source_configs={
+                "mesh-1": _StubMeshtasticConfig(
+                    adapter_id="mesh-1",
+                    mmrelay_compatibility=True,
+                    matrix_relay_prefix="[{longname}] ",
+                ),
+            },
         )
         event = _make_mesh_reaction(longname="🚀RocketNode")
         result = await renderer.render(event, "matrix-1")
@@ -1113,7 +1162,7 @@ class TestReactionNoTargetNoCrash:
 
     @pytest.mark.asyncio
     async def test_no_target_no_metadata_no_crash(self) -> None:
-        renderer = MatrixRenderer(mmrelay_compat=True)
+        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
         event = _make_mesh_reaction(
             key="👍",
             body="👍",
@@ -1125,7 +1174,7 @@ class TestReactionNoTargetNoCrash:
 
     @pytest.mark.asyncio
     async def test_missing_fields_use_defaults(self) -> None:
-        renderer = MatrixRenderer(mmrelay_compat=True)
+        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
         event = _make_mesh_reaction(native_data={})
         result = await renderer.render(event, "matrix-1")
         assert result.payload[KEY_ID] == ""

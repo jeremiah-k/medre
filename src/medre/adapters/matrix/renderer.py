@@ -55,14 +55,8 @@ class MatrixRenderer:
     def __init__(
         self,
         *,
-        mmrelay_compat: bool = False,
-        meshnet_name: str = "",
-        matrix_relay_prefix: str = "",
         source_configs: Mapping[str, Any] | None = None,
     ) -> None:
-        self._mmrelay_compat = mmrelay_compat
-        self._meshnet_name = meshnet_name
-        self._matrix_relay_prefix = matrix_relay_prefix or ""
         self._source_configs: dict[str, Any] = dict(source_configs or {})
 
     # ------------------------------------------------------------------
@@ -74,8 +68,8 @@ class MatrixRenderer:
 
         Looks up ``event.source_adapter`` in the ``source_configs`` mapping
         supplied at construction.  Returns ``None`` when no mapping is
-        configured or the source adapter is not found — callers fall back
-        to scalar constructor defaults.
+        configured or the source adapter is not found — callers use
+        empty/neutral defaults (no Meshtastic prefix or metadata).
         """
         if not self._source_configs:
             return None
@@ -84,27 +78,35 @@ class MatrixRenderer:
     def _get_meshnet_name(self, event: CanonicalEvent) -> str:
         """Resolve meshnet_name for *event*'s source adapter.
 
-        Prefers the source adapter config when available; falls back to
-        the scalar constructor default.
+        Returns the config's ``meshnet_name`` when a source config is
+        matched; otherwise returns an empty string (neutral default).
         """
         cfg = self._resolve_source_config(event)
         if cfg is not None:
-            return getattr(cfg, "meshnet_name", self._meshnet_name)
-        return self._meshnet_name
+            return getattr(cfg, "meshnet_name", "")
+        return ""
 
     def _get_matrix_relay_prefix(self, event: CanonicalEvent) -> str:
-        """Resolve matrix_relay_prefix for *event*'s source adapter."""
+        """Resolve matrix_relay_prefix for *event*'s source adapter.
+
+        Returns the config's ``matrix_relay_prefix`` when a source config
+        is matched; otherwise returns an empty string (neutral default).
+        """
         cfg = self._resolve_source_config(event)
         if cfg is not None:
-            return getattr(cfg, "matrix_relay_prefix", self._matrix_relay_prefix)
-        return self._matrix_relay_prefix
+            return getattr(cfg, "matrix_relay_prefix", "")
+        return ""
 
     def _get_mmrelay_compat(self, event: CanonicalEvent) -> bool:
-        """Resolve mmrelay_compatibility for *event*'s source adapter."""
+        """Resolve mmrelay_compatibility for *event*'s source adapter.
+
+        Returns the config's ``mmrelay_compatibility`` when a source config
+        is matched; otherwise returns ``False`` (neutral default).
+        """
         cfg = self._resolve_source_config(event)
         if cfg is not None:
-            return getattr(cfg, "mmrelay_compatibility", self._mmrelay_compat)
-        return self._mmrelay_compat
+            return getattr(cfg, "mmrelay_compatibility", False)
+        return False
 
     # ------------------------------------------------------------------
     # Capability check
