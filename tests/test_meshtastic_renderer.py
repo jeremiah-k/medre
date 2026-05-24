@@ -1516,3 +1516,262 @@ class TestTargetAwareMeshtasticRenderer:
 
         result_b = await renderer.render(event, "radio-b")
         assert result_b.metadata["max_text_bytes"] == 500
+
+
+# ===================================================================
+# Multi-radio target-aware coverage (radio-alpha / radio-bravo)
+# ===================================================================
+
+
+def _make_multi_radio_renderer() -> MeshtasticRenderer:
+    """Create a MeshtasticRenderer with two distinct adapter configs."""
+    return MeshtasticRenderer(
+        configs={
+            "radio-alpha": MeshtasticConfig(
+                adapter_id="radio-alpha",
+                radio_relay_prefix="[{shortname5}@alpha] ",
+                meshnet_name="alpha-mesh",
+                max_text_bytes=60,
+            ),
+            "radio-bravo": MeshtasticConfig(
+                adapter_id="radio-bravo",
+                radio_relay_prefix="[{shortname5}@bravo] ",
+                meshnet_name="bravo-mesh",
+                max_text_bytes=200,
+            ),
+        }
+    )
+
+
+class TestMultiRadioTargetAware:
+    """A single MeshtasticRenderer with multiple configs renders differently
+    per target_adapter for prefix, meshnet_name, byte budget, replies,
+    reactions, and unknown target behavior.
+    """
+
+    # -- helpers -------------------------------------------------------
+
+    @staticmethod
+    def _event_with_native(body: str = "hello") -> CanonicalEvent:
+        """Event with native metadata for prefix template expansion."""
+        return CanonicalEvent(
+            event_id="evt-multi",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="matrix-1",
+            source_transport_id="@user:example.com",
+            source_channel_id="!room:example.com",
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"body": body},
+            metadata=EventMetadata(
+                native=NativeMetadata(
+                    data={
+                        "longname": "TestUser",
+                        "shortname": "TestU",
+                        "from_id": "42",
+                    }
+                )
+            ),
+        )
+
+    # -- distinct prefixes ---------------------------------------------
+
+    async def test_alpha_prefix_contains_alpha(self) -> None:
+        """Rendering to radio-alpha uses the alpha prefix template."""
+        renderer = _make_multi_radio_renderer()
+        event = self._event_with_native("msg")
+        result = await renderer.render(event, "radio-alpha")
+        assert result.payload["text"].startswith("[TestU@alpha] ")
+
+    async def test_bravo_prefix_contains_bravo(self) -> None:
+        """Rendering to radio-bravo uses the bravo prefix template."""
+        renderer = _make_multi_radio_renderer()
+        event = self._event_with_native("msg")
+        result = await renderer.render(event, "radio-bravo")
+        assert result.payload["text"].startswith("[TestU@bravo] ")
+
+    async def test_same_event_different_prefixes(self) -> None:
+        """Same event rendered to both adapters produces different prefixes."""
+        renderer = _make_multi_radio_renderer()
+        event = self._event_with_native("msg")
+        result_a = await renderer.render(event, "radio-alpha")
+        result_b = await renderer.render(event, "radio-bravo")
+        assert result_a.payload["text"] != result_b.payload["text"]
+        assert "[TestU@alpha]" in result_a.payload["text"]
+        assert "[TestU@bravo]" in result_b.payload["text"]
+
+    # -- distinct meshnet_name -----------------------------------------
+
+    async def test_alpha_meshnet_name(self) -> None:
+        """Payload meshnet_name matches alpha config."""
+        renderer = _make_multi_radio_renderer()
+        event = self._event_with_native("msg")
+        result = await renderer.render(event, "radio-alpha")
+        assert result.payload["meshnet_name"] == "alpha-mesh"
+
+    async def test_bravo_meshnet_name(self) -> None:
+        """Payload meshnet_name matches bravo config."""
+        renderer = _make_multi_radio_renderer()
+        event = self._event_with_native("msg")
+        result = await renderer.render(event, "radio-bravo")
+        assert result.payload["meshnet_name"] == "bravo-mesh"
+
+    # -- distinct byte budgets -----------------------------------------
+
+    async def test_alpha_truncates_long_text(self) -> None:
+        """Alpha (60-byte budget) truncates a 150-char body."""
+        renderer = _make_multi_radio_renderer()
+        event = self._event_with_native("A" * 150)
+        result = await renderer.render(event, "radio-alpha")
+        assert result.truncated is True
+        assert len(result.payload["text"].encode("utf-8")) <= 60
+        assert result.metadata["max_text_bytes"] == 60
+
+    async def test_bravo_keeps_long_text(self) -> None:
+        """Bravo (200-byte budget) keeps the same 150-char body untruncated."""
+        renderer = _make_multi_radio_renderer()
+        event = self._event_with_native("A" * 150)
+        result = await renderer.render(event, "radio-bravo")
+        assert result.truncated is False
+        assert "A" * 150 in result.payload["text"]
+        assert result.metadata["max_text_bytes"] == 200
+
+    # -- unknown target ------------------------------------------------
+
+    async def test_unknown_target_raises_key_error(self) -> None:
+        """Rendering to an unknown adapter raises KeyError listing known ones."""
+        renderer = _make_multi_radio_renderer()
+        event = self._event_with_native("msg")
+        with pytest.raises(KeyError, match="unknown-radio"):
+            await renderer.render(event, "unknown-radio")
+
+    # -- reply uses target adapter config ------------------------------
+
+    async def test_reply_uses_target_prefix_and_budget(self) -> None:
+        """Reply to radio-alpha uses alpha's prefix and byte budget."""
+        renderer = _make_multi_radio_renderer()
+        rel = _make_relation(
+            relation_type="reply",
+            native_message_id="99",
+            fallback_text="original",
+            adapter_id="radio-alpha",
+        )
+        event = CanonicalEvent(
+            event_id="evt-reply",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="matrix-1",
+            source_transport_id="@user:example.com",
+            source_channel_id="!room:example.com",
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"body": "A" * 150},
+            metadata=EventMetadata(
+                native=NativeMetadata(
+                    data={
+                        "longname": "TestUser",
+                        "shortname": "TestU",
+                        "from_id": "42",
+                    }
+                )
+            ),
+        )
+        # Alpha: 60-byte budget, should truncate
+        result_a = await renderer.render(event, "radio-alpha")
+        assert result_a.payload["reply_id"] == 99
+        assert len(result_a.payload["text"].encode("utf-8")) <= 60
+        assert result_a.truncated is True
+
+        # Bravo: 200-byte budget, should NOT truncate (plain reply text < 200)
+        result_b = await renderer.render(event, "radio-bravo")
+        # No reply_id — native ref is owned by radio-alpha, not radio-bravo
+        assert "reply_id" not in result_b.payload
+        # But bravo's prefix and budget are used
+        assert "[TestU@bravo]" in result_b.payload["text"]
+
+    # -- native reaction uses target adapter config --------------------
+
+    async def test_native_reaction_targets_correct_adapter(self) -> None:
+        """Native reaction to radio-alpha uses alpha config for budget."""
+        renderer = _make_multi_radio_renderer()
+        rel = _make_relation(
+            relation_type="reaction",
+            native_message_id="55",
+            key="👍",
+            adapter_id="radio-alpha",
+        )
+        event = CanonicalEvent(
+            event_id="evt-react",
+            event_kind="message.reacted",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="radio-alpha",
+            source_transport_id="!node1",
+            source_channel_id="0",
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"body": "👍"},
+            metadata=EventMetadata(
+                native=NativeMetadata(
+                    data={
+                        "longname": "TestUser",
+                        "shortname": "TestU",
+                        "from_id": "42",
+                    }
+                )
+            ),
+        )
+        result = await renderer.render(event, "radio-alpha")
+        assert result.payload["emoji"] == 1
+        assert result.payload["reply_id"] == 55
+        assert result.payload["text"] == "👍"
+        assert result.metadata["max_text_bytes"] == 60
+
+    # -- cross-platform reaction uses target config --------------------
+
+    async def test_cross_platform_reaction_uses_target_prefix(self) -> None:
+        """Cross-platform reaction to radio-bravo uses bravo's compact prefix."""
+        renderer = _make_multi_radio_renderer()
+        rel = _make_cross_platform_relation(
+            key="👍",
+            fallback_text="original msg",
+            meshtastic_reply_id="42",
+            mesh_adapter="radio-bravo",
+        )
+        event = _make_matrix_event(
+            display_name="Cross User",
+            relations=(rel,),
+        )
+        result = await renderer.render(event, "radio-bravo")
+        text = result.payload["text"]
+        # Compact prefix: shortname5 = "Cross" (first 5 of "Cross"), spaces stripped
+        assert "[Cross@bravo]" in text
+        assert "reacted 👍 to" in text
+        assert result.payload["reply_id"] == 42
+        assert "emoji" not in result.payload
+
+    async def test_cross_platform_reaction_truncated_to_alpha_budget(
+        self,
+    ) -> None:
+        """Cross-platform reaction to radio-alpha truncates to 60 bytes."""
+        renderer = _make_multi_radio_renderer()
+        rel = _make_cross_platform_relation(
+            key="👍",
+            fallback_text="A" * 200,
+            meshtastic_reply_id="10",
+            mesh_adapter="radio-alpha",
+        )
+        event = _make_matrix_event(
+            display_name="User",
+            relations=(rel,),
+        )
+        result = await renderer.render(event, "radio-alpha")
+        assert len(result.payload["text"].encode("utf-8")) <= 60
+        assert result.truncated is True
+        assert result.payload["reply_id"] == 10

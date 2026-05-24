@@ -228,10 +228,10 @@ def _register_adapter_renderers(
     * ``MeshtasticRenderer`` receives a mapping of ALL Meshtastic adapter
       configs (``adapter_id → MeshtasticConfig``) so that rendering is
       target-adapter-aware in multi-radio setups.
-    * ``MatrixRenderer`` receives the first MeshtasticConfig's
-      ``mmrelay_compatibility``, ``meshnet_name``, and
-      ``matrix_relay_prefix`` fields for mmrelay interop.  Full
-      MatrixRenderer redesign for multi-Meshtastic awareness is deferred.
+    * ``MatrixRenderer`` receives all Meshtastic adapter configs via
+      ``source_configs`` for per-source-adapter config resolution (multi-radio
+      support).  Scalar defaults fall back to the first MeshtasticConfig for
+      backward compatibility when source_adapter is not in the mapping.
     """
     # Collect ALL MeshtasticConfigs for target-aware rendering.
     meshtastic_configs: dict[str, Any] = {}
@@ -300,8 +300,10 @@ def _register_adapter_renderers(
                     priority=50,
                 )
             elif class_name == "MatrixRenderer" and first_meshtastic_config is not None:
-                # MatrixRenderer uses first MeshtasticConfig for
-                # mmrelay_compatibility — full redesign deferred.
+                # MatrixRenderer uses all MeshtasticConfigs via source_configs
+                # for per-source-adapter config resolution (multi-radio
+                # support).  Scalar defaults come from the first config for
+                # backward compatibility when source_adapter is not found.
                 mmrelay_compat = first_meshtastic_config.mmrelay_compatibility
                 meshnet_name = first_meshtastic_config.meshnet_name
                 matrix_relay_prefix = first_meshtastic_config.matrix_relay_prefix
@@ -310,6 +312,7 @@ def _register_adapter_renderers(
                         mmrelay_compat=mmrelay_compat,
                         meshnet_name=meshnet_name,
                         matrix_relay_prefix=matrix_relay_prefix,
+                        source_configs=meshtastic_configs,
                     ),
                     priority=50,
                 )
