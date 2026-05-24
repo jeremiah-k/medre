@@ -1,7 +1,7 @@
 # Meshtastic Adapter Tranche 1: Radio Transport Validation
 
-> Contract version: 3
-> Last updated: 2026-05-09
+> Contract version: 4
+> Last updated: 2026-05-24
 
 ## Overview
 
@@ -15,7 +15,7 @@ Meshtastic capabilities in tranche 1 are limited to text message ingress and egr
 
 - **Inbound text packet decoding.** Meshtastic `TEXT_MESSAGE_APP` packets are decoded into canonical events by `MeshtasticCodec`. The packet's text payload becomes `payload["body"]`. Packet metadata (packet_id, from_id, to_id, channel, portnum, is_direct_message) is stored in `metadata.native.data` as a flat dict. There is no separate `metadata.radio` or `metadata.transport` namespace in tranche 1.
 - **Outbound text rendering.** `MeshtasticRenderer` turns canonical events into Meshtastic content payloads: a dict with keys `text` (the body string), `channel_index` (integer parsed from target_channel, default 0), and `meshnet_name` (empty string placeholder). The renderer lives at `medre.adapters.meshtastic.renderer`, owned by the adapter layer. Length-limit enforcement is noted but not applied in tranche 1.
-- **Packet classification.** `MeshtasticPacketClassifier` is a standalone class that examines raw packet dicts and returns a classification dict with keys: `category` ("text", "ack", "telemetry", "nodeinfo", "position", "admin", "unknown", or "plugin_only"), `is_direct_message` (bool), `channel_index` (int or None), `packet_id` (int or None), `sender_id` (str or None), `portnum` (normalized str or None), and `is_ack` (bool). Real symbolic meshtastic-python / mtjk portnums are explicitly normalized for tranche-1 categories: `TEXT_MESSAGE_APP` → `text_message`, `TELEMETRY_APP` → `telemetry`, `POSITION_APP` → `position`, `NODEINFO_APP` → `nodeinfo`, `ADMIN_APP` → `admin`, and `ROUTING_APP` → `routing`. Already-normalized fixture values such as `text_message` continue to work. Numeric portnum handling remains a tranche-1 scaffold and does not claim exhaustive protobuf enum support. Only `category == "text"` packets are processed in tranche 1. ACKs (`category == "ack"`, including `ROUTING_APP` with `decoded.routing.errorReason == "NONE"`) and all other categories are dropped. The classifier also provides static `_is_broadcast()` for detecting broadcast destination addresses: empty string, `"^all"`, integer `0xffffffff`, and string `"4294967295"`. Sender identity resolves from `fromId` (string) with fallback to `from` (numeric NodeNum). Broadcast detection checks both `toId` (string) and `to` (numeric) fields.
+- **Packet classification.** `MeshtasticPacketClassifier` is a standalone class that examines raw packet dicts and returns a `ClassificationResult` dataclass with fields: `action` (`"relay"`, `"ignore"`, `"drop"`, or `"deferred"`), `category` (`"text"`, `"ack"`, `"telemetry"`, `"nodeinfo"`, `"position"`, `"admin"`, `"unknown"`, or `"plugin_only"`), `reason` (human-readable string), `is_direct_message` (bool), `channel_index` (int or None), `packet_id` (int or None), `sender_id` (str or None), `portnum` (normalized str or None), and `is_ack` (bool). Real symbolic meshtastic-python / mtjk portnums are explicitly normalized for recognized categories: `TEXT_MESSAGE_APP` → `text_message`, `TELEMETRY_APP` → `telemetry`, `POSITION_APP` → `position`, `NODEINFO_APP` → `nodeinfo`, `ADMIN_APP` → `admin`, and `ROUTING_APP` → `routing`. Already-normalized fixture values such as `text_message` continue to work. Numeric portnum handling is SDK-derived when the `mtjk` package is installed (via `compat.get_portnum_table()`), with a protocol-correct fallback map for environments without the SDK. Only `action == "relay"` packets produce canonical events. ACKs and admin packets receive the `ignore` action. Malformed and encrypted packets receive the `drop` action. Detection sensor, unknown/custom portnum, and plugin_only packets receive the `deferred` action. The classifier also provides static `_is_broadcast()` for detecting broadcast destination addresses: empty string, `"^all"`, integer `0xffffffff`, and string `"4294967295"`. Sender identity resolves from `fromId` (string) with fallback to `from` (numeric NodeNum). Broadcast detection checks both `toId` (string) and `to` (numeric) fields.
 - **Native refs via packet IDs.** Inbound: `MeshtasticCodec.decode()` sets `source_native_ref` with the packet's numeric ID as a string. The pipeline's `_persist_inbound_native_ref` persists this as a `NativeMessageRef(direction="inbound")`. Outbound: `FakeMeshtasticAdapter.deliver()` returns an `AdapterDeliveryResult` with `native_message_id` and `native_channel_id`. The real `MeshtasticAdapter.deliver()` is scaffolded and returns `None` in tranche 1, so no outbound native ref is persisted for the real adapter.
 - **Reply relations.** When an inbound packet contains `decoded.replyId`, the codec creates an `EventRelation(relation_type="reply")` with `target_event_id=None` and a `target_native_ref` pointing at the reply's native packet ID. This is an unresolved relation: the pipeline must resolve it later. The adapter does not resolve relations itself.
 - **Direct messages.** The codec uses classifier-derived `is_direct_message` so metadata is consistent for both `toId` string and `to` numeric destination variants. This flag is stored in `metadata.native.data["is_direct_message"]`. The adapter declares `direct_messages=False` in its capabilities, meaning outbound DM delivery is unsupported. Inbound DM metadata is preserved for pipeline inspection only.
@@ -127,9 +127,9 @@ Outbound reply delivery (sending a reply that references a previous message) is 
 
 Meshtastic radios emit telemetry (battery, voltage, uptime, air utilization) and position data as distinct portnums. Tranche 1 does not decode or process them.
 
-The packet classifier recognizes telemetry, position, and nodeinfo portnums and assigns the appropriate `category`. `MeshtasticAdapter._on_packet()` drops any packet where `category != "text"`. No canonical events are produced for these packet types.
+The packet classifier recognizes telemetry, position, and nodeinfo portnums and assigns the appropriate `category`. `MeshtasticAdapter._on_packet()` drops any packet where `action != "relay"`. No canonical events are produced for these packet types.
 
-No `TelemetryMetadata` or `RadioMetadata` is populated in tranche 1. When telemetry support is added in a future tranche, the codec will decode telemetry portnums into canonical telemetry events with structured metadata. No schema changes are required: the metadata namespaces already exist.
+No `TelemetryMetadata` or `RadioMetadata` is populated in tranche 1. When telemetry support is added in a planned update, the codec will decode telemetry portnums into canonical telemetry events with structured metadata. No schema changes are required: the metadata namespaces already exist.
 
 ## Queue and Pacing Ownership
 
@@ -187,7 +187,7 @@ Changes in this pass:
 - Classifier now handles both `to` (numeric) and `toId` (string) broadcast/DM fields
 - Codec uses classifier-derived truth for category, normalized portnum, packet ID, channel, sender, ACK detection, and direct-message metadata
 - Codec rejects unsupported categories and ACKs deterministically instead of silently converting them to `message.created`
-- Numeric portnum map remains a fixture scaffold, not verified full protobuf support (see `docs/contracts/10-meshtastic-source-audit.md` for the authoritative protobuf PortNum table)
+- Numeric portnum resolution is SDK-derived when `mtjk` is installed (via `compat.get_portnum_table()`), with a fallback map for environments without the SDK dependency (see `docs/contracts/10-meshtastic-source-audit.md` for the authoritative protobuf PortNum table and fallback mismatch details)
 - Native ref reply relation tests confirm pipeline-owned resolution
 - `known_adapters` mechanism documented with a TODO for future registry improvement
 - Optional dependency (`mtjk`) verified against the installed package (v2.7.8.post2, import name `meshtastic`)
@@ -202,7 +202,7 @@ Changes in this pass:
 - Connection boundary design note at `docs/contracts/11-meshtastic-connection-boundary.md` for future real connection implementation
 - Optional dependency verified: `mtjk` v2.7.8.post2 installed, imports as `meshtastic`, protobuf PortNum enum accessible at `meshtastic.protobuf.portnums_pb2.PortNum`
 - `compat.get_portnum_table()` helper added for optional authoritative PortNum resolution when the dependency is installed
-- `_NUMERIC_PORTNUM_MAP` explicitly downgraded to fixture-scaffold wording with cross-reference to the audit doc
+- `_NUMERIC_PORTNUM_MAP` documented as SDK-derived with protocol-correct fallback; cross-reference to the audit doc added
 - Fixture corpus refined with MMRelay-derived packet shapes (emoji flag, encrypted packets, DM shapes)
 - Send-result behavior documented: both mtjk `sendText` and MMRelay `_sendPacket` return `MeshPacket` protobuf with poplulated `id` field
 - No MMRelay code copied, no real hardware support added, no new adapter protocols implemented

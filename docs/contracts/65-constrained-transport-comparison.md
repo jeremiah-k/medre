@@ -81,7 +81,7 @@ Each adapter returns something different from a send operation:
 
 MEDRE wraps all three in `AdapterDeliveryResult(native_message_id=str, native_channel_id=str)`. This works as long as each adapter handles its own native ID extraction internally. Matrix pulls the event ID. Meshtastic pulls the packet ID from the protobuf. MeshCore would use the sender timestamp as the message ID.
 
-This is **protocol-neutral**, with one caveat: MeshCore's `suggested_timeout` and `expected_ack` fields carry delivery expectation metadata that the other two adapters don't produce. If MEDRE ever needs to expose delivery timeouts upstream, the `AdapterDeliveryResult` model may need an optional field for this. Not a problem for tranche 1.
+This is **protocol-neutral**, with one caveat: MeshCore's `suggested_timeout` and `expected_ack` fields carry delivery expectation metadata that the other two adapters don't produce. If MEDRE ever needs to expose delivery timeouts upstream, the `AdapterDeliveryResult` model may need an optional field for this. Not a problem in the current scope.
 
 ## ACK and Delivery Confirmation
 
@@ -91,7 +91,7 @@ The three ACK models are fundamentally different:
 - **Meshtastic:** asynchronous ROUTING_APP ACK, separate from the send call
 - **MeshCore:** asynchronous ACK event with CRC code, also separate from send
 
-MEDRE doesn't track delivery confirmation in tranche 1. When it does, the abstraction should probably be event-based (adapter emits a delivery status event) rather than request-based (caller asks "was this delivered?"). All three models map cleanly to an event-based approach. This is an open design question, not a neutrality problem.
+MEDRE doesn't track delivery confirmation in the current implementation. When it does, the abstraction should probably be event-based (adapter emits a delivery status event) rather than request-based (caller asks "was this delivered?"). All three models map cleanly to an event-based approach. This is an open design question, not a neutrality problem.
 
 ## Direct Message Semantics
 
@@ -134,7 +134,7 @@ The short version: MEDRE's core abstractions are solid and genuinely protocol-ne
 
 ## Current-State Resolution
 
-**Status:** Stabilized in this tranche (Tracks 1, 3, 4)
+**Status:** Stabilized (Tracks 1, 3, 4)
 **Date:** 2026-05-08
 
 ### What was stabilized
@@ -147,7 +147,7 @@ The platform identity audit (documented in the companion file `12-adapter-platfo
 
 **Transport-family semantic differences are now documented.** Section 6 of the companion audit covers message graph richness, reply semantics, native ref types, actor identity, addressing models, delivery expectations, constrained payloads, and pacing ownership across all three adapter families. The capability-gated relation model for MeshCore is identified as the one real abstraction leak.
 
-### Remaining identity pressure for future tranches
+### Remaining identity pressure for planned updates
 
 The audit documents four identity categories that are currently conflated into `source_transport_id` and `NativeMetadata.data`:
 

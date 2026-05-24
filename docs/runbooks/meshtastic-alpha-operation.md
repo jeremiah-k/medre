@@ -1,6 +1,6 @@
 # Meshtastic Alpha Operation Runbook
 
-> Last updated: 2026-05-21
+> Last updated: 2026-05-24
 > Scope: Real Meshtastic Operation Alpha
 > Status: Alpha. Not production. Not hardened. Not complete. Fake mode is the primary development and testing path. Real connectivity (TCP/serial) is available for live validation.
 
@@ -18,7 +18,7 @@ Scope boundaries:
 
 - One transport: Meshtastic. No other transports are in scope for this runbook.
 - One operator: a single person running against a local or network-accessible node.
-- Text messages on a single radio channel. No telemetry, position, nodeinfo, admin, or other portnum types are processed inbound.
+- Text messages on a single radio channel. The adapter classifies all packet types but only `relay`-action text messages produce canonical events. Telemetry, position, nodeinfo, admin, and other portnum types are classified, counted in diagnostics, and skipped.
 - No production deployment, no scaling, no monitoring, no alerting.
 - No claims about reliability, durability, or correctness beyond what manual testing confirms.
 
@@ -474,7 +474,7 @@ These counters are cumulative for the lifetime of the adapter instance (not rese
 When a real radio packet arrives via the pubsub callback:
 
 1. The `_on_receive_callback(packet, interface)` fires (synchronous, called from the `mtjk` pubsub thread).
-2. The packet is classified by `MeshtasticPacketClassifier`. Only `text` category packets are processed; all others (ACK, telemetry, position, nodeinfo, admin, unknown) are silently dropped.
+2. The packet is classified by `MeshtasticPacketClassifier`. Only packets with the `relay` action are processed; all others (ignore: ACK, telemetry, position, nodeinfo, admin, direct message, empty text; drop: malformed, encrypted; deferred: detection sensor, unknown portnum, plugin_only) are counted in adapter diagnostics and skipped.
 3. The packet is decoded into a `CanonicalEvent` by `MeshtasticCodec`.
 4. The canonical event is published inbound via `ctx.publish_inbound()` in an async background task.
 
@@ -742,7 +742,7 @@ This is an honest list. Everything here is real.
 
 4. **No ACK or delivery confirmation.** The adapter sends with `wantAck=False` (default). There is no confirmation that remote nodes received the message. The `sendText` return only confirms the local node accepted the packet.
 
-5. **Text packets only.** The adapter classifies all inbound packets but only processes `text` category packets. Telemetry, position, nodeinfo, admin, and other portnum types are silently dropped.
+5. **Only `relay`-action packets produce canonical events.** The adapter classifies all inbound packets via a 4-action model (relay, ignore, drop, deferred). Only packets classified with the `relay` action are decoded into canonical events and published inbound. Packets with `ignore` action (ACK, admin, telemetry, position, nodeinfo, direct message, empty text), `drop` action (malformed, encrypted), and `deferred` action (detection sensor, unknown portnum, plugin_only) are counted in diagnostics and skipped. See `docs/dev/mmrelay-reference-notes.md` for the conceptual comparison with MMRelay's 3-outcome model.
 
 6. **Startup backlog suppression is best-effort, session-scoped.** When the adapter starts, it may receive a burst of queued packets from the node. `startup_backlog_suppress_seconds` (default 5.0s) is wired to ingress pre-decode stale packet suppression using the packet's `rxTime` field where available. Packets whose `rxTime` predates the adapter's startup window are suppressed before canonical event creation. This is **not** cryptographic replay prevention, not durable across restarts, not distributed dedup, and not exactly-once delivery. Missing or malformed timestamps are passed through conservatively (no fake precision injected). Suppressed packets do not create canonical events or delivery/evidence receipts. Suppression counters are in-memory diagnostics only, reset on process restart.
 
@@ -758,7 +758,7 @@ This is an honest list. Everything here is real.
 
 12. **No DM support.** The adapter capabilities declare `direct_messages=False`. Direct messages are classified by the packet classifier (`is_direct_message`) but are processed identically to broadcast messages.
 
-13. **Packet classifier numeric map is scaffold only.** The `_NUMERIC_PORTNUM_MAP` in `packet_classifier.py` is a test fixture approximation, not derived from the real Meshtastic protobuf `PortNum` enum. When the real `mtjk` package is installed, the `compat.get_portnum_table()` function returns authoritative values. See `docs/contracts/10-meshtastic-source-audit.md` for the authoritative table.
+13. **Packet classifier numeric map uses SDK-derived resolution when available.** When the `mtjk` package is installed, numeric portnum values are resolved via `compat.get_portnum_table()` which reads the real protobuf `PortNum` enum. When `mtjk` is not installed, a protocol-correct fallback map is used. The fallback map contains known inaccuracies for some values and exists so that tests and offline development work without the optional SDK dependency. See `docs/contracts/10-meshtastic-source-audit.md` for the authoritative table and mismatch details.
 
 14. **RF transmission requires explicit opt-in via `MESHTASTIC_LIVE_SEND`.** The live test suite enforces `MESHTASTIC_LIVE_SEND=1` before any test may call `sendText`, `sendData`, or `adapter.deliver()` against real radio hardware. Tests without this flag may connect and health-check only — they must never transmit. The adapter code itself does not gate on this env var; the guard is at the test layer.
 
@@ -855,7 +855,7 @@ Check these things, in order:
 2. Is the node receiving messages? Check the node's screen or serial output.
 3. Is `mtjk` installed? Without it, the pubsub callback cannot fire.
 4. Is the pubsub subscription active? The adapter logs `"started (mode=...)"` on success. If you don't see this, startup failed.
-5. Are the arriving packets text messages? The adapter silently drops non-text packets (telemetry, position, nodeinfo, etc.).
+5. Are the arriving packets text messages? Non-text packets (telemetry, position, nodeinfo, etc.) are classified with `ignore`, `drop`, or `deferred` actions and do not produce canonical events — only `relay`-action text packets are processed inbound.
 
 ### 15.7 `send_one()` raises an exception
 
@@ -980,10 +980,10 @@ The following features are not supported in alpha mode. Do not attempt to use th
 | Automatic reconnection       | Not implemented                           | See section 12                                                                                                                                                                |
 | Outbound retry               | Bounded adapter-local retry               | Transient SDK failures retried up to `queue_send_max_attempts`; permanent failures and exhausted retries are dropped                                                          |
 | ACK / delivery confirmation  | Not implemented                           | `wantAck` is not set                                                                                                                                                          |
-| Telemetry decoding           | Not supported                             | Telemetry packets are classified but silently dropped                                                                                                                         |
-| Position / GPS decoding      | Not supported                             | Position packets are classified but silently dropped                                                                                                                          |
-| Node database caching        | Not supported                             | Node info packets are classified but silently dropped                                                                                                                         |
-| Admin API                    | Not supported                             | Admin packets are classified but silently dropped                                                                                                                             |
+| Telemetry decoding           | Not supported                             | Telemetry packets are classified (`ignore` action) and counted in diagnostics                                                                                      |
+| Position / GPS decoding      | Not supported                             | Position packets are classified (`ignore` action) and counted in diagnostics                                                                                       |
+| Node database caching        | Not supported                             | Node info packets are classified (`ignore` action) and counted in diagnostics                                                                                      |
+| Admin API                    | Not supported                             | Admin packets are classified (`ignore` action) and counted in diagnostics                                                                                          |
 | End-to-end encryption        | Not supported                             | Meshtastic encrypted channels are not handled                                                                                                                                 |
 | Multi-node mesh testing      | Not tested                                | Alpha has only been validated with a single node                                                                                                                              |
 | BLE connectivity             | Documented only                           | BLE is a config option but not validated in alpha                                                                                                                             |

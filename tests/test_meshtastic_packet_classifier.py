@@ -10,7 +10,10 @@ import pytest
 from medre.adapters.meshtastic.packet_classifier import (
     MeshtasticPacketClassifier,
     normalize_portnum,
+    _get_sdk_portnum_table,
+    _NUMERIC_PORTNUM_FALLBACK,
 )
+import medre.adapters.meshtastic.packet_classifier as _classifier_mod
 
 
 def _make_text_packet(
@@ -802,3 +805,270 @@ class TestClassificationActionTests:
         assert result.is_direct_message is True
         assert result.action == "ignore"
         assert result.routeable is False
+
+
+# ===================================================================
+# Numeric portnum resolution tests
+# ===================================================================
+
+
+class TestNumericPortnumFallback:
+    """Protocol-correct numeric portnum resolution without the SDK."""
+
+    @pytest.mark.parametrize(
+        ("numeric", "expected"),
+        [
+            (0, "unknown"),
+            (1, "text_message"),
+            (2, "remote_hardware"),
+            (3, "position"),
+            (4, "nodeinfo"),
+            (5, "routing"),
+            (6, "admin"),
+            (9, "audio"),
+            (10, "detection_sensor"),
+            (34, "paxcounter"),
+            (67, "telemetry"),
+            (71, "neighborinfo"),
+            (72, "atak_plugin"),
+        ],
+    )
+    def test_fallback_values_no_sdk(self, numeric, expected, monkeypatch) -> None:
+        """Fallback map used when SDK table is unavailable."""
+        monkeypatch.setattr(
+            _classifier_mod, "_SDK_PORTNUM_FETCHED", False
+        )
+        monkeypatch.setattr(
+            _classifier_mod, "_SDK_PORTNUM_CACHE", None
+        )
+        monkeypatch.setattr(
+            _classifier_mod, "_get_sdk_portnum_table", lambda: None
+        )
+        assert normalize_portnum(numeric) == expected
+
+    def test_sdk_values_stripped_app_suffix(self, monkeypatch) -> None:
+        """SDK values with _app suffix are stripped for MEDRE consistency."""
+        custom_table = {
+            2: "remote_hardware_app",
+            9: "audio_app",
+            34: "paxcounter_app",
+            71: "neighborinfo_app",
+        }
+        monkeypatch.setattr(
+            _classifier_mod, "_SDK_PORTNUM_FETCHED", False
+        )
+        monkeypatch.setattr(
+            _classifier_mod, "_SDK_PORTNUM_CACHE", None
+        )
+        monkeypatch.setattr(
+            _classifier_mod, "_get_sdk_portnum_table", lambda: custom_table
+        )
+        assert normalize_portnum(2) == "remote_hardware"
+        assert normalize_portnum(9) == "audio"
+        assert normalize_portnum(34) == "paxcounter"
+        assert normalize_portnum(71) == "neighborinfo"
+
+    def test_sdk_values_without_app_suffix_preserved(self, monkeypatch) -> None:
+        """SDK values without _app suffix are returned as-is."""
+        custom_table = {1: "text_message", 5: "routing"}
+        monkeypatch.setattr(
+            _classifier_mod, "_SDK_PORTNUM_FETCHED", False
+        )
+        monkeypatch.setattr(
+            _classifier_mod, "_SDK_PORTNUM_CACHE", None
+        )
+        monkeypatch.setattr(
+            _classifier_mod, "_get_sdk_portnum_table", lambda: custom_table
+        )
+        assert normalize_portnum(1) == "text_message"
+        assert normalize_portnum(5) == "routing"
+
+    def test_unknown_numeric_returns_string(self) -> None:
+        assert normalize_portnum(999) == "999"
+
+    def test_negative_numeric_returns_string(self) -> None:
+        assert normalize_portnum(-1) == "-1"
+
+
+class TestNumericPortnumClassification:
+    """Classification of packets with numeric portnum values."""
+
+    def test_numeric_0_unknown_is_deferred(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = {
+            "fromId": "!node1",
+            "id": 1,
+            "decoded": {"portnum": 0},
+        }
+        result = cls.classify(packet)
+        assert result.portnum == "unknown"
+        assert result.category == "unknown"
+        assert result.action == "deferred"
+        assert result.reason == "unknown or custom portnum"
+
+    def test_numeric_5_routing_ack(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = {
+            "fromId": "!node1",
+            "id": 1,
+            "decoded": {
+                "portnum": 5,
+                "routing": {"errorReason": "NONE"},
+            },
+        }
+        result = cls.classify(packet)
+        assert result.portnum == "routing"
+        assert result.is_ack is True
+        assert result.category == "ack"
+        assert result.action == "ignore"
+
+    def test_numeric_5_routing_non_ack(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = {
+            "fromId": "!node1",
+            "id": 1,
+            "decoded": {
+                "portnum": 5,
+                "routing": {"errorReason": "NO_CHANNEL"},
+            },
+        }
+        result = cls.classify(packet)
+        assert result.portnum == "routing"
+        assert result.is_ack is False
+        assert result.category == "unknown"
+        assert result.action == "deferred"
+
+    def test_numeric_6_admin_is_ignore(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = {
+            "fromId": "!node1",
+            "id": 1,
+            "decoded": {"portnum": 6},
+        }
+        result = cls.classify(packet)
+        assert result.portnum == "admin"
+        assert result.category == "admin"
+        assert result.action == "ignore"
+        assert result.reason == "ack/admin/system message"
+
+    def test_numeric_10_detection_sensor_is_deferred(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = {
+            "fromId": "!node1",
+            "id": 1,
+            "decoded": {"portnum": 10},
+        }
+        result = cls.classify(packet)
+        assert result.portnum == "detection_sensor"
+        assert result.is_detection_sensor is True
+        assert result.action == "deferred"
+        assert result.reason == "detection sensor packets are deferred"
+
+    def test_numeric_67_telemetry_is_ignore(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = {
+            "fromId": "!node1",
+            "id": 1,
+            "decoded": {"portnum": 67},
+        }
+        result = cls.classify(packet)
+        assert result.portnum == "telemetry"
+        assert result.category == "telemetry"
+        assert result.action == "ignore"
+        assert result.reason == "non-chat message type"
+
+    def test_numeric_999_unknown_is_deferred(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = {
+            "fromId": "!node1",
+            "id": 1,
+            "decoded": {"portnum": 999},
+        }
+        result = cls.classify(packet)
+        assert result.portnum == "999"
+        assert result.category == "unknown"
+        assert result.action == "deferred"
+        assert result.reason == "unknown or custom portnum"
+
+    def test_numeric_portnum_with_encrypted_is_drop(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = {
+            "fromId": "!node1",
+            "id": 1,
+            "encrypted": True,
+            "decoded": {"portnum": 1, "text": "secret"},
+        }
+        result = cls.classify(packet)
+        assert result.is_encrypted is True
+        assert result.action == "drop"
+        assert result.reason == "encrypted packet"
+
+    def test_numeric_portnum_direct_message_is_ignore(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = {
+            "fromId": "!node1",
+            "toId": "!target_node",
+            "id": 1,
+            "decoded": {"portnum": 1, "text": "private numeric"},
+        }
+        result = cls.classify(packet)
+        assert result.is_direct_message is True
+        assert result.action == "ignore"
+        assert result.reason == "direct message to specific node"
+
+    def test_numeric_portnum_no_decoded_is_drop(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = {"fromId": "!node1", "id": 1}
+        result = cls.classify(packet)
+        assert result.action == "drop"
+        assert result.reason == "malformed or missing decoded payload"
+
+
+class TestNumericPortnumSdkOverride:
+    """SDK table override via monkeypatch."""
+
+    def test_sdk_table_overrides_fallback(self, monkeypatch) -> None:
+        """When SDK table returns a custom mapping, it takes precedence."""
+        custom_table = {42: "custom_app_from_sdk"}
+        monkeypatch.setattr(
+            _classifier_mod, "_SDK_PORTNUM_FETCHED", False
+        )
+        monkeypatch.setattr(
+            _classifier_mod, "_SDK_PORTNUM_CACHE", None
+        )
+        monkeypatch.setattr(
+            _classifier_mod, "_get_sdk_portnum_table", lambda: custom_table
+        )
+        # "custom_app_from_sdk" does NOT end with "_app", returned as-is
+        assert normalize_portnum(42) == "custom_app_from_sdk"
+
+    def test_sdk_table_none_uses_fallback(self, monkeypatch) -> None:
+        """When SDK table is None, fallback map is used."""
+        monkeypatch.setattr(
+            _classifier_mod, "_SDK_PORTNUM_FETCHED", False
+        )
+        monkeypatch.setattr(
+            _classifier_mod, "_SDK_PORTNUM_CACHE", None
+        )
+        monkeypatch.setattr(
+            _classifier_mod, "_get_sdk_portnum_table", lambda: None
+        )
+        assert normalize_portnum(1) == "text_message"
+        assert normalize_portnum(10) == "detection_sensor"
+
+    def test_sdk_table_partial_coverage_falls_back(self, monkeypatch) -> None:
+        """SDK table only has some values; unknown-to-SDK falls back correctly."""
+        custom_table = {42: "custom_app"}
+        monkeypatch.setattr(
+            _classifier_mod, "_SDK_PORTNUM_FETCHED", False
+        )
+        monkeypatch.setattr(
+            _classifier_mod, "_SDK_PORTNUM_CACHE", None
+        )
+        monkeypatch.setattr(
+            _classifier_mod, "_get_sdk_portnum_table", lambda: custom_table
+        )
+        # 42 is in SDK table; "custom_app" ends with _app → stripped to "custom"
+        assert normalize_portnum(42) == "custom"
+        # 5 is NOT in SDK table, falls back to protocol-correct map
+        assert normalize_portnum(5) == "routing"

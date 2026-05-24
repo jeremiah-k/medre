@@ -37,14 +37,10 @@ def get_portnum_table() -> dict[int, str] | None:
     """Return the authoritative real ``{int: name}`` PortNum map if the
     optional ``meshtastic`` package is installed, or ``None`` otherwise.
 
-    The returned dict uses lowercase MEDRE-normalised names for keys that
-    match tranche-1 categories (``"text_message"``, ``"telemetry"``,
-    ``"position"``, ``"nodeinfo"``, ``"admin"``, ``"routing"``) and keeps
-    the original ``PortNum.Name()`` string for all other values.
-
-    This is intended for use in **optional** test helpers and diagnostics.
-    Core classifier logic must not depend on it — always use the scaffold
-    map for default code paths so that tests pass without the dependency.
+    The returned dict uses lowercase MEDRE-normalised names for known
+    categories (``"text_message"``, ``"telemetry"``, ``"position"``,
+    ``"nodeinfo"``, ``"admin"``, ``"routing"``, ``"detection_sensor"``)
+    and lowercased ``PortNum.Name()`` strings for all other values.
     """
     if _PORTNUM_ENUM is None:
         return None
@@ -73,6 +69,8 @@ def get_portnum_table() -> dict[int, str] | None:
             result[v.number] = "admin"
         elif lower_name == "routing_app":
             result[v.number] = "routing"
+        elif lower_name == "detection_sensor_app":
+            result[v.number] = "detection_sensor"
         else:
             result[v.number] = raw_name.lower()
     return result
