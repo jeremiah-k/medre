@@ -1,9 +1,13 @@
 # Contract 49 — Routing and Bridge Contract
 
-**Status:** Active
-**Scope:** Authoritative specification for MEDRE route definitions, bridge directionality, static bridge policies, replay route attribution, loop-prevention ownership, and route diagnostics expectations.
-**Audience:** Runtime builders, adapter authors, replay/replay engine authors, test harnesses.
-**References:** Contract 47 (Runtime Assembly), Contract 48 (Runtime Observability), Contract 31 (Session Boundary), Contract 29 (Diagnostics).
+> **Status:** Active
+> **Classification:** Normative
+> **Authority:** Authoritative specification for MEDRE route definitions, bridge directionality, and loop prevention
+> **Last reviewed:** 2026-05-24
+>
+> **Scope:** Authoritative specification for MEDRE route definitions, bridge directionality, static bridge policies, replay route attribution, loop-prevention ownership, and route diagnostics expectations.
+> **Audience:** Runtime builders, adapter authors, replay/replay engine authors, test harnesses.
+> **References:** Contract 47 (Runtime Assembly), Contract 48 (Runtime Observability), Contract 31 (Session Boundary), Contract 29 (Diagnostics).
 
 Every agent or document that references MEDRE routing, bridging between adapters, route directionality, replay route attribution, or loop prevention must defer to this contract.
 

@@ -1,5 +1,10 @@
 # Distribution Boundary Analysis
 
+> **Status:** Active
+> **Classification:** Governance
+> **Authority:** Distribution boundary analysis; records packaging posture and future split paths
+> **Last reviewed:** 2026-05-24
+>
 > Contract version: 2
 > Last updated: 2026-05-12
 > Track: 4 (Distribution Boundary)

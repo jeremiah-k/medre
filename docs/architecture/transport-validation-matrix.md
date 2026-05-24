@@ -1,8 +1,10 @@
 # Transport Validation Matrix
 
-> Last updated: 2026-05-17
+> Last updated: 2026-05-24
 > Scope: Single authoritative source of truth for transport validation evidence
 > Status: Pre-beta. Evidence claims are honest per-transport.
+> Evidence schema: `docs/contracts/61-operational-evidence-contract.md` (H/C/S/R tiers, NOT EXECUTED).
+> Capability status anchor: `docs/STATUS.md`.
 
 This document is the authoritative record of what validation evidence exists for
 each MEDRE transport adapter, at each tier of fidelity. It consolidates and
@@ -12,6 +14,12 @@ supersedes the transport evidence tables previously in
 
 For operator guidance on running validation tests, see
 [docs/runbooks/bridge-operation.md](../runbooks/bridge-operation.md) section 8.
+
+**Evidence tiering (per Contract 61 §2):** H = historical (recorded during prior
+phase, not re-confirmed). C = current-tranche. S = simulated/fake. R =
+real-live-runtime. NOT EXECUTED = no evidence of any tier exists. Where this
+document appears to conflict with `docs/STATUS.md`, STATUS.md is the capability
+status anchor.
 
 ## Legend
 
@@ -28,13 +36,13 @@ For operator guidance on running validation tests, see
 
 | Evidence tier                            |          Matrix          |            Meshtastic             |    MeshCore    |      LXMF      |
 | ---------------------------------------- | :----------------------: | :-------------------------------: | :------------: | :------------: |
-| Fake adapter bridge                      |        ✅ proven         |             ✅ proven             |   ✅ proven    |   ✅ proven    |
-| Wrapper callback bridge                  |        ✅ proven         |             ✅ proven             |   ✅ proven    |   ✅ proven    |
-| Docker SDK lifecycle                     |        ✅ proven         |     ✅ proven (outbound only)     | ❌ not set up  | ❌ not set up  |
-| Docker inbound                           |  ✅ proven (sync_loop)   |          ❓ unconfirmed           | ❌ not set up  | ❌ not set up  |
-| Docker cross-adapter (Matrix→Meshtastic) | ✅ proven (ingress side) |     ✅ proven (outbound side)     | ❌ not set up  | ❌ not set up  |
-| Docker cross-adapter (Meshtastic→Matrix) |       ❌ deferred        | ❌ deferred (inbound unconfirmed) | ❌ not set up  | ❌ not set up  |
-| Live network/radio                       |   ✅ proven (Synapse)    |        ⚠️ scaffold exists¹        | ❌ not claimed | ❌ not claimed |
+| Fake adapter bridge (S-tier)             |        ✅ proven         |             ✅ proven             |   ✅ proven    |   ✅ proven    |
+| Wrapper callback bridge (S-tier)         |        ✅ proven         |             ✅ proven             |   ✅ proven    |   ✅ proven    |
+| Docker SDK lifecycle (S/C-tier)          |        ✅ proven         |     ✅ proven (outbound only)     | ❌ not set up  | ❌ not set up  |
+| Docker inbound (S/C-tier)                |  ✅ proven (sync_loop)   |          ❓ unconfirmed           | ❌ not set up  | ❌ not set up  |
+| Docker cross-adapter (S/C-tier)          | ✅ proven (ingress side) |     ✅ proven (outbound side)     | ❌ not set up  | ❌ not set up  |
+| Docker cross-adapter reverse (S/C-tier)  |       ❌ deferred        | ❌ deferred (inbound unconfirmed) | ❌ not set up  | ❌ not set up  |
+| Live network/radio (H/R-tier)            |   ✅ H-tier (Synapse)    |   ⚠️ H-tier adapter + R-tier CLI¹ | ❌ not claimed | ❌ not claimed |
 
 ## Per-Adapter Detail
 
@@ -46,7 +54,7 @@ For operator guidance on running validation tests, see
 | Wrapper callback bridge | ✅ proven             | `_on_room_message` invoked directly → codec → pipeline → fake outbound                                                                                                    | `tests/test_matrix_wrapper_ingress.py`                                                            |                                                                                                                                                                |
 | Docker SDK lifecycle    | ✅ proven             | Real nio SDK connects to Docker Synapse. Start, health, deliver, stop.                                                                                                    | `tests/integration/test_synapse_connectivity.py`                                                  | Synapse runs on localhost                                                                                                                                      |
 | Docker inbound          | ✅ proven (sync_loop) | Real nio `sync_forever` delivers inbound event through `_on_room_message` callback. Pipeline routes to fake outbound. Receipts persisted with genuine Synapse `event_id`. | `tests/integration/test_synapse_bridge_smoke.py`, `tests/integration/test_synapse_run_session.py` | Bridge smoke tracks `ingress_path`: `"sync_loop"` (proven) vs `"direct_on_room_message_fallback"` (weaker). Run-session test exercises full runtime lifecycle. |
-| Live network/radio      | ✅ proven (Synapse)   | Real Matrix account sends message to real homeserver.                                                                                                                     | `tests/test_matrix_live.py` (requires `MATRIX_*` env vars, gated by `@require_live`)              | Smoke test only. Not sustained or reliability testing.                                                                                                         |
+| Live network/radio      | ✅ H-tier (Synapse)  | Real Matrix account sends message to real homeserver. Recorded 2026-05-10 (13/13 passed). H-tier: historical, not re-confirmed at current commit. Per STATUS.md: `live-validated`. | `tests/test_matrix_live.py` (requires `MATRIX_*` env vars, gated by `@require_live`)              | Smoke test only. Not sustained or reliability testing.                                                                                                         |
 
 ### Meshtastic
 
@@ -56,9 +64,11 @@ For operator guidance on running validation tests, see
 | Wrapper callback bridge | ✅ proven                 | `_on_packet` invoked directly → classify → codec.decode → publish_inbound → pipeline → fake outbound                                                                                                       | `tests/test_meshtastic_wrapper_ingress.py`                                                               |                                                                                                                                                                                                                                                |
 | Docker SDK lifecycle    | ✅ proven (outbound only) | Real `mtjk` SDK creates `TCPInterface` to containerized meshtasticd. Adapter subscribes to `meshtastic.receive` pubsub, sends via real `sendText`, reports healthy, stops cleanly. Returns real packet ID. | `tests/integration/test_meshtasticd_connectivity.py`, `tests/integration/test_meshtasticd_sdk_bridge.py` | meshtasticd runs with `-s` (simulation mode). Not real LoRa.                                                                                                                                                                                   |
 | Docker inbound          | ❓ unconfirmed            | Would require: second client sends → meshtasticd relays → pubsub fires → `_on_receive` → `_on_packet` → codec → `publish_inbound`.                                                                         | `tests/integration/test_meshtasticd_sdk_bridge.py` (`test_two_client_real_packet_injection`, xfail)      | meshtasticd simulation mode may not relay packets between TCP clients. Test is `xfail(strict=False)` — bonus evidence when it passes, but does not reliably pass. Inbound in Docker tests uses `simulate_inbound()`, not real pubsub delivery. |
-| Live network/radio      | ❌ not claimed            | No live hardware smoke test recorded.                                                                                                                                                                      | None                                                                                                     |                                                                                                                                                                                                                                                |
+| Live network/radio      | ⚠️ H-tier adapter + R-tier CLI | No live hardware smoke test recorded at current commit. H-tier: 10/10 adapter tests passed 2026-05-10 (historical). R-tier CLI-level serial validation 2026-05-12: device discovery, one outbound send, 3 reconnect cycles. MEDRE adapter live pytest NOT EXECUTED at current commit (`mtjk` not in project venv). Per STATUS.md: `opt-in live test exists` for most capabilities; `Live validation recorded: not started`. `queued`/`sent` = local acceptance, not RF confirmation (Contract 61 §3.8.3). | None (adapter pytest NOT EXECUTED). CLI: `meshtastic --port /dev/ttyACM0` |                                                                                                                                                                                                                                              |
 
 Known gap: meshtasticd two-client relay unconfirmed. The `test_simulate_inbound_bridge_to_fake_outbound` test proves the codec/pipeline/accounting path works while a real meshtasticd session is active, but inbound packets are injected via `simulate_inbound()`, not received through the `meshtastic.receive` pubsub callback.
+
+**Meshtastic queue local-acceptance note:** Per Contract 61 §3.8.3, Meshtastic is the only adapter where `deliver()` returns `native_message_id=None` initially. The delivery lifecycle is two-phase: `queued` (local queue acceptance) then `sent` (SDK send returned success from local node). Neither means RF confirmation, remote-node receipt, or ACK. If the process crashes between phases, evidence correctly shows `queued` with no `sent` receipt. Queue is in-memory, non-durable across restart.
 
 ### MeshCore
 
@@ -118,7 +128,7 @@ Known gap: No Docker SDK-boundary or live validation. Unit-tested only.
 | Meshtastic → Matrix | Higher risk, not automated         | Meshtastic inbound callback reliability is a known gap. No automated test for this direction. Manual smoke test documented in runbook.                                                           |
 | Status              | **Controlled manual smoke**        | Test room + test mesh channel only. Not for unattended production.                                                                                                                               |
 
-¹ Meshtastic live-radio scaffold: see [Matrix ↔ Meshtastic (Live Bridge)](#matrix--meshtastic-live-bridge) subsection below.
+¹ Meshtastic live-radio evidence: H-tier adapter evidence (10/10 passed 2026-05-10, historical) + R-tier CLI-level serial validation (2026-05-12: device discovery, one outbound send, 3 reconnect cycles). MEDRE adapter live pytest NOT EXECUTED at current commit. See [Matrix ↔ Meshtastic (Live Bridge)](#matrix--meshtastic-live-bridge) subsection above.
 
 ## Cross-Reference: Test File Index
 

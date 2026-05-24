@@ -1,5 +1,10 @@
 # Contributor Governance
 
+> **Status:** Active
+> **Classification:** Governance
+> **Authority:** Contributor governance contract; records expectations, licensing posture, relicensing constraints
+> **Last reviewed:** 2026-05-24
+>
 > Contract version: 2
 > Last updated: 2026-05-12
 > Track: 3 (Project Governance)

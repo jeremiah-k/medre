@@ -1,5 +1,10 @@
 # Third-Party License Audit
 
+> **Status:** Historical
+> **Classification:** Audit
+> **Authority:** License audit record for all runtime/optional dependencies; not legal advice
+> **Last reviewed:** 2026-05-24
+>
 > Contract version: 2
 > Last updated: 2026-05-12
 > Track: 2 (Legal and Compliance Readiness)

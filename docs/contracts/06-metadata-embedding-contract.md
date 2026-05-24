@@ -1,5 +1,10 @@
 # Metadata Embedding Contract
 
+> **Status:** Active
+> **Classification:** Normative
+> **Authority:** Primary contract for metadata namespaces, Matrix/LXMF embedding, and privacy modes
+> **Last reviewed:** 2026-05-24
+>
 > Source: [Modular Event Engine Spec](../spec/modular-event-engine-spec.md) Sections 14, 15, 16, 17
 > Contract version: 1
 > Last updated: 2026-05-08

@@ -1,5 +1,10 @@
 # Delivery Result Contract
 
+> **Status:** Active
+> **Classification:** Normative
+> **Authority:** Locked-in delivery result contract for beta; governs AdapterDeliveryResult semantics
+> **Last reviewed:** 2026-05-24
+>
 > Contract version: 1
 > Last updated: 2026-05-09
 > Track: 9 (Transport Capability Contracts)

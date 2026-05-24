@@ -1,5 +1,10 @@
 # Matrix Adapter Tranche 1: Protocol-Native Boundary Validation
 
+> **Status:** Active
+> **Classification:** Normative
+> **Authority:** Current contract for Matrix adapter features, boundaries, config, and lifecycle
+> **Last reviewed:** 2026-05-24
+>
 > Contract version: 2
 > Last updated: 2026-05-09
 

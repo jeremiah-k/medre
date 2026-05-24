@@ -1,5 +1,10 @@
 # SPDX + Metadata Hygiene Audit
 
+> **Status:** Historical
+> **Classification:** Audit
+> **Authority:** Audit deliverable for SPDX/metadata hygiene; metadata changes already applied
+> **Last reviewed:** 2026-05-24
+>
 > Contract version: 2
 > Last updated: 2026-05-12
 > Track: 5 (SPDX + Metadata Hygiene)

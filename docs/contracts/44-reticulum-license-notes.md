@@ -1,5 +1,10 @@
 # Reticulum / LXMF License Notes
 
+> **Status:** Active
+> **Classification:** Governance
+> **Authority:** License observation record for Reticulum/LXMF; no legal conclusions
+> **Last reviewed:** 2026-05-24
+>
 > Contract version: 2
 > Last updated: 2026-05-12
 > Track: 6 (Licensing & Compliance Observations)

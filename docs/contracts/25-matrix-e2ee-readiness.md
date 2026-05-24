@@ -1,5 +1,10 @@
 # Matrix E2EE Readiness & Design Contract
 
+> **Status:** Active
+> **Classification:** Normative
+> **Authority:** Current contract for Matrix E2EE text alpha, dependency topology, and crypto store
+> **Last reviewed:** 2026-05-24
+>
 > Contract version: 3
 > Last updated: 2026-05-10
 > Status: E2EE Text Alpha — runtime encryption active for text in encrypted rooms. See §14 for alpha scope.

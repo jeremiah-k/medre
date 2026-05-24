@@ -1,11 +1,13 @@
 # Live Operational Evidence Runbook
 
-> Last updated: 2026-05-12
+> Last updated: 2026-05-24
 > Tracks: 1, 2, 7, 8 (v2 consolidation + hardware probe)
-> Status: Procedures documented. Meshtastic serial live validation: **EXECUTED 2026-05-12** (CLI-level: device discovery, hardware/firmware capture, one outbound send on channel 0, 2 reconnect cycles). MEDRE adapter lifecycle and Matrix live tests: **NOT EXECUTED** (2026-05-12: sk.community access token rejected `M_UNKNOWN_TOKEN`; matrix.org password login rejected `M_FORBIDDEN Invalid username/password` — see §1.7). M14 third-party inbound validation attempted 2026-05-12: `matrix.sk.community` homeserver confirmed reachable and healthy, but no `MATRIX_*` env vars are set in the current session. 13 live tests skip cleanly. Test infrastructure (`test_inbound_message_received`) is complete and validates all M14 requirements (sender attribution, room attribution, canonical event shape, source_native_ref, diagnostics). Blocker is purely operational: need valid `MATRIX_ACCESS_TOKEN` for `@forxrelay:sk.community` (password-to-token exchange required). mtjk not in project venv. **Hardware probe (2026-05-12):** CP2104 `/dev/ttyUSB0` (stable by-id, likely T-Beam) — no serial chatter observed; CH9102F `/dev/ttyACM0` (stable by-id, confirmed T-LoRa V2.1-1.6). MeshCore firmware flash and LXMF Reticulum live path pending follow-up validation.
+> Status: Procedures documented. Meshtastic serial live validation: **EXECUTED 2026-05-12** (CLI-level: device discovery, hardware/firmware capture, one outbound send on channel 0, 2 reconnect cycles). MEDRE adapter lifecycle and Matrix live tests: **NOT EXECUTED** (2026-05-12: sk.community access token rejected `M_UNKNOWN_TOKEN`; matrix.org password login rejected `M_FORBIDDEN Invalid username/password` — see §1.7). M14 third-party inbound validation attempted 2026-05-12: `matrix.sk.community` homeserver confirmed reachable and healthy, but no `MATRIX_*` env vars are set in the current session. 13 live tests skip cleanly. Test infrastructure (`test_inbound_message_received`) is complete and validates all M14 requirements (sender attribution, room attribution, canonical event shape, source_native_ref, diagnostics). Blocker is purely operational: need valid `MATRIX_ACCESS_TOKEN` for `@forxrelay:sk.community` (password-to-token exchange required). mtjk not in project venv. **Hardware probe (2026-05-12):** CP2104 `/dev/ttyUSB0` (stable by-id, likely T-Beam) — no serial chatter observed; CH9102F `/dev/ttyACM0` (stable by-id, confirmed T-LoRa V2.1-1.6). MeshCore serial path confirmed NOT VIABLE (companion heartbeat protocol). BLE preconditions met, connection NOT ATTEMPTED. RNode KISS probe to ttyUSB0 returned NO RESPONSE. LXMF/Reticulum live path setup pending.
+> **Meshtastic queue note:** Per Contract 61 §3.8.3, Meshtastic `queued`/`sent` statuses mean local queue acceptance and local SDK send return, not RF confirmation, remote-node receipt, or ACK. This applies to all Meshtastic maturity evidence in this document.
 > Evidence schema: `docs/contracts/61-operational-evidence-contract.md`
 > Maturity matrix: `docs/contracts/62-adapter-operational-maturity-matrix.md`
 > Primary evidence recording: `docs/runbooks/operational-evidence.md`
+> Capability status anchor: `docs/STATUS.md`
 > Boundary tests: `tests/test_deployment_boundaries.py`, `tests/test_runtime_deployment_boundaries.py`
 
 This runbook provides detailed live operational procedures for Matrix and Meshtastic transports. Each procedure specifies exact environment variables, expected durations, observations to record, and NOT EXECUTED sections when hardware or credentials are absent. Hardware probe findings inform MeshCore and LXMF follow-up procedures.
@@ -551,6 +553,8 @@ pytest tests/test_matrix_e2ee_live.py::TestLiveE2EERestart -m live -v
 **Command:** `pytest tests/test_meshtastic_live.py -m live -v`
 **Expected duration:** 20–60 seconds (includes serial/TCP connection establishment)
 
+**Meshtastic queue local-acceptance note:** Per Contract 61 §3.8.3, `deliver()` returns `delivery_status="enqueued"` (receipt `status="queued"`) when the adapter-local queue accepts the payload. The subsequent `"sent"` receipt means the SDK send returned success. Neither means RF confirmation, remote-node receipt, or ACK. If the process crashes between enqueue and send, evidence correctly shows `queued` with `native_message_id=None`.
+
 #### §2.2 Observations to Record
 
 | Field                      | What to observe                         | Where to find it                           |
@@ -664,10 +668,12 @@ When a Meshtastic adapter is running, `diagnostics()` returns:
 ```text
 adapter_id, platform, started, connection_type,
 queue_pending, queue_total_sent, queue_total_failed, queue_total_rejected,
+queue_total_requeued, queue_total_exhausted, queue_total_permanent_failed,
+queue_send_max_attempts, outbound_mode, outbound_gate_suppressed,
 background_tasks
 ```
 
-> **Queue counter semantics:** `queue_total_sent` counts local SDK send confirmations only — not RF delivery or remote-node receipt. `queue_pending` reflects items in the adapter-local in-memory queue. Both counters reset on process restart. When `outbound_mode = "listen_only"` is set, suppressed deliveries are rejected before enqueue and do not increment `queue_total_sent`. See `docs/runbooks/meshtastic-alpha-operation.md` section 9.1a.
+> **Queue counter semantics (per Contract 61 §3.8.3, §3.8.6):** `queue_total_sent` counts local SDK send confirmations only, not RF delivery or remote-node receipt. `queue_pending` reflects items in the adapter-local in-memory queue. Both counters reset on process restart. `queue_total_rejected` counts items rejected because the queue was full (not silently evicted). `queued`/`sent` receipt statuses mean local acceptance and local SDK send return, not RF confirmation. When `outbound_mode = "listen_only"` is set, suppressed deliveries are rejected before enqueue and do not increment `queue_total_sent`. See `docs/runbooks/meshtastic-alpha-operation.md` section 9.1a.
 
 **Session-level (nested under `session`):**
 
@@ -1048,8 +1054,8 @@ The Meshtastic adapter tracks `started` in diagnostics. To record actual runtime
 
 ### 2.14 MeshCore Live Procedure Placeholder
 
-> **Status:** NOT EXECUTED. Hardware probe identified CP2104 device at `/dev/ttyUSB0` (likely T-Beam). Firmware flash and live validation deferred to follow-up validation.
-> **Maturity:** Alpha (Tier 2) per Contract 62 §3.3. Cannot promote beyond alpha until hardware-validated live evidence recorded.
+> **Status:** NOT EXECUTED. Hardware probe identified CP2104 device at `/dev/ttyUSB0` (likely T-Beam). Serial path confirmed NOT VIABLE (companion heartbeat protocol, not MeshCore SDK serial). BLE preconditions met but connection NOT ATTEMPTED. Firmware flash and live validation deferred to follow-up validation.
+> **Maturity:** Experimental / SDK-validated, hardware live validation pending per Contract 62 §3.3. Cannot promote hardware path beyond experimental until BLE connection succeeds and appstart returns valid MeshCore instance.
 
 **Test file:** `tests/test_meshcore_live.py`
 **Required env vars:** `MESHCORE_CONNECTION_TYPE`, `MESHCORE_HOST` or `MESHCORE_SERIAL_PORT`
@@ -1075,8 +1081,8 @@ The Meshtastic adapter tracks `started` in diagnostics. To record actual runtime
 
 ### 2.15 LXMF/Reticulum Live Procedure Placeholder
 
-> **Status:** NOT EXECUTED. Local source repos for LXMF and Reticulum available at `/home/jeremiah/dev`. Reticulum live path setup deferred to follow-up validation.
-> **Maturity:** Alpha (Tier 2) with experimental downgrade risk per Contract 62 §5.4. Cannot promote until Reticulum live path validated and delivery state model confirmed.
+> **Status:** NOT EXECUTED. Local source repos for LXMF and Reticulum available at `/home/jeremiah/dev`. RNode serial path BLOCKED (KISS probe silent at both baud rates). Reticulum live path setup deferred to follow-up validation.
+> **Maturity:** Experimental / SDK-validated, Reticulum live validation pending per Contract 62 §3.4. Cannot promote from Experimental until RNode firmware confirmed and at least one live send/receive cycle observed.
 
 **Test file:** `tests/test_lxmf_live.py`
 **Required env vars:** `LXMF_CONNECTION_TYPE`, `LXMF_IDENTITY_PATH`

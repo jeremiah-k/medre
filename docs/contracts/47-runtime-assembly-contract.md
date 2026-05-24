@@ -1,9 +1,13 @@
 # Contract 47 — Runtime Assembly Contract
 
-**Status:** Active
-**Scope:** Authoritative specification for how the MEDRE runtime assembles, starts, and shuts down a multi-adapter configuration.
-**Audience:** Runtime builders, adapter authors, test harnesses, documentation agents.
-**References:** Contract 46 (Runtime Storage and Path Model), Contract 31 (Session Boundary).
+> **Status:** Active
+> **Classification:** Normative
+> **Authority:** Authoritative specification for MEDRE runtime assembly, startup ordering, and shutdown semantics
+> **Last reviewed:** 2026-05-24
+>
+> **Scope:** Authoritative specification for how the MEDRE runtime assembles, starts, and shuts down a multi-adapter configuration.
+> **Audience:** Runtime builders, adapter authors, test harnesses, documentation agents.
+> **References:** Contract 46 (Runtime Storage and Path Model), Contract 31 (Session Boundary).
 
 Every agent or document that references MEDRE runtime assembly, startup ordering, adapter lifecycle, or shutdown semantics must defer to this contract.
 

@@ -1,5 +1,10 @@
 # Radio Transport Limitations Contract
 
+> **Status:** Active
+> **Classification:** Normative
+> **Authority:** Contract for fire-and-forget delivery model of Meshtastic/MeshCore/LXMF radio transports
+> **Last reviewed:** 2026-05-24
+>
 > Contract version: 1
 > Last updated: 2026-05-10
 > Track: Pre-Beta Blocker Burn-Down (Track 8)

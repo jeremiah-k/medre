@@ -79,28 +79,27 @@ This document describes how MEDRE routes, delivers, tracks, and recovers events.
 
 `DeliveryFailureKind` enum (src/medre/core/planning/delivery_plan.py):
 
-| Kind                 | Retryable | When                                                                           |
-| -------------------- | --------- | ------------------------------------------------------------------------------ |
-| ADAPTER_TRANSIENT    | Yes       | Timeout, connection error, network unreachable                                 |
-| ADAPTER_PERMANENT    | No        | Malformed payload, business rejection                                          |
-| ADAPTER_MISSING      | No        | Target adapter not registered                                                  |
-| PLANNER_FAILURE      | No        | Router/planner misconfiguration                                                |
-| RENDERER_FAILURE     | No        | No renderer registered for event kind                                          |
-| TARGET_NOT_FOUND     | No        | Reserved — channel/address not found                                           |
-| DEADLINE_EXCEEDED    | No        | Delivery plan deadline passed                                                  |
-| CAPACITY_REJECTION   | No        | All in-flight slots occupied                                                   |
-| SHUTDOWN_REJECTION   | No        | Pipeline shutting down                                                         |
-| DUPLICATE_SUPPRESSED | No        | Reserved — defined in the enum but not currently emitted as a receipt/outcome. |
-| LOOP_SUPPRESSED      | No        | Route-trace or self-loop prevented                                             |
+| Kind               | Retryable | When                                               |
+| ------------------ | --------- | -------------------------------------------------- |
+| ADAPTER_TRANSIENT  | Yes       | Timeout, connection error, network unreachable     |
+| ADAPTER_PERMANENT  | No        | Malformed payload, business rejection              |
+| ADAPTER_MISSING    | No        | Target adapter not registered                      |
+| PLANNER_FAILURE    | No        | Router/planner misconfiguration                    |
+| RENDERER_FAILURE   | No        | No renderer registered for event kind              |
+| DEADLINE_EXCEEDED  | No        | Delivery plan deadline passed                      |
+| CAPACITY_REJECTION | No        | All in-flight slots occupied                       |
+| SHUTDOWN_REJECTION | No        | Pipeline shutting down                             |
+| LOOP_SUPPRESSED    | No        | Route-trace or self-loop prevented                 |
 
 `ADAPTER_TRANSIENT` is the **only** retryable kind.
 
-> **Note:** `DUPLICATE_SUPPRESSED` is defined in the `DeliveryFailureKind`
-> enum but is not currently emitted as a receipt or `DeliveryOutcome`.
-> Duplicate native-ref suppression happens before routing in `handle_ingress`
-> and returns `[]` (no outcomes, no receipts). The suppression is recorded
-> in `RuntimeAccounting.loop_prevented`, not in persisted receipts or
-> `RouteStats`.
+> **Note:** `TARGET_NOT_FOUND` and `DUPLICATE_SUPPRESSED` were removed from
+> the enum. Channel-not-found and target-address failures map to
+> `ADAPTER_PERMANENT`. Duplicate native-ref suppression occurs before event
+> storage in `handle_ingress` and returns `[]` (no outcomes, no receipts).
+> The suppression is recorded in `RuntimeAccounting.loop_prevented`, not in
+> persisted receipts or `RouteStats`. No `DeliveryReceipt` is produced for
+> duplicate suppression.
 
 ## Retry Mechanism
 
@@ -175,7 +174,7 @@ The `inspect` and `evidence` commands expose a delivery explanation/summary shap
 | `route_id`           | string or null  | Route that triggered this delivery                                                                                                                                                                                                                                                                                |
 | `target_adapter`     | string or null  | Target adapter for this delivery                                                                                                                                                                                                                                                                                  |
 | `target_channel`     | string or null  | Target channel on the destination adapter                                                                                                                                                                                                                                                                         |
-| `status`             | string          | Final delivery status: `sent`, `confirmed`, `suppressed`, `failed`, `dead_lettered`, `queued`, `accepted`. The `suppressed` status covers loop/capacity/shutdown rejection receipts persisted where event/target context exists; `duplicate_suppressed` remains reserved and is not emitted in pre-storage dedup. |
+| `status`             | string          | Final delivery status: `sent`, `confirmed`, `suppressed`, `failed`, `dead_lettered`, `queued`, `accepted`. The `suppressed` status covers loop-suppressed rejection receipts persisted where event/target context exists. `CAPACITY_REJECTION` and `SHUTDOWN_REJECTION` do not produce persisted receipts (Contract 57 §Receipt non-persistence). Duplicate suppression produces no receipt. |
 | `failure_kind`       | string or null  | Classification of failure (see Delivery Failure Classification above)                                                                                                                                                                                                                                             |
 | `retryable`          | boolean         | Whether the failure kind is retryable (only `ADAPTER_TRANSIENT`)                                                                                                                                                                                                                                                  |
 | `attempt_number`     | integer         | 1-indexed attempt count                                                                                                                                                                                                                                                                                           |
@@ -212,8 +211,7 @@ Each adapter contributes adapter-specific metadata to delivery evidence:
 ### Suppression Evidence
 
 - **Native-ref dedup**: When `event.source_native_ref` resolves to an already-stored event, the pipeline suppresses the duplicate and returns `[]` (no outcomes, no receipts). The suppression is recorded in `RuntimeAccounting.loop_prevented`, not in persisted receipts or `RouteStats`.
-- **`DUPLICATE_SUPPRESSED` failure kind**: This value is defined in the `DeliveryFailureKind` enum but is **not currently emitted** as a receipt or `DeliveryOutcome`. It is reserved. The current runtime cannot safely persist the duplicate path without creating a new event, so duplicate suppression happens silently at the ingress stage. If a future change adds explicit duplicate-suppression receipts, this failure kind will be used. Do not rely on it being present in evidence output.
-- **`LOOP_SUPPRESSED`**: Recorded when route-trace or self-loop prevention fires. Visible in `RouteStats.loop_prevented` and in the delivery outcome. The pipeline persists a `status="suppressed"` receipt for loop/capacity/shutdown suppression where event/target context exists.
+- **`LOOP_SUPPRESSED`**: Recorded when route-trace or self-loop prevention fires. Visible in `RouteStats.loop_prevented` and in the delivery outcome. The pipeline persists a `status="suppressed"` receipt for loop suppression where event/target context exists. `CAPACITY_REJECTION` and `SHUTDOWN_REJECTION` do not produce persisted `DeliveryReceipt` — the rejection occurs at the capacity gate before any adapter interaction. Durable evidence is recorded via `RuntimeAccounting` counters and `RouteStats` (see Contract 57 §Receipt non-persistence).
 
 ### Derived Enrichment Fields
 

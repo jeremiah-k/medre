@@ -1,9 +1,13 @@
 # Contract 50 — Runtime Topology Contract
 
-**Status:** Active
-**Scope:** Authoritative specification for MEDRE runtime topology — how adapters, routes, sessions, codecs, renderers, and the event pipeline compose at runtime, and the boundaries each layer must respect.
-**Audience:** Runtime builders, adapter authors, test harnesses, architecture reviewers.
-**References:** Contract 47 (Runtime Assembly), Contract 48 (Runtime Observability), Contract 49 (Routing and Bridge), Contract 31 (Session Boundary).
+> **Status:** Active
+> **Classification:** Normative
+> **Authority:** Authoritative specification for MEDRE runtime topology, layer boundaries, and subsystem composition
+> **Last reviewed:** 2026-05-24
+>
+> **Scope:** Authoritative specification for MEDRE runtime topology — how adapters, routes, sessions, codecs, renderers, and the event pipeline compose at runtime, and the boundaries each layer must respect.
+> **Audience:** Runtime builders, adapter authors, test harnesses, architecture reviewers.
+> **References:** Contract 47 (Runtime Assembly), Contract 48 (Runtime Observability), Contract 49 (Routing and Bridge), Contract 31 (Session Boundary).
 
 Every agent or document that references MEDRE runtime topology, layer boundaries, or the composition of subsystems must defer to this contract.
 

@@ -1,5 +1,10 @@
 # Production Connectivity Roadmap
 
+> **Status:** Planning
+> **Classification:** Planning
+> **Authority:** Incremental roadmap for first real network operation; no timelines committed
+> **Last reviewed:** 2026-05-24
+>
 > Contract version: 1
 > Last updated: 2026-05-09
 > Track: 9 (Transport Capability Contracts)

@@ -1,10 +1,12 @@
 # Release Candidate Criteria
 
-> Contract version: 1
-> Last updated: 2026-05-10
+> Contract version: 2
+> Last updated: 2026-05-24
 > Track: Beta Release Hygiene (Track 5)
-> Supersedes: Contract 32 (beta-readiness-checklist) sections 1, 2, 4. Refines and extends for RC gate.
+> Supersedes: Contract 38 v1 (2026-05-10). Tranche 1 cleanup: live test evidence table now carries H/C/S/R tier labels per Contract 61. Added Meshtastic queue local-acceptance note.
 > Status: Criteria document. Defines what must be true before a release candidate tag.
+> Evidence schema: `docs/contracts/61-operational-evidence-contract.md` (H/C/S/R tiers, NOT EXECUTED).
+> Capability status anchor: `docs/STATUS.md`.
 
 This document defines the criteria for promoting medre from pre-beta
 development to a tagged release candidate. It is a gate, not a roadmap. Every
@@ -74,14 +76,18 @@ advisory.
 Each transport must have recorded evidence in
 `docs/runbooks/operational-evidence.md`:
 
-| Transport                    | Minimum Live Evidence                                 | Current Status                           |
-| ---------------------------- | ----------------------------------------------------- | ---------------------------------------- |
-| Matrix plaintext             | Lifecycle + send + receive + diagnostics              | ✅ 13/13 recorded 2026-05-10             |
-| Matrix E2EE                  | Encrypted room send/receive                           | ✅ 7/7 recorded 2026-05-10               |
-| Meshtastic                   | Lifecycle + send + diagnostics against real radio     | ✅ 10/10 recorded 2026-05-10             |
-| MeshCore                     | Lifecycle + send + diagnostics against real hardware  | ⛔ Not run — requires radio hardware     |
-| LXMF                         | Lifecycle + send + diagnostics against real Reticulum | ⛔ Not run — requires Reticulum instance |
-| Matrix inbound (third-party) | Inbound message from second account                   | ⛔ Not confirmed                         |
+| Transport                    | Minimum Live Evidence                                 | Current Status                                               | Tier   |
+| ---------------------------- | ----------------------------------------------------- | ------------------------------------------------------------ | ------ |
+| Matrix plaintext             | Lifecycle + send + receive + diagnostics              | ✅ 13/13 recorded 2026-05-10                                 | H      |
+| Matrix E2EE                  | Encrypted room send/receive                           | ✅ 7/7 recorded 2026-05-10                                   | H      |
+| Meshtastic                   | Lifecycle + send + diagnostics against real radio     | ✅ 10/10 recorded 2026-05-10 (H-tier). CLI-level R-tier serial validation 2026-05-12. MEDRE adapter pytest NOT EXECUTED at current commit. | H + R (CLI) |
+| MeshCore                     | Lifecycle + send + diagnostics against real hardware  | ⛔ Not run — requires radio hardware                         | NOT EXECUTED |
+| LXMF                         | Lifecycle + send + diagnostics against real Reticulum | ⛔ Not run — requires Reticulum instance                     | NOT EXECUTED |
+| Matrix inbound (third-party) | Inbound message from second account                   | ⛔ Not confirmed                                             | NOT EXECUTED |
+
+**Tier definitions (per Contract 61 §2):** H = historical (recorded during prior phase, not re-confirmed). R = real-live-runtime. NOT EXECUTED = no evidence of any tier exists.
+
+**Meshtastic queue note:** Meshtastic `queued`/`sent` statuses mean local queue acceptance and local SDK send return, not RF confirmation or remote-node receipt (Contract 61 §3.8.3, §3.8.6). Evidence quality thresholds in §2.2.1 apply: for radio transports where only local handoff is confirmable, evidence must explicitly state that `success` means local radio acceptance, not end-to-end delivery.
 
 **RC gate:** Either all transports have live evidence, or transports without it
 are explicitly excluded from the RC scope with documented rationale.
@@ -246,8 +252,10 @@ Option 1 is acceptable. Option 2 is preferable. Option 3 is conservative.
 ### 4.6 Transport parity honesty
 
 No document may imply that all four transports have equivalent maturity. Matrix
-and Meshtastic are live-validated (beta-candidate). MeshCore and LXMF are
-unit-tested only (alpha-operational). This is not a parity gap to close through
+and Meshtastic have historical live evidence (beta-candidate). MeshCore and LXMF are
+unit-tested only (alpha-operational). Per STATUS.md, Matrix is `live-validated`;
+Meshtastic capabilities are mostly `opt-in live test exists` with `Live validation
+recorded: not started`. This is not a parity gap to close through
 documentation wording. It is a maturity difference that reflects actual evidence.
 The transport table in the README must show this distinction clearly, and no
 release notes or contract may describe all four transports as equally validated.

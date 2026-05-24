@@ -1,5 +1,10 @@
 # Storage Contract
 
+> **Status:** Active
+> **Classification:** Normative
+> **Authority:** Primary contract for StorageBackend protocol, SQLite schema, and receipt semantics
+> **Last reviewed:** 2026-05-24
+>
 > Extracted from: Modular Event Communications Runtime Specification, Sections 12, 18, 19
 > Version: 0.1.0 (Draft)
 > Last updated: 2026-05-13

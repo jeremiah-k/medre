@@ -1,5 +1,10 @@
 # Meshtastic Adapter Tranche 1: Radio Transport Validation
 
+> **Status:** Active
+> **Classification:** Normative
+> **Authority:** Current contract for Meshtastic adapter features, classifier, queue, and config
+> **Last reviewed:** 2026-05-24
+>
 > Contract version: 4
 > Last updated: 2026-05-24
 

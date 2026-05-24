@@ -1,13 +1,16 @@
 # Contract 62 — Adapter Operational Maturity Matrix
 
-> Contract version: 2
-> Last updated: 2026-05-12 (SDK factory-method correction, hardware probe update)
+> Contract version: 3
+> Last updated: 2026-05-24 (Tranche 1 evidence tiering cleanup)
 > Track: Operational Maturity Consolidation
 > Status: Active. Cross-adapter maturity assessment with per-field evidence labels. Hardware probe findings incorporated.
 > References: Contract 37 (Transport Maturity Classification), Contract 61 (Operational Evidence Contract), Contract 32 (Beta Readiness Checklist)
 > Evidence source: `docs/runbooks/operational-evidence.md`, `docs/releases/beta-candidate-notes.md`
+> Capability status anchor: `docs/STATUS.md`
 
 This document provides a single cross-adapter view of operational maturity. Every field is either backed by recorded evidence with a tier label (H/C/S/R per Contract 61 §2) or explicitly marked NOT EXECUTED. No field is invented or extrapolated.
+
+**Evidence tiering convention:** H = historical (may be stale). C = current-tranche. S = simulated/fake. R = real-live-runtime. NOT EXECUTED = no evidence of any tier. Where this document's claims appear to conflict with `docs/STATUS.md`, STATUS.md is the capability status anchor. Meshtastic `queued`/`sent` statuses mean local queue acceptance and local SDK send return, not RF confirmation or remote-node receipt (see Contract 61 §3.8.3, §3.8.6).
 
 ## 1. Maturity Tier Definitions
 
@@ -79,6 +82,8 @@ No transport qualifies as production-ready.
 | **Known blockers**              | (1) `mtjk` not installed in project venv — blocks MEDRE adapter live pytest against real hardware. (2) BLE untested. (3) No second-node inbound. (4) Fire-and-forget delivery inherent. | —    | `operational-evidence.md` §2.0.7, §2.3 |
 
 **Assessment:** Adapter-level live evidence is H-tier (2026-05-10, 10/10 passed). CLI-level R-tier evidence (2026-05-12) confirms hardware/firmware/serial connectivity. MEDRE adapter session reconnect and sustained operation remain NOT EXECUTED. Beta-candidate is justified on H-tier adapter evidence + R-tier hardware evidence. Adapter-level evidence is historical — current-tranche re-run requires `mtjk` in project venv.
+
+**Meshtastic queue local-acceptance note:** Per Contract 61 §3.8.3, Meshtastic is the only adapter where `deliver()` returns `native_message_id=None` initially. The delivery lifecycle is two-phase: `queued` (local queue acceptance, not yet sent to radio) then `sent` (queue drain completed radio send). Neither `queued` nor `sent` means RF confirmation, remote-node receipt, or ACK. If the process crashes between phases, the evidence correctly shows `queued` with `native_message_id=None` and no supplemental `sent` receipt. This is by design; the queue is not durable.
 
 ### 3.3 MeshCore — Experimental / SDK-validated, hardware live validation pending
 

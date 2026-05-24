@@ -1,9 +1,13 @@
 # Contract 63 — Runtime Snapshot Schema
 
-**Status:** Active
-**Scope:** Normative specification for the runtime snapshot shape, section structure, field semantics, stability classification, versioning policy, and structural guarantees.
-**Audience:** Runtime builders, adapter authors, operators, test authors, documentation agents.
-**References:** Contract 47 (Runtime Assembly), Contract 48 (Runtime Observability), Contract 56 (Runtime Supervision), Contract 29 (Diagnostics).
+> **Status:** Active
+> **Classification:** Normative
+> **Authority:** Authoritative specification for runtime snapshot shape, field stability, versioning, and extension rules
+> **Last reviewed:** 2026-05-24
+>
+> **Scope:** Normative specification for the runtime snapshot shape, section structure, field semantics, stability classification, versioning policy, and structural guarantees.
+> **Audience:** Runtime builders, adapter authors, operators, test authors, documentation agents.
+> **References:** Contract 47 (Runtime Assembly), Contract 48 (Runtime Observability), Contract 56 (Runtime Supervision), Contract 29 (Diagnostics).
 
 Every agent or document that references the MEDRE runtime snapshot shape, field stability, or extension rules must defer to this contract.
 

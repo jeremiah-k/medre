@@ -1,8 +1,12 @@
 # Contract 46 — Runtime Storage and Path Model
 
-**Status:** Active
-**Scope:** Authoritative source of truth for MEDRE's filesystem layout, database ownership, and path resolution.
-**Audience:** Runtime builders, adapter authors, test harnesses, documentation agents.
+> **Status:** Active
+> **Classification:** Normative
+> **Authority:** Authoritative specification for MEDRE filesystem layout, database ownership, and path resolution
+> **Last reviewed:** 2026-05-24
+>
+> **Scope:** Authoritative source of truth for MEDRE's filesystem layout, database ownership, and path resolution.
+> **Audience:** Runtime builders, adapter authors, test harnesses, documentation agents.
 
 Every agent or document that references MEDRE storage paths must defer to this contract. If another document contradicts this contract, this contract wins.
 

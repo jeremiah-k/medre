@@ -1,5 +1,10 @@
 # Replay and Event Log Contract
 
+> **Status:** Active
+> **Classification:** Normative
+> **Authority:** Primary contract for event log semantics, replay modes, constraints, and archive
+> **Last reviewed:** 2026-05-24
+>
 > Extracted from: Modular Event Communications Runtime Specification (Sections 5, 12, 18, 19)
 > Version: 0.2.0
 > Last updated: 2026-05-08

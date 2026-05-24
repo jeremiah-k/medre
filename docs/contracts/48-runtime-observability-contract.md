@@ -1,9 +1,13 @@
 # Contract 48 — Runtime Observability Contract
 
-**Status:** Active
-**Scope:** Authoritative specification for MEDRE runtime logging, diagnostics, metrics, and observability policies.
-**Audience:** Runtime builders, adapter authors, test harnesses, operators.
-**References:** Contract 46 (Runtime Storage and Path Model), Contract 47 (Runtime Assembly), Contract 29 (Diagnostics).
+> **Status:** Active
+> **Classification:** Normative
+> **Authority:** Authoritative specification for MEDRE runtime logging, diagnostics, metrics, and observability policies
+> **Last reviewed:** 2026-05-24
+>
+> **Scope:** Authoritative specification for MEDRE runtime logging, diagnostics, metrics, and observability policies.
+> **Audience:** Runtime builders, adapter authors, test harnesses, operators.
+> **References:** Contract 46 (Runtime Storage and Path Model), Contract 47 (Runtime Assembly), Contract 29 (Diagnostics).
 
 Every agent or document that references MEDRE runtime logging, structured log output, adapter lifecycle events, or diagnostics snapshots must defer to this contract.
 

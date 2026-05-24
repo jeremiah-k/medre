@@ -1,5 +1,10 @@
 # Beta Readiness Checklist — PLANNING CRITERIA
 
+> **Status:** Planning
+> **Classification:** Planning
+> **Authority:** Normative beta-entry gate; defines what must be true before a beta release tag is cut. Project has NOT entered beta.
+> **Last reviewed:** 2026-05-24
+>
 > **Classification: Planning criteria (pre-beta gate). Project has NOT entered beta.**
 > **Development Status: Alpha.** The `Development Status :: Beta` trove classifier is NOT in effect.
 > The project remains at Alpha until a beta tag/gate is formally cut against this checklist's criteria.

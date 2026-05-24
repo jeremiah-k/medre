@@ -1,5 +1,10 @@
 # Dependency Reality Audit
 
+> **Status:** Historical
+> **Classification:** Audit
+> **Authority:** Dependency audit across all transports; operational reference, not deployment guide
+> **Last reviewed:** 2026-05-24
+>
 > Contract version: 1
 > Last updated: 2026-05-10
 > Track: 9 (Transport Capability Contracts)

@@ -1,5 +1,10 @@
 # MeshCore Connectivity Readiness
 
+> **Status:** Assessment
+> **Classification:** Assessment
+> **Authority:** Readiness assessment from source extraction; does not claim production connectivity
+> **Last reviewed:** 2026-05-24
+>
 > Contract version: 2
 > Last updated: 2026-05-12
 > Supersedes: None (complements 11, 16, 18)

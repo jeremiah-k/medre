@@ -1,5 +1,10 @@
 # Release Hygiene Audit — Historical Audit Record
 
+> **Status:** Historical
+> **Classification:** Audit
+> **Authority:** Historical snapshot frozen at commit `7046ecc` (2026-05-10); not re-audited since original; findings may be stale
+> **Last reviewed:** 2026-05-24
+>
 > **Classification: Historical audit record. Frozen at commit `7046ecc` (2026-05-10). Not authoritative for current project status.**
 > **This audit has NOT been re-executed against subsequent commits.** Findings below reflect the codebase as it existed at the audit commit. Any resolution or qualification noted inline is based on post-audit knowledge, not re-audit.
 > **Development Status: Alpha.** MEDRE has not entered beta. Any references to beta readiness or beta release below are from the audit context and do not indicate current beta status.

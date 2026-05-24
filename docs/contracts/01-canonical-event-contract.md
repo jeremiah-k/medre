@@ -1,5 +1,10 @@
 # Canonical Event Contract
 
+> **Status:** Active
+> **Classification:** Normative
+> **Authority:** Primary contract for the canonical event model, schema, immutability, and SQL schema
+> **Last reviewed:** 2026-05-24
+>
 > Extracted from: Modular Event Communications Runtime Specification v0.1.0, Sections 3, 5, 6, 12, 13, 14
 > Contract version: 1 (matches `CURRENT_SCHEMA_VERSION`)
 > Last updated: 2026-05-08

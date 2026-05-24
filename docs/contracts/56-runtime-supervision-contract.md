@@ -1,9 +1,13 @@
 # Contract 56 — Runtime Supervision Contract
 
-**Status:** v1 Implementation — Deterministic health classification and failure severity only
-**Scope:** Runtime-level health aggregation, fatal vs non-fatal adapter failure classification, startup outcome semantics, and architectural boundary enforcement for the MEDRE runtime.
-**Audience:** Runtime builders, adapter authors, operators, test authors.
-**References:** Contract 47 (Runtime Assembly), Contract 48 (Runtime Observability), Contract 54 (Runtime Shutdown), Contract 29 (Diagnostics Contract).
+> **Status:** Active
+> **Classification:** Normative
+> **Authority:** Authoritative specification for runtime health classification, startup outcome, and supervision scope
+> **Last reviewed:** 2026-05-24
+>
+> **Scope:** Runtime-level health aggregation, fatal vs non-fatal adapter failure classification, startup outcome semantics, and architectural boundary enforcement for the MEDRE runtime.
+> **Audience:** Runtime builders, adapter authors, operators, test authors.
+> **References:** Contract 47 (Runtime Assembly), Contract 48 (Runtime Observability), Contract 54 (Runtime Shutdown), Contract 29 (Diagnostics Contract).
 
 **Non-guarantees (explicit):** This contract does not provide automatic adapter restart, supervisor trees, process respawn, admin API, REST/TUI/daemon management, hot reload, distributed orchestration, or transport redesign. The supervision layer is classification and observability only.
 

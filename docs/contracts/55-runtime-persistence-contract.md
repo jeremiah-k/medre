@@ -1,9 +1,13 @@
 # Contract 55 — Runtime Persistence Contract
 
-**Status:** Active
-**Scope:** Authoritative specification for what MEDRE runtime state is persisted where, persistence timing semantics, per-subsystem persistence mapping, and persistence failure modes. For crash recovery expectations, durability guarantees, non-guarantees, and boundedness, see Contract 59 (Runtime Durability).
-**Audience:** Runtime builders, adapter authors, operators, supervision implementors.
-**References:** Contract 46 (Runtime Storage and Path Model), Contract 47 (Runtime Assembly), Contract 48 (Runtime Observability), Contract 49 (Routing and Bridge), Contract 51 (Route Attribution), Contract 53 (Resource Control), Contract 54 (Runtime Shutdown), Contract 59 (Runtime Durability).
+> **Status:** Active
+> **Classification:** Normative
+> **Authority:** Authoritative specification for what MEDRE state is persisted where, write timing, and persistence mapping
+> **Last reviewed:** 2026-05-24
+>
+> **Scope:** Authoritative specification for what MEDRE runtime state is persisted where, persistence timing semantics, per-subsystem persistence mapping, and persistence failure modes. For crash recovery expectations, durability guarantees, non-guarantees, and boundedness, see Contract 59 (Runtime Durability).
+> **Audience:** Runtime builders, adapter authors, operators, supervision implementors.
+> **References:** Contract 46 (Runtime Storage and Path Model), Contract 47 (Runtime Assembly), Contract 48 (Runtime Observability), Contract 49 (Routing and Bridge), Contract 51 (Route Attribution), Contract 53 (Resource Control), Contract 54 (Runtime Shutdown), Contract 59 (Runtime Durability).
 
 Every agent or document that references **where** MEDRE state is stored, **what format** it uses, or **when** it is written must defer to this contract. For **whether** state survives a specific failure scenario, see Contract 59.
 

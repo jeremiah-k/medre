@@ -1,5 +1,10 @@
 # Event Lineage and Debugging Contract
 
+> **Status:** Assessment
+> **Classification:** Assessment
+> **Authority:** Operational gap audit of lineage and debugging capabilities; no new features introduced
+> **Last reviewed:** 2026-05-24
+>
 > Contract version: 1
 > Last updated: 2026-05-13
 > Track: 5 (Operational Runtime Hardening)

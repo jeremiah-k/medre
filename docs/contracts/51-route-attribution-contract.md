@@ -1,9 +1,13 @@
 # Contract 51 — Route Attribution Contract
 
-**Status:** Active
-**Scope:** Authoritative specification for how route attribution is attached, stored, and propagated through the MEDRE pipeline — covering live delivery, delivery receipts, and replay.
-**Audience:** Runtime builders, adapter authors, replay engine authors, test harnesses, operators.
-**References:** Contract 49 (Routing and Bridge), Contract 50 (Runtime Topology), Contract 31 (Session Boundary).
+> **Status:** Active
+> **Classification:** Normative
+> **Authority:** Authoritative specification for route attribution, receipt attribution, and replay route attribution
+> **Last reviewed:** 2026-05-24
+>
+> **Scope:** Authoritative specification for how route attribution is attached, stored, and propagated through the MEDRE pipeline — covering live delivery, delivery receipts, and replay.
+> **Audience:** Runtime builders, adapter authors, replay engine authors, test harnesses, operators.
+> **References:** Contract 49 (Routing and Bridge), Contract 50 (Runtime Topology), Contract 31 (Session Boundary).
 
 Every agent or document that references route attribution, route trace metadata, delivery receipt attribution, or replay route attribution must defer to this contract.
 
