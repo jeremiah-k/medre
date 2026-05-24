@@ -862,7 +862,7 @@ class PipelineRunner:
         :class:`AdapterContext.record_outbound_native_ref`.
 
         The guard against empty ``native_message_id`` is a defensive check
-        for legacy or manually-constructed records; note that
+        for manually-constructed records; note that
         :class:`OutboundNativeRefRecord` now rejects empty values at
         construction.  Catches and logs all exceptions with
         ``exc_info=True`` so that callback failures never crash the

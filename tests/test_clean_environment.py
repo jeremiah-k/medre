@@ -624,7 +624,7 @@ class TestPackageLayout:
     def test_no_setup_py(self) -> None:
         """Modern project should not need setup.py (src layout + pyproject.toml)."""
         setup_py = _REPO_ROOT / "setup.py"
-        # setup.py may exist for backward compat but should not be required
+        # setup.py may exist but should not be required
         if setup_py.is_file():
             # If it exists, it should be minimal / deprecated
             content = setup_py.read_text()

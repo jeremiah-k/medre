@@ -376,6 +376,29 @@ normal messages.
 MMRelay validates channel index against `MESHTASTIC_CHANNEL_MIN=0` and
 `MESHTASTIC_CHANNEL_MAX=7`. MEDRE has no channel range validation.
 
+### 4.9 Channel Mapping Semantics (MEDRE)
+
+**Design decision: labeling-only, not an allowlist.**
+
+`MeshtasticConfig.channel_mapping` (`dict[int, str]`) maps channel indices
+to human-readable display names (e.g., `{0: "general", 1: "admin"}`). It is
+used by downstream components for labeling and diagnostics, **not** by the
+packet classifier to gate relaying.
+
+Evidence from audit:
+
+| Check | Finding |
+| ----- | ------- |
+| Classifier `classify()` reads `self._config`? | **No** — the method never references `self._config` |
+| Classifier gates on channel index presence in `channel_mapping`? | **No** — no channel membership check exists |
+| Config docstring describes gating? | **No** — "Mapping of channel index to human-readable channel name" |
+| MMRelay gates on channel mapping? | **Yes** — even a RELAY packet is dropped if no Matrix channel is mapped (see §4.8). MEDRE does **not** replicate this behavior. |
+
+If a channel-allowlist gate is needed in the future, a separate
+`allowed_channels` field should be introduced rather than overloading
+`channel_mapping`, which preserves the labeling-only contract and avoids
+breaking existing configs that rely on empty mappings to mean "all channels".
+
 ---
 
 ## 5. Send-Result and Outbound ID Audit
@@ -558,7 +581,7 @@ Key conceptual differences:
 | `sync_timeout_ms`                           | **Scaffold** — no sync operations                                                                                         | Planned update                                                             |
 | Outbound queue pacing                       | **Scaffold** — `process_one` is no-op                                                                                     | Planned update                                                             |
 | Host/port/serial_port config fields         | **Scaffold** — no real connection code                                                                                    | Planned update                                                             |
-| Channel mapping (channel_index → name)      | **Scaffold** — not used                                                                                                   | Planned update                                                             |
+| Channel mapping (channel_index → name)      | **Labeling-only** — display-name map, NOT a relay allowlist; classifier does not gate on it | Planned update (if gating needed, add separate ``allowed_channels`` field) |
 
 ---
 

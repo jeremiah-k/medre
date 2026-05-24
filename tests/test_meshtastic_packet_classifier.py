@@ -1042,3 +1042,70 @@ class TestNumericPortnumSdkOverride:
         assert normalize_portnum(42) == "custom"
         # 5 is NOT in SDK table, falls back to protocol-correct map
         assert normalize_portnum(5) == "routing"
+
+
+# ===================================================================
+# channel_mapping semantics tests
+# ===================================================================
+
+
+class TestChannelMappingSemantics:
+    """channel_mapping is labeling-only — unmapped channels classify normally.
+
+    These tests prove that the packet classifier does NOT gate on
+    ``config.channel_mapping``.  A text packet on an unmapped channel
+    index still receives ``action="relay"`` with ``reason="text message"``.
+    """
+
+    def test_unmapped_channel_relayed_without_config(self) -> None:
+        """No config at all — unmapped channel 7 text is relayed."""
+        cls = MeshtasticPacketClassifier(config=None)
+        packet = _make_text_packet(text="hello", channel=7)
+        result = cls.classify(packet)
+        assert result.action == "relay"
+        assert result.reason == "text message"
+        assert result.channel_index == 7
+        assert result.routeable is True
+
+    def test_unmapped_channel_relayed_with_empty_mapping(self) -> None:
+        """Config with empty channel_mapping — unmapped channel 5 is relayed."""
+        from medre.config.adapters.meshtastic import MeshtasticConfig
+
+        cfg = MeshtasticConfig(adapter_id="test", channel_mapping={})
+        cls = MeshtasticPacketClassifier(config=cfg)
+        packet = _make_text_packet(text="hello", channel=5)
+        result = cls.classify(packet)
+        assert result.action == "relay"
+        assert result.reason == "text message"
+        assert result.channel_index == 5
+        assert result.routeable is True
+
+    def test_unmapped_channel_relayed_with_partial_mapping(self) -> None:
+        """Config maps channel 0 only — channel 3 (unmapped) is still relayed."""
+        from medre.config.adapters.meshtastic import MeshtasticConfig
+
+        cfg = MeshtasticConfig(
+            adapter_id="test", channel_mapping={0: "general"}
+        )
+        cls = MeshtasticPacketClassifier(config=cfg)
+        packet = _make_text_packet(text="hello", channel=3)
+        result = cls.classify(packet)
+        assert result.action == "relay"
+        assert result.reason == "text message"
+        assert result.channel_index == 3
+        assert result.routeable is True
+
+    def test_mapped_channel_also_relayed(self) -> None:
+        """A mapped channel is also relayed — mapping does not change behavior."""
+        from medre.config.adapters.meshtastic import MeshtasticConfig
+
+        cfg = MeshtasticConfig(
+            adapter_id="test", channel_mapping={0: "general", 1: "admin"}
+        )
+        cls = MeshtasticPacketClassifier(config=cfg)
+        packet = _make_text_packet(text="hello", channel=0)
+        result = cls.classify(packet)
+        assert result.action == "relay"
+        assert result.reason == "text message"
+        assert result.channel_index == 0
+        assert result.routeable is True

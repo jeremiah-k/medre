@@ -233,7 +233,7 @@ def _make_config_with_allowlist(allowlist: set[str] | None):
 def _payload_text(payload: dict) -> str | None:
     """Extract human-readable text from a Matrix event payload.
 
-    MatrixCodec puts text in ``payload["body"]``; some legacy codecs
+    MatrixCodec puts text in ``payload["body"]``; some older codecs
     use ``payload["text"]``.  This helper checks both so tests are
     resilient regardless of which field is populated.
     """

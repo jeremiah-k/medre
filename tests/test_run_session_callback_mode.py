@@ -7,7 +7,7 @@ objects.  The report must derive ``target_adapters``, ``route_ids``,
 ``native_refs``, ``has_success``, and ``observed_failure_kind`` from
 storage receipts when outcomes are unavailable.
 
-Includes a backward-compatibility check that ``direct_pipeline`` mode
+Includes a direct constructor scalar defaults check that ``direct_pipeline`` mode
 still works identically.
 """
 

@@ -265,7 +265,7 @@ async def test_evidence_commands_reference_existing_cli_names(
 async def test_evidence_report_native_ref_canonical_keys(
     temp_storage: SQLiteStorage,
 ) -> None:
-    """evidence.py report native refs include all canonical keys plus legacy aliases."""
+    """evidence.py report native refs include all canonical keys plus direct constructor scalar defaults aliases."""
     await _seed(temp_storage)
 
     # Collect native refs using the same logic as evidence.py _collect_native_refs.
@@ -299,9 +299,9 @@ async def test_evidence_report_native_ref_canonical_keys(
     ):
         assert key in ref_dict, f"Canonical key {key!r} missing from ref dict"
 
-    # Legacy aliases present.
-    assert "channel" in ref_dict, "Legacy alias 'channel' missing"
-    assert "native_id" in ref_dict, "Legacy alias 'native_id' missing"
+    # Direct constructor scalar defaults aliases present.
+    assert "channel" in ref_dict, "alias 'channel' missing"
+    assert "native_id" in ref_dict, "alias 'native_id' missing"
 
     # Values agree.
     assert ref_dict["native_channel_id"] == ref_dict["channel"]

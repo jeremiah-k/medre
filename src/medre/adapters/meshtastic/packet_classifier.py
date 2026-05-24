@@ -254,11 +254,18 @@ class MeshtasticPacketClassifier:
     is available, and falls back to a protocol-correct static map otherwise
     (see :func:`normalize_portnum` for details).
 
+    The classifier does **not** gate on ``channel_mapping``.  That config
+    field is a channel-index → display-name label map used by downstream
+    components (renderers, diagnostics), not a relay allowlist.  Packets
+    on unmapped channel indices classify identically to mapped ones.
+
     Parameters
     ----------
     config:
         Optional :class:`~medre.config.adapters.meshtastic.MeshtasticConfig`
-        for channel mapping lookups.
+        accepted for forward-compatibility.  The classifier does not read
+        ``config.channel_mapping`` — it is retained so future policy
+        extensions can access it without an API break.
     """
 
     def __init__(self, config: Any = None) -> None:

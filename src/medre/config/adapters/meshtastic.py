@@ -44,6 +44,12 @@ class MeshtasticConfig:
         Default radio channel index for outbound messages.
     channel_mapping:
         Mapping of channel index to human-readable channel name.
+        **This is a display-label map, not a relay allowlist.** Packets
+        on unmapped channel indices are still classified normally (the
+        packet classifier does not gate on channel membership). If a
+        channel-allowlist gate is needed in the future, introduce a
+        separate ``allowed_channels`` field rather than overloading this
+        one.
     message_delay_seconds:
         Minimum delay between outbound messages (pacing).
     startup_backlog_suppress_seconds:

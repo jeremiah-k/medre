@@ -1,7 +1,7 @@
 """Boundary tests for documentation — no active docs may reference stale paths.
 
 Checks that documentation files use current import paths for modules
-that were moved with no backward-compatibility re-export:
+that were moved with no re-export:
 
 - ``medre.runtime.capacity`` / ``src/medre/runtime/capacity.py`` → ``medre.core.supervision.capacity`` / ``src/medre/core/runtime/capacity.py``
 """

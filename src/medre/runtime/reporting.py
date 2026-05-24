@@ -32,8 +32,8 @@ def native_ref_to_report_dict(
     Canonical keys: ``adapter``, ``native_channel_id``,
     ``native_message_id``, ``direction``, ``resolves_to``.
 
-    Legacy aliases: ``channel`` (same as ``native_channel_id``),
-    ``native_id`` (same as ``native_message_id``).
+    Direct constructor scalar defaults aliases: ``channel`` (same as
+    ``native_channel_id``), ``native_id`` (same as ``native_message_id``).
 
     Parameters
     ----------
@@ -50,7 +50,7 @@ def native_ref_to_report_dict(
         "native_message_id": nref.native_message_id,
         "direction": direction_value,
         "resolves_to": resolved_to_event_id or nref.event_id,
-        # Legacy aliases
+        # Direct constructor scalar defaults aliases
         "channel": nref.native_channel_id or "",
         "native_id": nref.native_message_id,
     }

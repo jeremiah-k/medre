@@ -6,7 +6,7 @@ Tests cover:
 - Unknown replyId fallback (no crash)
 - Renderer emote fallback emits KEY_REACTION_KEY
 - Codec decodes KEY_REACTION_KEY into rel.key
-- Backward compatibility without KEY_REACTION_KEY
+- Direct constructor scalar defaults without KEY_REACTION_KEY
 - KEY_REACTION_KEY constant verification
 """
 

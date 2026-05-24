@@ -392,7 +392,7 @@ class TestCollectReplaySummary:
 
 
 # ---------------------------------------------------------------------------
-# Backward compatibility: collect_replay_state unchanged
+# Direct constructor scalar defaults: collect_replay_state unchanged
 # ---------------------------------------------------------------------------
 
 

@@ -538,7 +538,7 @@ class TestDockerEnvKeyCoverage:
 
         # All extracted keys should be recognized — either as fixed core names,
         # as dynamically-prefixed MEDRE_ADAPTER__<TOKEN>__<FIELD> vars, or as
-        # legacy transport-specific vars (MEDRE_MATRIX_*, MEDRE_MESHTASTIC_*,
+        # transport-specific vars (MEDRE_MATRIX_*, MEDRE_MESHTASTIC_*,
         # etc.) which are documented for migration reference.
         _REJECTED_LEGACY_PREFIXES = (
             "MEDRE_MATRIX_",

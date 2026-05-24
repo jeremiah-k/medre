@@ -230,20 +230,19 @@ def _register_adapter_renderers(
       target-adapter-aware in multi-radio setups.
     * ``MatrixRenderer`` receives all Meshtastic adapter configs via
       ``source_configs`` for per-source-adapter config resolution (multi-radio
-      support).  Scalar defaults fall back to the first MeshtasticConfig for
-      backward compatibility when source_adapter is not in the mapping.
+      support).  No scalar defaults from any Meshtastic config — unknown
+      sources render plain Matrix output.  Scalar constructor parameters
+      (``mmrelay_compat``, ``meshnet_name``, ``matrix_relay_prefix``) remain
+      available for direct constructor use in unit tests.
     """
     # Collect ALL MeshtasticConfigs for target-aware rendering.
     meshtastic_configs: dict[str, Any] = {}
-    first_meshtastic_config: Any = None
     # Collect ALL MeshCoreConfigs for target-aware rendering.
     meshcore_configs: dict[str, Any] = {}
     if config is not None:
         for _transport, _adapter_id, rtc in config.adapters.all_configs():
             if _transport == "meshtastic" and getattr(rtc, "config", None) is not None:
                 meshtastic_configs[_adapter_id] = rtc.config
-                if first_meshtastic_config is None:
-                    first_meshtastic_config = rtc.config
             if _transport == "meshcore" and getattr(rtc, "config", None) is not None:
                 meshcore_configs[_adapter_id] = rtc.config
         # Fallback: if no real configs but Meshtastic adapters exist (e.g.
@@ -261,8 +260,6 @@ def _register_adapter_renderers(
                     adapter_id=adapter_id,
                     radio_relay_prefix="",
                 )
-            if meshtastic_configs:
-                first_meshtastic_config = next(iter(meshtastic_configs.values()))
         # Fallback: synthesize default MeshCoreConfigs for adapters that
         # lack a real config (e.g. fake adapters in mixed configs).
         if config.adapters.meshcore:
@@ -299,19 +296,13 @@ def _register_adapter_renderers(
                     renderer_cls(configs=meshcore_configs),
                     priority=50,
                 )
-            elif class_name == "MatrixRenderer" and first_meshtastic_config is not None:
+            elif class_name == "MatrixRenderer" and meshtastic_configs:
                 # MatrixRenderer uses all MeshtasticConfigs via source_configs
                 # for per-source-adapter config resolution (multi-radio
-                # support).  Scalar defaults come from the first config for
-                # backward compatibility when source_adapter is not found.
-                mmrelay_compat = first_meshtastic_config.mmrelay_compatibility
-                meshnet_name = first_meshtastic_config.meshnet_name
-                matrix_relay_prefix = first_meshtastic_config.matrix_relay_prefix
+                # support).  No scalar defaults from any Meshtastic config —
+                # unknown sources render plain Matrix output.
                 pipeline.register(
                     renderer_cls(
-                        mmrelay_compat=mmrelay_compat,
-                        meshnet_name=meshnet_name,
-                        matrix_relay_prefix=matrix_relay_prefix,
                         source_configs=meshtastic_configs,
                     ),
                     priority=50,

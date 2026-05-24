@@ -213,7 +213,7 @@ async def _run_session(
                 for label, cmd in text_commands.get("specialized", {}).items():
                     print(f"    {label}: {cmd}")
             else:
-                # Legacy flat shape fallback.
+                # Flat shape fallback.
                 for label, cmd in text_commands.items():
                     print(f"    {label}: {cmd}")
 

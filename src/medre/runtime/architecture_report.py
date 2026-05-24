@@ -394,7 +394,7 @@ class RouteAdapterBoundaryReport:
     runtime_assembly_points: BoundarySection
     dynamic_scan_errors: BoundarySection
 
-    # Backward-compatible aliases
+    # Direct constructor scalar defaults aliases
     @property
     def runtime_to_adapter(self) -> BoundarySection:
         return self.forbidden_runtime_adapter
@@ -433,7 +433,7 @@ def _transport_for(module: str) -> str | None:
     # New package layout: medre.adapters.fakes.<transport>
     if transport == "fakes" and len(parts) >= 2:
         return parts[1]
-    # Legacy flat modules: fake_<transport>
+    # Flat modules: fake_<transport>
     if transport and transport in _FAKE_TO_TRANSPORT:
         transport = _FAKE_TO_TRANSPORT[transport]
     return transport
