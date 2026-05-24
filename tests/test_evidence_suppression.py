@@ -26,7 +26,7 @@ class TestLoopSuppressionEvidence:
     a ``skipped`` / ``loop_suppressed`` outcome, persists a
     ``status="suppressed"`` receipt in SQLite storage, and surfaces
     coherent operator-facing evidence via ``incident_summary`` and
-    ``delivery_state_by_adapter``.
+    ``delivery_state_by_target``.
 
     Uses fake adapters (``FakeMatrixAdapter``), temp SQLite storage,
     ``PipelineRunner``, ``Router``, ``RenderingPipeline``, and
@@ -173,24 +173,29 @@ class TestLoopSuppressionEvidence:
         assert summary["failed_count"] == 0
         assert summary["dead_lettered_count"] == 0
 
-        # -- Phase 5: delivery_state_by_adapter assertions -------------------
-        dsba = summary["delivery_state_by_adapter"]
-        assert adapter_id in dsba, (
-            f"Expected adapter {adapter_id!r} in delivery_state_by_adapter, "
-            f"got {sorted(dsba.keys())}"
+        # -- Phase 5: delivery_state_by_target assertions -------------------
+        dsbt = summary["delivery_state_by_target"]
+        assert isinstance(dsbt, dict), (
+            f"delivery_state_by_target must be dict, "
+            f"got {type(dsbt).__name__}"
+        )
+        assert len(dsbt) == 1, (
+            f"Expected exactly 1 entry in delivery_state_by_target, "
+            f"got {len(dsbt)}: {list(dsbt.keys())}"
         )
 
-        adapter_state = dsba[adapter_id]
-        assert adapter_state["status"] == "suppressed"
-        assert adapter_state["failure_kind"] == "loop_suppressed"
-        assert adapter_state["retryable"] is False
+        target_state = next(iter(dsbt.values()))
+        assert target_state["status"] == "suppressed"
+        assert target_state["failure_kind"] == "loop_suppressed"
+        assert target_state["retryable"] is False
         assert (
-            "target_channel" in adapter_state
-        ), "delivery_state_by_adapter entry must include 'target_channel' key"
-        assert adapter_state["target_channel"] == target_channel, (
+            "target_channel" in target_state
+        ), "delivery_state_by_target entry must include 'target_channel' key"
+        assert target_state["target_channel"] == target_channel, (
             f"Expected target_channel {target_channel!r}, "
-            f"got {adapter_state['target_channel']!r}"
+            f"got {target_state['target_channel']!r}"
         )
+        assert target_state["target_adapter"] == adapter_id
 
         # -- Phase 6: recommended_commands / commands -------------------------
         assert "recommended_commands" in summary

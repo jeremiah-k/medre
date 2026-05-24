@@ -1,7 +1,8 @@
 """TDD tests for Tranche 2 target-keyed delivery evidence.
 
-Defines the desired ``delivery_state_by_target`` shape and exposes the
-current adapter-keyed collapse in ``delivery_state_by_adapter``.
+Defines the desired ``delivery_state_by_target`` shape and verifies the
+target-keyed composite key grouping replaces the old adapter-keyed
+``delivery_state_by_adapter`` collapse.
 
 Every test:
 
@@ -9,10 +10,6 @@ Every test:
 - Calls ``collect_evidence_bundle(storage_path=...)`` directly.
 - Asserts the **new** ``delivery_state_by_target`` shape only.
 - Expects ``delivery_state_by_adapter`` to be **absent**.
-
-These tests are expected to **fail** against the current implementation
-because ``_storage_sections.py`` still builds ``delivery_state_by_adapter``
-grouped by ``target_adapter`` only.
 """
 
 from __future__ import annotations

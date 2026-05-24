@@ -224,27 +224,30 @@ The `failure_kind_detail` field is derived from error patterns and provides a mo
 | `meshtastic_outbound_suppressed` | Meshtastic adapter outbound gate suppression when `outbound_mode = "listen_only"`                    |
 | (original `failure_kind`)        | Default — no specialised pattern matched                                                             |
 
-The `delivery_state_by_adapter` dict in the incident summary provides per-adapter delivery state. Shape:
+The `delivery_state_by_target` dict in the incident summary provides per-target delivery state. The dict is keyed by composite JSON strings, not adapter names. Shape:
 
 ```text
 {
-  "<target_adapter>": {
+  "{\"delivery_plan_id\":\"dp-001\",\"route_id\":\"route-a\",\"target_adapter\":\"radio\",\"target_channel\":\"ch-0\"}": {
+    "target_adapter": str,
+    "target_channel": str | None,
+    "route_id": str,
+    "delivery_plan_id": str,
     "status": str | None,
     "attempt_number": int | None,
-    "native_message_id": str | None,
-    "adapter_message_id": str | None,
-    "target_channel": str | None,
     "failure_kind": str | None,
     "failure_kind_detail": str | None,
     "retryable": bool,
-    "next_retry_at": str | None  (ISO 8601)
+    "next_retry_at": str | None,  (ISO 8601)
+    "native_message_id": str | None,
+    "adapter_message_id": str | None
   }
 }
 ```
 
-The dict is keyed by `target_adapter`. Each entry selects the receipt with the highest `attempt_number` for that adapter and includes `target_channel` from that receipt. A future `delivery_state_by_target` may distinguish multiple channels per adapter more precisely.
+Each key is a JSON string containing `delivery_plan_id`, `route_id`, `target_adapter`, and `target_channel` (sorted keys via `json.dumps(..., sort_keys=True)`). Each value selects the receipt with the highest `attempt_number` for that composite key and carries decomposed fields from that receipt. Same adapter on multiple channels or same channel via different routes produces separate entries, so no target is hidden by adapter-level collapse.
 
-> **Warning:** This is a per-adapter summary, not a full receipt list. Only the highest-attempt receipt per adapter is represented.
+> **Warning:** This is a per-target summary, not a full receipt list. Only the highest-attempt receipt per composite key is represented.
 
 ### Incident Summary
 
@@ -265,7 +268,7 @@ The evidence bundle's storage section includes an `incident_summary` for scoped 
 | `dead_lettered_count`       | Count of `dead_lettered` receipts                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `suppressed_count`          | Count of receipts with `status="suppressed"` (covers loop_suppressed, capacity_rejection, shutdown_rejection)                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `sent_unconfirmed_count`    | Count of `sent` receipts (not yet confirmed by transport)                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `delivery_state_by_adapter` | Per-adapter delivery state dict keyed by target_adapter. Each value includes: `status`, `attempt_number`, `native_message_id`, `adapter_message_id`, `target_channel`, `failure_kind`, `failure_kind_detail`, `retryable`, `next_retry_at`. The `target_channel` field carries the channel from the selected receipt. The `failure_kind_detail` field provides a more specific classification derived from error patterns (e.g., `e2ee_blocked`, `meshtastic_queue_rejected`) without changing the `DeliveryFailureKind` enum. |
+| `delivery_state_by_target`  | Per-target delivery state dict. Keys are composite JSON strings containing `delivery_plan_id`, `route_id`, `target_adapter`, `target_channel` (sorted keys). Each value includes decomposed fields: `target_adapter`, `target_channel`, `route_id`, `delivery_plan_id`, `status`, `attempt_number`, `native_message_id`, `adapter_message_id`, `failure_kind`, `failure_kind_detail`, `retryable`, `next_retry_at`. Each entry selects the receipt with the highest `attempt_number` for that composite key. Same adapter on multiple channels or same channel via different routes produces separate entries. |
 | `recommended_commands`      | Suggested CLI commands for investigation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `commands`                  | Structured command list (primary + specialized)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 
