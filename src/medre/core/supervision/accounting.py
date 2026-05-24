@@ -1,8 +1,8 @@
 """Process-local bounded runtime event accounting counters.
 
-Provides lightweight, process-local counters for the eight core runtime
+Provides lightweight, process-local counters for the nine core runtime
 event categories.  Counters are **not** persisted across restarts and
-have **bounded, constant memory** (exactly 8 integer fields).
+have **bounded, constant memory** (exactly 9 integer fields).
 
 Counters tracked
 ----------------
@@ -16,6 +16,7 @@ Counters tracked
   policy).
 * ``loop_prevented``         – events blocked by the self-loop guard.
 * ``capacity_rejections``    – operations rejected by the capacity controller.
+* ``policy_suppressed``      – targets suppressed by route policy.
 
 These are **global process-level aggregates**, not per-route counters.
 For per-route breakdowns, see :class:`~medre.core.routing.stats.RouteStats`
@@ -23,7 +24,7 @@ and :class:`~medre.core.diagnostics.replay_metrics.ReplayMetrics`.
 
 Public symbols
 --------------
-* :class:`RuntimeCounters` – frozen dataclass with all eight counters.
+* :class:`RuntimeCounters` – frozen dataclass with all nine counters.
 * :class:`RuntimeAccounting` – mutable collector with ``record_*``,
   ``snapshot``, and ``reset`` methods.
 """
@@ -42,7 +43,7 @@ __all__ = ["RuntimeAccounting", "RuntimeCounters"]
 
 @dataclass(frozen=True)
 class RuntimeCounters:
-    """Immutable snapshot of all eight runtime accounting counters.
+    """Immutable snapshot of all nine runtime accounting counters.
 
     Attributes
     ----------
@@ -62,6 +63,8 @@ class RuntimeCounters:
         Number of events blocked by the self-loop guard.
     capacity_rejections:
         Number of operations rejected by the capacity controller.
+    policy_suppressed:
+        Number of targets suppressed by route policy.
     """
 
     inbound_accepted: int = 0
@@ -72,6 +75,7 @@ class RuntimeCounters:
     replay_rejected: int = 0
     loop_prevented: int = 0
     capacity_rejections: int = 0
+    policy_suppressed: int = 0
 
 
 # Fixed ordered tuple of counter field names for deterministic iteration.
@@ -86,7 +90,7 @@ _COUNTER_FIELDS: tuple[str, ...] = tuple(f.name for f in fields(RuntimeCounters)
 class RuntimeAccounting:
     """Process-local bounded runtime event accounting counters.
 
-    Holds exactly eight integer counters in a frozen
+    Holds exactly nine integer counters in a frozen
     :class:`RuntimeCounters` dataclass that is replaced on every
     mutation (copy-on-write).  Memory usage is constant regardless of
     how many events are recorded.
@@ -111,7 +115,7 @@ class RuntimeAccounting:
     >>> acc.snapshot()
     {'capacity_rejections': 0, 'inbound_accepted': 1, 'loop_prevented': 0,
      'outbound_attempts': 1, 'outbound_delivered': 1, 'outbound_failed': 0,
-     'replay_processed': 0, 'replay_rejected': 0}
+     'policy_suppressed': 0, 'replay_processed': 0, 'replay_rejected': 0}
     """
 
     def __init__(self) -> None:
@@ -131,6 +135,7 @@ class RuntimeAccounting:
             replay_rejected=c.replay_rejected,
             loop_prevented=c.loop_prevented,
             capacity_rejections=c.capacity_rejections,
+            policy_suppressed=c.policy_suppressed,
         )
 
     def record_outbound_attempt(self) -> None:
@@ -145,6 +150,7 @@ class RuntimeAccounting:
             replay_rejected=c.replay_rejected,
             loop_prevented=c.loop_prevented,
             capacity_rejections=c.capacity_rejections,
+            policy_suppressed=c.policy_suppressed,
         )
 
     def record_outbound_delivered(self) -> None:
@@ -159,6 +165,7 @@ class RuntimeAccounting:
             replay_rejected=c.replay_rejected,
             loop_prevented=c.loop_prevented,
             capacity_rejections=c.capacity_rejections,
+            policy_suppressed=c.policy_suppressed,
         )
 
     def record_outbound_failed(self) -> None:
@@ -173,6 +180,7 @@ class RuntimeAccounting:
             replay_rejected=c.replay_rejected,
             loop_prevented=c.loop_prevented,
             capacity_rejections=c.capacity_rejections,
+            policy_suppressed=c.policy_suppressed,
         )
 
     def record_replay_processed(self) -> None:
@@ -187,6 +195,7 @@ class RuntimeAccounting:
             replay_rejected=c.replay_rejected,
             loop_prevented=c.loop_prevented,
             capacity_rejections=c.capacity_rejections,
+            policy_suppressed=c.policy_suppressed,
         )
 
     def record_replay_rejected(self) -> None:
@@ -201,6 +210,7 @@ class RuntimeAccounting:
             replay_rejected=c.replay_rejected + 1,
             loop_prevented=c.loop_prevented,
             capacity_rejections=c.capacity_rejections,
+            policy_suppressed=c.policy_suppressed,
         )
 
     def record_loop_prevented(self) -> None:
@@ -215,6 +225,7 @@ class RuntimeAccounting:
             replay_rejected=c.replay_rejected,
             loop_prevented=c.loop_prevented + 1,
             capacity_rejections=c.capacity_rejections,
+            policy_suppressed=c.policy_suppressed,
         )
 
     def record_capacity_rejection(self) -> None:
@@ -229,6 +240,22 @@ class RuntimeAccounting:
             replay_rejected=c.replay_rejected,
             loop_prevented=c.loop_prevented,
             capacity_rejections=c.capacity_rejections + 1,
+            policy_suppressed=c.policy_suppressed,
+        )
+
+    def record_policy_suppressed(self) -> None:
+        """Increment the policy-suppressed counter."""
+        c = self._counters
+        self._counters = RuntimeCounters(
+            inbound_accepted=c.inbound_accepted,
+            outbound_attempts=c.outbound_attempts,
+            outbound_delivered=c.outbound_delivered,
+            outbound_failed=c.outbound_failed,
+            replay_processed=c.replay_processed,
+            replay_rejected=c.replay_rejected,
+            loop_prevented=c.loop_prevented,
+            capacity_rejections=c.capacity_rejections,
+            policy_suppressed=c.policy_suppressed + 1,
         )
 
     # -- Read methods --------------------------------------------------------

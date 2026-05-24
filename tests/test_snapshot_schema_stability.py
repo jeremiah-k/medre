@@ -237,7 +237,7 @@ def _make_fake_app(
 # ---------------------------------------------------------------------------
 
 _EXPECTED_ROUTE_ENTRY_KEYS: frozenset[str] = frozenset(
-    {"delivered", "failed", "skipped", "loop_prevented"}
+    {"delivered", "failed", "skipped", "loop_prevented", "policy_suppressed"}
 )
 
 _EXPECTED_REPLAY_GLOBAL_KEYS: frozenset[str] = frozenset(

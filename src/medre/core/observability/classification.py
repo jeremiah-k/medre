@@ -39,6 +39,7 @@ PERMANENT_KINDS: frozenset[str] = frozenset(
         "renderer_failure",
         "planner_failure",
         "loop_suppressed",
+        "policy_suppressed",
     }
 )
 """Failure kinds that are permanent and unlikely to succeed on retry."""
@@ -75,6 +76,9 @@ def infer_failure_kind(error: str | None, status: str) -> str:
         return "adapter_missing"
     if "planner" in err:
         return "planner_failure"
+    # Permanent: policy suppression
+    if "policy_suppressed" in err or "route policy denied" in err:
+        return "policy_suppressed"
     # Retryable: transient signals
     if any(
         s in err

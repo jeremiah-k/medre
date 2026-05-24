@@ -4,7 +4,7 @@ This module provides per-route counters and aggregated snapshots for
 observability:
 
 * :class:`RouteCounters` – frozen dataclass with delivered/failed/skipped/
-  loop_prevented counters for a single route.
+  loop_prevented/policy_suppressed counters for a single route.
 * :class:`RouteStats` – mutable collector that records per-route counters
   and latest errors, with a deterministic :meth:`snapshot` for
   serialisation.
@@ -35,12 +35,15 @@ class RouteCounters:
         Number of intentionally skipped deliveries.
     loop_prevented:
         Number of deliveries prevented by the self-loop guard.
+    policy_suppressed:
+        Number of deliveries suppressed by route policy.
     """
 
     delivered: int = 0
     failed: int = 0
     skipped: int = 0
     loop_prevented: int = 0
+    policy_suppressed: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -63,6 +66,8 @@ class RouteStats:
         Increment the skipped counter.
     record_loop_prevented(route_id):
         Increment the loop_prevented counter.
+    record_policy_suppressed(route_id):
+        Increment the policy_suppressed counter.
     snapshot():
         Return a deterministic ordered dict of counters and errors.
     """
@@ -81,6 +86,7 @@ class RouteStats:
             failed=c.failed,
             skipped=c.skipped,
             loop_prevented=c.loop_prevented,
+            policy_suppressed=c.policy_suppressed,
         )
 
     def record_failed(self, route_id: str, error: str) -> None:
@@ -91,6 +97,7 @@ class RouteStats:
             failed=c.failed + 1,
             skipped=c.skipped,
             loop_prevented=c.loop_prevented,
+            policy_suppressed=c.policy_suppressed,
         )
         self._last_errors[route_id] = sanitize_error(error)
 
@@ -102,6 +109,7 @@ class RouteStats:
             failed=c.failed,
             skipped=c.skipped + 1,
             loop_prevented=c.loop_prevented,
+            policy_suppressed=c.policy_suppressed,
         )
 
     def record_loop_prevented(self, route_id: str) -> None:
@@ -112,6 +120,18 @@ class RouteStats:
             failed=c.failed,
             skipped=c.skipped,
             loop_prevented=c.loop_prevented + 1,
+            policy_suppressed=c.policy_suppressed,
+        )
+
+    def record_policy_suppressed(self, route_id: str) -> None:
+        """Record a policy-suppressed delivery for *route_id*."""
+        c = self._counters.get(route_id, RouteCounters())
+        self._counters[route_id] = RouteCounters(
+            delivered=c.delivered,
+            failed=c.failed,
+            skipped=c.skipped,
+            loop_prevented=c.loop_prevented,
+            policy_suppressed=c.policy_suppressed + 1,
         )
 
     # -- Snapshot ----------------------------------------------------------
@@ -124,7 +144,8 @@ class RouteStats:
         dict
             Keys are route IDs sorted alphabetically.  Each value is a
             dict with ``delivered``, ``failed``, ``skipped``,
-            ``loop_prevented``, and optional ``last_error``.
+            ``loop_prevented``, ``policy_suppressed``, and optional
+            ``last_error``.
         """
         result: dict[str, dict] = {}
         for route_id in sorted(self._counters):
@@ -134,6 +155,7 @@ class RouteStats:
                 "failed": c.failed,
                 "skipped": c.skipped,
                 "loop_prevented": c.loop_prevented,
+                "policy_suppressed": c.policy_suppressed,
             }
             if route_id in self._last_errors:
                 entry["last_error"] = self._last_errors[route_id]
