@@ -7,7 +7,7 @@
 >
 > Extracted from: Modular Event Communications Runtime Specification, Sections 12, 18, 19
 > Version: 0.1.0 (Draft)
-> Last updated: 2026-05-13
+> Last updated: 2026-05-24
 
 ## 1. Overview
 
@@ -81,9 +81,16 @@ class StorageBackend(Protocol):
         ...
 
     async def delivery_status(
-        self, delivery_plan_id: str, target_adapter: str
+        self, delivery_plan_id: str, target_adapter: str,
+        target_channel: str | None = None,
     ) -> DeliveryReceipt | None:
-        """Return the latest receipt for a delivery plan / adapter pair.
+        """Return the latest receipt for a delivery plan / adapter / channel triple.
+
+        *target_channel* is required for precise lookup. When a named channel
+        is passed, only receipts with that exact channel value are considered.
+        When ``None``, only receipts with a NULL (no-channel) target are
+        returned.
+
         Returns None when no receipt exists."""
         ...
 
@@ -322,19 +329,19 @@ Status values are `accepted`, `queued`, `sent`, `confirmed`, `suppressed`, `fail
 
 **Native message refs are NOT source-tagged.** `NativeMessageRef` rows do not carry `source` or `replay_run_id` fields. This is intentional: native refs created during replay can be correlated to their replay origin through the associated `DeliveryReceipt` (which carries `source` and `replay_run_id`), then via the receipt's `delivery_plan_id` / `event_id` flow. Adding source tagging to native refs would increase schema complexity without proportional benefit, since the receipt → native ref linkage already provides full traceability.
 
-Receipts are **append-only records**. The "current status" of a delivery is a **projection**: the latest receipt for a given `(delivery_plan_id, target_adapter)` tuple, provided by the `delivery_status` view (Section 3.5). No code path writes to the view directly. To change the "current status", append a new receipt row.
+Receipts are **append-only records**. The "current status" of a delivery is a **projection**: the latest receipt for a given `(delivery_plan_id, target_adapter, target_channel)` tuple, provided by the `delivery_status` view (Section 3.5). No code path writes to the view directly. To change the "current status", append a new receipt row.
 
 **Indexes:**
 
 | Index                 | Columns                                                        | Type                  | Purpose                                                                                                                                                                                                                                                                                                                                                           |
 | --------------------- | -------------------------------------------------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `idx_receipts_plan`   | `(delivery_plan_id, target_adapter, attempt_number, sequence)` | Manual `CREATE INDEX` | Supports both `delivery_status` view's `GROUP BY (delivery_plan_id, target_adapter)` + `MAX(sequence)` projection and `list_receipts_for_plan()` `ORDER BY attempt_number, sequence` lineage walk. The four-column composite covers the `delivery_status` subquery prefix `(delivery_plan_id, target_adapter)` and the full ordering of `list_receipts_for_plan`. |
+| `idx_receipts_plan`   | `(delivery_plan_id, target_adapter, target_channel, attempt_number, sequence)` | Manual `CREATE INDEX` | Supports `delivery_status` view's `GROUP BY (delivery_plan_id, target_adapter, COALESCE(target_channel, ''))` + `MAX(sequence)` projection and `list_receipts_for_plan()` `ORDER BY attempt_number, sequence` lineage walk. The five-column composite covers the view's three-column grouping prefix and the full ordering of `list_receipts_for_plan`. |
 | `idx_receipts_event`  | `(event_id, sequence)`                                         | Manual `CREATE INDEX` | Supports receipt lookups by event (e.g., finding all delivery attempts for a given event).                                                                                                                                                                                                                                                                        |
 | `idx_receipts_source` | `(source, replay_run_id)`                                      | Manual `CREATE INDEX` | Supports filtering receipts by replay run — traceability queries for `source='replay'` with a specific `replay_run_id`.                                                                                                                                                                                                                                           |
 
 ### 3.5 delivery_status View
 
-The current delivery status for any plan is a projection: the latest receipt row for a given `(delivery_plan_id, target_adapter)` tuple.
+The current delivery status for any plan is a projection: the latest receipt row for a given `(delivery_plan_id, target_adapter, target_channel)` tuple. The view groups by all three columns, using `COALESCE(target_channel, '')` so that `NULL` and empty-string channels are treated as the same group.
 
 ```sql
 CREATE VIEW IF NOT EXISTS delivery_status AS
@@ -346,12 +353,14 @@ SELECT dr.sequence, dr.receipt_id, dr.event_id, dr.delivery_plan_id,
        dr.created_at
 FROM delivery_receipts dr
 JOIN (
-    SELECT delivery_plan_id, target_adapter, MAX(sequence) AS max_seq
-    FROM delivery_receipts GROUP BY delivery_plan_id, target_adapter
+    SELECT delivery_plan_id, target_adapter, target_channel, MAX(sequence) AS max_seq
+    FROM delivery_receipts GROUP BY delivery_plan_id, target_adapter, COALESCE(target_channel, '')
 ) latest ON dr.sequence = latest.max_seq;
 ```
 
 Uses `MAX(sequence)` for deterministic ordering rather than timestamps, which may collide.
+
+The three-column grouping `(delivery_plan_id, target_adapter, target_channel)` means the same adapter on multiple channels produces separate rows in this view. This is the storage-level analogue of the evidence layer's `delivery_state_by_target` composite key (which also includes `route_id`). The evidence layer groups more finely by adding `route_id` to the composite key, since the same adapter+channel pair can be reached by different routes and each route's delivery outcome is independently meaningful.
 
 ### 3.6 plugin_state
 

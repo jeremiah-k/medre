@@ -79,12 +79,16 @@ def _make_receipt(
     source: str = "live",
     replay_run_id: str | None = None,
     created_at: datetime | None = None,
+    target_channel: str | None = None,
+    route_id: str = "",
 ) -> DeliveryReceipt:
     return DeliveryReceipt(
         receipt_id=receipt_id,
         event_id=event_id,
         delivery_plan_id="plan-1",
         target_adapter=target_adapter,
+        target_channel=target_channel,
+        route_id=route_id,
         status=status,
         source=source,
         replay_run_id=replay_run_id,
@@ -529,6 +533,8 @@ def _seed_trace_db(
     replay_run_id: str | None = None,
     with_native_ref: bool = True,
     with_relation: bool = True,
+    target_channel: str | None = None,
+    route_id: str = "",
 ) -> None:
     """Synchronously seed a trace test database."""
     import asyncio
@@ -588,6 +594,8 @@ def _seed_trace_db(
             event_id=event_id,
             delivery_plan_id="plan-trace-1",
             target_adapter="dest_adapter",
+            target_channel=target_channel,
+            route_id=route_id,
             status="sent",
             created_at=datetime(2026, 1, 15, 12, 0, 1, tzinfo=timezone.utc),
         )
@@ -620,6 +628,23 @@ def config_trace_replay(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path
     (tmp_path / "state").mkdir(parents=True, exist_ok=True)
     db_path = str(tmp_path / "state" / "trace.db")
     _seed_trace_db(db_path, event_id="evt-replay-trace", replay_run_id="run-trace-42")
+    p = tmp_path / "config.toml"
+    p.write_text(CONFIG_TRACE_SQLITE)
+    return p
+
+
+@pytest.fixture()
+def config_trace_channel_route(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Config with sqlite storage seeded with channel and route_id on receipts."""
+    monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+    (tmp_path / "state").mkdir(parents=True, exist_ok=True)
+    db_path = str(tmp_path / "state" / "trace.db")
+    _seed_trace_db(
+        db_path,
+        event_id="evt-ch-route",
+        target_channel="!room:channel-a",
+        route_id="route-42",
+    )
     p = tmp_path / "config.toml"
     p.write_text(CONFIG_TRACE_SQLITE)
     return p
@@ -940,6 +965,60 @@ class TestTraceReplay:
         parsed = json.loads(output)
         keys = list(parsed.keys())
         assert keys == sorted(keys)
+
+
+class TestTraceEventChannelRoute:
+    """Human-readable trace output includes channel and route context."""
+
+    def test_human_readable_shows_channel_and_route(
+        self,
+        config_trace_channel_route: Path,
+    ) -> None:
+        """Receipt line includes channel= and route= when present."""
+        output = _run_cli(
+            "trace",
+            "event",
+            "evt-ch-route",
+            "--config",
+            str(config_trace_channel_route),
+        )
+        assert "channel=!room:channel-a" in output
+        assert "route=route-42" in output
+
+    def test_human_readable_no_channel_route_when_absent(
+        self,
+        config_trace_sqlite: Path,
+    ) -> None:
+        """Receipt line omits channel/route when not present on receipt."""
+        output = _run_cli(
+            "trace",
+            "event",
+            "evt-trace-1",
+            "--config",
+            str(config_trace_sqlite),
+        )
+        # Should have the adapter but NOT channel=/route= decorations.
+        assert "dest_adapter" in output
+        assert "channel=" not in output
+        assert "route=" not in output
+
+    def test_json_includes_target_channel_and_route_id(
+        self,
+        config_trace_channel_route: Path,
+    ) -> None:
+        """JSON receipt data includes target_channel and route_id fields."""
+        output = _run_cli(
+            "trace",
+            "event",
+            "evt-ch-route",
+            "--config",
+            str(config_trace_channel_route),
+            "--json",
+        )
+        parsed = json.loads(output)
+        receipt_entry = next(e for e in parsed if e["entry_type"] == "receipt")
+        assert receipt_entry["data"]["target_channel"] == "!room:channel-a"
+        assert receipt_entry["data"]["route_id"] == "route-42"
 
 
 # ===================================================================

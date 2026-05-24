@@ -183,16 +183,27 @@ async def _collect_storage_data_from_backend(
                     1 for r in receipt_dicts if r.get("status") == "sent"
                 )
 
-                # Per-adapter delivery state: group by target_adapter, keep
-                # the receipt with the highest attempt_number per adapter.
-                _adapter_groups: dict[str, list[dict[str, object]]] = {}
+                # Target-keyed delivery state: group by composite key
+                # (target_adapter, target_channel, route_id, delivery_plan_id),
+                # keeping the receipt with the highest attempt_number per key,
+                # then the latest receipt sequence within that attempt.
+                _target_groups: dict[str, list[dict[str, object]]] = {}
                 for rd in enriched_dicts:
-                    adapter_key = str(rd.get("target_adapter", ""))
-                    _adapter_groups.setdefault(adapter_key, []).append(rd)
+                    comp = _json.dumps(
+                        {
+                            "delivery_plan_id": rd.get("delivery_plan_id"),
+                            "route_id": rd.get("route_id"),
+                            "target_adapter": rd.get("target_adapter"),
+                            "target_channel": rd.get("target_channel"),
+                        },
+                        sort_keys=True,
+                    )
+                    _target_groups.setdefault(comp, []).append(rd)
 
-                delivery_state_by_adapter: dict[str, dict[str, object]] = {}
-                for adapter_key, group in _adapter_groups.items():
-                    # Select receipt with the highest attempt_number per adapter.
+                delivery_state_by_target: dict[str, dict[str, object]] = {}
+                for target_key, group in _target_groups.items():
+                    # Select receipt with the highest attempt_number, then
+                    # the latest receipt sequence within that attempt.
                     best_idx = 0
                     best_attempt: int = 0
                     for idx, rd in enumerate(group):
@@ -204,18 +215,19 @@ async def _collect_storage_data_from_backend(
                             best_attempt = attempt_int
                             best_idx = idx
                     best = group[best_idx]
-                    delivery_state_by_adapter[adapter_key] = {
+                    delivery_state_by_target[target_key] = {
+                        "target_adapter": best.get("target_adapter"),
+                        "target_channel": best.get("target_channel"),
+                        "route_id": best.get("route_id"),
+                        "delivery_plan_id": best.get("delivery_plan_id"),
                         "status": best.get("status"),
                         "attempt_number": best.get("attempt_number"),
-                        "native_message_id": best.get("native_message_id"),
-                        "adapter_message_id": best.get("adapter_message_id"),
-                        # TODO: future delivery_state_by_target can distinguish
-                        # multiple channels per adapter.
-                        "target_channel": best.get("target_channel"),
                         "failure_kind": best.get("failure_kind"),
                         "failure_kind_detail": best.get("failure_kind_detail"),
                         "retryable": best.get("retryable"),
                         "next_retry_at": best.get("next_retry_at"),
+                        "native_message_id": best.get("native_message_id"),
+                        "adapter_message_id": best.get("adapter_message_id"),
                     }
 
                 data["incident_summary"] = {
@@ -236,7 +248,7 @@ async def _collect_storage_data_from_backend(
                     "dead_lettered_count": dead_lettered_count,
                     "suppressed_count": suppressed_count,
                     "sent_unconfirmed_count": sent_unconfirmed_count,
-                    "delivery_state_by_adapter": delivery_state_by_adapter,
+                    "delivery_state_by_target": delivery_state_by_target,
                 }
             # else: event not found — keep None, not an error for the section.
 

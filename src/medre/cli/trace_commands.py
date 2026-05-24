@@ -59,7 +59,14 @@ async def _trace_event(
                     status = data.get("status", "")
                     target = data.get("target_adapter", "")
                     attempt = data.get("attempt_number", 1)
-                    line = f"  {ts}  [{etype}] {status} -> {target} (attempt {attempt})"
+                    line = f"  {ts}  [{etype}] {status} -> {target}"
+                    channel = data.get("target_channel") or data.get("native_channel_id")
+                    if channel:
+                        line += f" channel={channel}"
+                    route = data.get("route_id")
+                    if route:
+                        line += f" route={route}"
+                    line += f" (attempt {attempt})"
                     error = data.get("error")
                     if error:
                         truncated = error if len(error) <= 80 else error[:77] + "..."
@@ -125,7 +132,15 @@ async def _trace_replay(
                     status = data.get("status", "")
                     target = data.get("target_adapter", "")
                     eid = data.get("event_id", "")
-                    print(f"  {ts}  [{etype}] {status} -> {target} (event: {eid})")
+                    line = f"  {ts}  [{etype}] {status} -> {target}"
+                    channel = data.get("target_channel") or data.get("native_channel_id")
+                    if channel:
+                        line += f" channel={channel}"
+                    route = data.get("route_id")
+                    if route:
+                        line += f" route={route}"
+                    line += f" (event: {eid})"
+                    print(line)
                 elif etype == "event_summary":
                     kind = data.get("event_kind", "")
                     src = data.get("source_adapter", "")

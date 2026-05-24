@@ -1140,7 +1140,7 @@ class TestDeadLetterIncidentSummary:
         """Incident summary enrichment fields are required (not optional).
 
         dead_lettered_count, suppressed_count, sent_unconfirmed_count, and
-        delivery_state_by_adapter are always populated by the evidence builder
+        delivery_state_by_target are always populated by the evidence builder
         and must be present and correctly typed on every incident summary.
         """
         db_path = str(config_fake.parent / "state" / "test_evidence.db")
@@ -1177,25 +1177,27 @@ class TestDeadLetterIncidentSummary:
             sent_unconfirmed >= 0
         ), f"sent_unconfirmed_count must be >= 0, got {sent_unconfirmed}"
 
-        # delivery_state_by_adapter: required, dict
-        state_by_adapter = summary["delivery_state_by_adapter"]
-        assert isinstance(state_by_adapter, dict), (
-            f"delivery_state_by_adapter must be dict, "
-            f"got {type(state_by_adapter).__name__}"
+        # delivery_state_by_target: required, dict
+        state_by_target = summary["delivery_state_by_target"]
+        assert isinstance(state_by_target, dict), (
+            f"delivery_state_by_target must be dict, "
+            f"got {type(state_by_target).__name__}"
         )
 
     @pytest.mark.asyncio
-    async def test_delivery_state_by_adapter_includes_target_channel(
+    async def test_delivery_state_by_target_includes_target_channel(
         self, config_fake: Path
     ) -> None:
-        """delivery_state_by_adapter state entries include target_channel.
+        """delivery_state_by_target state entries include target_channel.
 
         The enriched receipt dicts from delivery_receipt_to_report_dict
-        always include target_channel.  The per-adapter state summary
+        always include target_channel.  The target-keyed state summary
         must propagate this field so that CLI consumers can identify
         the target channel without cross-referencing the full receipt
         list.
         """
+        import json as _json
+
         from medre.core.events.canonical import CanonicalEvent, DeliveryReceipt
         from medre.core.events.kinds import EventKind
         from medre.core.events.metadata import EventMetadata
@@ -1242,17 +1244,25 @@ class TestDeadLetterIncidentSummary:
             event_id=event_id,
         )
         summary = report["sections"]["storage"]["data"]["incident_summary"]
-        state_by_adapter = summary["delivery_state_by_adapter"]
-        assert "radio" in state_by_adapter, (
-            f"Expected 'radio' in delivery_state_by_adapter, "
-            f"got keys: {list(state_by_adapter)}"
+        dsbt = summary["delivery_state_by_target"]
+        assert len(dsbt) == 1, (
+            f"Expected exactly 1 entry in delivery_state_by_target, "
+            f"got {len(dsbt)}: {list(dsbt.keys())}"
         )
-        radio_state = state_by_adapter["radio"]
-        assert "target_channel" in radio_state, (
-            f"delivery_state_by_adapter entry missing 'target_channel' key. "
-            f"Available keys: {sorted(radio_state.keys())}"
-        )
-        assert radio_state["target_channel"] == "ch-42"
+
+        # Verify composite key is JSON-parseable with expected fields.
+        key = next(iter(dsbt.keys()))
+        parsed = _json.loads(key)
+        assert parsed["target_adapter"] == "radio"
+        assert parsed["target_channel"] == "ch-42"
+        assert parsed["route_id"] == "route-tch"
+        assert parsed["delivery_plan_id"] == "dp-tch-001"
+
+        entry = next(iter(dsbt.values()))
+        assert entry["target_channel"] == "ch-42"
+        assert entry["target_adapter"] == "radio"
+        assert entry["route_id"] == "route-tch"
+        assert entry["delivery_plan_id"] == "dp-tch-001"
 
     @pytest.mark.asyncio
     async def test_dead_lettered_receipt_timeline_includes_retry_fields(

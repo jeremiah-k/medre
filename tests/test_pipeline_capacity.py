@@ -195,7 +195,7 @@ class TestCapacityRejectionTaxonomy:
 class TestCapacityRejectionEvidence:
     """Suppression-evidence: capacity rejection produces CAPACITY_REJECTION, persists
     a suppressed receipt, and surfaces coherent evidence via
-    incident_summary and delivery_state_by_adapter.
+    incident_summary and delivery_state_by_target.
 
     The operator should be able to answer:
     - *Why* was delivery suppressed?  (capacity_rejection — semaphore full)
@@ -299,17 +299,22 @@ class TestCapacityRejectionEvidence:
             assert summary["classification"] == "operational"
             assert summary["failed_count"] == 0
 
-            # ---- Phase 5: delivery_state_by_adapter ----
-            dsba = summary["delivery_state_by_adapter"]
-            assert (
-                "target" in dsba
-            ), f"Expected 'target' in delivery_state_by_adapter, got {list(dsba.keys())}"
-            target_state = dsba["target"]
+            # ---- Phase 5: delivery_state_by_target ----
+            dsbt = summary["delivery_state_by_target"]
+            assert isinstance(dsbt, dict), (
+                f"delivery_state_by_target must be dict, "
+                f"got {type(dsbt).__name__}"
+            )
+            assert len(dsbt) >= 1, (
+                f"Expected at least 1 entry in delivery_state_by_target, "
+                f"got {len(dsbt)}"
+            )
+            target_state = next(iter(dsbt.values()))
             assert target_state["failure_kind"] == "capacity_rejection"
             assert target_state["retryable"] is False
             assert (
                 "target_channel" in target_state
-            ), "delivery_state_by_adapter entry must include target_channel key"
+            ), "delivery_state_by_target entry must include target_channel key"
 
             # Accounting: capacity_rejections incremented.
             assert accounting.counters().capacity_rejections == 1

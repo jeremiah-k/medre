@@ -122,6 +122,11 @@ CREATE TABLE IF NOT EXISTS delivery_receipts (
     created_at TEXT NOT NULL
 );
 
+-- delivery_status view: one row per unique (delivery_plan_id, target_adapter,
+-- target_channel) tuple, projecting the latest receipt via MAX(sequence).
+-- COALESCE(target_channel, '') in GROUP BY ensures that NULL and '' channels
+-- are treated as the same group, avoiding duplicate rows when some receipts
+-- have NULL and others have '' for target_channel.
 CREATE VIEW IF NOT EXISTS delivery_status AS
 SELECT dr.sequence, dr.receipt_id, dr.event_id, dr.delivery_plan_id,
        dr.target_adapter, dr.target_channel, dr.route_id, dr.status, dr.error,
@@ -132,8 +137,8 @@ SELECT dr.sequence, dr.receipt_id, dr.event_id, dr.delivery_plan_id,
        dr.retry_max_delay, dr.retry_jitter, dr.created_at
 FROM delivery_receipts dr
 JOIN (
-    SELECT delivery_plan_id, target_adapter, MAX(sequence) AS max_seq
-    FROM delivery_receipts GROUP BY delivery_plan_id, target_adapter
+    SELECT delivery_plan_id, target_adapter, target_channel, MAX(sequence) AS max_seq
+    FROM delivery_receipts GROUP BY delivery_plan_id, target_adapter, COALESCE(target_channel, '')
 ) latest ON dr.sequence = latest.max_seq;
 
 CREATE TABLE IF NOT EXISTS plugin_state (
@@ -168,7 +173,7 @@ DROP INDEX IF EXISTS idx_nrefs_event_id;
 CREATE INDEX IF NOT EXISTS idx_nrefs_event_created
     ON native_message_refs(event_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_receipts_plan
-    ON delivery_receipts(delivery_plan_id, target_adapter, attempt_number, sequence);
+    ON delivery_receipts(delivery_plan_id, target_adapter, target_channel, attempt_number, sequence);
 CREATE INDEX IF NOT EXISTS idx_receipts_event
     ON delivery_receipts(event_id, sequence);
 CREATE INDEX IF NOT EXISTS idx_receipts_replay_run
@@ -346,9 +351,12 @@ SELECT event_id FROM native_message_refs
 WHERE adapter = ? AND native_channel_id IS ? AND native_message_id = ?
 """
 
-_DELIVERY_STATUS_VIEW = """
-SELECT * FROM delivery_status
+_DELIVERY_RECEIPT_LATEST_BY_CHANNEL = """
+SELECT * FROM delivery_receipts
 WHERE delivery_plan_id = ? AND target_adapter = ?
+  AND target_channel IS ?
+ORDER BY attempt_number DESC, sequence DESC
+LIMIT 1
 """
 
 _SELECT_RECEIPTS_FOR_PLAN = """
@@ -1186,7 +1194,15 @@ class SQLiteStorage:
         Receipts are append-only: every call creates a new row.  Existing
         receipt rows are never updated or deleted.  The ``delivery_status``
         view projects the latest receipt as a ``MAX(sequence)`` aggregation.
+
+        Empty-string ``target_channel`` values are normalised to ``None``
+        before storage so that NULL and ``""`` are never stored as distinct
+        values — the ``delivery_status`` view groups them together via
+        ``COALESCE(target_channel, '')`` and normalising at write time
+        keeps queries unambiguous.
         """
+        # Normalise empty-string target_channel to NULL.
+        channel = receipt.target_channel or None
         await self._write(
             _INSERT_RECEIPT,
             (
@@ -1194,7 +1210,7 @@ class SQLiteStorage:
                 receipt.event_id,
                 receipt.delivery_plan_id,
                 receipt.target_adapter,
-                receipt.target_channel,
+                channel,
                 receipt.route_id,
                 receipt.status,
                 receipt.error,
@@ -1218,12 +1234,40 @@ class SQLiteStorage:
         )
 
     async def delivery_status(
-        self, delivery_plan_id: str, target_adapter: str
+        self,
+        delivery_plan_id: str,
+        target_adapter: str,
+        target_channel: str | None = None,
     ) -> DeliveryReceipt | None:
-        """Return the latest receipt for a delivery plan / adapter pair."""
+        """Return the latest receipt for a delivery plan / adapter / channel triple.
+
+        Queries the ``delivery_receipts`` base table directly (rather than
+        the ``delivery_status`` view) so that NULL and empty-string channel
+        values are handled robustly without relying on the view's
+        ``COALESCE(target_channel, '')`` grouping.
+
+        Parameters
+        ----------
+        delivery_plan_id:
+            The delivery plan to look up.
+        target_adapter:
+            The target adapter to filter on.
+        target_channel:
+            Channel name to match.  When a named channel is passed, only
+            receipts with that exact channel value are returned.  When
+            ``None`` (default), only receipts with a NULL (no-channel)
+            target are returned.  Passing ``None`` does **not** query
+            across all channels.
+
+        Returns
+        -------
+        DeliveryReceipt | None
+            The latest-matching receipt, or ``None`` when no receipt exists
+            for the given combination.
+        """
         row = await self._read_one(
-            _DELIVERY_STATUS_VIEW,
-            (delivery_plan_id, target_adapter),
+            _DELIVERY_RECEIPT_LATEST_BY_CHANNEL,
+            (delivery_plan_id, target_adapter, target_channel or None),
         )
         return _row_to_receipt(row) if row else None
 

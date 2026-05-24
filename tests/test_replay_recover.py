@@ -93,6 +93,8 @@ class _FakeReceipt:
         failure_kind: str | None = None,
         source: str = "live",
         replay_run_id: str | None = None,
+        target_channel: str | None = None,
+        route_id: str = "route-1",
     ) -> None:
         self.receipt_id = receipt_id
         self.event_id = event_id
@@ -102,9 +104,9 @@ class _FakeReceipt:
         self.error = error
         self.failure_kind = failure_kind
         self.delivery_plan_id = "plan-1"
-        self.route_id = "route-1"
+        self.route_id = route_id
         self.adapter_message_id = None
-        self.target_channel = None
+        self.target_channel = target_channel
         self.source = source
         self.replay_run_id = replay_run_id
         self.sequence = 1
@@ -645,6 +647,102 @@ class TestRecoverDispatch:
             parsed = json.loads(output)
             keys = list(parsed.keys())
             assert keys == sorted(keys)
+
+
+class TestRecoverChannelRoute:
+    """Recover runbook includes target_channel and route_id per failed receipt."""
+
+    def _make_storage_with_failed(
+        self,
+        target_adapter: str = "mesh_adptr",
+        target_channel: str | None = "!ch-a",
+        route_id: str = "route-x",
+    ) -> AsyncMock:
+        event = _FakeEvent()
+        receipt = _FakeReceipt(
+            status="failed",
+            target_adapter=target_adapter,
+            target_channel=target_channel,
+            route_id=route_id,
+            error="boom",
+        )
+        mock_storage = AsyncMock()
+        mock_storage.get = AsyncMock(return_value=event)
+        mock_storage.list_receipts_for_event = AsyncMock(return_value=[receipt])
+        mock_storage.list_native_refs_for_event = AsyncMock(return_value=[])
+        mock_storage.list_relations = AsyncMock(return_value=[])
+        mock_storage.close = AsyncMock()
+        return mock_storage
+
+    def test_json_failed_target_includes_target_channel(self) -> None:
+        mock_storage = self._make_storage_with_failed(target_channel="!ch-alpha")
+        with patch(
+            "medre.cli.recover_commands._open_readonly_storage",
+            return_value=mock_storage,
+        ):
+            output = _run_cli(
+                "recover", "--event", "evt-1", "--json", "--config", "/nonexistent"
+            )
+            parsed = json.loads(output)
+            ft = parsed["failed_targets"][0]
+            assert ft["target_channel"] == "!ch-alpha"
+            assert ft["route_id"] == "route-x"
+
+    def test_json_omits_target_channel_when_none(self) -> None:
+        mock_storage = self._make_storage_with_failed(target_channel=None)
+        with patch(
+            "medre.cli.recover_commands._open_readonly_storage",
+            return_value=mock_storage,
+        ):
+            output = _run_cli(
+                "recover", "--event", "evt-1", "--json", "--config", "/nonexistent"
+            )
+            parsed = json.loads(output)
+            ft = parsed["failed_targets"][0]
+            assert "target_channel" not in ft
+            # route_id is non-empty so it should be present.
+            assert ft["route_id"] == "route-x"
+
+    def test_human_readable_shows_channel_and_route(self) -> None:
+        mock_storage = self._make_storage_with_failed(
+            target_channel="!room:beta", route_id="route-99"
+        )
+        with patch(
+            "medre.cli.recover_commands._open_readonly_storage",
+            return_value=mock_storage,
+        ):
+            output = _run_cli(
+                "recover", "--event", "evt-1", "--config", "/nonexistent"
+            )
+            # Should show adapter/channel and route in the failed target line.
+            assert "mesh_adptr/!room:beta" in output
+            assert "route=route-99" in output
+
+    def test_human_readable_no_channel_suffix_when_absent(self) -> None:
+        mock_storage = self._make_storage_with_failed(target_channel=None)
+        with patch(
+            "medre.cli.recover_commands._open_readonly_storage",
+            return_value=mock_storage,
+        ):
+            output = _run_cli(
+                "recover", "--event", "evt-1", "--config", "/nonexistent"
+            )
+            # Should show adapter without /channel suffix.
+            assert "mesh_adptr route=route-x:" in output
+            assert "/!ch-a" not in output
+
+    def test_json_omits_route_id_when_empty(self) -> None:
+        mock_storage = self._make_storage_with_failed(route_id="")
+        with patch(
+            "medre.cli.recover_commands._open_readonly_storage",
+            return_value=mock_storage,
+        ):
+            output = _run_cli(
+                "recover", "--event", "evt-1", "--json", "--config", "/nonexistent"
+            )
+            parsed = json.loads(output)
+            ft = parsed["failed_targets"][0]
+            assert "route_id" not in ft
 
 
 # ---------------------------------------------------------------------------
