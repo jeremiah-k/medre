@@ -407,14 +407,12 @@ The adapter's `health_check()` returns an `AdapterInfo` with a `health` field:
 | `healthy` | Adapter has started successfully; client is connected           |
 | `failed`  | Client exists but start did not complete (subscription failure) |
 
-.. note::
-
-The adapter code at `MeshtasticAdapter.health_check()` does handle
-a `"degraded"` health state when `self._session.reconnecting` is
-`True`. However, the current session implementation does not
-automatically enter the reconnecting state — this path is reserved for
-a future automatic reconnection feature. In practice, the adapter
-reports `"healthy"` or `"unknown"` only.
+> **Note:** The adapter code at `MeshtasticAdapter.health_check()` does
+> handle a `"degraded"` health state when `self._session.reconnecting` is
+> `True`. However, the current session implementation does not automatically
+> enter the reconnecting state — this path is reserved for a future automatic
+> reconnection feature. In practice, the adapter reports `"healthy"` or
+> `"unknown"` only.
 
 ### 7.2 Queue diagnostics
 
@@ -426,9 +424,13 @@ health = adapter.queue_health
 #     "pending_count": 0,
 #     "total_sent": 3,
 #     "total_failed": 0,
+#     "total_requeued": 1,
+#     "total_exhausted": 0,
+#     "total_permanent_failed": 0,
 #     "total_enqueued": 5,
 #     "total_dequeued": 3,
 #     "total_rejected": 0,
+#     "max_attempts": 3,
 #     "max_queue_size": 1024,
 #     "utilization_pct": 0.0,
 #     "delay_between_messages": 0.5,
@@ -436,24 +438,34 @@ health = adapter.queue_health
 # }
 ```
 
-| Field                    | Type  | Meaning                                                     |
-| ------------------------ | ----- | ----------------------------------------------------------- |
-| `pending_count`          | int   | Number of items currently in the outbound queue             |
-| `total_sent`             | int   | Cumulative count of successful sends since adapter creation |
-| `total_failed`           | int   | Cumulative count of send failures since adapter creation    |
-| `total_enqueued`         | int   | Cumulative count of successful enqueue operations           |
-| `total_dequeued`         | int   | Cumulative count of dequeue operations                      |
-| `total_rejected`         | int   | Cumulative count of enqueue rejections (queue full)         |
-| `max_queue_size`         | int   | Maximum queue capacity                                      |
-| `utilization_pct`        | float | Current queue utilization as a percentage of max size       |
-| `delay_between_messages` | float | Configured minimum pacing delay in seconds                  |
-| `last_send_time`         | float | `time.monotonic()` of the last successful send              |
+| Field                    | Type  | Meaning                                                                             |
+| ------------------------ | ----- | ----------------------------------------------------------------------------------- |
+| `pending_count`          | int   | Number of items currently in the outbound queue                                     |
+| `total_sent`             | int   | Cumulative count of successful sends since adapter creation                         |
+| `total_failed`           | int   | Cumulative count of send failures (after exhausting retries) since adapter creation |
+| `total_requeued`         | int   | Cumulative count of items requeued for retry after a transient send failure         |
+| `total_exhausted`        | int   | Cumulative count of items that exhausted `max_attempts` and were dropped            |
+| `total_permanent_failed` | int   | Cumulative count of items that failed permanently (non-transient) on first attempt  |
+| `total_enqueued`         | int   | Cumulative count of successful enqueue operations                                   |
+| `total_dequeued`         | int   | Cumulative count of dequeue operations                                              |
+| `total_rejected`         | int   | Cumulative count of enqueue rejections (queue full)                                 |
+| `max_attempts`           | int   | Maximum send attempts per item before marking exhausted                             |
+| `max_queue_size`         | int   | Maximum queue capacity                                                              |
+| `utilization_pct`        | float | Current queue utilization as a percentage of max size                               |
+| `delay_between_messages` | float | Configured minimum pacing delay in seconds                                          |
+| `last_send_time`         | float | `time.monotonic()` of the last successful send                                      |
 
-.. note::
+> **Note:** Counter names (`total_requeued`, `total_exhausted`,
+> `total_permanent_failed`, `max_attempts`) are the `queue_health` property
+> names. Adapter diagnostics prefix these with `queue_` (e.g.
+> `queue_total_exhausted`, `queue_total_permanent_failed`) and use
+> `queue_send_max_attempts` instead of `max_attempts`. Both surfaces expose
+> the same underlying values.
 
-`drain_task_running` is an adapter-level diagnostics field, not a
-queue-level field. Query it via `adapter.diagnostics()["drain_task_running"]`
-instead of `adapter.queue_health["drain_task_running"]`.
+> **Note:** `drain_task_running` is an adapter-level diagnostics field, not a
+> queue-level field. Query it via
+> `adapter.diagnostics()["drain_task_running"]` instead of
+> `adapter.queue_health["drain_task_running"]`.
 
 These counters are cumulative for the lifetime of the adapter instance (not reset on stop/start).
 
@@ -472,7 +484,7 @@ There is no periodic "still alive" log. Silence is normal when no packets arrive
 
 `send_one()` dequeues one item from the outbound queue, applies pacing delay, and calls `client.sendText(text, channelIndex=channel_index)` via `asyncio.to_thread()`. The send result is a `MeshPacket` protobuf with a populated `id` field.
 
-Successful sends increment `total_sent`. Failed sends increment `total_failed` and **re-raise the exception** to the caller. Failed items are permanently dropped — they are NOT requeued or retried (see section 9).
+Successful sends increment `total_sent`. Transient send failures trigger adapter-local retry: the item is requeued and retried up to `max_attempts` times. If retries exhaust, the item is dropped and `total_exhausted` is incremented; the exception is not re-raised. Permanent send failures are not retried and increment `total_permanent_failed`. See section 9 for the full retry contract.
 
 ## 8. Canonical Metadata Structure
 
@@ -550,15 +562,18 @@ EventRelation(
 
 In fake mode, `send_one()` returns `None` — no real send occurs.
 
-### 9.2 Retry semantics (current: none for send failures)
+### 9.2 Retry semantics (bounded adapter-local retry)
 
-**There is no outbound retry logic for send failures.** When `send_one()` fails:
+Transient local SDK send failures are retried from the adapter-local queue:
 
-- The dequeued item is **permanently dropped**. It is NOT requeued or retried.
-- `total_failed` is incremented.
-- The exception is re-raised to the caller of `send_one()`.
+- Each queued item may be sent up to `queue_send_max_attempts` times (default configured at queue creation).
+- On a transient `send_one()` failure, the item is requeued and retried on the next drain cycle. `total_requeued` is incremented.
+- If the item exhausts all attempts, it is permanently dropped and `total_exhausted` is incremented; the exception is not re-raised.
+- Permanent failures (non-transient SDK errors) are not retried and increment `total_permanent_failed` and `total_failed` immediately.
 
-This is an explicit scaffold design choice, documented in the queue module: "Production-grade retry / requeue logic is explicitly deferred to a future tranche."
+Retry is **best-effort, adapter-local, in-memory, and non-durable**. The retry counter and queue contents are lost on process restart. Retry is not exactly-once: a retried send may succeed on a second attempt even though the first attempt may have partially transmitted.
+
+Exhausted retries are visible in diagnostics: `total_requeued`, `total_exhausted`, `total_permanent_failed`, and `max_attempts` are exposed via `queue_health`. Adapter diagnostics surface the same values with the `queue_` prefix and `queue_send_max_attempts`.
 
 **Queue overflow is explicitly rejected (not silently evicted).** When `deliver()` is called and the outbound queue is full, `enqueue()` raises `MeshtasticSendError(transient=True)`. The adapter's `deliver()` method catches this and raises `AdapterSendError(transient=True)`. The pipeline classifies this as `ADAPTER_TRANSIENT` and may retry the delivery according to the route's retry policy. Existing queued items are never evicted to make room for new ones.
 
@@ -566,9 +581,11 @@ This is an explicit scaffold design choice, documented in the queue module: "Pro
 
 ### 9.3 Duplicate-send risk
 
-Because there is no retry, there is **no duplicate-send risk from the adapter**. Each queued item is processed exactly once. If the send succeeds, the item is consumed. If it fails, the item is dropped.
+The adapter-local retry introduces a duplicate-send window. If a transient `sendText` failure occurs but the local node already accepted the packet for transmission, the retry will send the same payload a second time. The adapter does not track which attempts partially succeeded, so duplicates at the radio level are possible on retry boundaries.
 
-However, at the radio mesh level, Meshtastic firmware itself may retransmit packets. This is outside the adapter's control and is a characteristic of the radio network, not the adapter.
+This is bounded by `queue_send_max_attempts`. After exhausting retries, the item is dropped and no further sends are attempted for it.
+
+At the radio mesh level, Meshtastic firmware itself may retransmit packets. This is outside the adapter's control and is a characteristic of the radio network, not the adapter.
 
 ### 9.4 Packet-loss caveats
 
@@ -719,7 +736,7 @@ This is an honest list. Everything here is real.
 
 1. **No automatic reconnection.** If the connection to the node is lost, the adapter does not recover. Manual `stop()` + `start()` is required. See section 12.
 
-2. **No outbound retry.** Failed sends are permanently dropped, not requeued. Queue drain is reliably cancelled on stop. See section 9.2.
+2. **Bounded adapter-local retry for transient send failures.** Failed sends are retried up to `queue_send_max_attempts` from the in-memory queue. Exhausted retries and permanent failures are dropped. Retry is not durable across process restart and is not exactly-once. See section 9.2.
 
 3. **No inbound persistence.** Inbound events are published directly via `ctx.publish_inbound()`. If the callback is slow or fails, the event is gone. There is no retry, no dead letter queue, no redelivery.
 
@@ -848,7 +865,7 @@ The underlying `client.sendText()` call failed. This typically means:
 - The serial cable was disconnected.
 - The node firmware rejected the message (e.g., too long, wrong channel).
 
-The failed item is permanently dropped (not retried). You must re-enqueue if you want to retry.
+The failed item has exhausted its retry budget and is permanently dropped. If the failure is transient and the item had remaining attempts, it will be requeued automatically. If you see repeated failures, check the connection health and `total_exhausted` in `queue_health`.
 
 ### 15.8 `TypeError: MeshtasticAdapter.deliver() accepts RenderingResult only`
 
@@ -961,7 +978,7 @@ The following features are not supported in alpha mode. Do not attempt to use th
 | Feature                      | Status                                    | Notes                                                                                                                                                                         |
 | ---------------------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Automatic reconnection       | Not implemented                           | See section 12                                                                                                                                                                |
-| Outbound retry               | Not implemented                           | Failed sends are permanently dropped                                                                                                                                          |
+| Outbound retry               | Bounded adapter-local retry               | Transient SDK failures retried up to `queue_send_max_attempts`; permanent failures and exhausted retries are dropped                                                          |
 | ACK / delivery confirmation  | Not implemented                           | `wantAck` is not set                                                                                                                                                          |
 | Telemetry decoding           | Not supported                             | Telemetry packets are classified but silently dropped                                                                                                                         |
 | Position / GPS decoding      | Not supported                             | Position packets are classified but silently dropped                                                                                                                          |

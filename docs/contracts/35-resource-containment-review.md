@@ -53,9 +53,9 @@ This is a review document. No runtime redesign is proposed.
 
 - **Reconnect attempts:** Max 10 (`_MAX_RECONNECT_ATTEMPTS`). After exhaustion, `_sync_failure` is set and the sync loop exits.
 - **Backoff:** Exponential, base 1s, cap 60s, ±25% jitter. No retry after budget exhaustion.
-- **No send retry.** `deliver()` calls `room_send` once. On failure, adapter normalizes internal `MatrixSendError` and raises `AdapterSendError`/`AdapterPermanentError`. No retry loop.
+- **Bounded send retry.** `deliver()` retries transient send failures up to 3 times with a stable per-delivery `tx_id`. The homeserver uses `tx_id` to deduplicate retried attempts within its transaction-ID window, reducing duplicate visible messages. This is not exactly-once delivery; duplicates are still possible across restarts or outside the dedup window.
 
-**Risk assessment:** Low. The retry budget is finite and the session does not retry sends. The backoff prevents thundering-herd reconnection attempts.
+**Risk assessment:** Low. The retry budget is finite and bounded. The stable `tx_id` reduces but does not eliminate duplicate risk. The backoff prevents thundering-herd reconnection attempts.
 
 ### 3.3 Callback Management
 
@@ -144,13 +144,15 @@ Existing tests in `tests/test_matrix_session.py` and its split files cover:
 The outbound queue is owned by the adapter, not the session. Key resource
 properties:
 
-- **Queue:** `collections.deque` — unbounded, in-memory. No max size.
+- **Queue:** `collections.deque` — capacity enforced explicitly at enqueue time via `max_queue_size`; the internal deque is unbounded but growth is prevented by enqueue rejection. In-memory.
   - **Risk:** Memory grows linearly if messages are enqueued faster than processed.
-  - **Mitigation:** `process_one()` drains one item at a time with pacing delay. Caller controls dequeue rate.
-  - **Residual risk:** No backpressure. If the adapter enqueues faster than the radio can send, the queue grows without bound.
+  - **Mitigation:** `process_one()` drains one item at a time with pacing delay. Caller controls dequeue rate. Queue overflow is rejected (not silently evicted).
+  - **Residual risk:** No backpressure. If the adapter enqueues faster than the radio can send, the queue grows up to `max_queue_size`, then rejects new enqueues.
 
-- **Failed items are dropped, not requeued.** `total_failed` counter increments.
-  - **By design.** Scaffold queue; production retry is deferred.
+- **Transient send failures are retried** up to `queue_send_max_attempts` from the
+  adapter-local in-memory queue. `total_requeued` increments on each retry.
+  Exhausted retries and permanent failures are dropped. Retry is best-effort,
+  non-durable, and not exactly-once.
 
 ### 4.6 Test Coverage
 
@@ -260,15 +262,15 @@ model, and no raw-object leakage.
 | **Background tasks**       | 1 (sync)              | 0–1 (reconnect)           | 0–1 (reconnect)           | 0–2 (reconnect + announce)  |
 | **SDK client**             | nio AsyncClient       | mtjk interface            | meshcore.MeshCore         | RNS + Identity + LXMRouter  |
 | **Max reconnect attempts** | 10                    | 10                        | 10                        | 10                          |
-| **Max send retries**       | 0 (no retry)          | 3                         | 3                         | 3                           |
-| **Outbound queue**         | None                  | Scaffold (lossy)          | None                      | None (router-managed)       |
+| **Max send retries**       | 3 (bounded retry)     | `queue_send_max_attempts` | 3                         | 3                           |
+| **Outbound queue**         | None                  | Bounded retry (in-memory) | None                      | None (router-managed)       |
 | **Monotonic counters**     | 1 (undecryptable)     | 2 (transient + permanent) | 2 (transient + permanent) | 2 (transient + permanent)   |
 | **Memory growth risk**     | `_room_states` dict   | Outbound queue            | None                      | `_outbound_deliveries` dict |
 | **Disk persistence**       | Crypto store (SQLite) | None                      | None                      | Identity file (raw key)     |
 
 ## 8. Key Findings
 
-1. **All sessions have bounded retry budgets.** Max 10 reconnects, max 3 send retries (except Matrix which has no send retry). No unbounded retry loops.
+1. **All sessions have bounded retry budgets.** Max 10 reconnects. Meshtastic adapter-local queue retries transient send failures up to `queue_send_max_attempts`. Matrix bounded send retry (3) with stable `tx_id`. MeshCore and LXMF cap at 3 send retries. No unbounded retry loops.
 
 2. **All sessions have idempotent stop()** with timeout-based task cancellation. The `_stop_requested` flag prevents zombie reconnect loops.
 
@@ -276,7 +278,7 @@ model, and no raw-object leakage.
 
 4. **Three memory growth risks identified:**
    - Matrix `_room_states` dict (mitigated by clear on start).
-   - Meshtastic outbound queue (no max size; mitigated by pacing).
+   - Meshtastic outbound queue is bounded by explicit `max_queue_size` (default 1024); overflow rejects new enqueues instead of evicting accepted items. Pacing provides additional backpressure.
    - LXMF `_outbound_deliveries` dict (no eviction for completed deliveries).
 
 5. **No secret leakage through diagnostics.** All diagnostics snapshots use read-only dataclasses that exclude secrets, tokens, keys, and raw SDK objects.

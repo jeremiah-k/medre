@@ -60,12 +60,12 @@ cross-transport orchestration.
 
 ### 3.4 Queue-Drain Semantics
 
-| Category           | Definition                                                                    |
-| ------------------ | ----------------------------------------------------------------------------- |
-| **FIFO drain**     | Messages are drained in order; no reordering under normal conditions.         |
-| **Lossy drain**    | Some messages may be silently dropped during drain (e.g., queue overflow).    |
-| **No queue**       | No outbound queue; sends are immediate and fire-and-forget.                   |
-| **Scaffold queue** | Outbound queue exists but failed items are permanently dropped, not requeued. |
+| Category           | Definition                                                                                                                                   |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| **FIFO drain**     | Messages are drained in order; no reordering under normal conditions.                                                                        |
+| **Lossy drain**    | Some messages may be silently dropped during drain (e.g., queue overflow).                                                                   |
+| **No queue**       | No outbound queue; sends are immediate and fire-and-forget.                                                                                  |
+| **Scaffold queue** | Outbound queue with bounded retry: transient SDK failures retried up to `queue_send_max_attempts`; exhausted and permanent failures dropped. |
 
 ## 4. Matrix Failure Taxonomy
 
@@ -184,13 +184,19 @@ raise `AdapterSendError` to the caller (normalizing the internal `MatrixSendErro
 
 ### 5.4 Queue-Drain Semantics: Meshtastic
 
-MEDRE uses a **scaffold outbound queue** (`MeshtasticOutboundQueue`):
+MEDRE uses a **bounded-retry outbound queue** (`MeshtasticOutboundQueue`):
 
 - Messages are dequeued one at a time via `process_one`.
 - Pacing delay enforced between sends (`delay_between_messages`, default 0.5 s).
-- **Failed items are permanently dropped** — not requeued. `total_failed` is
-  incremented and the exception is re-raised.
-- No persistence; queue contents are lost on adapter shutdown.
+- **Transient send failures are retried** up to `queue_send_max_attempts` times from
+  the adapter-local in-memory queue. `total_requeued` is incremented on each retry.
+- **Exhausted retries and permanent failures are dropped.** `total_exhausted` (for
+  exhausted retries) and `total_permanent_failed` (for permanent failures) are
+  incremented. `total_failed` is a superset of both (terminal send failures
+  = exhausted retries + permanent failures). The item
+  is permanently discarded; the exception is not re-raised.
+- No persistence; queue contents and retry counters are lost on adapter shutdown.
+- Retry is best-effort, adapter-local, in-memory, non-durable, and not exactly-once.
 
 ### 5.5 Delivery Uncertainty Window: Meshtastic
 
@@ -348,8 +354,10 @@ directly on the LXMRouter. The router manages its own internal delivery queue.
    provide none. LXMF provides asynchronous state callbacks but no guaranteed
    delivery time.
 
-3. **Queue-drain loss is by design** in Meshtastic. Failed sends are dropped,
-   not requeued. This is a scaffold design choice, not a bug.
+3. **Queue-drain retry is bounded** in Meshtastic. Transient SDK send failures are
+   retried up to `queue_send_max_attempts` from the adapter-local in-memory queue.
+   Exhausted retries and permanent failures are dropped. Retry is best-effort,
+   non-durable, and not exactly-once.
 
 4. **E2EE failures in Matrix are recoverable** (re-verify device, re-send keys)
    but require operator intervention. MEDRE does not automate crypto recovery.

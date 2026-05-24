@@ -82,6 +82,14 @@ class MeshtasticConfig:
         MMRelay ``DEFAULT_MESSAGE_TRUNCATE_BYTES`` constant.  ``0``
         means the final text renders as an empty string.  Env override:
         ``MEDRE_ADAPTER__<TOKEN>__MAX_TEXT_BYTES``.
+    queue_send_max_attempts:
+        Maximum number of send attempts per queued item (first attempt
+        + retries).  When a transient send failure occurs and the
+        attempt count is below this limit the item is requeued to the
+        front of the queue for immediate retry.  When attempts are
+        exhausted the item is dropped and counted as exhausted.
+        ``bool``, non-``int``, and ``<= 0`` values are invalid.
+        Default: ``3``.
     """
 
     adapter_id: str
@@ -100,6 +108,7 @@ class MeshtasticConfig:
     radio_relay_prefix: str = "{shortname5}[M]: "
     mmrelay_compatibility: bool = False
     max_text_bytes: int = 227
+    queue_send_max_attempts: int = 3
 
     def validate(self) -> Self:
         """Validate the configuration and return *self* for chaining.
@@ -164,5 +173,19 @@ class MeshtasticConfig:
             raise MeshtasticConfigError(
                 f"startup_backlog_suppress_seconds must be >= 0, "
                 f"got {self.startup_backlog_suppress_seconds}"
+            )
+        if isinstance(self.queue_send_max_attempts, bool):
+            raise MeshtasticConfigError(
+                "queue_send_max_attempts must be an int, got bool"
+            )
+        if not isinstance(self.queue_send_max_attempts, int):
+            raise MeshtasticConfigError(
+                f"queue_send_max_attempts must be an int, "
+                f"got {type(self.queue_send_max_attempts).__name__}"
+            )
+        if self.queue_send_max_attempts <= 0:
+            raise MeshtasticConfigError(
+                f"queue_send_max_attempts must be > 0, "
+                f"got {self.queue_send_max_attempts}"
             )
         return self

@@ -160,6 +160,7 @@ class MeshtasticAdapter(AdapterContract):
         self._classifier = MeshtasticPacketClassifier(config)
         self._queue = MeshtasticOutboundQueue(
             delay_between_messages=config.message_delay_seconds,
+            max_attempts=config.queue_send_max_attempts,
         )
         self.ctx: AdapterContext | None = None
         self._started: bool = False
@@ -712,7 +713,11 @@ class MeshtasticAdapter(AdapterContract):
             "queue_total_enqueued": self._queue.total_enqueued,
             "queue_total_dequeued": self._queue.total_dequeued,
             "queue_total_rejected": self._queue.total_rejected,
+            "queue_total_requeued": self._queue.total_requeued,
+            "queue_total_exhausted": self._queue.total_exhausted,
+            "queue_total_permanent_failed": self._queue.total_permanent_failed,
             "queue_max_size": self._queue.max_queue_size,
+            "queue_send_max_attempts": self._queue.max_attempts,
             "queue_utilization_pct": self._queue.queue_health["utilization_pct"],
             "queue_delay_between_messages": self._queue.delay_between_messages,
             "queue_last_send_time": self._queue.queue_health["last_send_time"],
