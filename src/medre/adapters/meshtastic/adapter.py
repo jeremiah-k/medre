@@ -39,6 +39,15 @@ Lifecycle
 times is safe.  The adapter tracks background :class:`asyncio.Task`
 instances spawned by inbound packet callbacks and drains them on stop.
 
+**Inbound-path lifecycle guard.** The SDK reader thread calls
+:meth:`_on_packet` which schedules an async publish via
+``asyncio.run_coroutine_threadsafe``.  The resulting
+``concurrent.futures.Future`` is tracked in ``_inbound_futures``.
+On :meth:`stop`, ``_started`` is cleared *before* draining, causing
+:meth:`_on_packet` to reject late packets and :meth:`_on_packet_async`
+to skip publication against a torn-down session.  Remaining inbound
+futures are cancelled during :meth:`_drain_background_tasks`.
+
 Session boundary
 ----------------
 The adapter delegates raw transport lifecycle to
@@ -58,6 +67,7 @@ external dependencies.
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import time
 from datetime import datetime, timezone
 from types import MappingProxyType
@@ -135,6 +145,12 @@ class MeshtasticAdapter(AdapterContract):
     The session owns the raw client; the adapter owns semantic conversion
     (classification, codec, event publishing).
 
+    **Inbound-path lifecycle guard.**  ``run_coroutine_threadsafe``
+    Futures are tracked in ``_inbound_futures`` and cancelled on stop.
+    The ``_started`` flag gates both :meth:`_on_packet` (sync, SDK
+    thread) and :meth:`_on_packet_async` (async, event loop) to
+    prevent late-packet processing after session teardown.
+
     Parameters
     ----------
     config:
@@ -165,6 +181,7 @@ class MeshtasticAdapter(AdapterContract):
         self.ctx: AdapterContext | None = None
         self._started: bool = False
         self._background_tasks: set[asyncio.Task] = set()
+        self._inbound_futures: set[concurrent.futures.Future[object]] = set()
         self._loop: asyncio.AbstractEventLoop | None = None
         self._drain_task: asyncio.Task | None = None
 
@@ -252,7 +269,12 @@ class MeshtasticAdapter(AdapterContract):
         """Disconnect from the Meshtastic node.
 
         Idempotent: calling stop on an already-stopped adapter is a no-op.
-        Cancels all tracked background tasks before shutting down.
+        Cancels all tracked background tasks and inbound futures before
+        shutting down.
+
+        The ``_started`` flag is cleared *before* draining so that the
+        inbound-path guard in :meth:`_on_packet` rejects any late packets
+        arriving from the SDK reader thread during teardown.
 
         Parameters
         ----------
@@ -261,6 +283,12 @@ class MeshtasticAdapter(AdapterContract):
         """
         if not self._started:
             return
+
+        # Gate new inbound scheduling *before* draining.  The SDK reader
+        # thread may still call _on_packet during teardown; this flag
+        # causes _on_packet to return early, preventing new
+        # run_coroutine_threadsafe submissions.
+        self._started = False
 
         # Cancel the queue drain background task.
         if self._drain_task is not None:
@@ -271,7 +299,7 @@ class MeshtasticAdapter(AdapterContract):
                 pass
             self._drain_task = None
 
-        # Cancel all tracked background tasks and drain them.
+        # Cancel all tracked background tasks and drain inbound futures.
         await self._drain_background_tasks(timeout)
 
         # Delegate stop to session
@@ -280,7 +308,6 @@ class MeshtasticAdapter(AdapterContract):
 
         self._client = None
         self._session = None
-        self._started = False
         if self.ctx is not None:
             self.ctx.logger.info("MeshtasticAdapter %s stopped", self.adapter_id)
 
@@ -555,11 +582,21 @@ class MeshtasticAdapter(AdapterContract):
         Classifies the packet, decodes it via the codec, and publishes
         the resulting canonical event inbound.
 
+        Called from the Meshtastic SDK reader thread.  The ``_started``
+        guard rejects packets that arrive after :meth:`stop` has been
+        called, preventing late coroutine scheduling against a torn-down
+        session.
+
         Parameters
         ----------
         packet:
             Raw Meshtastic packet dict.
         """
+        # Inbound-path lifecycle guard: reject packets arriving after
+        # stop() has cleared _started.  This check runs before any
+        # coroutine is scheduled via run_coroutine_threadsafe.
+        if not self._started:
+            return
         if self.ctx is None:
             return
 
@@ -623,10 +660,17 @@ class MeshtasticAdapter(AdapterContract):
             # Schedule the async publish — _on_packet is called from the
             # Meshtastic SDK reader thread, so we use run_coroutine_threadsafe
             # instead of asyncio.create_task (which requires a running loop
-            # in the current thread).
+            # in the current thread).  The resulting Future is tracked in
+            # _inbound_futures so that stop() can drain/cancel it.
             if self._loop is not None and not self._loop.is_closed():
-                asyncio.run_coroutine_threadsafe(
-                    self._on_packet_async(canonical), self._loop
+                future: concurrent.futures.Future[object] = (
+                    asyncio.run_coroutine_threadsafe(
+                        self._on_packet_async(canonical), self._loop
+                    )
+                )
+                self._inbound_futures.add(future)
+                future.add_done_callback(
+                    lambda f: self._inbound_futures.discard(f)
                 )
         except Exception:
             if self.ctx is not None:
@@ -641,13 +685,18 @@ class MeshtasticAdapter(AdapterContract):
         Publishes the canonical event and logs exceptions from the
         background task.
 
+        The ``_started`` guard prevents publication after :meth:`stop`
+        has been called — this catches coroutines that were already
+        scheduled via ``run_coroutine_threadsafe`` but haven't executed
+        yet when teardown begins.
+
         Parameters
         ----------
         canonical:
             The decoded canonical event to publish.
         """
         try:
-            if self.ctx is not None:
+            if self.ctx is not None and self._started:
                 await self.publish_inbound(canonical)
                 self._inbound_published += 1
         except Exception:
@@ -773,13 +822,26 @@ class MeshtasticAdapter(AdapterContract):
     # -- Background task management -----------------------------------------
 
     async def _drain_background_tasks(self, timeout: float = 5.0) -> None:
-        """Cancel and await all tracked background tasks.
+        """Cancel and await all tracked background tasks and inbound futures.
+
+        First drains ``concurrent.futures.Future`` instances submitted by
+        :meth:`_on_packet` via ``run_coroutine_threadsafe`` — cancelling
+        any that haven't started yet and suppressing results from those
+        still in flight.  Then cancels and awaits tracked
+        :class:`asyncio.Task` instances.
 
         Parameters
         ----------
         timeout:
             Maximum seconds to wait for tasks to finish after cancellation.
         """
+        # --- Drain inbound futures (run_coroutine_threadsafe) ---
+        # Cancel any that haven't started; suppress results from the rest.
+        for future in list(self._inbound_futures):
+            future.cancel()
+        self._inbound_futures.clear()
+
+        # --- Drain asyncio background tasks ---
         for task in list(self._background_tasks):
             task.cancel()
         if self._background_tasks:

@@ -22,6 +22,7 @@ import asyncio
 import enum
 import logging
 import time as _time
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
@@ -866,6 +867,9 @@ class MedreApp:
                     drain_snap["delivery_current"],
                     drain_snap["replay_current"],
                 )
+                # Persist structured abandonment evidence for in-flight
+                # deliveries that could not complete before the drain deadline.
+                await self._persist_drain_abandoned_evidence()
 
         # Signal shutdown to adapters and waiters.
         self.shutdown_event.set()
@@ -970,6 +974,65 @@ class MedreApp:
             await self.shutdown_event.wait()
 
     # -- Helpers -----------------------------------------------------------------
+
+    async def _persist_drain_abandoned_evidence(self) -> None:
+        """Persist structured abandonment receipts for in-flight deliveries.
+
+        Called from :meth:`stop` when the drain deadline expires with
+        deliveries still in-flight.  Produces one ``status="suppressed"``
+        :class:`DeliveryReceipt` per abandoned delivery with
+        ``failure_kind="shutdown_rejection"`` and
+        ``error="shutdown_drain_timeout"``, enabling operators to audit
+        what was lost via ``medre inspect receipts``.
+
+        Silently skips persistence when storage is unavailable or when no
+        in-flight deliveries are tracked by the pipeline runner.
+        """
+        from medre.core.events.canonical import DeliveryReceipt
+        from medre.core.planning.delivery_plan import DeliveryFailureKind
+
+        abandoned = self.pipeline_runner.drain_abandoned_deliveries()
+        if not abandoned or self.storage is None:
+            return
+
+        now = datetime.now(tz=timezone.utc)
+        persisted_count = 0
+        for inflight in abandoned:
+            receipt = DeliveryReceipt(
+                sequence=0,
+                receipt_id=f"rcpt-{uuid.uuid4()}",
+                event_id=inflight.event_id,
+                delivery_plan_id=inflight.delivery_plan_id,
+                target_adapter=inflight.target_adapter,
+                target_channel=inflight.target_channel,
+                route_id=inflight.route_id,
+                status="suppressed",
+                error="shutdown_drain_timeout",
+                failure_kind=DeliveryFailureKind.SHUTDOWN_REJECTION.value,
+                next_retry_at=None,
+                created_at=now,
+                attempt_number=1,
+                parent_receipt_id=None,
+                source=inflight.source,
+                replay_run_id=inflight.replay_run_id,
+            )
+            try:
+                await self.storage.append_receipt(receipt)
+                persisted_count += 1
+            except Exception as exc:
+                _logger.error(
+                    "Failed to persist drain-abandoned receipt for "
+                    "event_id=%s target_adapter=%s: %s",
+                    inflight.event_id,
+                    inflight.target_adapter,
+                    exc,
+                )
+
+        if persisted_count > 0:
+            _logger.info(
+                "Persisted %d drain-abandoned receipt(s) as shutdown_rejection evidence",
+                persisted_count,
+            )
 
     async def _cleanup_started_adapters(self) -> None:
         """Stop already-started adapters in reverse order during failed startup.

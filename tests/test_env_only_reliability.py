@@ -456,16 +456,12 @@ class TestEnvOnlyReliability:
                 pytest.fail(f"app.stop() failed: {exc!r}")
 
     def test_loop_suppressed_is_not_retryable(self) -> None:
-        """LOOP_SUPPRESSED and DUPLICATE_SUPPRESSED are not retryable
-        and classify as permanent failures."""
+        """LOOP_SUPPRESSED is not retryable and classifies as a permanent failure."""
         from medre.core.observability.classification import (
             PERMANENT_KINDS,
             failure_category,
         )
 
         assert not DeliveryFailureKind.LOOP_SUPPRESSED.is_retryable
-        assert not DeliveryFailureKind.DUPLICATE_SUPPRESSED.is_retryable
         assert DeliveryFailureKind.LOOP_SUPPRESSED.value in PERMANENT_KINDS
-        assert DeliveryFailureKind.DUPLICATE_SUPPRESSED.value in PERMANENT_KINDS
         assert failure_category("loop_suppressed") == "permanent"
-        assert failure_category("duplicate_suppressed") == "permanent"

@@ -104,6 +104,8 @@ class AdapterDeliveryResult:
         Platform-native channel / room / conversation ID.
     native_thread_id:
         Platform-native thread or parent message ID, if applicable.
+        **Reserved** — no adapter currently populates this field; it
+        is always ``None`` at runtime.
     native_relation_id:
         Platform-native ID of the related entity (e.g. the message
         being replied to), if applicable.  **Reserved** — no adapter
@@ -301,8 +303,12 @@ class OutboundNativeRefRecord:
         from the external platform — never empty or fabricated.
     native_thread_id:
         Thread ID in the adapter's native format, if applicable.
+        **Reserved** — no adapter currently populates this field; it
+        is always ``None`` at runtime.
     native_relation_id:
         ID of the related native entity, if applicable.
+        **Reserved** — no adapter currently populates this field; it
+        is always ``None`` at runtime.
     metadata:
         Adapter-specific metadata about this mapping.  Must contain only
         JSON-safe, simple values.

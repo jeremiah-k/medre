@@ -157,11 +157,6 @@ class DeliveryFailureKind(Enum):
     ADAPTER_MISSING:
         The target adapter ID is not registered in the pipeline config
         (no adapter instance exists for that ID).  Always permanent.
-    TARGET_NOT_FOUND:
-        Reserved.  Not currently emitted by any adapter.  Conditions
-        where a channel, address, or destination is not found are
-        currently classified as :attr:`ADAPTER_PERMANENT` unless a
-        future adapter-specific path deliberately maps them here.
     DEADLINE_EXCEEDED:
         The delivery plan's ``deadline`` has passed.  Not retryable.
     CAPACITY_REJECTION:
@@ -171,15 +166,6 @@ class DeliveryFailureKind(Enum):
     SHUTDOWN_REJECTION:
         Delivery was attempted while the pipeline is shutting down
         (capacity controller no longer accepting work).  Not retryable.
-    DUPLICATE_SUPPRESSED:
-        Reserved — defined in the enum but not currently emitted as a
-        :class:`DeliveryOutcome` or receipt failure kind.  Duplicate
-        native-ref suppression currently returns an empty outcomes list
-        and does not persist a duplicate receipt.  Suppression occurs at
-        Stage 1.5 *before* the inbound event is stored, so there is no
-        persisted event to link a receipt to.  If a future refactor moves
-        dedup after storage, this member can be used to emit a
-        ``status="suppressed"`` receipt at that point.  Not retryable.
     LOOP_SUPPRESSED:
         Delivery was suppressed by a loop-prevention guard
         (self-loop or route-trace).  Not retryable.
@@ -190,11 +176,9 @@ class DeliveryFailureKind(Enum):
     ADAPTER_TRANSIENT = "adapter_transient"
     ADAPTER_PERMANENT = "adapter_permanent"
     ADAPTER_MISSING = "adapter_missing"
-    TARGET_NOT_FOUND = "target_not_found"
     DEADLINE_EXCEEDED = "deadline_exceeded"
     CAPACITY_REJECTION = "capacity_rejection"
     SHUTDOWN_REJECTION = "shutdown_rejection"
-    DUPLICATE_SUPPRESSED = "duplicate_suppressed"
     LOOP_SUPPRESSED = "loop_suppressed"
 
     @property

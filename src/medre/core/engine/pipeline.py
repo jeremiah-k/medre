@@ -148,6 +148,48 @@ class _PipelineLoggingMiddleware:
         return event
 
 
+# ---------------------------------------------------------------------------
+# In-flight delivery tracking
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class InflightDelivery:
+    """Identity record for a delivery currently in-flight in the pipeline.
+
+    Used by :meth:`PipelineRunner.drain_abandoned_deliveries` to produce
+    structured shutdown evidence when drain timeout expires.
+
+    Attributes
+    ----------
+    event_id:
+        Canonical event ID being delivered.
+    route_id:
+        Route that matched this delivery.
+    target_adapter:
+        Target adapter for this delivery.
+    target_channel:
+        Channel on the target adapter, if applicable.
+    delivery_plan_id:
+        ID of the delivery plan governing this attempt.
+    source:
+        Origin of delivery: ``"live"``, ``"retry"``, or ``"replay"``.
+    replay_run_id:
+        When ``source="replay"``, the replay run identifier.
+    acquired_at:
+        Monotonic timestamp when the delivery slot was acquired.
+    """
+
+    event_id: str
+    route_id: str
+    target_adapter: str
+    target_channel: str | None
+    delivery_plan_id: str
+    source: str
+    replay_run_id: str | None
+    acquired_at: float
+
+
 class _AdapterDeliveryError(Exception):
     """Raised by ``deliver_to_target`` after persisting a failed receipt.
 
@@ -257,6 +299,7 @@ class PipelineRunner:
         self._runtime_accounting: RuntimeAccounting | None = config.runtime_accounting
         self._capacity_controller: CapacityController | None = None
         self._delivery_rejection_count: int = 0
+        self._inflight_deliveries: dict[str, InflightDelivery] = {}
 
     # -- Lifecycle ----------------------------------------------------------
 
@@ -311,6 +354,24 @@ class PipelineRunner:
             self._config.event_bus.remove_middleware(self._middleware)
             self._middleware = None
         self._log.info("PipelineRunner stopped")
+
+    def drain_abandoned_deliveries(self) -> list[InflightDelivery]:
+        """Return and clear all tracked in-flight deliveries.
+
+        Called by :class:`~medre.runtime.app.MedreApp.stop()` after drain
+        timeout expires to produce structured abandonment evidence.  After
+        this call the internal registry is empty — callers own the returned
+        list and should persist receipts before releasing the data.
+
+        Returns
+        -------
+        list[InflightDelivery]
+            In-flight delivery identity records that were abandoned due to
+            drain timeout.  May be empty if all work completed in time.
+        """
+        abandoned = list(self._inflight_deliveries.values())
+        self._inflight_deliveries.clear()
+        return abandoned
 
     # -- Ingress -----------------------------------------------------------
 
@@ -382,10 +443,10 @@ class PipelineRunner:
                 # NOTE(duplicate_suppressed): No DeliveryReceipt is persisted
                 # here because this check runs at Stage 1.5 — *before* the
                 # inbound event is stored (Stage 3).  There is no persisted
-                # event_id to link a receipt to.  DUPLICATE_SUPPRESSED remains
-                # reserved in the DeliveryFailureKind enum for a future path
-                # where dedup occurs after storage.  Evidence of this
-                # suppression is recorded via RuntimeAccounting counters only.
+                # event_id to link a receipt to.  DUPLICATE_SUPPRESSED was
+                # removed from the DeliveryFailureKind enum because it was
+                # never emitted.  Evidence of this suppression is recorded
+                # via RuntimeAccounting counters only.
                 return []
 
         # Accounting: inbound event accepted past validation + dedup.
@@ -1167,7 +1228,23 @@ class PipelineRunner:
                         error=capacity_error,
                         duration_ms=elapsed,
                     )
+            # Compute tracking key outside try to satisfy static analysis.
+            _inflight_key: str = (
+                f"{event.event_id}:{route.id}:{adapter_id}:{route_plan.plan_id}"
+            )
             try:
+                # Track in-flight delivery identity for shutdown evidence.
+                if self._capacity_controller is not None:
+                    self._inflight_deliveries[_inflight_key] = InflightDelivery(
+                        event_id=event.event_id,
+                        route_id=route.id,
+                        target_adapter=adapter_id,
+                        target_channel=target.channel,
+                        delivery_plan_id=route_plan.plan_id,
+                        source=source,
+                        replay_run_id=replay_run_id,
+                        acquired_at=t0,
+                    )
                 # Route-trace loop prevention: skip if this route has already
                 # been traversed in a *prior* routing pass.  The first occurrence
                 # of a route ID in the trace is the current pass — allow it.
@@ -1380,7 +1457,9 @@ class PipelineRunner:
                         duration_ms=elapsed,
                     )
             finally:
+                # Untrack in-flight delivery identity.
                 if self._capacity_controller is not None:
+                    self._inflight_deliveries.pop(_inflight_key, None)
                     await self._capacity_controller.release_delivery()
 
         return list(

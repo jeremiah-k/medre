@@ -1,6 +1,6 @@
 """Shutdown-under-traffic tests proving MEDRE handles shutdown gracefully.
 
-Seven tests exercise deterministic shutdown behaviour while ingress events
+Nine tests exercise deterministic shutdown behaviour while ingress events
 are in-flight.  Every test uses fake adapters (zero network, zero hardware)
 and deterministic signalling (asyncio.Event / wait_until) instead of fixed sleeps.
 """
@@ -531,3 +531,209 @@ class TestDoubleStopHarmless:
             assert app.state == RuntimeState.STOPPED
         finally:
             os.unlink(cfg_path)
+
+
+# ===================================================================
+# Test 8: Drain timeout produces abandoned delivery receipts
+# ===================================================================
+
+
+class TestDrainTimeoutAbandonedEvidence:
+    """When drain timeout expires, abandoned deliveries produce persisted receipts."""
+
+    @pytest.mark.asyncio
+    async def test_drain_timeout_produces_abandoned_receipts(
+        self, temp_db: SQLiteStorage
+    ) -> None:
+        """Hold a delivery slot via a slow adapter, trigger drain timeout,
+        verify that an abandoned receipt is persisted with
+        failure_kind=shutdown_rejection and error=shutdown_drain_timeout.
+        """
+        from medre.core.engine.pipeline import InflightDelivery
+
+        # Build a slow adapter that blocks delivery until we release it.
+        block_event = asyncio.Event()
+        dst = FakePresentationAdapter("fake_dst")
+        original_deliver = dst.deliver
+
+        async def _slow_deliver(rendering_result: Any) -> Any:
+            # Block until the test releases us or times out.
+            try:
+                await asyncio.wait_for(block_event.wait(), timeout=5.0)
+            except asyncio.TimeoutError:
+                pass
+            return await original_deliver(rendering_result)
+
+        dst.deliver = _slow_deliver  # type: ignore[assignment]
+
+        router = Router(routes=[_make_route()])
+        accounting = RuntimeAccounting()
+        limits = RuntimeLimits(
+            max_inflight_deliveries=2,
+            max_inflight_replay_events=1,
+            shutdown_drain_timeout_seconds=0.05,  # very short to trigger quickly
+            delivery_acquire_timeout_seconds=0.5,
+        )
+        cc = CapacityController(limits)
+        runner = _build_runner(
+            temp_db, router, {"fake_dst": dst}, accounting=accounting
+        )
+        runner.set_capacity_controller(cc)
+        await runner.start()
+
+        # Store an event and route it.
+        event = _make_event()
+        await temp_db.append(event)
+        _, deliveries = await runner.route_event(event)
+        assert len(deliveries) > 0
+
+        # Start delivery in a background task — it will block.
+        deliver_task = asyncio.ensure_future(
+            runner.deliver_to_targets(event, deliveries)
+        )
+        # Give it a moment to acquire the capacity slot and register inflight.
+        await asyncio.sleep(0.05)
+
+        # Verify inflight tracking is populated.
+        assert len(runner._inflight_deliveries) > 0, (
+            "Expected inflight delivery tracking to be populated"
+        )
+
+        # Simulate shutdown: stop accepting work and trigger drain timeout.
+        cc.stop_accepting()
+
+        # Drain will time out immediately (0.05s).  Use pipeline runner's
+        # drain_abandoned_deliveries to get the evidence.
+        abandoned = runner.drain_abandoned_deliveries()
+        assert len(abandoned) >= 1, (
+            f"Expected at least 1 abandoned delivery, got {len(abandoned)}"
+        )
+
+        inflight = abandoned[0]
+        assert isinstance(inflight, InflightDelivery)
+        assert inflight.event_id == event.event_id
+        assert inflight.route_id == "r-1"
+        assert inflight.target_adapter == "fake_dst"
+
+        # Persist a receipt for the abandoned delivery manually to verify
+        # the receipt shape.
+        from medre.core.events.canonical import DeliveryReceipt
+        from medre.core.planning.delivery_plan import DeliveryFailureKind
+
+        now = datetime.now(tz=timezone.utc)
+        receipt = DeliveryReceipt(
+            sequence=0,
+            receipt_id=f"rcpt-{uuid.uuid4()}",
+            event_id=inflight.event_id,
+            delivery_plan_id=inflight.delivery_plan_id,
+            target_adapter=inflight.target_adapter,
+            target_channel=inflight.target_channel,
+            route_id=inflight.route_id,
+            status="suppressed",
+            error="shutdown_drain_timeout",
+            failure_kind=DeliveryFailureKind.SHUTDOWN_REJECTION.value,
+            next_retry_at=None,
+            created_at=now,
+            attempt_number=1,
+            parent_receipt_id=None,
+            source=inflight.source,
+            replay_run_id=inflight.replay_run_id,
+        )
+        await temp_db.append_receipt(receipt)
+
+        # Retrieve receipts and verify shape.
+        receipts = await temp_db.list_receipts_for_event(event.event_id)
+        assert len(receipts) >= 1
+
+        r = receipts[0]
+        assert r.status == "suppressed"
+        assert r.failure_kind == "shutdown_rejection"
+        assert r.error == "shutdown_drain_timeout"
+        assert r.event_id == event.event_id
+        assert r.target_adapter == "fake_dst"
+        assert r.route_id == "r-1"
+
+        # Clean up: release the blocked delivery and stop the runner.
+        block_event.set()
+        try:
+            await asyncio.wait_for(deliver_task, timeout=2.0)
+        except (asyncio.TimeoutError, Exception):
+            deliver_task.cancel()
+            try:
+                await deliver_task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+        await runner.stop()
+
+
+# ===================================================================
+# Test 9: failure_kind_detail derivation for shutdown_drain_timeout
+# ===================================================================
+
+
+class TestFailureKindDetailDrainTimeout:
+    """_derive_failure_kind_detail produces 'shutdown_drain_timeout'."""
+
+    @pytest.mark.asyncio
+    async def test_derive_detail_shutdown_drain_timeout(self) -> None:
+        """Verify failure_kind_detail derivation for drain timeout error."""
+        from medre.runtime.reporting import _derive_failure_kind_detail
+
+        detail = _derive_failure_kind_detail(
+            failure_kind="shutdown_rejection",
+            error="shutdown_drain_timeout",
+            target_adapter="fake_dst",
+        )
+        assert detail == "shutdown_drain_timeout"
+
+    @pytest.mark.asyncio
+    async def test_derive_detail_shutdown_rejection_without_drain(self) -> None:
+        """Verify generic shutdown_rejection still passes through."""
+        from medre.runtime.reporting import _derive_failure_kind_detail
+
+        detail = _derive_failure_kind_detail(
+            failure_kind="shutdown_rejection",
+            error="delivery_rejected_shutdown",
+            target_adapter="fake_dst",
+        )
+        assert detail == "shutdown_rejection"
+
+    @pytest.mark.asyncio
+    async def test_report_dict_includes_drain_timeout_detail(
+        self, temp_db: SQLiteStorage
+    ) -> None:
+        """DeliveryReceipt with shutdown_drain_timeout error produces
+        failure_kind_detail=shutdown_drain_timeout in report dict."""
+        from medre.core.events.canonical import DeliveryReceipt
+        from medre.core.planning.delivery_plan import DeliveryFailureKind
+        from medre.runtime.reporting import delivery_receipt_to_report_dict
+
+        receipt = DeliveryReceipt(
+            sequence=0,
+            receipt_id="rcpt-test-drain",
+            event_id="evt-test",
+            delivery_plan_id="plan-test",
+            target_adapter="fake_dst",
+            target_channel=None,
+            route_id="r-1",
+            status="suppressed",
+            error="shutdown_drain_timeout",
+            failure_kind=DeliveryFailureKind.SHUTDOWN_REJECTION.value,
+            next_retry_at=None,
+            created_at=datetime.now(timezone.utc),
+            attempt_number=1,
+            parent_receipt_id=None,
+            source="live",
+            replay_run_id=None,
+        )
+
+        report = delivery_receipt_to_report_dict(receipt)
+        assert report["failure_kind"] == "shutdown_rejection"
+        assert report["failure_kind_detail"] == "shutdown_drain_timeout"
+        assert report["status"] == "suppressed"
+        assert report["error"] == "shutdown_drain_timeout"  # sanitized
+        assert report["event_id"] == "evt-test"
+        assert report["target_adapter"] == "fake_dst"
+        assert report["route_id"] == "r-1"
+        assert report["attempt_number"] == 1

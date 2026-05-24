@@ -95,6 +95,11 @@ def _derive_failure_kind_detail(
     if not failure_kind:
         return None
     err = (error or "").lower()
+    # Shutdown drain-timeout abandonment — persisted by MedreApp.stop() when
+    # in-flight deliveries remain after the drain deadline expires.  Distinct
+    # from the generic shutdown_rejection recorded at capacity-acquire time.
+    if "shutdown_drain_timeout" in err:
+        return "shutdown_drain_timeout"
     # E2EE / encrypted blocking (Matrix adapters).
     # Tightened to Matrix-specific patterns only — generic "encrypted"
     # alone is insufficient (e.g. "encrypted packet" is not E2EE).

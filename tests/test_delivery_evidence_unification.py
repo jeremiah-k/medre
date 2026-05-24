@@ -12,7 +12,7 @@ live adapters or requiring external services.  Tests exercise:
 - Loop suppressed visibility: DeliveryOutcome may be skipped; pipeline persists
   suppressed receipts (status="suppressed") for loop/capacity/shutdown where
   event/target context exists.
-- duplicate_suppressed: reserved enum value, not emitted as status.
+- duplicate_suppressed: removed from enum (was never emitted).
 - Matrix success metadata includes matrix_txn_id.
 - Matrix E2EE blocked is permanent/recognizable.
 - Meshtastic queue full/rejected is transient/queue rejected.
@@ -849,8 +849,8 @@ class TestLoopSuppressedVisibility:
     (status="suppressed") when event/target context is available —
     covering loop_suppressed, capacity_rejection, and shutdown_rejection.
 
-    duplicate_suppressed remains reserved and is not emitted in
-    pre-storage dedup (no event/target context at that stage).
+    duplicate_suppressed was removed from the enum (never emitted).
+    Pre-storage dedup returns an empty outcomes list with no receipt.
     """
 
     def test_loop_suppressed_failure_kind_not_retryable(self) -> None:
@@ -877,8 +877,8 @@ class TestLoopSuppressedVisibility:
         """Loop-suppressed DeliveryOutcome may carry a suppressed receipt.
 
         The pipeline persists suppressed receipts for loop/capacity/shutdown
-        when event/target context exists.  Only duplicate_suppressed remains
-        pre-storage (no receipt) because no event has been stored yet."""
+        when event/target context exists.  Pre-storage dedup returns no
+        receipt because no event has been stored yet."""
         receipt = _make_receipt(
             status="suppressed",
             failure_kind="loop_suppressed",
@@ -947,44 +947,12 @@ class TestLoopSuppressedVisibility:
 
 
 # ===================================================================
-# 6. DUPLICATE_SUPPRESSED: reserved, not emitted
+# 6. DUPLICATE_SUPPRESSED: removed from enum (Tranche 6)
 # ===================================================================
 
-
-class TestDuplicateSuppressedContract:
-    """DUPLICATE_SUPPRESSED is a reserved enum value.
-
-    It exists in the taxonomy but is not currently emitted as a
-    DeliveryOutcome status, receipt status, or receipt failure_kind.
-    """
-
-    def test_duplicate_suppressed_exists(self) -> None:
-        assert hasattr(DeliveryFailureKind, "DUPLICATE_SUPPRESSED")
-
-    def test_duplicate_suppressed_not_retryable(self) -> None:
-        assert DeliveryFailureKind.DUPLICATE_SUPPRESSED.is_retryable is False
-
-    def test_duplicate_suppressed_not_in_receipt_status_literal(self) -> None:
-        """Receipt status Literal does not include 'duplicate_suppressed'."""
-        import typing
-
-        hints = typing.get_type_hints(DeliveryReceipt)
-        status = hints.get("status")
-        if status is not None and hasattr(status, "__args__"):
-            assert "duplicate_suppressed" not in status.__args__
-
-    def test_duplicate_suppressed_value(self) -> None:
-        assert DeliveryFailureKind.DUPLICATE_SUPPRESSED.value == "duplicate_suppressed"
-
-    def test_duplicate_suppressed_not_a_delivery_outcome_status(self) -> None:
-        """'duplicate_suppressed' is not a valid DeliveryOutcome status value."""
-        import typing
-
-        outcome_type_hints = typing.get_type_hints(DeliveryOutcome)
-        status_field = outcome_type_hints.get("status")
-        if status_field is not None and hasattr(status_field, "__args__"):
-            valid_statuses = set(status_field.__args__)
-            assert "duplicate_suppressed" not in valid_statuses
+# DUPLICATE_SUPPRESSED was removed from DeliveryFailureKind because it was
+# never emitted at runtime.  Duplicate native-ref suppression returns an
+# empty outcomes list before storage; no receipt is persisted.
 
 
 # ===================================================================
@@ -1267,11 +1235,7 @@ class TestFailureKindStatusConsistency:
 
     def test_skipped_status_never_has_retryable_kind(self) -> None:
         """Skipped outcomes should not have a retryable failure_kind."""
-        for kind in (
-            DeliveryFailureKind.LOOP_SUPPRESSED,
-            DeliveryFailureKind.DUPLICATE_SUPPRESSED,
-        ):
-            assert kind.is_retryable is False
+        assert DeliveryFailureKind.LOOP_SUPPRESSED.is_retryable is False
 
 
 # ---------------------------------------------------------------------------
