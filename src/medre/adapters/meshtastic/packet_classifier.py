@@ -142,14 +142,14 @@ def normalize_portnum(value: object) -> str | None:
     """
     if value is None:
         return None
-    if isinstance(value, int):
+    if isinstance(value, int) and not isinstance(value, bool):
         # SDK-derived table takes precedence when available
         sdk_table = _get_sdk_portnum_table()
         if sdk_table is not None and value in sdk_table:
             name = sdk_table[value]
             # Strip trailing _app suffix for consistency with MEDRE names
             if name.endswith("_app"):
-                return name[:-4]
+                return name.removesuffix("_app")
             return name
         return _NUMERIC_PORTNUM_FALLBACK.get(value, str(value))
     if isinstance(value, str):
@@ -465,11 +465,7 @@ class MeshtasticPacketClassifier:
             channel_index=channel_index,
             packet_id=packet_id,
             from_id=sender_id,
-            to_id=(
-                to_id
-                if isinstance(to_id, str)
-                else str(to_id) if to_id is not None else ""
-            ),
+            to_id=str(to_id) if to_id is not None else "",
             is_text=is_text,
             is_ack=is_ack,
             is_encrypted=is_encrypted,
