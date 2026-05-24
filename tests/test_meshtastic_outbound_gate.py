@@ -312,6 +312,7 @@ class TestGatePreventsQueueFull:
         try:
             # Manually fill the queue to capacity.
             max_size = adapter._queue.max_queue_size
+            assert max_size is not None
             for i in range(max_size):
                 await adapter._queue.enqueue(
                     {"text": f"fill-{i}"}, channel_index=0
@@ -351,6 +352,7 @@ class TestQueueFullRemainsTransient:
         await adapter.start(ctx)
         try:
             max_size = adapter._queue.max_queue_size
+            assert max_size is not None
             for i in range(max_size):
                 await adapter.deliver(_make_result(event_id=f"fill-{i}"))
 
@@ -521,6 +523,8 @@ enabled = true
         config = apply_env_overrides(config)
 
         radio_a = config.adapters.meshtastic["radio_a"]
+        assert radio_a is not None
+        assert radio_a.config is not None
         assert radio_a.config.outbound_mode == "listen_only"
 
     def test_env_override_enabled_explicit(
@@ -555,6 +559,8 @@ enabled = true
         config = apply_env_overrides(config)
 
         radio_a = config.adapters.meshtastic["radio_a"]
+        assert radio_a is not None
+        assert radio_a.config is not None
         assert radio_a.config.outbound_mode == "enabled"
 
     def test_env_override_invalid_value_rejected(
