@@ -37,7 +37,7 @@ Additive or unstable/debug changes (§6) never require a bump, neither during pr
 
 ## 3. Top-level Shape
 
-The snapshot is structured into **intentional sections** that separate stable operator-facing data from unstable/debug internals. 15 top-level keys are always present.
+The snapshot is structured into **intentional sections** that separate stable operator-facing data from unstable/debug internals. 17 top-level keys are always present.
 
 Keys appear in **alphabetical order** (deterministic serialisation).
 
@@ -53,9 +53,11 @@ Keys appear in **alphabetical order** (deterministic serialisation).
 | `limits`         | `dict` | stable            | operator       | `RuntimeLimits` dataclass fields                         |
 | `persistence`    | `dict` | reserved          | operator       | Reserved for future durable-storage status (see §5.8)    |
 | `replay`         | `dict` | stable            | operator       | `{"available": bool, "counters": dict                    | null}` |
+| `retry`          | `dict` | stable            | operator       | §5.12                                                    |
 | `routes`         | `dict` | stable            | operator       | §5.4                                                     |
 | `schema_version` | `int`  | stable            | programmatic   | Constant `SCHEMA_VERSION` (currently `1`)                |
 | `snapshot_at`    | `str`  | stable            | operator       | ISO-8601 UTC, injectable clock                           |
+| `snapshot_scope` | `str`  | stable            | operator       | Top-level provenance: `"build"` or `"live"` (see §5.13) |
 | `startup`        | `dict` | stable            | operator       | §5.2                                                     |
 | `unstable`       | `dict` | unstable/reserved | debug/internal | Reserved for debug/internal data (see §5.11)             |
 
@@ -369,15 +371,22 @@ Internal debug/diagnostic surfaces. Shape may change without a schema version bu
 
 ```json
 {
+  "adapters": {adapter_id: {...}},
   "live_refresh": false,
+  "pipeline": {
+    "running": bool | null,
+  },
   "runtime_events": {...} | null,
   "scope": "process_local",
 }
 ```
 
-- `live_refresh`: `false`. The runtime event buffer grows as events are emitted during the process lifetime, but these events derive from local runtime state transitions — not from external adapter/transport polling. Each snapshot call returns the current buffer contents.
+- `adapters`: Per-adapter diagnostics, keyed by adapter ID. Each adapter that exposes a synchronous `diagnostics()` method contributes one entry. Entries are sanitised through the diagnostic contract (Contract 29): normalised, secret-stripped, and JSON-safe. Adapters that do not expose `diagnostics()` are silently omitted. If an adapter's `diagnostics()` call raises, the entry contains `{"error": "<sanitised>", "status": "diagnostics_error"}` instead of propagating the exception. Adapter diagnostics are **observational and process-local**: they reflect the adapter's in-process state at snapshot time, are not durable, and are not suitable as a basis for routing decisions. Shape and keys vary by adapter transport.
+- `pipeline`: Pipeline runner state. Currently contains a single key:
+  - `running`: `true` when the pipeline runner has been started and not yet stopped, `false` when idle, `null` when no pipeline runner is wired.
+- `live_refresh`: `false`. The runtime event buffer grows as events are emitted during the process lifetime, but these events derive from local runtime state transitions, not from external adapter/transport polling. Each snapshot call returns the current buffer contents.
 - `runtime_events` exposes the bounded, in-memory event buffer:
-- `scope`: Always `"process_local"`. Events are in-memory only and not persisted across restarts.
+- `scope`: Always `"process_local"`. Events and adapter diagnostics are in-memory only and not persisted across restarts.
 
 ```json
 {
@@ -464,30 +473,77 @@ Guidelines for unstable data:
 - Consumers must tolerate arbitrary key additions and removals.
 - No stability guarantee: shape may change at any time.
 
-### 5.12 Provenance Summary
+### 5.12 `retry`
+
+Retry worker observational state. Reports whether retry processing is enabled, whether a retry run is in progress, and aggregate counters from the retry worker's lifetime.
+
+```json
+{
+  "dead_lettered": int,
+  "enabled":       bool,
+  "failed":        int,
+  "last_run_at":   str | null,
+  "live_refresh":  false,
+  "processed":     int,
+  "running":       bool,
+  "scope":         "process_local",
+  "succeeded":     int,
+}
+```
+
+- `enabled`: Whether the retry subsystem is active. `false` when no retry worker is wired or when retry is disabled.
+- `running`: Whether a retry run is currently in progress. `false` when idle or when retry is disabled.
+- `last_run_at`: ISO-8601 UTC string from the wall-clock timestamp of the last completed retry run, or `null` if no run has completed.
+- `processed`: Total retry attempts made since process start.
+- `succeeded`: Retry attempts that completed successfully.
+- `failed`: Retry attempts that failed (excluding dead-lettered).
+- `dead_lettered`: Events moved to the dead-letter queue after exhausting retries.
+- `scope`: Always `"process_local"`. Counters and state are in-memory observations at snapshot time. They are **not durable** and reset on process restart.
+- `live_refresh`: Always `false`. State evolves from local retry worker transitions, not from external adapter or transport polling.
+
+When no retry worker is wired (`app.retry_state` is absent), the section reports zeroed counters with `enabled: false` and `running: false`.
+
+### 5.13 `snapshot_scope`
+
+Top-level provenance tag indicating the context in which the snapshot was captured. Included verbatim at the top level so operators can distinguish a build-derived snapshot from a live-started runtime snapshot without inspecting individual section scopes.
+
+Allowed values:
+
+| Value    | Meaning                                                                                                                                                                   |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"build"` | Plain diagnostics snapshot. The runtime was built (and possibly started) to gather diagnostic information, then stopped. Emitted by `medre diagnostics`.                  |
+| `"live"`  | Live-started runtime refresh. The runtime was started and `refresh_live_health()` was called to poll current adapter state. Emitted by `medre diagnostics --refresh-health`. |
+
+The value is passed through `build_runtime_snapshot(snapshot_scope=...)` and has no effect on section-level data. It is a top-level hint for operators and tooling.
+
+### 5.14 Provenance Summary
 
 Operators must understand whether each diagnostic value is a one-time startup snapshot, a process-local value, or live-refreshed. The following table summarizes the provenance of each section:
 
-| Section / Field            | `scope`                              | `live_refresh`   | Meaning                                                                                                                                                                                     |
-| -------------------------- | ------------------------------------ | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `startup`                  | `"startup"`                          | `false`          | Computed once during `MedreApp.start()`. Frozen after startup.                                                                                                                              |
-| `startup.boot_summary`     | `"startup"`                          | `false`          | `BootSummary.to_dict()`. Immutable after creation.                                                                                                                                          |
-| `startup.build_failures`   | `"startup"`                          | `false`          | Build failures are immutable after build.                                                                                                                                                   |
-| `startup.startup_health`   | `"startup"`                          | `false`          | `runtime_supervision_snapshot()` output from startup.                                                                                                                                       |
-| `health`                   | `"startup"` / `"live"`               | `false` / `true` | Before first refresh: startup-derived, `live_health` is `null`. After first `refresh_live_health()`: `scope="live"`, `live_refresh=true`, `live_health` contains `LiveHealthSnapshot` dict. |
-| `health.live_health`       | —                                    | —                | `null` before first refresh. `LiveHealthSnapshot` dict after first successful `refresh_live_health()`. Process-local, not durable.                                                          |
-| `lifecycle`                | `"process_local"`                    | `false`          | In-process state at snapshot time. Not persisted.                                                                                                                                           |
-| `lifecycle.adapters.{id}`  | `"process_local"`                    | `false`          | Current `AdapterState` from `_adapter_states` registry.                                                                                                                                     |
-| `lifecycle.uptime_seconds` | `"process_local"`                    | `false`          | Computed from monotonic clock on each snapshot call.                                                                                                                                        |
-| `adapters.{id}.health`     | `"startup"` (per-entry `provenance`) | —                | Static `_last_health` from build/startup. Not refreshed.                                                                                                                                    |
-| `adapters.{id}.provenance` | —                                    | —                | Always `"startup"`. Indicates adapter metadata is startup-derived.                                                                                                                          |
-| `diagnostics`              | `"process_local"`                    | `false`          | Event buffer grows from local runtime state transitions, not external polling.                                                                                                              |
-| `routes.build_readiness`   | `"build"`                            | `false`          | Frozen at build time.                                                                                                                                                                       |
-| `routes.eligibility`       | `"build"`                            | `false`          | Frozen at build time.                                                                                                                                                                       |
-| `routes.startup_readiness` | `"startup"`                          | `false`          | Frozen after startup.                                                                                                                                                                       |
-| `routes.stats`             | `"process_local"`                    | `false`          | Per-route delivery counters from `RouteStats.snapshot()`. Evolves via local runtime state.                                                                                                  |
-| `accounting`               | `"process_local"`                    | `false`          | Counters from `RuntimeAccounting.snapshot()`. Evolves via local runtime state transitions.                                                                                                  |
-| `capacity`                 | `"process_local"`                    | `false`          | Gauges from `CapacityController.snapshot()`. Evolves via local runtime state.                                                                                                               |
+| Section / Field                 | `scope`                              | `live_refresh`   | Meaning                                                                                                                                                                                     |
+| ------------------------------- | ------------------------------------ | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `snapshot_scope`                | —                                    | —                | Top-level provenance tag: `"build"` (build-time snapshot, e.g. `medre diagnostics`) or `"live"` (live-started runtime refresh, e.g. `medre diagnostics --refresh-health`).                |
+| `startup`                       | `"startup"`                          | `false`          | Computed once during `MedreApp.start()`. Frozen after startup.                                                                                                                              |
+| `startup.boot_summary`          | `"startup"`                          | `false`          | `BootSummary.to_dict()`. Immutable after creation.                                                                                                                                          |
+| `startup.build_failures`        | `"startup"`                          | `false`          | Build failures are immutable after build.                                                                                                                                                   |
+| `startup.startup_health`        | `"startup"`                          | `false`          | `runtime_supervision_snapshot()` output from startup.                                                                                                                                       |
+| `health`                        | `"startup"` / `"live"`               | `false` / `true` | Before first refresh: startup-derived, `live_health` is `null`. After first `refresh_live_health()`: `scope="live"`, `live_refresh=true`, `live_health` contains `LiveHealthSnapshot` dict. |
+| `health.live_health`            | —                                    | —                | `null` before first refresh. `LiveHealthSnapshot` dict after first successful `refresh_live_health()`. Process-local, not durable.                                                          |
+| `lifecycle`                     | `"process_local"`                    | `false`          | In-process state at snapshot time. Not persisted.                                                                                                                                           |
+| `lifecycle.adapters.{id}`       | `"process_local"`                    | `false`          | Current `AdapterState` from `_adapter_states` registry.                                                                                                                                     |
+| `lifecycle.uptime_seconds`      | `"process_local"`                    | `false`          | Computed from monotonic clock on each snapshot call.                                                                                                                                        |
+| `adapters.{id}.health`          | `"startup"` (per-entry `provenance`) | —                | Static `_last_health` from build/startup. Not refreshed.                                                                                                                                    |
+| `adapters.{id}.provenance`      | —                                    | —                | Always `"startup"`. Indicates adapter metadata is startup-derived.                                                                                                                          |
+| `diagnostics`                   | `"process_local"`                    | `false`          | Event buffer grows from local runtime state transitions, not external polling.                                                                                                              |
+| `diagnostics.adapters.{id}`     | `"process_local"`                    | `false`          | Per-adapter diagnostics from synchronous `diagnostics()` call. Sanitised, observational, process-local, transport-specific. Not durable.                                                    |
+| `diagnostics.pipeline.running`  | `"process_local"`                    | `false`          | Whether the pipeline runner has been started and not yet stopped. `null` when no pipeline runner is wired.                                                                                                             |
+| `routes.build_readiness`        | `"build"`                            | `false`          | Frozen at build time.                                                                                                                                                                       |
+| `routes.eligibility`            | `"build"`                            | `false`          | Frozen at build time.                                                                                                                                                                       |
+| `routes.startup_readiness`      | `"startup"`                          | `false`          | Frozen after startup.                                                                                                                                                                       |
+| `routes.stats`                  | `"process_local"`                    | `false`          | Per-route delivery counters from `RouteStats.snapshot()`. Evolves via local runtime state.                                                                                                  |
+| `accounting`                    | `"process_local"`                    | `false`          | Counters from `RuntimeAccounting.snapshot()`. Evolves via local runtime state transitions.                                                                                                  |
+| `capacity`                      | `"process_local"`                    | `false`          | Gauges from `CapacityController.snapshot()`. Evolves via local runtime state.                                                                                                               |
+| `retry`                         | `"process_local"`                    | `false`          | Retry worker counters and state from `app.retry_state`. Observational, in-memory, not durable. Resets on process restart.                                                                  |
 
 **Operator guidance:**
 

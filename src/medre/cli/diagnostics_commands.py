@@ -68,6 +68,7 @@ def _diagnostics(config_path: str | None) -> None:
         app,
         now_fn=lambda: fixed_now,
         monotonic_fn=lambda: fixed_mono,
+        snapshot_scope="build",
     )
 
     print(json.dumps(snapshot, sort_keys=True, indent=2))
@@ -151,7 +152,7 @@ async def _diagnostics_refresh(config_path: str | None) -> None:
         # Build snapshot with REAL timestamps (not fixed).
         from medre.runtime.snapshot import build_runtime_snapshot
 
-        snapshot = build_runtime_snapshot(app)
+        snapshot = build_runtime_snapshot(app, snapshot_scope="live")
         print(json.dumps(snapshot, sort_keys=True, indent=2))
     finally:
         # Always attempt clean shutdown after a successful start.

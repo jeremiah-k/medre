@@ -13,6 +13,7 @@ stable operator-facing data from unstable/debug internals::
     {
       "schema_version": 1,
       "snapshot_at": str,
+      "snapshot_scope": str,
       "accounting": {
         "counters": {...} | null,
         "live_refresh": false,
@@ -25,7 +26,11 @@ stable operator-facing data from unstable/debug internals::
         "state": {...} | null,
       },
       "diagnostics": {
+        "adapters": {adapter_id: {...}},
         "live_refresh": false,
+        "pipeline": {
+          "running": bool | null,
+        },
         "runtime_events": {...} | null,
         "scope": "process_local",
       },
@@ -148,7 +153,9 @@ capacity:
     ``scope="process_local"`` and ``live_refresh=false`` (state evolves
     via local runtime transitions).
 diagnostics:
-    Internal debug/diagnostic surfaces (runtime events buffer).
+    Internal debug/diagnostic surfaces.  Contains ``runtime_events``
+    buffer, per-adapter diagnostics (keyed by adapter id, sanitised
+    through the diagnostic contract), and ``pipeline.running`` state.
     Shape may change without a schema version bump.
 unstable:
     Reserved for debug/internal data that may evolve freely.
@@ -208,6 +215,10 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Callable
 
 from medre.core.observability.sanitization import sanitize_error as _sanitize_error
+from medre.core.supervision.diagnostic_contract import (
+    normalize_diagnostics as _normalize_diagnostics,
+    sanitize_diagnostic_mapping as _sanitize_diagnostic_mapping,
+)
 
 if TYPE_CHECKING:
     pass
@@ -364,6 +375,72 @@ def _snapshot_adapter(adapter: Any) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Adapter diagnostics snapshot
+# ---------------------------------------------------------------------------
+
+
+def _snapshot_adapter_diagnostics(
+    adapters_raw: dict[str, Any],
+) -> dict[str, Any]:
+    """Collect safe per-adapter diagnostics for the snapshot.
+
+    For each adapter that exposes a synchronous ``diagnostics()`` method,
+    calls it and sanitises the result through
+    :func:`~medre.core.supervision.diagnostic_contract.normalize_diagnostics`
+    and
+    :func:`~medre.core.supervision.diagnostic_contract.sanitize_diagnostic_mapping`.
+
+    Adapters that do not expose ``diagnostics()`` are silently omitted.
+    Exceptions raised by ``diagnostics()`` are caught and reported as a
+    safe error/status entry rather than propagating.
+    """
+    result: dict[str, Any] = {}
+    for adapter_id in sorted(adapters_raw.keys())[:_MAX_ADAPTERS]:
+        adapter = adapters_raw[adapter_id]
+        diag_method = getattr(adapter, "diagnostics", None)
+        if diag_method is None or not callable(diag_method):
+            continue
+        try:
+            raw = diag_method()
+            # normalise (handles dict, None, exceptions, arbitrary objects)
+            # then run the secret-stripping pass for belt-and-suspenders.
+            sanitised = _normalize_diagnostics(raw, adapter_hint=adapter_id)
+            sanitised = _sanitize_diagnostic_mapping(sanitised)
+            result[adapter_id] = sanitised
+        except Exception as exc:
+            _logger.warning(
+                "Adapter %r diagnostics() raised %s",
+                adapter_id,
+                type(exc).__name__,
+                exc_info=True,
+            )
+            result[adapter_id] = {
+                "error": _sanitize_error(str(exc)),
+                "status": "diagnostics_error",
+            }
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Pipeline running state
+# ---------------------------------------------------------------------------
+
+
+def _read_pipeline_running(app: Any) -> bool | None:
+    """Read ``app.pipeline_runner.running`` where present.
+
+    Returns ``None`` when the attribute path does not exist.
+    """
+    runner = getattr(app, "pipeline_runner", None)
+    if runner is None:
+        return None
+    running_attr = getattr(runner, "running", None)
+    if isinstance(running_attr, bool):
+        return running_attr
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Limits snapshot
 # ---------------------------------------------------------------------------
 
@@ -410,6 +487,7 @@ def build_runtime_snapshot(
     *,
     now_fn: Callable[[], datetime] | None = None,
     monotonic_fn: Callable[[], float] | None = None,
+    snapshot_scope: str = "build",
 ) -> dict[str, Any]:
     """Build a deterministic, JSON-safe runtime snapshot.
 
@@ -427,6 +505,14 @@ def build_runtime_snapshot(
         Callable returning a monotonic float in **seconds**.
         Defaults to :func:`time.monotonic`.  Inject a fixed value for
         deterministic testing.
+    snapshot_scope:
+        Top-level provenance tag indicating the context in which the
+        snapshot was captured.  Defaults to ``"build"`` (snapshot
+        captured during build-time).  Set to ``"live"`` when the
+        snapshot is taken from a running system.  Included verbatim as
+        ``snapshot_scope`` in the output so operators can distinguish
+        build-derived snapshots from live snapshots without inspecting
+        individual section scopes.
 
     Returns
     -------
@@ -723,9 +809,28 @@ def build_runtime_snapshot(
         }
 
     # -- Assemble final sectioned snapshot (sorted keys) ---------------------
+
+    # -- Adapter diagnostics (safe per-adapter) --------------------------------
+    adapter_diagnostics_snapshot = _snapshot_adapter_diagnostics(adapters_raw)
+
+    # -- Pipeline running state ------------------------------------------------
+    pipeline_running = _read_pipeline_running(app)
+
+    # -- Diagnostics section ---------------------------------------------------
+    diagnostics_section: dict[str, Any] = {
+        "adapters": adapter_diagnostics_snapshot,
+        "live_refresh": False,
+        "pipeline": {
+            "running": pipeline_running,
+        },
+        "runtime_events": runtime_events_snapshot,
+        "scope": "process_local",
+    }
+
     snap: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "snapshot_at": snapshot_at,
+        "snapshot_scope": snapshot_scope,
         "accounting": {
             "counters": accounting_snapshot,
             "live_refresh": False,
@@ -737,11 +842,7 @@ def build_runtime_snapshot(
             "scope": "process_local",
             "state": capacity_snapshot,
         },
-        "diagnostics": {
-            "live_refresh": False,
-            "runtime_events": runtime_events_snapshot,
-            "scope": "process_local",
-        },
+        "diagnostics": diagnostics_section,
         "health": {
             "live_health": live_health_snapshot,
             "live_refresh": has_live_health,
