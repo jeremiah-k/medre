@@ -159,7 +159,7 @@ The following files are reserved for other Tranche 1 agents. They appear in this
 ## Cross-Reference Notes
 
 - **Supersession chain:** `65` → `22` (delivery) + `23` (identity). `12` → `23`. `15` → `21`/`22`/`23`.
-- **Consolidation:** `28` consolidates `16`, `18`–`20`, `21`, `22`, `24`–`28`.
+- **Consolidation:** `28` consolidates `16`, `18`–`20`, `21`, `22`, `24`–`27`.
 - **`docs/STATUS.md`** is the single source of truth for per-transport capability tracking, independent of this index.
 - **`docs/contracts/61-operational-evidence-contract.md`** is the source-of-truth anchor for evidence classification (H/C/S/R tiers).
 - **Historical evidence:** Live validation results in `32` and `66` are Tier H (Historical) per contract 61. They must not be presented as evidence of current behavior without re-execution.

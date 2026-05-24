@@ -7,7 +7,6 @@
 >
 > Contract version: 1
 > Last updated: 2026-05-08
-> Status: Design note only — no implementation.
 
 This document records the expected ownership boundaries and design
 constraints for a future real Meshtastic connection implementation.

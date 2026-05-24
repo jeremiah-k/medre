@@ -65,9 +65,8 @@ class TestContractReadmeIndex:
     """Each contract file must appear in the README taxonomy index."""
 
     @pytest.fixture(autouse=True)
-    def _readme_text(self) -> str:
+    def _readme_text(self) -> None:
         self._readme = _read(README)
-        return self._readme
 
     @pytest.mark.parametrize(
         "contract",

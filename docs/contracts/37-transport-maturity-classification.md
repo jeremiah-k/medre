@@ -100,10 +100,10 @@ No transport in MEDRE currently qualifies as production-ready.
 1. **Fire-and-forget delivery.** `AdapterDeliveryResult.success=True` means "local radio accepted the packet," not "remote node received it." This is inherent to the Meshtastic protocol (contract 36).
 2. **Queue local acceptance.** Meshtastic `deliver()` returns `delivery_status="enqueued"` when the adapter-local queue accepts the payload. The subsequent `"sent"` status means the SDK send returned success from the local node. Neither `queued` nor `sent` means RF confirmation, remote-node receipt, or ACK (see Contract 61 §3.8.3, §3.8.6).
 3. **Duplicate-send risk.** Session retries transient failures up to 3 times. Consumers must handle duplicates.
-3. **Firmware version sensitivity.** The `mtjk` library assumes a specific protobuf schema. Firmware version mismatches may cause deserialization errors.
-4. **Serial permissions.** On Linux, user must be in `dialout` group. Docker requires `--device` passthrough.
-5. **BLE untested.** BLE connection mode constructor exists but has not been exercised in any live harness.
-6. **Fork dependency.** `mtjk` is a maintained fork of upstream Meshtastic Python library.
+4. **Firmware version sensitivity.** The `mtjk` library assumes a specific protobuf schema. Firmware version mismatches may cause deserialization errors.
+5. **Serial permissions.** On Linux, user must be in `dialout` group. Docker requires `--device` passthrough.
+6. **BLE untested.** BLE connection mode constructor exists but has not been exercised in any live harness.
+7. **Fork dependency.** `mtjk` is a maintained fork of upstream Meshtastic Python library.
 
 ## 6. MeshCore Transport
 

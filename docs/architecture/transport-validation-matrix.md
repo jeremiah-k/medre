@@ -128,7 +128,7 @@ Known gap: No Docker SDK-boundary or live validation. Unit-tested only.
 | Meshtastic → Matrix | Higher risk, not automated         | Meshtastic inbound callback reliability is a known gap. No automated test for this direction. Manual smoke test documented in runbook.                                                           |
 | Status              | **Controlled manual smoke**        | Test room + test mesh channel only. Not for unattended production.                                                                                                                               |
 
-¹ Meshtastic live-radio evidence: H-tier adapter evidence (10/10 passed 2026-05-10, historical) + R-tier CLI-level serial validation (2026-05-12: device discovery, one outbound send, 3 reconnect cycles). MEDRE adapter live pytest NOT EXECUTED at current commit. See [Matrix ↔ Meshtastic (Live Bridge)](#matrix--meshtastic-live-bridge) subsection below.
+¹ Meshtastic live-radio evidence: H-tier adapter evidence (10/10 passed 2026-05-10, historical) + R-tier CLI-level serial validation (2026-05-12: device discovery, one outbound send, 3 reconnect cycles). MEDRE adapter live pytest NOT EXECUTED at current commit. See [Matrix ↔ Meshtastic (Live Bridge)](#matrix--meshtastic-live-bridge) subsection above.
 
 ## Cross-Reference: Test File Index
 
