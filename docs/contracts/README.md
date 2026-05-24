@@ -146,7 +146,6 @@ Files without a disposition header are either owned by other agents (see below) 
 
 The following files are reserved for other Tranche 1 agents. They appear in this index but do not carry disposition headers added by this agent:
 
-- `04-routing-planning-contract.md`
 - `18-operational-readiness-gaps.md`
 - `33-failure-taxonomy.md`
 - `37-transport-maturity-classification.md`
@@ -156,7 +155,6 @@ The following files are reserved for other Tranche 1 agents. They appear in this
 - `60-runtime-cancellation-contract.md`
 - `61-operational-evidence-contract.md`
 - `62-adapter-operational-maturity-matrix.md`
-- `phase-1-limitations.md`
 
 ## Cross-Reference Notes
 

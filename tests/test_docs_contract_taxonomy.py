@@ -128,7 +128,7 @@ class TestContractStatusHeader:
 #: enum members or defined values in source.  This is intentionally a
 #: small, focused set — add entries only when a term is explicitly
 #: removed by an Oracle review or cleanup action.
-_STALE_TERMS: list[str] = []
+_STALE_TERMS: list[str] = ["TARGET_NOT_FOUND", "DUPLICATE_SUPPRESSED"]
 
 #: Regex that matches enum-member-like definitions in Python source.
 _ENUM_MEMBER_RE = re.compile(r"^\s+(\w+)\s*[:=]")

@@ -303,8 +303,8 @@ Only `adapter_transient` is retryable.
 
 > **Note:** `TARGET_NOT_FOUND` and `DUPLICATE_SUPPRESSED` were removed from the enum.
 > Channel-not-found and target-address failures map to `adapter_permanent`.
-> Duplicate native-ref suppression happens before routing and returns an empty
-> outcome list — no receipt is produced.
+> Duplicate native-ref suppression occurs at ingress (before event storage)
+> and returns an empty outcome list — no receipt is produced.
 
 ### Retry and Replay
 
