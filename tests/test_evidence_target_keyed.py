@@ -737,6 +737,16 @@ class TestCompositeKeyDeterministicJsonSafe:
         dsbt = summary["delivery_state_by_target"]
 
         key = next(iter(dsbt.keys()))
+
+        # Call _get_incident_summary a second time and verify both calls
+        # produce the exact same composite key string (determinism).
+        summary2 = await _get_incident_summary(db_path, event_id)
+        dsbt2 = summary2["delivery_state_by_target"]
+        key2 = next(iter(dsbt2.keys()))
+        assert key == key2, (
+            f"Composite key not deterministic across calls: {key!r} != {key2!r}"
+        )
+
         # Re-serialise parsed key and verify round-trip stability.
         parsed = json.loads(key)
         re_serialised = json.dumps(parsed, sort_keys=True)

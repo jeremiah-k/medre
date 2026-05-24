@@ -351,10 +351,12 @@ SELECT event_id FROM native_message_refs
 WHERE adapter = ? AND native_channel_id IS ? AND native_message_id = ?
 """
 
-_DELIVERY_STATUS_VIEW_BY_CHANNEL = """
-SELECT * FROM delivery_status
+_DELIVERY_RECEIPT_LATEST_BY_CHANNEL = """
+SELECT * FROM delivery_receipts
 WHERE delivery_plan_id = ? AND target_adapter = ?
   AND target_channel IS ?
+ORDER BY attempt_number DESC, sequence DESC
+LIMIT 1
 """
 
 _SELECT_RECEIPTS_FOR_PLAN = """
@@ -1239,6 +1241,11 @@ class SQLiteStorage:
     ) -> DeliveryReceipt | None:
         """Return the latest receipt for a delivery plan / adapter / channel triple.
 
+        Queries the ``delivery_receipts`` base table directly (rather than
+        the ``delivery_status`` view) so that NULL and empty-string channel
+        values are handled robustly without relying on the view's
+        ``COALESCE(target_channel, '')`` grouping.
+
         Parameters
         ----------
         delivery_plan_id:
@@ -1259,7 +1266,7 @@ class SQLiteStorage:
             for the given combination.
         """
         row = await self._read_one(
-            _DELIVERY_STATUS_VIEW_BY_CHANNEL,
+            _DELIVERY_RECEIPT_LATEST_BY_CHANNEL,
             (delivery_plan_id, target_adapter, target_channel or None),
         )
         return _row_to_receipt(row) if row else None
