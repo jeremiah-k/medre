@@ -198,7 +198,9 @@ class TestSessionRoutingBoundary:
     def session_info(self, request):
         return request.param
 
-    def test_session_does_not_import_runtime_or_route_config(self, session_info) -> None:
+    def test_session_does_not_import_runtime_or_route_config(
+        self, session_info
+    ) -> None:
         """Session must not import medre.runtime or medre.config.routes."""
         _transport, mod_name, _cls_name = session_info
         mod = _load_module(mod_name)
@@ -294,9 +296,9 @@ class TestAdapterRoutingBoundary:
             for line in _import_lines(source):
                 if "medre.config.routes" in line:
                     violations.append(f"{mod_name} imports config.routes in: {line!r}")
-        assert (
-            not violations
-        ), "Adapter config.routes import violations:\n" + "\n".join(violations)
+        assert not violations, "Adapter config.routes import violations:\n" + "\n".join(
+            violations
+        )
 
 
 # ===================================================================

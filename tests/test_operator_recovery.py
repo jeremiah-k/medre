@@ -50,6 +50,10 @@ from medre.config.model import (
     StorageConfig,
 )
 from medre.config.paths import MedrePaths, MedrePathsError, resolve
+from medre.config.routes import (
+    RouteConfig,
+    RouteConfigSet,
+)
 from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
@@ -62,6 +66,7 @@ from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.kinds import EventKind
 from medre.core.events.metadata import EventMetadata
 from medre.core.lifecycle.states import AdapterState
+from medre.core.storage.sqlite import SQLiteStorage
 from medre.core.supervision.supervision import (
     RuntimeHealth,
     StartupOutcome,
@@ -69,7 +74,6 @@ from medre.core.supervision.supervision import (
     classify_startup_outcome,
     runtime_supervision_snapshot,
 )
-from medre.core.storage.sqlite import SQLiteStorage
 from medre.runtime.app import MedreApp, RuntimeState
 from medre.runtime.boot_summary import build_boot_summary
 from medre.runtime.builder import RuntimeBuilder
@@ -77,10 +81,6 @@ from medre.runtime.errors import RuntimeStartupError
 from medre.runtime.route_engine import (
     RouteValidationError,
     validate_route_adapter_refs,
-)
-from medre.config.routes import (
-    RouteConfig,
-    RouteConfigSet,
 )
 
 # ---------------------------------------------------------------------------

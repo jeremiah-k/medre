@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 import pytest
 
+from medre.config.adapters.matrix import MatrixConfig
 from medre.config.model import (
     AdapterConfigSet,
     MatrixRuntimeConfig,
@@ -20,13 +21,12 @@ from medre.config.model import (
     StorageConfig,
 )
 from medre.config.paths import MedrePaths, resolve
-from medre.config.adapters.matrix import MatrixConfig
+from medre.config.routes import RouteConfig, RouteConfigSet, RouteDirectionality
 from medre.core.contracts.adapter import AdapterContract
 from medre.core.routing.router import Router
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.errors import RuntimeConfigError
 from medre.runtime.route_engine import RouteValidationError, register_routes
-from medre.config.routes import RouteConfig, RouteConfigSet, RouteDirectionality
 from tests.helpers.runtime_builder import (
     clean_path_env,
     make_fake_matrix_config,

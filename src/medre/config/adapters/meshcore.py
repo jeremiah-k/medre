@@ -163,9 +163,7 @@ class MeshCoreConfig:
                 f"got {type(self.startup_backlog_suppress_seconds).__name__}"
             )
         if not math.isfinite(self.startup_backlog_suppress_seconds):
-            raise MeshCoreConfigError(
-                "startup_backlog_suppress_seconds must be finite"
-            )
+            raise MeshCoreConfigError("startup_backlog_suppress_seconds must be finite")
         if self.startup_backlog_suppress_seconds < 0:
             raise MeshCoreConfigError(
                 f"startup_backlog_suppress_seconds must be >= 0, "

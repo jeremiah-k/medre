@@ -825,7 +825,11 @@ class TestMatrixReplyToMeshtasticNativeReplyId:
         rp = RenderingPipeline()
         rp.register(
             MeshtasticRenderer(
-                configs={_MESH_ADAPTER: MeshtasticConfig(adapter_id=_MESH_ADAPTER, radio_relay_prefix="")}
+                configs={
+                    _MESH_ADAPTER: MeshtasticConfig(
+                        adapter_id=_MESH_ADAPTER, radio_relay_prefix=""
+                    )
+                }
             ),
             priority=50,
         )
@@ -912,7 +916,11 @@ class TestMatrixReplyMissingMappingNoCrash:
         rp = RenderingPipeline()
         rp.register(
             MeshtasticRenderer(
-                configs={_MESH_ADAPTER: MeshtasticConfig(adapter_id=_MESH_ADAPTER, radio_relay_prefix="")}
+                configs={
+                    _MESH_ADAPTER: MeshtasticConfig(
+                        adapter_id=_MESH_ADAPTER, radio_relay_prefix=""
+                    )
+                }
             ),
             priority=50,
         )
@@ -1055,7 +1063,11 @@ class TestMatrixToMatrixReplyLinksOnMeshnet:
         rp = RenderingPipeline()
         rp.register(
             MeshtasticRenderer(
-                configs={_MESH_ADAPTER: MeshtasticConfig(adapter_id=_MESH_ADAPTER, radio_relay_prefix="")}
+                configs={
+                    _MESH_ADAPTER: MeshtasticConfig(
+                        adapter_id=_MESH_ADAPTER, radio_relay_prefix=""
+                    )
+                }
             ),
             priority=50,
         )

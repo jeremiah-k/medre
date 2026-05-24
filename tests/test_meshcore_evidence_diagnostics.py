@@ -164,12 +164,12 @@ class TestEvidenceBundleWithMeshCoreAdapter:
         )
 
         route_data = route_section.get("data", {})
-        assert route_data.get("valid") is True, (
-            f"Route validation reports invalid: {route_data}"
-        )
-        assert route_data.get("route_count", 0) >= 1, (
-            f"Expected at least one route: {route_data}"
-        )
+        assert (
+            route_data.get("valid") is True
+        ), f"Route validation reports invalid: {route_data}"
+        assert (
+            route_data.get("route_count", 0) >= 1
+        ), f"Expected at least one route: {route_data}"
 
         # Verify the MeshCore→Matrix route exists in config_summary
         config_section = bundle["sections"].get("config_summary", {})

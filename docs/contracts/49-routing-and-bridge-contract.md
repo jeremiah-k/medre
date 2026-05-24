@@ -136,7 +136,7 @@ directionality = "bidirectional"
 | Component                    | Owns                                                                                                 |
 | ---------------------------- | ---------------------------------------------------------------------------------------------------- |
 | `medre.config.loader`        | Parsing `[routes.*]` TOML sections into `RouteConfig` / `RouteConfigSet`                             |
-| `medre.config.routes`       | Immutable route model dataclasses (transport-agnostic)                                               |
+| `medre.config.routes`        | Immutable route model dataclasses (transport-agnostic)                                               |
 | `medre.runtime.route_engine` | Converting `RouteConfigSet` → core `Route` objects, validating adapter refs, registering on `Router` |
 | `medre.core.routing.models`  | Core `Route` / `RouteSource` / `RouteTarget` data structures                                         |
 | `medre.core.routing.router`  | In-memory matching engine (pure, no I/O)                                                             |

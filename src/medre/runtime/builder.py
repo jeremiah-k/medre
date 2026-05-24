@@ -44,10 +44,10 @@ from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing.router import Router
 from medre.core.routing.stats import RouteStats
-from medre.core.supervision.accounting import RuntimeAccounting
-from medre.core.supervision.capacity import CapacityController
 from medre.core.storage.replay import ReplayEngine
 from medre.core.storage.sqlite import SQLiteStorage
+from medre.core.supervision.accounting import RuntimeAccounting
+from medre.core.supervision.capacity import CapacityController
 from medre.runtime.app import MedreApp
 from medre.runtime.errors import RuntimeConfigError
 

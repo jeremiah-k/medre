@@ -38,8 +38,8 @@ from medre.core.routing.router import Router
 from medre.runtime.errors import RuntimeConfigError
 
 if TYPE_CHECKING:
-    from medre.core.lifecycle.states import AdapterState
     from medre.config.routes import RouteConfig, RouteConfigSet
+    from medre.core.lifecycle.states import AdapterState
 
 __all__ = [
     "DegradedRoute",

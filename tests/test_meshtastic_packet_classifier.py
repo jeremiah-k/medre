@@ -8,7 +8,6 @@ from __future__ import annotations
 import pytest
 
 from medre.adapters.meshtastic.packet_classifier import (
-    ClassificationResult,
     MeshtasticPacketClassifier,
     normalize_portnum,
 )

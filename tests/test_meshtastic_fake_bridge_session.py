@@ -66,7 +66,11 @@ class TestMeshtasticSessionCallbackBridge:
         rp = RenderingPipeline()
         rp.register(
             MeshtasticRenderer(
-                configs={"cb-fake-out": MeshtasticConfig(adapter_id="cb-fake-out", radio_relay_prefix="")}
+                configs={
+                    "cb-fake-out": MeshtasticConfig(
+                        adapter_id="cb-fake-out", radio_relay_prefix=""
+                    )
+                }
             ),
             priority=50,
         )

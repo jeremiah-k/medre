@@ -20,6 +20,12 @@ from datetime import datetime, timezone
 
 import pytest
 
+from medre.config.routes import (
+    BridgePolicy,
+    RouteConfig,
+    RouteConfigSet,
+    RouteDirectionality,
+)
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.runtime.route_engine import (
@@ -28,12 +34,6 @@ from medre.runtime.route_engine import (
     check_route_loops,
     register_routes,
     validate_route_adapter_refs,
-)
-from medre.config.routes import (
-    BridgePolicy,
-    RouteConfig,
-    RouteConfigSet,
-    RouteDirectionality,
 )
 
 # ---------------------------------------------------------------------------

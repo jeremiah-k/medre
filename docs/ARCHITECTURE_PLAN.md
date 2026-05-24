@@ -115,8 +115,8 @@ Both imports target the same pure-function module (`core/observability/sanitizat
 
 **Type-only coupling** (acceptable, no runtime dependency):
 
-| Source                    | Import                                            | Guard                     |
-| ------------------------- | ------------------------------------------------- | ------------------------- |
+| Source                    | Import                                                | Guard                     |
+| ------------------------- | ----------------------------------------------------- | ------------------------- |
 | `core/engine/pipeline.py` | `CapacityController` from `core.supervision.capacity` | `if TYPE_CHECKING:` block |
 | `core/storage/replay.py`  | `CapacityController` from `core.supervision.capacity` | `if TYPE_CHECKING:` block |
 

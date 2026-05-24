@@ -50,10 +50,10 @@ Storage `close()` flushes SQLite WAL buffers. Deliveries that complete within th
 
 The runtime enforces two independent concurrency bounds via `CapacityController`:
 
-| Resource                  | Bound                                      | Mechanism                         |
-| ------------------------- | ------------------------------------------ | --------------------------------- |
-| In-flight deliveries      | `max_inflight_deliveries` (default 100)    | Semaphore                         |
-| In-flight replay events   | `max_inflight_replay_events` (default 100) | Semaphore                         |
+| Resource                  | Bound                                      | Mechanism                                            |
+| ------------------------- | ------------------------------------------ | ---------------------------------------------------- |
+| In-flight deliveries      | `max_inflight_deliveries` (default 100)    | Semaphore                                            |
+| In-flight replay events   | `max_inflight_replay_events` (default 100) | Semaphore                                            |
 | Meshtastic outbound queue | `max_queue_size` (default 1024)            | unbounded deque with explicit enqueue-time rejection |
 
 These bounds prevent unbounded memory growth from concurrent operations or queue accumulation. See Contract 53 for full capacity semantics.

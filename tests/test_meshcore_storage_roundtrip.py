@@ -153,9 +153,7 @@ class TestMeshCoreCodecEventStorageRoundtrip:
         # Payload preserved
         assert retrieved.payload.get("body") == "Storage round-trip test"
 
-    async def test_codec_event_native_metadata_preserved(
-        self, temp_storage
-    ) -> None:
+    async def test_codec_event_native_metadata_preserved(self, temp_storage) -> None:
         """MeshCore-specific native metadata survives storage."""
         config = _meshcore_config()
         codec = MeshCoreCodec("meshcore-test", config)
@@ -178,9 +176,7 @@ class TestMeshCoreCodecEventStorageRoundtrip:
         assert ndata["meshcore.pubkey_prefix"] == "feedface"
         assert ndata["meshcore.is_direct_message"] is False
 
-    async def test_codec_dm_event_native_metadata_preserved(
-        self, temp_storage
-    ) -> None:
+    async def test_codec_dm_event_native_metadata_preserved(self, temp_storage) -> None:
         """MeshCore DM (contact) native metadata survives storage."""
         config = _meshcore_config()
         codec = MeshCoreCodec("meshcore-test", config)
@@ -201,9 +197,7 @@ class TestMeshCoreCodecEventStorageRoundtrip:
         assert ndata["meshcore.channel"] is None
         assert ndata["meshcore.is_direct_message"] is True
 
-    async def test_codec_event_source_native_ref_stored(
-        self, temp_storage
-    ) -> None:
+    async def test_codec_event_source_native_ref_stored(self, temp_storage) -> None:
         """source_native_ref from MeshCoreCodec survives storage round-trip."""
         config = _meshcore_config()
         codec = MeshCoreCodec("meshcore-test", config)
@@ -236,9 +230,7 @@ class TestMeshCoreCodecEventStorageRoundtrip:
 class TestMeshCoreNativeRefStorage:
     """NativeMessageRef for MeshCore events can be stored and resolved."""
 
-    async def test_meshcore_native_ref_stored_and_resolved(
-        self, temp_storage
-    ) -> None:
+    async def test_meshcore_native_ref_stored_and_resolved(self, temp_storage) -> None:
         """A MeshCore NativeMessageRef stores and resolves correctly."""
         event = _make_meshcore_canonical_event(
             event_id="ce-nref-1",
@@ -260,14 +252,10 @@ class TestMeshCoreNativeRefStorage:
         )
         await temp_storage.store_native_ref(nref)
 
-        resolved = await temp_storage.resolve_native_ref(
-            "meshcore-test", "4", "77777"
-        )
+        resolved = await temp_storage.resolve_native_ref("meshcore-test", "4", "77777")
         assert resolved == "ce-nref-1"
 
-    async def test_meshcore_inbound_native_ref_resolves(
-        self, temp_storage
-    ) -> None:
+    async def test_meshcore_inbound_native_ref_resolves(self, temp_storage) -> None:
         """An inbound MeshCore native ref resolves to the correct event."""
         event = _make_meshcore_canonical_event(
             event_id="ce-inbound-1",
@@ -289,14 +277,10 @@ class TestMeshCoreNativeRefStorage:
         )
         await temp_storage.store_native_ref(nref)
 
-        resolved = await temp_storage.resolve_native_ref(
-            "meshcore-test", "1", "33333"
-        )
+        resolved = await temp_storage.resolve_native_ref("meshcore-test", "1", "33333")
         assert resolved == "ce-inbound-1"
 
-    async def test_meshcore_dm_native_ref_resolves(
-        self, temp_storage
-    ) -> None:
+    async def test_meshcore_dm_native_ref_resolves(self, temp_storage) -> None:
         """A DM (no channel) native ref resolves correctly."""
         event = _make_meshcore_canonical_event(
             event_id="ce-dm-1",
@@ -318,9 +302,7 @@ class TestMeshCoreNativeRefStorage:
         )
         await temp_storage.store_native_ref(nref)
 
-        resolved = await temp_storage.resolve_native_ref(
-            "meshcore-test", None, "44444"
-        )
+        resolved = await temp_storage.resolve_native_ref("meshcore-test", None, "44444")
         assert resolved == "ce-dm-1"
 
 
@@ -345,9 +327,7 @@ class TestMeshCoreStorageCounts:
         count = await temp_storage.count_events()
         assert count == 5
 
-    async def test_receipt_count_with_meshcore_delivery(
-        self, temp_storage
-    ) -> None:
+    async def test_receipt_count_with_meshcore_delivery(self, temp_storage) -> None:
         """Receipt count reflects MeshCore delivery receipts."""
         event = _make_meshcore_canonical_event(event_id="ce-rcpt-1")
         await temp_storage.append(event)

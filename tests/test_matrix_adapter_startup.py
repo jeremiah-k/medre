@@ -10,14 +10,13 @@ from unittest.mock import MagicMock
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
 from medre.adapters.matrix.session import MatrixSession
-
+from tests.helpers.matrix_adapter import make_adapter_context as _make_adapter_context
+from tests.helpers.matrix_adapter import make_fake_nio_event as _make_fake_nio_event
 from tests.helpers.matrix_adapter import (
-    make_adapter_context as _make_adapter_context,
-    make_fake_nio_event as _make_fake_nio_event,
     make_fake_reaction_event as _make_fake_reaction_event,
-    make_fake_room as _make_fake_room,
-    make_matrix_config as _make_matrix_config,
 )
+from tests.helpers.matrix_adapter import make_fake_room as _make_fake_room
+from tests.helpers.matrix_adapter import make_matrix_config as _make_matrix_config
 
 
 class TestStartupHistorySuppression:

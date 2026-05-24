@@ -62,9 +62,9 @@ if TYPE_CHECKING:
     from medre.core.rendering.renderer import RenderingPipeline
     from medre.core.routing.router import Router
     from medre.core.routing.stats import RouteStats
-    from medre.core.supervision.capacity import CapacityController
     from medre.core.storage.replay import ReplayEngine
     from medre.core.storage.sqlite import SQLiteStorage
+    from medre.core.supervision.capacity import CapacityController
     from medre.runtime.builder import AdapterBuildFailure
     from medre.runtime.retry import RetryWorker
     from medre.runtime.route_engine import RouteEligibility, RouteStartupReadiness

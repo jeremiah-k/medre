@@ -87,6 +87,7 @@ def build_mock_nio_module() -> MagicMock:
         join_resp = MagicMock(name="join_response")
         join_resp.room_id = room_id
         return join_resp
+
     client.join = AsyncMock(side_effect=_join)
 
     whoami_resp = MagicMock(name="whoami_response")

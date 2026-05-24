@@ -330,18 +330,18 @@ cp examples/env/docker.env.example .env
 
 Key variables:
 
-| Variable                                      | Purpose                                             |
-| --------------------------------------------- | --------------------------------------------------- |
-| `MEDRE_HOME`                                  | Root data directory inside container (`/opt/medre`) |
-| `MEDRE_LOG_LEVEL`                             | Log verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR`  |
-| `MEDRE_ADAPTER__MAIN__ENABLED`                | Enable Matrix adapter                               |
-| `MEDRE_ADAPTER__MAIN__HOMESERVER`             | Matrix homeserver URL                               |
-| `MEDRE_ADAPTER__MAIN__USER_ID`                | Matrix user ID                                      |
-| `MEDRE_ADAPTER__MAIN__ACCESS_TOKEN`           | Matrix access token                                 |
-| `MEDRE_ADAPTER__MAIN__ROOM_ALLOWLIST`         | Comma-separated room IDs                            |
-| `MEDRE_ADAPTER__RADIO__ENABLED`               | Enable Meshtastic adapter                           |
-| `MEDRE_ADAPTER__RADIO__CONNECTION_TYPE`       | Connection mode: `serial`, `tcp`, `ble`, `fake`     |
-| `MEDRE_ADAPTER__RADIO__SERIAL_PORT`           | Serial device path                                  |
+| Variable                                | Purpose                                             |
+| --------------------------------------- | --------------------------------------------------- |
+| `MEDRE_HOME`                            | Root data directory inside container (`/opt/medre`) |
+| `MEDRE_LOG_LEVEL`                       | Log verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR`  |
+| `MEDRE_ADAPTER__MAIN__ENABLED`          | Enable Matrix adapter                               |
+| `MEDRE_ADAPTER__MAIN__HOMESERVER`       | Matrix homeserver URL                               |
+| `MEDRE_ADAPTER__MAIN__USER_ID`          | Matrix user ID                                      |
+| `MEDRE_ADAPTER__MAIN__ACCESS_TOKEN`     | Matrix access token                                 |
+| `MEDRE_ADAPTER__MAIN__ROOM_ALLOWLIST`   | Comma-separated room IDs                            |
+| `MEDRE_ADAPTER__RADIO__ENABLED`         | Enable Meshtastic adapter                           |
+| `MEDRE_ADAPTER__RADIO__CONNECTION_TYPE` | Connection mode: `serial`, `tcp`, `ble`, `fake`     |
+| `MEDRE_ADAPTER__RADIO__SERIAL_PORT`     | Serial device path                                  |
 
 Mount a volume at `MEDRE_HOME` for persistent state:
 
@@ -1260,8 +1260,8 @@ When a delivery or replay event cannot acquire a slot within `delivery_acquire_t
 
 Some adapters maintain their own bounded internal queues in addition to the global capacity semaphores:
 
-| Adapter    | Queue mechanism      | Default bound | Overflow policy                                  |
-| ---------- | -------------------- | ------------- | ------------------------------------------------ |
+| Adapter    | Queue mechanism                           | Default bound        | Overflow policy                                                          |
+| ---------- | ----------------------------------------- | -------------------- | ------------------------------------------------------------------------ |
 | Meshtastic | unbounded deque with explicit enqueue cap | 1024 items (default) | Explicit rejection when full, `queue_total_rejected` counter incremented |
 
 Other adapters (Matrix, LXMF, MeshCore) rely on the `CapacityController` semaphore and their transport's own flow control.

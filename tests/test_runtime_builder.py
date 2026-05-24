@@ -4,7 +4,6 @@ disabled adapters, error handling."""
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -15,7 +14,6 @@ from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.config.model import (
     AdapterConfigSet,
-    LoggingConfig,
     LxmfRuntimeConfig,
     MatrixRuntimeConfig,
     MeshCoreRuntimeConfig,

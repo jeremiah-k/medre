@@ -12,15 +12,15 @@ identifies resolved findings, and tracks remaining deferred items.
 
 ## 1. Findings Summary
 
-| #   | Item                                      | Current State                                                                          | Status                                                                                                       | Blocking?      |
-| --- | ----------------------------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | -------------- |
-| F1  | `pyproject.toml` `license` field          | `license = "GPL-3.0-or-later"`                                                         | ✅ Updated from MIT to GPL-3.0-or-later (2026-05-12). Consistent with dependency reality (contracts 40, 41). | No             |
-| F2  | LICENSE file                              | ✅ Present. Standard FSF GPLv3 text with copyright holder placeholder.                 | Resolved.                                                                                                    | No             |
-| F3  | License classifier                        | Omitted per PEP 639.                                                                  | ✅ Omitted. The `license` SPDX expression supersedes the Trove classifier (Contract 66). setuptools >= 80 rejects both. | No             |
-| F4  | Source file headers                       | **None.** Zero .py files have copyright, SPDX, or license headers.                     | Acceptable for now. Per-file headers may be added post-beta for stronger copyleft enforcement.               | No — post-beta |
-| F5  | README license section                    | ✅ Updated to reflect GPL-3.0-or-later with links to LICENSE file and governance docs. | Done.                                                                                                        | No             |
-| F6  | PKG-INFO `License-Expression`             | `License-Expression: GPL-3.0-or-later`                                                 | Consistent with pyproject.toml.                                                                              | No             |
-| F7  | Other metadata fields (`authors`, `urls`) | **Missing.** Known gap, tracked in contract 38 §7.2 F5/F6.                             | Not license-related.                                                                                         | No             |
+| #   | Item                                      | Current State                                                                          | Status                                                                                                                  | Blocking?      |
+| --- | ----------------------------------------- | -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | -------------- |
+| F1  | `pyproject.toml` `license` field          | `license = "GPL-3.0-or-later"`                                                         | ✅ Updated from MIT to GPL-3.0-or-later (2026-05-12). Consistent with dependency reality (contracts 40, 41).            | No             |
+| F2  | LICENSE file                              | ✅ Present. Standard FSF GPLv3 text with copyright holder placeholder.                 | Resolved.                                                                                                               | No             |
+| F3  | License classifier                        | Omitted per PEP 639.                                                                   | ✅ Omitted. The `license` SPDX expression supersedes the Trove classifier (Contract 66). setuptools >= 80 rejects both. | No             |
+| F4  | Source file headers                       | **None.** Zero .py files have copyright, SPDX, or license headers.                     | Acceptable for now. Per-file headers may be added post-beta for stronger copyleft enforcement.                          | No — post-beta |
+| F5  | README license section                    | ✅ Updated to reflect GPL-3.0-or-later with links to LICENSE file and governance docs. | Done.                                                                                                                   | No             |
+| F6  | PKG-INFO `License-Expression`             | `License-Expression: GPL-3.0-or-later`                                                 | Consistent with pyproject.toml.                                                                                         | No             |
+| F7  | Other metadata fields (`authors`, `urls`) | **Missing.** Known gap, tracked in contract 38 §7.2 F5/F6.                             | Not license-related.                                                                                                    | No             |
 
 ## 2. pyproject.toml Metadata Detail
 
@@ -137,7 +137,7 @@ All previously governance-blocked actions have been completed:
 | --- | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | A1  | Create top-level LICENSE file with GPLv3 text               | ✅ Done. Standard FSF GPLv3 text with copyright holder placeholder.                                                                                                                                                                            |
 | A2  | Update `pyproject.toml` `license` field to GPL-3.0-or-later | ✅ Done.                                                                                                                                                                                                                                       |
-| A3  | License classifier                                          | ✅ Initially added, then omitted per PEP 639 (Contract 66). setuptools >= 80 rejects a `License ::` Trove classifier alongside a SPDX `license` expression. The SPDX field is sufficient. |
+| A3  | License classifier                                          | ✅ Initially added, then omitted per PEP 639 (Contract 66). setuptools >= 80 rejects a `License ::` Trove classifier alongside a SPDX `license` expression. The SPDX field is sufficient.                                                      |
 | A4  | Update README.md license section                            | ✅ Done. GPL-3.0-or-later with links to LICENSE and governance docs.                                                                                                                                                                           |
 | A5  | Update contract 42 §5.1 with final license                  | ✅ Done.                                                                                                                                                                                                                                       |
 | A6  | Update contract 38 RC criteria §6.3 license row             | Pending. Not blocking (RC gate, not beta gate).                                                                                                                                                                                                |
@@ -146,17 +146,17 @@ All previously governance-blocked actions have been completed:
 
 ## 7. Changes Made This Audit
 
-| File                                             | Change                                                                                        | Rationale                                               |
-| ------------------------------------------------ | --------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
-| `pyproject.toml`                                 | Updated `license = "GPL-3.0-or-later"` (from MIT)                                             | Aligns with dependency reality (mtjk is GPL-3.0-only).  |
-| `pyproject.toml`                                 | License Trove classifier omitted per PEP 639 (Contract 66)                                     | SPDX `license` field supersedes Trove classifier. setuptools >= 80 rejects both.  |
-| `LICENSE`                                        | Created with standard FSF GPLv3 text                                                          | Compliant distribution requires license text.           |
-| `README.md`                                      | Updated License section to GPL-3.0-or-later                                                   | Surface the license where consumers see it.             |
-| `docs/contracts/40-license-governance.md`        | Updated to record GPL-3.0-or-later decision                                                   | Governance record.                                      |
-| `docs/contracts/41-third-party-license-audit.md` | Updated compatibility notes                                                                   | Reflect GPL-3.0-or-later in all dependency assessments. |
-| `docs/contracts/42-contributor-governance.md`    | Updated license grant to GPL-3.0-or-later                                                     | Contributor expectations match project license.         |
-| `docs/contracts/44-reticulum-license-notes.md`   | Updated MEDRE license references                                                              | Accurate cross-references.                              |
-| `docs/contracts/45-spdx-metadata-audit.md`       | This document updated                                                                         | Reflect resolved state of all findings.                 |
+| File                                             | Change                                                     | Rationale                                                                        |
+| ------------------------------------------------ | ---------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `pyproject.toml`                                 | Updated `license = "GPL-3.0-or-later"` (from MIT)          | Aligns with dependency reality (mtjk is GPL-3.0-only).                           |
+| `pyproject.toml`                                 | License Trove classifier omitted per PEP 639 (Contract 66) | SPDX `license` field supersedes Trove classifier. setuptools >= 80 rejects both. |
+| `LICENSE`                                        | Created with standard FSF GPLv3 text                       | Compliant distribution requires license text.                                    |
+| `README.md`                                      | Updated License section to GPL-3.0-or-later                | Surface the license where consumers see it.                                      |
+| `docs/contracts/40-license-governance.md`        | Updated to record GPL-3.0-or-later decision                | Governance record.                                                               |
+| `docs/contracts/41-third-party-license-audit.md` | Updated compatibility notes                                | Reflect GPL-3.0-or-later in all dependency assessments.                          |
+| `docs/contracts/42-contributor-governance.md`    | Updated license grant to GPL-3.0-or-later                  | Contributor expectations match project license.                                  |
+| `docs/contracts/44-reticulum-license-notes.md`   | Updated MEDRE license references                           | Accurate cross-references.                                                       |
+| `docs/contracts/45-spdx-metadata-audit.md`       | This document updated                                      | Reflect resolved state of all findings.                                          |
 
 ## 8. Conclusion
 

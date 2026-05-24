@@ -20,7 +20,6 @@ from medre.config.model import (
     StorageConfig,
 )
 
-
 # ---------------------------------------------------------------------------
 # Path-env cleanup (call from an autouse fixture in each test module)
 # ---------------------------------------------------------------------------

@@ -18,6 +18,7 @@ from medre.config.model import (
     StorageConfig,
 )
 from medre.config.paths import MedrePaths
+from medre.config.routes import RouteConfig, RouteConfigSet
 from medre.core.events.canonical import CanonicalEvent, EventMetadata
 from medre.core.events.metadata import RoutingMetadata
 from medre.core.storage.replay import (
@@ -28,7 +29,6 @@ from medre.core.storage.replay import (
     collect_replay_summary,
 )
 from medre.runtime.builder import RuntimeBuilder
-from medre.config.routes import RouteConfig, RouteConfigSet
 
 # ---------------------------------------------------------------------------
 # Helpers

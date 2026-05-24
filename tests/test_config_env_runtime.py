@@ -22,7 +22,6 @@ from medre.config.paths import MedrePaths, resolve
 from medre.runtime.builder import RuntimeBuilder
 from tests.helpers.runtime_builder import clean_path_env
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

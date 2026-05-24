@@ -8,7 +8,6 @@ import pytest
 
 from medre.config.errors import ConfigValidationError
 from medre.config.loader import load_config
-from medre.core.routing.router import Router
 from medre.config.routes import (
     BridgePolicy,
     RouteConfig,
@@ -16,6 +15,7 @@ from medre.config.routes import (
     RouteDirectionality,
     RouteRetryConfig,
 )
+from medre.core.routing.router import Router
 
 # ---------------------------------------------------------------------------
 # BridgePolicy

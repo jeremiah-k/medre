@@ -249,38 +249,36 @@ class TestMatrixAlphaRunSession:
         matrix_receipts = [
             r for r in receipts if r.get("target_adapter") == "matrix_alpha"
         ]
-        assert len(matrix_receipts) > 0, (
-            f"No matrix_alpha receipts in delivery_receipts: {receipts}"
-        )
-        assert any(r["status"] == "sent" for r in matrix_receipts), (
-            f"No 'sent' receipt for matrix_alpha: {matrix_receipts}"
-        )
+        assert (
+            len(matrix_receipts) > 0
+        ), f"No matrix_alpha receipts in delivery_receipts: {receipts}"
+        assert any(
+            r["status"] == "sent" for r in matrix_receipts
+        ), f"No 'sent' receipt for matrix_alpha: {matrix_receipts}"
 
         # --- Native refs ---
         native_refs = report["native_refs"]
         assert native_refs, "No native_refs in report"
-        matrix_refs = [
-            r for r in native_refs if r.get("adapter") == "matrix_alpha"
-        ]
-        assert len(matrix_refs) > 0, (
-            f"No matrix_alpha entries in native_refs: {native_refs}"
-        )
+        matrix_refs = [r for r in native_refs if r.get("adapter") == "matrix_alpha"]
+        assert (
+            len(matrix_refs) > 0
+        ), f"No matrix_alpha entries in native_refs: {native_refs}"
         for ref in matrix_refs:
             native_id = ref.get("native_message_id") or ref.get("native_id", "")
-            assert native_id.startswith("$"), (
-                f"Expected Matrix event_id starting with '$', got: {native_id!r}"
-            )
+            assert native_id.startswith(
+                "$"
+            ), f"Expected Matrix event_id starting with '$', got: {native_id!r}"
             channel = ref.get("native_channel_id") or ref.get("channel", "")
-            assert channel == MATRIX_ROOM_ID, (
-                f"Expected channel {MATRIX_ROOM_ID!r}, got: {channel!r}"
-            )
+            assert (
+                channel == MATRIX_ROOM_ID
+            ), f"Expected channel {MATRIX_ROOM_ID!r}, got: {channel!r}"
 
         # --- Redaction: access token must not appear in serialized report ---
         assert MATRIX_ACCESS_TOKEN is not None
         report_json = json.dumps(report, default=str)
-        assert MATRIX_ACCESS_TOKEN not in report_json, (
-            "MATRIX_ACCESS_TOKEN leaked into report JSON output"
-        )
+        assert (
+            MATRIX_ACCESS_TOKEN not in report_json
+        ), "MATRIX_ACCESS_TOKEN leaked into report JSON output"
 
 
 # ---------------------------------------------------------------------------

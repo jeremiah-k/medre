@@ -30,7 +30,6 @@ from medre.config.model import (
     RuntimeOptions,
     StorageConfig,
 )
-from medre.config.routes import RouteConfig, RouteConfigSet, RouteDirectionality
 
 # ---------------------------------------------------------------------------
 # Fixtures

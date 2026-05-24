@@ -169,9 +169,7 @@ require_live = pytest.mark.skipif(
 # These tests are opt-in: MESHCORE_LIVE_SEND=1 must be set explicitly.
 require_live_send = pytest.mark.skipif(
     not MESHCORE_LIVE_SEND,
-    reason=(
-        "Set MESHCORE_LIVE_SEND=1 to enable live send/transmit tests"
-    ),
+    reason=("Set MESHCORE_LIVE_SEND=1 to enable live send/transmit tests"),
 )
 
 
@@ -592,9 +590,7 @@ class TestMeshCoreBLEValidation:
             adapter_id="ble-factory-test",
         )
 
-        with patch(
-            "medre.adapters.meshcore.session.HAS_MESHCORE", True
-        ), patch(
+        with patch("medre.adapters.meshcore.session.HAS_MESHCORE", True), patch(
             "medre.adapters.meshcore.session.importlib.import_module",
             return_value=mock_meshcore_module,
         ) as mock_import:
@@ -605,9 +601,9 @@ class TestMeshCoreBLEValidation:
         fake_create_ble.assert_called_once_with(address="C4:4F:33:6A:B0:23")
 
         # Verify subscription wiring was exercised.
-        assert mock_mc_instance.subscribe.call_count >= 1, (
-            "Expected at least one event subscription after BLE start"
-        )
+        assert (
+            mock_mc_instance.subscribe.call_count >= 1
+        ), "Expected at least one event subscription after BLE start"
 
         await session.stop()
 
@@ -638,9 +634,7 @@ class TestMeshCoreBLEValidation:
             adapter_id="ble-fail-test",
         )
 
-        with patch(
-            "medre.adapters.meshcore.session.HAS_MESHCORE", True
-        ), patch(
+        with patch("medre.adapters.meshcore.session.HAS_MESHCORE", True), patch(
             "medre.adapters.meshcore.session.importlib.import_module",
             return_value=mock_meshcore_module,
         ):
@@ -651,7 +645,9 @@ class TestMeshCoreBLEValidation:
         diag = session.diagnostics()
         assert diag["connected"] is False
         assert diag["mode"] == "ble"
-        assert_no_secret_leak(diag, {"private_key", "secret", "password", "C4:4F:33:6A:B0:23"})
+        assert_no_secret_leak(
+            diag, {"private_key", "secret", "password", "C4:4F:33:6A:B0:23"}
+        )
 
     # -- d) Send requires live send -------------------------------------------
 
@@ -687,7 +683,9 @@ class TestMeshCoreBLEValidation:
             )
             # In fake mode, deliver() returns None (no real transmit)
             # regardless of MESHCORE_LIVE_SEND.
-            delivery = await bounded(adapter.deliver(result), 5.0, "ble send gate deliver")
+            delivery = await bounded(
+                adapter.deliver(result), 5.0, "ble send gate deliver"
+            )
             # Fake mode returns None — no real transmission occurred.
             assert delivery is None, "Fake-mode deliver should return None"
         finally:

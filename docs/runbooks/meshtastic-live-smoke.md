@@ -494,18 +494,18 @@ unfilled as a checklist for the next operator.
 
 The Meshtastic adapter exposes the following fields in `diagnostics()`:
 
-| Field                 | Type | Description                                       |
-| --------------------- | ---- | ------------------------------------------------- |
-| `adapter_id`          | str  | Adapter identifier                                |
-| `platform`            | str  | Always `"meshtastic"`                             |
-| `started`             | bool | Whether the adapter has been started              |
-| `connection_type`     | str  | `fake`, `tcp`, `serial`, or `ble`                 |
-| `queue_pending`       | int  | Items currently in the outbound queue             |
-| `queue_total_sent`    | int  | Cumulative successful sends                       |
-| `queue_total_failed`  | int  | Cumulative send failures                          |
+| Field                  | Type | Description                                            |
+| ---------------------- | ---- | ------------------------------------------------------ |
+| `adapter_id`           | str  | Adapter identifier                                     |
+| `platform`             | str  | Always `"meshtastic"`                                  |
+| `started`              | bool | Whether the adapter has been started                   |
+| `connection_type`      | str  | `fake`, `tcp`, `serial`, or `ble`                      |
+| `queue_pending`        | int  | Items currently in the outbound queue                  |
+| `queue_total_sent`     | int  | Cumulative successful sends                            |
+| `queue_total_failed`   | int  | Cumulative send failures                               |
 | `queue_total_rejected` | int  | Cumulative enqueue attempts rejected due to full queue |
-| `drain_task_running`  | bool | Whether the background queue-drain task is active |
-| `background_tasks`    | int  | Number of tracked background tasks                |
+| `drain_task_running`   | bool | Whether the background queue-drain task is active      |
+| `background_tasks`     | int  | Number of tracked background tasks                     |
 
 **Session diagnostics** (present when adapter has been started):
 

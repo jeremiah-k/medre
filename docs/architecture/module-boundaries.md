@@ -84,14 +84,14 @@ Owns TOML loading, model classes, environment overrides, and path resolution.
 
 ## Import rules
 
-| From                    | May import                                                                                                                    | Must not import                                           |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| `cli/` commands         | `config.*`, `runtime.*`, `core.observability.*`                                                                               | Adapter implementations, unrelated `core.*` internals     |
-| `runtime/builder`       | `core.contracts.adapter`, `config.model`, `core.*`                                                                            | Specific adapter SDK modules                              |
-| `runtime/observability` | `core.diagnostics`, `core.routing.stats`                                                                                      | Adapter code                                              |
-| `core/*`                | Other `core/*` sub-packages                                                                                                   | `adapters.*`, `runtime.*`, `cli.*`                        |
-| `adapters/<transport>/` | `core.contracts.adapter`, `core.events`, `core.rendering`                                                                     | Other adapter packages, `runtime.*`                       |
-| `config/`               | `medre.config.*` (own internals including `config.routes`), `medre.core.observability.log_levels` | `medre.adapters.*`, adapter SDKs, `medre.runtime.*` |
+| From                    | May import                                                                                        | Must not import                                       |
+| ----------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| `cli/` commands         | `config.*`, `runtime.*`, `core.observability.*`                                                   | Adapter implementations, unrelated `core.*` internals |
+| `runtime/builder`       | `core.contracts.adapter`, `config.model`, `core.*`                                                | Specific adapter SDK modules                          |
+| `runtime/observability` | `core.diagnostics`, `core.routing.stats`                                                          | Adapter code                                          |
+| `core/*`                | Other `core/*` sub-packages                                                                       | `adapters.*`, `runtime.*`, `cli.*`                    |
+| `adapters/<transport>/` | `core.contracts.adapter`, `core.events`, `core.rendering`                                         | Other adapter packages, `runtime.*`                   |
+| `config/`               | `medre.config.*` (own internals including `config.routes`), `medre.core.observability.log_levels` | `medre.adapters.*`, adapter SDKs, `medre.runtime.*`   |
 
 Key invariants:
 

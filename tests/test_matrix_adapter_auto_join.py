@@ -19,7 +19,6 @@ from tests.helpers.matrix_session import (
     make_matrix_context,
 )
 
-
 # ===================================================================
 # Part D — auto-join integration
 # ===================================================================

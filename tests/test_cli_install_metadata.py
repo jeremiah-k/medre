@@ -153,7 +153,9 @@ class TestDockerEnvWorkflow:
         self, config_fake_multi: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Config check output does not contain secret env values."""
-        monkeypatch.setenv("MEDRE_ADAPTER__FAKE_MATRIX__ACCESS_TOKEN", "env_secret_token_12345")
+        monkeypatch.setenv(
+            "MEDRE_ADAPTER__FAKE_MATRIX__ACCESS_TOKEN", "env_secret_token_12345"
+        )
         output = _run_cli("config", "check", "--config", str(config_fake_multi))
         assert "env_secret_token_12345" not in output
 

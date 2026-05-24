@@ -99,7 +99,7 @@ The following live validations require future hardware/software operations. They
 | MeshCore live smoke test                   | MeshCore   | MeshCore firmware running on CP2104 device | Pending |
 | Reticulum install from local source        | LXMF       | Configure transport, generate identity     | Pending |
 | LXMF live smoke test                       | LXMF       | Running Reticulum instance                 | Pending |
-| Matrix current-pass live re-run              | Matrix     | Valid credentials (token or password)      | Pending |
+| Matrix current-pass live re-run            | Matrix     | Valid credentials (token or password)      | Pending |
 | Meshtastic adapter live re-run             | Meshtastic | `mtjk` in project venv                     | Pending |
 
 ## Known Limitations

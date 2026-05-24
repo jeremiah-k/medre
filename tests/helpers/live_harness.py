@@ -13,7 +13,7 @@ import json
 import os
 from collections.abc import Awaitable, Iterable
 from dataclasses import asdict, dataclass, field
-from typing import Any, TypeVar
+from typing import TypeVar
 
 # ---------------------------------------------------------------------------
 # Heuristic tokens used by ``redact_env_value`` to detect secret env vars.

@@ -29,15 +29,15 @@ and what import boundaries must hold.
 
 ## 3. Package Metadata
 
-| Property              | Value                                          | Notes                                  |
-| --------------------- | ---------------------------------------------- | -------------------------------------- |
-| **Distribution name** | `medre`                                        | Single-word, lowercase                 |
-| **Version**           | `0.1.0`                                        | Semantic dotted notation               |
-| **License**           | `GPL-3.0-or-later`                             | See contract 42 for governance context |
+| Property              | Value                                          | Notes                                                                    |
+| --------------------- | ---------------------------------------------- | ------------------------------------------------------------------------ |
+| **Distribution name** | `medre`                                        | Single-word, lowercase                                                   |
+| **Version**           | `0.1.0`                                        | Semantic dotted notation                                                 |
+| **License**           | `GPL-3.0-or-later`                             | See contract 42 for governance context                                   |
 | **Status classifier** | `Development Status :: 3 - Alpha`              | Pre-release; APIs may change; no stable public API; not production-ready |
-| **Requires Python**   | `>=3.11`                                       |                                        |
-| **Build system**      | `setuptools>=68`                               |                                        |
-| **Source layout**     | `src/` (via `[tool.setuptools.packages.find]`) |                                        |
+| **Requires Python**   | `>=3.11`                                       |                                                                          |
+| **Build system**      | `setuptools>=68`                               |                                                                          |
+| **Source layout**     | `src/` (via `[tool.setuptools.packages.find]`) |                                                                          |
 
 ### 3.1 Console Script Entry Point
 
@@ -135,8 +135,8 @@ module load time:
 
 All fake adapters are importable and instantiable without optional SDKs:
 
-| Fake adapter              | Module                             | Constructor args           |
-| ------------------------- | ---------------------------------- | -------------------------- |
+| Fake adapter              | Module                              | Constructor args           |
+| ------------------------- | ----------------------------------- | -------------------------- |
 | `FakeTransportAdapter`    | `medre.adapters.fakes.transport`    | `adapter_id: str`          |
 | `FakeMatrixAdapter`       | `medre.adapters.fakes.matrix`       | `adapter_id: str`          |
 | `FakeMeshtasticAdapter`   | `medre.adapters.fakes.meshtastic`   | `config: MeshtasticConfig` |

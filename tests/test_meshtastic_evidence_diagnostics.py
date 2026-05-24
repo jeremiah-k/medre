@@ -165,12 +165,12 @@ class TestEvidenceBundleWithMeshtasticAdapter:
         )
 
         route_data = route_section.get("data", {})
-        assert route_data.get("valid") is True, (
-            f"Route validation reports invalid: {route_data}"
-        )
-        assert route_data.get("route_count", 0) >= 1, (
-            f"Expected at least one route: {route_data}"
-        )
+        assert (
+            route_data.get("valid") is True
+        ), f"Route validation reports invalid: {route_data}"
+        assert (
+            route_data.get("route_count", 0) >= 1
+        ), f"Expected at least one route: {route_data}"
 
         # Verify the Meshtastic route exists in config_summary
         config_section = bundle["sections"].get("config_summary", {})
@@ -190,26 +190,27 @@ class TestEvidenceBundleWithMeshtasticAdapter:
 
         bundle_json = json.dumps(bundle, default=str)
         # Meshtastic-specific: no serial port paths should leak
-        assert "/dev/ttyUSB" not in bundle_json, (
-            "Serial port path leaked into evidence bundle output"
-        )
-        assert "/dev/ttyACM" not in bundle_json, (
-            "Serial port path leaked into evidence bundle output"
-        )
+        assert (
+            "/dev/ttyUSB" not in bundle_json
+        ), "Serial port path leaked into evidence bundle output"
+        assert (
+            "/dev/ttyACM" not in bundle_json
+        ), "Serial port path leaked into evidence bundle output"
         # No host/IP addresses should leak
-        assert "192.168." not in bundle_json, (
-            "Host IP leaked into evidence bundle output"
-        )
-        assert "10.0." not in bundle_json, (
-            "Host IP leaked into evidence bundle output"
-        )
+        assert (
+            "192.168." not in bundle_json
+        ), "Host IP leaked into evidence bundle output"
+        assert "10.0." not in bundle_json, "Host IP leaked into evidence bundle output"
         # No BLE MAC addresses should leak (AA:BB:CC:DD:EE:FF pattern)
         import re
 
-        ble_mac = re.search(r"[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}", bundle_json)
-        assert ble_mac is None, (
-            f"Possible BLE MAC address leaked into evidence bundle: {ble_mac.group()}"
+        ble_mac = re.search(
+            r"[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}",
+            bundle_json,
         )
+        assert (
+            ble_mac is None
+        ), f"Possible BLE MAC address leaked into evidence bundle: {ble_mac.group()}"
 
     async def test_evidence_bundle_storage_path_mode_with_meshtastic_event(
         self, tmp_path
@@ -351,20 +352,21 @@ class TestEvidenceBundleWithMeshtasticAdapter:
         # Diagnostics should report the fake adapter without hardware errors
         diag_section = bundle["sections"].get("diagnostics_snapshot", {})
         diag_errors = diag_section.get("error")
-        assert diag_errors is None or "hardware" not in str(diag_errors).lower(), (
-            f"Unexpected hardware error in diagnostics: {diag_errors}"
-        )
+        assert (
+            diag_errors is None or "hardware" not in str(diag_errors).lower()
+        ), f"Unexpected hardware error in diagnostics: {diag_errors}"
 
         # Config summary should be clean
         config_section = bundle["sections"].get("config_summary", {})
-        assert config_section.get("status") in ("ok", "passed"), (
-            f"Config summary failed without hardware: {config_section.get('error')}"
-        )
+        assert config_section.get("status") in (
+            "ok",
+            "passed",
+        ), f"Config summary failed without hardware: {config_section.get('error')}"
 
         # No hardware-specific errors in top-level errors list
         for err in bundle.get("errors", []):
             assert "serial" not in err.lower(), f"Serial hardware error leaked: {err}"
             assert "ble" not in err.lower(), f"BLE hardware error leaked: {err}"
-            assert "tcp" not in err.lower() or "connection" not in err.lower(), (
-                f"TCP connection error leaked: {err}"
-            )
+            assert (
+                "tcp" not in err.lower() or "connection" not in err.lower()
+            ), f"TCP connection error leaked: {err}"

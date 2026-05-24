@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from medre.core.rendering import RenderingPipeline, TextRenderer
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage import SQLiteStorage
 from medre.core.storage.replay import (
     ReplayMode,
@@ -21,7 +21,6 @@ from medre.core.storage.replay import (
     ReplayRouteAttribution,
     _filter_replay_loops,
 )
-
 from tests.helpers.replay_routing import (
     StubPipeline,
     make_engine,
@@ -29,7 +28,6 @@ from tests.helpers.replay_routing import (
     make_replay_event,
     make_router,
 )
-
 
 # ===================================================================
 # 1. Route attribution in replay results

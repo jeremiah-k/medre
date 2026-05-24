@@ -238,7 +238,6 @@ class TestMeshtasticNoSdkLifecycle:
 
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
         from medre.adapters.meshtastic.errors import MeshtasticConnectionError
-
         from medre.config.adapters.meshtastic import MeshtasticConfig
 
         tcp_config = MeshtasticConfig(

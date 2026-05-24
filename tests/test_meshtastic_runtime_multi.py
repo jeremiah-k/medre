@@ -23,8 +23,8 @@ from typing import Any
 
 import pytest
 
-from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
 from medre.adapters.fakes.matrix import FakeMatrixAdapter
+from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
 from medre.config.loader import load_config
 from medre.core.events.canonical import CanonicalEvent
 from medre.runtime.builder import RuntimeBuilder
@@ -97,9 +97,10 @@ def _make_stub_event(source_adapter: str) -> CanonicalEvent:
     The router's ``match()`` checks ``source_adapter`` against each route's
     ``RouteSource.adapter``, so we only need that field populated.
     """
-    from datetime import datetime, timezone
-    from medre.core.events.canonical import EventMetadata
     import uuid
+    from datetime import datetime, timezone
+
+    from medre.core.events.canonical import EventMetadata
 
     return CanonicalEvent(
         event_id=str(uuid.uuid4()),

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -22,7 +21,7 @@ from medre.core.events import (
     NativeMessageRef,
 )
 from medre.core.storage.sqlite import SQLiteStorage
-from tests.helpers.cli import _run_cli, _run_cli_raw
+from tests.helpers.cli import _run_cli
 
 # ---------------------------------------------------------------------------
 # Shared seed data

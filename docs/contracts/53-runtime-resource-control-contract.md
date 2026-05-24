@@ -492,12 +492,12 @@ Non-delivery replay modes (`RE_RENDER`, `RE_ROUTE`, `DRY_RUN`) do not acquire re
 
 When capacity is exhausted, the system applies one of three behaviors depending on the subsystem:
 
-| Subsystem                 | Default behavior                                                                                              | Alternative (documented)                                                                                                              |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `PipelineRunner` delivery | **Reject** — return `permanent_failure` with `CAPACITY_REJECTION`/`SHUTDOWN_REJECTION`; increment diagnostics | N/A (reject is the only policy at this layer)                                                                                         |
-| `ReplayEngine` delivery   | **Reject** — return `error` with `replay_capacity_exceeded`/`replay_rejected_shutdown`; increment diagnostics | N/A (reject is the only policy at this layer)                                                                                         |
+| Subsystem                 | Default behavior                                                                                                    | Alternative (documented)                                                                                                              |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `PipelineRunner` delivery | **Reject** — return `permanent_failure` with `CAPACITY_REJECTION`/`SHUTDOWN_REJECTION`; increment diagnostics       | N/A (reject is the only policy at this layer)                                                                                         |
+| `ReplayEngine` delivery   | **Reject** — return `error` with `replay_capacity_exceeded`/`replay_rejected_shutdown`; increment diagnostics       | N/A (reject is the only policy at this layer)                                                                                         |
 | Meshtastic outbound queue | **Explicit rejection** — `enqueue()` raises `MeshtasticSendError(transient=True)`; increment `queue_total_rejected` | `max_queue_size=None` for unbounded (not recommended)                                                                                 |
-| Design reference (§3)     | —                                                                                                             | **Drop-newest** — preserves earliest queued items, loses newest arrivals. Appropriate for command-and-control where ordering matters. |
+| Design reference (§3)     | —                                                                                                                   | **Drop-newest** — preserves earliest queued items, loses newest arrivals. Appropriate for command-and-control where ordering matters. |
 
 **Default: reject with diagnostics increment.** The `CapacityController` rejects work when capacity is exhausted or when shutdown has been signaled. Each rejection increments a counter visible in `snapshot()`. The caller records the failure in its outcome (delivery or replay) and moves on. No retry is attempted — capacity rejection is a backpressure signal, not a transient error.
 
@@ -519,12 +519,12 @@ The `CapacityController` tracks the following **internal gauges**, all visible v
 
 Adapter-level queue metrics (Meshtastic):
 
-| Counter         | Type    | Description                                                      |
-| --------------- | ------- | ---------------------------------------------------------------- |
-| `queue_total_rejected` | Counter | Enqueue attempts rejected due to the Meshtastic outbound queue being full |
-| `queue_max_size`       | Gauge   | Configured maximum queue size (or `None` for unbounded)                    |
-| `queue_utilization_pct`| Gauge   | Current queue utilization as a percentage of `queue_max_size`             |
-| `queue_depth`   | Gauge   | Current number of items in the Meshtastic outbound queue         |
+| Counter                 | Type    | Description                                                               |
+| ----------------------- | ------- | ------------------------------------------------------------------------- |
+| `queue_total_rejected`  | Counter | Enqueue attempts rejected due to the Meshtastic outbound queue being full |
+| `queue_max_size`        | Gauge   | Configured maximum queue size (or `None` for unbounded)                   |
+| `queue_utilization_pct` | Gauge   | Current queue utilization as a percentage of `queue_max_size`             |
+| `queue_depth`           | Gauge   | Current number of items in the Meshtastic outbound queue                  |
 
 ### 15.8 What v2 Does NOT Implement
 

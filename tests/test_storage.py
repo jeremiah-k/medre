@@ -15,9 +15,7 @@ from medre.core.events import (
     NativeRef,
 )
 from medre.core.storage import EventFilter, SQLiteStorage
-
 from tests.helpers.storage import make_storage_event
-
 
 # ===================================================================
 # Append / Get round-trip

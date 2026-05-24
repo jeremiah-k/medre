@@ -10,11 +10,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from medre.core.events import CanonicalEvent, EventMetadata, RoutingMetadata
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 
 # Re-export from the existing replay helper to avoid duplication.
 from tests.helpers.replay import StubPipeline, make_engine  # noqa: F401
-
 
 # ---------------------------------------------------------------------------
 # Event builders

@@ -25,7 +25,6 @@ from tests.helpers.matrix_session import (
 )
 from tests.helpers.matrix_session import mock_nio as _mock_nio  # noqa: F401
 
-
 # ===================================================================
 # Shared helpers
 # ===================================================================

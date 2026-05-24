@@ -29,7 +29,6 @@ from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.routing.stats import RouteStats
-from medre.core.supervision.accounting import RuntimeAccounting
 from medre.core.storage.replay import (
     ReplayEngine,
     ReplayMode,
@@ -37,6 +36,7 @@ from medre.core.storage.replay import (
     collect_replay_summary,
 )
 from medre.core.storage.sqlite import SQLiteStorage
+from medre.core.supervision.accounting import RuntimeAccounting
 from tests.helpers.async_utils import wait_until
 from tests.helpers.bridge import (
     make_adapter_context,

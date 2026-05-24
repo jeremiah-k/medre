@@ -620,7 +620,7 @@ During bridge operation, monitor these signals:
 | Signal                                 | Source               | Interpretation                                      |
 | -------------------------------------- | -------------------- | --------------------------------------------------- |
 | `capacity_rejections` growing          | `CapacityController` | Delivery concurrency is insufficient for the load   |
-| `queue_total_rejected` growing        | Meshtastic adapter   | Outbound send rate cannot keep up with inbound rate |
+| `queue_total_rejected` growing         | Meshtastic adapter   | Outbound send rate cannot keep up with inbound rate |
 | `capacity_rejections` growing (replay) | `CapacityController` | Replay concurrency is insufficient                  |
 | High `delivery_current` sustained      | `CapacityController` | Adapters are slow to complete deliveries            |
 

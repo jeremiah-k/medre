@@ -30,7 +30,6 @@ import pytest
 
 from medre.runtime.evidence._bundle import collect_evidence_bundle
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -48,8 +47,8 @@ async def _make_db_with_event_and_receipts(
         DeliveryReceipt,
         NativeMessageRef,
     )
-    from medre.core.events.metadata import EventMetadata
     from medre.core.events.kinds import EventKind
+    from medre.core.events.metadata import EventMetadata
     from medre.core.storage.sqlite import SQLiteStorage
 
     storage = SQLiteStorage(db_path)

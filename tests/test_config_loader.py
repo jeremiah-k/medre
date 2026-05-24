@@ -7,7 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from medre.config.errors import ConfigFileError, ConfigNotFoundError, ConfigValidationError
+from medre.config.errors import (
+    ConfigFileError,
+    ConfigNotFoundError,
+    ConfigValidationError,
+)
 from medre.config.loader import ConfigSource, find_config, load_config
 from medre.config.model import (
     MatrixRuntimeConfig,

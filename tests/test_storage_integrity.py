@@ -22,9 +22,7 @@ from medre.core.storage.backend import (
     StorageError,
     StorageInitializationError,
 )
-
 from tests.helpers.storage import make_storage_event
-
 
 # ===================================================================
 # DuplicateEventError on duplicate append

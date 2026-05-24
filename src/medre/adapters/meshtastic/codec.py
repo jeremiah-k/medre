@@ -17,7 +17,6 @@ from typing import Any
 
 from medre.adapters.meshtastic.errors import MeshtasticCodecError
 from medre.adapters.meshtastic.packet_classifier import (
-    ClassificationResult,
     MeshtasticPacketClassifier,
 )
 from medre.adapters.meshtastic.packet_snapshot import snapshot_decoded, snapshot_packet

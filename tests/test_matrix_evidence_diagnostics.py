@@ -163,12 +163,12 @@ class TestEvidenceBundleWithMatrixAdapter:
         )
 
         route_data = route_section.get("data", {})
-        assert route_data.get("valid") is True, (
-            f"Route validation reports invalid: {route_data}"
-        )
-        assert route_data.get("route_count", 0) >= 1, (
-            f"Expected at least one route: {route_data}"
-        )
+        assert (
+            route_data.get("valid") is True
+        ), f"Route validation reports invalid: {route_data}"
+        assert (
+            route_data.get("route_count", 0) >= 1
+        ), f"Expected at least one route: {route_data}"
 
         # Verify the Matrix→Meshtastic route exists in config_summary
         # (route_validation holds metadata; config_summary holds route definitions)

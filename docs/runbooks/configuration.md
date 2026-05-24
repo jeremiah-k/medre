@@ -729,7 +729,7 @@ Each transport exposes its config dataclass fields as override targets. The `ena
 | `matrix_relay_prefix`              | string | `MEDRE_ADAPTER__RADIO__MATRIX_RELAY_PREFIX=[{longname}]:`    |
 | `radio_relay_prefix`               | string | `MEDRE_ADAPTER__RADIO__RADIO_RELAY_PREFIX={shortname5}[M]:`  |
 | `mmrelay_compatibility`            | bool   | `MEDRE_ADAPTER__RADIO__MMRELAY_COMPATIBILITY=false`          |
-| `max_text_bytes`                   | int    | `MEDRE_ADAPTER__RADIO__MAX_TEXT_BYTES=227`                    |
+| `max_text_bytes`                   | int    | `MEDRE_ADAPTER__RADIO__MAX_TEXT_BYTES=227`                   |
 
 **MeshCore** (fields from `MeshCoreConfig`):
 

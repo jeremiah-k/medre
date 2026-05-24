@@ -44,7 +44,14 @@ REASON_UNCLASSIFIED: str = "unclassified packet"
 # --- Literal type aliases ---
 ClassificationAction = Literal["relay", "ignore", "drop", "deferred"]
 ClassificationCategory = Literal[
-    "text", "ack", "telemetry", "nodeinfo", "position", "admin", "unknown", "plugin_only"
+    "text",
+    "ack",
+    "telemetry",
+    "nodeinfo",
+    "position",
+    "admin",
+    "unknown",
+    "plugin_only",
 ]
 
 # **FIxTURE-SCAFFOLD ONLY** — This numeric map is NOT derived from the real
@@ -399,7 +406,9 @@ class MeshtasticPacketClassifier:
             action = "deferred"
             reason = REASON_PLUGIN_ONLY
         # 9. Empty text
-        elif is_text and (not isinstance(text_content, str) or not text_content.strip()):
+        elif is_text and (
+            not isinstance(text_content, str) or not text_content.strip()
+        ):
             action = "ignore"
             reason = REASON_EMPTY_TEXT
         # 10. Text message (relay)
@@ -421,7 +430,11 @@ class MeshtasticPacketClassifier:
             channel_index=channel_index,
             packet_id=packet_id,
             from_id=sender_id,
-            to_id=to_id if isinstance(to_id, str) else str(to_id) if to_id is not None else "",
+            to_id=(
+                to_id
+                if isinstance(to_id, str)
+                else str(to_id) if to_id is not None else ""
+            ),
             is_text=is_text,
             is_ack=is_ack,
             is_encrypted=is_encrypted,

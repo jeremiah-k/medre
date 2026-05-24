@@ -762,9 +762,7 @@ class TestMeshtasticAdapterQueueOwnership:
 class TestMeshtasticAdapterClassifierCounters:
     """Classifier counters increment correctly for various packet types."""
 
-    async def test_seen_increments_for_every_packet(
-        self, make_adapter_context
-    ) -> None:
+    async def test_seen_increments_for_every_packet(self, make_adapter_context) -> None:
         config = make_meshtastic_config(connection_type="fake")
         adapter = MeshtasticAdapter(config)
         ctx = make_adapter_context("mesh-1")
@@ -773,17 +771,21 @@ class TestMeshtasticAdapterClassifierCounters:
             # Text packet
             await adapter.simulate_inbound(make_meshtastic_text_packet(text="hello"))
             # Telemetry packet
-            await adapter.simulate_inbound({
-                "fromId": "!node1",
-                "id": 2,
-                "decoded": {"portnum": "telemetry"},
-            })
+            await adapter.simulate_inbound(
+                {
+                    "fromId": "!node1",
+                    "id": 2,
+                    "decoded": {"portnum": "telemetry"},
+                }
+            )
             # ACK packet
-            await adapter.simulate_inbound({
-                "fromId": "!node1",
-                "id": 3,
-                "decoded": {"portnum": "text_message_ack"},
-            })
+            await adapter.simulate_inbound(
+                {
+                    "fromId": "!node1",
+                    "id": 3,
+                    "decoded": {"portnum": "text_message_ack"},
+                }
+            )
 
             diag = adapter.diagnostics()
             assert diag["classifier_packets_seen"] == 3
@@ -810,20 +812,20 @@ class TestMeshtasticAdapterClassifierCounters:
         finally:
             await adapter.stop()
 
-    async def test_encrypted_increments_sub_counter(
-        self, make_adapter_context
-    ) -> None:
+    async def test_encrypted_increments_sub_counter(self, make_adapter_context) -> None:
         config = make_meshtastic_config(connection_type="fake")
         adapter = MeshtasticAdapter(config)
         ctx = make_adapter_context("mesh-1")
         await adapter.start(ctx)
         try:
-            await adapter.simulate_inbound({
-                "fromId": "!node1",
-                "id": 1,
-                "encrypted": True,
-                "decoded": {"portnum": "text_message", "text": "secret"},
-            })
+            await adapter.simulate_inbound(
+                {
+                    "fromId": "!node1",
+                    "id": 1,
+                    "encrypted": True,
+                    "decoded": {"portnum": "text_message", "text": "secret"},
+                }
+            )
 
             diag = adapter.diagnostics()
             assert diag["classifier_packets_dropped"] == 1
@@ -839,11 +841,13 @@ class TestMeshtasticAdapterClassifierCounters:
         ctx = make_adapter_context("mesh-1")
         await adapter.start(ctx)
         try:
-            await adapter.simulate_inbound({
-                "fromId": "!node1",
-                "id": 1,
-                "decoded": {"portnum": "detection_sensor"},
-            })
+            await adapter.simulate_inbound(
+                {
+                    "fromId": "!node1",
+                    "id": 1,
+                    "decoded": {"portnum": "detection_sensor"},
+                }
+            )
 
             diag = adapter.diagnostics()
             assert diag["classifier_packets_deferred"] == 1
@@ -851,20 +855,20 @@ class TestMeshtasticAdapterClassifierCounters:
         finally:
             await adapter.stop()
 
-    async def test_dm_increments_dm_counter(
-        self, make_adapter_context
-    ) -> None:
+    async def test_dm_increments_dm_counter(self, make_adapter_context) -> None:
         config = make_meshtastic_config(connection_type="fake")
         adapter = MeshtasticAdapter(config)
         ctx = make_adapter_context("mesh-1")
         await adapter.start(ctx)
         try:
-            await adapter.simulate_inbound({
-                "fromId": "!node1",
-                "toId": "!target",
-                "id": 1,
-                "decoded": {"portnum": "text_message", "text": "private"},
-            })
+            await adapter.simulate_inbound(
+                {
+                    "fromId": "!node1",
+                    "toId": "!target",
+                    "id": 1,
+                    "decoded": {"portnum": "text_message", "text": "private"},
+                }
+            )
 
             diag = adapter.diagnostics()
             assert diag["classifier_packets_ignored"] == 1
@@ -896,11 +900,13 @@ class TestMeshtasticAdapterClassifierCounters:
         ctx = make_adapter_context("mesh-1")
         await adapter.start(ctx)
         try:
-            await adapter.simulate_inbound({
-                "fromId": "!node1",
-                "id": 1,
-                "decoded": {"portnum": "weird_type"},
-            })
+            await adapter.simulate_inbound(
+                {
+                    "fromId": "!node1",
+                    "id": 1,
+                    "decoded": {"portnum": "weird_type"},
+                }
+            )
 
             diag = adapter.diagnostics()
             assert diag["classifier_packets_deferred"] == 1

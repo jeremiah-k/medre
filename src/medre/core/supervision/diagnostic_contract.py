@@ -59,7 +59,6 @@ from dataclasses import asdict, is_dataclass
 from typing import Any, Mapping
 
 from medre.core.observability.sanitization import (
-    _SECRET_KEY_PATTERNS,
     _is_secret_key,
 )
 

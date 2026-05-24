@@ -115,7 +115,9 @@ class TestMeshtasticPipelineIntegration:
         rp.register(
             MeshtasticRenderer(
                 configs={
-                    "meshtastic_node": MeshtasticConfig(adapter_id="meshtastic_node", radio_relay_prefix="")
+                    "meshtastic_node": MeshtasticConfig(
+                        adapter_id="meshtastic_node", radio_relay_prefix=""
+                    )
                 }
             ),
             priority=50,

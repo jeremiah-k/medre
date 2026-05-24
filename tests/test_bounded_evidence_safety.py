@@ -21,7 +21,6 @@ from medre.core.observability.metrics import Diagnostician
 from medre.core.observability.sanitization import sanitize_error
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.routing.stats import RouteStats
-from medre.core.supervision.accounting import RuntimeAccounting
 from medre.core.storage.backend import StorageBackend
 from medre.core.storage.replay import (
     ReplayEngine,
@@ -30,6 +29,7 @@ from medre.core.storage.replay import (
     collect_replay_summary,
 )
 from medre.core.storage.sqlite import SQLiteStorage
+from medre.core.supervision.accounting import RuntimeAccounting
 from medre.runtime.app import RuntimeState
 from medre.runtime.snapshot import SCHEMA_VERSION, build_runtime_snapshot
 from tests.helpers.bridge import make_pipeline_config

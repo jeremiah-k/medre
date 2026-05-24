@@ -25,6 +25,7 @@ from medre.config.model import (
     StorageConfig,
 )
 from medre.config.paths import MedrePaths, resolve
+from medre.config.routes import RouteConfig, RouteConfigSet
 from medre.core.contracts.adapter import AdapterSendError
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.events import CanonicalEvent, EventMetadata
@@ -36,7 +37,6 @@ from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.core.storage import SQLiteStorage
 from medre.core.storage.backend import StorageBackend
 from medre.runtime.builder import RuntimeBuilder
-from medre.config.routes import RouteConfig, RouteConfigSet
 
 # ---------------------------------------------------------------------------
 # Helpers

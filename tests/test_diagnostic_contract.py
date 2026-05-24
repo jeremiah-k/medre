@@ -938,7 +938,9 @@ class TestBoundedJsonSafeSanitization:
             "last_message_time": "2025-01-01T00:00:00",
         }
 
-        from medre.core.supervision.diagnostic_contract import sanitize_diagnostic_mapping
+        from medre.core.supervision.diagnostic_contract import (
+            sanitize_diagnostic_mapping,
+        )
 
         result = sanitize_diagnostic_mapping(raw)
 
@@ -1015,7 +1017,9 @@ class TestPublicSanitizerAPI:
         assert "password" not in result
 
     def test_sanitize_diagnostic_mapping_strips_secrets(self) -> None:
-        from medre.core.supervision.diagnostic_contract import sanitize_diagnostic_mapping
+        from medre.core.supervision.diagnostic_contract import (
+            sanitize_diagnostic_mapping,
+        )
 
         raw = {
             "connected": True,
@@ -1030,7 +1034,9 @@ class TestPublicSanitizerAPI:
         assert result["node_id"] == "ABC"
 
     def test_sanitize_diagnostic_mapping_json_safe(self) -> None:
-        from medre.core.supervision.diagnostic_contract import sanitize_diagnostic_mapping
+        from medre.core.supervision.diagnostic_contract import (
+            sanitize_diagnostic_mapping,
+        )
 
         raw = {
             "ok": "value",

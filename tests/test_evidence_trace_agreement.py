@@ -372,7 +372,6 @@ async def test_orchestration_report_delivery_receipts_include_expanded_keys(
 ) -> None:
     """Orchestration report delivery_receipts include event_id, delivery_plan_id, error, attempt_number, native_message_id."""
     from medre.runtime.run_session.orchestration import run_bridge_session
-
     from medre.runtime.smoke import _default_smoke_config_path
 
     config_path = _default_smoke_config_path()

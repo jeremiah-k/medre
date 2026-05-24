@@ -37,10 +37,9 @@ from medre.config.model import (
     RuntimeOptions,
     StorageConfig,
 )
-
 from medre.config.paths import MedrePaths, MedrePathsError, resolve
-from medre.core.observability.log_levels import VALID_LEVEL_NAMES
 from medre.config.routes import RouteConfigSet
+from medre.core.observability.log_levels import VALID_LEVEL_NAMES
 
 # ---------------------------------------------------------------------------
 # Config source enum
