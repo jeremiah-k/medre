@@ -13,7 +13,7 @@ from typing import Any, cast
 
 import pytest
 
-from medre.adapters.fake_presentation import FakePresentationAdapter
+from medre.adapters.fakes.presentation import FakePresentationAdapter
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.events.metadata import RoutingMetadata

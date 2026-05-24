@@ -360,7 +360,7 @@ class TestRetryShutdownRealPipeline:
         """Real pipeline creates due receipt, worker starts then stops cleanly."""
         import uuid
 
-        from medre.adapters.fake_presentation import FakePresentationAdapter
+        from medre.adapters.fakes.presentation import FakePresentationAdapter
         from medre.core.contracts.adapter import AdapterContext
         from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
         from medre.core.events.bus import EventBus

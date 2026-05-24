@@ -809,7 +809,7 @@ class TestMatrixAutoJoinRoomsDerivation:
                     cfg = dc_replace(cfg, auto_join_rooms=merged)
                 captured_configs.append(cfg)
                 # Return fake adapter since nio likely not installed
-                from medre.adapters.fake_matrix import FakeMatrixAdapter
+                from medre.adapters.fakes.matrix import FakeMatrixAdapter
 
                 return FakeMatrixAdapter(adapter_id="fm")
             return original_build_single(transport, adapter_id, rtc)

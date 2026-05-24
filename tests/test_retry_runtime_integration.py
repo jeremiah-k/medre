@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
-from medre.adapters.fake_presentation import (
+from medre.adapters.fakes.presentation import (
     FakePresentationAdapter,
 )
 from medre.core.contracts.adapter import (

@@ -22,7 +22,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import cast
 
-from medre.adapters.fake_presentation import FakePresentationAdapter
+from medre.adapters.fakes.presentation import FakePresentationAdapter
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.events import CanonicalEvent, EventMetadata, NativeRef
 from medre.core.events.bus import EventBus

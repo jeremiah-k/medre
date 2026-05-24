@@ -12,8 +12,8 @@ from types import MappingProxyType
 
 import pytest
 
-from medre.adapters.fake_presentation import FakePresentationAdapter
-from medre.adapters.fake_transport import FakeTransportAdapter
+from medre.adapters.fakes.presentation import FakePresentationAdapter
+from medre.adapters.fakes.transport import FakeTransportAdapter
 from medre.core.contracts.adapter import AdapterDeliveryResult
 from medre.core.engine.pipeline import (
     PipelineConfig,

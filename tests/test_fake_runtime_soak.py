@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from medre.adapters.fake_matrix import FakeMatrixAdapter
+from medre.adapters.fakes.matrix import FakeMatrixAdapter
 from medre.config.paths import MedrePaths, resolve
 from medre.runtime.app import RuntimeState
 from medre.runtime.builder import RuntimeBuilder

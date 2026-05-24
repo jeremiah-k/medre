@@ -286,7 +286,7 @@ class TestNoTransportSdkInRuntimeCore:
         """Module must not import concrete adapter packages.
 
         Imports from ``medre.core.contracts.adapter`` (protocol types) and
-        ``medre.adapters.fake_*`` are permitted.
+        ``medre.adapters.fakes.*`` are permitted.
         """
         try:
             source = _source_of(module_name)

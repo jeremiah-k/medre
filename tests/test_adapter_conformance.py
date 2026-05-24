@@ -14,12 +14,12 @@ from pathlib import Path
 import pytest
 
 # Concrete adapter imports — no package-root facades.
-from medre.adapters.fake_lxmf import FakeLxmfAdapter
-from medre.adapters.fake_matrix import FakeMatrixAdapter
-from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
-from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
-from medre.adapters.fake_presentation import FakePresentationAdapter
-from medre.adapters.fake_transport import FakeTransportAdapter
+from medre.adapters.fakes.lxmf import FakeLxmfAdapter
+from medre.adapters.fakes.matrix import FakeMatrixAdapter
+from medre.adapters.fakes.meshcore import FakeMeshCoreAdapter
+from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
+from medre.adapters.fakes.presentation import FakePresentationAdapter
+from medre.adapters.fakes.transport import FakeTransportAdapter
 from medre.core.contracts.adapter import AdapterContract
 from medre.runtime.architecture_ast import runtime_scope_imports
 

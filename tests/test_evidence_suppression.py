@@ -44,7 +44,7 @@ class TestLoopSuppressionEvidence:
         suppressed receipt, and the evidence bundle surfaces coherent
         operator-facing data.
         """
-        from medre.adapters.fake_matrix import FakeMatrixAdapter
+        from medre.adapters.fakes.matrix import FakeMatrixAdapter
         from medre.core.engine.pipeline import PipelineRunner
         from medre.core.events.kinds import EventKind
         from medre.core.routing import Route, Router, RouteSource, RouteTarget

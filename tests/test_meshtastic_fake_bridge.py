@@ -31,7 +31,7 @@ import logging
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
-from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
+from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
 from medre.config.adapters.meshtastic import MeshtasticConfig

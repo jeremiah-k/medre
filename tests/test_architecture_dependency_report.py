@@ -1212,11 +1212,11 @@ class TestFakeTransportClassification:
         """fake_lxmf importing lxmf.codec is NOT a cross-transport violation."""
         graph = self._make_graph(
             ModuleInfo(
-                module="medre.adapters.fake_lxmf",
+                module="medre.adapters.fakes.lxmf",
                 file="adapters/fake_lxmf/__init__.py",
                 imports=[
                     ImportEdge(
-                        source="medre.adapters.fake_lxmf",
+                        source="medre.adapters.fakes.lxmf",
                         target="medre.adapters.lxmf.codec",
                         line=5,
                         kind="import_from",
@@ -1236,11 +1236,11 @@ class TestFakeTransportClassification:
         """fake_lxmf importing matrix.codec IS a cross-transport violation."""
         graph = self._make_graph(
             ModuleInfo(
-                module="medre.adapters.fake_lxmf",
+                module="medre.adapters.fakes.lxmf",
                 file="adapters/fake_lxmf/__init__.py",
                 imports=[
                     ImportEdge(
-                        source="medre.adapters.fake_lxmf",
+                        source="medre.adapters.fakes.lxmf",
                         target="medre.adapters.matrix.codec",
                         line=5,
                         kind="import_from",

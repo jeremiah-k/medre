@@ -64,7 +64,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from medre.adapters.fake_matrix import FakeMatrixAdapter
+from medre.adapters.fakes.matrix import FakeMatrixAdapter
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.compat import HAS_NIO
 from medre.adapters.matrix.renderer import MatrixRenderer

@@ -329,7 +329,7 @@ class TestFakeMatrixCapabilities:
 
     def test_capabilities_from_constant(self) -> None:
         """_FAKE_MATRIX_CAPABILITIES has expected Matrix presentation flags."""
-        from medre.adapters.fake_matrix import _FAKE_MATRIX_CAPABILITIES
+        from medre.adapters.fakes.matrix import _FAKE_MATRIX_CAPABILITIES
 
         caps = _FAKE_MATRIX_CAPABILITIES
         assert caps.text is True
@@ -346,7 +346,7 @@ class TestFakeMatrixCapabilities:
 
     def test_capability_serialization_matches(self) -> None:
         """serialize_adapter_capabilities produces deterministic output."""
-        from medre.adapters.fake_matrix import _FAKE_MATRIX_CAPABILITIES
+        from medre.adapters.fakes.matrix import _FAKE_MATRIX_CAPABILITIES
 
         result = serialize_adapter_capabilities(_FAKE_MATRIX_CAPABILITIES)
         assert isinstance(result, dict)
@@ -364,7 +364,7 @@ class TestFakeMatrixCapabilities:
         make_adapter_context,
     ) -> None:
         """health_check() returns AdapterInfo with declared capabilities."""
-        from medre.adapters.fake_matrix import (
+        from medre.adapters.fakes.matrix import (
             _FAKE_MATRIX_CAPABILITIES,
             FakeMatrixAdapter,
         )
@@ -382,7 +382,7 @@ class TestFakeMeshtasticCapabilities:
 
     def test_capabilities_from_constant(self) -> None:
         """_FAKE_MESHTASTIC_CAPABILITIES has conservative transport flags."""
-        from medre.adapters.fake_meshtastic import _FAKE_MESHTASTIC_CAPABILITIES
+        from medre.adapters.fakes.meshtastic import _FAKE_MESHTASTIC_CAPABILITIES
 
         caps = _FAKE_MESHTASTIC_CAPABILITIES
         assert caps.text is True
@@ -396,7 +396,7 @@ class TestFakeMeshtasticCapabilities:
         assert caps.max_text_chars is None
 
     def test_capability_serialization_matches(self) -> None:
-        from medre.adapters.fake_meshtastic import _FAKE_MESHTASTIC_CAPABILITIES
+        from medre.adapters.fakes.meshtastic import _FAKE_MESHTASTIC_CAPABILITIES
 
         result = serialize_adapter_capabilities(_FAKE_MESHTASTIC_CAPABILITIES)
         assert is_capability_summary(result)
@@ -412,7 +412,7 @@ class TestFakeMeshtasticCapabilities:
         make_adapter_context,
     ) -> None:
         """health_check() capabilities survive serialize_adapter_capabilities."""
-        from medre.adapters.fake_meshtastic import (
+        from medre.adapters.fakes.meshtastic import (
             _FAKE_MESHTASTIC_CAPABILITIES,
             FakeMeshtasticAdapter,
         )
@@ -432,7 +432,7 @@ class TestFakeMeshCoreCapabilities:
     """FakeMeshCoreAdapter declares realistic MeshCore transport capabilities."""
 
     def test_capabilities_from_constant(self) -> None:
-        from medre.adapters.fake_meshcore import _FAKE_MESHCORE_CAPABILITIES
+        from medre.adapters.fakes.meshcore import _FAKE_MESHCORE_CAPABILITIES
 
         caps = _FAKE_MESHCORE_CAPABILITIES
         assert caps.text is True
@@ -444,7 +444,7 @@ class TestFakeMeshCoreCapabilities:
         assert caps.max_text_chars is None
 
     def test_capability_serialization_matches(self) -> None:
-        from medre.adapters.fake_meshcore import _FAKE_MESHCORE_CAPABILITIES
+        from medre.adapters.fakes.meshcore import _FAKE_MESHCORE_CAPABILITIES
 
         result = serialize_adapter_capabilities(_FAKE_MESHCORE_CAPABILITIES)
         assert is_capability_summary(result)
@@ -453,13 +453,13 @@ class TestFakeMeshCoreCapabilities:
 
     def test_fake_capabilities_remain_at_default_512(self) -> None:
         """Fake adapter constant stays at 512 regardless of config."""
-        from medre.adapters.fake_meshcore import _FAKE_MESHCORE_CAPABILITIES
+        from medre.adapters.fakes.meshcore import _FAKE_MESHCORE_CAPABILITIES
 
         assert _FAKE_MESHCORE_CAPABILITIES.max_text_bytes == 512
 
     def test_real_adapter_default_capabilities_match_fake(self) -> None:
         """Real adapter with default config has same max_text_bytes as fake."""
-        from medre.adapters.fake_meshcore import _FAKE_MESHCORE_CAPABILITIES
+        from medre.adapters.fakes.meshcore import _FAKE_MESHCORE_CAPABILITIES
         from medre.adapters.meshcore.adapter import MeshCoreAdapter
         from medre.config.adapters.meshcore import MeshCoreConfig
 
@@ -486,7 +486,7 @@ class TestFakeMeshCoreCapabilities:
         make_adapter_context,
     ) -> None:
         """health_check() capabilities are JSON-safe after serialization."""
-        from medre.adapters.fake_meshcore import (
+        from medre.adapters.fakes.meshcore import (
             _FAKE_MESHCORE_CAPABILITIES,
             FakeMeshCoreAdapter,
         )
@@ -507,7 +507,7 @@ class TestFakeLxmfCapabilities:
 
     def test_capabilities_from_constant(self) -> None:
         """LXMF caps: text, title, metadata_fields, identity_encryption."""
-        from medre.adapters.fake_lxmf import _FAKE_LXMF_CAPABILITIES
+        from medre.adapters.fakes.lxmf import _FAKE_LXMF_CAPABILITIES
 
         caps = _FAKE_LXMF_CAPABILITIES
         assert caps.text is True
@@ -520,7 +520,7 @@ class TestFakeLxmfCapabilities:
         assert caps.max_text_chars == 16384
 
     def test_capability_serialization_matches(self) -> None:
-        from medre.adapters.fake_lxmf import _FAKE_LXMF_CAPABILITIES
+        from medre.adapters.fakes.lxmf import _FAKE_LXMF_CAPABILITIES
 
         result = serialize_adapter_capabilities(_FAKE_LXMF_CAPABILITIES)
         assert is_capability_summary(result)
@@ -535,7 +535,7 @@ class TestFakeLxmfCapabilities:
         make_adapter_context,
     ) -> None:
         """health_check() capabilities survive serialization."""
-        from medre.adapters.fake_lxmf import _FAKE_LXMF_CAPABILITIES, FakeLxmfAdapter
+        from medre.adapters.fakes.lxmf import _FAKE_LXMF_CAPABILITIES, FakeLxmfAdapter
 
         adapter = FakeLxmfAdapter()
         ctx = make_adapter_context(adapter.adapter_id)
@@ -552,7 +552,7 @@ class TestFakeTransportCapabilities:
     """FakeTransportAdapter declares transport-like capabilities."""
 
     def test_capabilities_from_constant(self) -> None:
-        from medre.adapters.fake_transport import _FAKE_TRANSPORT_CAPABILITIES
+        from medre.adapters.fakes.transport import _FAKE_TRANSPORT_CAPABILITIES
 
         caps = _FAKE_TRANSPORT_CAPABILITIES
         assert caps.text is True
@@ -564,7 +564,7 @@ class TestFakeTransportCapabilities:
         assert caps.max_text_chars == 200
 
     def test_serialized_capabilities(self) -> None:
-        from medre.adapters.fake_transport import _FAKE_TRANSPORT_CAPABILITIES
+        from medre.adapters.fakes.transport import _FAKE_TRANSPORT_CAPABILITIES
 
         result = serialize_adapter_capabilities(_FAKE_TRANSPORT_CAPABILITIES)
         assert is_capability_summary(result)
@@ -579,7 +579,7 @@ class TestFakePresentationCapabilities:
     """FakePresentationAdapter declares presentation-like capabilities."""
 
     def test_capabilities_from_constant(self) -> None:
-        from medre.adapters.fake_presentation import _FAKE_PRESENTATION_CAPABILITIES
+        from medre.adapters.fakes.presentation import _FAKE_PRESENTATION_CAPABILITIES
 
         caps = _FAKE_PRESENTATION_CAPABILITIES
         assert caps.text is True
@@ -591,7 +591,7 @@ class TestFakePresentationCapabilities:
         assert caps.topic_rooms is True
 
     def test_serialized_capabilities(self) -> None:
-        from medre.adapters.fake_presentation import _FAKE_PRESENTATION_CAPABILITIES
+        from medre.adapters.fakes.presentation import _FAKE_PRESENTATION_CAPABILITIES
 
         result = serialize_adapter_capabilities(_FAKE_PRESENTATION_CAPABILITIES)
         assert is_capability_summary(result)

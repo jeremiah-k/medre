@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
+from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.engine.pipeline import PipelineRunner

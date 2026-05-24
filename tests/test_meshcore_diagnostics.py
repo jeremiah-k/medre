@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
+from medre.adapters.fakes.meshcore import FakeMeshCoreAdapter
 from medre.adapters.meshcore.adapter import MeshCoreAdapter
 from medre.config.adapters.meshcore import MeshCoreConfig
 

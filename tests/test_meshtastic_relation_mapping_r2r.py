@@ -40,8 +40,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from medre.adapters.fake_matrix import FakeMatrixAdapter
-from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
+from medre.adapters.fakes.matrix import FakeMatrixAdapter
+from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner

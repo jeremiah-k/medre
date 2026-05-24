@@ -23,8 +23,8 @@ from typing import Any
 
 import pytest
 
-from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
-from medre.adapters.fake_matrix import FakeMatrixAdapter
+from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
+from medre.adapters.fakes.matrix import FakeMatrixAdapter
 from medre.config.loader import load_config
 from medre.core.events.canonical import CanonicalEvent
 from medre.runtime.builder import RuntimeBuilder

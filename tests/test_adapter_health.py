@@ -20,12 +20,12 @@ from datetime import datetime, timezone
 
 import pytest
 
-from medre.adapters.fake_lxmf import FakeLxmfAdapter
-from medre.adapters.fake_matrix import FakeMatrixAdapter
-from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
-from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
-from medre.adapters.fake_presentation import FakePresentationAdapter
-from medre.adapters.fake_transport import FakeTransportAdapter
+from medre.adapters.fakes.lxmf import FakeLxmfAdapter
+from medre.adapters.fakes.matrix import FakeMatrixAdapter
+from medre.adapters.fakes.meshcore import FakeMeshCoreAdapter
+from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
+from medre.adapters.fakes.presentation import FakePresentationAdapter
+from medre.adapters.fakes.transport import FakeTransportAdapter
 from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
@@ -252,7 +252,7 @@ class TestFakeLiveDetection:
         assert result["fake_or_live"] == "fake"
 
     def test_faulty_class_name_detected(self) -> None:
-        from medre.adapters.fake_presentation import FaultyPresentationAdapter
+        from medre.adapters.fakes.presentation import FaultyPresentationAdapter
 
         adapter = FaultyPresentationAdapter("test")
         info = _make_info(platform="faulty_presentation")
@@ -424,7 +424,7 @@ class TestAdapterInfoContract:
         self,
         make_adapter_context,
     ) -> None:
-        from medre.adapters.fake_presentation import FaultyPresentationAdapter
+        from medre.adapters.fakes.presentation import FaultyPresentationAdapter
 
         adapter = FaultyPresentationAdapter(
             adapter_id="faulty",

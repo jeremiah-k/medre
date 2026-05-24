@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 
-from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
+from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
 from medre.adapters.lxmf.adapter import LxmfAdapter
 from medre.config.adapters.lxmf import LxmfConfig
 from medre.config.adapters.meshtastic import MeshtasticConfig

@@ -37,7 +37,7 @@ with ``ingress_mode="adapter_callback"``:
   polling instead.
 
 Design note: ``handle_ingress`` is used instead of
-:meth:`~medre.adapters.fake_matrix.FakeMatrixAdapter.simulate_inbound`
+:meth:`~medre.adapters.fakes.matrix.FakeMatrixAdapter.simulate_inbound`
 because the smoke needs the ``list[DeliveryOutcome]`` return value for
 evidence collection.  This still exercises the full pipeline
 (validate → resolve_relations → store → route → plan → render →

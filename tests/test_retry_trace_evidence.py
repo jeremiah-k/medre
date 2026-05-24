@@ -300,7 +300,7 @@ class TestRetryTraceEvidence:
         Timeline assembly shows both receipts, correct lineage, and mixed source."""
         from unittest.mock import AsyncMock
 
-        from medre.adapters.fake_presentation import FakePresentationAdapter
+        from medre.adapters.fakes.presentation import FakePresentationAdapter
         from medre.core.contracts.adapter import AdapterContext
         from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
         from medre.core.events.bus import EventBus
@@ -532,7 +532,7 @@ class TestRetryTraceEvidence:
         cycle."""
         from unittest.mock import AsyncMock
 
-        from medre.adapters.fake_presentation import FakePresentationAdapter
+        from medre.adapters.fakes.presentation import FakePresentationAdapter
         from medre.core.contracts.adapter import AdapterContext
         from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
         from medre.core.events.bus import EventBus
@@ -680,7 +680,7 @@ class TestRetryTraceEvidence:
         processed >= 1 and succeeded >= 1."""
         from unittest.mock import AsyncMock
 
-        from medre.adapters.fake_presentation import FakePresentationAdapter
+        from medre.adapters.fakes.presentation import FakePresentationAdapter
         from medre.core.contracts.adapter import AdapterContext
         from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
         from medre.core.events.bus import EventBus

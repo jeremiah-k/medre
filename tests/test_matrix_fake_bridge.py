@@ -30,7 +30,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from medre.adapters.fake_matrix import FakeMatrixAdapter
+from medre.adapters.fakes.matrix import FakeMatrixAdapter
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.errors import MatrixSendError
 from medre.adapters.matrix.renderer import MatrixRenderer

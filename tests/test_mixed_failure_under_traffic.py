@@ -44,7 +44,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import cast
 
-from medre.adapters.fake_presentation import (
+from medre.adapters.fakes.presentation import (
     FakePresentationAdapter,
     FaultyPresentationAdapter,
 )

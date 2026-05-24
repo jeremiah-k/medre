@@ -9,7 +9,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 
-from medre.adapters.fake_lxmf import FakeLxmfAdapter
+from medre.adapters.fakes.lxmf import FakeLxmfAdapter
 from medre.adapters.lxmf.fields import FIELD_MEDRE_ENVELOPE, LXMF_NAMESPACE
 from medre.adapters.lxmf.renderer import LxmfRenderer
 from medre.config.adapters.lxmf import LxmfConfig

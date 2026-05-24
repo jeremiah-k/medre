@@ -128,7 +128,7 @@ module load time:
 - `medre.config.*`
 - `medre.runtime.builder`
 - `medre.adapters.__init__`
-- `medre.adapters.fake_*`
+- `medre.adapters.fakes.*`
 - `medre.cli`
 
 ## 7. Fake Adapters
@@ -137,12 +137,12 @@ All fake adapters are importable and instantiable without optional SDKs:
 
 | Fake adapter              | Module                             | Constructor args           |
 | ------------------------- | ---------------------------------- | -------------------------- |
-| `FakeTransportAdapter`    | `medre.adapters.fake_transport`    | `adapter_id: str`          |
-| `FakeMatrixAdapter`       | `medre.adapters.fake_matrix`       | `adapter_id: str`          |
-| `FakeMeshtasticAdapter`   | `medre.adapters.fake_meshtastic`   | `config: MeshtasticConfig` |
-| `FakeMeshCoreAdapter`     | `medre.adapters.fake_meshcore`     | `config: MeshCoreConfig`   |
-| `FakeLxmfAdapter`         | `medre.adapters.fake_lxmf`         | `config: LxmfConfig`       |
-| `FakePresentationAdapter` | `medre.adapters.fake_presentation` | `adapter_id: str`          |
+| `FakeTransportAdapter`    | `medre.adapters.fakes.transport`    | `adapter_id: str`          |
+| `FakeMatrixAdapter`       | `medre.adapters.fakes.matrix`       | `adapter_id: str`          |
+| `FakeMeshtasticAdapter`   | `medre.adapters.fakes.meshtastic`   | `config: MeshtasticConfig` |
+| `FakeMeshCoreAdapter`     | `medre.adapters.fakes.meshcore`     | `config: MeshCoreConfig`   |
+| `FakeLxmfAdapter`         | `medre.adapters.fakes.lxmf`         | `config: LxmfConfig`       |
+| `FakePresentationAdapter` | `medre.adapters.fakes.presentation` | `adapter_id: str`          |
 
 All are re-exported from `medre.adapters.__init__`.
 

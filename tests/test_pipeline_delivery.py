@@ -11,8 +11,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from medre.adapters.fake_presentation import FakePresentationAdapter
-from medre.adapters.fake_transport import FakeTransportAdapter
+from medre.adapters.fakes.presentation import FakePresentationAdapter
+from medre.adapters.fakes.transport import FakeTransportAdapter
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.events import CanonicalEvent, EventMetadata, NativeRef
 from medre.core.events.bus import EventBus

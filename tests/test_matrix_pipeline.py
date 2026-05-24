@@ -11,8 +11,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import cast
 
-from medre.adapters.fake_matrix import FakeMatrixAdapter
-from medre.adapters.fake_presentation import FakePresentationAdapter
+from medre.adapters.fakes.matrix import FakeMatrixAdapter
+from medre.adapters.fakes.presentation import FakePresentationAdapter
 from medre.adapters.matrix.renderer import MatrixRenderer
 from medre.core.contracts.adapter import AdapterContext
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner

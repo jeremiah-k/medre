@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from medre.adapters.fake_lxmf import FakeLxmfAdapter
+from medre.adapters.fakes.lxmf import FakeLxmfAdapter
 from medre.adapters.lxmf.adapter import LxmfAdapter
 from medre.adapters.lxmf.codec import LxmfCodec
 from medre.adapters.lxmf.errors import LxmfSendError
@@ -258,7 +258,7 @@ class TestLxmfMeshtasticMeshCoreIsolation:
             ), f"Packet classifier must not import MeshCore code; found: {line!r}"
 
     def test_fake_lxmf_does_not_import_meshtastic(self) -> None:
-        import medre.adapters.fake_lxmf as mod
+        import medre.adapters.fakes.lxmf as mod
 
         source = _read_module_source(mod)
         import_lines = [
@@ -272,7 +272,7 @@ class TestLxmfMeshtasticMeshCoreIsolation:
             ), f"FakeLxmfAdapter must not import Meshtastic code; found: {line!r}"
 
     def test_fake_lxmf_does_not_import_meshcore(self) -> None:
-        import medre.adapters.fake_lxmf as mod
+        import medre.adapters.fakes.lxmf as mod
 
         source = _read_module_source(mod)
         import_lines = [

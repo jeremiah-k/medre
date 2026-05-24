@@ -1343,13 +1343,13 @@ class TestAdapterCapabilitiesConfigured:
         assert adapter._capabilities.max_text_bytes == 100
 
     def test_fake_adapter_default_max_text_bytes(self) -> None:
-        from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
+        from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
 
         adapter = FakeMeshtasticAdapter()
         assert adapter._capabilities.max_text_bytes == 227
 
     def test_fake_adapter_custom_max_text_bytes(self) -> None:
-        from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
+        from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
 
         config = MeshtasticConfig(adapter_id="fake-custom", max_text_bytes=50)
         adapter = FakeMeshtasticAdapter(config)

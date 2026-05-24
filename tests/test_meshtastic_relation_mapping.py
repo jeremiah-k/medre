@@ -28,8 +28,8 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
-from medre.adapters.fake_matrix import FakeMatrixAdapter
-from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
+from medre.adapters.fakes.matrix import FakeMatrixAdapter
+from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
 from medre.adapters.matrix.codec import MatrixCodec
 from medre.adapters.matrix.renderer import MatrixRenderer
 from medre.adapters.meshtastic.codec import MeshtasticCodec

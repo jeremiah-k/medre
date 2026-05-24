@@ -421,7 +421,7 @@ def _transport_for(module: str) -> str | None:
 
     E.g. ``medre.adapters.matrix.codec`` → ``matrix``.
 
-    Fake transports like ``medre.adapters.fake_lxmf`` are normalised
+    Fake transports like ``medre.adapters.fakes.lxmf`` are normalised
     to their canonical transport name (``lxmf``).
     """
     prefix = "medre.adapters."

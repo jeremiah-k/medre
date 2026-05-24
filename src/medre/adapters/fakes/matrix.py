@@ -2,7 +2,7 @@
 
 :class:`FakeMatrixAdapter` simulates a Matrix presentation adapter
 without any real network or ``mindroom-nio`` dependency.  It mirrors
-:class:`~medre.adapters.fake_presentation.FakePresentationAdapter`
+:class:`~medre.adapters.fakes.presentation.FakePresentationAdapter`
 precisely and is intended solely for use in unit and integration tests.
 
 Capabilities

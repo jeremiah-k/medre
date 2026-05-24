@@ -34,7 +34,7 @@ from typing import cast
 
 import pytest
 
-from medre.adapters.fake_presentation import FakePresentationAdapter
+from medre.adapters.fakes.presentation import FakePresentationAdapter
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.events import CanonicalEvent, EventMetadata, NativeRef
 from medre.core.routing import Route, Router, RouteSource, RouteTarget

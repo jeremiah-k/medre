@@ -11,7 +11,7 @@ import tempfile
 from datetime import datetime, timezone
 from typing import Any
 
-from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
+from medre.adapters.fakes.meshcore import FakeMeshCoreAdapter
 from medre.adapters.meshcore.renderer import MeshCoreRenderer
 from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner

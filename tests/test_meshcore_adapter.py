@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
+from medre.adapters.fakes.meshcore import FakeMeshCoreAdapter
 from medre.adapters.meshcore.adapter import MeshCoreAdapter
 from medre.adapters.meshcore.errors import MeshCoreConnectionError
 from medre.adapters.meshcore.session import MeshCoreSession
@@ -79,47 +79,47 @@ class TestMeshCoreAdapterCapabilities:
         assert adapter.platform == "meshcore"
 
     def test_capabilities_text_true(self) -> None:
-        from medre.adapters.fake_meshcore import _FAKE_MESHCORE_CAPABILITIES
+        from medre.adapters.fakes.meshcore import _FAKE_MESHCORE_CAPABILITIES
 
         assert _FAKE_MESHCORE_CAPABILITIES.text is True
 
     def test_capabilities_replies_unsupported(self) -> None:
-        from medre.adapters.fake_meshcore import _FAKE_MESHCORE_CAPABILITIES
+        from medre.adapters.fakes.meshcore import _FAKE_MESHCORE_CAPABILITIES
 
         assert _FAKE_MESHCORE_CAPABILITIES.replies == "unsupported"
 
     def test_capabilities_reactions_unsupported(self) -> None:
-        from medre.adapters.fake_meshcore import _FAKE_MESHCORE_CAPABILITIES
+        from medre.adapters.fakes.meshcore import _FAKE_MESHCORE_CAPABILITIES
 
         assert _FAKE_MESHCORE_CAPABILITIES.reactions == "unsupported"
 
     def test_capabilities_edits_unsupported(self) -> None:
-        from medre.adapters.fake_meshcore import _FAKE_MESHCORE_CAPABILITIES
+        from medre.adapters.fakes.meshcore import _FAKE_MESHCORE_CAPABILITIES
 
         assert _FAKE_MESHCORE_CAPABILITIES.edits == "unsupported"
 
     def test_capabilities_deletes_unsupported(self) -> None:
-        from medre.adapters.fake_meshcore import _FAKE_MESHCORE_CAPABILITIES
+        from medre.adapters.fakes.meshcore import _FAKE_MESHCORE_CAPABILITIES
 
         assert _FAKE_MESHCORE_CAPABILITIES.deletes == "unsupported"
 
     def test_capabilities_attachments_false(self) -> None:
-        from medre.adapters.fake_meshcore import _FAKE_MESHCORE_CAPABILITIES
+        from medre.adapters.fakes.meshcore import _FAKE_MESHCORE_CAPABILITIES
 
         assert _FAKE_MESHCORE_CAPABILITIES.attachments is False
 
     def test_capabilities_direct_messages_false(self) -> None:
-        from medre.adapters.fake_meshcore import _FAKE_MESHCORE_CAPABILITIES
+        from medre.adapters.fakes.meshcore import _FAKE_MESHCORE_CAPABILITIES
 
         assert _FAKE_MESHCORE_CAPABILITIES.direct_messages is False
 
     def test_capabilities_max_text_bytes_512(self) -> None:
-        from medre.adapters.fake_meshcore import _FAKE_MESHCORE_CAPABILITIES
+        from medre.adapters.fakes.meshcore import _FAKE_MESHCORE_CAPABILITIES
 
         assert _FAKE_MESHCORE_CAPABILITIES.max_text_bytes == 512
 
     def test_capabilities_max_text_chars_none(self) -> None:
-        from medre.adapters.fake_meshcore import _FAKE_MESHCORE_CAPABILITIES
+        from medre.adapters.fakes.meshcore import _FAKE_MESHCORE_CAPABILITIES
 
         assert _FAKE_MESHCORE_CAPABILITIES.max_text_chars is None
 
@@ -133,7 +133,7 @@ class TestRealMeshCoreCapabilities:
         assert adapter.role == AdapterRole.TRANSPORT
 
     def test_real_adapter_capabilities_match_fake(self) -> None:
-        from medre.adapters.fake_meshcore import _FAKE_MESHCORE_CAPABILITIES
+        from medre.adapters.fakes.meshcore import _FAKE_MESHCORE_CAPABILITIES
 
         config = _make_config()
         adapter = MeshCoreAdapter(config)

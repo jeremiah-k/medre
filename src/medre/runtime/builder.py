@@ -179,19 +179,19 @@ def _build_fake_adapter(transport: str, adapter_id: str) -> AdapterContract:
     if *transport* is not recognised.
     """
     if transport == "matrix":
-        from medre.adapters.fake_matrix import FakeMatrixAdapter
+        from medre.adapters.fakes.matrix import FakeMatrixAdapter
 
         return FakeMatrixAdapter(adapter_id=adapter_id)
     if transport == "meshtastic":
-        from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
+        from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
 
         return FakeMeshtasticAdapter(adapter_id=adapter_id)
     if transport == "meshcore":
-        from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
+        from medre.adapters.fakes.meshcore import FakeMeshCoreAdapter
 
         return FakeMeshCoreAdapter(adapter_id=adapter_id)
     if transport == "lxmf":
-        from medre.adapters.fake_lxmf import FakeLxmfAdapter
+        from medre.adapters.fakes.lxmf import FakeLxmfAdapter
 
         return FakeLxmfAdapter(adapter_id=adapter_id)
     raise RuntimeConfigError(

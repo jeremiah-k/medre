@@ -15,7 +15,7 @@ import time
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
-from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
+from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.contracts.adapter import AdapterContext
 from tests.helpers.meshtastic import make_meshtastic_text_packet

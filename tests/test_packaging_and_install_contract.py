@@ -231,19 +231,19 @@ class TestFakeAdaptersWithoutSDKs:
     """All fake adapters must instantiate without optional SDKs."""
 
     def test_fake_transport_instantiation(self) -> None:
-        from medre.adapters.fake_transport import FakeTransportAdapter
+        from medre.adapters.fakes.transport import FakeTransportAdapter
 
         adapter = FakeTransportAdapter("test_transport")
         assert adapter.adapter_id == "test_transport"
 
     def test_fake_matrix_instantiation(self) -> None:
-        from medre.adapters.fake_matrix import FakeMatrixAdapter
+        from medre.adapters.fakes.matrix import FakeMatrixAdapter
 
         adapter = FakeMatrixAdapter("test_matrix")
         assert adapter.adapter_id == "test_matrix"
 
     def test_fake_meshtastic_instantiation(self) -> None:
-        from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
+        from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
         from medre.config.adapters.meshtastic import MeshtasticConfig
 
         config = MeshtasticConfig(adapter_id="test_mesh")
@@ -251,7 +251,7 @@ class TestFakeAdaptersWithoutSDKs:
         assert adapter is not None
 
     def test_fake_meshcore_instantiation(self) -> None:
-        from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
+        from medre.adapters.fakes.meshcore import FakeMeshCoreAdapter
         from medre.config.adapters.meshcore import MeshCoreConfig
 
         config = MeshCoreConfig(adapter_id="test_meshcore")
@@ -259,7 +259,7 @@ class TestFakeAdaptersWithoutSDKs:
         assert adapter is not None
 
     def test_fake_lxmf_instantiation(self) -> None:
-        from medre.adapters.fake_lxmf import FakeLxmfAdapter
+        from medre.adapters.fakes.lxmf import FakeLxmfAdapter
         from medre.config.adapters.lxmf import LxmfConfig
 
         config = LxmfConfig(adapter_id="test_lxmf")
@@ -267,7 +267,7 @@ class TestFakeAdaptersWithoutSDKs:
         assert adapter is not None
 
     def test_fake_presentation_instantiation(self) -> None:
-        from medre.adapters.fake_presentation import (
+        from medre.adapters.fakes.presentation import (
             FakePresentationAdapter,
             FaultyPresentationAdapter,
         )
@@ -278,12 +278,12 @@ class TestFakeAdaptersWithoutSDKs:
         assert faulty is not None
 
     def test_all_fakes_importable_from_submodules(self) -> None:
-        from medre.adapters.fake_lxmf import FakeLxmfAdapter
-        from medre.adapters.fake_matrix import FakeMatrixAdapter
-        from medre.adapters.fake_meshcore import FakeMeshCoreAdapter
-        from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
-        from medre.adapters.fake_presentation import FakePresentationAdapter
-        from medre.adapters.fake_transport import FakeTransportAdapter
+        from medre.adapters.fakes.lxmf import FakeLxmfAdapter
+        from medre.adapters.fakes.matrix import FakeMatrixAdapter
+        from medre.adapters.fakes.meshcore import FakeMeshCoreAdapter
+        from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
+        from medre.adapters.fakes.presentation import FakePresentationAdapter
+        from medre.adapters.fakes.transport import FakeTransportAdapter
 
         assert all(
             [
@@ -722,7 +722,7 @@ class TestFakeAdaptersNoTransitiveSDKImports:
 
     def test_fake_matrix_no_nio_import(self) -> None:
         before = "nio" in sys.modules
-        from medre.adapters.fake_matrix import FakeMatrixAdapter  # noqa: F401
+        from medre.adapters.fakes.matrix import FakeMatrixAdapter  # noqa: F401
 
         after = "nio" in sys.modules
         assert (
@@ -731,7 +731,7 @@ class TestFakeAdaptersNoTransitiveSDKImports:
 
     def test_fake_meshtastic_no_sdk_import(self) -> None:
         before = "meshtastic" in sys.modules
-        from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter  # noqa: F401
+        from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter  # noqa: F401
 
         after = "meshtastic" in sys.modules
         assert (
@@ -740,7 +740,7 @@ class TestFakeAdaptersNoTransitiveSDKImports:
 
     def test_fake_meshcore_no_sdk_import(self) -> None:
         before = "meshcore" in sys.modules
-        from medre.adapters.fake_meshcore import FakeMeshCoreAdapter  # noqa: F401
+        from medre.adapters.fakes.meshcore import FakeMeshCoreAdapter  # noqa: F401
 
         after = "meshcore" in sys.modules
         assert (
@@ -750,7 +750,7 @@ class TestFakeAdaptersNoTransitiveSDKImports:
     def test_fake_lxmf_no_sdk_import(self) -> None:
         before_rns = "RNS" in sys.modules
         before_lxmf = "LXMF" in sys.modules
-        from medre.adapters.fake_lxmf import FakeLxmfAdapter  # noqa: F401
+        from medre.adapters.fakes.lxmf import FakeLxmfAdapter  # noqa: F401
 
         after_rns = "RNS" in sys.modules
         after_lxmf = "LXMF" in sys.modules

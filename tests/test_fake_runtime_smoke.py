@@ -25,8 +25,8 @@ from typing import Any
 
 import pytest
 
-from medre.adapters.fake_matrix import FakeMatrixAdapter
-from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
+from medre.adapters.fakes.matrix import FakeMatrixAdapter
+from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
 from medre.config.model import (
     AdapterConfigSet,
     LoggingConfig,
@@ -619,7 +619,7 @@ class TestFailureKindIntegration:
     @pytest.mark.asyncio
     async def test_adapter_transient(self, tmp_paths: MedrePaths) -> None:
         """ADAPTER_TRANSIENT: FakeMeshtastic raises AdapterSendError(transient=True)."""
-        from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
+        from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
 
         config = RuntimeConfig(
             runtime=RuntimeOptions(name="transient-test"),

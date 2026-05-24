@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from medre.adapters.fake_meshtastic import FakeMeshtasticAdapter
+from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.adapters.meshtastic.codec import MeshtasticCodec
 from medre.adapters.meshtastic.errors import MeshtasticSendError
@@ -452,7 +452,7 @@ class TestMeshtasticFailedDelivery:
 
     async def test_faulty_adapter_failure_no_native_ref(self) -> None:
         """If an adapter raises, the pipeline records failure but no native ref."""
-        from medre.adapters.fake_presentation import FaultyPresentationAdapter
+        from medre.adapters.fakes.presentation import FaultyPresentationAdapter
 
         adapter = FaultyPresentationAdapter(
             adapter_id="faulty_mesh", failure_mode="always_fail"
