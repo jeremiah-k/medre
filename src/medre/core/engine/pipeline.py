@@ -322,19 +322,27 @@ class PipelineRunner:
         immediately without re-registering middleware.
         """
         if self._running:
-            self._log.debug("PipelineRunner.start() called while already running; skipping")
+            self._log.debug(
+                "PipelineRunner.start() called while already running; skipping"
+            )
             return
 
+        middleware_registered = False
         try:
             self._middleware = _PipelineLoggingMiddleware()
             self._config.event_bus.add_middleware(self._middleware, priority=100)
-
-            # Populate the rendering pipeline's platform registry from the
-            # configured adapters so that transport-specific renderers can
-            # match on platform identity instead of adapter-name prefixes
-            # or ad-hoc known-adapters sets.
+            middleware_registered = True
             self._populate_renderer_platforms()
         except BaseException:
+            if middleware_registered and self._middleware is not None:
+                try:
+                    self._config.event_bus.remove_middleware(self._middleware)
+                except Exception:
+                    self._log.debug(
+                        "Failed to rollback middleware after startup error",
+                        exc_info=True,
+                    )
+            self._middleware = None
             self._running = False
             raise
 

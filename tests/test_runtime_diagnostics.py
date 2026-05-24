@@ -6,7 +6,8 @@ Covers:
 - Fake adapter health inclusion via ``normalize_adapter_health``.
 - Renderer registry and platform registry inclusion.
 - Event bus status summary inclusion.
-- Placeholder fields are sentinel-only (no real queue/task infra).
+- Status fields default to ``{"status": "unavailable"}`` when no real data provided.
+- Real data passthrough for queue/backpressure/task when provided.
 - No secret leakage when context/details include token-like keys.
 - Snapshot is frozen (immutable).
 - ``capture_runtime_snapshot`` pure function behaviour.
@@ -35,7 +36,7 @@ from medre.core.routing.router import Router
 _diagnostics: Any = importlib.import_module("medre.core.supervision.diagnostics")
 RuntimeSnapshot = _diagnostics.RuntimeSnapshot
 _AdapterHealthInput = _diagnostics._AdapterHealthInput
-_NOT_YET_IMPLEMENTED = _diagnostics._NOT_YET_IMPLEMENTED
+_UNAVAILABLE_SENTINEL = _diagnostics._UNAVAILABLE_SENTINEL
 capture_runtime_snapshot = _diagnostics.capture_runtime_snapshot
 capture_route_topology = _diagnostics.capture_route_topology
 
@@ -238,10 +239,10 @@ class TestRendererRegistry:
             "radio-a": "meshtastic",
         }
 
-    def test_no_renderer_pipeline_gives_placeholder(self) -> None:
+    def test_no_renderer_pipeline_gives_unavailable(self) -> None:
         snap = capture_runtime_snapshot()
         result = snap.to_dict()
-        assert result["renderer_registry"] == {"status": "not_yet_implemented"}
+        assert result["renderer_registry"] == {"status": "unavailable"}
 
 
 # ===================================================================
@@ -267,10 +268,10 @@ class TestEventBusStatus:
         result = snap.to_dict()
         assert result["event_bus_status"]["subscription_count"] == 2
 
-    def test_no_event_bus_gives_placeholder(self) -> None:
+    def test_no_event_bus_gives_unavailable(self) -> None:
         snap = capture_runtime_snapshot()
         result = snap.to_dict()
-        assert result["event_bus_status"] == {"status": "not_yet_implemented"}
+        assert result["event_bus_status"] == {"status": "unavailable"}
 
 
 # ===================================================================
@@ -279,22 +280,22 @@ class TestEventBusStatus:
 
 
 class TestPlaceholders:
-    """Queue, backpressure, and task fields are sentinel-only."""
+    """Queue, backpressure, and task fields default to unavailable when no data provided."""
 
     def test_queue_status_placeholder(self) -> None:
         snap = capture_runtime_snapshot()
         result = snap.to_dict()
-        assert result["queue_status"] == {"status": "not_yet_implemented"}
+        assert result["queue_status"] == {"status": "unavailable"}
 
     def test_backpressure_status_placeholder(self) -> None:
         snap = capture_runtime_snapshot()
         result = snap.to_dict()
-        assert result["backpressure_status"] == {"status": "not_yet_implemented"}
+        assert result["backpressure_status"] == {"status": "unavailable"}
 
     def test_task_status_placeholder(self) -> None:
         snap = capture_runtime_snapshot()
         result = snap.to_dict()
-        assert result["task_status"] == {"status": "not_yet_implemented"}
+        assert result["task_status"] == {"status": "unavailable"}
 
     def test_placeholders_are_plain_dicts(self) -> None:
         snap = capture_runtime_snapshot()
@@ -304,15 +305,15 @@ class TestPlaceholders:
             assert isinstance(val, dict)
             assert set(val.keys()) == {"status"}
 
-    def test_storage_backend_placeholder_when_not_provided(self) -> None:
+    def test_storage_backend_unavailable_when_not_provided(self) -> None:
         snap = capture_runtime_snapshot()
         result = snap.to_dict()
-        assert result["storage_backend_status"] == {"status": "not_yet_implemented"}
+        assert result["storage_backend_status"] == {"status": "unavailable"}
 
-    def test_replay_backend_placeholder_when_not_provided(self) -> None:
+    def test_replay_backend_unavailable_when_not_provided(self) -> None:
         snap = capture_runtime_snapshot()
         result = snap.to_dict()
-        assert result["replay_backend_status"] == {"status": "not_yet_implemented"}
+        assert result["replay_backend_status"] == {"status": "unavailable"}
 
     def test_custom_storage_status(self) -> None:
         snap = capture_runtime_snapshot(
@@ -591,10 +592,10 @@ class TestEndToEndCapture:
         assert result["storage_backend_status"]["backend"] == "sqlite"
 
         # Placeholders
-        assert result["queue_status"] == {"status": "not_yet_implemented"}
-        assert result["backpressure_status"] == {"status": "not_yet_implemented"}
-        assert result["task_status"] == {"status": "not_yet_implemented"}
-        assert result["replay_backend_status"] == {"status": "not_yet_implemented"}
+        assert result["queue_status"] == {"status": "unavailable"}
+        assert result["backpressure_status"] == {"status": "unavailable"}
+        assert result["task_status"] == {"status": "unavailable"}
+        assert result["replay_backend_status"] == {"status": "unavailable"}
 
         # JSON round-trip
         text = json.dumps(result, sort_keys=True)
@@ -874,10 +875,10 @@ class TestRouteTopologyDeterminism:
 class TestRouteTopologyViaRuntimeSnapshot:
     """Route topology integration with capture_runtime_snapshot."""
 
-    def test_no_router_gives_placeholder(self) -> None:
+    def test_no_router_gives_unavailable(self) -> None:
         snap = capture_runtime_snapshot()
         result = snap.to_dict()
-        assert result["route_topology"] == {"status": "not_yet_implemented"}
+        assert result["route_topology"] == {"status": "unavailable"}
 
     def test_with_router_includes_topology(self) -> None:
         route = _make_route(
@@ -1087,3 +1088,44 @@ class TestRuntimeSnapshotWithRouteStats:
         d1 = snap.to_dict()
         d2 = snap.to_dict()
         assert d1 == d2
+
+
+# ===================================================================
+# Real data passthrough for queue/backpressure/task
+# ===================================================================
+
+
+class TestRealDataPassthrough:
+    """capture_runtime_snapshot passes real data when provided."""
+
+    def test_queue_status_real_data(self) -> None:
+        real_queue = {"depth": 42, "oldest_age_ms": 1500}
+        snap = capture_runtime_snapshot(queue_status=real_queue)
+        result = snap.to_dict()
+        assert result["queue_status"]["depth"] == 42
+        assert result["queue_status"]["oldest_age_ms"] == 1500
+
+    def test_backpressure_status_real_data(self) -> None:
+        real_bp = {"pressure_ratio": 0.75, "limited": True}
+        snap = capture_runtime_snapshot(backpressure_status=real_bp)
+        result = snap.to_dict()
+        assert result["backpressure_status"]["pressure_ratio"] == 0.75
+        assert result["backpressure_status"]["limited"] is True
+
+    def test_task_status_real_data(self) -> None:
+        real_task = {"active": 3, "pending": 7}
+        snap = capture_runtime_snapshot(task_status=real_task)
+        result = snap.to_dict()
+        assert result["task_status"]["active"] == 3
+        assert result["task_status"]["pending"] == 7
+
+    def test_none_defaults_to_unavailable(self) -> None:
+        snap = capture_runtime_snapshot(
+            queue_status=None,
+            backpressure_status=None,
+            task_status=None,
+        )
+        result = snap.to_dict()
+        assert result["queue_status"] == {"status": "unavailable"}
+        assert result["backpressure_status"] == {"status": "unavailable"}
+        assert result["task_status"] == {"status": "unavailable"}

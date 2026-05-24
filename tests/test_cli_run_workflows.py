@@ -308,6 +308,7 @@ class TestSnapshotOnShutdown:
         expected_sections = {
             "schema_version",
             "snapshot_at",
+            "snapshot_scope",
             "accounting",
             "adapters",
             "capacity",

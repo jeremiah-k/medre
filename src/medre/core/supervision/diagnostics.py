@@ -20,8 +20,8 @@ The snapshot contains:
   adapter-route relationships, and live delivery counters when
   :class:`~medre.core.routing.stats.RouteStats` is provided (or
   zeroed defaults when absent).
-* **Queue / backpressure / task placeholders** – sentinel-only
-  ``{"status": "not_yet_implemented"}`` dicts (no real infrastructure).
+* **Queue / backpressure / task status** – ``{"status": "unavailable"}``
+  sentinels when no real data is provided.
 
 Public symbols
 --------------
@@ -46,8 +46,8 @@ _RouterLike = Any
 # Sentinel for unimplemented subsystems
 # ---------------------------------------------------------------------------
 
-_NOT_YET_IMPLEMENTED: dict[str, str] = {"status": "not_yet_implemented"}
-"""Deterministic placeholder for subsystems that are not yet built."""
+_UNAVAILABLE_SENTINEL: dict[str, str] = {"status": "unavailable"}
+"""Deterministic placeholder for subsystems that are not yet available."""
 
 
 # ---------------------------------------------------------------------------
@@ -113,11 +113,11 @@ class RuntimeSnapshot:
         Topology-aware route diagnostics from the Router, including
         live per-route counters when RouteStats is provided.
     queue_status:
-        Placeholder (not yet implemented).
+        Queue status dict.  Defaults to ``{"status": "unavailable"}``.
     backpressure_status:
-        Placeholder (not yet implemented).
+        Backpressure status dict.  Defaults to ``{"status": "unavailable"}``.
     task_status:
-        Placeholder (not yet implemented).
+        Task status dict.  Defaults to ``{"status": "unavailable"}``.
     """
 
     adapters: tuple[dict[str, Any], ...]
@@ -126,16 +126,16 @@ class RuntimeSnapshot:
     storage_backend_status: dict[str, Any]
     replay_backend_status: dict[str, Any]
     route_topology: dict[str, Any] = field(
-        default_factory=lambda: dict(_NOT_YET_IMPLEMENTED),
+        default_factory=lambda: dict(_UNAVAILABLE_SENTINEL),
     )
     queue_status: dict[str, str] = field(
-        default_factory=lambda: dict(_NOT_YET_IMPLEMENTED),
+        default_factory=lambda: dict(_UNAVAILABLE_SENTINEL),
     )
     backpressure_status: dict[str, str] = field(
-        default_factory=lambda: dict(_NOT_YET_IMPLEMENTED),
+        default_factory=lambda: dict(_UNAVAILABLE_SENTINEL),
     )
     task_status: dict[str, str] = field(
-        default_factory=lambda: dict(_NOT_YET_IMPLEMENTED),
+        default_factory=lambda: dict(_UNAVAILABLE_SENTINEL),
     )
 
     def to_dict(self) -> dict[str, Any]:
@@ -185,6 +185,9 @@ def capture_runtime_snapshot(
     replay_status: dict[str, Any] | None = None,
     router: _RouterLike | None = None,
     route_stats: Any | None = None,
+    queue_status: dict[str, Any] | None = None,
+    backpressure_status: dict[str, Any] | None = None,
+    task_status: dict[str, Any] | None = None,
 ) -> RuntimeSnapshot:
     """Build a deterministic runtime diagnostic snapshot.
 
@@ -217,7 +220,16 @@ def capture_runtime_snapshot(
     route_stats:
         Optional :class:`~medre.core.routing.stats.RouteStats`.  When
         provided alongside *router*, live per-route counters are
-        included in the route topology snapshot.
+         included in the route topology snapshot.
+    queue_status:
+        Optional dict summarising queue state.  Defaults to
+        ``{"status": "unavailable"}`` when not provided.
+    backpressure_status:
+        Optional dict summarising backpressure state.  Defaults to
+        ``{"status": "unavailable"}`` when not provided.
+    task_status:
+        Optional dict summarising task state.  Defaults to
+        ``{"status": "unavailable"}`` when not provided.
 
     Returns
     -------
@@ -241,27 +253,40 @@ def capture_runtime_snapshot(
     if renderer_pipeline is not None and hasattr(renderer_pipeline, "status_summary"):
         renderer_summary = renderer_pipeline.status_summary()
     else:
-        renderer_summary = dict(_NOT_YET_IMPLEMENTED)
+        renderer_summary = dict(_UNAVAILABLE_SENTINEL)
 
     # -- Event bus status ---------------------------------------------------
     if event_bus is not None and hasattr(event_bus, "status_summary"):
         bus_summary = event_bus.status_summary()
     else:
-        bus_summary = dict(_NOT_YET_IMPLEMENTED)
+        bus_summary = dict(_UNAVAILABLE_SENTINEL)
 
     # -- Storage / replay placeholders --------------------------------------
     storage_summary = (
-        storage_status if storage_status is not None else dict(_NOT_YET_IMPLEMENTED)
+        storage_status if storage_status is not None else dict(_UNAVAILABLE_SENTINEL)
     )
     replay_summary = (
-        replay_status if replay_status is not None else dict(_NOT_YET_IMPLEMENTED)
+        replay_status if replay_status is not None else dict(_UNAVAILABLE_SENTINEL)
     )
 
     # -- Route topology -----------------------------------------------------
     if router is not None:
         route_topology_dict = capture_route_topology(router, route_stats=route_stats)
     else:
-        route_topology_dict = dict(_NOT_YET_IMPLEMENTED)
+        route_topology_dict = dict(_UNAVAILABLE_SENTINEL)
+
+    # -- Queue / backpressure / task status ----------------------------------
+    queue_summary = (
+        queue_status if queue_status is not None else dict(_UNAVAILABLE_SENTINEL)
+    )
+    backpressure_summary = (
+        backpressure_status
+        if backpressure_status is not None
+        else dict(_UNAVAILABLE_SENTINEL)
+    )
+    task_summary = (
+        task_status if task_status is not None else dict(_UNAVAILABLE_SENTINEL)
+    )
 
     return RuntimeSnapshot(
         adapters=tuple(adapter_entries),
@@ -270,6 +295,9 @@ def capture_runtime_snapshot(
         storage_backend_status=storage_summary,
         replay_backend_status=replay_summary,
         route_topology=route_topology_dict,
+        queue_status=queue_summary,
+        backpressure_status=backpressure_summary,
+        task_status=task_summary,
     )
 
 

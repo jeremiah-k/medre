@@ -217,6 +217,8 @@ from typing import TYPE_CHECKING, Any, Callable
 from medre.core.observability.sanitization import sanitize_error as _sanitize_error
 from medre.core.supervision.diagnostic_contract import (
     normalize_diagnostics as _normalize_diagnostics,
+)
+from medre.core.supervision.diagnostic_contract import (
     sanitize_diagnostic_mapping as _sanitize_diagnostic_mapping,
 )
 
@@ -235,6 +237,8 @@ SCHEMA_VERSION: int = 1
 """Current snapshot schema version.  Frozen at 1 during pre-release; internal
 breaking changes update tests and docs but do not bump the version."""
 
+_ALLOWED_SNAPSHOT_SCOPES: frozenset[str] = frozenset({"build", "live"})
+
 _MAX_ADAPTERS: int = 256
 """Upper bound on the number of adapter entries included in a snapshot."""
 
@@ -246,9 +250,6 @@ _MAX_BUILD_FAILURES: int = 64
 
 _MAX_ERROR_DETAIL_LEN: int = 512
 """Truncation limit for error strings inside the snapshot."""
-
-# Sentinel for "this subsystem is not yet available".
-_NOT_AVAILABLE: dict[str, str] = {"status": "not_available"}
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -541,6 +542,11 @@ def build_runtime_snapshot(
     per-adapter health data.  The ``startup_health`` value is frozen
     at startup and is **not** mutated by live health refresh.
     """
+    if snapshot_scope not in _ALLOWED_SNAPSHOT_SCOPES:
+        raise ValueError(
+            f"snapshot_scope must be one of {sorted(_ALLOWED_SNAPSHOT_SCOPES)}, got {snapshot_scope!r}"
+        )
+
     _now = now_fn or _now_utc
     _mono = monotonic_fn or _monotonic_now
 

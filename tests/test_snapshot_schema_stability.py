@@ -318,10 +318,7 @@ _EXPECTED_RUNTIME_SNAPSHOT_TOP_KEYS: frozenset[str] = frozenset(
 _EXPECTED_DIAG_SNAPSHOT_KEYS: frozenset[str] = frozenset({"routes", "replay"})
 
 # ---------------------------------------------------------------------------
-# Tranche 3 — placeholder constants for upcoming schema additions.
-# These are NOT yet asserted against; they provide reusable expected-key
-# sets for later tasks that will add adapter diagnostics, pipeline
-# diagnostics, and snapshot_scope tests.
+# Tranche 3 — expected-key constants for diagnostics schema.
 # ---------------------------------------------------------------------------
 
 _EXPECTED_RETRY_KEYS: frozenset[str] = frozenset(
@@ -585,7 +582,10 @@ class TestDiagnosticsSectionSchemaStability:
     def test_diagnostics_pipeline_has_expected_keys(self) -> None:
         app = _make_fake_app()
         snap = build_runtime_snapshot(app)
-        assert set(snap["diagnostics"]["pipeline"].keys()) == _EXPECTED_PIPELINE_DIAGNOSTICS_KEYS
+        assert (
+            set(snap["diagnostics"]["pipeline"].keys())
+            == _EXPECTED_PIPELINE_DIAGNOSTICS_KEYS
+        )
 
     def test_diagnostics_pipeline_running_is_bool_or_none(self) -> None:
         app = _make_fake_app()
@@ -623,7 +623,9 @@ class TestDiagnosticsSectionSchemaStability:
         app = _make_fake_app(adapters={"diag-adapter": adapter})
         snap = build_runtime_snapshot(app)
         adapter_diag = snap["diagnostics"]["adapters"]["diag-adapter"]
-        assert _EXPECTED_ADAPTER_DIAGNOSTICS_KEYS <= set(adapter_diag.keys())
+        assert set(adapter_diag.keys()) == _EXPECTED_ADAPTER_DIAGNOSTICS_KEYS | {
+            "transport_specific"
+        }
         # Non-common keys land in transport_specific.
         assert "transport_specific" in adapter_diag
         assert adapter_diag["transport_specific"]["latency_ms"] == 42

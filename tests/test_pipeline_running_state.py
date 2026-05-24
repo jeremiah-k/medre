@@ -14,12 +14,9 @@ from __future__ import annotations
 import pytest
 
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
-from medre.core.events.bus import EventBus
-from medre.core.planning import FallbackResolver, RelationResolver
 from medre.core.routing import Router
 from medre.core.storage import SQLiteStorage
 from tests.helpers.pipeline import make_pipeline_config_for_pipeline
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -149,10 +146,68 @@ class TestPipelineRunningState:
         # Restore so teardown doesn't break.
         pipeline_config.event_bus.add_middleware = original_add  # type: ignore[attr-defined]
 
-    async def test_running_is_read_only(
-        self, pipeline_config: PipelineConfig
-    ) -> None:
+    async def test_running_is_read_only(self, pipeline_config: PipelineConfig) -> None:
         """``running`` must be a read-only property — setting it must raise."""
         runner = PipelineRunner(pipeline_config)
         with pytest.raises(AttributeError):
             runner.running = True  # type: ignore[misc]
+
+
+class TestStartPartialFailureRollback:
+    """PipelineRunner.start() rolls back middleware on partial failure."""
+
+    async def test_middleware_removed_on_renderer_failure(
+        self, pipeline_config: PipelineConfig
+    ) -> None:
+        """If renderer platform registration fails, middleware is removed."""
+        runner = PipelineRunner(pipeline_config)
+        mw_before = len(pipeline_config.event_bus._middleware)
+
+        # Sabotage _populate_renderer_platforms to fail after middleware
+        # has been registered.
+        original_populate = runner._populate_renderer_platforms
+
+        def _boom_populate() -> None:
+            raise RuntimeError("renderer platform registration failed")
+
+        runner._populate_renderer_platforms = _boom_populate  # type: ignore[assignment]
+
+        with pytest.raises(RuntimeError, match="renderer platform registration failed"):
+            await runner.start()
+
+        assert runner.running is False
+        # Middleware count must be unchanged — the rollback removed it.
+        assert len(pipeline_config.event_bus._middleware) == mw_before
+
+        # Runner must be reusable after the failure condition is removed.
+        runner._populate_renderer_platforms = original_populate  # type: ignore[assignment]
+        await runner.start()
+        try:
+            assert runner.running is True
+        finally:
+            await runner.stop()
+
+    async def test_clean_restart_after_partial_failure(
+        self, pipeline_config: PipelineConfig
+    ) -> None:
+        """Runner can start cleanly after a previous partial failure."""
+        runner = PipelineRunner(pipeline_config)
+
+        # First attempt: fail during renderer population.
+        def _boom() -> None:
+            raise RuntimeError("transient failure")
+
+        runner._populate_renderer_platforms = _boom  # type: ignore[assignment]
+
+        with pytest.raises(RuntimeError):
+            await runner.start()
+
+        assert runner.running is False
+
+        # Second attempt: succeed after removing the failure condition.
+        runner._populate_renderer_platforms = lambda: None  # type: ignore[assignment]
+        await runner.start()
+        try:
+            assert runner.running is True
+        finally:
+            await runner.stop()
