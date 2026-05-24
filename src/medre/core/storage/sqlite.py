@@ -351,13 +351,7 @@ SELECT event_id FROM native_message_refs
 WHERE adapter = ? AND native_channel_id IS ? AND native_message_id = ?
 """
 
-_DELIVERY_STATUS_VIEW_NO_CHANNEL = """
-SELECT * FROM delivery_status
-WHERE delivery_plan_id = ? AND target_adapter = ?
-ORDER BY sequence DESC LIMIT 1
-"""
-
-_DELIVERY_STATUS_VIEW_WITH_CHANNEL = """
+_DELIVERY_STATUS_VIEW_BY_CHANNEL = """
 SELECT * FROM delivery_status
 WHERE delivery_plan_id = ? AND target_adapter = ?
   AND target_channel IS ?
@@ -1198,7 +1192,15 @@ class SQLiteStorage:
         Receipts are append-only: every call creates a new row.  Existing
         receipt rows are never updated or deleted.  The ``delivery_status``
         view projects the latest receipt as a ``MAX(sequence)`` aggregation.
+
+        Empty-string ``target_channel`` values are normalised to ``None``
+        before storage so that NULL and ``""`` are never stored as distinct
+        values — the ``delivery_status`` view groups them together via
+        ``COALESCE(target_channel, '')`` and normalising at write time
+        keeps queries unambiguous.
         """
+        # Normalise empty-string target_channel to NULL.
+        channel = receipt.target_channel or None
         await self._write(
             _INSERT_RECEIPT,
             (
@@ -1206,7 +1208,7 @@ class SQLiteStorage:
                 receipt.event_id,
                 receipt.delivery_plan_id,
                 receipt.target_adapter,
-                receipt.target_channel,
+                channel,
                 receipt.route_id,
                 receipt.status,
                 receipt.error,
@@ -1244,12 +1246,11 @@ class SQLiteStorage:
         target_adapter:
             The target adapter to filter on.
         target_channel:
-            Optional channel name.  When provided, the query is restricted
-            to receipts matching this exact channel value (``IS ?`` semantics
-            handle NULL-safe comparison).  When ``None`` (default), the
-            channel filter is omitted and the latest receipt across **all**
-            channels for the given plan + adapter is returned — preserving
-            backward compatibility with pre-channel callers.
+            Channel name to match.  When a named channel is passed, only
+            receipts with that exact channel value are returned.  When
+            ``None`` (default), only receipts with a NULL (no-channel)
+            target are returned.  Passing ``None`` does **not** query
+            across all channels.
 
         Returns
         -------
@@ -1257,16 +1258,10 @@ class SQLiteStorage:
             The latest-matching receipt, or ``None`` when no receipt exists
             for the given combination.
         """
-        if target_channel is None:
-            row = await self._read_one(
-                _DELIVERY_STATUS_VIEW_NO_CHANNEL,
-                (delivery_plan_id, target_adapter),
-            )
-        else:
-            row = await self._read_one(
-                _DELIVERY_STATUS_VIEW_WITH_CHANNEL,
-                (delivery_plan_id, target_adapter, target_channel),
-            )
+        row = await self._read_one(
+            _DELIVERY_STATUS_VIEW_BY_CHANNEL,
+            (delivery_plan_id, target_adapter, target_channel or None),
+        )
         return _row_to_receipt(row) if row else None
 
     async def list_receipts_for_plan(

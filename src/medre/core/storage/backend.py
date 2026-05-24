@@ -236,7 +236,7 @@ class StorageBackend(Protocol):
         target_adapter: str,
         target_channel: str | None = None,
     ) -> DeliveryReceipt | None:
-        """Return the latest receipt for a delivery plan / adapter pair.
+        """Return the latest receipt for a delivery plan / adapter / channel triple.
 
         Parameters
         ----------
@@ -245,10 +245,11 @@ class StorageBackend(Protocol):
         target_adapter:
             The target adapter to filter on.
         target_channel:
-            Optional channel name.  When provided, restrict results to
-            receipts matching this channel (NULL-safe comparison).  When
-            ``None`` (default), the channel filter is omitted — preserving
-            backward compatibility with pre-channel callers.
+            Channel name to match.  When a named channel is passed, only
+            receipts with that exact channel value are returned.  When
+            ``None`` (default), only receipts with a NULL (no-channel)
+            target are returned.  Passing ``None`` does **not** query
+            across all channels.
 
         Returns
         -------

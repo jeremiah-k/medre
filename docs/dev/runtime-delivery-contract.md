@@ -245,9 +245,9 @@ The `delivery_state_by_target` dict in the incident summary provides per-target 
 }
 ```
 
-Each key is a JSON string containing `delivery_plan_id`, `route_id`, `target_adapter`, and `target_channel` (sorted keys via `json.dumps(..., sort_keys=True)`). Each value selects the receipt with the highest `attempt_number` for that composite key and carries decomposed fields from that receipt. Same adapter on multiple channels or same channel via different routes produces separate entries, so no target is hidden by adapter-level collapse.
+Each key is a JSON string containing `delivery_plan_id`, `route_id`, `target_adapter`, and `target_channel` (sorted keys via `json.dumps(..., sort_keys=True)`). Each value selects the receipt with the highest `attempt_number` for that composite key, then the latest receipt sequence within that attempt, and carries decomposed fields from that receipt. Same adapter on multiple channels or same channel via different routes produces separate entries, so no target is hidden by adapter-level collapse.
 
-> **Warning:** This is a per-target summary, not a full receipt list. Only the highest-attempt receipt per composite key is represented.
+> **Warning:** This is a per-target summary, not a full receipt list. Only the highest-attempt receipt per composite key is represented. When multiple receipts share the same `attempt_number`, the one with the latest sequence (append order) wins.
 
 ### Incident Summary
 

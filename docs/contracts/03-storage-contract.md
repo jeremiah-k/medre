@@ -84,14 +84,13 @@ class StorageBackend(Protocol):
         self, delivery_plan_id: str, target_adapter: str,
         target_channel: str | None = None,
     ) -> DeliveryReceipt | None:
-        """Return the latest receipt for a delivery plan / adapter / channel tuple.
-        
-        When target_channel is provided, restricts to receipts matching that
-        exact channel (NULL-safe IS semantics). When None (default), the
-        channel filter is omitted and the latest receipt across all channels
-        for the given plan + adapter is returned, preserving backward
-        compatibility with pre-channel callers.
-        
+        """Return the latest receipt for a delivery plan / adapter / channel triple.
+
+        *target_channel* is required for precise lookup. When a named channel
+        is passed, only receipts with that exact channel value are considered.
+        When ``None``, only receipts with a NULL (no-channel) target are
+        returned.
+
         Returns None when no receipt exists."""
         ...
 

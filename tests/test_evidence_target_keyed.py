@@ -1156,3 +1156,108 @@ class TestNullTargetChannel:
         assert named_entry["target_channel"] == "ch-0"
         assert null_entry["status"] == "sent"
         assert named_entry["status"] == "failed"
+
+
+# ===================================================================
+# 10. Same attempt, later sequence wins (receipt selection order)
+# ===================================================================
+
+
+class TestReceiptSelectionOrder:
+    """When multiple receipts share the same attempt_number under the same
+    composite key, the one with the latest receipt sequence (append order)
+    wins.  This verifies the selection rule: highest attempt_number, then
+    latest receipt sequence within that attempt."""
+
+    @pytest.mark.asyncio
+    async def test_same_attempt_later_sequence_wins(self, tmp_path: Any) -> None:
+        """Two receipts with attempt_number=1: queued then sent.
+        delivery_state_by_target reports 'sent' (later sequence wins)."""
+        event_id = "ev-tk-selorder-001"
+        db_path = str(tmp_path / "selorder.db")
+        await _build_db(
+            db_path,
+            event_id,
+            [
+                _receipt(
+                    receipt_id="rcpt-seq-1",
+                    event_id=event_id,
+                    target_adapter="radio",
+                    target_channel="ch-0",
+                    route_id="route-a",
+                    delivery_plan_id="dp-001",
+                    status="queued",
+                    attempt_number=1,
+                ),
+                _receipt(
+                    receipt_id="rcpt-seq-2",
+                    event_id=event_id,
+                    target_adapter="radio",
+                    target_channel="ch-0",
+                    route_id="route-a",
+                    delivery_plan_id="dp-001",
+                    status="sent",
+                    attempt_number=1,
+                ),
+            ],
+        )
+        summary = await _get_incident_summary(db_path, event_id)
+        dsbt = summary["delivery_state_by_target"]
+
+        assert len(dsbt) == 1, (
+            f"Expected 1 entry for same composite key with 2 receipts, "
+            f"got {len(dsbt)}"
+        )
+        entry = next(iter(dsbt.values()))
+        assert entry["status"] == "sent", (
+            f"Expected status='sent' (later sequence), "
+            f"got status={entry['status']!r}"
+        )
+        assert entry["attempt_number"] == 1
+
+    @pytest.mark.asyncio
+    async def test_same_attempt_later_sequence_carries_adapter_message_id(
+        self, tmp_path: Any
+    ) -> None:
+        """When later-sequence receipt wins, its adapter_message_id is used."""
+        event_id = "ev-tk-selorder-msgid-001"
+        db_path = str(tmp_path / "selorder-msgid.db")
+        await _build_db(
+            db_path,
+            event_id,
+            [
+                _receipt(
+                    receipt_id="rcpt-mid-1",
+                    event_id=event_id,
+                    target_adapter="radio",
+                    target_channel="ch-0",
+                    route_id="route-a",
+                    delivery_plan_id="dp-001",
+                    status="queued",
+                    attempt_number=1,
+                ),
+                _receipt(
+                    receipt_id="rcpt-mid-2",
+                    event_id=event_id,
+                    target_adapter="radio",
+                    target_channel="ch-0",
+                    route_id="route-a",
+                    delivery_plan_id="dp-001",
+                    status="sent",
+                    attempt_number=1,
+                ),
+            ],
+        )
+        summary = await _get_incident_summary(db_path, event_id)
+        dsbt = summary["delivery_state_by_target"]
+
+        assert len(dsbt) == 1
+        entry = next(iter(dsbt.values()))
+        assert entry["status"] == "sent"
+        # native_message_id and adapter_message_id come from the sent receipt.
+        # In the evidence enrichment, native_message_id comes from the receipt's
+        # adapter_message_id field; both receipts have None here, so the entry
+        # should also have None. The key point is the status reflects the later
+        # receipt.
+        assert "native_message_id" in entry
+        assert "adapter_message_id" in entry

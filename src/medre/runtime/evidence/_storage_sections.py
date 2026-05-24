@@ -185,7 +185,8 @@ async def _collect_storage_data_from_backend(
 
                 # Target-keyed delivery state: group by composite key
                 # (target_adapter, target_channel, route_id, delivery_plan_id),
-                # keeping the receipt with the highest attempt_number per key.
+                # keeping the receipt with the highest attempt_number per key,
+                # then the latest receipt sequence within that attempt.
                 _target_groups: dict[str, list[dict[str, object]]] = {}
                 for rd in enriched_dicts:
                     comp = _json.dumps(
@@ -201,7 +202,8 @@ async def _collect_storage_data_from_backend(
 
                 delivery_state_by_target: dict[str, dict[str, object]] = {}
                 for target_key, group in _target_groups.items():
-                    # Select receipt with the highest attempt_number.
+                    # Select receipt with the highest attempt_number, then
+                    # the latest receipt sequence within that attempt.
                     best_idx = 0
                     best_attempt: int = 0
                     for idx, rd in enumerate(group):
