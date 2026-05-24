@@ -133,6 +133,8 @@ _DECOMPOSED_FIELDS = (
     "failure_kind_detail",
     "retryable",
     "next_retry_at",
+    "native_message_id",
+    "adapter_message_id",
 )
 
 
@@ -1028,3 +1030,129 @@ class TestDeliveryStateByAdapterAbsent:
             "delivery_state_by_adapter must be removed from incident_summary "
             "even with multiple receipts"
         )
+
+
+# ===================================================================
+# 9. target_channel=None produces correct composite key and grouping
+# ===================================================================
+
+
+class TestNullTargetChannel:
+    """Evidence-layer coverage where target_channel=None produces a composite
+    key containing JSON ``"target_channel": null``, the entry value has
+    ``target_channel is None``, and groups distinctly from a named channel."""
+
+    @pytest.mark.asyncio
+    async def test_null_channel_key_contains_json_null(self, tmp_path: Any) -> None:
+        """Composite key for target_channel=None contains ``"target_channel": null``."""
+        event_id = "ev-tk-nullch-key-001"
+        db_path = str(tmp_path / "nullch-key.db")
+        await _build_db(
+            db_path,
+            event_id,
+            [
+                _receipt(
+                    receipt_id="rcpt-nck-1",
+                    event_id=event_id,
+                    target_adapter="radio",
+                    target_channel=None,
+                    route_id="route-a",
+                    delivery_plan_id="dp-001",
+                    status="sent",
+                ),
+            ],
+        )
+        summary = await _get_incident_summary(db_path, event_id)
+        dsbt = summary["delivery_state_by_target"]
+
+        assert len(dsbt) == 1
+        key = next(iter(dsbt.keys()))
+        parsed = json.loads(key)
+        assert parsed["target_channel"] is None, (
+            f"Expected target_channel=null in composite key, got {parsed['target_channel']!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_null_channel_entry_value_is_none(self, tmp_path: Any) -> None:
+        """Entry value for target_channel=None has ``target_channel`` set to None."""
+        event_id = "ev-tk-nullch-val-001"
+        db_path = str(tmp_path / "nullch-val.db")
+        await _build_db(
+            db_path,
+            event_id,
+            [
+                _receipt(
+                    receipt_id="rcpt-ncv-1",
+                    event_id=event_id,
+                    target_adapter="radio",
+                    target_channel=None,
+                    route_id="route-a",
+                    delivery_plan_id="dp-001",
+                    status="sent",
+                ),
+            ],
+        )
+        summary = await _get_incident_summary(db_path, event_id)
+        dsbt = summary["delivery_state_by_target"]
+
+        assert len(dsbt) == 1
+        entry = next(iter(dsbt.values()))
+        assert entry["target_channel"] is None, (
+            f"Expected target_channel=None in entry value, got {entry['target_channel']!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_null_channel_groups_distinctly_from_named(self, tmp_path: Any) -> None:
+        """target_channel=None and target_channel='ch-0' produce separate entries."""
+        event_id = "ev-tk-nullch-distinct-001"
+        db_path = str(tmp_path / "nullch-distinct.db")
+        await _build_db(
+            db_path,
+            event_id,
+            [
+                _receipt(
+                    receipt_id="rcpt-ncd-1",
+                    event_id=event_id,
+                    target_adapter="radio",
+                    target_channel=None,
+                    route_id="route-a",
+                    delivery_plan_id="dp-001",
+                    status="sent",
+                ),
+                _receipt(
+                    receipt_id="rcpt-ncd-2",
+                    event_id=event_id,
+                    target_adapter="radio",
+                    target_channel="ch-0",
+                    route_id="route-a",
+                    delivery_plan_id="dp-001",
+                    status="failed",
+                    failure_kind="adapter_transient",
+                    error="TimeoutError",
+                ),
+            ],
+        )
+        summary = await _get_incident_summary(db_path, event_id)
+        dsbt = summary["delivery_state_by_target"]
+
+        assert len(dsbt) == 2, (
+            f"target_channel=None and target_channel='ch-0' must produce 2 entries, "
+            f"got {len(dsbt)}: {list(dsbt.keys())}"
+        )
+
+        # Verify each entry is correctly grouped.
+        null_entry = None
+        named_entry = None
+        for key, val in dsbt.items():
+            parsed_key = json.loads(key)
+            if parsed_key["target_channel"] is None:
+                null_entry = val
+            else:
+                named_entry = val
+
+        assert null_entry is not None, "Missing entry for target_channel=None"
+        assert named_entry is not None, "Missing entry for target_channel='ch-0'"
+        assert null_entry["target_channel"] is None
+        assert named_entry["target_channel"] == "ch-0"
+        assert null_entry["status"] == "sent"
+        assert named_entry["status"] == "failed"

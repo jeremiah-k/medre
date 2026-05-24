@@ -1235,7 +1235,7 @@ class SQLiteStorage:
         target_adapter: str,
         target_channel: str | None = None,
     ) -> DeliveryReceipt | None:
-        """Return the latest receipt for a delivery plan / adapter pair.
+        """Return the latest receipt for a delivery plan / adapter / channel triple.
 
         Parameters
         ----------
