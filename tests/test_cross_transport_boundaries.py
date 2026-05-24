@@ -150,7 +150,6 @@ class TestCoreImportBoundary:
         "medre.core.planning.delivery_plan",
         "medre.core.planning.fallback_resolution",
         "medre.core.planning.relation_resolution",
-        "medre.core.transforms",
     ]
 
     @pytest.fixture(params=_CORE_MODULES)

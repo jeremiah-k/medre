@@ -52,7 +52,7 @@ Transport-agnostic building blocks. No adapter or SDK imports.
 **Sub-packages:** `events/` (bus, canonical event, schema, kinds),
 `storage/`, `rendering/`, `routing/`, `planning/`, `policies/`,
 `engine/` (pipeline runner), `diagnostics/`, `identity/`, `lifecycle/`,
-`transforms/`, `observability/` (logging setup, diagnostic events, metrics).
+`observability/` (logging setup, diagnostic events, metrics).
 
 ### `adapters/` — transport boundary
 

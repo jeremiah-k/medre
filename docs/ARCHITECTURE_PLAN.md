@@ -174,8 +174,7 @@ medre/
 │   ├── runtime/             # accounting, capabilities, capacity,
 │   │                        # diagnostic_contract, diagnostics, health, supervision
 │   ├── storage/             # backend, replay, sqlite
-│   └── transforms/          # empty
-├── interop/                 # mmrelay wire-format constants
+└── interop/                 # mmrelay wire-format constants
 ├── plugins/                 # scaffolding only: Plugin protocol, PluginCapability enum
 └── runtime/                 # app, builder, retry, route_engine,
                               # boot_summary, drill, smoke, snapshot, timeline, trace,
@@ -208,10 +207,10 @@ MMRelay is NOT a dependency, import target, vendor source, or copy target for ME
 - Rename `core/runtime/` → `core/supervision/` to eliminate naming collision with top-level `runtime/`
 - Move fake adapters to `medre.adapters.fakes/` subdirectory
 - Decide disposition of remaining contract/doc documents (audit records vs current specifications)
-- Evaluate merging `core/diagnostics/` into `core/observability/`
-- Deduplicate `_SECRET_KEY_PATTERNS` between `core/runtime/diagnostic_contract.py` and `core/observability/sanitization.py`
+- Evaluate merging `core/diagnostics/` into `core/observability/` — evaluated and deferred; semantic scopes differ (diagnostics normalizes cross-adapter health metadata; observability owns structured logging and secret filtering)
+- ~~Deduplicate `_SECRET_KEY_PATTERNS` between `core/runtime/diagnostic_contract.py` and `core/observability/sanitization.py`~~ — done; canonical definition in `core/observability/sanitization.py`, imported by `diagnostic_contract.py`
 - The `core/policies/` directory contains transport-neutral pure policy helpers (e.g., startup backlog suppression window logic). Transport-specific extraction/parsing lives in each adapter package. `core` never imports from `adapters`; adapter-specific helpers live in adapter packages.
-- Delete empty package `core/transforms/`
+- ~~Delete empty package `core/transforms/`~~ — done
 
 ## 5. Deferred Tranches
 

@@ -1511,7 +1511,7 @@ Events carry a trace context through the pipeline. Each stage creates a span. Di
 ## 22. Proposed Package Tree
 
 > **Note:** The tree below reflects the **implemented** source layout under `src/medre/`.
-> Sections not yet populated (e.g. `core/transforms/`, `core/policies/`) contain only `__init__.py`.
+> Sections not yet populated (e.g. `core/policies/`) contain only `__init__.py`.
 
 ```text
 src/medre/
@@ -1580,8 +1580,6 @@ src/medre/
 │   │   ├── diagnostics.py        # Runtime diagnostics
 │   │   ├── diagnostic_contract.py # Diagnostic interfaces
 │   │   └── health.py             # Health check infrastructure
-│   ├── transforms/               # Event transform pipeline (scaffold)
-│   │   └── __init__.py
 │   └── policies/                 # Policy pipeline (scaffold)
 │       └── __init__.py
 │

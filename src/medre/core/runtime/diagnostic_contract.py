@@ -55,9 +55,13 @@ Public symbols
 
 from __future__ import annotations
 
-import re
 from dataclasses import asdict, is_dataclass
 from typing import Any, Mapping
+
+from medre.core.observability.sanitization import (
+    _SECRET_KEY_PATTERNS,
+    _is_secret_key,
+)
 
 __all__ = [
     "COMMON_DIAGNOSTIC_KEYS",
@@ -84,23 +88,6 @@ COMMON_DIAGNOSTIC_KEYS: frozenset[str] = frozenset(
 )
 """The 8 common diagnostic key names shared across all adapters."""
 
-# Key-name patterns that indicate secrets or unsafe values.
-# Matches are case-insensitive.
-_SECRET_KEY_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
-    re.compile(p, re.IGNORECASE)
-    for p in (
-        r"^password$",
-        r"^secret",
-        r"^private_?key",
-        r"^access_?token",
-        r"^auth_?token",
-        r"^api_?key",
-        r"^credentials?$",
-        r"^session_?secret",
-        r"^encryption_?key",
-    )
-)
-
 # Sentinel used internally; never appears in output.
 _UNSET = object()
 
@@ -123,11 +110,6 @@ entries are silently dropped (insertion-order preserved)."""
 _SANITIZE_MAX_SEQUENCE_ITEMS: int = 256
 """Maximum number of elements retained from a single sequence.  Excess
 items are dropped and a ``"<truncated: N items>"`` marker is appended."""
-
-
-def _is_secret_key(key: str) -> bool:
-    """Return ``True`` if *key* matches a known secret pattern."""
-    return any(p.search(key) for p in _SECRET_KEY_PATTERNS)
 
 
 def _sanitize_value(value: Any, _depth: int = 0) -> Any:

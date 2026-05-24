@@ -259,7 +259,6 @@ class TestNoTransportSdkInRuntimeCore:
         "medre.core.storage.backend",
         "medre.core.storage.replay",
         "medre.core.storage.sqlite",
-        "medre.core.transforms",
     ]
 
     @pytest.mark.parametrize(
