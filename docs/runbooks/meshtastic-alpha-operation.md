@@ -566,11 +566,11 @@ In fake mode, `send_one()` returns `None` — no real send occurs.
 
 **Delivery confirmation levels — operators must distinguish these:**
 
-| Stage | Meaning | Not the same as |
-| ----- | ------- | --------------- |
-| Enqueued / queued | Accepted into the adapter-local in-memory outbound queue | RF transmission or remote receipt |
-| Sent / SDK accepted | `client.sendText()` returned a `MeshPacket` — the local node accepted the packet for radio transmission | Any remote node received the packet; RF transmission completed |
-| RF delivered / remote ACK | **Unavailable.** The adapter does not track remote-node delivery or ACK. | N/A |
+| Stage                     | Meaning                                                                                                 | Not the same as                                                |
+| ------------------------- | ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| Enqueued / queued         | Accepted into the adapter-local in-memory outbound queue                                                | RF transmission or remote receipt                              |
+| Sent / SDK accepted       | `client.sendText()` returned a `MeshPacket` — the local node accepted the packet for radio transmission | Any remote node received the packet; RF transmission completed |
+| RF delivered / remote ACK | **Unavailable.** The adapter does not track remote-node delivery or ACK.                                | N/A                                                            |
 
 A successful `send_one()` only confirms local-node acceptance. Whether the packet was actually transmitted over LoRa or received by any remote node is unknown. Do not treat `total_sent` or a `sent` receipt as RF delivery confirmation.
 
@@ -578,10 +578,10 @@ A successful `send_one()` only confirms local-node acceptance. Whether the packe
 
 The Meshtastic adapter supports an outbound gate controlled by `outbound_mode` (default `"enabled"`):
 
-| `outbound_mode` | Inbound reception | Outbound delivery | Evidence / receipt |
-| --------------- | ----------------- | ----------------- | ------------------ |
-| `"enabled"` | Normal | Normal | Normal |
-| `"listen_only"` | Normal | **Suppressed** — `deliver()` rejects outbound payloads without RF transmission | Non-retryable adapter failure with detail `outbound suppressed: listen_only mode` |
+| `outbound_mode` | Inbound reception | Outbound delivery                                                              | Evidence / receipt                                                                |
+| --------------- | ----------------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
+| `"enabled"`     | Normal            | Normal                                                                         | Normal                                                                            |
+| `"listen_only"` | Normal            | **Suppressed** — `deliver()` rejects outbound payloads without RF transmission | Non-retryable adapter failure with detail `outbound suppressed: listen_only mode` |
 
 When `outbound_mode = "listen_only"`:
 
@@ -1010,10 +1010,10 @@ The following features are not supported in alpha mode. Do not attempt to use th
 | Automatic reconnection       | Not implemented                           | See section 12                                                                                                                                                                |
 | Outbound retry               | Bounded adapter-local retry               | Transient SDK failures retried up to `queue_send_max_attempts`; permanent failures and exhausted retries are dropped                                                          |
 | ACK / delivery confirmation  | Not implemented                           | `wantAck` is not set                                                                                                                                                          |
-| Telemetry decoding           | Not supported                             | Telemetry packets are classified (`ignore` action) and counted in diagnostics                                                                                      |
-| Position / GPS decoding      | Not supported                             | Position packets are classified (`ignore` action) and counted in diagnostics                                                                                       |
-| Node database caching        | Not supported                             | Node info packets are classified (`ignore` action) and counted in diagnostics                                                                                      |
-| Admin API                    | Not supported                             | Admin packets are classified (`ignore` action) and counted in diagnostics                                                                                          |
+| Telemetry decoding           | Not supported                             | Telemetry packets are classified (`ignore` action) and counted in diagnostics                                                                                                 |
+| Position / GPS decoding      | Not supported                             | Position packets are classified (`ignore` action) and counted in diagnostics                                                                                                  |
+| Node database caching        | Not supported                             | Node info packets are classified (`ignore` action) and counted in diagnostics                                                                                                 |
+| Admin API                    | Not supported                             | Admin packets are classified (`ignore` action) and counted in diagnostics                                                                                                     |
 | End-to-end encryption        | Not supported                             | Meshtastic encrypted channels are not handled                                                                                                                                 |
 | Multi-node mesh testing      | Not tested                                | Alpha has only been validated with a single node                                                                                                                              |
 | BLE connectivity             | Documented only                           | BLE is a config option but not validated in alpha                                                                                                                             |
@@ -1021,7 +1021,7 @@ The following features are not supported in alpha mode. Do not attempt to use th
 | Store-and-forward            | Not supported                             | No message persistence across restarts                                                                                                                                        |
 | Rate limiting / flow control | Not implemented                           | Only basic pacing via `message_delay_seconds`                                                                                                                                 |
 | Transmit guard               | Implemented (`MESHTASTIC_LIVE_SEND`)      | RF transmission gated by env var; connect/health allowed without it                                                                                                           |
-| Outbound gate                | Implemented (`outbound_mode`)             | `outbound_mode = "listen_only"` suppresses all outbound delivery; inbound reception unaffected. See section 9.1a                                                             |
-| Shutdown queue durability    | **Non-guarantee**                         | Outbound queue items remaining at shutdown are lost — not persisted, not requeued, not recovered on restart. Durable queue is deferred. See section 6.3                     |
+| Outbound gate                | Implemented (`outbound_mode`)             | `outbound_mode = "listen_only"` suppresses all outbound delivery; inbound reception unaffected. See section 9.1a                                                              |
+| Shutdown queue durability    | **Non-guarantee**                         | Outbound queue items remaining at shutdown are lost — not persisted, not requeued, not recovered on restart. Durable queue is deferred. See section 6.3                       |
 | Non-Meshtastic transports    | Not in scope                              | This runbook covers Meshtastic only                                                                                                                                           |
 | Multi-transport bridging     | Not in scope                              | No bridge between Meshtastic and other transports                                                                                                                             |

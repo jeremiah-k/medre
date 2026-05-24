@@ -106,7 +106,7 @@ Follow this template when adding live tests for a new transport. The pattern is 
 
 ### 4.1 File structure
 
-```
+```text
 tests/
   test_<transport>_live.py          # Live tests
   helpers/

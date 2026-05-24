@@ -7,13 +7,11 @@ from __future__ import annotations
 
 import pytest
 
+import medre.adapters.meshtastic.packet_classifier as _classifier_mod
 from medre.adapters.meshtastic.packet_classifier import (
     MeshtasticPacketClassifier,
     normalize_portnum,
-    _get_sdk_portnum_table,
-    _NUMERIC_PORTNUM_FALLBACK,
 )
-import medre.adapters.meshtastic.packet_classifier as _classifier_mod
 
 
 def _make_text_packet(
@@ -835,15 +833,9 @@ class TestNumericPortnumFallback:
     )
     def test_fallback_values_no_sdk(self, numeric, expected, monkeypatch) -> None:
         """Fallback map used when SDK table is unavailable."""
-        monkeypatch.setattr(
-            _classifier_mod, "_SDK_PORTNUM_FETCHED", False
-        )
-        monkeypatch.setattr(
-            _classifier_mod, "_SDK_PORTNUM_CACHE", None
-        )
-        monkeypatch.setattr(
-            _classifier_mod, "_get_sdk_portnum_table", lambda: None
-        )
+        monkeypatch.setattr(_classifier_mod, "_SDK_PORTNUM_FETCHED", False)
+        monkeypatch.setattr(_classifier_mod, "_SDK_PORTNUM_CACHE", None)
+        monkeypatch.setattr(_classifier_mod, "_get_sdk_portnum_table", lambda: None)
         assert normalize_portnum(numeric) == expected
 
     def test_sdk_values_stripped_app_suffix(self, monkeypatch) -> None:
@@ -854,12 +846,8 @@ class TestNumericPortnumFallback:
             34: "paxcounter_app",
             71: "neighborinfo_app",
         }
-        monkeypatch.setattr(
-            _classifier_mod, "_SDK_PORTNUM_FETCHED", False
-        )
-        monkeypatch.setattr(
-            _classifier_mod, "_SDK_PORTNUM_CACHE", None
-        )
+        monkeypatch.setattr(_classifier_mod, "_SDK_PORTNUM_FETCHED", False)
+        monkeypatch.setattr(_classifier_mod, "_SDK_PORTNUM_CACHE", None)
         monkeypatch.setattr(
             _classifier_mod, "_get_sdk_portnum_table", lambda: custom_table
         )
@@ -871,12 +859,8 @@ class TestNumericPortnumFallback:
     def test_sdk_values_without_app_suffix_preserved(self, monkeypatch) -> None:
         """SDK values without _app suffix are returned as-is."""
         custom_table = {1: "text_message", 5: "routing"}
-        monkeypatch.setattr(
-            _classifier_mod, "_SDK_PORTNUM_FETCHED", False
-        )
-        monkeypatch.setattr(
-            _classifier_mod, "_SDK_PORTNUM_CACHE", None
-        )
+        monkeypatch.setattr(_classifier_mod, "_SDK_PORTNUM_FETCHED", False)
+        monkeypatch.setattr(_classifier_mod, "_SDK_PORTNUM_CACHE", None)
         monkeypatch.setattr(
             _classifier_mod, "_get_sdk_portnum_table", lambda: custom_table
         )
@@ -1030,12 +1014,8 @@ class TestNumericPortnumSdkOverride:
     def test_sdk_table_overrides_fallback(self, monkeypatch) -> None:
         """When SDK table returns a custom mapping, it takes precedence."""
         custom_table = {42: "custom_app_from_sdk"}
-        monkeypatch.setattr(
-            _classifier_mod, "_SDK_PORTNUM_FETCHED", False
-        )
-        monkeypatch.setattr(
-            _classifier_mod, "_SDK_PORTNUM_CACHE", None
-        )
+        monkeypatch.setattr(_classifier_mod, "_SDK_PORTNUM_FETCHED", False)
+        monkeypatch.setattr(_classifier_mod, "_SDK_PORTNUM_CACHE", None)
         monkeypatch.setattr(
             _classifier_mod, "_get_sdk_portnum_table", lambda: custom_table
         )
@@ -1044,27 +1024,17 @@ class TestNumericPortnumSdkOverride:
 
     def test_sdk_table_none_uses_fallback(self, monkeypatch) -> None:
         """When SDK table is None, fallback map is used."""
-        monkeypatch.setattr(
-            _classifier_mod, "_SDK_PORTNUM_FETCHED", False
-        )
-        monkeypatch.setattr(
-            _classifier_mod, "_SDK_PORTNUM_CACHE", None
-        )
-        monkeypatch.setattr(
-            _classifier_mod, "_get_sdk_portnum_table", lambda: None
-        )
+        monkeypatch.setattr(_classifier_mod, "_SDK_PORTNUM_FETCHED", False)
+        monkeypatch.setattr(_classifier_mod, "_SDK_PORTNUM_CACHE", None)
+        monkeypatch.setattr(_classifier_mod, "_get_sdk_portnum_table", lambda: None)
         assert normalize_portnum(1) == "text_message"
         assert normalize_portnum(10) == "detection_sensor"
 
     def test_sdk_table_partial_coverage_falls_back(self, monkeypatch) -> None:
         """SDK table only has some values; unknown-to-SDK falls back correctly."""
         custom_table = {42: "custom_app"}
-        monkeypatch.setattr(
-            _classifier_mod, "_SDK_PORTNUM_FETCHED", False
-        )
-        monkeypatch.setattr(
-            _classifier_mod, "_SDK_PORTNUM_CACHE", None
-        )
+        monkeypatch.setattr(_classifier_mod, "_SDK_PORTNUM_FETCHED", False)
+        monkeypatch.setattr(_classifier_mod, "_SDK_PORTNUM_CACHE", None)
         monkeypatch.setattr(
             _classifier_mod, "_get_sdk_portnum_table", lambda: custom_table
         )

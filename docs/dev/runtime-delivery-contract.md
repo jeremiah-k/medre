@@ -219,12 +219,12 @@ Each adapter contributes adapter-specific metadata to delivery evidence:
 
 The `failure_kind_detail` field is derived from error patterns and provides a more specific classification than `failure_kind` without changing the `DeliveryFailureKind` enum. Current values:
 
-| `failure_kind_detail`       | Condition                                                                                            |
-| --------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `e2ee_blocked`              | Matrix encrypted/E2EE decryption or blocking errors                                                  |
-| `meshtastic_queue_rejected` | Meshtastic adapter queue-full errors (requires "queue" + "full" or "enqueue rejected" in error text) |
-| `meshtastic_outbound_suppressed` | Meshtastic adapter outbound gate suppression when `outbound_mode = "listen_only"` |
-| (original `failure_kind`)   | Default — no specialised pattern matched                                                             |
+| `failure_kind_detail`            | Condition                                                                                            |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `e2ee_blocked`                   | Matrix encrypted/E2EE decryption or blocking errors                                                  |
+| `meshtastic_queue_rejected`      | Meshtastic adapter queue-full errors (requires "queue" + "full" or "enqueue rejected" in error text) |
+| `meshtastic_outbound_suppressed` | Meshtastic adapter outbound gate suppression when `outbound_mode = "listen_only"`                    |
+| (original `failure_kind`)        | Default — no specialised pattern matched                                                             |
 
 The `delivery_state_by_adapter` dict in the incident summary provides per-adapter delivery state. Shape:
 

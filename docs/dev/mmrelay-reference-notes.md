@@ -302,7 +302,7 @@ Key differences:
    classification layer — they are returned early and never reach the
    relay. MEDRE's classifier marks direct messages addressed to the local
    node with the `ignore` action and reason `"direct message to specific
-   node"`, preserving visibility via diagnostics counters. Third-party
+node"`, preserving visibility via diagnostics counters. Third-party
    packets (neither local nor broadcast) are similarly ignored. Neither
    system relays DMs by default, but MEDRE explicitly classifies and
    counts them.

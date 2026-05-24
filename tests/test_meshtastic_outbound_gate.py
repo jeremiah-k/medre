@@ -38,7 +38,6 @@ from medre.core.planning.delivery_plan import (
 from medre.core.rendering.renderer import RenderingResult
 from medre.runtime.reporting import _derive_failure_kind_detail
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -314,9 +313,7 @@ class TestGatePreventsQueueFull:
             max_size = adapter._queue.max_queue_size
             assert max_size is not None
             for i in range(max_size):
-                await adapter._queue.enqueue(
-                    {"text": f"fill-{i}"}, channel_index=0
-                )
+                await adapter._queue.enqueue({"text": f"fill-{i}"}, channel_index=0)
             assert adapter._queue.queue_depth == max_size
 
             # Deliver should still be suppressed by gate, NOT by queue-full.
@@ -443,9 +440,7 @@ class TestFakeAdapterGateMirror:
 
     @pytest.mark.asyncio
     async def test_fake_listen_only_raises_permanent(self) -> None:
-        config = MeshtasticConfig(
-            adapter_id="fake-listen", outbound_mode="listen_only"
-        )
+        config = MeshtasticConfig(adapter_id="fake-listen", outbound_mode="listen_only")
         adapter = FakeMeshtasticAdapter(config)
         ctx = _make_ctx("fake-listen")
         await adapter.start(ctx)
@@ -472,9 +467,7 @@ class TestFakeAdapterGateMirror:
 
     @pytest.mark.asyncio
     async def test_fake_diagnostics_expose_outbound_mode(self) -> None:
-        config = MeshtasticConfig(
-            adapter_id="fake-diag", outbound_mode="listen_only"
-        )
+        config = MeshtasticConfig(adapter_id="fake-diag", outbound_mode="listen_only")
         adapter = FakeMeshtasticAdapter(config)
         ctx = _make_ctx("fake-diag")
         await adapter.start(ctx)

@@ -238,33 +238,33 @@ sync_timeout_ms = 30000
 # outbound_mode = "enabled"         # enabled or listen_only
 ```
 
-| Field                              | Type               | Default       | Description                                                                                         |
-| ---------------------------------- | ------------------ | ------------- | --------------------------------------------------------------------------------------------------- |
-| `enabled`                          | bool               | `true`        | Whether this adapter instance is active.                                                            |
-| `adapter_kind`                     | string             | `"real"`      | `"real"` builds the live adapter; `"fake"` builds a simulated adapter without optional SDK imports. |
-| `adapter_id`                       | string             | instance name | Unique identifier.                                                                                  |
-| `connection_type`                  | string             | `"fake"`      | Connection mode: `fake`, `tcp`, `serial`, or `ble`.                                                 |
-| `host`                             | string             | `None`        | Hostname or IP for TCP connections. Required when `connection_type="tcp"`.                          |
-| `port`                             | int                | `None`        | Port number for TCP connections.                                                                    |
-| `serial_port`                      | string             | `None`        | Serial device path. Required when `connection_type="serial"`.                                       |
-| `ble_address`                      | string             | `None`        | BLE MAC address. Required when `connection_type="ble"`.                                             |
-| `meshnet_name`                     | string             | `""`          | Human-readable meshnet name (informational).                                                        |
-| `default_channel`                  | int                | `0`           | Default radio channel index for outbound messages.                                                  |
-| `channel_mapping`                  | dict of int→string | `{}`          | Maps channel indices to human-readable names.                                                       |
-| `message_delay_seconds`            | float              | `0.5`         | Minimum delay between outbound messages (pacing).                                                   |
-| `startup_backlog_suppress_seconds` | float              | `5.0`         | Seconds after start to suppress stale backlog packets.                                              |
-| `sync_timeout_ms`                  | int                | `30000`       | Timeout for sync operations in milliseconds.                                                        |
-| `max_text_bytes`                   | int                | `227`         | Maximum UTF-8 byte budget for final radio text. Applied after all rendering.                        |
+| Field                              | Type               | Default       | Description                                                                                                                                                                                               |
+| ---------------------------------- | ------------------ | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`                          | bool               | `true`        | Whether this adapter instance is active.                                                                                                                                                                  |
+| `adapter_kind`                     | string             | `"real"`      | `"real"` builds the live adapter; `"fake"` builds a simulated adapter without optional SDK imports.                                                                                                       |
+| `adapter_id`                       | string             | instance name | Unique identifier.                                                                                                                                                                                        |
+| `connection_type`                  | string             | `"fake"`      | Connection mode: `fake`, `tcp`, `serial`, or `ble`.                                                                                                                                                       |
+| `host`                             | string             | `None`        | Hostname or IP for TCP connections. Required when `connection_type="tcp"`.                                                                                                                                |
+| `port`                             | int                | `None`        | Port number for TCP connections.                                                                                                                                                                          |
+| `serial_port`                      | string             | `None`        | Serial device path. Required when `connection_type="serial"`.                                                                                                                                             |
+| `ble_address`                      | string             | `None`        | BLE MAC address. Required when `connection_type="ble"`.                                                                                                                                                   |
+| `meshnet_name`                     | string             | `""`          | Human-readable meshnet name (informational).                                                                                                                                                              |
+| `default_channel`                  | int                | `0`           | Default radio channel index for outbound messages.                                                                                                                                                        |
+| `channel_mapping`                  | dict of int→string | `{}`          | Maps channel indices to human-readable names.                                                                                                                                                             |
+| `message_delay_seconds`            | float              | `0.5`         | Minimum delay between outbound messages (pacing).                                                                                                                                                         |
+| `startup_backlog_suppress_seconds` | float              | `5.0`         | Seconds after start to suppress stale backlog packets.                                                                                                                                                    |
+| `sync_timeout_ms`                  | int                | `30000`       | Timeout for sync operations in milliseconds.                                                                                                                                                              |
+| `max_text_bytes`                   | int                | `227`         | Maximum UTF-8 byte budget for final radio text. Applied after all rendering.                                                                                                                              |
 | `outbound_mode`                    | string             | `"enabled"`   | Outbound gate: `"enabled"` allows RF transmission; `"listen_only"` suppresses all outbound delivery. Inbound reception is unaffected. See [Outbound Gate Semantics](#outbound-gate-semantics-meshtastic). |
 
 #### Outbound Gate Semantics (Meshtastic)
 
 The `outbound_mode` field controls whether the Meshtastic adapter transmits outbound messages:
 
-| Value          | Inbound | Outbound delivery | Delivery receipt / evidence |
-| -------------- | ------- | ----------------- | --------------------------- |
-| `"enabled"`    | Normal  | Normal            | Normal                      |
-| `"listen_only"` | Normal | **Suppressed** — `deliver()` rejects outbound payloads without RF transmission | Non-retryable adapter failure or suppressed detail (`outbound suppressed: listen_only mode`) |
+| Value           | Inbound | Outbound delivery                                                              | Delivery receipt / evidence                                                                  |
+| --------------- | ------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| `"enabled"`     | Normal  | Normal                                                                         | Normal                                                                                       |
+| `"listen_only"` | Normal  | **Suppressed** — `deliver()` rejects outbound payloads without RF transmission | Non-retryable adapter failure or suppressed detail (`outbound suppressed: listen_only mode`) |
 
 When `outbound_mode = "listen_only"`:
 

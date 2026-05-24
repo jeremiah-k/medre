@@ -133,7 +133,7 @@ packet_dict["toId"] = interface._node_num_to_id(packet_dict["to"])
 | `decoded` always contains `text` key for text packets | `text` is **added** by `_on_text_receive` after decoding from `payload` bytes | MEDRE fixtures set `text` directly, which matches the post-processed shape              |
 | `channel` always present                              | May be absent in sparse callbacks; `MessageToDict` omits default values       | MEDRE classifiers handle missing channel correctly                                      |
 | `from` (numeric) always matches `fromId` hex          | `fromId` requires node DB lookup; may be `None` if node unknown               | MEDRE handles `fromId` fallback to numeric `from` correctly                             |
-| No `encrypted` field tested                           | Real encrypted packets carry `encrypted: true`                                | MEDRE has no encrypted packet handling — out of scope for initial implementation           |
+| No `encrypted` field tested                           | Real encrypted packets carry `encrypted: true`                                | MEDRE has no encrypted packet handling — out of scope for initial implementation        |
 | No `rxTime` field tested                              | Real packets carry `rxTime` for backlog suppression                           | MEDRE implements backlog suppression via shared utility (`startup_backlog_suppress.py`) |
 | No `decoded.emoji` field tested                       | Real packets may carry `emoji: 1` for reactions                               | MEDRE has no reaction support — out of scope                                            |
 | No `decoded.payload` bytes field                      | Real packets carry raw `payload` bytes alongside decoded fields               | MEDRE codec reads `decoded.text` not `payload` — matches post-processed shape           |
@@ -196,28 +196,28 @@ It is used only when the optional `mtjk` SDK is not installed.
 
 **Covered values (all protocol-correct):**
 
-| Map Key | MEDRE Value                 | Protobuf Name                 | Match  |
-| ------- | --------------------------- | ----------------------------- | ------ |
-| `0`     | `"unknown"`                 | `UNKNOWN_APP`                 | Exact  |
-| `1`     | `"text_message"`            | `TEXT_MESSAGE_APP`            | Exact  |
-| `2`     | `"remote_hardware"`         | `REMOTE_HARDWARE_APP`         | Exact  |
-| `3`     | `"position"`                | `POSITION_APP`                | Exact  |
-| `4`     | `"nodeinfo"`                | `NODEINFO_APP`                | Exact  |
-| `5`     | `"routing"`                 | `ROUTING_APP`                 | Exact  |
-| `6`     | `"admin"`                   | `ADMIN_APP`                   | Exact  |
-| `7`     | `"text_message_compressed"` | `TEXT_MESSAGE_COMPRESSED_APP` | Exact  |
-| `8`     | `"waypoint"`                | `WAYPOINT_APP`                | Exact  |
-| `9`     | `"audio"`                   | `AUDIO_APP`                   | Exact  |
-| `10`    | `"detection_sensor"`        | `DETECTION_SENSOR_APP`        | Exact  |
-| `11`    | `"alert"`                   | `ALERT_APP`                   | Exact  |
-| `12`    | `"key_verification"`        | `KEY_VERIFICATION_APP`        | Exact  |
-| `13`    | `"remote_shell"`            | `REMOTE_SHELL_APP`            | Exact  |
-| `32`    | `"reply"`                   | `REPLY_APP`                   | Exact  |
-| `33`    | `"ip_tunnel"`               | `IP_TUNNEL_APP`               | Exact  |
-| `34`    | `"paxcounter"`              | `PAXCOUNTER_APP`              | Exact  |
-| `67`    | `"telemetry"`               | `TELEMETRY_APP`               | Exact  |
-| `71`    | `"neighborinfo"`            | `NEIGHBORINFO_APP`            | Exact  |
-| `72`    | `"atak_plugin"`             | `ATAK_PLUGIN`                 | Exact  |
+| Map Key | MEDRE Value                 | Protobuf Name                 | Match |
+| ------- | --------------------------- | ----------------------------- | ----- |
+| `0`     | `"unknown"`                 | `UNKNOWN_APP`                 | Exact |
+| `1`     | `"text_message"`            | `TEXT_MESSAGE_APP`            | Exact |
+| `2`     | `"remote_hardware"`         | `REMOTE_HARDWARE_APP`         | Exact |
+| `3`     | `"position"`                | `POSITION_APP`                | Exact |
+| `4`     | `"nodeinfo"`                | `NODEINFO_APP`                | Exact |
+| `5`     | `"routing"`                 | `ROUTING_APP`                 | Exact |
+| `6`     | `"admin"`                   | `ADMIN_APP`                   | Exact |
+| `7`     | `"text_message_compressed"` | `TEXT_MESSAGE_COMPRESSED_APP` | Exact |
+| `8`     | `"waypoint"`                | `WAYPOINT_APP`                | Exact |
+| `9`     | `"audio"`                   | `AUDIO_APP`                   | Exact |
+| `10`    | `"detection_sensor"`        | `DETECTION_SENSOR_APP`        | Exact |
+| `11`    | `"alert"`                   | `ALERT_APP`                   | Exact |
+| `12`    | `"key_verification"`        | `KEY_VERIFICATION_APP`        | Exact |
+| `13`    | `"remote_shell"`            | `REMOTE_SHELL_APP`            | Exact |
+| `32`    | `"reply"`                   | `REPLY_APP`                   | Exact |
+| `33`    | `"ip_tunnel"`               | `IP_TUNNEL_APP`               | Exact |
+| `34`    | `"paxcounter"`              | `PAXCOUNTER_APP`              | Exact |
+| `67`    | `"telemetry"`               | `TELEMETRY_APP`               | Exact |
+| `71`    | `"neighborinfo"`            | `NEIGHBORINFO_APP`            | Exact |
+| `72`    | `"atak_plugin"`             | `ATAK_PLUGIN`                 | Exact |
 
 **Not covered by fallback:** Numeric values not present in the table (e.g.,
 70 `TRACEROUTE_APP`, 73 `MAP_REPORT_APP`) are handled by
@@ -476,19 +476,19 @@ Future real send implementation should:
 
 ## 6. What Remains Unverified
 
-| Area                                               | Status                                                   | Risk     |
-| -------------------------------------------------- | -------------------------------------------------------- | -------- |
-| Real TCP/serial/BLE connection lifecycle           | Not tested                                               | Medium   |
-| mtjk callback packet shapes match fixtures exactly | Not verified with hardware capture                       | Medium   |
-| PortNum numeric enum values (MEDRE scaffold)       | Verified against protobuf → fallback is protocol-correct | **Low**   |
-| Startup backlog suppression behavior               | Implemented (shared utility), not verified with hardware | Medium   |
-| ACK tracking and correlation                       | Not verified                                             | Low      |
-| Firmware/radio send ID behavior                    | Not verified                                             | Low      |
-| Telemetry/position/nodeinfo payload shapes         | Not verified                                             | Low      |
-| Node database / name cache behavior                | Not verified                                             | Medium   |
-| Payload size limits and truncation                 | Not verified                                             | Low      |
-| Python protobuf `MessageToDict` output shape       | Verified through mtjk source                             | Low      |
-| `fromId` population from node DB                   | Verified through mtjk source                             | Low      |
+| Area                                               | Status                                                   | Risk    |
+| -------------------------------------------------- | -------------------------------------------------------- | ------- |
+| Real TCP/serial/BLE connection lifecycle           | Not tested                                               | Medium  |
+| mtjk callback packet shapes match fixtures exactly | Not verified with hardware capture                       | Medium  |
+| PortNum numeric enum values (MEDRE scaffold)       | Verified against protobuf → fallback is protocol-correct | **Low** |
+| Startup backlog suppression behavior               | Implemented (shared utility), not verified with hardware | Medium  |
+| ACK tracking and correlation                       | Not verified                                             | Low     |
+| Firmware/radio send ID behavior                    | Not verified                                             | Low     |
+| Telemetry/position/nodeinfo payload shapes         | Not verified                                             | Low     |
+| Node database / name cache behavior                | Not verified                                             | Medium  |
+| Payload size limits and truncation                 | Not verified                                             | Low     |
+| Python protobuf `MessageToDict` output shape       | Verified through mtjk source                             | Low     |
+| `fromId` population from node DB                   | Verified through mtjk source                             | Low     |
 
 ---
 
@@ -534,31 +534,31 @@ MEDRE classifies each inbound packet into one of four **actions**:
 
 Key conceptual differences:
 
-| Aspect                 | MMRelay (3 outcomes)                        | MEDRE (4 actions)                                              |
-| ---------------------- | ------------------------------------------- | -------------------------------------------------------------- |
-| Unknown portnums       | DROP                                        | deferred (available for future handlers)                       |
-| Encrypted packets      | PLUGIN_ONLY (plugins may decrypt)           | drop (no decryption infrastructure)                            |
-| Detection sensor       | PLUGIN_ONLY / RELAY (config-controlled)     | deferred                                                       |
-| Empty text messages    | Not explicitly handled at classification    | ignore (explicit reason string)                                |
-| Malformed packets      | Not explicitly handled at classification    | drop (explicit reason string)                                  |
-| DM filtering location  | Classification layer (drops third-party)    | Classification layer (ignore action)                           |
-| Classification policy  | Config-driven (YAML per-portnum overrides)  | Coded decision tree in classifier; policy DSL planned          |
-| Diagnostic counters    | None exposed                                | Per-action and per-reason counters in adapter diagnostics      |
-| Result type            | Dict                                        | Frozen dataclass (ClassificationResult)                        |
-| Reason strings         | Not provided                                | Human-readable reason string on every classification           |
+| Aspect                | MMRelay (3 outcomes)                       | MEDRE (4 actions)                                         |
+| --------------------- | ------------------------------------------ | --------------------------------------------------------- |
+| Unknown portnums      | DROP                                       | deferred (available for future handlers)                  |
+| Encrypted packets     | PLUGIN_ONLY (plugins may decrypt)          | drop (no decryption infrastructure)                       |
+| Detection sensor      | PLUGIN_ONLY / RELAY (config-controlled)    | deferred                                                  |
+| Empty text messages   | Not explicitly handled at classification   | ignore (explicit reason string)                           |
+| Malformed packets     | Not explicitly handled at classification   | drop (explicit reason string)                             |
+| DM filtering location | Classification layer (drops third-party)   | Classification layer (ignore action)                      |
+| Classification policy | Config-driven (YAML per-portnum overrides) | Coded decision tree in classifier; policy DSL planned     |
+| Diagnostic counters   | None exposed                               | Per-action and per-reason counters in adapter diagnostics |
+| Result type           | Dict                                       | Frozen dataclass (ClassificationResult)                   |
+| Reason strings        | Not provided                               | Human-readable reason string on every classification      |
 
 ## 8. MEDRE Assumptions Still Scaffold Only
 
-| MEDRE Assumption                            | Status                                                                                                                    | Action Required                                              |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| Numeric PortNum map values                  | **SDK-derived** when `mtjk` installed; fallback map for offline use                                                           | Fallback map retained for environments without the optional SDK dependency |
-| `max_text_bytes=512` / `max_text_chars=512` | **Implemented** — now `max_text_bytes=227` (configurable), `max_text_chars=None`; renderer enforces UTF-8 byte truncation | `feat/meshtastic-byte-budget-rendering`                      |
-| `startup_backlog_suppress_seconds`          | **Implemented** — adapter delegates to `startup_backlog_suppress.py` shared utility                                       | Current implementation                                      |
-| `connection_type` values                    | **Scaffold** — no real connection code                                                                                    | Planned update                                              |
-| `sync_timeout_ms`                           | **Scaffold** — no sync operations                                                                                         | Planned update                                               |
-| Outbound queue pacing                       | **Scaffold** — `process_one` is no-op                                                                                     | Planned update                                               |
-| Host/port/serial_port config fields         | **Scaffold** — no real connection code                                                                                    | Planned update                                               |
-| Channel mapping (channel_index → name)      | **Scaffold** — not used                                                                                                   | Planned update                                               |
+| MEDRE Assumption                            | Status                                                                                                                    | Action Required                                                            |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Numeric PortNum map values                  | **SDK-derived** when `mtjk` installed; fallback map for offline use                                                       | Fallback map retained for environments without the optional SDK dependency |
+| `max_text_bytes=512` / `max_text_chars=512` | **Implemented** — now `max_text_bytes=227` (configurable), `max_text_chars=None`; renderer enforces UTF-8 byte truncation | `feat/meshtastic-byte-budget-rendering`                                    |
+| `startup_backlog_suppress_seconds`          | **Implemented** — adapter delegates to `startup_backlog_suppress.py` shared utility                                       | Current implementation                                                     |
+| `connection_type` values                    | **Scaffold** — no real connection code                                                                                    | Planned update                                                             |
+| `sync_timeout_ms`                           | **Scaffold** — no sync operations                                                                                         | Planned update                                                             |
+| Outbound queue pacing                       | **Scaffold** — `process_one` is no-op                                                                                     | Planned update                                                             |
+| Host/port/serial_port config fields         | **Scaffold** — no real connection code                                                                                    | Planned update                                                             |
+| Channel mapping (channel_index → name)      | **Scaffold** — not used                                                                                                   | Planned update                                                             |
 
 ---
 
@@ -572,7 +572,7 @@ four-tier provenance labeling system:
 | **mtjk-derived**       | Shape verified against mtjk source code                   | `make_text_packet`, `make_symbolic_text_packet`, `make_symbolic_routing_ack_packet`, `make_packet_with_numeric_to`                         |
 | **MMRelay-derived**    | Shape observed in old MMRelay codebase                    | `make_mmrelay_style_text_packet`, `make_rxtime_packet`, `make_emoji_reaction_packet`, `make_encrypted_packet`, `make_stale_backlog_packet` |
 | **synthetic scaffold** | Invented for MEDRE test coverage; basic structure correct | `make_telemetry_packet`, `make_position_packet`, `make_nodeinfo_packet`, `make_admin_packet`, `make_ack_packet`, `make_plugin_packet`      |
-| **unverified**         | Not verified against mtjk or MMRelay; may diverge         | `make_numeric_portnum_packet` (fallback map used when SDK unavailable)                                                                  |
+| **unverified**         | Not verified against mtjk or MMRelay; may diverge         | `make_numeric_portnum_packet` (fallback map used when SDK unavailable)                                                                     |
 
 Each fixture factory includes a **provenance label** in its docstring
 indicating the derivation source and confidence level.

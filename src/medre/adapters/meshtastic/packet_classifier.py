@@ -106,6 +106,7 @@ def _get_sdk_portnum_table() -> dict[int, str] | None:
         _SDK_PORTNUM_CACHE = None
     return _SDK_PORTNUM_CACHE
 
+
 _SYMBOLIC_PORTNUM_MAP: dict[str, str] = {
     "TEXT_MESSAGE_APP": "text_message",
     "TEXT_MESSAGE_ACK_APP": "text_message_ack",

@@ -364,9 +364,7 @@ class MeshtasticAdapter(AdapterContract):
         # Outbound gate: suppress radio sends when listen_only.
         if self._config.outbound_mode == "listen_only":
             self._outbound_gate_suppressed += 1
-            raise AdapterPermanentError(
-                "outbound suppressed: listen_only mode"
-            )
+            raise AdapterPermanentError("outbound suppressed: listen_only mode")
 
         payload = dict(result.payload)
         channel_index = payload.get("channel_index", self._config.default_channel)

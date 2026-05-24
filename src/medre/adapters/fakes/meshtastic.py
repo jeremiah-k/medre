@@ -349,9 +349,7 @@ class FakeMeshtasticAdapter(AdapterContract):
         # validation).
         if self._config.outbound_mode == "listen_only":
             self._outbound_gate_suppressed += 1
-            raise AdapterPermanentError(
-                "outbound suppressed: listen_only mode"
-            )
+            raise AdapterPermanentError("outbound suppressed: listen_only mode")
 
         if self._deliver_failure:
             raise AdapterSendError(
