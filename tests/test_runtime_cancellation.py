@@ -1200,7 +1200,14 @@ class TestDrainAbandonedEvidencePersistence:
         from medre.core.events.kinds import EventKind
         from medre.core.events.metadata import EventMetadata
 
-        config = _config_with_one_fake_adapter()
+        # Use sqlite (not memory) so data survives storage.close().
+        config = RuntimeConfig(
+            runtime=RuntimeOptions(name="test-abandoned-evidence"),
+            storage=StorageConfig(backend="sqlite"),
+            adapters=AdapterConfigSet(
+                matrix={"main": _fake_matrix_config()},
+            ),
+        )
         app = _build_app(config, tmp_paths)
         await app.start()
 
@@ -1208,6 +1215,9 @@ class TestDrainAbandonedEvidencePersistence:
         assert cc is not None
         storage = app.storage
         assert storage is not None
+
+        # Remember the database path so we can reopen after close.
+        db_path = str(tmp_paths.database_path)
 
         # Inject an event into storage.
         event = CanonicalEvent(
@@ -1262,24 +1272,33 @@ class TestDrainAbandonedEvidencePersistence:
 
         assert app.state == RuntimeState.STOPPED
 
-        # Verify the abandoned receipt was persisted.
-        receipts = await storage.list_receipts_for_event(event.event_id)
-        assert len(receipts) >= 1, (
-            f"Expected at least 1 receipt for {event.event_id}, "
-            f"got {len(receipts)}"
-        )
+        # Reopen storage to verify persisted receipts.
+        from medre.core.storage.sqlite import SQLiteStorage
 
-        r = receipts[0]
-        assert r.status == "suppressed", f"Expected 'suppressed', got '{r.status}'"
-        assert r.failure_kind == "shutdown_rejection", (
-            f"Expected 'shutdown_rejection', got '{r.failure_kind}'"
-        )
-        assert r.error == "shutdown_drain_timeout", (
-            f"Expected 'shutdown_drain_timeout', got '{r.error}'"
-        )
-        assert r.event_id == event.event_id
-        assert r.attempt_number == 1
-        assert r.source == "live"
+        verify_storage = SQLiteStorage(db_path)
+        await verify_storage.initialize()
+        try:
+            receipts = await verify_storage.list_receipts_for_event(event.event_id)
+            assert len(receipts) >= 1, (
+                f"Expected at least 1 receipt for {event.event_id}, "
+                f"got {len(receipts)}"
+            )
+
+            r = receipts[0]
+            assert r.status == "suppressed", (
+                f"Expected 'suppressed', got '{r.status}'"
+            )
+            assert r.failure_kind == "shutdown_rejection", (
+                f"Expected 'shutdown_rejection', got '{r.failure_kind}'"
+            )
+            assert r.error == "shutdown_drain_timeout", (
+                f"Expected 'shutdown_drain_timeout', got '{r.error}'"
+            )
+            assert r.event_id == event.event_id
+            assert r.attempt_number == 1
+            assert r.source == "live"
+        finally:
+            await verify_storage.close()
 
     @pytest.mark.asyncio
     async def test_abandoned_receipt_failure_kind_detail(
@@ -1293,7 +1312,14 @@ class TestDrainAbandonedEvidencePersistence:
         from medre.core.events.metadata import EventMetadata
         from medre.runtime.reporting import delivery_receipt_to_report_dict
 
-        config = _config_with_one_fake_adapter()
+        # Use sqlite (not memory) so data survives storage.close().
+        config = RuntimeConfig(
+            runtime=RuntimeOptions(name="test-abandoned-detail"),
+            storage=StorageConfig(backend="sqlite"),
+            adapters=AdapterConfigSet(
+                matrix={"main": _fake_matrix_config()},
+            ),
+        )
         app = _build_app(config, tmp_paths)
         await app.start()
 
@@ -1301,6 +1327,8 @@ class TestDrainAbandonedEvidencePersistence:
         assert cc is not None
         storage = app.storage
         assert storage is not None
+
+        db_path = str(tmp_paths.database_path)
 
         event = CanonicalEvent(
             event_id="evt-abandoned-detail-001",
@@ -1350,12 +1378,19 @@ class TestDrainAbandonedEvidencePersistence:
 
         assert app.state == RuntimeState.STOPPED
 
-        # Retrieve and verify the report dict.
-        receipts = await storage.list_receipts_for_event(event.event_id)
-        assert len(receipts) >= 1
+        # Reopen storage to verify persisted receipts.
+        from medre.core.storage.sqlite import SQLiteStorage
 
-        report = delivery_receipt_to_report_dict(receipts[0])
-        assert report["failure_kind"] == "shutdown_rejection"
-        assert report["failure_kind_detail"] == "shutdown_drain_timeout"
-        assert report["retryable"] is False
-        assert report["status"] == "suppressed"
+        verify_storage = SQLiteStorage(db_path)
+        await verify_storage.initialize()
+        try:
+            receipts = await verify_storage.list_receipts_for_event(event.event_id)
+            assert len(receipts) >= 1
+
+            report = delivery_receipt_to_report_dict(receipts[0])
+            assert report["failure_kind"] == "shutdown_rejection"
+            assert report["failure_kind_detail"] == "shutdown_drain_timeout"
+            assert report["retryable"] is False
+            assert report["status"] == "suppressed"
+        finally:
+            await verify_storage.close()
