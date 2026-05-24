@@ -883,4 +883,3 @@ class TestCrossPlatformReactionDescriptive:
         result = await renderer.render(event, "mesh-1")
         assert result.payload["reply_id"] == 88
         assert "emoji" not in result.payload
-

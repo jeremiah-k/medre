@@ -1084,9 +1084,7 @@ class TestChannelMappingSemantics:
         """Config maps channel 0 only — channel 3 (unmapped) is still relayed."""
         from medre.config.adapters.meshtastic import MeshtasticConfig
 
-        cfg = MeshtasticConfig(
-            adapter_id="test", channel_mapping={0: "general"}
-        )
+        cfg = MeshtasticConfig(adapter_id="test", channel_mapping={0: "general"})
         cls = MeshtasticPacketClassifier(config=cfg)
         packet = _make_text_packet(text="hello", channel=3)
         result = cls.classify(packet)

@@ -67,7 +67,6 @@ from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite import SQLiteStorage
 
-
 # ===================================================================
 # Shared helpers
 # ===================================================================
@@ -226,9 +225,7 @@ class TestMatrixToMeshtasticToMatrixRoundtrip:
         # -- Rendering pipeline -----------------------------------------
         rp = RenderingPipeline()
         rp.register(
-            MeshtasticRenderer(
-                configs={RADIO: MeshtasticConfig(adapter_id=RADIO)}
-            ),
+            MeshtasticRenderer(configs={RADIO: MeshtasticConfig(adapter_id=RADIO)}),
             priority=50,
         )
         rp.register_adapter_platform(RADIO, "meshtastic")
@@ -292,10 +289,7 @@ class TestMatrixToMeshtasticToMatrixRoundtrip:
             assert outbound[0]["native_message_id"] == str(PKT_ID)
 
             # Inbound native ref persisted: (MX, ROOM, MX_MSG) → CANON_ID
-            assert (
-                await temp_storage.resolve_native_ref(MX, ROOM, MX_MSG)
-                == CANON_ID
-            )
+            assert await temp_storage.resolve_native_ref(MX, ROOM, MX_MSG) == CANON_ID
 
             # ── Pass 2: Meshtastic reply → Matrix ─────────────────────
             reply_event = _make_mesh_event(
@@ -383,9 +377,7 @@ class TestMeshtasticToMatrixToMeshtasticRoundtrip:
         rp.register(
             MeshtasticRenderer(
                 configs={
-                    RADIO: MeshtasticConfig(
-                        adapter_id=RADIO, radio_relay_prefix=""
-                    )
+                    RADIO: MeshtasticConfig(adapter_id=RADIO, radio_relay_prefix="")
                 }
             ),
             priority=50,
@@ -431,9 +423,7 @@ class TestMeshtasticToMatrixToMeshtasticRoundtrip:
 
             # Inbound Mesh ref: (RADIO, "0", MESH_PKT) → mesh_canon_id
             assert (
-                await temp_storage.resolve_native_ref(
-                    RADIO, "0", str(MESH_PKT)
-                )
+                await temp_storage.resolve_native_ref(RADIO, "0", str(MESH_PKT))
                 == mesh_canon_id
             )
 
@@ -566,9 +556,7 @@ class TestMultiRadioCrossTargetFallback:
         rp2.register(
             MeshtasticRenderer(
                 configs={
-                    BRAVO: MeshtasticConfig(
-                        adapter_id=BRAVO, radio_relay_prefix=""
-                    )
+                    BRAVO: MeshtasticConfig(adapter_id=BRAVO, radio_relay_prefix="")
                 }
             ),
             priority=50,
@@ -662,12 +650,8 @@ class TestMultiRadioCorrectTargetSelection:
         rp1.register(
             MeshtasticRenderer(
                 configs={
-                    ALPHA: MeshtasticConfig(
-                        adapter_id=ALPHA, radio_relay_prefix=""
-                    ),
-                    BRAVO: MeshtasticConfig(
-                        adapter_id=BRAVO, radio_relay_prefix=""
-                    ),
+                    ALPHA: MeshtasticConfig(adapter_id=ALPHA, radio_relay_prefix=""),
+                    BRAVO: MeshtasticConfig(adapter_id=BRAVO, radio_relay_prefix=""),
                 }
             ),
             priority=50,
@@ -745,9 +729,7 @@ class TestMultiRadioCorrectTargetSelection:
         rp2.register(
             MeshtasticRenderer(
                 configs={
-                    BRAVO: MeshtasticConfig(
-                        adapter_id=BRAVO, radio_relay_prefix=""
-                    )
+                    BRAVO: MeshtasticConfig(adapter_id=BRAVO, radio_relay_prefix="")
                 }
             ),
             priority=50,
@@ -806,9 +788,7 @@ class TestMissingNativeRefRoundtrip:
     ``reply_id``.
     """
 
-    async def test_no_crash_empty_storage(
-        self, temp_storage: SQLiteStorage
-    ) -> None:
+    async def test_no_crash_empty_storage(self, temp_storage: SQLiteStorage) -> None:
         MX = "mx-rt4"
         RADIO = "radio-rt4"
         ROOM = "!rt4:server"
@@ -829,9 +809,7 @@ class TestMissingNativeRefRoundtrip:
         rp.register(
             MeshtasticRenderer(
                 configs={
-                    RADIO: MeshtasticConfig(
-                        adapter_id=RADIO, radio_relay_prefix=""
-                    )
+                    RADIO: MeshtasticConfig(adapter_id=RADIO, radio_relay_prefix="")
                 }
             ),
             priority=50,

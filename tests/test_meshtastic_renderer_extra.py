@@ -19,7 +19,6 @@ from medre.core.events import (
     NativeMetadata,
     NativeRef,
 )
-from medre.core.rendering.renderer import RenderingResult
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -87,7 +86,6 @@ def _make_relation(
     )
 
 
-
 def _make_matrix_event(
     event_id: str = "mx-evt-1",
     payload: dict | None = None,
@@ -145,7 +143,6 @@ def _make_cross_platform_relation(
         fallback_text=fallback_text,
         metadata=metadata,
     )
-
 
 
 # ===================================================================

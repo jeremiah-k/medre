@@ -278,9 +278,7 @@ class TestMeshtasticRuntimeMulti:
                 pass
 
     @pytest.mark.asyncio
-    async def test_render_to_radio_b_uses_config_defaults(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_render_to_radio_b_uses_config_defaults(self, tmp_path: Path) -> None:
         """Matrix→radio-b without target_channel uses radio-b config.
 
         Verifies that the rendering pipeline honours radio-b's
@@ -325,9 +323,9 @@ class TestMeshtasticRuntimeMulti:
 
             # radio_relay_prefix template resolved with radio-b's meshnet_name.
             text = result.payload["text"]
-            assert "[RenderNet] " in text, (
-                f"Expected '[RenderNet] ' prefix in text, got: {text!r}"
-            )
+            assert (
+                "[RenderNet] " in text
+            ), f"Expected '[RenderNet] ' prefix in text, got: {text!r}"
 
             # meshnet_name in payload matches radio-b config.
             assert result.payload["meshnet_name"] == "RenderNet"

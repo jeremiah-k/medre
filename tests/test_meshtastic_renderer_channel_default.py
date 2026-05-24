@@ -9,12 +9,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-import pytest
-
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.events import CanonicalEvent, EventMetadata
-
 
 # ---------------------------------------------------------------------------
 # Helpers (mirroring test_meshtastic_renderer style)

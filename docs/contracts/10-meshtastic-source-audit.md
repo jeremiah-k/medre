@@ -387,12 +387,12 @@ packet classifier to gate relaying.
 
 Evidence from audit:
 
-| Check | Finding |
-| ----- | ------- |
-| Classifier `classify()` reads `self._config`? | **No** — the method never references `self._config` |
-| Classifier gates on channel index presence in `channel_mapping`? | **No** — no channel membership check exists |
-| Config docstring describes gating? | **No** — "Mapping of channel index to human-readable channel name" |
-| MMRelay gates on channel mapping? | **Yes** — even a RELAY packet is dropped if no Matrix channel is mapped (see §4.8). MEDRE does **not** replicate this behavior. |
+| Check                                                            | Finding                                                                                                                         |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Classifier `classify()` reads `self._config`?                    | **No** — the method never references `self._config`                                                                             |
+| Classifier gates on channel index presence in `channel_mapping`? | **No** — no channel membership check exists                                                                                     |
+| Config docstring describes gating?                               | **No** — "Mapping of channel index to human-readable channel name"                                                              |
+| MMRelay gates on channel mapping?                                | **Yes** — even a RELAY packet is dropped if no Matrix channel is mapped (see §4.8). MEDRE does **not** replicate this behavior. |
 
 If a channel-allowlist gate is needed in the future, a separate
 `allowed_channels` field should be introduced rather than overloading
@@ -581,7 +581,7 @@ Key conceptual differences:
 | `sync_timeout_ms`                           | **Scaffold** — no sync operations                                                                                         | Planned update                                                             |
 | Outbound queue pacing                       | **Scaffold** — `process_one` is no-op                                                                                     | Planned update                                                             |
 | Host/port/serial_port config fields         | **Scaffold** — no real connection code                                                                                    | Planned update                                                             |
-| Channel mapping (channel_index → name)      | **Labeling-only** — display-name map, NOT a relay allowlist; classifier does not gate on it | Planned update (if gating needed, add separate ``allowed_channels`` field) |
+| Channel mapping (channel_index → name)      | **Labeling-only** — display-name map, NOT a relay allowlist; classifier does not gate on it                               | Planned update (if gating needed, add separate `allowed_channels` field)   |
 
 ---
 
