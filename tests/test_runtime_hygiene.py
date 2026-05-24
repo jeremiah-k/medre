@@ -967,7 +967,10 @@ class TestMeshtasticInboundLifecycleGuard:
     async def test_on_packet_rejected_after_stop(self) -> None:
         """After stop(), _on_packet returns early and no coroutine is
         scheduled via run_coroutine_threadsafe."""
-        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+        MeshtasticAdapter = __import__(
+            "medre.adapters.meshtastic.adapter",
+            fromlist=["MeshtasticAdapter"],
+        ).MeshtasticAdapter
         from medre.config.adapters.meshtastic import MeshtasticConfig
 
         adapter = MeshtasticAdapter(
@@ -1031,7 +1034,10 @@ class TestMeshtasticInboundLifecycleGuard:
     async def test_inbound_futures_drained_on_stop(self) -> None:
         """Inbound Futures scheduled via run_coroutine_threadsafe are
         tracked and drained during stop()."""
-        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+        MeshtasticAdapter = __import__(
+            "medre.adapters.meshtastic.adapter",
+            fromlist=["MeshtasticAdapter"],
+        ).MeshtasticAdapter
         from medre.config.adapters.meshtastic import MeshtasticConfig
 
         adapter = MeshtasticAdapter(
@@ -1077,7 +1083,10 @@ class TestMeshtasticInboundLifecycleGuard:
     async def test_on_packet_async_guard_after_stop(self) -> None:
         """_on_packet_async skips publish when _started is False, even if
         called directly with a valid canonical event."""
-        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+        MeshtasticAdapter = __import__(
+            "medre.adapters.meshtastic.adapter",
+            fromlist=["MeshtasticAdapter"],
+        ).MeshtasticAdapter
         from medre.config.adapters.meshtastic import MeshtasticConfig
 
         adapter = MeshtasticAdapter(

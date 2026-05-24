@@ -1835,7 +1835,7 @@ class PipelineRunner:
             adapter_result = await deliver_fn(rendering_result)
 
             # Respect the adapter's declared delivery lifecycle state.
-            # Queue-based adapters (e.g. Meshtastic) return
+            # Queue-based adapters return
             # delivery_status="enqueued" to indicate local acceptance
             # only; synchronous adapters use the default "sent".
             _adapter_delivery_status = (

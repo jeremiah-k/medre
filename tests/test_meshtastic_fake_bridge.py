@@ -747,13 +747,13 @@ class TestFakeInboundToMeshtasticOutbound:
         packet = make_text_packet(text="nref check", packet_id=44444)
         await fake_in_adapter.simulate_inbound(packet)
 
-        # Delivery receipt is 'sent' for local acceptance.
+        # Delivery receipt is 'queued' for enqueue-only adapters.
         rows = await temp_storage._read_all(
             "SELECT * FROM delivery_receipts WHERE target_adapter = ?",
             ("bridge-mesh-nref",),
         )
         assert len(rows) == 1
-        assert rows[0]["status"] == "sent"
+        assert rows[0]["status"] == "queued"
 
         # NO outbound native ref stored (native_message_id is None).
         # The real adapter returns None for native_message_id, so no
