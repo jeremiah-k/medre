@@ -467,3 +467,66 @@ class TestQueueRejectionTransientClassification:
         kind = RetryExecutor.classify_failure(err)
         assert kind is DeliveryFailureKind.ADAPTER_TRANSIENT
         assert kind.is_retryable is True
+
+
+class TestQueueLifecycleFailureKindDetail:
+    """failure_kind_detail patterns for Meshtastic queue lifecycle transitions."""
+
+    def test_queue_drain_cancelled_detail(self) -> None:
+        """'queue drain cancelled' derives meshtastic_queue_drain_cancelled."""
+        from medre.runtime.reporting import _derive_failure_kind_detail
+
+        detail = _derive_failure_kind_detail(
+            failure_kind="adapter_transient",
+            error="queue drain cancelled during shutdown",
+            target_adapter="radio-a",
+        )
+        assert detail == "meshtastic_queue_drain_cancelled"
+
+    def test_queue_abandoned_detail(self) -> None:
+        """'queue abandoned' derives meshtastic_queue_drain_cancelled."""
+        from medre.runtime.reporting import _derive_failure_kind_detail
+
+        detail = _derive_failure_kind_detail(
+            failure_kind="adapter_transient",
+            error="queue abandoned on crash",
+            target_adapter="radio-a",
+        )
+        assert detail == "meshtastic_queue_drain_cancelled"
+
+    def test_queue_rejected_not_confused_with_drain_cancelled(self) -> None:
+        """Queue full rejection is NOT meshtastic_queue_drain_cancelled."""
+        from medre.runtime.reporting import _derive_failure_kind_detail
+
+        detail = _derive_failure_kind_detail(
+            failure_kind="adapter_transient",
+            error="queue is full; enqueue rejected",
+            target_adapter="radio-a",
+        )
+        assert detail == "meshtastic_queue_rejected"
+
+    def test_delivery_status_distinguishes_enqueued(self) -> None:
+        """AdapterDeliveryResult.delivery_status field distinguishes
+        enqueued from sent."""
+        from medre.core.contracts.adapter import AdapterDeliveryResult
+
+        enqueued = AdapterDeliveryResult(
+            native_message_id=None,
+            delivery_status="enqueued",
+            delivery_note="locally enqueued",
+        )
+        sent = AdapterDeliveryResult(
+            native_message_id="123",
+            delivery_status="sent",
+        )
+        assert enqueued.delivery_status == "enqueued"
+        assert sent.delivery_status == "sent"
+        assert enqueued.native_message_id is None
+        assert sent.native_message_id == "123"
+
+    def test_default_delivery_status_is_sent(self) -> None:
+        """AdapterDeliveryResult.delivery_status defaults to 'sent'."""
+        from medre.core.contracts.adapter import AdapterDeliveryResult
+
+        result = AdapterDeliveryResult(native_message_id="42")
+        assert result.delivery_status == "sent"

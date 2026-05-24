@@ -1,9 +1,9 @@
 # Contract 61 — Operational Evidence Contract
 
-> Contract version: 4
-> Last updated: 2026-05-23
+> Contract version: 6
+> Last updated: 2026-05-24
 > Track: 1 (Transport Maturity Evidence), Track 2 (Live Operational Evidence), Track 7 (Live Evidence Documentation), Track 8 (Deployment Boundary Enforcement), Track 9 (Evidence Consolidation)
-> Supersedes: Contract 61 v3 (2026-05-13). Adds unified delivery evidence fields (§3.8) — delivery explanation shape, per-adapter metadata, suppression evidence, Meshtastic classifier aggregate counters, incident summary, and non-guarantees. Pilot only; does not alter H/C/S/R tiers or existing fields.
+> Supersedes: Contract 61 v5 (2026-05-24). Adds Meshtastic queue lifecycle evidence (§3.8.3) — `AdapterDeliveryResult.delivery_status` field, queued→sent receipt transition, `meshtastic_queue_drain_cancelled` failure_kind_detail pattern. Pilot only; does not alter H/C/S/R tiers or existing fields.
 > Status: Active contract. Defines the schema, classification, and recording protocol for all operational evidence.
 > References: Contract 32 (Beta Readiness), Contract 37 (Transport Maturity), Contract 39 (Risk Register), Contract 48 (Observability), Contract 59 (Durability), Contract 60 (Cancellation).
 
@@ -233,7 +233,48 @@ Delivery evidence may include adapter-specific metadata:
 | `loop_suppressed`            | Visible in `RouteStats.loop_prevented` when route-trace or self-loop prevention fires. Also present in delivery outcomes with `failure_kind=LOOP_SUPPRESSED`. The pipeline persists a `status="suppressed"` receipt for loop/capacity/shutdown suppression where event/target context exists. |
 | `shutdown_drain_timeout`     | Persisted when `MedreApp.stop()` drain deadline expires with in-flight deliveries. Each abandoned delivery produces a `status="suppressed"` receipt with `failure_kind=shutdown_rejection`, `error="shutdown_drain_timeout"`, and `failure_kind_detail="shutdown_drain_timeout"`. Receipts include `event_id`, `route_id`, `target_adapter`, and `attempt_number=1`. Evidence is retrievable via `medre inspect receipts` after shutdown. |
 
-#### 3.8.3 Meshtastic Classifier Aggregate Counters
+#### 3.8.3 Meshtastic Queue Lifecycle Evidence
+
+Meshtastic is the only adapter where `deliver()` returns `native_message_id=None` — the real native ID arrives later via an async queue callback. This creates a two-phase delivery lifecycle that the evidence pipeline must accurately reflect.
+
+**Delivery lifecycle states:**
+
+| Phase | Receipt `status` | `native_message_id` | When produced | Evidence meaning |
+| ----- | ---------------- | ------------------- | ------------- | ---------------- |
+| Enqueued | `"queued"` | `None` | `deliver()` returns successfully with `delivery_status="enqueued"` | Payload accepted into local queue. **Not yet sent to the radio.** |
+| Sent | `"sent"` | Real packet ID | Queue drain fires `record_outbound_native_ref` callback | Queue drain completed radio send; real native ID available. |
+
+**Evidence flow:**
+
+1. **`deliver()` returns `AdapterDeliveryResult(delivery_status="enqueued")`** → pipeline records receipt with `status="queued"`, `native_message_id=None`.
+2. **Queue drain completes send** → `_record_outbound_native_ref` stores `NativeMessageRef` and appends a supplemental receipt with `status="sent"`, `adapter_message_id=<real native ID>`, and `parent_receipt_id` linking to the original `"queued"` receipt.
+3. Both receipts are immutable. No receipt is mutated in place.
+
+**Crash/stop between enqueue and send:**
+
+If the process stops or crashes after step 1 but before step 2:
+- The evidence record correctly shows `status="queued"` with `native_message_id=None` and `delivery_note="locally enqueued"`.
+- No supplemental `"sent"` receipt exists.
+- No `NativeMessageRef` mapping is stored (the native-ref mapping is permanently lost — this is by design; the queue is not durable).
+
+**`failure_kind_detail` patterns for queue lifecycle:**
+
+| Pattern | Trigger | Description |
+| ------- | ------- | ----------- |
+| `meshtastic_queue_drain_cancelled` | Error text containing `"queue drain cancelled"` or `"queue abandoned"` | Shutdown or crash while items were enqueued but not yet sent. Distinct from `meshtastic_queue_rejected` (queue full) and `shutdown_drain_timeout` (delivery drain timeout). |
+
+**`AdapterDeliveryResult.delivery_status` field:**
+
+All adapters now carry a `delivery_status` field on `AdapterDeliveryResult`:
+
+| Value | Meaning | Adapters using it |
+| ----- | ------- | ----------------- |
+| `"sent"` | Platform hand-off completed; native ID available (or confirmed send). Default. | Matrix, MeshCore, LXMF, Fake adapters |
+| `"enqueued"` | Payload accepted into local queue; send pending. | Meshtastic |
+
+The pipeline maps `delivery_status="enqueued"` to receipt `status="queued"` and `delivery_status="sent"` to receipt `status="sent"`.
+
+#### 3.8.4 Meshtastic Classifier Aggregate Counters
 
 The Meshtastic adapter exposes aggregate inbound classification counters via `diagnostics()`. These explain aggregate inbound skips — they do not mean live validation and do not persist every ignored/dropped/deferred packet.
 
@@ -251,7 +292,7 @@ The Meshtastic adapter exposes aggregate inbound classification counters via `di
 | `classifier_packets_empty_text_ignored`        | Sub-counter: ignored empty text messages.                                                                 |
 | `classifier_packets_unknown_portnum_deferred`  | Sub-counter: deferred unknown/custom portnum packets.                                                     |
 
-#### 3.8.4 Incident Summary Fields
+#### 3.8.5 Incident Summary Fields
 
 When the evidence bundle is scoped to a specific event (`--event-id`), the storage section includes an `incident_summary`:
 
@@ -268,7 +309,7 @@ When the evidence bundle is scoped to a specific event (`--event-id`), the stora
 | `sent_unconfirmed_count`    | Count of `sent` receipts (not yet confirmed by transport).                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `delivery_state_by_adapter` | Per-adapter delivery state dict keyed by target_adapter. Each value includes: `status`, `attempt_number`, `native_message_id`, `adapter_message_id`, `target_channel`, `failure_kind`, `failure_kind_detail`, `retryable`, `next_retry_at`. The `target_channel` field carries the channel from the selected receipt. The `failure_kind_detail` field provides a more specific classification derived from error patterns (e.g., `e2ee_blocked`, `meshtastic_queue_rejected`, `shutdown_drain_timeout`) without changing the `DeliveryFailureKind` enum. |
 
-#### 3.8.5 Non-Guarantees for Delivery Evidence
+#### 3.8.6 Non-Guarantees for Delivery Evidence
 
 1. **Matrix `tx_id` reduces duplicate retries but is not exactly-once.** The deterministic transaction ID allows the homeserver to deduplicate retried sends. The homeserver may have already processed and lost the first attempt, or the deduplication window may have expired. This is an improvement over random `tx_id` values, not an exactly-once guarantee.
 
@@ -439,4 +480,5 @@ When multiple evidence entries have different lifecycle status, use one block pe
 | 2026-05-12 | v2      | Tracks 1/2/7/8/9 consolidation. Added: Matrix v2 fields (§3.2: `repeated_start_stop_cycles`, `replay_restart_recovery`, `long_running_sync_observation`, `room_state_boundedness`, `diagnostics_snapshot_at_start/end`, `runtime_duration_seconds`). Meshtastic v2 fields (§3.3: `repeated_start_stop_cycles`, `serial_reconnect_degraded`, `outbound_degraded_behavior`, `long_running_runtime_observation`, `hardware_firmware_snapshot`, `diagnostics_snapshot_at_start/end`, `runtime_duration_seconds`, `connection_establishment_time_ms`). Common runtime observation fields (§3.6). Deployment and boundary enforcement evidence fields (§3.7: Track 8/9). Updated prohibited claims (§6). Updated transport scores with v2 field status (§5.1). Added Contract 60 reference. |
 | 2026-05-13 | v3      | Added evidence lifecycle metadata pattern (§8). Pilot-only: defines evidence_type (tested/observed/inferred/planned), confidence, verified_at, verification_scope, environment. Orthogonal to H/C/S/R tier system. No existing fields or tiers modified.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | 2026-05-23 | v4      | Added unified delivery evidence fields (§3.8). Documents the delivery explanation/summary JSON shape exposed by `medre inspect` and `medre evidence`: event_id, route/target info, final status, failure_kind, retryable flag, attempt/retry policy fields, next_retry_at, native/adapter message IDs, per-adapter metadata summary (Matrix txn_id, undecryptable counts; Meshtastic queue stats), suppression counts/kinds (loop_suppressed active), Meshtastic classifier aggregate counters, incident summary fields, and non-guarantees (tx_id not exactly-once, queue not RF confirmation, classifier counters not live validation). Pilot only; does not alter H/C/S/R tiers or existing fields.               |
-| 2026-05-24 | v5      | Removed `TARGET_NOT_FOUND` and `DUPLICATE_SUPPRESSED` from `DeliveryFailureKind` enum (Tranche 6 cleanup). Updated §3.8.2 suppression evidence fields (removed `duplicate_suppressed` row). Updated §3.8.5 non-guarantees (duplicate suppression returns empty outcomes, no enum member). Documented `native_thread_id` and `native_relation_id` as reserved fields. |
+| 2026-05-24 | v5      | Removed `TARGET_NOT_FOUND` and `DUPLICATE_SUPPRESSED` from `DeliveryFailureKind` enum (Tranche 6 cleanup). Updated §3.8.2 suppression evidence fields (removed `duplicate_suppressed` row). Updated §3.8.6 non-guarantees (duplicate suppression returns empty outcomes, no enum member). Documented `native_thread_id` and `native_relation_id` as reserved fields. |
+| 2026-05-24 | v6      | Added Meshtastic queue lifecycle evidence (§3.8.3). Bridges the async delivery evidence gap where `deliver()` returns `native_message_id=None` but the real packet ID arrives later via `record_outbound_native_ref` callback. Added `AdapterDeliveryResult.delivery_status` field (`"sent"` default, `"enqueued"` for queue-based adapters). Pipeline maps `"enqueued"` to receipt `status="queued"` and appends a supplemental `status="sent"` receipt when the queue drain callback fires. Added `meshtastic_queue_drain_cancelled` failure_kind_detail pattern. Renumbered §3.8.4→§3.8.5, §3.8.5→§3.8.6. |

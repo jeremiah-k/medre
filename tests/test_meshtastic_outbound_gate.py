@@ -145,6 +145,7 @@ class TestDefaultEnabledPassesNormalPath:
             delivery = await adapter.deliver(result)
             assert delivery is not None
             assert delivery.delivery_note == "locally enqueued"
+            assert delivery.delivery_status == "enqueued"
             assert adapter._queue.queue_depth == 1
         finally:
             await adapter.stop()

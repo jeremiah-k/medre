@@ -929,6 +929,14 @@ class PipelineRunner:
         ``exc_info=True`` so that callback failures never crash the
         adapter's queue drain.
 
+        After storing the native ref, appends a supplemental delivery
+        receipt with ``status="sent"`` and the real native message ID.
+        This bridges the evidence gap for queue-based adapters: the
+        initial receipt is ``status="queued"`` (from ``delivery_status``
+        ``"enqueued"``), and this supplemental receipt records the
+        transition to "sent" when the queue drain produces a real
+        native ID.
+
         Parameters
         ----------
         record:
@@ -952,6 +960,22 @@ class PipelineRunner:
                 created_at=now,
             )
             await self._config.storage.store_native_ref(outbound_ref)
+
+            # Append a supplemental "sent" receipt to close the
+            # queued → sent evidence gap for queue-based adapters.
+            # Look up the most recent "queued" receipt for this
+            # event + adapter to inherit plan/route context.
+            try:
+                await self._append_queued_to_sent_receipt(
+                    record=record, now=now
+                )
+            except Exception:
+                self._log.exception(
+                    "Failed to append supplemental sent receipt: "
+                    "event_id=%s adapter=%s",
+                    record.event_id,
+                    record.adapter,
+                )
         except Exception:
             self._log.exception(
                 "Failed to record delayed outbound native ref: "
@@ -960,6 +984,76 @@ class PipelineRunner:
                 record.adapter,
                 record.native_message_id,
             )
+
+    async def _append_queued_to_sent_receipt(
+        self,
+        record: OutboundNativeRefRecord,
+        now: datetime,
+    ) -> None:
+        """Append a supplemental ``status="sent"`` receipt for a queue-based
+        delivery that transitioned from enqueued to sent.
+
+        Finds the most recent ``status="queued"`` receipt for this
+        event_id + adapter, inherits its plan/route context, and appends
+        a new immutable receipt with ``status="sent"`` and the real
+        ``adapter_message_id``.
+
+        If no matching ``"queued"`` receipt is found (e.g. non-queued
+        adapter or replay context), the method returns silently.
+
+        Parameters
+        ----------
+        record:
+            The outbound native reference record from the adapter.
+        now:
+            Timestamp for the new receipt.
+        """
+        # Look up existing receipts for this event to find the
+        # queued receipt we want to supplement.
+        try:
+            existing = await self._config.storage.list_receipts_for_event(
+                record.event_id
+            )
+        except Exception:
+            return
+
+        # Find the most recent "queued" receipt targeting this adapter.
+        queued_receipt: DeliveryReceipt | None = None
+        for r in existing:
+            if (
+                r.status == "queued"
+                and r.target_adapter == record.adapter
+            ):
+                queued_receipt = r
+
+        if queued_receipt is None:
+            return
+
+        supplemental = DeliveryReceipt(
+            sequence=0,
+            receipt_id=f"rcpt-{uuid.uuid4()}",
+            event_id=record.event_id,
+            delivery_plan_id=queued_receipt.delivery_plan_id,
+            target_adapter=record.adapter,
+            target_channel=record.native_channel_id
+            or queued_receipt.target_channel,
+            route_id=queued_receipt.route_id,
+            status="sent",
+            error=None,
+            failure_kind=None,
+            adapter_message_id=record.native_message_id,
+            next_retry_at=None,
+            created_at=now,
+            attempt_number=queued_receipt.attempt_number,
+            parent_receipt_id=queued_receipt.receipt_id,
+            source=queued_receipt.source,
+            replay_run_id=getattr(queued_receipt, "replay_run_id", None),
+            retry_max_attempts=getattr(queued_receipt, "retry_max_attempts", None),
+            retry_backoff_base=getattr(queued_receipt, "retry_backoff_base", None),
+            retry_max_delay=getattr(queued_receipt, "retry_max_delay", None),
+            retry_jitter=getattr(queued_receipt, "retry_jitter", None),
+        )
+        await self._config.storage.append_receipt(supplemental)
 
     # -- Stage 3-4: Routing + Planning -------------------------------------
 
@@ -1740,14 +1834,28 @@ class PipelineRunner:
         try:
             adapter_result = await deliver_fn(rendering_result)
 
-            status: Literal["sent", "failed"] = "sent"
+            # Respect the adapter's declared delivery lifecycle state.
+            # Queue-based adapters (e.g. Meshtastic) return
+            # delivery_status="enqueued" to indicate local acceptance
+            # only; synchronous adapters use the default "sent".
+            _adapter_delivery_status = (
+                getattr(adapter_result, "delivery_status", "sent")
+                if adapter_result
+                else "sent"
+            )
+            status: Literal["sent", "failed", "queued"] = (
+                "queued" if _adapter_delivery_status == "enqueued" else "sent"
+            )
             error: str | None = None
+            _log_status = _adapter_delivery_status
             self._log.info(
-                "Delivered: event_id=%s → adapter=%s plan=%s attempt=%d",
+                "Delivered: event_id=%s → adapter=%s plan=%s attempt=%d "
+                "status=%s",
                 event.event_id,
                 adapter_id,
                 plan.plan_id,
                 attempt_number,
+                _log_status,
             )
         except asyncio.CancelledError:
             # CancelledError must propagate directly — never caught and

@@ -412,10 +412,15 @@ class MeshtasticAdapter(AdapterContract):
 
         # Queue-based enqueue accepted locally.  Actual send is async via
         # queue.process_one.  No native message ID is available yet.
+        # delivery_status="enqueued" signals to the pipeline that this
+        # receipt should be recorded as "queued" rather than "sent";
+        # a supplemental "sent" receipt will be appended later when the
+        # queue drain produces a real native_message_id.
         return AdapterDeliveryResult(
             native_message_id=None,
             native_channel_id=str(channel_index),
             delivery_note="locally enqueued",
+            delivery_status="enqueued",
             metadata=MappingProxyType({"meshtastic_channel_index": channel_index}),
         )
 

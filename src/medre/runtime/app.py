@@ -833,7 +833,8 @@ class MedreApp:
         if self._capacity_controller is not None:
             self._capacity_controller.stop_accepting()
         if self._replay_engine is not None:
-            _logger.info("Runtime stopping — replay engine present, capacity stopped")
+            self._replay_engine.cancel()
+            _logger.info("Runtime stopping — replay engine cancelled, capacity stopped")
 
         # Stop the retry worker before draining work.
         if self._retry_worker is not None:

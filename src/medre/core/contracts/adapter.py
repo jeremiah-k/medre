@@ -89,9 +89,21 @@ class AdapterDeliveryResult:
     The pipeline owns receipts and storage; adapters only report what
     the platform returned.
 
-    ``sent`` (status ``"sent"``) means the adapter accepted / handoff
-    succeeded.  For queue-based transports (e.g. Meshtastic) the message
-    may still be in-flight; check ``delivery_note`` for context.
+    ``delivery_status`` carries the adapter-level lifecycle state:
+
+    * ``"sent"`` — the adapter completed the platform hand-off and
+      obtained a native message ID (or confirmed the send).  This is the
+      default for synchronous adapters (Matrix, MeshCore, LXMF).
+    * ``"enqueued"`` — the adapter accepted the payload into a local
+      queue but has **not** yet sent it to the platform.  A native
+      message ID is not available yet.  The queue-based Meshtastic
+      adapter uses this state.
+
+    The pipeline uses ``delivery_status`` to choose the receipt status:
+    ``"sent"`` maps to receipt status ``"sent"``; ``"enqueued"`` maps to
+    ``"queued"``.  When the queue later obtains a real native ID, a
+    supplemental ``"sent"`` receipt is appended via the
+    ``record_outbound_native_ref`` callback.
 
     Attributes
     ----------
@@ -113,6 +125,10 @@ class AdapterDeliveryResult:
     delivery_note:
         Human-readable context about the delivery.  Used by queue-based
         adapters to explain local-acceptance without a native ACK.
+    delivery_status:
+        Adapter-level lifecycle state: ``"sent"`` (default, synchronous
+        adapters) or ``"enqueued"`` (queue-based adapters that accepted
+        locally but have not yet sent to the platform).
     metadata:
         Adapter-specific immutable metadata about the delivery.
     """
@@ -122,6 +138,7 @@ class AdapterDeliveryResult:
     native_thread_id: str | None = None
     native_relation_id: str | None = None
     delivery_note: str = ""
+    delivery_status: str = "sent"
     metadata: MappingProxyType[str, object] = field(
         default_factory=lambda: MappingProxyType({})
     )

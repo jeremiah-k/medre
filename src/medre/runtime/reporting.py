@@ -125,6 +125,11 @@ def _derive_failure_kind_detail(
     # Meshtastic outbound gate suppression — listen_only mode.
     if "outbound suppressed" in err and "listen_only" in err:
         return "meshtastic_outbound_suppressed"
+    # Meshtastic queue drain cancelled — shutdown or crash while items
+    # were enqueued but not yet sent.  Distinguished from queue-full
+    # rejection by the "drain cancelled" / "queue abandoned" phrasing.
+    if "queue drain cancelled" in err or "queue abandoned" in err:
+        return "meshtastic_queue_drain_cancelled"
     # Default: preserve the original failure_kind.
     return failure_kind
 
