@@ -188,28 +188,42 @@ The authoritative PortNum values come from the protobuf definition at
 | `ATAK_FORWARDER`              | 257   | —           |
 | `MAX`                         | 511   | —           |
 
-### 3.2 MEDRE Fallback Map vs Real Protobuf — Mismatches
+### 3.2 MEDRE Fallback Map (`_NUMERIC_PORTNUM_FALLBACK`)
 
-The MEDRE `_NUMERIC_PORTNUM_MAP` in `packet_classifier.py` has these
-deviations from the real protobuf enum (these apply only when the `mtjk`
-SDK is not installed):
+The MEDRE `_NUMERIC_PORTNUM_FALLBACK` in `packet_classifier.py` provides a
+protocol-correct static mapping derived from the protobuf `PortNum` enum.
+It is used only when the optional `mtjk` SDK is not installed.
 
-| Map Key | MEDRE Value          | Real Value                  | Status                                           |
-| ------- | -------------------- | --------------------------- | ------------------------------------------------ |
-| `0`     | `"routing"`          | `"unknown"`                 | **WRONG**: 0 is `UNKNOWN_APP`, not `ROUTING_APP` |
-| `1`     | `"text_message"`     | `"text_message"`            | Correct                                          |
-| `2`     | `"text_message_ack"` | `"remote_hardware"`         | **WRONG**: no `TEXT_MESSAGE_ACK_APP` in protobuf |
-| `3`     | `"position"`         | `"position"`                | Correct                                          |
-| `4`     | `"nodeinfo"`         | `"nodeinfo"`                | Correct                                          |
-| `5`     | `"telemetry"`        | `"routing"`                 | **WRONG**: 5 is `ROUTING_APP`                    |
-| `6`     | `"store_forward"`    | `"admin"`                   | **WRONG**: 6 is `ADMIN_APP`                      |
-| `7`     | `"waypoint"`         | `"text_message_compressed"` | **WRONG**: 7 is `TEXT_MESSAGE_COMPRESSED_APP`    |
-| `9`     | `"audio"`            | `"audio"`                   | Correct                                          |
-| `10`    | `"remote_hardware"`  | `"detection_sensor"`        | **WRONG**: 10 is `DETECTION_SENSOR_APP`          |
-| `11`    | `"private"`          | `"alert"`                   | **WRONG**: 11 is `ALERT_APP`                     |
-| `68`    | `"paxcounter"`       | `"zps"`                     | **WRONG**: 68 is `ZPS_APP`                       |
-| `71`    | `"neighbor_info"`    | `"neighbor_info"`           | Correct                                          |
-| `72`    | `"traceroute"`       | `"traceroute"`              | Correct                                          |
+**Covered values (all protocol-correct):**
+
+| Map Key | MEDRE Value                 | Protobuf Name                 | Match  |
+| ------- | --------------------------- | ----------------------------- | ------ |
+| `0`     | `"unknown"`                 | `UNKNOWN_APP`                 | Exact  |
+| `1`     | `"text_message"`            | `TEXT_MESSAGE_APP`            | Exact  |
+| `2`     | `"remote_hardware"`         | `REMOTE_HARDWARE_APP`         | Exact  |
+| `3`     | `"position"`                | `POSITION_APP`                | Exact  |
+| `4`     | `"nodeinfo"`                | `NODEINFO_APP`                | Exact  |
+| `5`     | `"routing"`                 | `ROUTING_APP`                 | Exact  |
+| `6`     | `"admin"`                   | `ADMIN_APP`                   | Exact  |
+| `7`     | `"text_message_compressed"` | `TEXT_MESSAGE_COMPRESSED_APP` | Exact  |
+| `8`     | `"waypoint"`                | `WAYPOINT_APP`                | Exact  |
+| `9`     | `"audio"`                   | `AUDIO_APP`                   | Exact  |
+| `10`    | `"detection_sensor"`        | `DETECTION_SENSOR_APP`        | Exact  |
+| `11`    | `"alert"`                   | `ALERT_APP`                   | Exact  |
+| `12`    | `"key_verification"`        | `KEY_VERIFICATION_APP`        | Exact  |
+| `13`    | `"remote_shell"`            | `REMOTE_SHELL_APP`            | Exact  |
+| `32`    | `"reply"`                   | `REPLY_APP`                   | Exact  |
+| `33`    | `"ip_tunnel"`               | `IP_TUNNEL_APP`               | Exact  |
+| `34`    | `"paxcounter"`              | `PAXCOUNTER_APP`              | Exact  |
+| `67`    | `"telemetry"`               | `TELEMETRY_APP`               | Exact  |
+| `71`    | `"neighborinfo"`            | `NEIGHBORINFO_APP`            | Exact  |
+| `72`    | `"atak_plugin"`             | `ATAK_PLUGIN`                 | Exact  |
+
+**Not covered by fallback:** Numeric values not present in the table (e.g.,
+70 `TRACEROUTE_APP`, 73 `MAP_REPORT_APP`) are handled by
+`normalize_portnum()`, which returns their string representation
+(e.g., `"70"`). These fall through to the `"unknown or custom portnum"`
+classification path and receive the `deferred` action.
 
 **Note**: There is **no** `TEXT_MESSAGE_ACK_APP` in the protobuf PortNum enum.
 The MEDRE `"text_message_ack"` normalized portnum does not correspond to any
@@ -236,17 +250,19 @@ MMRelay's packet_routing uses `portnums_pb2.PortNum.Name()` for resolution
 and string comparisons (`"TEXT_MESSAGE_APP"`, `"DETECTION_SENSOR_APP"`,
 `"TELEMETRY_APP"`, `"RANGE_TEST_APP"`, etc.) for configuration matching.
 
-### 3.4 Conclusion — MEDRE Numeric Portnum Map
+### 3.4 Conclusion — MEDRE Numeric Portnum Fallback
 
-The MEDRE `_NUMERIC_PORTNUM_MAP` in `packet_classifier.py` is a
-**protocol-correct fallback** for environments where the `mtjk` package is
-not installed. When `mtjk` is available, the classifier resolves numeric
+The MEDRE `_NUMERIC_PORTNUM_FALLBACK` in `packet_classifier.py` is a
+**protocol-correct fallback** derived from the Meshtastic protobuf `PortNum`
+enum. All included values match their authoritative protobuf names exactly.
+When the `mtjk` package is available, the classifier resolves numeric
 portnum values through `compat.get_portnum_table()`, which reads the real
 protobuf `PortNum` enum and returns authoritative `{int: name}` mappings.
-The fallback map contains known inaccuracies (see section 3.2) and exists
-only so that tests and offline development work without the optional SDK
-dependency. The symbolic map (`_SYMBOLIC_PORTNUM_MAP`) is correct for all
-recognized categories.
+When `mtjk` is not available, the fallback provides correct resolution for
+all included entries. Numeric values not present in the fallback are
+returned as their string representation (e.g., `"70"`) by
+`normalize_portnum()` and classified as unknown/deferred. The symbolic map
+(`_SYMBOLIC_PORTNUM_MAP`) is correct for all recognized categories.
 
 ---
 
@@ -464,7 +480,7 @@ Future real send implementation should:
 | -------------------------------------------------- | -------------------------------------------------------- | -------- |
 | Real TCP/serial/BLE connection lifecycle           | Not tested                                               | Medium   |
 | mtjk callback packet shapes match fixtures exactly | Not verified with hardware capture                       | Medium   |
-| PortNum numeric enum values (MEDRE scaffold)       | Verified against protobuf → mismatches found             | **High** |
+| PortNum numeric enum values (MEDRE scaffold)       | Verified against protobuf → fallback is protocol-correct | **Low**   |
 | Startup backlog suppression behavior               | Implemented (shared utility), not verified with hardware | Medium   |
 | ACK tracking and correlation                       | Not verified                                             | Low      |
 | Firmware/radio send ID behavior                    | Not verified                                             | Low      |

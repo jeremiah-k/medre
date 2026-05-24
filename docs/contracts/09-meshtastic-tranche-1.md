@@ -202,7 +202,7 @@ Changes in this pass:
 - Connection boundary design note at `docs/contracts/11-meshtastic-connection-boundary.md` for future real connection implementation
 - Optional dependency verified: `mtjk` v2.7.8.post2 installed, imports as `meshtastic`, protobuf PortNum enum accessible at `meshtastic.protobuf.portnums_pb2.PortNum`
 - `compat.get_portnum_table()` helper added for optional authoritative PortNum resolution when the dependency is installed
-- `_NUMERIC_PORTNUM_MAP` documented as SDK-derived with protocol-correct fallback; cross-reference to the audit doc added
+- `_NUMERIC_PORTNUM_FALLBACK` documented as protocol-correct fallback; SDK-derived table preferred when available; cross-reference to the audit doc added
 - Fixture corpus refined with MMRelay-derived packet shapes (emoji flag, encrypted packets, DM shapes)
 - Send-result behavior documented: both mtjk `sendText` and MMRelay `_sendPacket` return `MeshPacket` protobuf with poplulated `id` field
 - No MMRelay code copied, no real hardware support added, no new adapter protocols implemented

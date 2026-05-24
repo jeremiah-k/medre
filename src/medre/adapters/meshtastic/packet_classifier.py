@@ -80,8 +80,9 @@ _NUMERIC_PORTNUM_FALLBACK: dict[int, str] = {
     72: "atak_plugin",
 }
 
-# Lazily-loaded SDK portnum table.  ``None`` means not yet fetched;
-# an empty dict means SDK returned ``None`` (no SDK available).
+# Lazily-loaded SDK portnum table.  ``_SDK_PORTNUM_FETCHED`` distinguishes
+# not-yet-fetched from SDK-unavailable: when fetched, ``None`` means the SDK
+# was unavailable or raised during import.
 _SDK_PORTNUM_CACHE: dict[int, str] | None = None
 _SDK_PORTNUM_FETCHED: bool = False
 
