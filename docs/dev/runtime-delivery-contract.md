@@ -32,7 +32,7 @@ This document describes how MEDRE routes, delivers, tracks, and recovers events.
      - On `queued`: mark outbox `queued` and append `queued` receipt
      - On retryable failure: mark outbox `retry_wait` with next attempt time computed from the plan's `RetryPolicy`; set `next_retry_at` on receipt
      - On permanent failure: mark outbox `dead_lettered`; append `dead_lettered` receipt
-     - On retry exhaustion: append `dead_lettered` receipt
+     - On retry exhaustion: mark outbox `dead_lettered`; append `dead_lettered` receipt
 
 ## Delivery Outcome Model
 

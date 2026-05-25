@@ -19,7 +19,7 @@ and the decision tree for choosing the right recovery action.
 
 **What recovery does NOT do:**
 
-- Recover in-flight deliveries lost during crash (those without outbox rows are gone; those with outbox rows may be partially recovered).
+- Recover in-flight deliveries lost during crash. Deliveries that never created an outbox row are fully lost. Accepted deliveries that already created an `in_progress` outbox row persist in SQLite; if their lease expires, the RetryWorker can reclaim them on restart. A receipt may still be absent if the crash occurred before attempt completion.
 - Resume interrupted replay runs (they must be re-initiated).
 - Automatically restart failed adapters (only full runtime restart).
 - Deduplicate replay deliveries.
