@@ -38,8 +38,9 @@ from medre.core.routing.router import Router
 from medre.runtime.errors import RuntimeConfigError
 
 if TYPE_CHECKING:
-    from medre.config.routes import RouteConfig, RouteConfigSet
+    from medre.config.routes import BridgePolicy, RouteConfig, RouteConfigSet
     from medre.core.lifecycle.states import AdapterState
+    from medre.core.policies.route_policy import RoutePolicy
 
 __all__ = [
     "DegradedRoute",
@@ -346,6 +347,41 @@ def validate_route_adapter_refs(
 
 
 # ---------------------------------------------------------------------------
+# BridgePolicy → RoutePolicy conversion
+# ---------------------------------------------------------------------------
+
+
+def _convert_bridge_policy(bp: BridgePolicy) -> RoutePolicy | None:
+    """Convert a config :class:`BridgePolicy` to a core :class:`RoutePolicy`.
+
+    Excludes ``allowed_event_types`` (already enforced structurally via
+    :attr:`RouteSource.event_kinds`).  Returns ``None`` when all
+    remaining allowlist fields are empty (no policy to enforce).
+
+    This function lives in the runtime layer to avoid core importing
+    config.
+    """
+    from medre.core.policies.route_policy import RoutePolicy
+
+    if not (
+        bp.allowed_source_adapters
+        or bp.allowed_dest_adapters
+        or bp.room_allowlist
+        or bp.channel_allowlist
+        or bp.sender_allowlist
+    ):
+        return None
+
+    return RoutePolicy(
+        allowed_source_adapters=bp.allowed_source_adapters,
+        allowed_dest_adapters=bp.allowed_dest_adapters,
+        room_allowlist=bp.room_allowlist,
+        channel_allowlist=bp.channel_allowlist,
+        sender_allowlist=bp.sender_allowlist,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Config → core Route conversion
 # ---------------------------------------------------------------------------
 
@@ -401,6 +437,11 @@ def _expand_route_config(
     if rc.policy is not None and rc.policy.allowed_event_types:
         event_kinds = rc.policy.allowed_event_types
 
+    # BridgePolicy → RoutePolicy (excludes allowed_event_types).
+    route_policy: RoutePolicy | None = None
+    if rc.policy is not None:
+        route_policy = _convert_bridge_policy(rc.policy)
+
     routes: list[Route] = []
 
     for src_idx, src_id in enumerate(source_ids):
@@ -427,6 +468,7 @@ def _expand_route_config(
             source=source,
             targets=targets,
             enabled=rc.enabled,
+            policy=route_policy,
         )
         routes.append(route)
 
@@ -526,6 +568,11 @@ def _expand_channel_room_map_route(
     if rc.policy is not None and rc.policy.allowed_event_types:
         event_kinds = rc.policy.allowed_event_types
 
+    # BridgePolicy → RoutePolicy (excludes allowed_event_types).
+    route_policy: RoutePolicy | None = None
+    if rc.policy is not None:
+        route_policy = _convert_bridge_policy(rc.policy)
+
     direction = rc.directionality
     routes: list[Route] = []
 
@@ -560,6 +607,7 @@ def _expand_channel_room_map_route(
                     ),
                     targets=[RouteTarget(adapter=meshtastic_id, channel=ch)],
                     enabled=rc.enabled,
+                    policy=route_policy,
                 )
             )
 
@@ -576,6 +624,7 @@ def _expand_channel_room_map_route(
                     ),
                     targets=[RouteTarget(adapter=matrix_id, channel=room_id)],
                     enabled=rc.enabled,
+                    policy=route_policy,
                 )
             )
 

@@ -44,17 +44,18 @@ class TestFreshInstance:
         assert c.replay_rejected == 0
         assert c.loop_prevented == 0
         assert c.capacity_rejections == 0
+        assert c.policy_suppressed == 0
 
     def test_snapshot_all_zero(self) -> None:
         snap = RuntimeAccounting().snapshot()
         assert all(v == 0 for v in snap.values())
 
-    def test_eight_counters_exactly(self) -> None:
-        """Exactly 8 counters exist — no more, no fewer."""
+    def test_nine_counters_exactly(self) -> None:
+        """Exactly 9 counters exist — no more, no fewer."""
         RuntimeCounters()
-        assert len(RuntimeCounters.__dataclass_fields__) == 8
+        assert len(RuntimeCounters.__dataclass_fields__) == 9
         snap = RuntimeAccounting().snapshot()
-        assert len(snap) == 8
+        assert len(snap) == 9
 
 
 # ---------------------------------------------------------------------------
@@ -78,6 +79,7 @@ class TestIndividualIncrements:
         assert c.replay_rejected == 0
         assert c.loop_prevented == 0
         assert c.capacity_rejections == 0
+        assert c.policy_suppressed == 0
 
     def test_record_outbound_attempt(self) -> None:
         acc = RuntimeAccounting()
@@ -121,6 +123,14 @@ class TestIndividualIncrements:
         assert acc.counters().capacity_rejections == 1
         assert acc.counters().loop_prevented == 0
 
+    def test_record_policy_suppressed(self) -> None:
+        acc = RuntimeAccounting()
+        acc.record_policy_suppressed()
+        c = acc.counters()
+        assert c.policy_suppressed == 1
+        assert c.capacity_rejections == 0
+        assert c.outbound_failed == 0
+
 
 # ---------------------------------------------------------------------------
 # Accumulation
@@ -148,6 +158,7 @@ class TestAccumulation:
         acc.record_capacity_rejection()
         acc.record_replay_processed()
         acc.record_replay_rejected()
+        acc.record_policy_suppressed()
 
         c = acc.counters()
         assert c.inbound_accepted == 2
@@ -158,6 +169,7 @@ class TestAccumulation:
         assert c.capacity_rejections == 2
         assert c.replay_processed == 1
         assert c.replay_rejected == 1
+        assert c.policy_suppressed == 1
 
 
 # ---------------------------------------------------------------------------
@@ -283,14 +295,15 @@ class TestSnapshotOrdering:
         incremented first."""
         acc = RuntimeAccounting()
         # Increment in reverse alphabetical order of counter names
-        acc.record_capacity_rejection()
         acc.record_replay_rejected()
         acc.record_replay_processed()
+        acc.record_policy_suppressed()
         acc.record_outbound_failed()
         acc.record_outbound_delivered()
         acc.record_outbound_attempt()
         acc.record_loop_prevented()
         acc.record_inbound_accepted()
+        acc.record_capacity_rejection()
 
         snap = acc.snapshot()
         keys = list(snap.keys())
@@ -363,7 +376,7 @@ class TestBoundedMemory:
             acc.record_capacity_rejection()
         snap_full = acc.snapshot()
         # Same number of keys
-        assert len(snap_empty) == len(snap_full) == 8
+        assert len(snap_empty) == len(snap_full) == 9
         # Same key set
         assert set(snap_empty.keys()) == set(snap_full.keys())
 

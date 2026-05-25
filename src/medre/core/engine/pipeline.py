@@ -57,6 +57,7 @@ from medre.core.planning.delivery_plan import (
 )
 from medre.core.planning.fallback_resolution import FallbackResolver
 from medre.core.planning.relation_resolution import RelationResolver
+from medre.core.policies.route_policy import evaluate_route_policy
 from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing.models import Route, RouteTarget
@@ -1328,6 +1329,163 @@ class PipelineRunner:
             adapter_id = target.adapter or ""
             t0 = time.monotonic()
 
+            # ── Phase 1: Loop checks (no state mutation) ──────────────
+
+            # Route-trace loop prevention: skip if this route has already
+            # been traversed in a *prior* routing pass.  The first occurrence
+            # of a route ID in the trace is the current pass — allow it.
+            # A second or later occurrence means the event was re-routed
+            # through the same route (e.g. during replay or multi-hop
+            # topologies).
+            routing_meta = event.metadata.routing
+            trace_count = 0
+            if routing_meta is not None:
+                trace_count = sum(
+                    1 for tid in routing_meta.route_trace if tid == route.id
+                )
+                if trace_count > 1:
+                    self._log.warning(
+                        "loop_prevented: route_id=%s already in route_trace "
+                        "for event_id=%s (trace=%s)",
+                        route.id,
+                        event.event_id,
+                        routing_meta.route_trace,
+                    )
+                    if self._route_stats is not None:
+                        self._route_stats.record_loop_prevented(route.id)
+                    if self._runtime_accounting is not None:
+                        self._runtime_accounting.record_loop_prevented()
+                    elapsed = (time.monotonic() - t0) * 1000.0
+                    loop_receipt = await self._persist_suppression_receipt(
+                        event_id=event.event_id,
+                        delivery_plan_id=route_plan.plan_id,
+                        target_adapter=adapter_id,
+                        target_channel=target.channel,
+                        route_id=route.id,
+                        failure_kind=DeliveryFailureKind.LOOP_SUPPRESSED,
+                        error="loop_prevented: route already traversed in prior routing pass",
+                        source=source,
+                        replay_run_id=replay_run_id,
+                    )
+                    return DeliveryOutcome(
+                        event_id=event.event_id,
+                        target_adapter=adapter_id,
+                        target_channel=target.channel,
+                        route_id=route.id,
+                        delivery_plan_id=route_plan.plan_id,
+                        status="skipped",
+                        failure_kind=DeliveryFailureKind.LOOP_SUPPRESSED,
+                        receipt=loop_receipt,
+                        error="loop_prevented: route already traversed in prior routing pass",
+                        duration_ms=elapsed,
+                    )
+
+            # Self-loop guard: skip delivery back to the source adapter.
+            if adapter_id and adapter_id == event.source_adapter:
+                self._log.warning(
+                    "loop_prevented: skipping delivery of event_id=%s "
+                    "back to source_adapter=%s (route=%s)",
+                    event.event_id,
+                    adapter_id,
+                    route.id,
+                )
+                if self._route_stats is not None:
+                    self._route_stats.record_loop_prevented(route.id)
+                if self._runtime_accounting is not None:
+                    self._runtime_accounting.record_loop_prevented()
+                elapsed = (time.monotonic() - t0) * 1000.0
+                selfloop_receipt = await self._persist_suppression_receipt(
+                    event_id=event.event_id,
+                    delivery_plan_id=route_plan.plan_id,
+                    target_adapter=adapter_id,
+                    target_channel=target.channel,
+                    route_id=route.id,
+                    failure_kind=DeliveryFailureKind.LOOP_SUPPRESSED,
+                    error="loop_prevented",
+                    source=source,
+                    replay_run_id=replay_run_id,
+                )
+                return DeliveryOutcome(
+                    event_id=event.event_id,
+                    target_adapter=adapter_id,
+                    target_channel=target.channel,
+                    route_id=route.id,
+                    delivery_plan_id=route_plan.plan_id,
+                    status="skipped",
+                    failure_kind=DeliveryFailureKind.LOOP_SUPPRESSED,
+                    receipt=selfloop_receipt,
+                    error="loop_prevented",
+                    duration_ms=elapsed,
+                )
+
+            # ── Phase 2: Route-policy evaluation (no state mutation) ──
+
+            # Route-policy evaluation: enforce allowlists attached
+            # to the route.  Runs after structural loop/self-loop
+            # checks but BEFORE capacity acquisition so that
+            # policy-denied targets never consume capacity or
+            # increment capacity_rejection counters.
+            if route.policy is not None:
+                decision = evaluate_route_policy(
+                    route.policy,
+                    event,
+                    target,
+                )
+                if not decision.allowed:
+                    # Sanitize blocked_value FIRST: cap at 256 chars to prevent
+                    # large externally-sourced IDs from flooding logs/receipts.
+                    _blocked_val = decision.blocked_value or ""
+                    if len(_blocked_val) > 256:
+                        _blocked_val = _blocked_val[:256] + "..."
+                    self._log.info(
+                        "policy_suppressed: route_id=%s event_id=%s "
+                        "target_adapter=%s reason=%s "
+                        "blocked_field=%s blocked_value=%r",
+                        route.id,
+                        event.event_id,
+                        adapter_id,
+                        decision.reason,
+                        decision.blocked_field,
+                        _blocked_val,
+                    )
+                    if self._route_stats is not None:
+                        self._route_stats.record_policy_suppressed(route.id)
+                    if self._runtime_accounting is not None:
+                        self._runtime_accounting.record_policy_suppressed()
+                    elapsed = (time.monotonic() - t0) * 1000.0
+                    # Build safe error text with reason, blocked field,
+                    # capped blocked value, and the allowed summary.
+                    policy_error = (
+                        f"policy_suppressed: {decision.reason} "
+                        f"({decision.blocked_field}={_blocked_val!r}); "
+                        f"{decision.allowed_summary}"
+                    )
+                    policy_receipt = await self._persist_suppression_receipt(
+                        event_id=event.event_id,
+                        delivery_plan_id=route_plan.plan_id,
+                        target_adapter=adapter_id,
+                        target_channel=target.channel,
+                        route_id=route.id,
+                        failure_kind=DeliveryFailureKind.POLICY_SUPPRESSED,
+                        error=policy_error,
+                        source=source,
+                        replay_run_id=replay_run_id,
+                    )
+                    return DeliveryOutcome(
+                        event_id=event.event_id,
+                        target_adapter=adapter_id,
+                        target_channel=target.channel,
+                        route_id=route.id,
+                        delivery_plan_id=route_plan.plan_id,
+                        status="skipped",
+                        failure_kind=DeliveryFailureKind.POLICY_SUPPRESSED,
+                        receipt=policy_receipt,
+                        error=policy_error,
+                        duration_ms=elapsed,
+                    )
+
+            # ── Phase 3: Capacity acquisition ────────────────────────
+
             # Per-target capacity guard: acquire a slot before any work.
             if self._capacity_controller is not None:
                 acquired = await self._capacity_controller.acquire_delivery()
@@ -1349,7 +1507,6 @@ class PipelineRunner:
                     elapsed = (time.monotonic() - t0) * 1000.0
                     # Persist lightweight suppression evidence so operators
                     # can inspect capacity/shutdown rejections via receipts.
-                    # The event is already stored (Stage 3) by this point.
                     suppression_receipt = await self._persist_suppression_receipt(
                         event_id=event.event_id,
                         delivery_plan_id=(
@@ -1377,6 +1534,9 @@ class PipelineRunner:
                         error=capacity_error,
                         duration_ms=elapsed,
                     )
+
+            # ── Phase 4: Inflight tracking + delivery ────────────────
+
             # Compute tracking key outside try to satisfy static analysis.
             _inflight_key: str = (
                 f"{event.event_id}:{route.id}:{adapter_id}:{route_plan.plan_id}"
@@ -1393,94 +1553,6 @@ class PipelineRunner:
                         source=source,
                         replay_run_id=replay_run_id,
                         acquired_at=t0,
-                    )
-                # Route-trace loop prevention: skip if this route has already
-                # been traversed in a *prior* routing pass.  The first occurrence
-                # of a route ID in the trace is the current pass — allow it.
-                # A second or later occurrence means the event was re-routed
-                # through the same route (e.g. during replay or multi-hop
-                # topologies).
-                routing_meta = event.metadata.routing
-                trace_count = 0
-                if routing_meta is not None:
-                    trace_count = sum(
-                        1 for tid in routing_meta.route_trace if tid == route.id
-                    )
-                    if trace_count > 1:
-                        self._log.warning(
-                            "loop_prevented: route_id=%s already in route_trace "
-                            "for event_id=%s (trace=%s)",
-                            route.id,
-                            event.event_id,
-                            routing_meta.route_trace,
-                        )
-                        if self._route_stats is not None:
-                            self._route_stats.record_loop_prevented(route.id)
-                        if self._runtime_accounting is not None:
-                            self._runtime_accounting.record_loop_prevented()
-                        elapsed = (time.monotonic() - t0) * 1000.0
-                        # Persist lightweight loop suppression evidence.
-                        loop_receipt = await self._persist_suppression_receipt(
-                            event_id=event.event_id,
-                            delivery_plan_id=route_plan.plan_id,
-                            target_adapter=adapter_id,
-                            target_channel=target.channel,
-                            route_id=route.id,
-                            failure_kind=DeliveryFailureKind.LOOP_SUPPRESSED,
-                            error="loop_prevented: route already traversed in prior routing pass",
-                            source=source,
-                            replay_run_id=replay_run_id,
-                        )
-                        return DeliveryOutcome(
-                            event_id=event.event_id,
-                            target_adapter=adapter_id,
-                            target_channel=target.channel,
-                            route_id=route.id,
-                            delivery_plan_id=route_plan.plan_id,
-                            status="skipped",
-                            failure_kind=DeliveryFailureKind.LOOP_SUPPRESSED,
-                            receipt=loop_receipt,
-                            error="loop_prevented: route already traversed in prior routing pass",
-                            duration_ms=elapsed,
-                        )
-
-                # Self-loop guard: skip delivery back to the source adapter.
-                if adapter_id and adapter_id == event.source_adapter:
-                    self._log.warning(
-                        "loop_prevented: skipping delivery of event_id=%s "
-                        "back to source_adapter=%s (route=%s)",
-                        event.event_id,
-                        adapter_id,
-                        route.id,
-                    )
-                    if self._route_stats is not None:
-                        self._route_stats.record_loop_prevented(route.id)
-                    if self._runtime_accounting is not None:
-                        self._runtime_accounting.record_loop_prevented()
-                    elapsed = (time.monotonic() - t0) * 1000.0
-                    # Persist lightweight self-loop suppression evidence.
-                    selfloop_receipt = await self._persist_suppression_receipt(
-                        event_id=event.event_id,
-                        delivery_plan_id=route_plan.plan_id,
-                        target_adapter=adapter_id,
-                        target_channel=target.channel,
-                        route_id=route.id,
-                        failure_kind=DeliveryFailureKind.LOOP_SUPPRESSED,
-                        error="loop_prevented",
-                        source=source,
-                        replay_run_id=replay_run_id,
-                    )
-                    return DeliveryOutcome(
-                        event_id=event.event_id,
-                        target_adapter=adapter_id,
-                        target_channel=target.channel,
-                        route_id=route.id,
-                        delivery_plan_id=route_plan.plan_id,
-                        status="skipped",
-                        failure_kind=DeliveryFailureKind.LOOP_SUPPRESSED,
-                        receipt=selfloop_receipt,
-                        error="loop_prevented",
-                        duration_ms=elapsed,
                     )
 
                 try:

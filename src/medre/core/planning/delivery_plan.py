@@ -169,6 +169,9 @@ class DeliveryFailureKind(Enum):
     LOOP_SUPPRESSED:
         Delivery was suppressed by a loop-prevention guard
         (self-loop or route-trace).  Not retryable.
+    POLICY_SUPPRESSED:
+        Delivery was suppressed by a route-policy denial
+        (e.g. target blocked by policy configuration).  Not retryable.
     """
 
     PLANNER_FAILURE = "planner_failure"
@@ -180,6 +183,7 @@ class DeliveryFailureKind(Enum):
     CAPACITY_REJECTION = "capacity_rejection"
     SHUTDOWN_REJECTION = "shutdown_rejection"
     LOOP_SUPPRESSED = "loop_suppressed"
+    POLICY_SUPPRESSED = "policy_suppressed"
 
     @property
     def is_retryable(self) -> bool:

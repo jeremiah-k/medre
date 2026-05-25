@@ -978,11 +978,11 @@ class TestRuntimeAccountingSnapshotStructure:
         serialized = json.dumps(snap)
         assert isinstance(serialized, str)
 
-    def test_exactly_eight_counters(self) -> None:
-        """Snapshot always has exactly 8 counters."""
+    def test_exactly_nine_counters(self) -> None:
+        """Snapshot always has exactly 9 counters."""
         acc = RuntimeAccounting()
         snap = acc.snapshot()
-        assert len(snap) == 8
+        assert len(snap) == 9
         acc.record_inbound_accepted()
         snap2 = acc.snapshot()
-        assert len(snap2) == 8
+        assert len(snap2) == 9

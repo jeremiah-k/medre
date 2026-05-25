@@ -406,92 +406,68 @@ class TestRouteConfigValidation:
         assert "'!room_b:test'" in msg
         assert "'ch-2'" in msg
 
-    # --- unsupported policy field rejection ---
+    # --- policy fields now supported at runtime ---
 
-    def test_sender_allowlist_rejected(self) -> None:
-        with pytest.raises(ConfigValidationError, match="sender_allowlist.*reserved"):
-            RouteConfig.from_toml_dict(
-                "bad",
-                {
-                    "source_adapters": ["a"],
-                    "dest_adapters": ["b"],
-                    "policy": {"sender_allowlist": ["@alice:test"]},
-                },
-            )
+    def test_sender_allowlist_accepted(self) -> None:
+        """sender_allowlist is now enforced by the route-policy evaluator."""
+        r = RouteConfig.from_toml_dict(
+            "ok",
+            {
+                "source_adapters": ["a"],
+                "dest_adapters": ["b"],
+                "policy": {"sender_allowlist": ["@alice:test"]},
+            },
+        )
+        assert r.policy is not None
+        assert r.policy.sender_allowlist == ("@alice:test",)
 
-    def test_unsupported_policy_fields_names_field(self) -> None:
-        """Unsupported policy field error names the specific field."""
-        with pytest.raises(ConfigValidationError) as exc_info:
-            RouteConfig.from_toml_dict(
-                "bad",
-                {
-                    "source_adapters": ["a"],
-                    "dest_adapters": ["b"],
-                    "policy": {"sender_allowlist": ["@alice:test"]},
-                },
-            )
-        msg = str(exc_info.value)
-        assert "sender_allowlist" in msg
+    def test_allowed_source_adapters_accepted(self) -> None:
+        r = RouteConfig.from_toml_dict(
+            "ok",
+            {
+                "source_adapters": ["a"],
+                "dest_adapters": ["b"],
+                "policy": {"allowed_source_adapters": ["main"]},
+            },
+        )
+        assert r.policy is not None
+        assert r.policy.allowed_source_adapters == ("main",)
 
-    def test_unsupported_policy_fields_names_route(self) -> None:
-        """Unsupported policy field error names the route."""
-        with pytest.raises(ConfigValidationError, match="Route 'bad'"):
-            RouteConfig.from_toml_dict(
-                "bad",
-                {
-                    "source_adapters": ["a"],
-                    "dest_adapters": ["b"],
-                    "policy": {"room_allowlist": ["!room:test"]},
-                },
-            )
+    def test_allowed_dest_adapters_accepted(self) -> None:
+        r = RouteConfig.from_toml_dict(
+            "ok",
+            {
+                "source_adapters": ["a"],
+                "dest_adapters": ["b"],
+                "policy": {"allowed_dest_adapters": ["radio"]},
+            },
+        )
+        assert r.policy is not None
+        assert r.policy.allowed_dest_adapters == ("radio",)
 
-    def test_allowed_source_adapters_rejected(self) -> None:
-        with pytest.raises(
-            ConfigValidationError, match="allowed_source_adapters.*reserved"
-        ):
-            RouteConfig.from_toml_dict(
-                "bad",
-                {
-                    "source_adapters": ["a"],
-                    "dest_adapters": ["b"],
-                    "policy": {"allowed_source_adapters": ["main"]},
-                },
-            )
+    def test_room_allowlist_accepted(self) -> None:
+        r = RouteConfig.from_toml_dict(
+            "ok",
+            {
+                "source_adapters": ["a"],
+                "dest_adapters": ["b"],
+                "policy": {"room_allowlist": ["!room:test"]},
+            },
+        )
+        assert r.policy is not None
+        assert r.policy.room_allowlist == ("!room:test",)
 
-    def test_allowed_dest_adapters_rejected(self) -> None:
-        with pytest.raises(
-            ConfigValidationError, match="allowed_dest_adapters.*reserved"
-        ):
-            RouteConfig.from_toml_dict(
-                "bad",
-                {
-                    "source_adapters": ["a"],
-                    "dest_adapters": ["b"],
-                    "policy": {"allowed_dest_adapters": ["radio"]},
-                },
-            )
-
-    def test_room_allowlist_rejected(self) -> None:
-        with pytest.raises(ConfigValidationError, match="room_allowlist.*reserved"):
-            RouteConfig.from_toml_dict(
-                "bad",
-                {
-                    "source_adapters": ["a"],
-                    "dest_adapters": ["b"],
-                    "policy": {"room_allowlist": ["!room:test"]},
-                },
-            )
-
-    def test_channel_allowlist_rejected(self) -> None:
-        with pytest.raises(ConfigValidationError, match="channel_allowlist.*reserved"):
-            RouteConfig.from_toml_dict(
-                "bad",
-                {
-                    "source_adapters": ["a"],
-                    "dest_adapters": ["b"],
-                    "policy": {"channel_allowlist": ["1", "2"]},
-                },
-            )
+    def test_channel_allowlist_accepted(self) -> None:
+        r = RouteConfig.from_toml_dict(
+            "ok",
+            {
+                "source_adapters": ["a"],
+                "dest_adapters": ["b"],
+                "policy": {"channel_allowlist": ["1", "2"]},
+            },
+        )
+        assert r.policy is not None
+        assert r.policy.channel_allowlist == ("1", "2")
 
     def test_policy_allowed_event_types_still_supported(self) -> None:
         r = RouteConfig.from_toml_dict(
@@ -504,6 +480,21 @@ class TestRouteConfigValidation:
         )
         assert r.policy is not None
         assert r.policy.allowed_event_types == ("message",)
+
+    def test_policy_allowlist_item_not_string(self) -> None:
+        """Non-string items in a policy allowlist are rejected."""
+        with pytest.raises(
+            ConfigValidationError,
+            match=r"policy\.sender_allowlist\[1\] must be a string",
+        ):
+            RouteConfig.from_toml_dict(
+                "bad",
+                {
+                    "source_adapters": ["a"],
+                    "dest_adapters": ["b"],
+                    "policy": {"sender_allowlist": ["@alice:test", 123]},
+                },
+            )
 
 
 # ---------------------------------------------------------------------------

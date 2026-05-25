@@ -352,8 +352,9 @@ def capture_route_topology(
       targets of which routes.
     * **Live counters** – when *route_stats* (a
       :class:`~medre.core.routing.stats.RouteStats`) is provided, each
-      per-route entry is enriched with ``delivered``, ``failed``,
-      ``skipped``, ``loop_prevented``, and ``last_error`` from the live
+        per-route entry is enriched with ``delivered``, ``failed``,
+        ``skipped``, ``loop_prevented``, ``policy_suppressed``, and
+        ``last_error`` from the live
       counters.  When *route_stats* is ``None``, counters remain zeroed
       and ``last_error`` is omitted.
 
@@ -414,12 +415,14 @@ def capture_route_topology(
             failed = live.get("failed", 0)
             skipped = live.get("skipped", 0)
             loop_prevented = live.get("loop_prevented", 0)
+            policy_suppressed = live.get("policy_suppressed", 0)
             last_error = live.get("last_error")
         else:
             delivered = 0
             failed = 0
             skipped = 0
             loop_prevented = 0
+            policy_suppressed = 0
             last_error = None
 
         route_entry: dict[str, Any] = {
@@ -435,6 +438,7 @@ def capture_route_topology(
             "failed": failed,
             "skipped": skipped,
             "loop_prevented": loop_prevented,
+            "policy_suppressed": policy_suppressed,
             "error_count": failed,
             "event_count": delivered,
         }

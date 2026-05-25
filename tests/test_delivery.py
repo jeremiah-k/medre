@@ -522,6 +522,7 @@ class TestDeliveryFailureKind:
             "SHUTDOWN_REJECTION",
             "CAPACITY_REJECTION",
             "LOOP_SUPPRESSED",
+            "POLICY_SUPPRESSED",
         }
         actual = {m.name for m in DeliveryFailureKind}
         assert actual == expected
@@ -539,6 +540,7 @@ class TestDeliveryFailureKind:
             DeliveryFailureKind.CAPACITY_REJECTION,
             DeliveryFailureKind.SHUTDOWN_REJECTION,
             DeliveryFailureKind.LOOP_SUPPRESSED,
+            DeliveryFailureKind.POLICY_SUPPRESSED,
         ]
         for kind in non_retryable:
             assert kind.is_retryable is False, f"{kind.name} should not be retryable"
@@ -551,6 +553,7 @@ class TestDeliveryFailureKind:
         assert DeliveryFailureKind.ADAPTER_PERMANENT.value == "adapter_permanent"
         assert DeliveryFailureKind.ADAPTER_MISSING.value == "adapter_missing"
         assert DeliveryFailureKind.DEADLINE_EXCEEDED.value == "deadline_exceeded"
+        assert DeliveryFailureKind.POLICY_SUPPRESSED.value == "policy_suppressed"
 
     def test_classify_transient_errors(self) -> None:
         """Transient exception types classify as ADAPTER_TRANSIENT."""
@@ -1011,6 +1014,22 @@ class TestDeliveryOutcomeWithFailureKind:
         )
         assert outcome.failure_kind is DeliveryFailureKind.RENDERER_FAILURE
 
+    def test_policy_suppressed_failure_kind(self) -> None:
+        """POLICY_SUPPRESSED is a permanent, non-retryable failure kind."""
+        outcome = DeliveryOutcome(
+            event_id="e-ps",
+            target_adapter="a",
+            target_channel=None,
+            route_id="r-ps",
+            delivery_plan_id="p-ps",
+            status="permanent_failure",
+            failure_kind=DeliveryFailureKind.POLICY_SUPPRESSED,
+            error="route policy denied for target",
+        )
+        assert outcome.failure_kind is DeliveryFailureKind.POLICY_SUPPRESSED
+        assert outcome.failure_kind.is_retryable is False
+        assert outcome.failure_kind.value == "policy_suppressed"
+
     def test_positional_args_without_failure_kind(self) -> None:
         """DeliveryOutcome works with positional args (no failure_kind)."""
         outcome = DeliveryOutcome("e6", "a", None, "r6", "p6", "skipped")
@@ -1240,11 +1259,15 @@ class TestRouteCounters:
         assert c.failed == 0
         assert c.skipped == 0
         assert c.loop_prevented == 0
+        assert c.policy_suppressed == 0
 
     def test_custom_values(self) -> None:
-        c = RouteCounters(delivered=5, failed=1, skipped=2, loop_prevented=3)
+        c = RouteCounters(
+            delivered=5, failed=1, skipped=2, loop_prevented=3, policy_suppressed=4
+        )
         assert c.delivered == 5
         assert c.loop_prevented == 3
+        assert c.policy_suppressed == 4
 
     def test_frozen(self) -> None:
         c = RouteCounters()
@@ -1284,6 +1307,19 @@ class TestRouteStats:
         snap = stats.snapshot()
         assert snap["r1"]["loop_prevented"] == 2
 
+    def test_record_policy_suppressed(self) -> None:
+        stats = RouteStats()
+        stats.record_policy_suppressed("r1")
+        stats.record_policy_suppressed("r1")
+        stats.record_policy_suppressed("r2")
+        snap = stats.snapshot()
+        assert snap["r1"]["policy_suppressed"] == 2
+        assert snap["r2"]["policy_suppressed"] == 1
+        # Other counters untouched
+        assert snap["r1"]["delivered"] == 0
+        assert snap["r1"]["failed"] == 0
+        assert snap["r1"]["loop_prevented"] == 0
+
     def test_snapshot_deterministic_order(self) -> None:
         """Snapshot keys are sorted alphabetically."""
         stats = RouteStats()
@@ -1316,6 +1352,111 @@ class TestRouteStats:
             "failed": 0,
             "skipped": 0,
             "loop_prevented": 0,
+            "policy_suppressed": 0,
         }
         assert snap["r2"]["failed"] == 1
         assert snap["r3"]["loop_prevented"] == 1
+
+
+# ===================================================================
+# Policy-suppressed failure kind: classification and reporting
+# ===================================================================
+
+
+class TestPolicySuppressedClassification:
+    """Verify policy_suppressed classification and reporting."""
+
+    def test_infer_failure_kind_policy_suppressed_text(self) -> None:
+        """Error text containing 'policy_suppressed' infers policy_suppressed."""
+        from medre.core.observability.classification import infer_failure_kind
+
+        assert (
+            infer_failure_kind("policy_suppressed for target", "failed")
+            == "policy_suppressed"
+        )
+
+    def test_infer_failure_kind_route_policy_denied(self) -> None:
+        """Error text containing 'route policy denied' infers policy_suppressed."""
+        from medre.core.observability.classification import infer_failure_kind
+
+        assert (
+            infer_failure_kind("route policy denied for target", "failed")
+            == "policy_suppressed"
+        )
+
+    def test_infer_failure_kind_case_insensitive(self) -> None:
+        """Inference is case-insensitive."""
+        from medre.core.observability.classification import infer_failure_kind
+
+        assert (
+            infer_failure_kind("Route Policy Denied", "failed") == "policy_suppressed"
+        )
+
+    def test_failure_category_permanent(self) -> None:
+        """policy_suppressed maps to the 'permanent' category."""
+        from medre.core.observability.classification import failure_category
+
+        assert failure_category("policy_suppressed") == "permanent"
+
+    def test_failure_category_not_retryable(self) -> None:
+        """policy_suppressed is not in RETRYABLE_KINDS."""
+        from medre.core.observability.classification import RETRYABLE_KINDS
+
+        assert "policy_suppressed" not in RETRYABLE_KINDS
+
+    def test_failure_category_not_operational(self) -> None:
+        """policy_suppressed is not in OPERATIONAL_KINDS."""
+        from medre.core.observability.classification import OPERATIONAL_KINDS
+
+        assert "policy_suppressed" not in OPERATIONAL_KINDS
+
+    def test_derive_failure_kind_detail_policy_suppressed(self) -> None:
+        """_derive_failure_kind_detail returns policy_suppressed from route policy denied error."""
+        from medre.runtime.reporting import _derive_failure_kind_detail
+
+        assert (
+            _derive_failure_kind_detail("policy_suppressed", "route policy denied")
+            == "policy_suppressed"
+        )
+
+    def test_derive_failure_kind_detail_generic_error(self) -> None:
+        """_derive_failure_kind_detail returns policy_suppressed when only failure_kind matches."""
+        from medre.runtime.reporting import _derive_failure_kind_detail
+
+        assert (
+            _derive_failure_kind_detail("policy_suppressed", "some other error")
+            == "policy_suppressed"
+        )
+
+    def test_derive_failure_kind_detail_none_kind(self) -> None:
+        """_derive_failure_kind_detail returns None when failure_kind is None."""
+        from medre.runtime.reporting import _derive_failure_kind_detail
+
+        assert _derive_failure_kind_detail(None, "route policy denied") is None
+
+    def test_reporting_dict_policy_suppressed_not_retryable(self) -> None:
+        """delivery_receipt_to_report_dict marks policy_suppressed as not retryable."""
+        from medre.core.events.canonical import DeliveryReceipt
+        from medre.runtime.reporting import delivery_receipt_to_report_dict
+
+        receipt = DeliveryReceipt(
+            sequence=0,
+            receipt_id="rcpt-test",
+            event_id="e1",
+            delivery_plan_id="p1",
+            target_adapter="a",
+            target_channel=None,
+            status="suppressed",
+            error="route policy denied for target",
+            next_retry_at=None,
+            created_at=datetime.now(timezone.utc),
+            attempt_number=1,
+            parent_receipt_id=None,
+            source="live",
+            replay_run_id=None,
+            failure_kind="policy_suppressed",
+        )
+        report = delivery_receipt_to_report_dict(receipt)
+        assert report["retryable"] is False
+        assert report["failure_kind"] == "policy_suppressed"
+        assert report["failure_kind_detail"] == "policy_suppressed"

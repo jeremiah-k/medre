@@ -237,7 +237,7 @@ def _make_fake_app(
 # ---------------------------------------------------------------------------
 
 _EXPECTED_ROUTE_ENTRY_KEYS: frozenset[str] = frozenset(
-    {"delivered", "failed", "skipped", "loop_prevented"}
+    {"delivered", "failed", "skipped", "loop_prevented", "policy_suppressed"}
 )
 
 _EXPECTED_REPLAY_GLOBAL_KEYS: frozenset[str] = frozenset(
@@ -288,6 +288,7 @@ _EXPECTED_ACCOUNTING_KEYS: frozenset[str] = frozenset(
         "outbound_attempts",
         "outbound_delivered",
         "outbound_failed",
+        "policy_suppressed",
         "replay_processed",
         "replay_rejected",
     }
@@ -474,7 +475,7 @@ class TestDiagnosticsSnapshotSchemaConsistency:
 
 
 class TestAccountingSchemaConsistency:
-    """RuntimeAccounting.snapshot() has exactly 8 sorted keys."""
+    """RuntimeAccounting.snapshot() has exactly 9 sorted keys."""
 
     def test_empty_snapshot_has_expected_keys(self) -> None:
         acc = RuntimeAccounting()

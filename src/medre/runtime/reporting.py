@@ -99,6 +99,14 @@ def _derive_failure_kind_detail(
     # from the generic shutdown_rejection recorded at capacity-acquire time.
     if "shutdown_drain_timeout" in err:
         return "shutdown_drain_timeout"
+    # Route-policy denial — persisted when a target is suppressed by
+    # policy configuration.  Detected from "route policy denied" in
+    # error text for more specific detail; falls through to generic
+    # policy_suppressed when only the failure_kind matches.
+    if "route policy denied" in err:
+        return "policy_suppressed"
+    if failure_kind == "policy_suppressed":
+        return "policy_suppressed"
     # E2EE / encrypted blocking (Matrix adapters).
     # Tightened to Matrix-specific patterns only — generic "encrypted"
     # alone is insufficient (e.g. "encrypted packet" is not E2EE).

@@ -24,6 +24,7 @@ complement the existing per-route `RouteStats` and per-route
 | `replay_rejected`     | `record_replay_rejected()`    | Replay events rejected (missing, filter mismatch, or unhandled BEST_EFFORT error)  |
 | `loop_prevented`      | `record_loop_prevented()`     | Events blocked by the self-loop guard                                              |
 | `capacity_rejections` | `record_capacity_rejection()` | Operations rejected by the capacity controller (both pipeline delivery and replay) |
+| `policy_suppressed`   | `record_policy_suppressed()`  | Deliveries suppressed by route-policy evaluation (allowlist mismatch)              |
 
 ### Retry Snapshot Counters
 
@@ -50,7 +51,7 @@ Counters live in a single `RuntimeAccounting` instance. They are:
 
 ### Bounded memory
 
-The `RuntimeCounters` dataclass holds exactly 8 integer fields.
+The `RuntimeCounters` dataclass holds exactly 9 integer fields.
 Memory usage is **O(1)** regardless of how many events are recorded.
 There are no unbounded dictionaries or growing lists.
 
@@ -93,6 +94,7 @@ acc.record_replay_processed()
 acc.record_replay_rejected()
 acc.record_loop_prevented()
 acc.record_capacity_rejection()
+acc.record_policy_suppressed()
 
 # Reading
 c: RuntimeCounters = acc.counters()   # frozen snapshot (zero-copy ref)
@@ -159,6 +161,7 @@ The pipeline classifies delivery failures using `DeliveryFailureKind`:
 | `CAPACITY_REJECTION` | Capacity controller exhausted or timed out while accepting work | No        |
 | `SHUTDOWN_REJECTION` | Runtime shutdown cancelled delivery before capacity acquire     | No        |
 | `LOOP_SUPPRESSED`    | Self-loop or route-trace guard fired                            | No        |
+| `POLICY_SUPPRESSED`  | Route-policy evaluator denied delivery                          | No        |
 
 `TARGET_NOT_FOUND` and `DUPLICATE_SUPPRESSED` were removed from the enum.
 Channel-not-found and target-address failures map to `ADAPTER_PERMANENT`.
@@ -170,12 +173,12 @@ exhausted but the controller is still accepting work. `SHUTDOWN_REJECTION`
 is used when the controller has called `stop_accepting()` (pipeline
 shutdown in progress).
 
-**Receipt non-persistence:** `CAPACITY_REJECTION` and `SHUTDOWN_REJECTION`
-intentionally do **not** produce a persisted `DeliveryReceipt`. The event
-never entered the delivery stage — the rejection occurs at the capacity
-gate _before_ any adapter interaction. Durable evidence of the rejection
-is recorded via `RuntimeAccounting` counters and `RouteStats`, not via
-`delivery_receipts`.
+**Receipt persistence for capacity/shutdown:** `CAPACITY_REJECTION` and
+`SHUTDOWN_REJECTION` produce a persisted suppression receipt
+(status=`"suppressed"`) with `failure_kind` `capacity_rejection` or
+`shutdown_rejection`. Runtime accounting also increments
+`capacity_rejections`. These rejections occur at the capacity checkpoint
+before renderer/adapter delivery.
 
 **Receipt traceability:** When receipts are created, each `DeliveryReceipt`
 carries a `source` field (`"live"`, `"retry"`, or `"replay"`) and a nullable
@@ -190,7 +193,7 @@ remains process-local and is not affected by receipt traceability fields.
 | `RouteStats`        | Per-route         | `delivered`, `failed`, `loop_prevented` |
 | `ReplayMetrics`     | Per-route replay  | `events_processed`, `deliveries_failed` |
 | `EventMetrics`      | Per-kind pipeline | `ingressed`, `delivered`, `failed`      |
-| `RuntimeAccounting` | Global process    | All eight counters above                |
+| `RuntimeAccounting` | Global process    | All nine counters above                 |
 
 `RuntimeAccounting` is **additive**: it provides global aggregates that
 the per-route/per-kind modules do not offer. It does not replace or

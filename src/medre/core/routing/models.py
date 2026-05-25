@@ -15,6 +15,10 @@ which is mutable to allow runtime enable/disable toggling.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from medre.core.policies.route_policy import RoutePolicy
 
 # ---------------------------------------------------------------------------
 # Route source
@@ -137,6 +141,9 @@ class Route:
         may overlap) or ``"shared"`` (overlaps allowed).
     enabled:
         Whether this route is currently enabled.
+    policy:
+        Optional route-policy allowlist enforced during per-target
+        delivery evaluation.
     """
 
     id: str
@@ -145,3 +152,4 @@ class Route:
     fanout_strategy: str = "broadcast"
     ownership: str = "shared"
     enabled: bool = True
+    policy: RoutePolicy | None = None

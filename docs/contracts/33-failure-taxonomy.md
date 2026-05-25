@@ -344,6 +344,32 @@ directly on the LXMRouter. The router manages its own internal delivery queue.
 | **E2EE failure class**              | Megolm session loss, device verification | N/A (no E2EE)                            | N/A (radio-level E2EE, not MEDRE-managed) | N/A (identity-based signing)             |
 | **ACK model**                       | HTTP response                            | LoRa hop-by-hop (unreliable)             | Link-level (unreliable)                   | Reticulum transport-dependent            |
 
+## 8.1 Route Policy Suppression
+
+Route policy suppression is a **cross-transport** failure classification that is not specific to any single transport adapter. It occurs when the route-policy evaluator denies a delivery after route matching but before delivery side effects.
+
+**Classification:**
+
+| Property        | Value                                                                                 |
+| --------------- | ------------------------------------------------------------------------------------- |
+| Failure kind    | `policy_suppressed`                                                                   |
+| Retryable       | No — permanent classification                                                         |
+| Pipeline stage  | Route policy (after route match, before delivery)                                     |
+| Receipt status  | `suppressed`                                                                          |
+| Receipt context | Includes `route_id`, `target_adapter`, `target_channel`, and the policy denial reason |
+
+**Denial reason codes** (stable, machine-readable):
+
+| Reason code                  | Policy field              | Description                          |
+| ---------------------------- | ------------------------- | ------------------------------------ |
+| `source_adapter_not_allowed` | `allowed_source_adapters` | Source adapter not in allowlist      |
+| `dest_adapter_not_allowed`   | `allowed_dest_adapters`   | Destination adapter not in allowlist |
+| `sender_not_allowed`         | `sender_allowlist`        | Sender identity not in allowlist     |
+| `room_not_allowed`           | `room_allowlist`          | Room identifier not in allowlist     |
+| `channel_not_allowed`        | `channel_allowlist`       | Channel identifier not in allowlist  |
+
+Policy suppression is visible in `RouteStats.policy_suppressed` counters and in `RuntimeAccounting.policy_suppressed`. Each suppressed delivery produces a persisted receipt with the denial reason, enabling post-hoc investigation via `medre inspect receipts`.
+
 ## 9. Operational Implications
 
 1. **Consumers must handle duplicates** for Meshtastic and MeshCore. This is
@@ -369,3 +395,10 @@ directly on the LXMRouter. The router manages its own internal delivery queue.
 6. **No transport provides end-to-end delivery confirmation** that MEDRE can
    observe, except Matrix (server-side event_id) and LXMF (async DELIVERED
    state callback). Even these are not instantaneous.
+
+7. **Route policy suppression is permanent and not retryable.** When a delivery
+   is denied by route-policy evaluation, it is classified as `policy_suppressed`
+   and produces a `status="suppressed"` receipt. This is an intentional
+   access-control outcome, not a transient failure. Operators should review
+   route policy configuration and adjust allowlists if the denial was
+   unintended.

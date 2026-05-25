@@ -71,7 +71,7 @@ dest_adapters = ["longfast"]
 directionality = "source_to_dest"
 
 [routes.matrix_to_radio.policy]
-allowed_event_types = ["message"]
+allowed_event_types = ["message.created"]
 channel_allowlist = ["!bridge-room:example.com"]
 ```
 
