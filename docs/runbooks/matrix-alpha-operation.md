@@ -1004,11 +1004,11 @@ The crypto store was not loaded on startup. Check:
 2. **Is the store directory empty?** On first run, the store is created but `crypto_store_loaded` reflects whether an existing store was loaded. A fresh store creation is not an error.
 3. **File permissions.** The adapter needs read/write access to the store path directory.
 
-## 13. E2EE Text Alpha
+## 15. E2EE Text Alpha
 
 This section describes how to operate MEDRE in encrypted rooms. **Plaintext alpha remains the primary and recommended path.** E2EE text alpha is an add-on for operators who need encrypted rooms.
 
-### 13.1 Install E2EE dependencies
+### 15.1 Install E2EE dependencies
 
 ```bash
 pip install -e ".[matrix-e2e]"
@@ -1024,7 +1024,7 @@ python -c "import nio; print('ENCRYPTION_ENABLED:', nio.crypto.ENCRYPTION_ENABLE
 
 Should print `ENCRYPTION_ENABLED: True`.
 
-### 13.2 Encrypted room setup
+### 15.2 Encrypted room setup
 
 Encrypted rooms must be created via a Matrix client (Element, etc.) or the Matrix room creation API. The adapter does not create rooms or toggle encryption.
 
@@ -1034,7 +1034,7 @@ Encrypted rooms must be created via a Matrix client (Element, etc.) or the Matri
 4. Copy the room ID (format: `!opaque:server`).
 5. Add the room ID to `MATRIX_ROOM_ALLOWLIST`.
 
-### 13.3 Configuration
+### 15.3 Configuration
 
 In addition to the standard alpha environment variables, E2EE text alpha requires setting the encryption mode:
 
@@ -1045,14 +1045,14 @@ export MATRIX_ROOM_ALLOWLIST="!encrypted:localhost"  # include the encrypted roo
 
 The adapter discovers its device ID via `whoami()` and derives an internal store path automatically. No operator configuration of `device_id` or `store_path` is needed.
 
-### 13.4 Device identity (automatic)
+### 15.4 Device identity (automatic)
 
 - The adapter discovers its device ID via the Matrix `whoami()` endpoint on startup.
 - The device ID is stable as long as the access token is associated with the same device.
 - No operator configuration is required. The `device_id` field on `MatrixConfig` is reserved for test harnesses and internal use.
 - If the access token is regenerated (e.g. re-login), a new device ID may be associated and the adapter will discover it automatically.
 
-### 13.5 First-run expectations
+### 15.5 First-run expectations
 
 On first run with E2EE enabled:
 
@@ -1065,7 +1065,7 @@ On first run with E2EE enabled:
 
 For the sender's encrypted messages to be decryptable by the adapter, the sender's client must encrypt for the adapter's device. This typically happens automatically on the next message sent after the adapter joins.
 
-### 13.6 Restart expectations
+### 15.6 Restart expectations
 
 On subsequent runs with the same access token and state directory:
 
@@ -1078,7 +1078,7 @@ On subsequent runs with the same access token and state directory:
 
 If `store_path` is changed or the store is deleted, the adapter creates a new crypto identity. Previous room keys are lost and previously decryptable messages become undecryptable.
 
-### 13.7 What works in E2EE text alpha
+### 15.7 What works in E2EE text alpha
 
 | Capability                        | Status                                                                    |
 | --------------------------------- | ------------------------------------------------------------------------- |
@@ -1088,7 +1088,7 @@ If `store_path` is changed or the store is deleted, the adapter creates a new cr
 | Automatic key management          | Working — upload/query/claim/share handled by manual sync loop (mirrors nio sync_forever pattern) |
 | Plaintext rooms                   | Working — identical behavior to plaintext alpha                           |
 
-### 13.8 What does NOT work in E2EE text alpha
+### 15.8 What does NOT work in E2EE text alpha
 
 | Feature                                    | Status                   | Notes                                                                                                                                                                                                                                            |
 | ------------------------------------------ | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
