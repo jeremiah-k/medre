@@ -1613,6 +1613,11 @@ class PipelineRunner:
             _inflight_key: str = (
                 f"{event.event_id}:{route.id}:{adapter_id}:{route_plan.plan_id}"
             )
+            # Track outcome for outbox update — declared here so the outer
+            # finally block always sees them (e.g. on CancelledError propagate).
+            _outcome_receipt: DeliveryReceipt | None = None
+            _outcome_failure_kind_val: DeliveryFailureKind | None = None
+            _outcome_error: str | None = None
             try:
                 # Track in-flight delivery identity for shutdown evidence.
                 if self._capacity_controller is not None:
