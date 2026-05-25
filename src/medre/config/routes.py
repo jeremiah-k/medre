@@ -149,8 +149,8 @@ class BridgePolicy:
         ------
         ConfigValidationError
             If unknown keys are present, or any allowlist value is not
-            a list of strings (e.g. a bare string which would silently
-            become a tuple of characters).
+            a list or tuple of strings (e.g. a bare string which would
+            silently become a tuple of characters).
         """
         # Reject unknown keys so operators don't silently misconfigure.
         unknown = set(data.keys()) - cls._KNOWN_FIELDS
@@ -163,7 +163,7 @@ class BridgePolicy:
                 section_path=f"{section_path}.policy" if section_path else "policy",
             )
 
-        # Validate each allowlist field is a list of strings.
+        # Validate each allowlist field is a list or tuple of strings.
         for field_name, _label in cls._ALLOWLIST_FIELDS:
             raw = data.get(field_name)
             if raw is None:
@@ -174,7 +174,7 @@ class BridgePolicy:
                     f"not a string. Did you mean [{raw!r}]?",
                     section_path=f"{section_path}.policy",
                 )
-            if not isinstance(raw, list):
+            if not isinstance(raw, (list, tuple)):
                 raise ConfigValidationError(
                     f"Route {route_id!r}: policy.{field_name} must be a list, "
                     f"got {type(raw).__name__}",

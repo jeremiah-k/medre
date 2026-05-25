@@ -557,3 +557,293 @@ class TestPolicySuppressedEvidence:
         assert "key-dest" in key
         # Target-channel in the key (or JSON null if channel was None).
         assert "key-ch" in key
+
+
+# ===================================================================
+# 8. Bidirectional policy: one-direction allowlists suppress reverse
+# ===================================================================
+
+
+class TestBidirectionalOneDirectionSuppresses:
+    """Bidirectional route with one-direction source/dest allowlists
+    suppresses the reverse leg.
+
+    A bidirectional route with allowed_source_adapters=("matrix",) and
+    allowed_dest_adapters=("radio",) permits matrix→radio but suppresses
+    radio→matrix because the reverse leg has source=radio (not in
+    allowed_source_adapters) and dest=matrix (not in allowed_dest_adapters).
+    """
+
+    @pytest.mark.asyncio
+    async def test_forward_leg_allowed_reverse_leg_suppressed(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Forward leg (matrix→radio) succeeds; reverse leg (radio→matrix) suppressed."""
+        adapter_matrix = FakePresentationAdapter(adapter_id="matrix")
+        adapter_radio = FakePresentationAdapter(adapter_id="radio")
+
+        # One-direction allowlists: only matrix as source, only radio as dest.
+        policy = RoutePolicy(
+            allowed_source_adapters=("matrix",),
+            allowed_dest_adapters=("radio",),
+        )
+
+        # Forward route: source=matrix, dest=radio.
+        forward_route = Route(
+            id="bidi-fwd",
+            source=RouteSource(
+                adapter="matrix", event_kinds=("message.created",), channel=None
+            ),
+            targets=[RouteTarget(adapter="radio")],
+            policy=policy,
+        )
+
+        # Reverse route: source=radio, dest=matrix (same policy instance).
+        reverse_route = Route(
+            id="bidi-rev",
+            source=RouteSource(
+                adapter="radio", event_kinds=("message.created",), channel=None
+            ),
+            targets=[RouteTarget(adapter="matrix")],
+            policy=policy,
+        )
+
+        router = Router(routes=[forward_route, reverse_route])
+
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router,
+            adapters={"matrix": adapter_matrix, "radio": adapter_radio},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        # Event from matrix — should match forward route and be delivered.
+        event_from_matrix = make_event(
+            event_id="bidi-fwd-001",
+            source_adapter="matrix",
+            source_channel_id=None,
+        )
+
+        # Event from radio — should match reverse route but be suppressed.
+        event_from_radio = make_event(
+            event_id="bidi-rev-001",
+            source_adapter="radio",
+            source_channel_id=None,
+        )
+
+        try:
+            # Forward leg: matrix→radio — allowed.
+            fwd_outcomes = await runner.handle_ingress(event_from_matrix)
+            assert len(fwd_outcomes) == 1
+            assert fwd_outcomes[0].status == "success"
+            assert fwd_outcomes[0].target_adapter == "radio"
+            assert len(adapter_radio.delivered_payloads) == 1
+
+            # Reverse leg: radio→matrix — suppressed by policy.
+            rev_outcomes = await runner.handle_ingress(event_from_radio)
+            assert len(rev_outcomes) == 1
+            assert rev_outcomes[0].status == "skipped"
+            assert rev_outcomes[0].failure_kind is DeliveryFailureKind.POLICY_SUPPRESSED
+            assert rev_outcomes[0].target_adapter == "matrix"
+            # Matrix adapter was never called for delivery.
+            assert len(adapter_matrix.delivered_payloads) == 0
+        finally:
+            await runner.stop()
+
+
+# ===================================================================
+# 9. Bidirectional policy: symmetric allowlists permit both legs
+# ===================================================================
+
+
+class TestBidirectionalSymmetricAllowlistsPermitBoth:
+    """Bidirectional route with both adapters in both source and dest
+    allowlists permits both forward and reverse legs."""
+
+    @pytest.mark.asyncio
+    async def test_both_directions_allowed(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Both forward (matrix→radio) and reverse (radio→matrix) succeed."""
+        adapter_matrix = FakePresentationAdapter(adapter_id="matrix")
+        adapter_radio = FakePresentationAdapter(adapter_id="radio")
+
+        # Symmetric allowlists: both adapters in both lists.
+        policy = RoutePolicy(
+            allowed_source_adapters=("matrix", "radio"),
+            allowed_dest_adapters=("radio", "matrix"),
+        )
+
+        forward_route = Route(
+            id="sym-fwd",
+            source=RouteSource(
+                adapter="matrix", event_kinds=("message.created",), channel=None
+            ),
+            targets=[RouteTarget(adapter="radio")],
+            policy=policy,
+        )
+
+        reverse_route = Route(
+            id="sym-rev",
+            source=RouteSource(
+                adapter="radio", event_kinds=("message.created",), channel=None
+            ),
+            targets=[RouteTarget(adapter="matrix")],
+            policy=policy,
+        )
+
+        router = Router(routes=[forward_route, reverse_route])
+
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router,
+            adapters={"matrix": adapter_matrix, "radio": adapter_radio},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event_from_matrix = make_event(
+            event_id="sym-fwd-001",
+            source_adapter="matrix",
+            source_channel_id=None,
+        )
+
+        event_from_radio = make_event(
+            event_id="sym-rev-001",
+            source_adapter="radio",
+            source_channel_id=None,
+        )
+
+        try:
+            # Forward leg: matrix→radio — allowed.
+            fwd_outcomes = await runner.handle_ingress(event_from_matrix)
+            assert len(fwd_outcomes) == 1
+            assert fwd_outcomes[0].status == "success"
+            assert fwd_outcomes[0].target_adapter == "radio"
+
+            # Reverse leg: radio→matrix — also allowed.
+            rev_outcomes = await runner.handle_ingress(event_from_radio)
+            assert len(rev_outcomes) == 1
+            assert rev_outcomes[0].status == "success"
+            assert rev_outcomes[0].target_adapter == "matrix"
+
+            # Both adapters received deliveries.
+            assert len(adapter_radio.delivered_payloads) == 1
+            assert len(adapter_matrix.delivered_payloads) == 1
+        finally:
+            await runner.stop()
+
+
+# ===================================================================
+# 10. Policy denial reason survives through trace timeline
+# ===================================================================
+
+
+class TestPolicyDenialReasonInTrace:
+    """Policy denial reason (e.g. 'source_adapter_not_allowed',
+    'channel_not_allowed') survives through the trace timeline's
+    receipt entry error field."""
+
+    @pytest.mark.asyncio
+    async def test_denial_reason_in_trace_receipt_error(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Trace timeline receipt entry includes specific denial reason
+        in its error field."""
+        from medre.core.supervision.accounting import RuntimeAccounting
+        from medre.runtime.evidence._bundle import collect_evidence_bundle
+        from medre.runtime.trace import assemble_event_timeline
+        from tests.helpers.bridge import make_pipeline_config
+
+        db_path = str(tmp_path / "denial_reason_trace.db")
+        storage = SQLiteStorage(db_path)
+        await storage.initialize()
+
+        adapter = FakePresentationAdapter(adapter_id="trace-dest")
+
+        # Policy that denies based on channel.
+        policy = RoutePolicy(channel_allowlist=("allowed-ch",))
+        route = Route(
+            id="denial-trace-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[RouteTarget(adapter="trace-dest", channel="blocked-ch")],
+            policy=policy,
+        )
+        router = Router(routes=[route])
+        accounting = RuntimeAccounting()
+
+        config = make_pipeline_config(
+            storage=storage,
+            router=router,
+            adapters={"trace-dest": adapter},
+            accounting=accounting,
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = make_event(
+            event_id="denial-trace-001",
+            source_adapter="src",
+            source_channel_id=None,
+        )
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+            assert len(outcomes) == 1
+            assert outcomes[0].status == "skipped"
+            assert outcomes[0].failure_kind is DeliveryFailureKind.POLICY_SUPPRESSED
+            # Verify denial reason in the outcome error.
+            assert outcomes[0].error is not None
+            assert "channel_not_allowed" in outcomes[0].error
+        finally:
+            await runner.stop()
+            await storage.close()
+
+        # Re-open storage to read receipts for trace assembly.
+        storage2 = SQLiteStorage(db_path)
+        await storage2.initialize()
+
+        stored_event = await storage2.get("denial-trace-001")
+        assert stored_event is not None
+
+        receipts = await storage2.list_receipts_for_event("denial-trace-001")
+        assert len(receipts) == 1
+        assert receipts[0].status == "suppressed"
+        assert receipts[0].failure_kind == "policy_suppressed"
+        # Denial reason is in the stored receipt's error field.
+        assert "channel_not_allowed" in (receipts[0].error or "")
+
+        # Assemble trace timeline and verify denial reason survives.
+        timeline = assemble_event_timeline(stored_event, receipts, [], [])
+        receipt_entry = next(e for e in timeline if e["entry_type"] == "receipt")
+        error_in_trace = receipt_entry["data"].get("error")
+        assert error_in_trace is not None
+        assert "channel_not_allowed" in error_in_trace
+
+        await storage2.close()
+
+        # Also verify denial reason survives in evidence bundle.
+        report = await collect_evidence_bundle(
+            storage_path=db_path,
+            event_id="denial-trace-001",
+        )
+
+        storage_section = report["sections"]["storage"]
+        assert storage_section["status"] == "passed"
+        data = storage_section["data"]
+        summary = data["incident_summary"]
+        assert summary["suppressed_count"] == 1
+        assert summary["first_failure_kind"] == "policy_suppressed"
+
+        # delivery_state_by_target includes failure_kind_detail.
+        dsbt = summary["delivery_state_by_target"]
+        assert len(dsbt) == 1
+        target_state = next(iter(dsbt.values()))
+        assert target_state["failure_kind"] == "policy_suppressed"
+        assert target_state["failure_kind_detail"] == "policy_suppressed"

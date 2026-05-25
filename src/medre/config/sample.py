@@ -131,8 +131,9 @@ display_name = "MEDRE"
 #   dest_channel     — channel/conversation ID on the dest side
 #
 # Policy ([routes.<id>.policy]):
-#   allowed_event_types      — event kinds to permit (e.g. ["message"]).
-#                              Enforced as structural route-source matching.
+#   allowed_event_types      — event kinds to permit (e.g. ["message.created",
+#                              "message.text"]). Enforced as structural
+#                              route-source matching.
 #   allowed_source_adapters  — source adapter names to permit. Empty = any.
 #   allowed_dest_adapters    — destination adapter names to permit. Empty = any.
 #   sender_allowlist         — permitted sender identities (source_transport_id).
@@ -163,9 +164,9 @@ enabled = true
 source_room = "!room:example.com"
 dest_channel = "1"
 
-# Only bridge "message" events (not reactions, edits, etc.)
+# Only bridge "message.created" events (not reactions, edits, etc.)
 [routes.matrix_radio_bridge.policy]
-allowed_event_types = ["message"]
+allowed_event_types = ["message.created"]
 
 # --- Disabled route example ---
 # This route is defined but will not be activated at startup.
@@ -207,5 +208,5 @@ allowed_event_types = ["message"]
 # dest_channel = "2"
 #
 # [routes.targeted_bridge.policy]
-# allowed_event_types = ["message"]
+# allowed_event_types = ["message.created"]
 """

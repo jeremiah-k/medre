@@ -288,6 +288,7 @@ _EXPECTED_ACCOUNTING_KEYS: frozenset[str] = frozenset(
         "outbound_attempts",
         "outbound_delivered",
         "outbound_failed",
+        "policy_suppressed",
         "replay_processed",
         "replay_rejected",
     }

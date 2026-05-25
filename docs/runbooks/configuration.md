@@ -377,7 +377,7 @@ source_room = "!room:example.com"
 dest_channel = "1"
 
 [routes.matrix_radio_bridge.policy]
-allowed_event_types = ["message"]
+allowed_event_types = ["message.created"]
 ```
 
 | Field             | Type           | Default            | Description                                                                                |
@@ -397,12 +397,12 @@ Optional static allowlist policy attached to a route.
 
 ```toml
 [routes.matrix_radio_bridge.policy]
-allowed_event_types = ["message"]
+allowed_event_types = ["message.created"]
 ```
 
 | Field                 | Type           | Default | Description                                                                |
 | --------------------- | -------------- | ------- | -------------------------------------------------------------------------- |
-| `allowed_event_types`      | list of string | `[]`    | Event kinds this route permits (e.g. `"message"`). Empty means all events. Enforced as structural route-source matching during route expansion. |
+| `allowed_event_types`      | list of string | `[]`    | Event kinds this route permits (e.g. `"message.created"`, `"message.text"`). Empty means all events. Enforced as structural route-source matching during route expansion. |
 | `allowed_source_adapters`  | list of string | `[]`    | Source adapter names to permit. Empty = any. |
 | `allowed_dest_adapters`    | list of string | `[]`    | Destination adapter names to permit. Empty = any. |
 | `sender_allowlist`         | list of string | `[]`    | Permitted sender identities (`source_transport_id`). Empty = any sender. |
@@ -416,9 +416,17 @@ allowed_event_types = ["message"]
 > not retryable. All policy fields are config-file-only (not settable via
 > environment variables).
 >
+> Policy fields are evaluated against the expanded runtime source and target
+> adapters. On bidirectional routes, the same allowlist applies to both
+> directions individually. For example, a bidirectional route with
+> `allowed_source_adapters = ["matrix"]` and `allowed_dest_adapters = ["radio"]`
+> permits Matrix→radio traffic but suppresses the reverse leg (radio→Matrix)
+> because the reverse leg has source=radio, which is not in the allowlist. To
+> permit both legs, include both adapters in both allowlists.
+>
 > **Validation:** Unknown keys in `[routes.<id>.policy]` are rejected at config
-> load time. Allowlist values must be arrays of strings (e.g. `["message"]`);
-> bare strings (e.g. `"message"`) are rejected.
+> load time. Allowlist values must be arrays of strings (e.g. `["message.created"]`);
+> bare strings (e.g. `"message.created"`) are rejected.
 
 #### Route Retry (`[routes.ROUTE_ID.retry]`)
 
