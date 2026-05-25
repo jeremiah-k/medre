@@ -45,6 +45,18 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Outbox constants
+# ---------------------------------------------------------------------------
+
+#: Grace period (in seconds) before a ``queued`` outbox item is considered
+#: stale and eligible for reclaim by :meth:`claim_due_outbox_items`.  A
+#: conservative value avoids reclaiming items that are legitimately waiting
+#: in an adapter-local queue (e.g. Meshtastic) while still preventing
+#: permanently-stuck rows when the adapter never finalizes.
+STALE_QUEUED_GRACE_SECONDS: int = 300  # 5 minutes
+
+
+# ---------------------------------------------------------------------------
 # Schema DDL
 # ---------------------------------------------------------------------------
 
@@ -696,7 +708,7 @@ class SQLiteStorage:
         # dispatches on ``_use_aiosqlite`` before calling async/sync APIs.
         self._db: Any = None
         self._lock = threading.Lock()
-        self._outbox_create_lock = asyncio.Lock()
+        self._async_write_lock = asyncio.Lock()
         self._use_aiosqlite = _HAS_AIOSQLITE
 
     # -- Internal helpers ---------------------------------------------------
@@ -1054,8 +1066,9 @@ class SQLiteStorage:
         db = self._require_db()
         try:
             if self._use_aiosqlite:
-                await db.execute(sql, params)
-                await db.commit()
+                async with self._async_write_lock:
+                    await db.execute(sql, params)
+                    await db.commit()
             else:
                 await asyncio.to_thread(self._sync_write, db, sql, params)
         except sqlite3.Error as exc:
@@ -1066,9 +1079,10 @@ class SQLiteStorage:
         db = self._require_db()
         try:
             if self._use_aiosqlite:
-                for sql, params in ops:
-                    await db.execute(sql, params)
-                await db.commit()
+                async with self._async_write_lock:
+                    for sql, params in ops:
+                        await db.execute(sql, params)
+                    await db.commit()
             else:
                 await asyncio.to_thread(self._sync_write_batch, db, ops)
         except sqlite3.IntegrityError as exc:
@@ -1496,12 +1510,15 @@ class SQLiteStorage:
 
         Checks for an existing item with the same key tuple
         ``(delivery_plan_id, target_adapter, target_channel, attempt_number)``
-        before inserting.  If a non-terminal item already exists it is
-        reclaimed: its ``status``, ``worker_id``, ``locked_at``, and
-        ``lease_until`` are updated to match the new item's values so the
-        caller always receives a properly-claimed row.  If the existing
-        item is terminal it is deleted first so a new row for re-delivery
-        can be inserted without violating the UNIQUE constraint.
+        before inserting.  If an existing item has a **reclaimable** status
+        (``pending`` or ``retry_wait``), it is reclaimed: its ``status``,
+        ``worker_id``, ``locked_at``, and ``lease_until`` are updated to
+        match the new item's values so the caller always receives a
+        properly-claimed row.  If the existing item is **active**
+        (``in_progress`` or ``queued``), it is returned unchanged — active
+        work is never stolen.  If the existing item is terminal it is
+        deleted first so a new row for re-delivery can be inserted without
+        violating the UNIQUE constraint.
 
         The entire SELECT + conditional DELETE + INSERT runs inside a
         single ``BEGIN IMMEDIATE`` transaction so that two concurrent
@@ -1510,6 +1527,7 @@ class SQLiteStorage:
         (extreme edge case), the existing row is re-read and returned.
         """
         _terminal = frozenset({"sent", "dead_lettered", "cancelled", "abandoned"})
+        _reclaimable = frozenset({"pending", "retry_wait"})
         now = _now_iso()
         meta_json = _encode_json(item.metadata or {})
 
@@ -1562,7 +1580,7 @@ class SQLiteStorage:
         )
 
         if self._use_aiosqlite:
-            async with self._outbox_create_lock:
+            async with self._async_write_lock:
                 db = self._require_db()
                 try:
                     await db.execute("BEGIN IMMEDIATE")  # type: ignore[union-attr]
@@ -1571,7 +1589,7 @@ class SQLiteStorage:
                         row = await cur.fetchone()
                     if row is not None:
                         existing = dict(row)
-                        if existing["status"] not in _terminal:
+                        if existing["status"] in _reclaimable:
                             # Re-claim: update status, worker, and lease
                             # so the pipeline always gets an in_progress
                             # row with a valid lease for finalization.
@@ -1595,8 +1613,17 @@ class SQLiteStorage:
                                 await self.get_outbox_item(existing["outbox_id"])
                                 or item
                             )
-                        # Terminal — delete so re-insertion can proceed.
-                        await db.execute(delete_sql, (existing["outbox_id"],))  # type: ignore[union-attr]
+                        if existing["status"] in _terminal:
+                            # Terminal — delete so re-insertion can proceed.
+                            await db.execute(delete_sql, (existing["outbox_id"],))  # type: ignore[union-attr]
+                        else:
+                            # Active (in_progress or queued) — return
+                            # unchanged to avoid stealing active work.
+                            await db.execute("COMMIT")  # type: ignore[union-attr]
+                            return (
+                                await self.get_outbox_item(existing["outbox_id"])
+                                or item
+                            )
                     await db.execute(insert_sql, insert_params)  # type: ignore[union-attr]
                     await db.execute("COMMIT")  # type: ignore[union-attr]
                 except sqlite3.IntegrityError:
@@ -1631,6 +1658,7 @@ class SQLiteStorage:
                     insert_sql,
                     insert_params,
                     _terminal,
+                    _reclaimable,
                     reclaim_status=item.status or "pending",
                     reclaim_worker_id=item.worker_id,
                     reclaim_locked_at=item.locked_at,
@@ -1656,6 +1684,7 @@ class SQLiteStorage:
         insert_sql: str,
         insert_params: tuple[Any, ...],
         terminal: frozenset[str],
+        reclaimable: frozenset[str],
         *,
         reclaim_status: str = "pending",
         reclaim_worker_id: str | None = None,
@@ -1665,9 +1694,11 @@ class SQLiteStorage:
     ) -> str | None:
         """Synchronous helper: BEGIN IMMEDIATE, SELECT, optional DELETE/UPDATE, INSERT, COMMIT.
 
-        Returns the existing outbox_id when a non-terminal row was found
+        Returns the existing outbox_id when a reclaimable row was found
         (idempotent — the row is reclaimed with new status/worker/lease),
-        or None when a new row was inserted.
+        or the existing outbox_id when an active (in_progress/queued) row
+        was found (returned unchanged).  Returns None when a new row was
+        inserted.
         """
         with self._lock:
             db.execute("BEGIN IMMEDIATE")
@@ -1675,7 +1706,7 @@ class SQLiteStorage:
                 row = db.execute(select_sql, select_params).fetchone()
                 if row is not None:
                     existing = dict(row)
-                    if existing["status"] not in terminal:
+                    if existing["status"] in reclaimable:
                         # Re-claim: update status, worker, and lease.
                         db.execute(
                             """UPDATE delivery_outbox
@@ -1694,7 +1725,12 @@ class SQLiteStorage:
                         )
                         db.execute("COMMIT")
                         return existing["outbox_id"]
-                    db.execute(delete_sql, (existing["outbox_id"],))
+                    if existing["status"] in terminal:
+                        db.execute(delete_sql, (existing["outbox_id"],))
+                    else:
+                        # Active (in_progress or queued) — return unchanged.
+                        db.execute("COMMIT")
+                        return existing["outbox_id"]
                 db.execute(insert_sql, insert_params)
                 db.execute("COMMIT")
                 return None
@@ -1786,24 +1822,39 @@ class SQLiteStorage:
 
         Uses a transaction to SELECT FOR UPDATE equivalent (rowid-based)
         and updates in one step.  Claims items that are:
-        - status IN ('pending', 'retry_wait')
-          OR (status = 'in_progress' AND lease_until <= now) — expired leases
-        - (next_attempt_at IS NULL OR next_attempt_at <= now)
-        - (lease_until IS NULL OR lease_until <= now)
+
+        - ``status IN ('pending', 'retry_wait')`` — directly claimable;
+        - ``status = 'in_progress' AND lease_until <= now`` — expired leases;
+        - ``status = 'queued' AND updated_at <= now - GRACE`` — stale
+          queued items past the grace threshold
+          (:data:`STALE_QUEUED_GRACE_SECONDS`).
+
+        Additional guards:
+
+        - ``(next_attempt_at IS NULL OR next_attempt_at <= now)``
+        - ``(lease_until IS NULL OR lease_until <= now)``
+
+        When moving a row to ``in_progress``, ``next_attempt_at`` is
+        cleared (set to ``NULL``) since the item is no longer waiting
+        for a scheduled retry.
         """
         lease_until = _add_seconds_iso(now, lease_seconds)
+        stale_cutoff = (
+            datetime.fromisoformat(now) - timedelta(seconds=STALE_QUEUED_GRACE_SECONDS)
+        ).isoformat()
         # Use a two-step approach: SELECT candidates, then UPDATE matching.
         # SQLite doesn't support RETURNING with ORIGIN in all configurations,
         # so we select first, then update by outbox_id.
         rows = await self._read_all(
             """SELECT * FROM delivery_outbox
                WHERE (status IN ('pending', 'retry_wait')
-                      OR (status = 'in_progress' AND lease_until <= ?))
+                      OR (status = 'in_progress' AND lease_until <= ?)
+                      OR (status = 'queued' AND updated_at <= ?))
                  AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
                  AND (lease_until IS NULL OR lease_until <= ?)
                ORDER BY next_attempt_at ASC, created_at ASC
                LIMIT ?""",
-            (now, now, now, limit),
+            (now, stale_cutoff, now, now, limit),
         )
         if not rows:
             return []
@@ -1816,12 +1867,14 @@ class SQLiteStorage:
                     locked_at = ?,
                     lease_until = ?,
                     worker_id = ?,
-                    updated_at = ?
+                    updated_at = ?,
+                    next_attempt_at = NULL
                 WHERE outbox_id IN ({placeholders})
                   AND (status IN ('pending', 'retry_wait')
-                       OR (status = 'in_progress' AND lease_until <= ?))
+                       OR (status = 'in_progress' AND lease_until <= ?)
+                       OR (status = 'queued' AND updated_at <= ?))
                   AND (lease_until IS NULL OR lease_until <= ?)""",  # nosec: placeholders are only ? markers, values passed as params
-            (now, lease_until, worker_id, now, *outbox_ids, now, now),
+            (now, lease_until, worker_id, now, *outbox_ids, now, stale_cutoff, now),
         )
 
         # Re-read to get the updated rows (some may have been claimed by

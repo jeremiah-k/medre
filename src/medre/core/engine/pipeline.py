@@ -1893,10 +1893,11 @@ class PipelineRunner:
                         )
                     except Exception:
                         self._log.exception(
-                            "Failed to renew outbox lease for %s",
+                            "Transient error renewing outbox lease for %s; "
+                            "will retry on next cycle",
                             outbox_id,
                         )
-                        return
+                        continue
                     if not renewed:
                         # Item is no longer ours — stop renewing.
                         break

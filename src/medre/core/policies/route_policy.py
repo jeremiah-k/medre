@@ -126,7 +126,6 @@ def _deny(
     reason: str,
     blocked_field: str,
     blocked_value: str,
-    _policy: RoutePolicy,
 ) -> RouteDecision:
     """Build a denial decision."""
     if len(blocked_value) >= _BLOCKED_VALUE_CUTOFF:
@@ -211,7 +210,6 @@ def evaluate_route_policy(
             _REASON_SOURCE_ADAPTER,
             "allowed_source_adapters",
             src_adapter,
-            policy,
         )
 
     # -- Dest adapter ---------------------------------------------------------
@@ -223,7 +221,6 @@ def evaluate_route_policy(
             _REASON_DEST_ADAPTER,
             "allowed_dest_adapters",
             dst_adapter if dst_adapter is not None else "<missing>",
-            policy,
         )
 
     # -- Sender ---------------------------------------------------------------
@@ -233,7 +230,6 @@ def evaluate_route_policy(
             _REASON_SENDER,
             "sender_allowlist",
             sender,
-            policy,
         )
 
     # -- Room -----------------------------------------------------------------
@@ -245,7 +241,6 @@ def evaluate_route_policy(
             _REASON_ROOM,
             "room_allowlist",
             source_channel_id if source_channel_id is not None else "<missing>",
-            policy,
         )
 
     # -- Channel --------------------------------------------------------------
@@ -260,7 +255,6 @@ def evaluate_route_policy(
             _REASON_CHANNEL,
             "channel_allowlist",
             effective_channel if effective_channel is not None else "<missing>",
-            policy,
         )
 
     return _allow(policy)

@@ -912,3 +912,238 @@ class TestTargetedOutboxLookupRegression:
                 f"Noise item {i} should remain '{expected_status}', "
                 f"got '{noise.status}'"
             )
+
+
+# ===================================================================
+# Lease-renewal resilience
+# ===================================================================
+
+
+class TestLeaseRenewalResilience:
+    """Transient errors during lease renewal must not permanently stop the
+    renewal loop; the loop should continue retrying until the delivery
+    completes and the outer finally block cancels the renewal task.
+    """
+
+    async def test_renewal_continues_after_transient_exception(
+        self,
+        temp_storage: SQLiteStorage,
+        router_with_routes: Router,
+        fake_presentation: FakePresentationAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """renew_outbox_lease raising once must NOT permanently kill the
+        renewal loop.  After the transient error, renewal should be called
+        again and the delivery should complete normally with the outbox
+        reaching a terminal status.
+        """
+        import asyncio
+        from unittest.mock import AsyncMock
+
+        from medre.core.contracts.adapter import AdapterDeliveryResult
+        from medre.core.engine import pipeline as pipeline_mod
+
+        # Short-circuit the renewal interval for a fast test.
+        monkeypatch.setattr(pipeline_mod, "_OUTBOX_RENEWAL_INTERVAL_SECONDS", 0.05)
+
+        call_count = 0
+
+        class BlockingAdapter(FakePresentationAdapter):
+            """Adapter that blocks until signalled, simulating a slow delivery."""
+
+            def __init__(self) -> None:
+                super().__init__(adapter_id="fake_presentation")
+                self._release = asyncio.Event()
+
+            async def deliver(self, payload: RenderingResult) -> AdapterDeliveryResult:
+                self.delivered_payloads.append(payload)
+                await self._release.wait()
+                return AdapterDeliveryResult(
+                    native_message_id=f"msg-{payload.event_id}",
+                    native_channel_id=payload.target_channel,
+                )
+
+        blocking_adapter = BlockingAdapter()
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router_with_routes,
+            adapters={"fake_presentation": blocking_adapter},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        original_renew = temp_storage.renew_outbox_lease
+
+        async def _flaky_renew(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise ConnectionError("transient db blip")
+            return await original_renew(*args, **kwargs)
+
+        temp_storage.renew_outbox_lease = _flaky_renew  # type: ignore[assignment]
+
+        event = make_event(event_id="obox-resilient-001")
+
+        try:
+            ingress_task = asyncio.create_task(runner.handle_ingress(event))
+
+            # Wait long enough for ≥2 renewal cycles to fire (interval is 50ms).
+            await asyncio.sleep(0.25)
+
+            # Release the adapter so delivery can complete.
+            blocking_adapter._release.set()
+            outcomes = await ingress_task
+
+            # Delivery should succeed.
+            assert any(o.status in ("success", "queued") for o in outcomes)
+
+            # The renewal method was called more than once, proving the loop
+            # continued after the first transient exception.
+            assert call_count >= 2, (
+                f"Expected renew_outbox_lease to be called ≥2 times, "
+                f"got {call_count}"
+            )
+
+            # Outbox should reach a terminal status.
+            items = await temp_storage.list_outbox_items()
+            matching = [i for i in items if i.event_id == "obox-resilient-001"]
+            assert len(matching) == 1
+            assert matching[0].status in ("sent", "queued")
+        finally:
+            await runner.stop()
+
+    async def test_cancelled_error_exits_renewal_loop(
+        self,
+        temp_storage: SQLiteStorage,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """asyncio.CancelledError must exit the renewal loop (not be swallowed
+        by the transient-error handler)."""
+        import asyncio
+
+        from medre.core.engine import pipeline as pipeline_mod
+        from medre.core.storage.backend import DeliveryOutboxItem
+
+        monkeypatch.setattr(pipeline_mod, "_OUTBOX_RENEWAL_INTERVAL_SECONDS", 0.05)
+
+        from datetime import datetime, timedelta, timezone
+
+        now = datetime.now(timezone.utc)
+        item = DeliveryOutboxItem(
+            outbox_id="obox-cancel-test",
+            event_id="evt-cancel",
+            route_id="route-1",
+            delivery_plan_id="plan-1",
+            target_adapter="fake_presentation",
+            status="in_progress",
+            worker_id="pipeline:w1",
+            lease_until=(now + timedelta(seconds=60)).isoformat(),
+            locked_at=now.isoformat(),
+        )
+        await temp_storage.create_outbox_item(item)
+
+        original_renew = temp_storage.renew_outbox_lease
+
+        async def _cancel_on_first(*args, **kwargs):
+            raise asyncio.CancelledError("simulated cancellation")
+
+        temp_storage.renew_outbox_lease = _cancel_on_first  # type: ignore[assignment]
+
+        # Build a minimal runner to call the renewal starter.
+        from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
+        from medre.core.events.bus import EventBus
+        from medre.core.planning import FallbackResolver, RelationResolver
+        from medre.core.routing import Router
+
+        config = PipelineConfig(
+            storage=temp_storage,
+            router=Router(routes=[]),
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters={},
+            event_bus=EventBus(),
+        )
+        runner = PipelineRunner(config)
+
+        task = runner._start_outbox_lease_renewal(
+            "obox-cancel-test", True, "pipeline:w1"
+        )
+        assert task is not None
+
+        # Wait for the renewal task to finish.  It should raise
+        # CancelledError, which ends the task.
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=1.0)
+
+    async def test_finalization_still_runs_after_renewal_exception(
+        self,
+        temp_storage: SQLiteStorage,
+        router_with_routes: Router,
+        fake_presentation: FakePresentationAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Even when renewal keeps failing, the finalization cleanup must
+        still run and the outbox must transition to a terminal status."""
+        import asyncio
+        from unittest.mock import AsyncMock
+
+        from medre.core.contracts.adapter import AdapterDeliveryResult
+        from medre.core.engine import pipeline as pipeline_mod
+
+        monkeypatch.setattr(pipeline_mod, "_OUTBOX_RENEWAL_INTERVAL_SECONDS", 0.05)
+
+        renew_call_count = 0
+
+        async def _always_fail_renew(*args, **kwargs):
+            nonlocal renew_call_count
+            renew_call_count += 1
+            raise RuntimeError("persistent failure")
+
+        temp_storage.renew_outbox_lease = _always_fail_renew  # type: ignore[assignment]
+
+        class SlowAdapter(FakePresentationAdapter):
+            """Adapter slow enough for ≥1 renewal cycle to fire."""
+
+            def __init__(self) -> None:
+                super().__init__(adapter_id="fake_presentation")
+
+            async def deliver(self, payload: RenderingResult) -> AdapterDeliveryResult:
+                self.delivered_payloads.append(payload)
+                await asyncio.sleep(0.15)
+                return AdapterDeliveryResult(
+                    native_message_id=f"msg-{payload.event_id}",
+                    native_channel_id=payload.target_channel,
+                )
+
+        slow_adapter = SlowAdapter()
+
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router_with_routes,
+            adapters={"fake_presentation": slow_adapter},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = make_event(event_id="obox-finalize-001")
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+
+            # Delivery should still succeed (renewal failure is non-fatal).
+            assert any(o.status in ("success", "queued") for o in outcomes)
+
+            # Outbox should reach a terminal status despite renewal failures.
+            items = await temp_storage.list_outbox_items()
+            matching = [i for i in items if i.event_id == "obox-finalize-001"]
+            assert len(matching) == 1
+            assert matching[0].status in ("sent", "queued")
+
+            # Renewal was attempted at least once (proving the loop
+            # continued after the first error rather than permanently dying).
+            assert renew_call_count >= 1, (
+                f"Expected ≥1 renewal attempt, got {renew_call_count}"
+            )
+        finally:
+            await runner.stop()

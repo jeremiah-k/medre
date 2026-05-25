@@ -145,11 +145,18 @@ async def temp_storage() -> AsyncGenerator[SQLiteStorage, None]:
         f.close()
 
     storage = SQLiteStorage(db_path=db_path)
-    await storage.initialize()
-    yield storage
-    await storage.close()
-    if not artifact_dir:
-        os.unlink(db_path)
+    try:
+        await storage.initialize()
+    except BaseException:
+        if not artifact_dir:
+            os.unlink(db_path)
+        raise
+    try:
+        yield storage
+    finally:
+        await storage.close()
+        if not artifact_dir:
+            os.unlink(db_path)
 
 
 # ---------------------------------------------------------------------------

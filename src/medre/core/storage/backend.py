@@ -210,11 +210,23 @@ class DeliveryOutboxItem:
 
     @property
     def is_claimable(self) -> bool:
-        """Return ``True`` if this item is in a directly-claimable status.
+        """Return ``True`` if this item is in a *directly*-claimable status.
 
-        Note: expired ``in_progress`` items are also claimable via
-        ``claim_due_outbox_items`` (which reclaims items whose lease has
-        expired), but this property does not reflect that.
+        This property reflects **direct** claimability only: items whose
+        ``status`` is ``pending`` or ``retry_wait`` can be claimed
+        immediately by any worker via :meth:`claim_due_outbox_items`.
+
+        Items in ``in_progress`` or ``queued`` are **not** directly
+        claimable, but *may* become reclaimable through storage-level
+        queries that check for lease expiry (``in_progress`` whose
+        ``lease_until`` has passed) or staleness (``queued`` whose
+        ``updated_at`` is older than a grace threshold).  Those reclaim
+        paths are entirely storage-query-dependent and are **not**
+        reflected by this property.
+
+        Returns
+        -------
+        bool
         """
         return self.status in {"pending", "retry_wait"}
 
