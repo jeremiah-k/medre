@@ -539,8 +539,8 @@ CREATE TABLE delivery_outbox (
 **Uniqueness:** The `UNIQUE` constraint on `(delivery_plan_id, target_adapter, target_channel, attempt_number)` is supplemented by a partial unique index `WHERE target_channel IS NULL` to close the SQLite `NULL != NULL` gap:
 
 ```sql
-CREATE UNIQUE INDEX IF NOT EXISTS uq_outbox_null_channel
-    ON delivery_outbox (delivery_plan_id, target_adapter, target_channel, attempt_number)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_null_channel_unique
+    ON delivery_outbox (delivery_plan_id, target_adapter, attempt_number)
     WHERE target_channel IS NULL;
 ```
 

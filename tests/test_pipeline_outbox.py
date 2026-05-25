@@ -271,6 +271,57 @@ class TestOutboxStatusTransitions:
         finally:
             await runner.stop()
 
+
+class TestNoRetryPolicyDeadLetters:
+    """When retry_policy is None, transient failures dead-letter the outbox item."""
+
+    async def test_transient_failure_with_no_retry_policy_dead_letters(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """A retryable transient failure with no retry policy dead-letters the
+        outbox item instead of scheduling retry_wait."""
+        from medre.core.contracts.adapter import AdapterDeliveryResult
+
+        class TransientFailAdapter(FakePresentationAdapter):
+            async def deliver(self, payload: RenderingResult) -> AdapterDeliveryResult:
+                raise ConnectionError("transient failure for no-retry-policy test")
+
+        adapter = TransientFailAdapter(adapter_id="transient_fail")
+        route = Route(
+            id="route-no-retry",
+            source=RouteSource(
+                adapter="fake_transport",
+                event_kinds=("message.created",),
+                channel="ch-0",
+            ),
+            targets=[RouteTarget(adapter="transient_fail")],
+        )
+        router = Router(routes=[route])
+
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router,
+            adapters={"transient_fail": adapter},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = make_event(event_id="obox-no-retry-001")
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+            assert any(o.status in ("transient_failure", "failed") for o in outcomes)
+
+            items = await temp_storage.list_outbox_items()
+            matching = [i for i in items if i.event_id == "obox-no-retry-001"]
+            assert len(matching) == 1
+            assert (
+                matching[0].status == "dead_lettered"
+            ), f"Expected dead_lettered, got {matching[0].status}"
+        finally:
+            await runner.stop()
+
     async def test_queued_delivery_marks_queued(
         self,
         temp_storage: SQLiteStorage,
