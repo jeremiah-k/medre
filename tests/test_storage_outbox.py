@@ -1085,7 +1085,6 @@ class TestStaleQueuedReclaim:
     ) -> None:
         """A queued row whose updated_at is older than the grace period
         should be reclaimed by claim_due_outbox_items."""
-        grace = STALE_QUEUED_GRACE_SECONDS
         now_claim = "2026-01-01T01:00:00"
         # Make the queued row appear stale: updated_at is well before
         # now_claim - grace.
@@ -1107,15 +1106,13 @@ class TestStaleQueuedReclaim:
         assert matched[0].status == "in_progress"
         assert matched[0].worker_id == "worker-2"
 
-    async def test_fresh_queued_not_claimed(
-        self, temp_storage: SQLiteStorage
-    ) -> None:
+    async def test_fresh_queued_not_claimed(self, temp_storage: SQLiteStorage) -> None:
         """A queued row whose updated_at is within the grace period
         should NOT be claimed."""
         now_claim = "2026-01-01T01:00:00"
         grace = STALE_QUEUED_GRACE_SECONDS
         # Set updated_at to exactly now_claim - grace + 10s (still fresh).
-        from datetime import datetime, timedelta, timezone
+        from datetime import datetime, timedelta
 
         cutoff = datetime.fromisoformat(now_claim) - timedelta(seconds=grace)
         fresh_updated = (cutoff + timedelta(seconds=10)).isoformat()
@@ -1303,9 +1300,9 @@ class TestCreateOutboxNoSteal:
         assert created2.outbox_id == oid
         assert created2.status == "in_progress"
         assert created2.worker_id == "pipeline:reclaim"
-        assert created2.next_attempt_at is None, (
-            "Reclaiming a retry_wait row must clear next_attempt_at"
-        )
+        assert (
+            created2.next_attempt_at is None
+        ), "Reclaiming a retry_wait row must clear next_attempt_at"
 
 
 # ===================================================================
@@ -1427,7 +1424,7 @@ class TestAiosqliteWriteLock:
                 ),
             )
 
-        results = await asyncio.gather(
+        await asyncio.gather(
             do_write(),
             temp_storage.create_outbox_item(item),
         )

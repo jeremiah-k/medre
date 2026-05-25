@@ -411,9 +411,7 @@ class TestLargeBlockedValueSanitisation:
         """A value of length (cutoff - 1) is still shown."""
         val = "y" * (BLOCKED_VALUE_CUTOFF - 1)
         policy = RoutePolicy(allowed_source_adapters=("ok",))
-        decision = evaluate_route_policy(
-            policy, _event(source_adapter=val), _target()
-        )
+        decision = evaluate_route_policy(policy, _event(source_adapter=val), _target())
         assert decision.blocked_value == val
         # Not masked — the escape representation appears in the summary.
         assert "<blocked>" not in decision.allowed_summary

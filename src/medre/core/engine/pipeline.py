@@ -1486,7 +1486,7 @@ class PipelineRunner:
                     # large externally-sourced IDs from flooding logs/receipts.
                     _blocked_val = decision.blocked_value or ""
                     if len(_blocked_val) >= BLOCKED_VALUE_CUTOFF:
-                        _blocked_val = _blocked_val[:256] + "..."
+                        _blocked_val = _blocked_val[:BLOCKED_VALUE_CUTOFF] + "..."
                     self._log.info(
                         "policy_suppressed: route_id=%s event_id=%s "
                         "target_adapter=%s reason=%s "

@@ -944,7 +944,6 @@ class TestLeaseRenewalResilience:
         reaching a terminal status.
         """
         import asyncio
-        from unittest.mock import AsyncMock
 
         from medre.core.contracts.adapter import AdapterDeliveryResult
         from medre.core.engine import pipeline as pipeline_mod
@@ -1051,8 +1050,6 @@ class TestLeaseRenewalResilience:
         )
         await temp_storage.create_outbox_item(item)
 
-        original_renew = temp_storage.renew_outbox_lease
-
         async def _cancel_on_first(*args, **kwargs):
             raise asyncio.CancelledError("simulated cancellation")
 
@@ -1093,7 +1090,6 @@ class TestLeaseRenewalResilience:
         """Even when renewal keeps failing, the finalization cleanup must
         still run and the outbox must transition to a terminal status."""
         import asyncio
-        from unittest.mock import AsyncMock
 
         from medre.core.contracts.adapter import AdapterDeliveryResult
         from medre.core.engine import pipeline as pipeline_mod
@@ -1149,10 +1145,10 @@ class TestLeaseRenewalResilience:
             assert len(matching) == 1
             assert matching[0].status in ("sent", "queued")
 
-            # Renewal was attempted at least once (proving the loop
+            # Renewal was attempted multiple times (proving the loop
             # continued after the first error rather than permanently dying).
-            assert renew_call_count >= 1, (
-                f"Expected ≥1 renewal attempt, got {renew_call_count}"
-            )
+            assert (
+                renew_call_count >= 2
+            ), f"Expected ≥2 renewal attempts, got {renew_call_count}"
         finally:
             await runner.stop()

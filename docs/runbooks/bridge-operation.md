@@ -727,7 +727,7 @@ The bridge operation layer explicitly does **not** provide:
 
 2. **Exactly-once delivery.** No transport in MEDRE provides exactly-once semantics. Radio transports are probabilistic. Matrix is at-least-once. LXMF is at-least-once with eventual delivery.
 
-3. **No durable adapter-local queue.** Adapter-local outbound queues (e.g., Meshtastic outbound queue) are in-memory and non-durable — queue contents are lost on process termination. Durable `delivery_outbox` tracking rows (including `queued` rows committed before a crash) may survive in SQLite, but in-flight delivery execution state is ephemeral and cannot be resumed after restart. No persistent in-flight recovery beyond outbox lease reclamation. No replay resume.
+3. **No durable adapter-local queue.** Adapter-local outbound queues (e.g., Meshtastic outbound queue) are in-memory and non-durable — queue contents are lost on process termination. Durable `delivery_outbox` tracking rows (including `queued` rows committed before a crash) may survive in SQLite, but in-flight delivery execution state is ephemeral and cannot be resumed after restart. Recovery after restart is limited to outbox lease reclamation: expired `in_progress` leases are reclaimed and stale `queued` rows past the `STALE_QUEUED_GRACE_SECONDS` threshold are reclaimed. No replay resume.
 
 4. **Per-adapter restart.** Only full runtime stop/start is supported. Individual adapters cannot be restarted independently.
 

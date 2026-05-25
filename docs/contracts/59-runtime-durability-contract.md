@@ -224,13 +224,15 @@ provide RF confirmation, ACK, remote receipt, or exactly-once guarantees.
 4. On successful send, the adapter returns a `QueueDeliveryResult` with the native packet ID. The pipeline then writes a `DeliveryReceipt` and `NativeMessageRef` to SQLite (§2.2). These are durable.
 5. On transient send failure, the queue front-requeues the item for bounded retry within the process. This retry is **not** durable across restarts.
 
-**Crash/shutdown impact on queued items:**
+**Crash/shutdown impact on queued items (timing-dependent):**
 
-- Events whose delivery was enqueued but not yet sent: event survives in SQLite (no receipt, no native ref). An `in_progress` or `queued` outbox row may exist if the pipeline created it before adapter delivery (see §3.3). Identifiable via the orphaned-events query in §7.
-- Events whose send completed but receipt was not yet written: event survives in SQLite (no receipt). An `in_progress` outbox row may exist. Same orphaned-events query applies.
+- **Crash before queued receipt/outbox commit:** The event survives in SQLite with no receipt and no outbox row. The delivery is unrecoverable by the RetryWorker (no outbox row to reclaim). Identifiable via the orphaned-events query in §7.
+- **Crash after queued receipt/outbox commit, before local SDK send:** The event survives in SQLite. A `queued` outbox row and corresponding receipt survive. A native ref does **not** yet exist (native ref is only created after successful local SDK send). The `queued` outbox row is ambiguous after restart: the adapter may or may not have sent the message before the crash. Freshly queued rows (within `STALE_QUEUED_GRACE_SECONDS`, default 300 s) are not automatically reclaimed. Stale queued rows past the grace threshold are reclaimed by the RetryWorker, which may produce a duplicate send.
+- **Crash after local SDK send success, before receipt commit:** The event survives in SQLite. An `in_progress` outbox row may survive. A native ref may or may not exist depending on whether `store_native_ref` committed before the crash. No `sent` receipt exists. The surviving outbox row is reclaimable after lease expiry. This case may produce a duplicate send on recovery.
+- **Native ref only exists after local SDK send success.** The `store_native_ref` call is made after the adapter returns a transport-native message ID. A crash before local SDK send success means no native ref was ever created, regardless of whether an outbox row exists.
+- **Adapter-local Meshtastic queue contents are non-durable.** The in-memory `collections.deque` is lost on crash. Only SQLite-persisted state (events, receipts, outbox rows, native refs) survives. Queued-but-unsent items in the adapter-local deque are permanently lost; corresponding events and outbox rows survive in SQLite.
+- **Queued rows after restart are ambiguous and may duplicate if reclaimed.** A `queued` outbox row indicates the pipeline handed the delivery to the adapter, but does not confirm the message was sent over the air. Reclaiming a stale `queued` row retries the delivery, which may produce a duplicate if the original send completed before the crash.
 - Queue counters (`total_enqueued`, `total_sent`, `total_failed`, `total_rejected`, `total_requeued`, `total_exhausted`, `total_permanent_failed`): reset to zero on restart. These reflect the current process run only.
-
-The outbox provides durable tracking for Meshtastic deliveries. Adapter-local queue contents remain non-durable. After restart, a `queued` outbox row is ambiguous: the adapter may or may not have sent the message before the crash. Freshly queued rows (within the `STALE_QUEUED_GRACE_SECONDS` window) are not automatically reclaimed. Stale queued rows past the grace threshold are reclaimed by the RetryWorker, which may produce a duplicate send. Operators should inspect stale queued rows before relying on automatic recovery.
 
 ## 5. Degraded-Runtime Semantics
 
@@ -348,7 +350,7 @@ The following are explicitly **not** provided:
 - **Database size bounding.** SQLite grows with event volume. No automatic pruning or retention policy.
 - **Hot restart.** The runtime is a single-process application. No zero-downtime restart mechanism.
 - **Per-adapter restart.** Individual adapters cannot be restarted without shutting down the entire runtime.
-- **Meshtastic outbound queue durability.** The Meshtastic outbound queue is in-memory and non-durable. Items queued but not sent at crash/shutdown time are permanently lost. However, a `queued` outbox row and corresponding receipt may survive if committed before the crash (see §4.5). After restart, `queued` outbox rows are ambiguous; freshly queued rows within the grace window are not reclaimed, but stale queued rows past `STALE_QUEUED_GRACE_SECONDS` are automatically reclaimed (which may produce a duplicate send).
+- **Meshtastic outbound queue durability.** The Meshtastic outbound queue is in-memory and non-durable. Items queued but not sent at crash/shutdown time are permanently lost. However, a `queued` outbox row and corresponding receipt may survive if committed before the crash (see §4.5). After restart, `queued` outbox rows are ambiguous — the adapter may or may not have sent the message before the crash. Freshly queued rows within the grace window are not reclaimed, but stale queued rows past `STALE_QUEUED_GRACE_SECONDS` are automatically reclaimed (which may produce a duplicate send). A crash before the queued receipt/outbox commit leaves no receipt and no outbox row; a crash after the commit leaves a surviving receipt and outbox row but no confirmation of over-the-air delivery.
 
 ## 9. Cross-References
 
