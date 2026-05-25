@@ -402,12 +402,23 @@ allowed_event_types = ["message"]
 
 | Field                 | Type           | Default | Description                                                                |
 | --------------------- | -------------- | ------- | -------------------------------------------------------------------------- |
-| `allowed_event_types` | list of string | `[]`    | Event kinds this route permits (e.g. `"message"`). Empty means all events. |
+| `allowed_event_types`      | list of string | `[]`    | Event kinds this route permits (e.g. `"message"`). Empty means all events. Enforced as structural route-source matching during route expansion. |
+| `allowed_source_adapters`  | list of string | `[]`    | Source adapter names to permit. Empty = any. |
+| `allowed_dest_adapters`    | list of string | `[]`    | Destination adapter names to permit. Empty = any. |
+| `sender_allowlist`         | list of string | `[]`    | Permitted sender identities (`source_transport_id`). Empty = any sender. |
+| `room_allowlist`           | list of string | `[]`    | Permitted room identifiers. Checked against `source_channel_id` when present. Empty = any room. |
+| `channel_allowlist`        | list of string | `[]`    | Permitted channel identifiers. Checked against `target.channel`, falling back to `source_channel_id`. Empty = any channel. |
 
-> **Note:** Other policy fields (`sender_allowlist`, `room_allowlist`,
-> `channel_allowlist`, `allowed_source_adapters`, `allowed_dest_adapters`)
-> are reserved placeholders and must not be set. The config parser rejects
-> them.
+> **Note:** `allowed_event_types` is enforced during route expansion (structural
+> event-kind matching). The other five fields are route-policy checks evaluated
+> after route matching and before delivery side effects. A policy denial produces
+> a `status="suppressed"` receipt with `failure_kind="policy_suppressed"` and is
+> not retryable. All policy fields are config-file-only (not settable via
+> environment variables).
+>
+> **Validation:** Unknown keys in `[routes.<id>.policy]` are rejected at config
+> load time. Allowlist values must be arrays of strings (e.g. `["message"]`);
+> bare strings (e.g. `"message"`) are rejected.
 
 #### Route Retry (`[routes.ROUTE_ID.retry]`)
 

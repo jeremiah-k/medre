@@ -27,7 +27,25 @@ What this contract does **not** cover: adapter internals, codec implementation, 
 
 ### Phase 1 Limitation: Policy Pipeline
 
-Phase 1 provides **policy package scaffolding only**. The four-stage policy architecture (ingress, event, route, delivery) is a spec-level design, not a runtime pipeline in the current implementation. No `Policy` protocol, `PolicyResult`, concrete policy classes, or policy evaluation stage exist in Phase 1. The built-in policies listed in Section 10.4 (e.g., `RouteRateLimitPolicy`, `QuietHoursPolicy`, `MaxLengthPolicy`) are spec-level definitions, not implemented classes. Current runtime flow proceeds directly from routing to delivery planning without policy evaluation.
+Phase 1 provides **partial policy enforcement**. The four-stage policy architecture (ingress, event, route, delivery) described in Section 10 remains a spec-level design for stages other than route policy. The built-in policies listed in Section 10.4 (e.g., `RouteRateLimitPolicy`, `QuietHoursPolicy`, `MaxLengthPolicy`) are spec-level definitions, not implemented classes.
+
+**What IS implemented in Phase 1 (Tranche 4):**
+
+- **Route-source event-kind matching**: `allowed_event_types` on `[routes.<id>.policy]` is enforced as structural route-source `event_kinds` during route expansion. Only events whose `event_kind` appears in this list match the route. An empty or absent list means no restriction (all event kinds match).
+- **Route-policy allowlist checks**: After a route matches, the route-policy evaluator checks five additional allowlist fields before delivery proceeds:
+  - `allowed_source_adapters` — source adapter name must be in the list (empty = any)
+  - `allowed_dest_adapters` — destination adapter name must be in the list (empty = any)
+  - `sender_allowlist` — canonical sender identity (`source_transport_id`) must be in the list (empty = any)
+  - `room_allowlist` — source room identifier must be in the list when present; applies only when room-like identifiers (e.g., Matrix room IDs) are available on the source event's `source_channel_id` (empty = any)
+  - `channel_allowlist` — target channel checked against `target.channel`, falling back to `source_channel_id`; applies only when channel identifiers are non-None (empty = any)
+- **Policy denial outcome**: A policy denial produces a `status="suppressed"` receipt with `failure_kind="policy_suppressed"`. The receipt includes `route_id`, `target_adapter`, `target_channel`, and the policy reason code. Policy denials are **not retryable** and are a **permanent classification**.
+- **Policy fields are config-file-only**: Route policy fields are defined in the `[routes.<id>.policy]` TOML section. They are not settable via environment variables.
+- **Meshtastic `channel_mapping` is display labels only**: It maps channel indices to human-readable names for rendering and diagnostics. It is not an allowlist and does not participate in route-policy evaluation.
+
+**What remains spec-level only:**
+- No `Policy` protocol, `PolicyResult`, or general policy evaluation pipeline exists.
+- `RouteRateLimitPolicy`, `QuietHoursPolicy`, `MaxLengthPolicy`, `CapabilityFallbackPolicy` are spec definitions, not runtime classes.
+- Ingress and event policy stages are not implemented.
 
 ## 2. Route Data Model
 
@@ -422,8 +440,11 @@ These policies directly affect routing and delivery:
 | `RouteRateLimitPolicy`     | route    | Skips a matched route if the rate limit for that route+adapter pair is exceeded          |
 | `RoutePermissionPolicy`    | route    | Drops a matched route if the source identity lacks permission to use this specific route |
 | `QuietHoursPolicy`         | route    | Suppresses non-urgent deliveries during configured quiet hours per route                 |
+| `RoutePolicyEvaluator`     | route    | Allowlist checks on source/dest adapter, sender, room, and channel after route match     |
 | `MaxLengthPolicy`          | delivery | Truncates or splits messages exceeding adapter limits before delivery                    |
 | `CapabilityFallbackPolicy` | delivery | Degrades event features based on target adapter capabilities                             |
+
+> **Note:** `RouteRateLimitPolicy`, `QuietHoursPolicy`, `MaxLengthPolicy`, and `CapabilityFallbackPolicy` remain spec-level definitions. `RoutePolicyEvaluator` is implemented in Tranche 4 as a pure-function evaluator (`src/medre/core/policies/route_policy.py`). It checks five allowlist fields in deterministic order: source adapter → dest adapter → sender → room → channel. The first denial wins. A denial produces `failure_kind="policy_suppressed"` and is not retryable.
 
 ### 10.5 Pipeline Flow for Routing
 
@@ -439,8 +460,10 @@ derived event
 [router]  (evaluate all enabled routes, collect matches)
     |
     v
-[route policy stage]  (per-route rate limit, quiet hours, route permission)
+[route policy stage]  (per-route rate limit, quiet hours, route permission,
+                        route-policy allowlist checks)
     |   Routes that survive become candidate deliveries
+    |   Policy denials → status="suppressed", failure_kind="policy_suppressed"
     v
 [delivery planner]  (construct DeliveryPlan per surviving target)
     |
@@ -470,7 +493,7 @@ class DeliveryReceipt:
     route_id: str = ""                     # Route that produced this delivery
     status: Literal["accepted", "queued", "sent", "confirmed", "suppressed", "failed", "dead_lettered"] = "accepted"
     error: str | None = None               # Error message if delivery failed
-    failure_kind: str | None = None        # DeliveryFailureKind value (e.g., "adapter_transient")
+    failure_kind: str | None = None        # DeliveryFailureKind value (e.g., "adapter_transient", "policy_suppressed")
     adapter_message_id: str | None = None  # Platform-specific message ID (e.g., Matrix event ID)
     next_retry_at: datetime | None = None  # Scheduled time for next retry attempt
     attempt_number: int = 1                # 1-indexed attempt number
@@ -568,6 +591,7 @@ When the runtime loads route configuration:
 5. `to` list must not be empty.
 6. `channel` and `destination` on the same `RouteTarget` must not both be set when `destination.kind` is `"channel"` or `"matrix_room"`.
 7. Routes referencing disabled adapters may be loaded but will never match (the adapter won't be running to deliver to). This is a warning, not an error.
+8. Unknown keys in `[routes.<id>.policy]` are rejected at config load time. Allowlist values must be arrays of strings; bare strings are rejected.
 
 ### 13.2 Dynamic Reload
 
@@ -622,7 +646,7 @@ CREATE INDEX idx_native_refs_relation ON native_message_refs(adapter, native_rel
 
 ### 16.1 DeliveryFailureKind
 
-Every delivery failure is classified into one of nine categories:
+Every delivery failure is classified into one of ten categories:
 
 ```python
 class DeliveryFailureKind(Enum):
@@ -635,6 +659,7 @@ class DeliveryFailureKind(Enum):
     CAPACITY_REJECTION = "capacity_rejection" # Capacity controller exhausted or timed out (permanent)
     SHUTDOWN_REJECTION = "shutdown_rejection" # Runtime shutdown cancelled delivery (permanent)
     LOOP_SUPPRESSED = "loop_suppressed"       # Loop-prevention guard fired (permanent)
+    POLICY_SUPPRESSED = "policy_suppressed"   # Route-policy denial (permanent, not retryable)
 ```
 
 Classification rules:
@@ -650,6 +675,7 @@ Classification rules:
 | `CAPACITY_REJECTION` | Capacity gate      | No        | Capacity controller semaphore exhausted or timed out                                                                                                                            |
 | `SHUTDOWN_REJECTION` | Capacity gate      | No        | Runtime shutdown cancelled delivery before capacity acquire                                                                                                                     |
 | `LOOP_SUPPRESSED`    | Loop prevention    | No        | Self-loop or route-trace guard fired                                                                                                                                            |
+| `POLICY_SUPPRESSED`  | Route policy       | No        | Route-policy evaluator denied delivery (source adapter, dest adapter, sender, room, or channel not in allowlist)                                                                |
 
 The classification drives retry decisions and `DeliveryOutcome.failure_kind`.
 
@@ -684,7 +710,7 @@ Retry is owned by the `RetryWorker`, a single-process background worker that pol
 
 **Not auto-retried:**
 
-- `ADAPTER_PERMANENT`, `RENDERER_FAILURE`, `PLANNER_FAILURE`, `DEADLINE_EXCEEDED`, `ADAPTER_MISSING`, `LOOP_SUPPRESSED`, `CAPACITY_REJECTION`, `SHUTDOWN_REJECTION` — these are permanent or operational failures. No automatic retry is attempted.
+- `ADAPTER_PERMANENT`, `RENDERER_FAILURE`, `PLANNER_FAILURE`, `DEADLINE_EXCEEDED`, `ADAPTER_MISSING`, `LOOP_SUPPRESSED`, `POLICY_SUPPRESSED`, `CAPACITY_REJECTION`, `SHUTDOWN_REJECTION` — these are permanent or operational failures. No automatic retry is attempted.
 
 **Retry flow:**
 

@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 
 import pytest
 
+from medre.config.routes import BridgePolicy
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.policies.route_policy import (
     RouteDecision,
@@ -380,3 +381,96 @@ class TestImmutability:
         )
         with pytest.raises(FrozenInstanceError):
             decision.allowed = False  # type: ignore[misc]
+
+
+# ===================================================================
+# BridgePolicy → RoutePolicy conversion (_convert_bridge_policy)
+# ===================================================================
+
+
+class TestConvertBridgePolicy:
+    """Direct unit tests for runtime route-policy conversion.
+
+    Covers the five fields carried from BridgePolicy into RoutePolicy
+    (allowed_source_adapters, allowed_dest_adapters, sender_allowlist,
+    room_allowlist, channel_allowlist) and the intentional exclusion
+    of allowed_event_types (enforced structurally via RouteSource.event_kinds).
+    """
+
+    @staticmethod
+    def _convert(bp: BridgePolicy) -> RoutePolicy | None:
+        """Import and call the private converter under test."""
+        from medre.runtime.route_engine import _convert_bridge_policy
+
+        return _convert_bridge_policy(bp)
+
+    def test_all_empty_returns_none(self) -> None:
+        """Default (all-empty) BridgePolicy produces no RoutePolicy."""
+        bp = BridgePolicy()
+        assert self._convert(bp) is None
+
+    def test_only_event_types_returns_none(self) -> None:
+        """BridgePolicy with only allowed_event_types still returns None.
+
+        allowed_event_types is excluded from RoutePolicy conversion — it
+        is enforced structurally via RouteSource.event_kinds at expansion
+        time.
+        """
+        bp = BridgePolicy(allowed_event_types=("message",))
+        assert self._convert(bp) is None
+
+    def test_source_adapters_preserved(self) -> None:
+        bp = BridgePolicy(allowed_source_adapters=("src_a", "src_b"))
+        rp = self._convert(bp)
+        assert rp is not None
+        assert rp.allowed_source_adapters == ("src_a", "src_b")
+        assert rp.allowed_dest_adapters == ()
+        assert rp.sender_allowlist == ()
+        assert rp.room_allowlist == ()
+        assert rp.channel_allowlist == ()
+
+    def test_dest_adapters_preserved(self) -> None:
+        bp = BridgePolicy(allowed_dest_adapters=("dst_a",))
+        rp = self._convert(bp)
+        assert rp is not None
+        assert rp.allowed_dest_adapters == ("dst_a",)
+        assert rp.allowed_source_adapters == ()
+
+    def test_sender_allowlist_preserved(self) -> None:
+        bp = BridgePolicy(sender_allowlist=("alice", "bob"))
+        rp = self._convert(bp)
+        assert rp is not None
+        assert rp.sender_allowlist == ("alice", "bob")
+
+    def test_room_allowlist_preserved(self) -> None:
+        bp = BridgePolicy(room_allowlist=("!room:server",))
+        rp = self._convert(bp)
+        assert rp is not None
+        assert rp.room_allowlist == ("!room:server",)
+
+    def test_channel_allowlist_preserved(self) -> None:
+        bp = BridgePolicy(channel_allowlist=("ch0", "ch1"))
+        rp = self._convert(bp)
+        assert rp is not None
+        assert rp.channel_allowlist == ("ch0", "ch1")
+
+    def test_all_five_fields_preserved(self) -> None:
+        """All five converted fields are carried into RoutePolicy."""
+        bp = BridgePolicy(
+            allowed_source_adapters=("src",),
+            allowed_dest_adapters=("dst",),
+            sender_allowlist=("sender",),
+            room_allowlist=("!room:s",),
+            channel_allowlist=("ch",),
+            # allowed_event_types is intentionally excluded
+            allowed_event_types=("message", "reaction"),
+        )
+        rp = self._convert(bp)
+        assert rp is not None
+        assert rp.allowed_source_adapters == ("src",)
+        assert rp.allowed_dest_adapters == ("dst",)
+        assert rp.sender_allowlist == ("sender",)
+        assert rp.room_allowlist == ("!room:s",)
+        assert rp.channel_allowlist == ("ch",)
+        # RoutePolicy does not have allowed_event_types at all
+        assert not hasattr(rp, "allowed_event_types")

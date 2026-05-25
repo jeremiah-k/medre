@@ -281,7 +281,7 @@ Receipts persisted to storage have a finer-grained lifecycle:
 | `sent`          | Adapter confirmed delivery.                                                                                                           |
 | `failed`        | Delivery attempt failed (check `failure_kind` for details).                                                                           |
 | `dead_lettered` | All retry attempts exhausted — no further delivery will be attempted.                                                                 |
-| `suppressed`    | Delivery was intentionally suppressed (loop prevention, capacity/shutdown rejection). The `failure_kind` field classifies the reason. |
+| `suppressed`    | Delivery was intentionally suppressed (loop prevention, policy denial, capacity/shutdown rejection). The `failure_kind` field classifies the reason. |
 
 ### Failure Classification
 
@@ -298,6 +298,7 @@ The `failure_kind` field on receipts classifies failures:
 | `capacity_rejection` | No        | All in-flight delivery slots occupied                                                                          |
 | `shutdown_rejection` | No        | Runtime shutdown cancelled delivery                                                                            |
 | `loop_suppressed`    | No        | Route-trace or self-loop prevention blocked the delivery                                                       |
+| `policy_suppressed`  | No        | Route-policy denial — source/dest adapter, sender, room, or channel not in allowlist                           |
 
 Only `adapter_transient` is retryable.
 
@@ -729,13 +730,18 @@ When a message fails to reach its destination, the evidence is in the receipts a
 
 ### 10.1 Receipt status values
 
-| Status      | Meaning                                                                        |
-| ----------- | ------------------------------------------------------------------------------ |
-| `delivered` | The target adapter confirmed successful delivery                               |
-| `sent`      | The adapter sent the message but has not received transport-level confirmation |
-| `failed`    | Delivery attempted and failed. Check the error message.                        |
-| `pending`   | Delivery has not been attempted yet                                            |
-| `skipped`   | Delivery was not attempted (e.g., route was degraded or disabled)              |
+Receipts persisted to storage use these statuses (see the Receipt Statuses table in section 3 for full details):
+
+| Status          | Meaning                                                                                                                               |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `accepted`      | Initial state — delivery plan accepted.                                                                                               |
+| `queued`        | Enqueued for async delivery (queue-based transports).                                                                                 |
+| `sent`          | Adapter confirmed delivery.                                                                                                           |
+| `failed`        | Delivery attempt failed (check `failure_kind` for details).                                                                           |
+| `dead_lettered` | All retry attempts exhausted — no further delivery will be attempted.                                                                 |
+| `suppressed`    | Delivery was intentionally suppressed (loop prevention, policy denial, capacity/shutdown rejection). The `failure_kind` field classifies the reason. |
+
+> **Note:** `skipped` is a `DeliveryOutcome` status (in-flight pipeline signal), not a persisted receipt status.
 
 ### 10.2 Reading a failure timeline
 
@@ -752,8 +758,9 @@ Trace the event (section 7) or inspect it with `--timeline --evidence` (section 
 | Receipt says `failed` with `AdapterPermanentError`          | Permanent delivery failure (bad room, forbidden, etc.) | Verify the target room/channel exists and the bot has access    |
 | Receipt says `failed` with `AdapterSendError` (transient)   | Temporary network or homeserver error                  | Check network connectivity, homeserver health                   |
 | No receipt at all                                           | Event never reached delivery stage                     | Check routing config, adapter health, pipeline logs             |
-| Receipt says `skipped`                                      | Route was degraded or disabled                         | Check route status in evidence bundle                           |
-| Multiple receipts with alternating `failed` and `delivered` | Intermittent failures during retry                     | Check network stability, adapter load                           |
+| Receipt says `suppressed` with `failure_kind=loop_suppressed` | Loop prevention (self-loop or route-trace)           | Check for circular routes or self-referencing adapter config    |
+| Receipt says `suppressed` with `failure_kind=policy_suppressed` | Route-policy denial (sender/room/channel not in allowlist) | Review the route's `[policy]` section in config            |
+| Multiple receipts with `failed` then `sent`                 | Transient failure followed by successful retry         | Check `parent_receipt_id` chain for the original failure reason |
 | Receipt with `source='replay'` and `failed`                 | Replay re-delivery failed                              | Check that the target adapter was healthy during the replay run |
 | Receipt with `attempt_number` > 1                           | Retried delivery                                       | Check the `parent_receipt_id` for the original failure reason   |
 
@@ -922,7 +929,7 @@ This tells you: the first attempt failed with a transient connection error, a re
 
 **Question:** Why was an event suppressed?
 
-Two types of suppression exist:
+Three types of suppression exist:
 
 **Loop suppressed** — visible in receipts:
 
@@ -935,6 +942,18 @@ Two types of suppression exist:
 ```
 
 This means the route-trace or self-loop guard prevented delivery. The receipt uses `status="suppressed"` (the persisted receipt lifecycle status), not the in-flight `DeliveryOutcome.status="skipped"`.
+
+**Policy suppressed** — visible in receipts:
+
+```json
+{
+  "status": "suppressed",
+  "failure_kind": "policy_suppressed",
+  "error": "route policy denied: sender_not_allowed"
+}
+```
+
+This means the route-policy evaluator denied the delivery after route matching. The receipt includes the denial reason (one of: `source_adapter_not_allowed`, `dest_adapter_not_allowed`, `sender_not_allowed`, `room_not_allowed`, `channel_not_allowed`), `route_id`, `target_adapter`, and `target_channel`. Policy suppression is permanent and not retryable. To resolve: review the route's `[policy]` section in config and adjust allowlists. Policy fields are config-file-only (not settable via env).
 
 **Duplicate suppressed** — silent at the receipt level. If an event was suppressed by native-ref dedup at ingress, there will be no receipt at all. The event was never stored. Check `RuntimeAccounting.loop_prevented` counters (in diagnostics) for the aggregate count. `DUPLICATE_SUPPRESSED` was removed from the enum — the runtime does not produce a receipt or outcome for duplicate suppression.
 
@@ -1060,19 +1079,20 @@ Sub-counters break down by reason:
 
 ### 14.9 Summary: Evidence Non-Guarantees
 
-| Question                     | Answer                                                           | Evidence available?              |
-| ---------------------------- | ---------------------------------------------------------------- | -------------------------------- |
-| Delivered where?             | Receipt shows target adapter, channel, native message ID, route  | Yes (receipt + timeline)         |
-| Retried why?                 | Receipt lineage shows failure kind, attempt number, retry policy | Yes (recovery context)           |
-| Suppressed why (loop)?       | Route-trace or self-loop guard fired                             | Yes (receipt failure_kind)       |
-| Suppressed why (duplicate)?  | Native-ref dedup at ingress                                      | No receipt — counters only       |
-| Dead-lettered why?           | Retry exhaustion after transient failures                        | Yes (receipt chain)              |
-| Queued but RF-confirmed?     | Meshtastic `sent` means local node only                          | Yes (queue stats, but no RF ack) |
-| Matrix tx_id used?           | Deterministic dedup reduces duplicates                           | Yes (receipt metadata)           |
-| Matrix tx_id exactly-once?   | No — homeserver dedup window is finite                           | No — this is not guaranteed      |
-| Matrix E2EE blocked?         | Undecryptable events counted in diagnostics                      | Yes (undecryptable_event_count)  |
-| Meshtastic classifier stats? | Aggregate inbound skip counts                                    | Yes (diagnostics classifier\_\*) |
-| Classifier stats per-packet? | No — aggregate only, reset on restart                            | No — in-memory counters only     |
+| Question                       | Answer                                                           | Evidence available?              |
+| ------------------------------ | ---------------------------------------------------------------- | -------------------------------- |
+| Delivered where?               | Receipt shows target adapter, channel, native message ID, route  | Yes (receipt + timeline)         |
+| Retried why?                   | Receipt lineage shows failure kind, attempt number, retry policy | Yes (recovery context)           |
+| Suppressed why (loop)?         | Route-trace or self-loop guard fired                             | Yes (receipt failure_kind)       |
+| Suppressed why (policy)?       | Route-policy denial after route match                            | Yes (receipt failure_kind + reason) |
+| Suppressed why (duplicate)?    | Native-ref dedup at ingress                                      | No receipt — counters only       |
+| Dead-lettered why?             | Retry exhaustion after transient failures                        | Yes (receipt chain)              |
+| Queued but RF-confirmed?       | Meshtastic `sent` means local node only                          | Yes (queue stats, but no RF ack) |
+| Matrix tx_id used?             | Deterministic dedup reduces duplicates                           | Yes (receipt metadata)           |
+| Matrix tx_id exactly-once?     | No — homeserver dedup window is finite                           | No — this is not guaranteed      |
+| Matrix E2EE blocked?           | Undecryptable events counted in diagnostics                      | Yes (undecryptable_event_count)  |
+| Meshtastic classifier stats?   | Aggregate inbound skip counts                                    | Yes (diagnostics classifier\_\*) |
+| Classifier stats per-packet?   | No — aggregate only, reset on restart                            | No — in-memory counters only     |
 
 ## 15. Related Documentation
 

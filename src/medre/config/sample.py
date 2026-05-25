@@ -131,10 +131,26 @@ display_name = "MEDRE"
 #   dest_channel     — channel/conversation ID on the dest side
 #
 # Policy ([routes.<id>.policy]):
-#   allowed_event_types — list of event kinds to permit (e.g. ["message"])
-#   NOTE: Other policy fields (sender_allowlist, room_allowlist,
-#   channel_allowlist, allowed_source_adapters, allowed_dest_adapters) are
-#   reserved and not yet enforced. Do not set them.
+#   allowed_event_types      — event kinds to permit (e.g. ["message"]).
+#                              Enforced as structural route-source matching.
+#   allowed_source_adapters  — source adapter names to permit. Empty = any.
+#   allowed_dest_adapters    — destination adapter names to permit. Empty = any.
+#   sender_allowlist         — permitted sender identities (source_transport_id).
+#                              Empty = any sender.
+#   room_allowlist           — permitted room identifiers (e.g. Matrix room IDs).
+#                              Checked against source_channel_id when present.
+#                              Applies only when room-like identifiers are
+#                              available. Empty = any room.
+#   channel_allowlist        — permitted channel identifiers. Checked against
+#                              target.channel first, falling back to
+#                              source_channel_id. Empty = any channel.
+#
+#   Policy fields other than allowed_event_types are config-file-only (not
+#   settable via environment variables). An empty/absent allowlist means "no
+#   restriction" (everything allowed). Policy checks run after route matching
+#   and before delivery side effects. A policy denial produces a
+#   status="suppressed" / failure_kind="policy_suppressed" receipt and is not
+#   retryable.
 
 # --- Active route: Matrix -> Meshtastic bridge ---
 # Sends messages from the Matrix room to Meshtastic radio channel 1.

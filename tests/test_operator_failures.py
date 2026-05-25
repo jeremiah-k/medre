@@ -543,63 +543,78 @@ class TestInvalidRouteIDs:
 
 
 # ---------------------------------------------------------------------------
-# 12. Unsupported policy placeholders
+# 12. Policy fields now supported at runtime
 # ---------------------------------------------------------------------------
 
 
-class TestUnsupportedPolicyFields:
-    """Reserved policy fields that silently no-op are rejected to prevent confusion."""
+class TestSupportedPolicyFields:
+    """Route-policy allowlist fields are accepted and enforced at runtime."""
 
-    def test_sender_allowlist_rejected(self) -> None:
+    def test_sender_allowlist_accepted(self) -> None:
+        """sender_allowlist is no longer rejected — it is enforced by the
+        route-policy evaluator in the delivery pipeline."""
         policy = BridgePolicy(sender_allowlist=("alice",))
-        with pytest.raises(ConfigValidationError) as exc_info:
-            from medre.config.routes import _reject_unsupported_policy_fields
+        from medre.config.routes import _validate_policy
 
-            _reject_unsupported_policy_fields(
-                policy,
-                route_id="test",
-                section_path="routes.test",
-            )
-        msg = str(exc_info.value)
-        assert "sender_allowlist" in msg
-        assert "reserved" in msg
-        assert "not yet supported" in msg
-
-    def test_room_allowlist_rejected(self) -> None:
-        policy = BridgePolicy(room_allowlist=("!room:t",))
-        from medre.config.routes import _reject_unsupported_policy_fields
-
-        with pytest.raises(ConfigValidationError) as exc_info:
-            _reject_unsupported_policy_fields(
-                policy,
-                route_id="test",
-                section_path="routes.test",
-            )
-        assert "room_allowlist" in str(exc_info.value)
-
-    def test_channel_allowlist_rejected(self) -> None:
-        policy = BridgePolicy(channel_allowlist=("ch1",))
-        from medre.config.routes import _reject_unsupported_policy_fields
-
-        with pytest.raises(ConfigValidationError) as exc_info:
-            _reject_unsupported_policy_fields(
-                policy,
-                route_id="test",
-                section_path="routes.test",
-            )
-        assert "channel_allowlist" in str(exc_info.value)
-
-    def test_allowed_event_types_accepted(self) -> None:
-        """The one supported policy field should not raise."""
-        from medre.config.routes import _reject_unsupported_policy_fields
-
-        policy = BridgePolicy(allowed_event_types=("message",))
-        # Should not raise.
-        _reject_unsupported_policy_fields(
+        # Should not raise — sender_allowlist is now supported.
+        _validate_policy(
             policy,
             route_id="test",
             section_path="routes.test",
         )
+
+    def test_room_allowlist_accepted(self) -> None:
+        policy = BridgePolicy(room_allowlist=("!room:t",))
+        from medre.config.routes import _validate_policy
+
+        _validate_policy(
+            policy,
+            route_id="test",
+            section_path="routes.test",
+        )
+
+    def test_channel_allowlist_accepted(self) -> None:
+        policy = BridgePolicy(channel_allowlist=("ch1",))
+        from medre.config.routes import _validate_policy
+
+        _validate_policy(
+            policy,
+            route_id="test",
+            section_path="routes.test",
+        )
+
+    def test_allowed_event_types_accepted(self) -> None:
+        """allowed_event_types has always been supported via RouteSource."""
+        from medre.config.routes import _validate_policy
+
+        policy = BridgePolicy(allowed_event_types=("message",))
+        _validate_policy(
+            policy,
+            route_id="test",
+            section_path="routes.test",
+        )
+
+    def test_unknown_policy_key_rejected(self) -> None:
+        """Unknown keys in [routes.<id>.policy] are rejected."""
+        with pytest.raises(ConfigValidationError) as exc_info:
+            BridgePolicy.from_toml_dict(
+                {"unknown_field": ["value"]},
+                route_id="test",
+                section_path="routes.test",
+            )
+        msg = str(exc_info.value)
+        assert "unknown_field" in msg
+
+    def test_string_as_allowlist_rejected(self) -> None:
+        """A bare string (not a list) in a policy allowlist is rejected."""
+        with pytest.raises(ConfigValidationError) as exc_info:
+            BridgePolicy.from_toml_dict(
+                {"sender_allowlist": "alice"},
+                route_id="test",
+                section_path="routes.test",
+            )
+        msg = str(exc_info.value)
+        assert "must be a list" in msg
 
 
 # ---------------------------------------------------------------------------

@@ -55,6 +55,7 @@ from medre.core.planning.delivery_plan import (
     RetryExecutor,
     RetryPolicy,
 )
+from medre.core.policies.route_policy import evaluate_route_policy
 from medre.core.planning.fallback_resolution import FallbackResolver
 from medre.core.planning.relation_resolution import RelationResolver
 from medre.core.rendering.renderer import RenderingPipeline
@@ -1482,6 +1483,61 @@ class PipelineRunner:
                         error="loop_prevented",
                         duration_ms=elapsed,
                     )
+
+                # Route-policy evaluation: enforce allowlists attached
+                # to the route.  Runs after structural loop/self-loop
+                # checks but before any renderer/adapter side effects.
+                if route.policy is not None:
+                    decision = evaluate_route_policy(
+                        route.policy, event, target,
+                    )
+                    if not decision.allowed:
+                        self._log.info(
+                            "policy_suppressed: route_id=%s event_id=%s "
+                            "target_adapter=%s reason=%s "
+                            "blocked_field=%s blocked_value=%r",
+                            route.id,
+                            event.event_id,
+                            adapter_id,
+                            decision.reason,
+                            decision.blocked_field,
+                            decision.blocked_value,
+                        )
+                        if self._route_stats is not None:
+                            self._route_stats.record_policy_suppressed(route.id)
+                        if self._runtime_accounting is not None:
+                            self._runtime_accounting.record_policy_suppressed()
+                        elapsed = (time.monotonic() - t0) * 1000.0
+                        # Build safe error text with reason, blocked field,
+                        # blocked value, and the allowed summary.
+                        policy_error = (
+                            f"policy_suppressed: {decision.reason} "
+                            f"({decision.blocked_field}={decision.blocked_value!r}); "
+                            f"{decision.allowed_summary}"
+                        )
+                        policy_receipt = await self._persist_suppression_receipt(
+                            event_id=event.event_id,
+                            delivery_plan_id=route_plan.plan_id,
+                            target_adapter=adapter_id,
+                            target_channel=target.channel,
+                            route_id=route.id,
+                            failure_kind=DeliveryFailureKind.POLICY_SUPPRESSED,
+                            error=policy_error,
+                            source=source,
+                            replay_run_id=replay_run_id,
+                        )
+                        return DeliveryOutcome(
+                            event_id=event.event_id,
+                            target_adapter=adapter_id,
+                            target_channel=target.channel,
+                            route_id=route.id,
+                            delivery_plan_id=route_plan.plan_id,
+                            status="skipped",
+                            failure_kind=DeliveryFailureKind.POLICY_SUPPRESSED,
+                            receipt=policy_receipt,
+                            error=policy_error,
+                            duration_ms=elapsed,
+                        )
 
                 try:
                     # Accounting: outbound delivery attempt.

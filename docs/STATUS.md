@@ -16,6 +16,7 @@ This document is the single source of truth for per-transport capability trackin
 | Instance-scoped env overrides       | live-validated | fake-tested             | fake-tested | fake-tested |
 | Env-first adapter creation          | fake-tested    | fake-tested             | fake-tested | fake-tested |
 | Env-driven route creation           | fake-tested    | fake-tested             | fake-tested | fake-tested |
+| Route policy enforcement            | fake-tested    | fake-tested             | fake-tested | fake-tested |
 | Fake lifecycle                      | live-validated | fake-tested             | fake-tested | fake-tested |
 | Real adapter import safe            | live-validated | opt-in live test exists | designed    | designed    |
 | Live start/health                   | live-validated | opt-in live test exists | not started | not started |
@@ -62,6 +63,8 @@ manual re-delivery. Transport-aware rate limiting and a dead-letter admin UI
 are not yet implemented.
 
 The unified delivery evidence surface (`medre inspect`, `medre evidence --event-id`) exposes a delivery explanation shape with event_id, route/target info, final status, failure kind, retryable flag, attempt/retry policy fields, next_retry_at, native adapter message IDs, and per-adapter metadata (including Matrix txn_id for homeserver deduplication and undecryptable_event_count for E2EE diagnosis). Evidence is best-effort and local-process scoped — not exactly-once, not distributed. See `docs/dev/runtime-delivery-contract.md` → Unified Delivery Evidence for the full specification.
+
+Route policy enforcement is `fake-tested` across all transports. The route-policy evaluator (`src/medre/core/policies/route_policy.py`) is a pure function that checks six allowlist fields after route matching: `allowed_event_types` (structural route-source matching), `allowed_source_adapters`, `allowed_dest_adapters`, `sender_allowlist`, `room_allowlist`, `channel_allowlist`. A denial produces `failure_kind="policy_suppressed"` (permanent, not retryable). Policy fields are config-file-only (not settable via environment variables). The `room_allowlist` route-policy field is distinct from the Matrix adapter-level `room_allowlist` config — the adapter-level field controls which rooms the Matrix sync loop processes, while the route-policy field controls which source rooms a route accepts. Meshtastic `channel_mapping` is display labels only — it does not participate in route-policy `channel_allowlist` evaluation.
 
 Opt-in Matrix live tests use pytest convenience variables such as MATRIX_HOMESERVER, MATRIX_USER_ID, MATRIX_ACCESS_TOKEN, and MATRIX_ROOM_ID. The local Synapse test harness additionally requires `MATRIX_LOCAL_SYNAPSE=1`. Runtime adapter config overrides use instance-scoped `MEDRE_ADAPTER__<TOKEN>__<FIELD>` and `MEDRE_ROUTE__<TOKEN>__<FIELD>` variables.
 

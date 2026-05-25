@@ -27,7 +27,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Self
+from typing import Any, ClassVar, Self
 
 from medre.config.errors import ConfigValidationError
 
@@ -106,9 +106,88 @@ class BridgePolicy:
     channel_allowlist: tuple[str, ...] = ()
     sender_allowlist: tuple[str, ...] = ()
 
+    # Canonical field names accepted in the policy TOML table.
+    _KNOWN_FIELDS: ClassVar[frozenset[str]] = frozenset({
+        "allowed_event_types",
+        "allowed_source_adapters",
+        "allowed_dest_adapters",
+        "room_allowlist",
+        "channel_allowlist",
+        "sender_allowlist",
+    })
+
+    # Allowlist fields that must be lists of strings.
+    _ALLOWLIST_FIELDS: ClassVar[tuple[tuple[str, str], ...]] = (
+        ("allowed_source_adapters", "source adapter IDs"),
+        ("allowed_dest_adapters", "destination adapter IDs"),
+        ("room_allowlist", "room IDs"),
+        ("channel_allowlist", "channel IDs"),
+        ("sender_allowlist", "sender IDs"),
+        ("allowed_event_types", "event types"),
+    )
+
     @classmethod
-    def from_toml_dict(cls, data: dict[str, Any]) -> Self:
-        """Construct from a TOML table dict (the ``[routes.<id>.policy]`` section)."""
+    def from_toml_dict(
+        cls,
+        data: dict[str, Any],
+        *,
+        route_id: str = "",
+        section_path: str = "",
+    ) -> Self:
+        """Construct from a TOML table dict (the ``[routes.<id>.policy]`` section).
+
+        Parameters
+        ----------
+        data:
+            The parsed TOML table for the policy section.
+        route_id:
+            Route ID for error messages (optional).
+        section_path:
+            Dot-separated config path for error messages (optional).
+
+        Raises
+        ------
+        ConfigValidationError
+            If unknown keys are present, or any allowlist value is not
+            a list of strings (e.g. a bare string which would silently
+            become a tuple of characters).
+        """
+        # Reject unknown keys so operators don't silently misconfigure.
+        unknown = set(data.keys()) - cls._KNOWN_FIELDS
+        if unknown:
+            _ctx = f"Route {route_id!r}: " if route_id else ""
+            raise ConfigValidationError(
+                f"{_ctx}Unknown policy key(s) {sorted(unknown)} in "
+                f"{section_path}.policy. Accepted keys: "
+                f"{sorted(cls._KNOWN_FIELDS)}",
+                section_path=f"{section_path}.policy" if section_path else "policy",
+            )
+
+        # Validate each allowlist field is a list of strings.
+        for field_name, _label in cls._ALLOWLIST_FIELDS:
+            raw = data.get(field_name)
+            if raw is None:
+                continue
+            if isinstance(raw, str):
+                raise ConfigValidationError(
+                    f"Route {route_id!r}: policy.{field_name} must be a list, "
+                    f"not a string. Did you mean [{raw!r}]?",
+                    section_path=f"{section_path}.policy",
+                )
+            if not isinstance(raw, list):
+                raise ConfigValidationError(
+                    f"Route {route_id!r}: policy.{field_name} must be a list, "
+                    f"got {type(raw).__name__}",
+                    section_path=f"{section_path}.policy",
+                )
+            for i, item in enumerate(raw):
+                if not isinstance(item, str):
+                    raise ConfigValidationError(
+                        f"Route {route_id!r}: policy.{field_name}[{i}] must be "
+                        f"a string, got {type(item).__name__}: {item!r}",
+                        section_path=f"{section_path}.policy",
+                    )
+
         return cls(
             allowed_event_types=tuple(data.get("allowed_event_types", [])),
             allowed_source_adapters=tuple(data.get("allowed_source_adapters", [])),
@@ -124,36 +203,29 @@ class BridgePolicy:
 # ---------------------------------------------------------------------------
 
 
-def _reject_unsupported_policy_fields(
+def _validate_policy(
     policy: BridgePolicy,
     *,
     route_id: str,
     section_path: str,
 ) -> None:
-    """Raise :class:`ConfigValidationError` for policy fields not enforced at runtime.
+    """Validate a :class:`BridgePolicy` after construction.
 
-    Only ``allowed_event_types`` is currently supported — it maps to
-    :attr:`RouteSource.event_kinds` during expansion.  All other policy
-    fields are reserved placeholders that silently no-op; rejecting them
-    prevents operators from being misled about what is enforced.
+    All six policy fields are now supported at runtime:
+
+    * ``allowed_event_types`` maps to :attr:`RouteSource.event_kinds`
+      during route expansion (already enforced structurally).
+    * ``allowed_source_adapters``, ``allowed_dest_adapters``,
+      ``room_allowlist``, ``channel_allowlist``, ``sender_allowlist``
+      are enforced by the route-policy evaluator in the delivery
+      pipeline (:func:`evaluate_route_policy`).
+
+    This function is retained as a validation hook for future
+    cross-field consistency checks.
     """
-    unsupported: list[str] = []
-    if policy.sender_allowlist:
-        unsupported.append("sender_allowlist")
-    if policy.allowed_source_adapters:
-        unsupported.append("allowed_source_adapters")
-    if policy.allowed_dest_adapters:
-        unsupported.append("allowed_dest_adapters")
-    if policy.room_allowlist:
-        unsupported.append("room_allowlist")
-    if policy.channel_allowlist:
-        unsupported.append("channel_allowlist")
-    if unsupported:
-        raise ConfigValidationError(
-            f"Route {route_id!r}: policy fields {unsupported} are reserved "
-            f"and not yet supported at runtime. Remove them to proceed.",
-            section_path=f"{section_path}.policy",
-        )
+    # Intentionally empty: structural validation (unknown keys, type
+    # checking, per-element string checks) is performed in
+    # BridgePolicy.from_toml_dict before this function is called.
 
 
 # ---------------------------------------------------------------------------
@@ -605,8 +677,12 @@ class RouteConfig:
                     f"Route {route_id!r}: 'policy' must be a table",
                     section_path=section_path,
                 )
-            policy = BridgePolicy.from_toml_dict(raw_policy)
-            _reject_unsupported_policy_fields(
+            policy = BridgePolicy.from_toml_dict(
+                raw_policy,
+                route_id=route_id,
+                section_path=section_path,
+            )
+            _validate_policy(
                 policy,
                 route_id=route_id,
                 section_path=section_path,
