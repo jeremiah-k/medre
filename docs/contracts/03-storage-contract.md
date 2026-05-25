@@ -536,7 +536,13 @@ CREATE TABLE delivery_outbox (
 
 **Idempotent Create:** Creating an outbox item with the same `(delivery_plan_id, target_adapter, target_channel, attempt_number)` key tuple as an existing non-terminal item returns the existing item unchanged. If the existing item is terminal, it is deleted and a new row is inserted to allow re-delivery after dead-letter recovery.
 
-**Uniqueness:** The `UNIQUE` constraint on `(delivery_plan_id, target_adapter, target_channel, attempt_number)` is supplemented by a partial unique index `WHERE target_channel IS NULL` to close the SQLite `NULL != NULL` gap.
+**Uniqueness:** The `UNIQUE` constraint on `(delivery_plan_id, target_adapter, target_channel, attempt_number)` is supplemented by a partial unique index `WHERE target_channel IS NULL` to close the SQLite `NULL != NULL` gap:
+
+```sql
+CREATE UNIQUE INDEX IF NOT EXISTS uq_outbox_null_channel
+    ON delivery_outbox (delivery_plan_id, target_adapter, target_channel, attempt_number)
+    WHERE target_channel IS NULL;
+```
 
 **Protocol Methods:** See `StorageBackend` protocol in `src/medre/core/storage/backend.py` for the complete outbox method signatures: `create_outbox_item`, `get_outbox_item`, `list_outbox_items`, `claim_due_outbox_items`, `mark_outbox_*`, `release_outbox_claim`, `count_outbox_by_status`.
 

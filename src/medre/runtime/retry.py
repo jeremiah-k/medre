@@ -188,6 +188,11 @@ class RetryWorker:
         )
 
         if not items:
+            # Refresh counts on idle cycles too.
+            try:
+                self._outbox_counts = await self._storage.count_outbox_by_status()
+            except Exception:
+                _logger.debug("RetryWorker: failed to refresh outbox counts")
             return
 
         self.state.last_run_at = now_iso
@@ -234,7 +239,22 @@ class RetryWorker:
             item.delivery_plan_id,
             item.target_adapter,
         )
+        # Filter to the same target channel for correct lineage.
+        if item.target_channel is not None:
+            receipts = [r for r in receipts if r.target_channel == item.target_channel]
         previous_receipt = receipts[-1] if receipts else None
+
+        # Initialise retry-policy defaults before the capacity check so
+        # the backoff is available for capacity-rejection scheduling.
+        _max_attempts = self._max_attempts
+        _backoff_base = 2.0
+        _max_delay = 60.0
+        _jitter = False
+        if previous_receipt is not None:
+            _max_attempts = previous_receipt.retry_max_attempts or self._max_attempts
+            _backoff_base = previous_receipt.retry_backoff_base or 2.0
+            _max_delay = previous_receipt.retry_max_delay or 60.0
+            _jitter = previous_receipt.retry_jitter or False
 
         capacity_acquired = False
 
@@ -248,15 +268,29 @@ class RetryWorker:
                         "RetryWorker: capacity rejected for outbox %s",
                         item.outbox_id,
                     )
-                    # Release the claim so the item is visible next cycle.
-                    _restore_status = (
-                        "retry_wait" if item.next_attempt_at else "pending"
+                    # Compute backoff so the item isn't immediately retried.
+                    _cap_policy = RetryPolicy(
+                        max_attempts=_max_attempts,
+                        backoff_base=_backoff_base,
+                        max_delay_seconds=_max_delay,
+                        jitter=_jitter,
                     )
-                    await self._storage.release_outbox_claim(
-                        item.outbox_id,
-                        item.worker_id or "",
-                        release_status=_restore_status,
+                    _cap_backoff = RetryExecutor(_cap_policy).compute_backoff(
+                        item.attempt_number,
                     )
+                    _cap_next = datetime.now(timezone.utc) + _cap_backoff
+                    try:
+                        await self._storage.mark_outbox_retry_wait(
+                            item.outbox_id,
+                            next_attempt_at=_cap_next.isoformat(),
+                            failure_kind="capacity_rejection",
+                            attempt_number=item.attempt_number,
+                        )
+                    except Exception:
+                        _logger.exception(
+                            "RetryWorker: failed to backoff outbox %s on capacity rejection",
+                            item.outbox_id,
+                        )
                     self._emit(
                         "retry_failed",
                         {
@@ -269,7 +303,7 @@ class RetryWorker:
                             "status": "capacity_rejection",
                             "failure_kind": "capacity_rejection",
                             "error": "delivery capacity not available",
-                            "next_retry_at": None,
+                            "next_retry_at": _cap_next.isoformat(),
                         },
                     )
                     return
@@ -296,14 +330,6 @@ class RetryWorker:
                 return
             capacity_acquired = True
 
-        # Initialise retry-policy defaults before the try block so the
-        # exception handler can always reference them (avoids NameError if
-        # RouteTarget / Route / DeliveryPlan construction raises).
-        _max_attempts = self._max_attempts
-        _backoff_base = 2.0
-        _max_delay = 60.0
-        _jitter = False
-
         try:
             # Reconstruct Route and DeliveryPlan from outbox metadata.
             target = RouteTarget(
@@ -315,15 +341,6 @@ class RetryWorker:
                 source=RouteSource(adapter=None, event_kinds=(), channel=None),
                 targets=[target],
             )
-
-            # Override retry policy from the previous receipt when available.
-            if previous_receipt is not None:
-                _max_attempts = (
-                    previous_receipt.retry_max_attempts or self._max_attempts
-                )
-                _backoff_base = previous_receipt.retry_backoff_base or 2.0
-                _max_delay = previous_receipt.retry_max_delay or 60.0
-                _jitter = previous_receipt.retry_jitter or False
 
             plan = DeliveryPlan(
                 plan_id=item.delivery_plan_id or "",
@@ -358,33 +375,6 @@ class RetryWorker:
                 source="retry",
                 replay_run_id=None,
             )
-
-            # Success — deliver_to_target returned a receipt.
-            self.state.processed += 1
-            self.state.succeeded += 1
-            if result_receipt.status == "queued":
-                await self._storage.mark_outbox_queued(
-                    item.outbox_id,
-                    receipt_id=result_receipt.receipt_id,
-                )
-            else:
-                await self._storage.mark_outbox_sent(
-                    item.outbox_id,
-                    receipt_id=result_receipt.receipt_id,
-                    attempt_number=result_receipt.attempt_number,
-                )
-            self._emit(
-                "retry_succeeded",
-                {
-                    "receipt_id": result_receipt.receipt_id,
-                    "parent_receipt_id": item.receipt_id or item.outbox_id,
-                    "retry_receipt_id": result_receipt.receipt_id,
-                    "event_id": item.event_id,
-                    "target_adapter": item.target_adapter,
-                    "attempt_number": result_receipt.attempt_number,
-                },
-            )
-
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -491,6 +481,38 @@ class RetryWorker:
                 "RetryWorker: delivery failed for outbox %s",
                 item.outbox_id,
                 exc_info=True,
+            )
+        else:
+            # Success — delivery returned a receipt.
+            self.state.processed += 1
+            self.state.succeeded += 1
+            try:
+                if result_receipt.status == "queued":
+                    await self._storage.mark_outbox_queued(
+                        item.outbox_id,
+                        receipt_id=result_receipt.receipt_id,
+                    )
+                else:
+                    await self._storage.mark_outbox_sent(
+                        item.outbox_id,
+                        receipt_id=result_receipt.receipt_id,
+                        attempt_number=result_receipt.attempt_number,
+                    )
+            except Exception:
+                _logger.exception(
+                    "RetryWorker: failed to update outbox %s after successful delivery",
+                    item.outbox_id,
+                )
+            self._emit(
+                "retry_succeeded",
+                {
+                    "receipt_id": result_receipt.receipt_id,
+                    "parent_receipt_id": item.receipt_id or item.outbox_id,
+                    "retry_receipt_id": result_receipt.receipt_id,
+                    "event_id": item.event_id,
+                    "target_adapter": item.target_adapter,
+                    "attempt_number": result_receipt.attempt_number,
+                },
             )
         finally:
             if capacity_acquired and self._capacity is not None:

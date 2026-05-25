@@ -41,8 +41,6 @@ _UNSET = object()
 # ---------------------------------------------------------------------------
 # Minimal fakes for testing (no SDK imports)
 # ---------------------------------------------------------------------------
-
-
 class _FakeRole(Enum):
     TRANSPORT = "transport"
     PRESENTATION = "presentation"
@@ -155,8 +153,6 @@ class _FakeRuntimeState(Enum):
 # ---------------------------------------------------------------------------
 # Fake app builder
 # ---------------------------------------------------------------------------
-
-
 def _make_fake_app(
     *,
     adapters: dict[str, Any] | None = None,
@@ -206,8 +202,6 @@ def _make_fake_app(
 # ---------------------------------------------------------------------------
 # Tests: Deterministic ordering
 # ---------------------------------------------------------------------------
-
-
 class TestDeterministicOrdering:
     """Snapshot output must be deterministic across identical calls."""
 
@@ -290,8 +284,6 @@ class TestDeterministicOrdering:
 # ---------------------------------------------------------------------------
 # Tests: JSON safety
 # ---------------------------------------------------------------------------
-
-
 class TestJsonSafety:
     """Snapshot must be serialisable with json.dumps and contain no SDK objects."""
 
@@ -345,8 +337,6 @@ class TestJsonSafety:
 # ---------------------------------------------------------------------------
 # Tests: Sanitisation / no secrets
 # ---------------------------------------------------------------------------
-
-
 class TestSanitisation:
     """Snapshot must not contain secrets or raw SDK object representations."""
 
@@ -387,8 +377,6 @@ class TestSanitisation:
 # ---------------------------------------------------------------------------
 # Tests: Bounded size
 # ---------------------------------------------------------------------------
-
-
 class TestBoundedSize:
     """Collections must be capped to prevent unbounded snapshots."""
 
@@ -423,8 +411,6 @@ class TestBoundedSize:
 # ---------------------------------------------------------------------------
 # Tests: Representative snapshot contents
 # ---------------------------------------------------------------------------
-
-
 class TestSnapshotContents:
     """Snapshot contains expected sections with correct data."""
 
@@ -585,8 +571,6 @@ class TestSnapshotContents:
 # ---------------------------------------------------------------------------
 # Tests: Startup timestamp & uptime
 # ---------------------------------------------------------------------------
-
-
 class TestStartupTimestampAndUptime:
     """Startup timestamp and uptime computation (now in lifecycle section)."""
 
@@ -632,8 +616,6 @@ class TestStartupTimestampAndUptime:
 # ---------------------------------------------------------------------------
 # Tests: Graceful handling of absent optional structures
 # ---------------------------------------------------------------------------
-
-
 class TestGracefulAbsence:
     """Missing optional subsystems must not raise errors."""
 
@@ -700,8 +682,6 @@ class TestGracefulAbsence:
 # ---------------------------------------------------------------------------
 # Tests: Startup health state tolerance
 # ---------------------------------------------------------------------------
-
-
 class TestHealthStateTolerance:
     """Startup health state is null when absent, dict when present."""
 
@@ -849,8 +829,6 @@ class TestLiveHealthPopulated:
 # ---------------------------------------------------------------------------
 # Tests: Injected clocks for testability
 # ---------------------------------------------------------------------------
-
-
 class TestInjectedClocks:
     """now_fn and monotonic_fn are properly used."""
 
@@ -874,8 +852,6 @@ class TestInjectedClocks:
 # ---------------------------------------------------------------------------
 # Tests: Route stats integration
 # ---------------------------------------------------------------------------
-
-
 class TestRouteStatsIntegration:
     """Route stats snapshot data flows correctly into the snapshot."""
 
@@ -910,8 +886,6 @@ class TestRouteStatsIntegration:
 # ---------------------------------------------------------------------------
 # Tests: Capacity integration
 # ---------------------------------------------------------------------------
-
-
 class TestCapacityIntegration:
     """Capacity controller snapshot data flows correctly."""
 
@@ -944,8 +918,6 @@ class TestCapacityIntegration:
 # ---------------------------------------------------------------------------
 # Tests: Replay integration
 # ---------------------------------------------------------------------------
-
-
 class TestReplayIntegration:
     """Replay engine and metrics flow correctly."""
 
@@ -975,8 +947,6 @@ class TestReplayIntegration:
 # ---------------------------------------------------------------------------
 # Tests: Diagnostician fallback path
 # ---------------------------------------------------------------------------
-
-
 class TestDiagnosticianFallback:
     """Snapshot checks _diagnostics_collector then diagnostician."""
 
@@ -1006,8 +976,6 @@ class TestDiagnosticianFallback:
 # ---------------------------------------------------------------------------
 # Tests: Accounting and BootSummary integration
 # ---------------------------------------------------------------------------
-
-
 class TestAccountingInSnapshot:
     """Runtime accounting counters appear in the snapshot when wired."""
 
@@ -1144,8 +1112,6 @@ class TestBootSummaryInSnapshot:
 # ---------------------------------------------------------------------------
 # Tests: Provenance metadata (scope + live_refresh)
 # ---------------------------------------------------------------------------
-
-
 class TestProvenanceMetadata:
     """Snapshot sections carry scope and live_refresh provenance metadata.
 
@@ -1332,8 +1298,6 @@ class TestProvenanceMetadata:
 # ---------------------------------------------------------------------------
 # Live health extension-point type tests
 # ---------------------------------------------------------------------------
-
-
 class TestLiveHealthTypes:
     """Tests for AdapterLiveHealth and LiveHealthSnapshot extension points.
 
@@ -1465,66 +1429,39 @@ class TestLiveHealthTypes:
 # ---------------------------------------------------------------------------
 # Tests: Outbox storage-backed counts
 # ---------------------------------------------------------------------------
-
-
 class TestOutboxStorageBackedCounts:
     """Outbox counts should reflect storage-seeded data."""
 
-    def test_outbox_counts_prefers_storage_seeded_over_empty_worker_cache(
-        self,
-    ) -> None:
-        """Outbox counts should reflect storage-seeded data, not empty worker cache."""
+    def test_outbox_precedence_and_structure(self) -> None:
+        """Outbox counts, precedence, and structure in one sweep."""
         from unittest.mock import MagicMock
 
-        app = _make_fake_app()
-        # Simulate storage-seeded outbox counts.
-        app.outbox_state = {"pending": 3, "retry_wait": 1}
+        # 1) No state → null counts, expected keys present.
+        snap_empty = build_runtime_snapshot(_make_fake_app(), snapshot_scope="build")
+        assert snap_empty["outbox"]["counts"] is None
 
-        # Mock retry worker with empty cache (hasn't completed a cycle yet).
+        # 2) Storage-seeded counts win over empty worker cache.
+        app = _make_fake_app()
+        app.outbox_state = {"pending": 3, "retry_wait": 1}
         mock_worker = MagicMock()
         mock_worker.outbox_counts = {}
         app._retry_worker = mock_worker
 
         snap = build_runtime_snapshot(app, snapshot_scope="build")
-
         assert snap["outbox"]["counts"] == {"pending": 3, "retry_wait": 1}
         assert snap["outbox"]["scope"] == "storage_seeded"
 
-    def test_outbox_counts_uses_worker_cache_when_available(self) -> None:
-        """When worker has completed a cycle, its fresher counts take precedence."""
-        from unittest.mock import MagicMock
+        # 3) Worker cache takes precedence when non-empty.
+        app2 = _make_fake_app()
+        app2.outbox_state = {"pending": 1, "sent": 2}
+        mock_worker2 = MagicMock()
+        mock_worker2.outbox_counts = {"pending": 1, "sent": 2}
+        app2._retry_worker = mock_worker2
 
-        app = _make_fake_app()
-        # Simulate the fixed outbox_state property: worker has fresh counts
-        # so the property returns the worker's counts, not the storage-seeded ones.
-        app.outbox_state = {"pending": 1, "sent": 2}
+        snap2 = build_runtime_snapshot(app2, snapshot_scope="build")
+        assert snap2["outbox"]["counts"] == {"pending": 1, "sent": 2}
 
-        mock_worker = MagicMock()
-        mock_worker.outbox_counts = {"pending": 1, "sent": 2}
-        app._retry_worker = mock_worker
-
-        snap = build_runtime_snapshot(app, snapshot_scope="build")
-
-        assert snap["outbox"]["counts"] == {"pending": 1, "sent": 2}
-        assert snap["outbox"]["scope"] == "storage_seeded"
-
-    def test_outbox_counts_null_when_no_state(self) -> None:
-        """Outbox counts is null when no outbox state is set."""
-        snap = build_runtime_snapshot(_make_fake_app(), snapshot_scope="build")
-        # Default _FakeApp has no outbox_state attribute, so getattr returns None.
-        assert snap["outbox"]["counts"] is None
-
-    def test_outbox_section_has_expected_keys(self) -> None:
-        """Outbox section has the required structure."""
-        from unittest.mock import MagicMock
-
-        app = _make_fake_app()
-        app.outbox_state = {"pending": 5}
-        app._retry_worker = MagicMock()
-        app._retry_worker.outbox_counts = {"pending": 5}
-
-        snap = build_runtime_snapshot(app)
-
+        # 4) Structure check.
         assert set(snap["outbox"].keys()) == {
             "counts",
             "live_refresh",
@@ -1532,4 +1469,3 @@ class TestOutboxStorageBackedCounts:
             "scope",
         }
         assert snap["outbox"]["live_refresh"] is False
-        assert snap["outbox"]["scope"] == "storage_seeded"

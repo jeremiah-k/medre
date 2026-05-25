@@ -148,7 +148,7 @@ This document describes how MEDRE routes, delivers, tracks, and recovers events.
 - **Batch size**: configurable (default 20)
 - **Max attempts**: configurable (default 3)
 - **Backoff**: exponential `delay = backoff_base * 2^(attempt-1)`, capped at `max_delay_seconds`
-- **Jitter**: optional deterministic SHA-256 based jitter in `[delay * 0.5, delay]` range
+- **Jitter**: optional deterministic SHA-256-based jitter in `[delay * 0.5, delay]` range
 - **Receipt lineage**: each retry creates a new `DeliveryReceipt` with `parent_receipt_id` linking to the previous attempt, `attempt_number` incrementing, `source="retry"`
 - **Dead-letter**: when all retry attempts exhausted, a `dead_lettered` receipt is appended and the outbox item is marked `dead_lettered` — no further retries
 

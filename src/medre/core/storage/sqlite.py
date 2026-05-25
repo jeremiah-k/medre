@@ -696,6 +696,7 @@ class SQLiteStorage:
         # dispatches on ``_use_aiosqlite`` before calling async/sync APIs.
         self._db: Any = None
         self._lock = threading.Lock()
+        self._outbox_create_lock = asyncio.Lock()
         self._use_aiosqlite = _HAS_AIOSQLITE
 
     # -- Internal helpers ---------------------------------------------------
@@ -1518,7 +1519,7 @@ class SQLiteStorage:
         select_params = (
             item.delivery_plan_id,
             item.target_adapter,
-            item.target_channel,
+            item.target_channel or None,
             item.attempt_number,
         )
         delete_sql = "DELETE FROM delivery_outbox WHERE outbox_id = ?"
@@ -1538,7 +1539,7 @@ class SQLiteStorage:
             item.route_id,
             item.delivery_plan_id,
             item.target_adapter,
-            item.target_channel,
+            item.target_channel or None,
             item.target_address,
             item.attempt_number,
             item.status or "pending",
@@ -1559,32 +1560,36 @@ class SQLiteStorage:
         )
 
         if self._use_aiosqlite:
-            db = self._require_db()
-            try:
-                await db.execute("BEGIN IMMEDIATE")  # type: ignore[union-attr]
-                # SELECT existing
-                async with db.execute(select_sql, select_params) as cur:  # type: ignore[union-attr]
-                    row = await cur.fetchone()
-                if row is not None:
-                    existing = dict(row)
-                    if existing["status"] not in _terminal:
-                        await db.execute("COMMIT")  # type: ignore[union-attr]
-                        return await self.get_outbox_item(existing["outbox_id"]) or item
-                    # Terminal — delete so re-insertion can proceed.
-                    await db.execute(delete_sql, (existing["outbox_id"],))  # type: ignore[union-attr]
+            async with self._outbox_create_lock:
+                db = self._require_db()
                 try:
-                    await db.execute(insert_sql, insert_params)  # type: ignore[union-attr]
-                except Exception:
-                    await db.execute("ROLLBACK")  # type: ignore[union-attr]
+                    await db.execute("BEGIN IMMEDIATE")  # type: ignore[union-attr]
+                    # SELECT existing
+                    async with db.execute(select_sql, select_params) as cur:  # type: ignore[union-attr]
+                        row = await cur.fetchone()
+                    if row is not None:
+                        existing = dict(row)
+                        if existing["status"] not in _terminal:
+                            await db.execute("COMMIT")  # type: ignore[union-attr]
+                            return (
+                                await self.get_outbox_item(existing["outbox_id"])
+                                or item
+                            )
+                        # Terminal — delete so re-insertion can proceed.
+                        await db.execute(delete_sql, (existing["outbox_id"],))  # type: ignore[union-attr]
+                    try:
+                        await db.execute(insert_sql, insert_params)  # type: ignore[union-attr]
+                    except Exception:
+                        await db.execute("ROLLBACK")  # type: ignore[union-attr]
+                        raise
+                    await db.execute("COMMIT")  # type: ignore[union-attr]
+                except sqlite3.IntegrityError:
+                    # UNIQUE race: another writer inserted between our SELECT
+                    # and INSERT.  Re-read the winning row.
+                    existing = await self._read_one(select_sql, select_params)
+                    if existing is not None:
+                        return await self.get_outbox_item(existing["outbox_id"]) or item
                     raise
-                await db.execute("COMMIT")  # type: ignore[union-attr]
-            except sqlite3.IntegrityError:
-                # UNIQUE race: another writer inserted between our SELECT
-                # and INSERT.  Re-read the winning row.
-                existing = await self._read_one(select_sql, select_params)
-                if existing is not None:
-                    return await self.get_outbox_item(existing["outbox_id"]) or item
-                raise
         else:
             try:
                 existing_id = await asyncio.to_thread(
@@ -1634,6 +1639,7 @@ class SQLiteStorage:
                     db.execute(delete_sql, (existing["outbox_id"],))
                 db.execute(insert_sql, insert_params)
                 db.execute("COMMIT")
+                return None
             except BaseException:
                 db.execute("ROLLBACK")
                 raise

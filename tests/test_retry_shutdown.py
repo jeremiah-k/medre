@@ -570,7 +570,7 @@ class TestRetryCapacityRejectionBackoff:
     async def test_retry_capacity_rejection_backoff(self, temp_storage):
         """When capacity always rejects:
         1. retry_failed event emitted
-        2. next_retry_at updated (backoff applied)
+        2. outbox next_attempt_at updated (backoff applied)
         3. attempt_number unchanged (capacity rejection ≠ delivery attempt)
         4. Monotonic backoff across two rejection cycles
         5. Snapshot counters correct
@@ -584,6 +584,7 @@ class TestRetryCapacityRejectionBackoff:
         from medre.core.rendering.text import TextRenderer
         from medre.core.routing.router import Router
         from medre.core.routing.stats import RouteStats
+        from medre.core.storage.backend import DeliveryOutboxItem
         from medre.runtime.events import EventBuffer, RuntimeEventType
         from medre.runtime.retry import RetryWorker
 
@@ -591,7 +592,7 @@ class TestRetryCapacityRejectionBackoff:
         event = _make_event()
         await temp_storage.append(event)
 
-        # Create a failed receipt directly in storage with known next_retry_at
+        # Create a failed receipt for lineage + an outbox item in retry_wait.
         now = datetime.now(timezone.utc)
         receipt_id = f"rcpt-{uuid.uuid4()}"
         failed_receipt = DeliveryReceipt(
@@ -608,6 +609,20 @@ class TestRetryCapacityRejectionBackoff:
             created_at=now,
         )
         await temp_storage.append_receipt(failed_receipt)
+
+        outbox_id = f"obx-{uuid.uuid4()}"
+        outbox_item = DeliveryOutboxItem(
+            outbox_id=outbox_id,
+            event_id=event.event_id,
+            route_id="route-cap-backoff",
+            delivery_plan_id="plan-cap-backoff",
+            target_adapter="target_a",
+            attempt_number=1,
+            status="retry_wait",
+            next_attempt_at=(now - timedelta(seconds=1)).isoformat(),
+            receipt_id=receipt_id,
+        )
+        await temp_storage.create_outbox_item(outbox_item)
 
         # Pipeline needed for RetryWorker but capacity=0 means it never gets called
         render_pipe = RenderingPipeline()
@@ -658,24 +673,21 @@ class TestRetryCapacityRejectionBackoff:
             assert len(failed_events) >= 1
             assert failed_events[0].detail["status"] == "capacity_rejection"
 
-            # Assert: next_retry_at was updated (pushed forward)
-            receipts_after = await temp_storage.list_receipts_for_event(
-                event.event_id,
+            # Assert: outbox next_attempt_at was updated (pushed forward)
+            updated_item = await temp_storage.get_outbox_item(outbox_id)
+            assert updated_item is not None
+            assert updated_item.next_attempt_at is not None
+            _parsed_next = datetime.fromisoformat(updated_item.next_attempt_at)
+            assert _parsed_next > cycle1_now, (
+                f"next_attempt_at should be pushed past {cycle1_now}, "
+                f"got {_parsed_next}"
             )
-            updated = [r for r in receipts_after if r.receipt_id == receipt_id]
-            assert len(updated) == 1
-            updated_rcpt = updated[0]
-            assert updated_rcpt.next_retry_at is not None
-            assert updated_rcpt.next_retry_at > cycle1_now, (
-                f"next_retry_at should be pushed past {cycle1_now}, "
-                f"got {updated_rcpt.next_retry_at}"
-            )
-            first_backoff_retry_at = updated_rcpt.next_retry_at
+            first_backoff_next_at = updated_item.next_attempt_at
 
             # Assert: attempt_number unchanged (capacity rejection doesn't increment)
-            assert updated_rcpt.attempt_number == 1, (
-                f"attempt_number should remain 1, " f"got {updated_rcpt.attempt_number}"
-            )
+            assert (
+                updated_item.attempt_number == 1
+            ), f"attempt_number should remain 1, got {updated_item.attempt_number}"
 
             # Assert: worker snapshot shows correct counters
             state = worker.state
@@ -684,25 +696,25 @@ class TestRetryCapacityRejectionBackoff:
             assert state.succeeded == 0
 
             # === Cycle 2: capacity still rejecting ===
-            cycle2_now = first_backoff_retry_at + timedelta(seconds=1)
+            cycle2_now = datetime.fromisoformat(first_backoff_next_at) + timedelta(
+                seconds=1,
+            )
             await worker._process_due(cycle2_now)
 
-            receipts_after_2 = await temp_storage.list_receipts_for_event(
-                event.event_id,
-            )
-            updated_2 = [r for r in receipts_after_2 if r.receipt_id == receipt_id]
-            assert len(updated_2) == 1
-            updated_2_rcpt = updated_2[0]
+            updated_item_2 = await temp_storage.get_outbox_item(outbox_id)
+            assert updated_item_2 is not None
 
-            # Assert: next_retry_at advanced monotonically
-            assert updated_2_rcpt.next_retry_at is not None
-            assert updated_2_rcpt.next_retry_at > first_backoff_retry_at, (
-                f"Second backoff ({updated_2_rcpt.next_retry_at}) must be "
-                f"later than first ({first_backoff_retry_at})"
+            # Assert: next_attempt_at advanced monotonically
+            assert updated_item_2.next_attempt_at is not None
+            _parsed_next_2 = datetime.fromisoformat(updated_item_2.next_attempt_at)
+            _parsed_first = datetime.fromisoformat(first_backoff_next_at)
+            assert _parsed_next_2 > _parsed_first, (
+                f"Second backoff ({_parsed_next_2}) must be "
+                f"later than first ({_parsed_first})"
             )
 
             # Assert: attempt_number still unchanged
-            assert updated_2_rcpt.attempt_number == 1
+            assert updated_item_2.attempt_number == 1
 
             # Assert: snapshot counters reflect 2 rejections
             assert state.failed == 2

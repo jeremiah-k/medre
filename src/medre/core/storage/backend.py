@@ -523,7 +523,8 @@ class StorageBackend(Protocol):
     ) -> list[DeliveryOutboxItem]:
         """Atomically claim due outbox items for processing.
 
-        Selects items with status ``pending`` or ``retry_wait`` whose
+        Selects items with status ``pending`` or ``retry_wait`` (or
+        ``in_progress`` whose lease has expired) whose
         ``next_attempt_at`` is ``<= now`` (or ``NULL`` for pending items
         with no schedule) and whose ``lease_until`` is ``NULL`` or
         ``<= now`` (expired lease).

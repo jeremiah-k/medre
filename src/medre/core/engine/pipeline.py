@@ -1580,6 +1580,11 @@ class PipelineRunner:
                     delivery_plan_id=route_plan.plan_id,
                     target_adapter=adapter_id,
                     target_channel=target.channel,
+                    target_address=(
+                        target.destination.destination_hash
+                        if target.destination
+                        else None
+                    ),
                     attempt_number=1,
                     status="in_progress",
                     locked_at=_now.isoformat(),
@@ -1779,25 +1784,35 @@ class PipelineRunner:
                                 )
                         elif _outcome_failure_kind_val is not None:
                             if _outcome_failure_kind_val.is_retryable:
-                                # Compute next attempt time for retry using
-                                # the delivery plan's retry policy.
-                                _backoff = timedelta(seconds=60)
-                                if route_plan.retry_policy is not None:
+                                if route_plan.retry_policy is None:
+                                    # No retry policy — treat as terminal.
+                                    await self._config.storage.mark_outbox_dead_lettered(
+                                        _outbox_id,
+                                        failure_kind=_outcome_failure_kind_val.value,
+                                        error_summary=(
+                                            _outcome_error[:512]
+                                            if _outcome_error
+                                            else None
+                                        ),
+                                    )
+                                else:
                                     _backoff = RetryExecutor(
                                         route_plan.retry_policy
                                     ).compute_backoff(1)
-                                _next_at = (
-                                    datetime.now(timezone.utc) + _backoff
-                                ).isoformat()
-                                await self._config.storage.mark_outbox_retry_wait(
-                                    _outbox_id,
-                                    next_attempt_at=_next_at,
-                                    failure_kind=_outcome_failure_kind_val.value,
-                                    error_summary=(
-                                        _outcome_error[:512] if _outcome_error else None
-                                    ),
-                                    attempt_number=1,
-                                )
+                                    _next_at = (
+                                        datetime.now(timezone.utc) + _backoff
+                                    ).isoformat()
+                                    await self._config.storage.mark_outbox_retry_wait(
+                                        _outbox_id,
+                                        next_attempt_at=_next_at,
+                                        failure_kind=_outcome_failure_kind_val.value,
+                                        error_summary=(
+                                            _outcome_error[:512]
+                                            if _outcome_error
+                                            else None
+                                        ),
+                                        attempt_number=1,
+                                    )
                             else:
                                 await self._config.storage.mark_outbox_dead_lettered(
                                     _outbox_id,

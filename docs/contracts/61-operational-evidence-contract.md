@@ -474,17 +474,17 @@ Attach a lifecycle metadata block to any evidence section or table:
 
 When multiple evidence entries have different lifecycle status, use one block per entry or a summary covering the weakest link.
 
-## 10. Evidence vs Outbox
+## 9. Evidence vs Outbox
 
-### 10.1 Delivery Receipts (Evidence)
+### 9.1 Delivery Receipts (Evidence)
 
 Delivery receipts (`delivery_receipts` table) are the **evidence/audit log**. They record what _did_ happen — every delivery attempt, success or failure, is appended as a receipt row. Receipts are append-only and immutable.
 
-### 10.2 Outbox Items (Operational State)
+### 9.2 Outbox Items (Operational State)
 
 Outbox items (`delivery_outbox` table) are **operational work state**. They record what _still needs to happen_ — pending deliveries, scheduled retries, and in-progress work. Outbox rows are mutable: status, attempt_number, lease fields, and error details are updated as work progresses.
 
-### 10.3 Relationship
+### 9.3 Relationship
 
 - A `pending` outbox item means durable work exists but no receipt has been produced yet.
 - A `retry_wait` outbox item means a receipt with `status="failed"` exists and another attempt is scheduled.
@@ -492,11 +492,11 @@ Outbox items (`delivery_outbox` table) are **operational work state**. They reco
 - A `dead_lettered` outbox item means retries are exhausted; corresponding dead-letter receipts exist.
 - An `abandoned` outbox item means the runtime will not retry automatically; no corresponding receipt may exist if the item was abandoned before the first attempt.
 
-### 10.4 Evidence Tier
+### 9.4 Evidence Tier
 
 Outbox state is classified as **S-tier (Simulated/Fake-runtime)** evidence — it is tested with FakeAdapters and deterministic unit tests. No R-tier (Real-live-runtime) evidence for outbox behavior under live transport conditions has been collected.
 
-## 9. Changelog
+## 10. Changelog
 
 | Date       | Version | Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | ---------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
