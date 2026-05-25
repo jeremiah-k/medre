@@ -34,189 +34,46 @@ from medre.runtime.snapshot import (
     build_runtime_snapshot,
 )
 
-# Sentinel to distinguish "config not passed" from "config=None".
-_UNSET = object()
-
-
-# ---------------------------------------------------------------------------
-# Minimal fakes for testing (no SDK imports)
-# ---------------------------------------------------------------------------
-class _FakeRole(Enum):
-    TRANSPORT = "transport"
-    PRESENTATION = "presentation"
-    HYBRID = "hybrid"
-
-
-@dataclass
-class _FakeCapabilities:
-    text: bool = True
-    title: bool = False
-    replies: str = "native"
-    max_text_bytes: int | None = None
-
-
-class _FakeAdapter:
-    """Minimal adapter-like object for snapshot testing."""
-
-    def __init__(
-        self,
-        adapter_id: str = "test-adapter",
-        platform: str = "test_platform",
-        role: _FakeRole | None = None,
-        version: str = "0.1.0",
-        capabilities: _FakeCapabilities | None = None,
-        health: str = "unknown",
-    ) -> None:
-        self.adapter_id = adapter_id
-        self.platform = platform
-        self.role = role or _FakeRole.TRANSPORT
-        self._version = version
-        self._capabilities = capabilities or _FakeCapabilities()
-        self._last_health = health
-
-
-@dataclass
-class _FakeRuntimeLimits:
-    max_inflight_deliveries: int = 50
-    max_inflight_replay_events: int = 25
-    shutdown_drain_timeout_seconds: int = 10
-    delivery_acquire_timeout_seconds: float = 2.0
-
-
-@dataclass
-class _FakeRuntimeConfig:
-    limits: Any = field(default_factory=_FakeRuntimeLimits)
-
-
-class _FakeRouteStats:
-    """Mimics RouteStats.snapshot()."""
-
-    def __init__(self, data: dict[str, Any] | None = None) -> None:
-        self._data = data or {}
-
-    def snapshot(self) -> dict[str, Any]:
-        return dict(self._data)
-
-
-class _FakeCapacityController:
-    """Mimics CapacityController.snapshot()."""
-
-    def __init__(self, data: dict[str, Any] | None = None) -> None:
-        self._data = data or {
-            "accepting_work": True,
-            "delivery_current": 0,
-            "delivery_limit": 50,
-            "delivery_rejections": 0,
-            "delivery_timeouts": 0,
-            "replay_current": 0,
-            "replay_limit": 25,
-            "replay_rejections": 0,
-            "replay_timeouts": 0,
-        }
-
-    def snapshot(self) -> dict[str, Any]:
-        return dict(self._data)
-
-
-class _FakeReplayEngine:
-    """Marker object — presence means replay is available."""
-
-    pass
-
-
-class _FakeDiagnosticsCollector:
-    """Mimics DiagnosticsCollector.snapshot()."""
-
-    def __init__(self, replay_data: dict[str, Any] | None = None) -> None:
-        self._replay_data = replay_data or {}
-
-    def snapshot(self) -> dict[str, Any]:
-        return {"replay": self._replay_data}
-
-
-class _FakeBuildFailure:
-    """Mimics AdapterBuildFailure."""
-
-    def __init__(self, adapter_id: str = "bad-adapter", error: str = "boom") -> None:
-        self.adapter_id = adapter_id
-        self.error = error
-
-
-class _FakeRuntimeState(Enum):
-    INITIALIZED = "initialized"
-    RUNNING = "running"
-    STOPPING = "stopping"
-    STOPPED = "stopped"
-    FAILED = "failed"
-
+from tests.helpers.snapshot import (
+    FakeAdapter,
+    FakeBuildFailure,
+    FakeCapabilities,
+    FakeCapacityController,
+    FakeDiagnosticsCollector,
+    FakeReplayEngine,
+    FakeRole,
+    FakeRouteStats,
+    FakeRuntimeConfig,
+    FakeRuntimeLimits,
+    FakeRuntimeState,
+    make_fake_app,
+)
 
 # ---------------------------------------------------------------------------
-# Fake app builder
+# Backward-compatible aliases — local tests still use the underscore-prefixed
+# names.  These simply point at the helpers module versions.
 # ---------------------------------------------------------------------------
-def _make_fake_app(
-    *,
-    adapters: dict[str, Any] | None = None,
-    state: Any = _FakeRuntimeState.RUNNING,
-    route_stats: Any = None,
-    capacity_controller: Any = None,
-    replay_engine: Any = None,
-    config: Any = _UNSET,
-    build_failures: list[Any] | None = None,
-    diagnostics_collector: Any = None,
-    startup_wall: str | None = None,
-    startup_monotonic: float | None = None,
-    health_state: Any = None,
-    storage: Any = None,
-) -> Any:
-    """Build a fake app object for testing."""
+_UNSET = object()  # sentinel kept for local _make_fake_app wrapper
 
-    @dataclass
-    class _FakeApp:
-        adapters: dict[str, Any] = field(default_factory=dict)
-        state: Any = _FakeRuntimeState.RUNNING
-        route_stats: Any = None
-        _capacity_controller: Any = None
-        _replay_engine: Any = None
-        config: Any = field(default_factory=_FakeRuntimeConfig)
-        build_failures: list[Any] = field(default_factory=list)
-        _diagnostics_collector: Any = None
-        _startup_wall: str | None = None
-        _startup_monotonic: float | None = None
-        _health_state: Any = None
-        _outbox_state: dict = field(default_factory=dict)
-        storage: Any = None
 
-        async def refresh_outbox_state_from_storage(self) -> None:
-            """Mirror MedreApp.refresh_outbox_state_from_storage for tests."""
-            storage = getattr(self, "storage", None)
-            if storage is not None:
-                try:
-                    self._outbox_state = await storage.count_outbox_by_status()  # type: ignore[attr-defined]
-                except Exception:
-                    pass
+# Alias the helper module names so existing tests don't need rewriting.
+_FakeRole = FakeRole
+_FakeCapabilities = FakeCapabilities
+_FakeAdapter = FakeAdapter
+_FakeRuntimeLimits = FakeRuntimeLimits
+_FakeRuntimeConfig = FakeRuntimeConfig
+_FakeRouteStats = FakeRouteStats
+_FakeCapacityController = FakeCapacityController
+_FakeReplayEngine = FakeReplayEngine
+_FakeDiagnosticsCollector = FakeDiagnosticsCollector
+_FakeBuildFailure = FakeBuildFailure
+_FakeRuntimeState = FakeRuntimeState
 
-        @property
-        def outbox_state(self) -> dict[str, int] | None:
-            """Mirror MedreApp.outbox_state property for tests."""
-            if self._outbox_state:
-                return dict(self._outbox_state)
-            return None
 
-    app = _FakeApp(
-        adapters=adapters or {},
-        state=state,
-        route_stats=route_stats,
-        _capacity_controller=capacity_controller,
-        _replay_engine=replay_engine,
-        config=config if config is not _UNSET else _FakeRuntimeConfig(),
-        build_failures=build_failures or [],
-        _diagnostics_collector=diagnostics_collector,
-        _startup_wall=startup_wall,
-        _startup_monotonic=startup_monotonic,
-        _health_state=health_state,
-        storage=storage,
-    )
-    return app
+# Local wrapper that preserves the old underscore-prefixed API used
+# throughout this test module.  The real logic lives in helpers/snapshot.py.
+def _make_fake_app(**kwargs: Any) -> Any:
+    return make_fake_app(**kwargs)
 
 
 # ---------------------------------------------------------------------------

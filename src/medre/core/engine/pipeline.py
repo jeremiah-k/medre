@@ -1624,19 +1624,26 @@ class PipelineRunner:
             # block after the delivery attempt completes.
             _renewal_task: asyncio.Task | None = None
             _renewal_interval = 30  # seconds between renewals
-            _renewal_duration = 1800  # 30 minute total lease per renewal
+            _renewal_duration = 60  # keep lease short; renewed every 30s
 
             async def _renew_lease() -> None:
                 while True:
                     await asyncio.sleep(_renewal_interval)
                     if _outbox_id is not None:
-                        _new_lease = (
-                            datetime.now(timezone.utc)
-                            + timedelta(seconds=_renewal_duration)
-                        ).isoformat()
-                        renewed = await self._config.storage.renew_outbox_lease(
-                            _outbox_id, _pipeline_worker, _new_lease
-                        )
+                        try:
+                            _new_lease = (
+                                datetime.now(timezone.utc)
+                                + timedelta(seconds=_renewal_duration)
+                            ).isoformat()
+                            renewed = await self._config.storage.renew_outbox_lease(
+                                _outbox_id, _pipeline_worker, _new_lease
+                            )
+                        except Exception:
+                            self._log.exception(
+                                "Failed to renew outbox lease for %s",
+                                _outbox_id,
+                            )
+                            return
                         if not renewed:
                             # Item is no longer ours — stop renewing.
                             break
@@ -1814,6 +1821,11 @@ class PipelineRunner:
                         await _renewal_task
                     except asyncio.CancelledError:
                         pass
+                    except Exception:
+                        self._log.debug(
+                            "Outbox lease renewal task ended with error",
+                            exc_info=True,
+                        )
 
                 # Update outbox based on delivery outcome.
                 if _outbox_id is not None and _outbox_created:

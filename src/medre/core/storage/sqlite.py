@@ -1827,6 +1827,17 @@ class SQLiteStorage:
         if next_attempt_at is not None:
             sets.append("next_attempt_at = ?")
             params.append(next_attempt_at)
+        elif new_status != "retry_wait":
+            sets.append("next_attempt_at = NULL")
+
+        if new_status in ("queued", "sent"):
+            sets.extend(
+                [
+                    "failure_kind = NULL",
+                    "failure_kind_detail = NULL",
+                    "error_summary = NULL",
+                ]
+            )
         if new_status in ("in_progress", "queued", "sent", "retry_wait"):
             sets.append("last_attempt_at = ?")
             params.append(now)

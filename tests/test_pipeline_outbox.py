@@ -609,11 +609,14 @@ class TestLeaseRenewal:
         router_with_routes: Router,
         fake_presentation: FakePresentationAdapter,
     ) -> None:
-        """A long delivery with active lease renewal should not be claimable.
+        """A slow delivery should complete and reach a terminal outbox status.
 
-        Uses a slow adapter that takes several seconds, while a
-        claim_due_outbox_items call during the delivery window should
-        find no claimable items (the lease is being renewed).
+        Uses a slow adapter to verify that the outbox item transitions
+        correctly through in_progress to sent/queued even when delivery
+        takes non-trivial time.  Note: this test does not exercise the
+        lease-renewal path (the adapter is not slow enough to cross a
+        30s renewal boundary); it validates end-to-end outbox lifecycle
+        for a multi-second delivery.
         """
         import asyncio
 

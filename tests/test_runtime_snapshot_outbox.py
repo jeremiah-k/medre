@@ -15,7 +15,7 @@ import pytest
 from medre.runtime.app import MedreApp
 from medre.runtime.snapshot import build_runtime_snapshot
 
-from tests.test_runtime_snapshot import _make_fake_app
+from tests.helpers.snapshot import make_fake_app
 
 
 def _make_medre_app() -> MedreApp:
@@ -45,28 +45,32 @@ class TestOutboxStorageBackedCounts:
     def test_outbox_precedence_and_structure(self) -> None:
         """Outbox counts reflect storage-backed truth, not worker cache."""
         # 1) No state -> null counts.
-        snap_empty = build_runtime_snapshot(_make_fake_app(), snapshot_scope="build")
-        assert snap_empty["outbox"]["counts"] is None
+        snap_empty = build_runtime_snapshot(make_fake_app(), snapshot_scope="build")
+        assert snap_empty["outbox"]["counts"] == {}
 
-        # 2) Storage-seeded counts used when worker cache is empty.
-        app = _make_fake_app()
+        # 2) Storage-seeded counts used when worker cache is empty
+        #    (simulates startup seeding which sets authoritative=True).
+        app = make_fake_app()
         app._outbox_state = {"pending": 3, "retry_wait": 1}
+        app._outbox_storage_authoritative = True
         app._retry_worker = MagicMock(outbox_counts={})
         snap = build_runtime_snapshot(app, snapshot_scope="build")
         assert snap["outbox"]["counts"] == {"pending": 3, "retry_wait": 1}
         assert snap["outbox"]["scope"] == "storage_seeded"
 
-        # 3) Storage truth wins over stale worker cache.
-        app2 = _make_fake_app()
+        # 3) Storage truth wins over stale worker cache
+        #    (simulates refresh which sets authoritative=True).
+        app2 = make_fake_app()
         app2._outbox_state = {"pending": 5, "sent": 10}
+        app2._outbox_storage_authoritative = True
         app2._retry_worker = MagicMock(outbox_counts={"pending": 99})
         snap2 = build_runtime_snapshot(app2, snapshot_scope="build")
         assert snap2["outbox"]["counts"] == {"pending": 5, "sent": 10}
 
-        # 4) Worker-only state -> null (worker cache is not authoritative).
-        app3 = _make_fake_app()
+        # 4) Worker-only state -> worker cache counts used.
+        app3 = make_fake_app()
         app3._retry_worker = MagicMock(outbox_counts={"pending": 7})
-        assert build_runtime_snapshot(app3, snapshot_scope="build")["outbox"]["counts"] is None
+        assert build_runtime_snapshot(app3, snapshot_scope="build")["outbox"]["counts"] == {"pending": 7}
 
         # 5) Structure check.
         assert set(snap["outbox"].keys()) == {"counts", "live_refresh", "note", "scope"}
@@ -91,9 +95,9 @@ class TestStorageBackedOutboxRefresh:
                     route_id="route-refresh", delivery_plan_id=f"plan-refresh-{i}",
                     target_adapter="adapter_refresh", attempt_number=1, status="pending",
                 ))
-            app = _make_fake_app(storage=storage)
+            app = make_fake_app(storage=storage)
             snap_before = build_runtime_snapshot(app, snapshot_scope="build")
-            assert snap_before["outbox"]["counts"] is None
+            assert snap_before["outbox"]["counts"] == {}
             await app.refresh_outbox_state_from_storage()
             snap_after = build_runtime_snapshot(app, snapshot_scope="build")
             assert snap_after["outbox"]["counts"] == {"pending": 3}

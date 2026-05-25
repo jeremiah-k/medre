@@ -240,8 +240,9 @@ class RetryWorker:
             item.target_adapter,
         )
         # Filter to the same target channel for correct lineage.
-        if item.target_channel is not None:
-            receipts = [r for r in receipts if r.target_channel == item.target_channel]
+        receipts = [
+            r for r in receipts if r.target_channel == item.target_channel
+        ]
         previous_receipt = receipts[-1] if receipts else None
 
         # Initialise retry-policy defaults before the capacity check so
@@ -406,6 +407,10 @@ class RetryWorker:
                         item.delivery_plan_id,
                         item.target_adapter,
                     )
+                    _dl_receipts = [
+                        r for r in _dl_receipts
+                        if r.target_channel == item.target_channel
+                    ]
                     if _dl_receipts:
                         _dl_receipt_id = _dl_receipts[-1].receipt_id
                 except Exception:
@@ -437,6 +442,10 @@ class RetryWorker:
                             item.delivery_plan_id,
                             item.target_adapter,
                         )
+                        _latest_receipts = [
+                            r for r in _latest_receipts
+                            if r.target_channel == item.target_channel
+                        ]
                         if _latest_receipts:
                             _latest = _latest_receipts[-1]
                             if _latest.failure_kind:

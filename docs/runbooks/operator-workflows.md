@@ -999,7 +999,7 @@ sqlite3 $MEDRE_HOME/medre.db "SELECT status, COUNT(*) FROM delivery_outbox GROUP
 
 **Understanding outbox statuses:**
 
-- `in_progress` — live pipeline delivery in progress; not claimable by retry worker (unless lease expired).
+- `in_progress` — live pipeline delivery in progress; not claimable by retry worker (unless lease expired). Treated as equivalent to `leased` for SQL triage purposes.
 - `pending` — work exists but delivery attempt has not started. Live pipeline normally starts as `in_progress`; `pending` may appear from recovery or manual tooling.
 - `retry_wait` — transient failure; will retry automatically when retry worker is enabled and the item becomes due.
 - `queued` — accepted by adapter-local queue. After crash, this state is ambiguous.

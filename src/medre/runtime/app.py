@@ -582,6 +582,7 @@ class MedreApp:
         if self.storage is not None:
             try:
                 self._outbox_state = await self.storage.count_outbox_by_status()
+                self._outbox_storage_authoritative = True
             except Exception:
                 _logger.debug("Failed to seed outbox state from storage", exc_info=True)
 
