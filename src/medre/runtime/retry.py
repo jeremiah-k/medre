@@ -389,6 +389,16 @@ class RetryWorker:
                         item.target_adapter,
                         previous_receipt.receipt_id,
                     )
+                    # Fallback: if parent-specific check missed, check for
+                    # any dead-lettered receipt for this event+adapter.
+                    # The pipeline may create a dead-lettered receipt whose
+                    # parent is the CURRENT attempt's receipt, not the
+                    # previous one.
+                    if not is_dead_lettered:
+                        is_dead_lettered = await self._check_dead_lettered(
+                            item.event_id,
+                            item.target_adapter,
+                        )
                 except Exception:
                     _logger.exception(
                         "RetryWorker: error checking dead-lettered for %s/%s",
@@ -460,16 +470,46 @@ class RetryWorker:
                         jitter=_jitter,
                     )
                     next_attempt = item.attempt_number + 1
-                    backoff = RetryExecutor(policy).compute_backoff(
-                        next_attempt,
-                    )
-                    next_at = datetime.now(timezone.utc) + backoff
-                    await self._storage.mark_outbox_retry_wait(
-                        item.outbox_id,
-                        next_attempt_at=next_at.isoformat(),
-                        failure_kind=_actual_kind,
-                        attempt_number=next_attempt,
-                    )
+                    # Guard: if attempt count exceeds policy, mark
+                    # dead-lettered instead of scheduling another retry.
+                    # This prevents infinite retries when the pipeline
+                    # creates a dead-lettered receipt but the parent chain
+                    # doesn't align with _check_dead_lettered.
+                    if next_attempt > _max_attempts:
+                        _logger.warning(
+                            "RetryWorker: retries exhausted for outbox %s "
+                            "(attempt %d > max %d)",
+                            item.outbox_id,
+                            next_attempt,
+                            _max_attempts,
+                        )
+                        await self._storage.mark_outbox_dead_lettered(
+                            item.outbox_id,
+                            failure_kind=_actual_kind,
+                        )
+                        self.state.dead_lettered += 1
+                        self._emit(
+                            "retry_dead_lettered",
+                            {
+                                "receipt_id": item.receipt_id or item.outbox_id,
+                                "parent_receipt_id": item.parent_receipt_id,
+                                "retry_receipt_id": item.receipt_id,
+                                "event_id": item.event_id,
+                                "target_adapter": item.target_adapter,
+                                "attempt_number": next_attempt,
+                            },
+                        )
+                    else:
+                        backoff = RetryExecutor(policy).compute_backoff(
+                            next_attempt,
+                        )
+                        next_at = datetime.now(timezone.utc) + backoff
+                        await self._storage.mark_outbox_retry_wait(
+                            item.outbox_id,
+                            next_attempt_at=next_at.isoformat(),
+                            failure_kind=_actual_kind,
+                            attempt_number=next_attempt,
+                        )
                 except Exception:
                     _logger.exception(
                         "RetryWorker: failed to backoff outbox %s",
@@ -532,13 +572,21 @@ class RetryWorker:
         self,
         event_id: str,
         target_adapter: str,
-        parent_receipt_id: str,
+        parent_receipt_id: str | None = None,
     ) -> bool:
-        """Check if a dead-lettered receipt exists for this specific retry lineage."""
+        """Check if a dead-lettered receipt exists for this event+adapter.
+
+        When *parent_receipt_id* is provided, matches receipts whose parent
+        is that receipt.  When omitted, matches ANY dead-lettered receipt
+        for the event+adapter pair (used by the exhaustion guard).
+        """
         receipts = await self._storage.list_receipts_for_event(event_id)
         return any(
             r.status == "dead_lettered"
             and r.target_adapter == target_adapter
-            and r.parent_receipt_id == parent_receipt_id
+            and (
+                parent_receipt_id is None
+                or r.parent_receipt_id == parent_receipt_id
+            )
             for r in receipts
         )

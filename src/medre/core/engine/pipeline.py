@@ -1836,6 +1836,7 @@ class PipelineRunner:
                                 await self._config.storage.mark_outbox_queued(
                                     _outbox_id,
                                     receipt_id=_outcome_receipt.receipt_id,
+                                    attempt_number=_outcome_receipt.attempt_number,
                                 )
                             else:
                                 await self._config.storage.mark_outbox_sent(

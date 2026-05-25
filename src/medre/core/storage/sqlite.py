@@ -1779,7 +1779,7 @@ class SQLiteStorage:
         # another worker if the SELECT/UPDATE window was contested).
         final_ids_tuple = tuple(outbox_ids)
         final_rows = await self._read_all(
-            f"SELECT * FROM delivery_outbox WHERE outbox_id IN ({','.join('?' for _ in outbox_ids)}) AND worker_id = ?",  # nosec: placeholders are only ? markers, values passed as params
+            f"SELECT * FROM delivery_outbox WHERE outbox_id IN ({','.join('?' for _ in outbox_ids)}) AND worker_id = ? AND status = 'in_progress'",  # nosec: placeholders are only ? markers, values passed as params
             (*final_ids_tuple, worker_id),
         )
         return [_row_to_outbox_item(r) for r in final_rows]
@@ -1827,7 +1827,12 @@ class SQLiteStorage:
         if next_attempt_at is not None:
             sets.append("next_attempt_at = ?")
             params.append(next_attempt_at)
-        elif new_status != "retry_wait":
+        elif new_status == "retry_wait":
+            # retry_wait MUST have next_attempt_at — defensive guard.
+            raise ValueError(
+                "next_attempt_at is required when transitioning to retry_wait"
+            )
+        else:
             sets.append("next_attempt_at = NULL")
 
         if new_status in ("queued", "sent"):
@@ -1838,6 +1843,12 @@ class SQLiteStorage:
                     "error_summary = NULL",
                 ]
             )
+        elif new_status in ("dead_lettered", "cancelled", "abandoned"):
+            # Clear next_attempt_at is handled above; also clear
+            # failure_kind_detail which is not caller-specified for
+            # these terminal transitions.  Keep failure_kind and
+            # error_summary as callers pass meaningful values.
+            sets.append("failure_kind_detail = NULL")
         if new_status in ("in_progress", "queued", "sent", "retry_wait"):
             sets.append("last_attempt_at = ?")
             params.append(now)
@@ -2032,7 +2043,8 @@ class SQLiteStorage:
             """UPDATE delivery_outbox
                SET locked_at = NULL, lease_until = NULL, worker_id = NULL,
                    status = ?, updated_at = ?
-               WHERE outbox_id = ? AND worker_id = ?""",
+               WHERE outbox_id = ? AND worker_id = ?
+                 AND status NOT IN ('sent', 'dead_lettered', 'cancelled', 'abandoned')""",
             (release_status, _now_iso(), outbox_id, worker_id),
         )
 
