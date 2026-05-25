@@ -152,15 +152,18 @@ class BridgePolicy:
             a list or tuple of strings (e.g. a bare string which would
             silently become a tuple of characters).
         """
+        # Normalized policy section path for consistent error messages.
+        policy_path = f"{section_path}.policy" if section_path else "policy"
+
         # Reject unknown keys so operators don't silently misconfigure.
         unknown = set(data.keys()) - cls._KNOWN_FIELDS
         if unknown:
             _ctx = f"Route {route_id!r}: " if route_id else ""
             raise ConfigValidationError(
                 f"{_ctx}Unknown policy key(s) {sorted(unknown)} in "
-                f"{section_path}.policy. Accepted keys: "
+                f"{policy_path}. Accepted keys: "
                 f"{sorted(cls._KNOWN_FIELDS)}",
-                section_path=f"{section_path}.policy" if section_path else "policy",
+                section_path=policy_path,
             )
 
         # Validate each allowlist field is a list or tuple of strings.
@@ -172,20 +175,20 @@ class BridgePolicy:
                 raise ConfigValidationError(
                     f"Route {route_id!r}: policy.{field_name} must be a list, "
                     f"not a string. Did you mean [{raw!r}]?",
-                    section_path=f"{section_path}.policy",
+                    section_path=policy_path,
                 )
             if not isinstance(raw, (list, tuple)):
                 raise ConfigValidationError(
                     f"Route {route_id!r}: policy.{field_name} must be a list, "
                     f"got {type(raw).__name__}",
-                    section_path=f"{section_path}.policy",
+                    section_path=policy_path,
                 )
             for i, item in enumerate(raw):
                 if not isinstance(item, str):
                     raise ConfigValidationError(
                         f"Route {route_id!r}: policy.{field_name}[{i}] must be "
                         f"a string, got {type(item).__name__}: {item!r}",
-                        section_path=f"{section_path}.policy",
+                        section_path=policy_path,
                     )
 
         return cls(

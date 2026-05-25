@@ -481,6 +481,21 @@ class TestRouteConfigValidation:
         assert r.policy is not None
         assert r.policy.allowed_event_types == ("message",)
 
+    def test_policy_allowlist_item_not_string(self) -> None:
+        """Non-string items in a policy allowlist are rejected."""
+        with pytest.raises(
+            ConfigValidationError,
+            match=r"policy\.sender_allowlist\[1\] must be a string",
+        ):
+            RouteConfig.from_toml_dict(
+                "bad",
+                {
+                    "source_adapters": ["a"],
+                    "dest_adapters": ["b"],
+                    "policy": {"sender_allowlist": ["@alice:test", 123]},
+                },
+            )
+
 
 # ---------------------------------------------------------------------------
 # RouteConfigSet — ordering and validation
