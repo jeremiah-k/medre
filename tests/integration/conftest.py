@@ -805,6 +805,11 @@ class E2EETestEnvironment:
 
     Wraps a :class:`SynapseEnvironment` with additional encrypted room
     state, device IDs, and crypto store paths.
+
+    Use :meth:`init_test_e2ee_client` to create a second nio client
+    that performs genuine client-side Megolm encryption.  The client
+    is stored on :attr:`test_e2ee_client` and must be closed via
+    :meth:`close_test_e2ee_client` during teardown.
     """
 
     def __init__(
@@ -820,6 +825,9 @@ class E2EETestEnvironment:
         self.test_device_id: str | None = synapse_env.test_device_id
         self.bot_store_path = bot_store_path
         self.test_store_path = test_store_path
+        # Second nio client for genuine client-side encrypted sending.
+        # Set by init_test_e2ee_client(); closed by close_test_e2ee_client().
+        self.test_e2ee_client: Any = None
 
     # Convenience proxies for commonly accessed fields.
     @property
@@ -842,6 +850,79 @@ class E2EETestEnvironment:
     def test_user_id(self) -> str:
         return self.synapse_env.test_user_id
 
+    # ------------------------------------------------------------------
+    # Second nio client for genuine Megolm encryption
+    # ------------------------------------------------------------------
+
+    async def init_test_e2ee_client(self) -> Any:
+        """Create and initialise a second nio AsyncClient for the test user.
+
+        The client is configured with ``encryption_enabled=True`` so that
+        ``room_send()`` performs genuine Megolm encryption.  After
+        construction the client performs:
+
+        1. ``restore_login()`` with the test-user credentials.
+        2. Initial sync (``full_state=True``) to learn room encryption state.
+        3. Key upload / query / claim cycle to bootstrap crypto.
+
+        Requires ``HAS_E2EE`` to be ``True`` (ensured by test-level skipif).
+
+        Returns the initialised nio AsyncClient (also stored on
+        ``self.test_e2ee_client``).
+        """
+        from medre.adapters.matrix.compat import HAS_E2EE
+
+        if not HAS_E2EE:
+            raise RuntimeError(
+                "Cannot init test E2EE client: HAS_E2EE is False. "
+                "Install mindroom-nio[e2e]."
+            )
+
+        import nio
+
+        client_config = nio.AsyncClientConfig(encryption_enabled=True)
+
+        client = nio.AsyncClient(
+            homeserver=self.base_url,
+            user=self.test_user_id,
+            device_id=self.test_device_id,
+            store_path=self.test_store_path,
+            config=client_config,
+        )
+
+        client.restore_login(
+            user_id=self.test_user_id,
+            device_id=self.test_device_id or "",
+            access_token=self.test_access_token,
+        )
+
+        # Initial sync to learn room encryption state and device list.
+        await client.sync(full_state=True)
+
+        # Upload device keys if needed.
+        if client.should_upload_keys:
+            await client.keys_upload()
+
+        # Query keys for other users (e.g. the bot) so we can encrypt
+        # for their devices.
+        if client.should_query_keys:
+            await client.keys_query()
+
+        # Process any pending to-device messages (key shares).
+        await client.send_to_device_messages()
+
+        self.test_e2ee_client = client
+        return client
+
+    async def close_test_e2ee_client(self) -> None:
+        """Close the second nio client if it was created."""
+        if self.test_e2ee_client is not None:
+            try:
+                await self.test_e2ee_client.close()
+            except Exception:
+                pass
+            self.test_e2ee_client = None
+
 
 def _make_request(
     url: str,
@@ -853,7 +934,12 @@ def _make_request(
 ) -> dict[str, Any]:
     """Make an HTTP request and return the parsed JSON response body."""
     import urllib.error
+    import urllib.parse
     import urllib.request
+
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"Unsupported URL scheme: {parsed.scheme!r}")
 
     req = urllib.request.Request(
         url,
@@ -862,13 +948,11 @@ def _make_request(
         method=method,
     )
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310
             return json.loads(resp.read())
     except urllib.error.HTTPError as exc:
         body = exc.read().decode()
-        raise RuntimeError(
-            f"HTTP {exc.code} for {method} {url}: {body}"
-        ) from exc
+        raise RuntimeError(f"HTTP {exc.code} for {method} {url}: {body}") from exc
 
 
 @pytest.fixture(scope="session")
@@ -924,9 +1008,7 @@ def synapse_e2ee_env(
     )
 
     # 3. Enable encryption on the room via m.room.encryption state event.
-    encryption_payload = json.dumps(
-        {"algorithm": "m.megolm.v1.aes-sha2"}
-    ).encode()
+    encryption_payload = json.dumps({"algorithm": "m.megolm.v1.aes-sha2"}).encode()
     _make_request(
         f"{base_url}/_matrix/client/v3/rooms/{encrypted_room_id}"
         f"/state/m.room.encryption",

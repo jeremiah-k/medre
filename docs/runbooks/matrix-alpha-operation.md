@@ -653,12 +653,12 @@ curl -s http://localhost:8008/_matrix/client/versions 2>/dev/null | python3 -m j
 
 ### Evidence Boundaries
 
-| Evidence type          | Date       | Result               | Boundary              |
-| ---------------------- | ---------- | -------------------- | --------------------- |
-| External live (matrix.org) | 2026-05-10 | 13 passed, 7 E2EE passed | External live (H-tier) |
-| Docker SDK-boundary    | 2026-05-22 | 15 passed, 1 xfailed | Local Docker Synapse (R-tier, SDK-boundary) |
-| External live (sk.community) | 2026-05-12 | NOT EXECUTED | Credential failure |
-| External live (matrix.org) | 2026-05-12 | NOT EXECUTED | Credential failure |
+| Evidence type                | Date       | Result                   | Boundary                                    |
+| ---------------------------- | ---------- | ------------------------ | ------------------------------------------- |
+| External live (matrix.org)   | 2026-05-10 | 13 passed, 7 E2EE passed | External live (H-tier)                      |
+| Docker SDK-boundary          | 2026-05-22 | 15 passed, 1 xfailed     | Local Docker Synapse (R-tier, SDK-boundary) |
+| External live (sk.community) | 2026-05-12 | NOT EXECUTED             | Credential failure                          |
+| External live (matrix.org)   | 2026-05-12 | NOT EXECUTED             | Credential failure                          |
 
 ### Test Results
 
@@ -846,7 +846,7 @@ When encrypted messages arrive but fail to decrypt, the E2EE key management chai
 
 **Background:** MEDRE's manual sync loop now performs four key management operations after each successful sync (mirroring nio's `sync_forever` pattern): `keys_upload()`, `keys_query()`, `keys_claim()`, and `send_to_device_messages()`. Without these, device keys are never uploaded, other users' device keys are never queried, Olm sessions are never established, and room key shares are never received. The initial sync also passes `full_state=True` so nio learns which rooms are encrypted. When an undecryptable live MegolmEvent arrives, MEDRE actively requests the missing room key via `as_key_request()`.
 
-**Step 1: Verify E2EE dependencies**
+#### Step 1: Verify E2EE dependencies
 
 ```bash
 # All three must be installed for E2EE to work
@@ -857,11 +857,12 @@ python -c "import nio; print('ENCRYPTION_ENABLED:', nio.crypto.ENCRYPTION_ENABLE
 ```
 
 All three packages must be present, and `ENCRYPTION_ENABLED` must be `True`. If any are missing:
+
 ```bash
 pip install -e ".[matrix-e2e]"
 ```
 
-**Step 2: Inspect the store_path directory**
+#### Step 2: Inspect the store_path directory
 
 The adapter derives its store path under `{state}/adapters/{adapter_id}/matrix/store`. Check that it exists and contains the crypto database:
 
@@ -880,7 +881,7 @@ ls -la ${MEDRE_STATE_DIR:-$HOME/.local/state/medre}/adapters/matrix-alpha/matrix
 
 The store directory should contain a SQLite database file. If it is empty, this is a first run — the adapter will create the store on startup. If it does not exist at all, check that the parent state directory is writable.
 
-**Step 3: Compare user_id and device_id**
+#### Step 3: Compare user_id and device_id
 
 The adapter discovers its device_id via `whoami()` on startup. Verify the identity:
 
@@ -893,7 +894,7 @@ python -c "
 
 The `device_id_in_use` must match the device that has access to the room keys. If the access token was regenerated (re-login), a new device_id may be associated and old room keys are inaccessible.
 
-**Step 4: Check diagnostics for key chain state**
+#### Step 4: Check diagnostics for key chain state
 
 Use the diagnostics API to inspect each link:
 
@@ -909,6 +910,7 @@ print(f"crypto_store_loaded: {diag['crypto_store_loaded']}") # must be True
 ```
 
 Interpretation:
+
 - `olm_loaded=False`: vodozemac not installed or Olm init failed. Reinstall `.[matrix-e2e]`.
 - `store_loaded=False`: SQLite store failed to load. Check file permissions and disk space.
 - `device_keys_uploaded=False`: Device keys not yet on the server. Wait for the next sync cycle or check logs for `keys_upload failed`.
@@ -916,7 +918,7 @@ Interpretation:
 - `initial_sync_completed=False`: First sync has not completed yet. Wait.
 - `store_path_exists=False`: Store directory is missing. The adapter creates it on startup, so this indicates a configuration or filesystem issue.
 
-**Step 5: Rotate token/device safely**
+#### Step 5: Rotate token/device safely
 
 If the crypto identity is corrupted or the device_id has changed:
 
@@ -930,7 +932,7 @@ If the crypto identity is corrupted or the device_id has changed:
 4. Restart the adapter. It will create a fresh crypto identity on the first sync.
 5. Other users in encrypted rooms must send a new message to re-share room keys with the new device.
 
-**Step 6: Clear only the crypto store (not entire MEDRE state)**
+#### Step 6: Clear only the crypto store (not entire MEDRE state)
 
 The MEDRE state directory contains adapter state, routing tables, and event storage in addition to the crypto store. **Never delete the entire state directory to fix an E2EE issue.** Only clear the crypto store:
 
@@ -940,9 +942,9 @@ rm -rf ${MEDRE_STATE_DIR:-$HOME/.local/state/medre}/adapters/matrix-alpha/matrix
 # After clearing, restart the adapter to create a fresh identity
 ```
 
-**Step 7: Rerun with Docker Synapse E2EE harness**
+#### Step 7: Rerun with Docker Synapse E2EE harness
 
-The Docker Synapse E2EE test harness provides a controlled environment for E2EE validation. See `docs/runbooks/matrix-live-smoke.md` for setup instructions. This tests the full key chain end-to-end without production credentials.
+The Docker Synapse E2EE test harness provides a controlled environment for E2EE validation. It creates a second nio client with `encryption_enabled=True` for the test user, which performs genuine Megolm encryption via `room_send()`. The bot adapter must then decrypt the `m.room.encrypted` event via its own nio crypto subsystem. If key exchange does not complete within the test timeout, the test `xfail`\s with a clear reason. See `tests/integration/test_synapse_e2ee_smoke.py` for details.
 
 **mmrelay behavioral reference:** mmrelay (meshtastic-matrix-relay) uses nio's `sync_forever()` which handles all four key management operations plus `full_state=True` internally. MEDRE's manual sync loop now mirrors this pattern explicitly. mmrelay is a conceptual reference only — do not copy its architecture or code.
 
@@ -1080,13 +1082,13 @@ If `store_path` is changed or the store is deleted, the adapter creates a new cr
 
 ### 15.7 What works in E2EE text alpha
 
-| Capability                        | Status                                                                    |
-| --------------------------------- | ------------------------------------------------------------------------- |
-| Inbound encrypted text decryption | Working — `MegolmEvent` auto-decrypted to `RoomMessageText` during sync   |
-| Outbound encrypted text           | Working — `room_send` auto-encrypts for encrypted rooms                   |
-| Crypto store persistence          | Working — store loads on `restore_login`, saves incrementally during sync |
+| Capability                        | Status                                                                                            |
+| --------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Inbound encrypted text decryption | Working — `MegolmEvent` auto-decrypted to `RoomMessageText` during sync                           |
+| Outbound encrypted text           | Working — `room_send` auto-encrypts for encrypted rooms                                           |
+| Crypto store persistence          | Working — store loads on `restore_login`, saves incrementally during sync                         |
 | Automatic key management          | Working — upload/query/claim/share handled by manual sync loop (mirrors nio sync_forever pattern) |
-| Plaintext rooms                   | Working — identical behavior to plaintext alpha                           |
+| Plaintext rooms                   | Working — identical behavior to plaintext alpha                                                   |
 
 ### 15.8 What does NOT work in E2EE text alpha
 

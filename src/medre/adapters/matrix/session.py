@@ -516,8 +516,7 @@ class MatrixSession:
             self._crypto_store_loaded = False
         elif self._client.store is None:
             self._logger.error(
-                "E2EE: store is None after restore_login — "
-                "crypto store not loaded"
+                "E2EE: store is None after restore_login — " "crypto store not loaded"
             )
             self._crypto_enabled = False
             self._crypto_store_loaded = False
@@ -1029,27 +1028,19 @@ class MatrixSession:
                                 try:
                                     await self._client.keys_upload()
                                 except Exception as exc:
-                                    self._logger.warning(
-                                        "keys_upload failed: %s", exc
-                                    )
+                                    self._logger.warning("keys_upload failed: %s", exc)
                             if self._client.should_query_keys:
                                 try:
                                     await self._client.keys_query()
                                 except Exception as exc:
-                                    self._logger.warning(
-                                        "keys_query failed: %s", exc
-                                    )
+                                    self._logger.warning("keys_query failed: %s", exc)
                             if self._client.should_claim_keys:
                                 try:
-                                    users = (
-                                        self._client.get_users_for_key_claiming()
-                                    )
+                                    users = self._client.get_users_for_key_claiming()
                                     if users:
                                         await self._client.keys_claim(users)
                                 except Exception as exc:
-                                    self._logger.warning(
-                                        "keys_claim failed: %s", exc
-                                    )
+                                    self._logger.warning("keys_claim failed: %s", exc)
                         # send_to_device_messages is unconditional — it
                         # handles both encrypted and unencrypted to-device
                         # messages (key requests, etc.).
@@ -1243,9 +1234,7 @@ class MatrixSession:
                 else None
             )
         store_path_exists = (
-            os.path.isdir(self._config.store_path)
-            if self._config.store_path
-            else False
+            os.path.isdir(self._config.store_path) if self._config.store_path else False
         )
 
         return MatrixSessionDiagnostics(
