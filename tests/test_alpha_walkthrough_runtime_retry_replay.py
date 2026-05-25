@@ -102,7 +102,24 @@ class TestAlphaRetryScenario:
         )
 
         # Build the app (RuntimeBuilder wires all subsystems)
+        from medre.core.planning.delivery_plan import RetryPolicy
+
         app = RuntimeBuilder(config, paths).build()
+
+        # Replace the fallback resolver with one that sets a retry_policy so
+        # the pipeline schedules retry_wait on transient failure instead of
+        # dead-lettering the outbox item.
+        from medre.core.planning.fallback_resolution import (
+            FallbackResolver as _BaseFallback,
+        )
+
+        class _FallbackWithRetry(_BaseFallback):
+            def resolve_fallback(self, event, target, capabilities):
+                plan = super().resolve_fallback(event, target, capabilities)
+                plan.retry_policy = RetryPolicy(max_attempts=3)
+                return plan
+
+        app.pipeline_runner._config.fallback_resolver = _FallbackWithRetry()
 
         # Swap the target adapter with transient-failing version.
         # The adapters dict is shared between PipelineRunner and MedreApp.
@@ -134,24 +151,13 @@ class TestAlphaRetryScenario:
             assert len(outcomes) == 1
             assert outcomes[0].status == "transient_failure"
 
-            # The pipeline sets next_retry_at only when the delivery plan has
-            # an explicit retry_policy.  Set it here so the RetryWorker can
-            # discover the failed receipt via list_due_retry_receipts.
-            receipts = await app.storage.list_receipts_for_event(event.event_id)
-            failed = [r for r in receipts if r.status == "failed"]
-            assert len(failed) == 1
-            await app.storage.update_retry_due(
-                failed[0].receipt_id,
-                datetime.now(timezone.utc) - timedelta(seconds=1),
-            )
-
             # Stop the background polling loop before manually driving
-            # _process_due to prevent double-processing the same receipt.
+            # _process_due to prevent double-processing.
             await retry_worker.stop()
             retry_worker._shutdown_event.clear()
 
             # Drive retry: call _process_due with a far-future timestamp so
-            # the failed receipt is guaranteed to be due.
+            # the retry_wait outbox item is guaranteed to be due.
             future_now = datetime.now(timezone.utc) + timedelta(days=365)
             await retry_worker._process_due(future_now)
 
