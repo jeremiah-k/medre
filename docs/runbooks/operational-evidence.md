@@ -1,17 +1,28 @@
 # Operational Evidence Runbook
 
-> Last updated: 2026-05-24
+> Last updated: 2026-05-25 (Tranche 6 truth-surface update)
+> Baseline: HEAD 41a07c7, Python 3.12.3, medre 0.1.0
+> Tranche 6 session: **Did NOT execute live hardware/server tests.** No Matrix
+> homeserver credentials, no second Matrix account token, no Meshtastic physical
+> radio interaction, no MeshCore BLE connection, no LXMF/Reticulum instance were
+> provided or available in this session. All live procedure sections remain as
+> previously recorded or NOT EXECUTED. This update adds evidence sub-classification
+> (fake / Docker SDK-boundary / external live / hardware), procedure templates,
+> dependency/version capture commands, and clarifies evidence artifact locations.
+> No statuses were promoted.
+>
 > Status: Partially populated. Current deterministic suite: 3237 passed, 4 skipped,
 > 63 deselected (2026-05-11, §5.1). A larger run of 4596 passed was recorded 2026-05-12
 > (Contract 62 §2), but the primary evidence anchor in §5.1 remains 3237 from 2026-05-11.
 > Live evidence: Matrix historical H-tier 2026-05-10
-> (plaintext 13/13, E2EE 7/7). Matrix sk.community live attempt 2026-05-12:
+> (plaintext 13/13, E2EE 7/7). Matrix Docker SDK-boundary: 2026-05-22 local Docker
+> Synapse 15 passed, 1 xfailed (see §1.1b). Matrix sk.community live attempt 2026-05-12:
 > NOT EXECUTED (access token rejected `M_UNKNOWN_TOKEN`; see §1.4).
 > Matrix matrix.org live attempt 2026-05-12:
 > NOT EXECUTED (password login rejected `M_FORBIDDEN Invalid username/password`; see §1.4b).
-> Meshtastic serial CLI validation: R-tier
+> Meshtastic serial CLI validation: R-tier (hardware)
 > 2026-05-12 (device discovery, hardware/firmware, one outbound on ch0, reconnect).
-> Track 2 follow-up: R-tier 2026-05-12 (additional diagnostics cycle, one reconnect,
+> Track 2 follow-up: R-tier (hardware) 2026-05-12 (additional diagnostics cycle, one reconnect,
 > node DB verification, device metrics capture). ACK classified UNRELIABLE,
 > delivery classified BEST EFFORT.
 > Meshtastic MEDRE adapter live tests: NOT EXECUTED (mtjk not in project venv).
@@ -41,6 +52,18 @@ environment, results, caveats, reconnect observations, and limitations.
 | **C** | Current-tranche          | Recorded against current codebase during active tranche. |
 | **S** | Simulated / Fake-runtime | Recorded using mocks/fakes. No real endpoint.            |
 | **R** | Real-live-runtime        | Recorded against a real transport endpoint.              |
+
+**Evidence sub-classification (Tranche 6 addition):**
+
+R-tier evidence should be annotated with the *environment boundary* where it was collected:
+
+| Sub-class             | Meaning                                                                                                      | Examples                                                                        |
+| --------------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
+| **Docker SDK-boundary** | Local Docker container running the transport server (e.g. Synapse). SDK boundary test — no external network. | Matrix: local Docker Synapse on localhost:8008 (2026-05-22, 15 passed)           |
+| **External live**     | Real external server over the network. Credentials to a third-party or self-hosted service.                  | Matrix: matrix.org or sk.community (H-tier 2026-05-10, NOT EXECUTED 2026-05-12) |
+| **Hardware**          | Physical radio hardware connected via serial/TCP/BLE. Real RF transmission or reception.                     | Meshtastic: serial CLI validation on /dev/ttyACM0 (R-tier 2026-05-12)           |
+
+When sub-class is not specified, assume the broadest interpretation. **Do not treat Docker SDK-boundary evidence as equivalent to external live or hardware evidence.** Each boundary validates different properties: SDK-boundary validates SDK integration and adapter wiring; external live validates network connectivity and real server behavior; hardware validates physical radio operation.
 
 **How to use this document:**
 
@@ -87,7 +110,31 @@ environment, results, caveats, reconnect observations, and limitations.
 | **Caveats observed**          | Initial harness had a bug where `health_check()` was awaited as a coroutine instead of called as a regular method. Fixed in-tree before final run. No remaining issues. |
 | **Restart idempotency**       | ✅ Stop → start cycle re-establishes sync; second `health_check()` returns `healthy`                                                                                    |
 
-### 1.2 E2EE Live Test Evidence (Tier: H — recorded 2026-05-10)
+### 1.1b Docker SDK-boundary Live Evidence (Tier: R — Docker SDK-boundary, recorded 2026-05-22)
+
+> **Sub-classification:** Docker SDK-boundary (local Docker Synapse on localhost:8008).
+> This validates SDK integration, adapter wiring, and lifecycle against a real
+> (containerized) Synapse. It does NOT validate external network connectivity,
+> federation, or production server behavior.
+
+| Field                         | Value                                                                                                     |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------- |
+| **Test file**                 | `tests/test_matrix_live.py`                                                                               |
+| **Evidence tier**             | R (Docker SDK-boundary)                                                                                   |
+| **Last execution date**       | 2026-05-22                                                                                                |
+| **Executor**                  | Live agent (automated)                                                                                    |
+| **Homeserver**                | Local Docker Synapse (`matrix.local`, `localhost:8008`)                                                   |
+| **Gate**                      | `MATRIX_LOCAL_SYNAPSE=1`                                                                                  |
+| **Total tests run**           | 16 (15 passed, 1 xfailed)                                                                                |
+| **Duration**                  | 40.37s                                                                                                    |
+| **Start/connect**             | ✅ Adapter started, connected to local Synapse                                                            |
+| **Health check → healthy**    | ✅                                                                                                        |
+| **Outbound send → event_id**  | ✅ `room_send` returned event_id                                                                          |
+| **Synapse-specific test**     | ✅ `test_synapse_send_captures_event_id` passed                                                           |
+| **Third-party inbound**       | xfailed (expected — requires second Matrix user sending during 30s window)                                |
+| **E2EE**                      | NOT EXECUTED (no E2EE env vars configured)                                                                |
+| **Artifact location**         | Evidence recorded in `docs/runbooks/matrix-local-bringup.md` §Live Validation Evidence                    |
+| **Limitations**               | Local Docker network only. No federation, no external latency, no token expiry, no real-world rate limits |
 
 | Field                         | Value                                                                                                                     |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------- |

@@ -1,8 +1,9 @@
 # Live Test Harness Guide
 
-> Last updated: 2026-05-21
+> Last updated: 2026-05-25 (Tranche 6 truth-surface update)
 > Scope: Writing and maintaining opt-in live tests for MEDRE transport adapters
 > Status: **Alpha. Patterns are evolving.** This guide describes current conventions, not final API contracts.
+> Tranche 6 note: No live tests were executed this session. No changes to test infrastructure. Baseline: HEAD 41a07c7, Python 3.12.3, medre 0.1.0.
 
 This guide covers how live tests work in MEDRE: how they are gated, how to write one for a new transport, and what rules they must follow. It is written for test developers contributing to the MEDRE test suite.
 
@@ -30,12 +31,42 @@ The `pyproject.toml` excludes live tests from default runs:
 
 ```toml
 [tool.pytest.ini_options]
-addopts = "-m 'not live and not docker'"
+addopts = "-m 'not live and not docker and not hardware'"
 ```
 
 Running `pytest` without flags will skip all live tests.
 
-### 1.2 Environment variable skipif
+### 1.2 `@pytest.mark.hardware` — physical hardware subset
+
+Tests requiring physical hardware (serial/BLE Meshtastic radios, etc.) must carry `@pytest.mark.hardware` **in addition to** `@pytest.mark.live`. Hardware tests are a strict subset of live tests — they connect to real devices that may not be present on every machine.
+
+```python
+import pytest
+
+@pytest.mark.live
+@pytest.mark.hardware
+async def test_meshtastic_serial_radio_send():
+    ...
+```
+
+Discipline rule: every file using `@pytest.mark.hardware` must also use `@pytest.mark.live`. The boundary test suite (`test_deployment_boundaries.py`) enforces this invariant.
+
+When hardware is unavailable, tests should produce a `not_executed` artifact via the `not_executed_result()` helper rather than skipping or fabricating a pass:
+
+```python
+from tests.helpers.live_harness import not_executed_result, live_result_to_json
+
+if not radio_available:
+    result = not_executed_result(
+        transport="meshtastic",
+        adapter_id="radio-serial",
+        reason="serial radio not connected",
+    )
+    # Write artifact for audit trail
+    ...
+```
+
+### 1.3 Environment variable skipif
 
 In addition to the marker, each live test module or class should include a `pytest.importorskip` or manual skip guard that checks for required environment variables. If the variables are not set, the test skips with a clear reason:
 
@@ -61,7 +92,7 @@ pytestmark = [
 
 This two-level gating means live tests will not accidentally run on a machine that has the `live` marker enabled but does not have credentials configured.
 
-### 1.3 Running live tests
+### 1.4 Running live tests
 
 ```bash
 # All live tests
@@ -74,7 +105,26 @@ PYTHONPATH=src pytest tests/test_matrix_live.py -m live -v
 PYTHONPATH=src pytest tests/test_matrix_live.py::TestMatrixLiveSmoke::test_outbound_delivery -m live -v
 ```
 
-## 2. Instance-Scoped Environment Variables
+### 1.5 Second Matrix test user
+
+Live tests that simulate inbound messages from a non-bot user can use a second Matrix identity. Set these environment variables:
+
+- `MATRIX_SECOND_USER_ID` — fully-qualified user ID (e.g. `@test-user:localhost`)
+- `MATRIX_SECOND_ACCESS_TOKEN` — access token for the second user
+
+Check availability with `matrix_second_user_env_set()` from `tests.helpers.live_config`. The helper returns a boolean and never reads or prints the token value.
+
+## 2. Live Artifact Directory
+
+Live tests persist structured artifacts (results, logs, evidence) to a configurable directory via `get_live_artifact_dir()` from `tests.helpers.live_harness`.
+
+| Variable | Default | Description |
+|---|---|---|
+| `MEDRE_LIVE_ARTIFACT_DIR` | `.ci-artifacts/live-evidence/<timestamp>` | Override to a custom path |
+
+The default path includes an ISO-8601 timestamp to separate runs. The directory is created automatically.
+
+## 3. Instance-Scoped Environment Variables
 
 Live test adapters are configured using MEDRE's instance-scoped env var format. Every adapter override follows `MEDRE_ADAPTER__<TOKEN>__<FIELD>`, where `<TOKEN>` is the uppercased, normalised adapter ID.
 
@@ -91,7 +141,7 @@ The token is derived from the adapter's `adapter_id` by stripping non-alphanumer
 
 When adding a new transport, define its adapter ID and document the required `MEDRE_ADAPTER__<TOKEN>__<FIELD>` variables in the test module's docstring and in the skipif reason string.
 
-## 3. Live Test Helpers
+## 4. Live Test Helpers
 
 The `tests/helpers/` directory contains shared utilities for live tests. The live harness helpers provide:
 
@@ -100,7 +150,7 @@ The `tests/helpers/` directory contains shared utilities for live tests. The liv
 
 These helpers centralize the env var parsing and validation logic so individual test files do not duplicate it. If you are writing a new transport's live tests, check `tests/helpers/` for existing utilities before writing your own env var parsing.
 
-## 4. Template: Adding a New Transport Live Test
+## 5. Template: Adding a New Transport Live Test
 
 Follow this template when adding live tests for a new transport. The pattern is proven: Matrix live tests use it, and Meshtastic live tests should follow it.
 
@@ -178,7 +228,7 @@ Every live test module must have:
 2. **Timeout constants.** Named constants at module level, used in all `asyncio.wait_for` calls.
 3. **try/finally cleanup.** Every test that creates an adapter must stop it in a `finally` block.
 
-## 5. Bounded Async Operations
+## 6. Bounded Async Operations
 
 Every async operation in a live test must be bounded by an explicit timeout. No unbounded awaits.
 
@@ -234,7 +284,7 @@ The values above are starting points. Adjust based on the transport:
 
 If a test times out consistently, investigate the cause before increasing the timeout. A timeout often indicates a bug, not a slow network.
 
-## 6. try/finally Cleanup
+## 7. try/finally Cleanup
 
 Every live test that creates an adapter, client, or any resource with a `stop()` or `close()` method must use `try/finally` to ensure cleanup.
 
@@ -286,7 +336,7 @@ async def live_adapter():
     await asyncio.wait_for(adapter.stop(), timeout=_ADAPTER_STOP_TIMEOUT)
 ```
 
-## 7. No Secret Printing
+## 8. No Secret Printing
 
 Live tests handle real credentials. They must never print them.
 
@@ -319,7 +369,7 @@ assert result.status == "success", f"Delivery failed: {result.error}"
 
 Live tests should log at INFO level for major milestones (adapter started, message sent, message received) and at DEBUG level for details. Never log credentials. The adapter's own `__repr__` redacts tokens, but test code that handles raw environment variables must not pass them to the logger.
 
-## 8. Safe-to-Paste Reports
+## 9. Safe-to-Paste Reports
 
 Live test output, evidence bundles, and diagnostic reports must be safe to paste into GitHub issues without manual redaction.
 
@@ -340,7 +390,7 @@ Live test output, evidence bundles, and diagnostic reports must be safe to paste
 
 The `medre evidence` command produces bundles that redact secrets. Live tests that generate evidence should use the same bundling logic. If you are constructing a report manually, follow the same redaction patterns.
 
-## 9. Rules Summary
+## 10. Rules Summary
 
 1. **Always gate with `@pytest.mark.live` and env var skipif.** Two levels of protection.
 2. **Always use `asyncio.wait_for` with named timeout constants.** No unbounded awaits.
@@ -362,7 +412,7 @@ When porting the live-test harness into a transport-specific adapter branch, fol
 - **Do not import optional SDKs in shared helpers.** The `tests/helpers/live_harness.py` module is SDK-free by design. Transport-specific SDK imports belong in the per-transport test module or a transport-specific helper, never in the shared harness.
 - **Do not add package-root facades.** Live test helpers live under `tests/helpers/`. Do not create top-level packages or facade modules that re-export harness utilities. Import directly from `tests.helpers.live_harness`.
 
-## 10. Related Documentation
+## 11. Related Documentation
 
 | Document                                  | What it covers                                                |
 | ----------------------------------------- | ------------------------------------------------------------- |

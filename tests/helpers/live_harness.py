@@ -1,9 +1,10 @@
 """Transport-neutral live-test harness helpers.
 
 Provides environment gating, secret redaction, bounded async execution,
-and smoke-test result capture for MEDRE live integration tests.
-All helpers are pure functions or simple dataclasses with no external
-dependencies beyond the Python standard library.
+smoke-test result capture, and artifact directory management for MEDRE
+live integration tests.  All helpers are pure functions or simple
+dataclasses with no external dependencies beyond the Python standard
+library.
 """
 
 from __future__ import annotations
@@ -11,8 +12,10 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import time
 from collections.abc import Awaitable, Iterable
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import TypeVar
 
 # ---------------------------------------------------------------------------
@@ -233,3 +236,71 @@ def live_result_to_json(result: LiveSmokeResult) -> str:
         An indented JSON string representation of the result.
     """
     return json.dumps(asdict(result), default=str, indent=2)
+
+
+# ---------------------------------------------------------------------------
+# NOT EXECUTED result factory
+# ---------------------------------------------------------------------------
+
+
+def not_executed_result(
+    *,
+    transport: str,
+    adapter_id: str,
+    reason: str = "",
+) -> LiveSmokeResult:
+    """Create a :class:`LiveSmokeResult` with status ``"not_executed"``.
+
+    Used when a hardware-dependent or live test cannot run because the
+    required hardware or service is unavailable.  This produces an
+    honest artifact record rather than fabricating a pass/fail result.
+
+    Args:
+        transport: Transport name (e.g. ``"meshtastic"``).
+        adapter_id: Adapter identifier.
+        reason: Human-readable explanation for why the test was not
+            executed (e.g. ``"serial radio not connected"``).
+
+    Returns:
+        A :class:`LiveSmokeResult` with ``status="not_executed"`` and
+        the reason in ``notes``.
+    """
+    notes: tuple[str, ...] = ()
+    if reason:
+        notes = (reason,)
+    return LiveSmokeResult(
+        transport=transport,
+        adapter_id=adapter_id,
+        status="not_executed",
+        notes=notes,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Live artifact directory convention
+# ---------------------------------------------------------------------------
+
+
+def get_live_artifact_dir() -> Path:
+    """Return the live-test artifact directory, creating it if needed.
+
+    Reads ``MEDRE_LIVE_ARTIFACT_DIR`` from the environment.  When unset,
+    defaults to ``.ci-artifacts/live-evidence/<timestamp>`` relative to
+    the repository root (the directory containing ``pyproject.toml``).
+
+    The directory is created with ``mkdir(parents=True, exist_ok=True)``
+    before returning.
+
+    Returns:
+        A :class:`Path` to the artifact directory (guaranteed to exist).
+    """
+    env_val = os.environ.get("MEDRE_LIVE_ARTIFACT_DIR", "").strip()
+    if env_val:
+        p = Path(env_val)
+    else:
+        # Walk upward from this file to find the repo root (pyproject.toml).
+        repo_root = Path(__file__).resolve().parent.parent.parent
+        timestamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+        p = repo_root / ".ci-artifacts" / "live-evidence" / timestamp
+    p.mkdir(parents=True, exist_ok=True)
+    return p

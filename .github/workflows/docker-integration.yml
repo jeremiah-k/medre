@@ -24,8 +24,8 @@ jobs:
     env:
       # Pinned, validated image references for deterministic CI behavior.
       # Update digests when bumping versions — verify with:
-      #   docker pull matrixdotorg/synapse:v1.149.0 && docker image inspect --format='{{index .RepoDigests 0}}' matrixdotorg/synapse:v1.149.0
-      MEDRE_SYNAPSE_IMAGE: matrixdotorg/synapse:v1.149.0
+      #   docker pull matrixdotorg/synapse:v1.153.0 && docker image inspect --format='{{index .RepoDigests 0}}' matrixdotorg/synapse:v1.153.0
+      MEDRE_SYNAPSE_IMAGE: matrixdotorg/synapse:v1.153.0
       MEDRE_MESHTASTICD_IMAGE: meshtastic/meshtasticd:2.7.15
       MEDRE_CI_ARTIFACT_DIR: ${{ github.workspace }}/.ci-artifacts/docker-integration
       MEDRE_DOCKER_READY_TIMEOUT: "120"
