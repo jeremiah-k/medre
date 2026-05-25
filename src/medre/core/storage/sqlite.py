@@ -1497,9 +1497,11 @@ class SQLiteStorage:
         Checks for an existing item with the same key tuple
         ``(delivery_plan_id, target_adapter, target_channel, attempt_number)``
         before inserting.  If a non-terminal item already exists it is
-        returned unchanged (idempotent create).  If the existing item is
-        terminal it is deleted first so a new row for re-delivery can
-        be inserted without violating the UNIQUE constraint.
+        reclaimed: its ``status``, ``worker_id``, ``locked_at``, and
+        ``lease_until`` are updated to match the new item's values so the
+        caller always receives a properly-claimed row.  If the existing
+        item is terminal it is deleted first so a new row for re-delivery
+        can be inserted without violating the UNIQUE constraint.
 
         The entire SELECT + conditional DELETE + INSERT runs inside a
         single ``BEGIN IMMEDIATE`` transaction so that two concurrent
@@ -1570,6 +1572,24 @@ class SQLiteStorage:
                     if row is not None:
                         existing = dict(row)
                         if existing["status"] not in _terminal:
+                            # Re-claim: update status, worker, and lease
+                            # so the pipeline always gets an in_progress
+                            # row with a valid lease for finalization.
+                            await db.execute(  # type: ignore[union-attr]
+                                """UPDATE delivery_outbox
+                                   SET status = ?, worker_id = ?,
+                                       locked_at = ?, lease_until = ?,
+                                       updated_at = ?
+                                   WHERE outbox_id = ?""",
+                                (
+                                    item.status or "pending",
+                                    item.worker_id,
+                                    item.locked_at,
+                                    item.lease_until,
+                                    now,
+                                    existing["outbox_id"],
+                                ),
+                            )
                             await db.execute("COMMIT")  # type: ignore[union-attr]
                             return (
                                 await self.get_outbox_item(existing["outbox_id"])
@@ -1611,6 +1631,11 @@ class SQLiteStorage:
                     insert_sql,
                     insert_params,
                     _terminal,
+                    reclaim_status=item.status or "pending",
+                    reclaim_worker_id=item.worker_id,
+                    reclaim_locked_at=item.locked_at,
+                    reclaim_lease_until=item.lease_until,
+                    reclaim_now=now,
                 )
                 if existing_id is not None:
                     return await self.get_outbox_item(existing_id) or item
@@ -1631,11 +1656,18 @@ class SQLiteStorage:
         insert_sql: str,
         insert_params: tuple[Any, ...],
         terminal: frozenset[str],
+        *,
+        reclaim_status: str = "pending",
+        reclaim_worker_id: str | None = None,
+        reclaim_locked_at: str | None = None,
+        reclaim_lease_until: str | None = None,
+        reclaim_now: str = "",
     ) -> str | None:
-        """Synchronous helper: BEGIN IMMEDIATE, SELECT, optional DELETE, INSERT, COMMIT.
+        """Synchronous helper: BEGIN IMMEDIATE, SELECT, optional DELETE/UPDATE, INSERT, COMMIT.
 
         Returns the existing outbox_id when a non-terminal row was found
-        (idempotent), or None when a new row was inserted.
+        (idempotent — the row is reclaimed with new status/worker/lease),
+        or None when a new row was inserted.
         """
         with self._lock:
             db.execute("BEGIN IMMEDIATE")
@@ -1644,6 +1676,22 @@ class SQLiteStorage:
                 if row is not None:
                     existing = dict(row)
                     if existing["status"] not in terminal:
+                        # Re-claim: update status, worker, and lease.
+                        db.execute(
+                            """UPDATE delivery_outbox
+                               SET status = ?, worker_id = ?,
+                                   locked_at = ?, lease_until = ?,
+                                   updated_at = ?
+                               WHERE outbox_id = ?""",
+                            (
+                                reclaim_status,
+                                reclaim_worker_id,
+                                reclaim_locked_at,
+                                reclaim_lease_until,
+                                reclaim_now,
+                                existing["outbox_id"],
+                            ),
+                        )
                         db.execute("COMMIT")
                         return existing["outbox_id"]
                     db.execute(delete_sql, (existing["outbox_id"],))

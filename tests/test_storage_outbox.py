@@ -851,6 +851,49 @@ class TestAtomicCreateOutboxItem:
         assert created2.attempt_number == created1.attempt_number
         assert created2.status == created1.status
 
+    async def test_idempotent_create_reclaims_pending_row(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Re-creating with status=in_progress should reclaim a pending row.
+
+        The pipeline creates outbox items with status=in_progress.  If an
+        existing pending row is found by the idempotent key, create_outbox_item
+        must reclaim it — updating status, worker_id, locked_at, and
+        lease_until — so that finalize can transition in_progress → sent.
+        """
+        # First create: pending (default status, no worker/lease).
+        item1 = _make_outbox_item(
+            delivery_plan_id="plan-reclaim",
+            target_channel="ch-reclaim",
+        )
+        created1 = await temp_storage.create_outbox_item(item1)
+        assert created1.status == "pending"
+        assert created1.worker_id is None
+
+        # Second create: same key but in_progress with worker/lease.
+        item2 = DeliveryOutboxItem(
+            outbox_id=f"obox-{uuid.uuid4()}",
+            event_id=item1.event_id,
+            route_id=item1.route_id,
+            delivery_plan_id="plan-reclaim",
+            target_adapter="fake_presentation",
+            target_channel="ch-reclaim",
+            attempt_number=1,
+            status="in_progress",
+            worker_id="pipeline:abc123",
+            locked_at="2026-01-01T00:00:00",
+            lease_until="2026-01-01T00:01:00",
+        )
+        created2 = await temp_storage.create_outbox_item(item2)
+
+        # Same row (idempotent on key tuple).
+        assert created2.outbox_id == created1.outbox_id
+        # But reclaimed with new status/worker/lease.
+        assert created2.status == "in_progress"
+        assert created2.worker_id == "pipeline:abc123"
+        assert created2.locked_at == "2026-01-01T00:00:00"
+        assert created2.lease_until == "2026-01-01T00:01:00"
+
 
 # ===================================================================
 # Group 3: Queued lease semantics tests
