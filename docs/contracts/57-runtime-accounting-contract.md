@@ -24,7 +24,7 @@ complement the existing per-route `RouteStats` and per-route
 | `replay_rejected`     | `record_replay_rejected()`    | Replay events rejected (missing, filter mismatch, or unhandled BEST_EFFORT error)  |
 | `loop_prevented`      | `record_loop_prevented()`     | Events blocked by the self-loop guard                                              |
 | `capacity_rejections` | `record_capacity_rejection()` | Operations rejected by the capacity controller (both pipeline delivery and replay) |
-| `policy_suppressed`  | `record_policy_suppressed()`  | Deliveries suppressed by route-policy evaluation (allowlist mismatch)               |
+| `policy_suppressed`   | `record_policy_suppressed()`  | Deliveries suppressed by route-policy evaluation (allowlist mismatch)              |
 
 ### Retry Snapshot Counters
 

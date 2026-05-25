@@ -25,7 +25,6 @@ from medre.core.policies.route_policy import (
 )
 from medre.core.routing.models import RouteTarget
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -97,12 +96,16 @@ class TestSourceAdapter:
 
     def test_permit_when_in_allowlist(self) -> None:
         policy = RoutePolicy(allowed_source_adapters=("adapter_a", "other"))
-        decision = evaluate_route_policy(policy, _event(source_adapter="adapter_a"), _target())
+        decision = evaluate_route_policy(
+            policy, _event(source_adapter="adapter_a"), _target()
+        )
         assert decision.allowed is True
 
     def test_deny_when_not_in_allowlist(self) -> None:
         policy = RoutePolicy(allowed_source_adapters=("other",))
-        decision = evaluate_route_policy(policy, _event(source_adapter="adapter_a"), _target())
+        decision = evaluate_route_policy(
+            policy, _event(source_adapter="adapter_a"), _target()
+        )
         assert decision.allowed is False
         assert decision.reason == "source_adapter_not_allowed"
         assert decision.blocked_field == "allowed_source_adapters"
@@ -110,7 +113,9 @@ class TestSourceAdapter:
 
     def test_empty_tuple_allows_any(self) -> None:
         policy = RoutePolicy(allowed_source_adapters=())
-        decision = evaluate_route_policy(policy, _event(source_adapter="anything"), _target())
+        decision = evaluate_route_policy(
+            policy, _event(source_adapter="anything"), _target()
+        )
         assert decision.allowed is True
 
 
@@ -135,11 +140,14 @@ class TestDestAdapter:
         assert decision.blocked_field == "allowed_dest_adapters"
         assert decision.blocked_value == "adapter_b"
 
-    def test_none_dest_adapter_not_blocked(self) -> None:
-        """When target.adapter is None, dest adapter check is skipped."""
+    def test_none_dest_adapter_is_denied(self) -> None:
+        """When target.adapter is None and allowlist is active, deny (fail-closed)."""
         policy = RoutePolicy(allowed_dest_adapters=("only_this",))
         decision = evaluate_route_policy(policy, _event(), _target(adapter=None))
-        assert decision.allowed is True
+        assert decision.allowed is False
+        assert decision.reason == "dest_adapter_not_allowed"
+        assert decision.blocked_field == "allowed_dest_adapters"
+        assert decision.blocked_value == "<missing>"
 
 
 # ===================================================================
@@ -152,7 +160,9 @@ class TestSender:
 
     def test_permit_when_in_allowlist(self) -> None:
         policy = RoutePolicy(sender_allowlist=("sender-1",))
-        decision = evaluate_route_policy(policy, _event(source_transport_id="sender-1"), _target())
+        decision = evaluate_route_policy(
+            policy, _event(source_transport_id="sender-1"), _target()
+        )
         assert decision.allowed is True
 
     def test_deny_when_not_in_allowlist(self) -> None:
@@ -198,13 +208,16 @@ class TestRoom:
         assert decision.blocked_field == "room_allowlist"
         assert decision.blocked_value == "!blocked:server.local"
 
-    def test_no_room_id_not_blocked(self) -> None:
-        """When source_channel_id is None, room check is skipped."""
+    def test_no_room_id_is_denied(self) -> None:
+        """When source_channel_id is None and room allowlist is active, deny (fail-closed)."""
         policy = RoutePolicy(room_allowlist=("!only:room",))
         decision = evaluate_route_policy(
             policy, _event(source_channel_id=None), _target()
         )
-        assert decision.allowed is True
+        assert decision.allowed is False
+        assert decision.reason == "room_not_allowed"
+        assert decision.blocked_field == "room_allowlist"
+        assert decision.blocked_value == "<missing>"
 
     def test_empty_tuple_allows_any_room(self) -> None:
         policy = RoutePolicy(room_allowlist=())
@@ -224,9 +237,7 @@ class TestChannel:
 
     def test_permit_target_channel_in_allowlist(self) -> None:
         policy = RoutePolicy(channel_allowlist=("ch-1",))
-        decision = evaluate_route_policy(
-            policy, _event(), _target(channel="ch-1")
-        )
+        decision = evaluate_route_policy(policy, _event(), _target(channel="ch-1"))
         assert decision.allowed is True
 
     def test_deny_target_channel_not_in_allowlist(self) -> None:
@@ -259,13 +270,16 @@ class TestChannel:
         assert decision.reason == "channel_not_allowed"
         assert decision.blocked_value == "wrong-ch"
 
-    def test_no_channel_at_all_not_blocked(self) -> None:
-        """When both target.channel and source_channel_id are None, skip."""
+    def test_no_channel_at_all_is_denied(self) -> None:
+        """When both target.channel and source_channel_id are None, deny (fail-closed)."""
         policy = RoutePolicy(channel_allowlist=("ch-1",))
         decision = evaluate_route_policy(
             policy, _event(source_channel_id=None), _target(channel=None)
         )
-        assert decision.allowed is True
+        assert decision.allowed is False
+        assert decision.reason == "channel_not_allowed"
+        assert decision.blocked_field == "channel_allowlist"
+        assert decision.blocked_value == "<missing>"
 
     def test_empty_tuple_allows_any_channel(self) -> None:
         policy = RoutePolicy(channel_allowlist=())
@@ -338,7 +352,9 @@ class TestAllowedSummary:
 
     def test_deny_summary_contains_reason(self) -> None:
         policy = RoutePolicy(allowed_source_adapters=("ok",))
-        decision = evaluate_route_policy(policy, _event(source_adapter="bad"), _target())
+        decision = evaluate_route_policy(
+            policy, _event(source_adapter="bad"), _target()
+        )
         assert "source_adapter_not_allowed" in decision.allowed_summary
         assert "bad" in decision.allowed_summary
 

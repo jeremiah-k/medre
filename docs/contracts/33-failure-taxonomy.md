@@ -350,23 +350,23 @@ Route policy suppression is a **cross-transport** failure classification that is
 
 **Classification:**
 
-| Property        | Value                                                                                  |
-| --------------- | -------------------------------------------------------------------------------------- |
-| Failure kind    | `policy_suppressed`                                                                    |
-| Retryable       | No — permanent classification                                                          |
-| Pipeline stage  | Route policy (after route match, before delivery)                                      |
-| Receipt status  | `suppressed`                                                                           |
+| Property        | Value                                                                                 |
+| --------------- | ------------------------------------------------------------------------------------- |
+| Failure kind    | `policy_suppressed`                                                                   |
+| Retryable       | No — permanent classification                                                         |
+| Pipeline stage  | Route policy (after route match, before delivery)                                     |
+| Receipt status  | `suppressed`                                                                          |
 | Receipt context | Includes `route_id`, `target_adapter`, `target_channel`, and the policy denial reason |
 
 **Denial reason codes** (stable, machine-readable):
 
-| Reason code                  | Policy field                 | Description                                         |
-| ---------------------------- | ---------------------------- | --------------------------------------------------- |
-| `source_adapter_not_allowed` | `allowed_source_adapters`    | Source adapter not in allowlist                     |
-| `dest_adapter_not_allowed`   | `allowed_dest_adapters`      | Destination adapter not in allowlist                |
-| `sender_not_allowed`         | `sender_allowlist`           | Sender identity not in allowlist                    |
-| `room_not_allowed`           | `room_allowlist`             | Room identifier not in allowlist                    |
-| `channel_not_allowed`        | `channel_allowlist`          | Channel identifier not in allowlist                 |
+| Reason code                  | Policy field              | Description                          |
+| ---------------------------- | ------------------------- | ------------------------------------ |
+| `source_adapter_not_allowed` | `allowed_source_adapters` | Source adapter not in allowlist      |
+| `dest_adapter_not_allowed`   | `allowed_dest_adapters`   | Destination adapter not in allowlist |
+| `sender_not_allowed`         | `sender_allowlist`        | Sender identity not in allowlist     |
+| `room_not_allowed`           | `room_allowlist`          | Room identifier not in allowlist     |
+| `channel_not_allowed`        | `channel_allowlist`       | Channel identifier not in allowlist  |
 
 Policy suppression is visible in `RouteStats.policy_suppressed` counters and in `RuntimeAccounting.policy_suppressed`. Each suppressed delivery produces a persisted receipt with the denial reason, enabling post-hoc investigation via `medre inspect receipts`.
 

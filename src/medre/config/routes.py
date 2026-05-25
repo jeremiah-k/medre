@@ -107,14 +107,16 @@ class BridgePolicy:
     sender_allowlist: tuple[str, ...] = ()
 
     # Canonical field names accepted in the policy TOML table.
-    _KNOWN_FIELDS: ClassVar[frozenset[str]] = frozenset({
-        "allowed_event_types",
-        "allowed_source_adapters",
-        "allowed_dest_adapters",
-        "room_allowlist",
-        "channel_allowlist",
-        "sender_allowlist",
-    })
+    _KNOWN_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "allowed_event_types",
+            "allowed_source_adapters",
+            "allowed_dest_adapters",
+            "room_allowlist",
+            "channel_allowlist",
+            "sender_allowlist",
+        }
+    )
 
     # Allowlist fields that must be lists of strings.
     _ALLOWLIST_FIELDS: ClassVar[tuple[tuple[str, str], ...]] = (

@@ -141,6 +141,9 @@ class Route:
         may overlap) or ``"shared"`` (overlaps allowed).
     enabled:
         Whether this route is currently enabled.
+    policy:
+        Optional route-policy allowlist enforced during per-target
+        delivery evaluation.
     """
 
     id: str

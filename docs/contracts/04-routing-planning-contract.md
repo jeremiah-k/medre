@@ -43,6 +43,7 @@ Phase 1 provides **partial policy enforcement**. The four-stage policy architect
 - **Meshtastic `channel_mapping` is display labels only**: It maps channel indices to human-readable names for rendering and diagnostics. It is not an allowlist and does not participate in route-policy evaluation.
 
 **What remains spec-level only:**
+
 - No `Policy` protocol, `PolicyResult`, or general policy evaluation pipeline exists.
 - `RouteRateLimitPolicy`, `QuietHoursPolicy`, `MaxLengthPolicy`, `CapabilityFallbackPolicy` are spec definitions, not runtime classes.
 - Ingress and event policy stages are not implemented.
@@ -460,13 +461,13 @@ derived event
 [router]  (evaluate all enabled routes, collect matches)
     |
     v
-[route policy stage]  (per-route rate limit, quiet hours, route permission,
-                        route-policy allowlist checks)
-    |   Routes that survive become candidate deliveries
-    |   Policy denials → status="suppressed", failure_kind="policy_suppressed"
-    v
 [delivery planner]  (construct DeliveryPlan per surviving target)
     |
+    v
+[route policy stage (per-target delivery preflight: per-route rate limit, quiet hours, route permission,
+                      route-policy allowlist checks)]
+    |   Routes that survive become candidate deliveries
+    |   Policy denials → status="suppressed", failure_kind="policy_suppressed"
     v
 [delivery policy / rendering]  (size limits, capability fallback, final rendering)
     |
@@ -664,18 +665,18 @@ class DeliveryFailureKind(Enum):
 
 Classification rules:
 
-| Failure kind         | Pipeline stage     | Retryable | Auto-classified from exception                                                                                                                                                  |
-| -------------------- | ------------------ | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PLANNER_FAILURE`    | Routing / planning | No        | Exception during `route_event()`                                                                                                                                                |
-| `RENDERER_FAILURE`   | Rendering          | No        | Exception during `render()`                                                                                                                                                     |
-| `ADAPTER_TRANSIENT`  | Adapter delivery   | **Yes**   | `TimeoutError`, `ConnectionError`, `OSError` hierarchy                                                                                                                          |
-| `ADAPTER_PERMANENT`  | Adapter delivery   | No        | All other adapter exceptions (including channel-not-found and target-address failures)                                                                                          |
-| `ADAPTER_MISSING`    | Adapter lookup     | No        | Target adapter ID has no runtime adapter instance                                                                                                                               |
-| `DEADLINE_EXCEEDED`  | Deadline check     | No        | `plan.deadline < now`                                                                                                                                                           |
-| `CAPACITY_REJECTION` | Capacity gate      | No        | Capacity controller semaphore exhausted or timed out                                                                                                                            |
-| `SHUTDOWN_REJECTION` | Capacity gate      | No        | Runtime shutdown cancelled delivery before capacity acquire                                                                                                                     |
-| `LOOP_SUPPRESSED`    | Loop prevention    | No        | Self-loop or route-trace guard fired                                                                                                                                            |
-| `POLICY_SUPPRESSED`  | Route policy       | No        | Route-policy evaluator denied delivery (source adapter, dest adapter, sender, room, or channel not in allowlist)                                                                |
+| Failure kind         | Pipeline stage     | Retryable | Auto-classified from exception                                                                                   |
+| -------------------- | ------------------ | --------- | ---------------------------------------------------------------------------------------------------------------- |
+| `PLANNER_FAILURE`    | Routing / planning | No        | Exception during `route_event()`                                                                                 |
+| `RENDERER_FAILURE`   | Rendering          | No        | Exception during `render()`                                                                                      |
+| `ADAPTER_TRANSIENT`  | Adapter delivery   | **Yes**   | `TimeoutError`, `ConnectionError`, `OSError` hierarchy                                                           |
+| `ADAPTER_PERMANENT`  | Adapter delivery   | No        | All other adapter exceptions (including channel-not-found and target-address failures)                           |
+| `ADAPTER_MISSING`    | Adapter lookup     | No        | Target adapter ID has no runtime adapter instance                                                                |
+| `DEADLINE_EXCEEDED`  | Deadline check     | No        | `plan.deadline < now`                                                                                            |
+| `CAPACITY_REJECTION` | Capacity gate      | No        | Capacity controller semaphore exhausted or timed out                                                             |
+| `SHUTDOWN_REJECTION` | Capacity gate      | No        | Runtime shutdown cancelled delivery before capacity acquire                                                      |
+| `LOOP_SUPPRESSED`    | Loop prevention    | No        | Self-loop or route-trace guard fired                                                                             |
+| `POLICY_SUPPRESSED`  | Route policy       | No        | Route-policy evaluator denied delivery (source adapter, dest adapter, sender, room, or channel not in allowlist) |
 
 The classification drives retry decisions and `DeliveryOutcome.failure_kind`.
 

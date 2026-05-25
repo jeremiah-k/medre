@@ -102,9 +102,11 @@ class RuntimeAccounting:
 
     Thread-safety
     ~~~~~~~~~~~~~
-    Safe for concurrent increment operations under the CPython GIL.
-    Each ``record_*`` call replaces the internal ``RuntimeCounters``
-    atomically (single attribute assignment).
+    Not safe for concurrent access.  External synchronization is
+    required if counters may be updated from multiple threads or tasks.
+    Each ``record_*`` call performs an unsynchronized read-modify-write
+    (``self._counters = replace(self._counters, field=self._counters.field + 1)``)
+    that can interleave with concurrent awaits, causing undercounts.
 
     Example
     -------

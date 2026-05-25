@@ -196,7 +196,10 @@ def evaluate_route_policy(
     """
     # -- Source adapter -------------------------------------------------------
     src_adapter: str = event.source_adapter  # type: ignore[union-attr]
-    if policy.allowed_source_adapters and src_adapter not in policy.allowed_source_adapters:
+    if (
+        policy.allowed_source_adapters
+        and src_adapter not in policy.allowed_source_adapters
+    ):
         return _deny(
             _REASON_SOURCE_ADAPTER,
             "allowed_source_adapters",
@@ -206,15 +209,13 @@ def evaluate_route_policy(
 
     # -- Dest adapter ---------------------------------------------------------
     dst_adapter: str | None = target.adapter  # type: ignore[union-attr]
-    if (
-        policy.allowed_dest_adapters
-        and dst_adapter is not None
-        and dst_adapter not in policy.allowed_dest_adapters
+    if policy.allowed_dest_adapters and (
+        dst_adapter is None or dst_adapter not in policy.allowed_dest_adapters
     ):
         return _deny(
             _REASON_DEST_ADAPTER,
             "allowed_dest_adapters",
-            dst_adapter,
+            dst_adapter if dst_adapter is not None else "<missing>",
             policy,
         )
 
@@ -230,25 +231,29 @@ def evaluate_route_policy(
 
     # -- Room -----------------------------------------------------------------
     source_channel_id: str | None = event.source_channel_id  # type: ignore[union-attr]
-    if policy.room_allowlist and source_channel_id is not None:
-        if source_channel_id not in policy.room_allowlist:
-            return _deny(
-                _REASON_ROOM,
-                "room_allowlist",
-                source_channel_id,
-                policy,
-            )
+    if policy.room_allowlist and (
+        source_channel_id is None or source_channel_id not in policy.room_allowlist
+    ):
+        return _deny(
+            _REASON_ROOM,
+            "room_allowlist",
+            source_channel_id if source_channel_id is not None else "<missing>",
+            policy,
+        )
 
     # -- Channel --------------------------------------------------------------
     target_channel: str | None = target.channel  # type: ignore[union-attr]
-    effective_channel = target_channel if target_channel is not None else source_channel_id
-    if policy.channel_allowlist and effective_channel is not None:
-        if effective_channel not in policy.channel_allowlist:
-            return _deny(
-                _REASON_CHANNEL,
-                "channel_allowlist",
-                effective_channel,
-                policy,
-            )
+    effective_channel = (
+        target_channel if target_channel is not None else source_channel_id
+    )
+    if policy.channel_allowlist and (
+        effective_channel is None or effective_channel not in policy.channel_allowlist
+    ):
+        return _deny(
+            _REASON_CHANNEL,
+            "channel_allowlist",
+            effective_channel if effective_channel is not None else "<missing>",
+            policy,
+        )
 
     return _allow(policy)

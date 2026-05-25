@@ -55,9 +55,9 @@ from medre.core.planning.delivery_plan import (
     RetryExecutor,
     RetryPolicy,
 )
-from medre.core.policies.route_policy import evaluate_route_policy
 from medre.core.planning.fallback_resolution import FallbackResolver
 from medre.core.planning.relation_resolution import RelationResolver
+from medre.core.policies.route_policy import evaluate_route_policy
 from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing.models import Route, RouteTarget
@@ -1427,9 +1427,16 @@ class PipelineRunner:
             # increment capacity_rejection counters.
             if route.policy is not None:
                 decision = evaluate_route_policy(
-                    route.policy, event, target,
+                    route.policy,
+                    event,
+                    target,
                 )
                 if not decision.allowed:
+                    # Sanitize blocked_value FIRST: cap at 256 chars to prevent
+                    # large externally-sourced IDs from flooding logs/receipts.
+                    _blocked_val = decision.blocked_value or ""
+                    if len(_blocked_val) > 256:
+                        _blocked_val = _blocked_val[:256] + "..."
                     self._log.info(
                         "policy_suppressed: route_id=%s event_id=%s "
                         "target_adapter=%s reason=%s "
@@ -1439,18 +1446,13 @@ class PipelineRunner:
                         adapter_id,
                         decision.reason,
                         decision.blocked_field,
-                        decision.blocked_value,
+                        _blocked_val,
                     )
                     if self._route_stats is not None:
                         self._route_stats.record_policy_suppressed(route.id)
                     if self._runtime_accounting is not None:
                         self._runtime_accounting.record_policy_suppressed()
                     elapsed = (time.monotonic() - t0) * 1000.0
-                    # Sanitize blocked_value: cap at 256 chars to prevent
-                    # large externally-sourced IDs from flooding logs/receipts.
-                    _blocked_val = decision.blocked_value or ""
-                    if len(_blocked_val) > 256:
-                        _blocked_val = _blocked_val[:256] + "..."
                     # Build safe error text with reason, blocked field,
                     # capped blocked value, and the allowed summary.
                     policy_error = (

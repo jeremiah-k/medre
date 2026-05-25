@@ -1262,7 +1262,9 @@ class TestRouteCounters:
         assert c.policy_suppressed == 0
 
     def test_custom_values(self) -> None:
-        c = RouteCounters(delivered=5, failed=1, skipped=2, loop_prevented=3, policy_suppressed=4)
+        c = RouteCounters(
+            delivered=5, failed=1, skipped=2, loop_prevented=3, policy_suppressed=4
+        )
         assert c.delivered == 5
         assert c.loop_prevented == 3
         assert c.policy_suppressed == 4
@@ -1368,19 +1370,27 @@ class TestPolicySuppressedClassification:
         """Error text containing 'policy_suppressed' infers policy_suppressed."""
         from medre.core.observability.classification import infer_failure_kind
 
-        assert infer_failure_kind("policy_suppressed for target", "failed") == "policy_suppressed"
+        assert (
+            infer_failure_kind("policy_suppressed for target", "failed")
+            == "policy_suppressed"
+        )
 
     def test_infer_failure_kind_route_policy_denied(self) -> None:
         """Error text containing 'route policy denied' infers policy_suppressed."""
         from medre.core.observability.classification import infer_failure_kind
 
-        assert infer_failure_kind("route policy denied for target", "failed") == "policy_suppressed"
+        assert (
+            infer_failure_kind("route policy denied for target", "failed")
+            == "policy_suppressed"
+        )
 
     def test_infer_failure_kind_case_insensitive(self) -> None:
         """Inference is case-insensitive."""
         from medre.core.observability.classification import infer_failure_kind
 
-        assert infer_failure_kind("Route Policy Denied", "failed") == "policy_suppressed"
+        assert (
+            infer_failure_kind("Route Policy Denied", "failed") == "policy_suppressed"
+        )
 
     def test_failure_category_permanent(self) -> None:
         """policy_suppressed maps to the 'permanent' category."""
@@ -1404,13 +1414,19 @@ class TestPolicySuppressedClassification:
         """_derive_failure_kind_detail returns policy_suppressed from route policy denied error."""
         from medre.runtime.reporting import _derive_failure_kind_detail
 
-        assert _derive_failure_kind_detail("policy_suppressed", "route policy denied") == "policy_suppressed"
+        assert (
+            _derive_failure_kind_detail("policy_suppressed", "route policy denied")
+            == "policy_suppressed"
+        )
 
     def test_derive_failure_kind_detail_generic_error(self) -> None:
         """_derive_failure_kind_detail returns policy_suppressed when only failure_kind matches."""
         from medre.runtime.reporting import _derive_failure_kind_detail
 
-        assert _derive_failure_kind_detail("policy_suppressed", "some other error") == "policy_suppressed"
+        assert (
+            _derive_failure_kind_detail("policy_suppressed", "some other error")
+            == "policy_suppressed"
+        )
 
     def test_derive_failure_kind_detail_none_kind(self) -> None:
         """_derive_failure_kind_detail returns None when failure_kind is None."""

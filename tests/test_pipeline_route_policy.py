@@ -31,7 +31,6 @@ from medre.core.supervision.accounting import RuntimeAccounting
 from medre.core.supervision.capacity import CapacityController
 from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
 
-
 # ===================================================================
 # 1. Policy-denied produces skipped / POLICY_SUPPRESSED
 # ===================================================================
@@ -471,9 +470,9 @@ class TestPolicySuppressedEvidence:
         )
 
         storage_section = report["sections"]["storage"]
-        assert storage_section["status"] == "passed", (
-            f"Storage section error: {storage_section.get('error')}"
-        )
+        assert (
+            storage_section["status"] == "passed"
+        ), f"Storage section error: {storage_section.get('error')}"
 
         data = storage_section["data"]
         summary = data["incident_summary"]
@@ -931,17 +930,17 @@ class TestPolicyDeniedWithSaturatedCapacity:
                 f"Expected status='skipped' but got '{outcome.status}' "
                 f"with failure_kind={outcome.failure_kind}"
             )
-            assert outcome.failure_kind is DeliveryFailureKind.POLICY_SUPPRESSED, (
-                f"Expected POLICY_SUPPRESSED but got {outcome.failure_kind}"
-            )
+            assert (
+                outcome.failure_kind is DeliveryFailureKind.POLICY_SUPPRESSED
+            ), f"Expected POLICY_SUPPRESSED but got {outcome.failure_kind}"
             assert "policy_suppressed" in (outcome.error or "")
             assert "source_adapter_not_allowed" in (outcome.error or "")
 
             # Capacity rejection counters must be zero — policy ran first.
             acc_snap = accounting.snapshot()
-            assert acc_snap["capacity_rejections"] == 0, (
-                f"Expected 0 capacity_rejections but got {acc_snap['capacity_rejections']}"
-            )
+            assert (
+                acc_snap["capacity_rejections"] == 0
+            ), f"Expected 0 capacity_rejections but got {acc_snap['capacity_rejections']}"
 
             # Policy suppressed counter must be 1.
             assert acc_snap["policy_suppressed"] == 1
@@ -997,6 +996,7 @@ class TestBlockedValueSanitization:
 
         # Event with a very long source_transport_id (sender).
         from datetime import datetime, timezone
+
         from medre.core.events import CanonicalEvent, EventMetadata
 
         event = CanonicalEvent(
@@ -1042,8 +1042,8 @@ class TestBlockedValueSanitization:
 
             # The capped value is 256 'x' chars + '...' inside repr.
             capped_repr = repr("x" * 256 + "...")
-            assert capped_repr in before_semi, (
-                f"Expected capped repr {capped_repr[:40]}... not found in first part"
-            )
+            assert (
+                capped_repr in before_semi
+            ), f"Expected capped repr {capped_repr[:40]}... not found in first part"
         finally:
             await runner.stop()
