@@ -203,10 +203,11 @@ class InflightDelivery:
 class _AdapterDeliveryError(Exception):
     """Raised by ``deliver_to_target`` after persisting a failed receipt.
 
-    Carries the adapter ID, error string, the original exception, and
-    an optional pre-classified ``failure_kind`` so that callers can
-    produce a deterministic :class:`DeliveryOutcome` without re-inspecting
-    the exception type.
+    Carries the adapter ID, error string, the original exception,
+    an optional pre-classified ``failure_kind``, and the persisted
+    ``receipt`` so that callers can produce a deterministic
+    :class:`DeliveryOutcome` without re-inspecting the exception type
+    and can correlate the outbox row with the actual receipt.
     """
 
     def __init__(
@@ -216,24 +217,30 @@ class _AdapterDeliveryError(Exception):
         original: Exception | None = None,
         *,
         failure_kind: DeliveryFailureKind | None = None,
+        receipt: DeliveryReceipt | None = None,
     ) -> None:
         self.adapter_id = adapter_id
         self.error = error
         self.original = original
         self.failure_kind = failure_kind
+        self.receipt = receipt
         super().__init__(error)
 
 
 class _RendererDeliveryError(Exception):
     """Raised by ``deliver_to_target`` when rendering fails before delivery.
 
-    Carries the adapter ID and error string so callers can produce a
-    deterministic :class:`DeliveryOutcome`.
+    Carries the adapter ID, error string, and optional persisted
+    ``receipt`` so callers can produce a deterministic
+    :class:`DeliveryOutcome` and correlate the outbox row.
     """
 
-    def __init__(self, adapter_id: str, error: str) -> None:
+    def __init__(
+        self, adapter_id: str, error: str, *, receipt: DeliveryReceipt | None = None
+    ) -> None:
         self.adapter_id = adapter_id
         self.error = error
+        self.receipt = receipt
         super().__init__(error)
 
 
@@ -1664,6 +1671,7 @@ class PipelineRunner:
                     )
                 except _AdapterDeliveryError as exc:
                     elapsed = (time.monotonic() - t0) * 1000.0
+                    _outcome_receipt = exc.receipt
                     _outcome_error = exc.error
                     self._diagnostician.record_adapter_failure(
                         event.event_id, adapter_id, exc.error
@@ -1706,6 +1714,7 @@ class PipelineRunner:
                     )
                 except _RendererDeliveryError as exc:
                     elapsed = (time.monotonic() - t0) * 1000.0
+                    _outcome_receipt = exc.receipt
                     _outcome_error = exc.error
                     _outcome_failure_kind_val = DeliveryFailureKind.RENDERER_FAILURE
                     if self._route_stats is not None:
@@ -1908,7 +1917,7 @@ class PipelineRunner:
         if outbox_id is None or not outbox_created:
             return
         try:
-            if receipt is not None:
+            if receipt is not None and receipt.status not in ("failed",):
                 _r_status = receipt.status
                 if _r_status == "queued":
                     await self._config.storage.mark_outbox_queued(
@@ -1923,11 +1932,18 @@ class PipelineRunner:
                         attempt_number=receipt.attempt_number,
                     )
             elif failure_kind_val is not None:
+                _rec_id: str | None = (
+                    receipt.receipt_id if receipt is not None else None
+                )
+                _att: int | None = (
+                    receipt.attempt_number if receipt is not None else None
+                )
                 if failure_kind_val.is_retryable:
                     if retry_policy is None:
                         # No retry policy — treat as terminal.
                         await self._config.storage.mark_outbox_dead_lettered(
                             outbox_id,
+                            receipt_id=_rec_id,
                             failure_kind=failure_kind_val.value,
                             error_summary=(error[:512] if error else None),
                         )
@@ -1937,13 +1953,15 @@ class PipelineRunner:
                         await self._config.storage.mark_outbox_retry_wait(
                             outbox_id,
                             next_attempt_at=_next_at,
+                            receipt_id=_rec_id,
                             failure_kind=failure_kind_val.value,
                             error_summary=(error[:512] if error else None),
-                            attempt_number=1,
+                            attempt_number=_att or 1,
                         )
                 else:
                     await self._config.storage.mark_outbox_dead_lettered(
                         outbox_id,
+                        receipt_id=_rec_id,
                         failure_kind=failure_kind_val.value,
                         error_summary=(error[:512] if error else None),
                     )
@@ -2080,6 +2098,7 @@ class PipelineRunner:
                 f"Adapter {adapter_id!r} is not registered — "
                 f"check if the adapter was configured and built successfully",
                 failure_kind=DeliveryFailureKind.ADAPTER_MISSING,
+                receipt=receipt,
             ) from None
 
         # Check delivery plan deadline.
@@ -2117,6 +2136,7 @@ class PipelineRunner:
                 adapter_id or "",
                 "Delivery deadline exceeded",
                 failure_kind=DeliveryFailureKind.DEADLINE_EXCEEDED,
+                receipt=receipt,
             ) from None
 
         # Render the event into a RenderingResult before adapter delivery.
@@ -2175,7 +2195,9 @@ class PipelineRunner:
                 retry_jitter=(plan.retry_policy.jitter if plan.retry_policy else None),
             )
             await self._config.storage.append_receipt(receipt)
-            raise _RendererDeliveryError(adapter_id or "", rendering_error) from None
+            raise _RendererDeliveryError(
+                adapter_id or "", rendering_error, receipt=receipt
+            ) from None
 
         # Guard: adapter must expose a callable deliver() method.
         deliver_fn: Callable[..., Any] | None = getattr(adapter, "deliver", None)
@@ -2219,6 +2241,7 @@ class PipelineRunner:
                 adapter_id or "",
                 no_deliver_error,
                 failure_kind=DeliveryFailureKind.ADAPTER_PERMANENT,
+                receipt=receipt,
             ) from None
 
         # Deliver the rendered result via adapter.
@@ -2384,7 +2407,7 @@ class PipelineRunner:
         # The receipt and native ref are already persisted at this point.
         if status == "failed":
             raise _AdapterDeliveryError(
-                adapter_id or "", error or "", delivery_exc
+                adapter_id or "", error or "", delivery_exc, receipt=receipt
             ) from None
 
         return receipt

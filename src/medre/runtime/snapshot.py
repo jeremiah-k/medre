@@ -153,7 +153,8 @@ outbox:
     storage on startup and refreshed after each retry worker cycle.
     Carries ``scope="storage_seeded"`` and ``live_refresh=false``
     (counts reflect the last storage query, not real-time polling).
-    ``null`` when no storage is configured.
+    ``null`` only when the app does not expose an outbox state surface
+    (e.g., storage not yet initialized at snapshot time).
 persistence:
     Reserved for future durable-storage status (last-persisted event
     ID, storage health, queue depths).  Currently always ``{}``.
@@ -696,7 +697,11 @@ def build_runtime_snapshot(
     has_live_health: bool = live_health_snapshot is not None
 
     # -- Outbox state ---------------------------------------------------------
-    outbox_state_obj: Any = getattr(app, "outbox_state", None)
+    try:
+        outbox_state_obj: Any = getattr(app, "outbox_state", None)
+    except Exception:
+        _logger.warning("Failed to read app.outbox_state", exc_info=True)
+        outbox_state_obj = None
     outbox_counts: dict[str, int] | None
     if outbox_state_obj is not None and isinstance(outbox_state_obj, dict):
         outbox_counts = dict(outbox_state_obj)

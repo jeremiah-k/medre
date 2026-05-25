@@ -97,7 +97,7 @@ All evidence must follow these rules:
 
 ## 5. Runtime Guarantee Verification
 
-The following runtime guarantees must be verifiable (via existing tests, not live evidence) before beta entry. These are documented in Contract 59 (Runtime Durability) and Contract 60 (Runtime Cancellation).
+The following runtime guarantees must be verifiable (via passing tests or documented design rationale) before beta entry. These are documented in Contract 59 (Runtime Durability) and Contract 60 (Runtime Cancellation).
 
 | #   | Guarantee                                                       | Verified By                                                                                                                                               | Contract Reference     |
 | --- | --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |

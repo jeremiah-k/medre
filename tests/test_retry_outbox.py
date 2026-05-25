@@ -148,27 +148,30 @@ class TestRestartVisibility:
         db_path = f.name
         f.close()
 
-        storage = SQLiteStorage(db_path=db_path)
-        await storage.initialize()
+        try:
+            storage = SQLiteStorage(db_path=db_path)
+            await storage.initialize()
 
-        item = _make_outbox_item(
-            delivery_plan_id="plan-restart-pending",
-            status="pending",
-        )
-        await storage.create_outbox_item(item)
-        await storage.close()
+            item = _make_outbox_item(
+                delivery_plan_id="plan-restart-pending",
+                status="pending",
+            )
+            await storage.create_outbox_item(item)
+            await storage.close()
 
-        # Re-open
-        storage2 = SQLiteStorage(db_path=db_path)
-        await storage2.initialize()
+            # Re-open
+            storage2 = SQLiteStorage(db_path=db_path)
+            await storage2.initialize()
 
-        items = await storage2.list_outbox_items(status_filter=["pending"])
-        matching = [i for i in items if i.delivery_plan_id == "plan-restart-pending"]
-        assert len(matching) == 1
-        assert matching[0].status == "pending"
-        await storage2.close()
-
-        os.unlink(db_path)
+            items = await storage2.list_outbox_items(status_filter=["pending"])
+            matching = [
+                i for i in items if i.delivery_plan_id == "plan-restart-pending"
+            ]
+            assert len(matching) == 1
+            assert matching[0].status == "pending"
+            await storage2.close()
+        finally:
+            os.unlink(db_path)
 
     async def test_due_retry_visible_after_restart(self) -> None:
         import os
@@ -178,32 +181,33 @@ class TestRestartVisibility:
         db_path = f.name
         f.close()
 
-        storage = SQLiteStorage(db_path=db_path)
-        await storage.initialize()
+        try:
+            storage = SQLiteStorage(db_path=db_path)
+            await storage.initialize()
 
-        item = _make_outbox_item(
-            delivery_plan_id="plan-restart-due",
-            status="retry_wait",
-            next_attempt_at="2025-01-01T00:00:00",
-        )
-        await storage.create_outbox_item(item)
-        await storage.close()
+            item = _make_outbox_item(
+                delivery_plan_id="plan-restart-due",
+                status="retry_wait",
+                next_attempt_at="2025-01-01T00:00:00",
+            )
+            await storage.create_outbox_item(item)
+            await storage.close()
 
-        # Re-open
-        storage2 = SQLiteStorage(db_path=db_path)
-        await storage2.initialize()
+            # Re-open
+            storage2 = SQLiteStorage(db_path=db_path)
+            await storage2.initialize()
 
-        # Should still be visible and claimable.
-        now = "2026-01-01T00:00:00"
-        claimed = await storage2.claim_due_outbox_items(
-            now=now, worker_id="worker-1", lease_seconds=30, limit=10
-        )
-        assert len(claimed) >= 1
-        matching = [c for c in claimed if c.delivery_plan_id == "plan-restart-due"]
-        assert len(matching) == 1
-        await storage2.close()
-
-        os.unlink(db_path)
+            # Should still be visible and claimable.
+            now = "2026-01-01T00:00:00"
+            claimed = await storage2.claim_due_outbox_items(
+                now=now, worker_id="worker-1", lease_seconds=30, limit=10
+            )
+            assert len(claimed) >= 1
+            matching = [c for c in claimed if c.delivery_plan_id == "plan-restart-due"]
+            assert len(matching) == 1
+            await storage2.close()
+        finally:
+            os.unlink(db_path)
 
     async def test_dead_lettered_visible_after_restart(self) -> None:
         import os
@@ -213,27 +217,28 @@ class TestRestartVisibility:
         db_path = f.name
         f.close()
 
-        storage = SQLiteStorage(db_path=db_path)
-        await storage.initialize()
+        try:
+            storage = SQLiteStorage(db_path=db_path)
+            await storage.initialize()
 
-        item = _make_outbox_item(
-            delivery_plan_id="plan-restart-dl",
-            status="dead_lettered",
-        )
-        await storage.create_outbox_item(item)
-        await storage.close()
+            item = _make_outbox_item(
+                delivery_plan_id="plan-restart-dl",
+                status="dead_lettered",
+            )
+            await storage.create_outbox_item(item)
+            await storage.close()
 
-        # Re-open
-        storage2 = SQLiteStorage(db_path=db_path)
-        await storage2.initialize()
+            # Re-open
+            storage2 = SQLiteStorage(db_path=db_path)
+            await storage2.initialize()
 
-        items = await storage2.list_outbox_items(status_filter=["dead_lettered"])
-        matching = [i for i in items if i.delivery_plan_id == "plan-restart-dl"]
-        assert len(matching) == 1
-        assert matching[0].status == "dead_lettered"
-        await storage2.close()
-
-        os.unlink(db_path)
+            items = await storage2.list_outbox_items(status_filter=["dead_lettered"])
+            matching = [i for i in items if i.delivery_plan_id == "plan-restart-dl"]
+            assert len(matching) == 1
+            assert matching[0].status == "dead_lettered"
+            await storage2.close()
+        finally:
+            os.unlink(db_path)
 
     async def test_ambiguous_meshtastic_after_restart(self) -> None:
         """A Meshtastic-queued item after restart should remain visible
@@ -246,34 +251,35 @@ class TestRestartVisibility:
         db_path = f.name
         f.close()
 
-        storage = SQLiteStorage(db_path=db_path)
-        await storage.initialize()
+        try:
+            storage = SQLiteStorage(db_path=db_path)
+            await storage.initialize()
 
-        item = _make_outbox_item(
-            delivery_plan_id="plan-ambiguous-msh",
-            status="queued",
-            target_adapter="meshtastic",
-        )
-        await storage.create_outbox_item(item)
-        await storage.close()
+            item = _make_outbox_item(
+                delivery_plan_id="plan-ambiguous-msh",
+                status="queued",
+                target_adapter="meshtastic",
+            )
+            await storage.create_outbox_item(item)
+            await storage.close()
 
-        # Re-open: queued item is visible.
-        storage2 = SQLiteStorage(db_path=db_path)
-        await storage2.initialize()
+            # Re-open: queued item is visible.
+            storage2 = SQLiteStorage(db_path=db_path)
+            await storage2.initialize()
 
-        items = await storage2.list_outbox_items(status_filter=["queued"])
-        matching = [i for i in items if i.delivery_plan_id == "plan-ambiguous-msh"]
-        assert len(matching) == 1
-        assert matching[0].status == "queued"
-        # Not claimable (status != pending/retry_wait).
-        now = "2026-01-01T00:00:00"
-        claimed = await storage2.claim_due_outbox_items(
-            now=now, worker_id="worker-1", lease_seconds=30, limit=10
-        )
-        assert not any(c.delivery_plan_id == "plan-ambiguous-msh" for c in claimed)
-        await storage2.close()
-
-        os.unlink(db_path)
+            items = await storage2.list_outbox_items(status_filter=["queued"])
+            matching = [i for i in items if i.delivery_plan_id == "plan-ambiguous-msh"]
+            assert len(matching) == 1
+            assert matching[0].status == "queued"
+            # Not claimable (status != pending/retry_wait).
+            now = "2026-01-01T00:00:00"
+            claimed = await storage2.claim_due_outbox_items(
+                now=now, worker_id="worker-1", lease_seconds=30, limit=10
+            )
+            assert not any(c.delivery_plan_id == "plan-ambiguous-msh" for c in claimed)
+            await storage2.close()
+        finally:
+            os.unlink(db_path)
 
 
 # ===================================================================
@@ -367,8 +373,6 @@ class TestRetryWorkerNameErrorRegression:
                     "RetryWorker._retry_outbox_item raised NameError — "
                     "the _max_attempts fix is not in place"
                 ) from err
-            except Exception:
-                pass  # Other exceptions are acceptable
 
         # deliver_to_target must NOT have been awaited — reconstruction
         # failed before reaching the delivery call.

@@ -547,26 +547,28 @@ class TestPersistence:
         db_path = f.name
         f.close()
 
-        storage = SQLiteStorage(db_path=db_path)
         try:
-            await storage.initialize()
+            storage = SQLiteStorage(db_path=db_path)
+            try:
+                await storage.initialize()
 
-            item = _make_outbox_item(delivery_plan_id="plan-persist")
-            created = await storage.create_outbox_item(item)
-        finally:
-            await storage.close()
+                item = _make_outbox_item(delivery_plan_id="plan-persist")
+                created = await storage.create_outbox_item(item)
+            finally:
+                await storage.close()
 
-        # Re-open
-        storage2 = SQLiteStorage(db_path=db_path)
-        try:
-            await storage2.initialize()
-            retrieved = await storage2.get_outbox_item(created.outbox_id)
-            assert retrieved is not None
-            assert retrieved.status == "pending"
-            assert retrieved.delivery_plan_id == "plan-persist"
+            # Re-open
+            storage2 = SQLiteStorage(db_path=db_path)
+            try:
+                await storage2.initialize()
+                retrieved = await storage2.get_outbox_item(created.outbox_id)
+                assert retrieved is not None
+                assert retrieved.status == "pending"
+                assert retrieved.delivery_plan_id == "plan-persist"
+            finally:
+                await storage2.close()
         finally:
-            await storage2.close()
-        os.unlink(db_path)
+            os.unlink(db_path)
 
 
 # ===================================================================
@@ -998,7 +1000,7 @@ class TestAsyncTransactionRollback:
         real_execute = temp_storage._db.execute
         call_count = 0
 
-        def _flaky_execute(stmt, params=None):
+        def _flaky_execute(stmt, params=None) -> object:
             nonlocal call_count
             call_count += 1
             # Let BEGIN succeed (call 1), fail on the SELECT (call 2).

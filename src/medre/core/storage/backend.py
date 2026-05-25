@@ -471,10 +471,11 @@ class StorageBackend(Protocol):
 
         If an item with the same ``(delivery_plan_id, target_adapter,
         target_channel, attempt_number)`` already exists and is not
-        terminal, the existing item is returned unchanged (idempotent
-        create).  If the existing item is terminal, a new row is
-        inserted (the key tuple is not terminal-guarded — operators
-        who need re-delivery after dead-letter use ``recover``).
+        terminal, the existing row is reclaimed (updated with the new
+        claim/status fields) and returned.  If the existing item is
+        terminal, a new row is inserted (the key tuple is not
+        terminal-guarded — operators who need re-delivery after
+        dead-letter use ``recover``).
         """
         ...
 

@@ -1,6 +1,6 @@
 # Transport Validation Matrix
 
-> Last updated: 2026-05-24
+> Last updated: 2026-05-25
 > Scope: Single authoritative source of truth for transport validation evidence
 > Status: Pre-beta. Evidence claims are honest per-transport.
 > Evidence schema: `docs/contracts/61-operational-evidence-contract.md` (H/C/S/R tiers, NOT EXECUTED).

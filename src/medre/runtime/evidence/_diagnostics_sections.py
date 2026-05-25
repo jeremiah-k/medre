@@ -99,7 +99,7 @@ async def _collect_live_health(
         snapshot = build_runtime_snapshot(app)
         return _section_ok(snapshot)
     except Exception as exc:
-        return _section_partial(None, f"Health refresh error: {exc}")
+        return _section_partial(None, f"Live refresh error (health/outbox): {exc}")
     finally:
         try:
             await app.stop()
