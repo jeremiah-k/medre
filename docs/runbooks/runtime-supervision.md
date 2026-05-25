@@ -203,7 +203,7 @@ Then check capacity gauges:
 
 **What was lost:**
 
-- Some in-flight deliveries are lost (no receipts), although `in_progress` outbox rows may survive and be reclaimable by RetryWorker.
+- Deliveries that never created an outbox row are lost (no receipts). Accepted deliveries that already created an `in_progress` outbox row persist in SQLite; if their lease expires, the RetryWorker can reclaim them on restart. A receipt may still be absent if the crash occurred before attempt completion.
 - Active replay runs (no resume, must re-initiate).
 - Runtime counters (all reset to zero).
 - Adapter connection states (adapters reconnect from scratch).
@@ -371,18 +371,18 @@ Replay is a one-shot operation initiated by the operator or test harness. It is 
 
 ## 8. Persistence Expectations for Operators
 
-| Question                                    | Answer                                                                                                                                                         |
-| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Do I lose event history on crash?           | **No.** Events are in SQLite.                                                                                                                                  |
-| Do I lose delivery receipts on crash?       | **No.** Receipts are in SQLite.                                                                                                                                |
-| Do I lose E2EE sessions on crash?           | **No.** Crypto store is on disk.                                                                                                                               |
-| Do I lose runtime metrics on crash?         | **Yes.** All counters reset on restart.                                                                                                                        |
-| Do I lose in-flight deliveries on crash?    | **Partially.** No receipt, but `in_progress` outbox rows with expired leases may be reclaimable by RetryWorker. Deliveries without outbox rows are fully lost. |
-| Do I need to manually replay after crash?   | Only if orphaned events need delivery. Not automatic.                                                                                                          |
-| Does MEDRE back up its own database?        | **No.** Operators handle backup.                                                                                                                               |
-| Can I query historical delivery state?      | **Yes.** Query receipts from SQLite.                                                                                                                           |
-| Can I tell which receipts came from replay? | **Yes.** Query `WHERE source = 'replay'` on `delivery_receipts`. Use `replay_run_id` to group by replay run.                                                   |
-| Can I see historical capacity metrics?      | **No.** Counters are process-local only. Implement external monitoring.                                                                                        |
+| Question                                    | Answer                                                                                                                                                                                                                                                                                                                  |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Do I lose event history on crash?           | **No.** Events are in SQLite.                                                                                                                                                                                                                                                                                           |
+| Do I lose delivery receipts on crash?       | **No.** Receipts are in SQLite.                                                                                                                                                                                                                                                                                         |
+| Do I lose E2EE sessions on crash?           | **No.** Crypto store is on disk.                                                                                                                                                                                                                                                                                        |
+| Do I lose runtime metrics on crash?         | **Yes.** All counters reset on restart.                                                                                                                                                                                                                                                                                 |
+| Do I lose in-flight deliveries on crash?    | **Partially.** Deliveries that never created an outbox row are lost without receipts. Accepted deliveries that already created an `in_progress` outbox row persist; if their lease expires, the RetryWorker can reclaim them on restart. A receipt may still be absent if the crash occurred before attempt completion. |
+| Do I need to manually replay after crash?   | Only if orphaned events need delivery. Not automatic.                                                                                                                                                                                                                                                                   |
+| Does MEDRE back up its own database?        | **No.** Operators handle backup.                                                                                                                                                                                                                                                                                        |
+| Can I query historical delivery state?      | **Yes.** Query receipts from SQLite.                                                                                                                                                                                                                                                                                    |
+| Can I tell which receipts came from replay? | **Yes.** Query `WHERE source = 'replay'` on `delivery_receipts`. Use `replay_run_id` to group by replay run.                                                                                                                                                                                                            |
+| Can I see historical capacity metrics?      | **No.** Counters are process-local only. Implement external monitoring.                                                                                                                                                                                                                                                 |
 
 ## 9. References
 

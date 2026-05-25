@@ -747,7 +747,7 @@ Signal handlers are reset/reinstalled at the start of each `medre run` invocatio
 
 **Hard kill (SIGKILL / `kill -9`):**
 
-No graceful shutdown occurs. No shutdown logs are emitted. No shutdown snapshot is written. SQLite data on disk is preserved (WAL mode). In-flight deliveries are lost without receipts, but outbox items with expired leases are re-claimable on restart. See [Crash Recovery](#crash-recovery) for the full recovery procedure.
+No graceful shutdown occurs. No shutdown logs are emitted. No shutdown snapshot is written. SQLite data on disk is preserved (WAL mode). Deliveries that never created an outbox row are lost without receipts. Accepted deliveries that already created an `in_progress` outbox row persist in SQLite; if their lease expires, the RetryWorker can reclaim them on restart. A receipt may still be absent if the crash occurred before attempt completion. Adapter-local queue contents remain non-durable. See [Crash Recovery](#crash-recovery) for the full recovery procedure.
 
 **No active restart.** After shutdown (graceful or hard), the runtime does not restart automatically. Operators must re-run `medre run` manually or use an external process supervisor (systemd, Docker restart policy, etc.). MEDRE does not provide its own supervision.
 
@@ -866,7 +866,7 @@ On hard crash (`kill -9`, OOM, power loss):
 
 1. No graceful shutdown. No shutdown logs.
 2. SQLite database is preserved (WAL mode). Events and committed receipts survive.
-3. In-flight deliveries are lost without receipts, but `in_progress` outbox items survive with expired leases and are re-claimable by the RetryWorker on restart. Deliveries that never created an outbox item are lost.
+3. Deliveries that never created an outbox row are lost without receipts. Accepted deliveries that already created an `in_progress` outbox row persist in SQLite; if their lease expires, the RetryWorker can reclaim them on restart. A receipt may still be absent if the crash occurred before attempt completion. Adapter-local queue contents remain non-durable.
 4. All runtime counters are lost.
 5. Restart with the same config. Adapters reconnect autonomously.
 6. Adapters may replay or suppress stale messages based on their `startup_backlog_suppress_seconds` setting.
