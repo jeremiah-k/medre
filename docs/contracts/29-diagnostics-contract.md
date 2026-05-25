@@ -71,9 +71,16 @@ Source: `matrix/adapter.py` `diagnostics()`, `matrix/session.py` `MatrixSessionD
 | `undecryptable_event_count` | `int`           | Messages that failed decryption                        |
 | `sync_running`              | `bool`          | Sync loop state                                        |
 | `last_successful_sync`      | `float or None` | Epoch timestamp                                        |
-| `crypto_store_loaded`       | `bool`          | Crypto database loaded                                 |
+| `crypto_store_loaded`       | `bool`          | Crypto database loaded (olm and store both present)    |
 | `encrypted_room_count`      | `int`           | Count only, no room IDs exposed                        |
 | `plaintext_room_count`      | `int`           | Count only, no room IDs exposed                        |
+| `olm_loaded`                | `bool`          | nio Olm machine is initialized                         |
+| `store_loaded`              | `bool`          | nio SQLite crypto store is loaded                      |
+| `device_keys_uploaded`      | `bool`          | Device/one-time keys uploaded to homeserver            |
+| `key_query_needed`          | `bool`          | Outstanding device key queries pending                 |
+| `device_id_in_use`          | `str or None`   | Actual device_id in use (for identity verification)    |
+| `store_path_exists`         | `bool`          | Store directory exists on disk                         |
+| `initial_sync_completed`    | `bool`          | First sync with full_state=True has completed          |
 
 ### 4.2 Meshtastic
 

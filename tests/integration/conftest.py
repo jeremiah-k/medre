@@ -445,6 +445,11 @@ class SynapseEnvironment:
     data_dir: Path
     test_user_id: str
     test_access_token: str
+    # E2EE optional fields — populated by synapse_env for device_id capture
+    # and by synapse_e2ee_env for store paths.
+    bot_device_id: str | None
+    bot_store_path: str | None
+    test_device_id: str | None
 
     def __init__(
         self,
@@ -457,6 +462,9 @@ class SynapseEnvironment:
         data_dir: Path,
         test_user_id: str = "",
         test_access_token: str = "",
+        bot_device_id: str | None = None,
+        bot_store_path: str | None = None,
+        test_device_id: str | None = None,
     ) -> None:
         self.container_name = container_name
         self.base_url = base_url
@@ -467,6 +475,9 @@ class SynapseEnvironment:
         self.data_dir = data_dir
         self.test_user_id = test_user_id
         self.test_access_token = test_access_token
+        self.bot_device_id = bot_device_id
+        self.bot_store_path = bot_store_path
+        self.test_device_id = test_device_id
 
 
 @pytest.fixture(scope="session")
@@ -670,6 +681,7 @@ def synapse_env() -> Generator[SynapseEnvironment, None, None]:
 
     bot_access_token = login_body["access_token"]
     bot_user_id = login_body["user_id"]
+    bot_device_id = login_body.get("device_id", "")
 
     # Create a test room.
     room_payload = json.dumps(
@@ -716,6 +728,7 @@ def synapse_env() -> Generator[SynapseEnvironment, None, None]:
 
     test_user_id = test_login_body["user_id"]
     test_access_token = test_login_body["access_token"]
+    test_device_id = test_login_body.get("device_id", "")
 
     # Join the test user to the bot-created room so it can send messages.
     # Without this, the test user gets 403 on /send because it has not
@@ -750,6 +763,8 @@ def synapse_env() -> Generator[SynapseEnvironment, None, None]:
         data_dir=data_dir,
         test_user_id=test_user_id,
         test_access_token=test_access_token,
+        bot_device_id=bot_device_id or None,
+        test_device_id=test_device_id or None,
     )
 
     logger.info(
@@ -778,6 +793,175 @@ def synapse_env() -> Generator[SynapseEnvironment, None, None]:
         )
     logger.info("Stopping Synapse container %s", container)
     _docker_run(["rm", "-f", container], timeout=30)
+
+
+# ---------------------------------------------------------------------------
+# Synapse E2EE fixtures
+# ---------------------------------------------------------------------------
+
+
+class E2EETestEnvironment:
+    """Holds all connection details for E2EE smoke tests.
+
+    Wraps a :class:`SynapseEnvironment` with additional encrypted room
+    state, device IDs, and crypto store paths.
+    """
+
+    def __init__(
+        self,
+        synapse_env: SynapseEnvironment,
+        encrypted_room_id: str,
+        bot_store_path: str,
+        test_store_path: str,
+    ) -> None:
+        self.synapse_env = synapse_env
+        self.encrypted_room_id = encrypted_room_id
+        self.bot_device_id: str | None = synapse_env.bot_device_id
+        self.test_device_id: str | None = synapse_env.test_device_id
+        self.bot_store_path = bot_store_path
+        self.test_store_path = test_store_path
+
+    # Convenience proxies for commonly accessed fields.
+    @property
+    def base_url(self) -> str:
+        return self.synapse_env.base_url
+
+    @property
+    def bot_access_token(self) -> str:
+        return self.synapse_env.bot_access_token
+
+    @property
+    def bot_user_id(self) -> str:
+        return self.synapse_env.bot_user_id
+
+    @property
+    def test_access_token(self) -> str:
+        return self.synapse_env.test_access_token
+
+    @property
+    def test_user_id(self) -> str:
+        return self.synapse_env.test_user_id
+
+
+def _make_request(
+    url: str,
+    *,
+    data: bytes | None = None,
+    headers: dict[str, str] | None = None,
+    method: str = "GET",
+    timeout: int = 10,
+) -> dict[str, Any]:
+    """Make an HTTP request and return the parsed JSON response body."""
+    import urllib.error
+    import urllib.request
+
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers=headers or {},
+        method=method,
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode()
+        raise RuntimeError(
+            f"HTTP {exc.code} for {method} {url}: {body}"
+        ) from exc
+
+
+@pytest.fixture(scope="session")
+def synapse_e2ee_env(
+    synapse_env: SynapseEnvironment,
+) -> Generator[E2EETestEnvironment, None, None]:
+    """Create an encrypted room for E2EE smoke tests.
+
+    Requires ``synapse_env`` (session-scoped), so this fixture is also
+    session-scoped.  Creates a new room, joins both users, and enables
+    encryption via ``m.room.encryption`` state event.
+
+    Teardown is handled by ``synapse_env`` — this fixture only creates
+    the encrypted room and store directories.
+    """
+    import tempfile
+
+    base_url = synapse_env.base_url
+    bot_token = synapse_env.bot_access_token
+    test_token = synapse_env.test_access_token
+
+    json_headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {bot_token}",
+    }
+
+    # 1. Bot creates a new room for E2EE testing.
+    room_payload = json.dumps(
+        {
+            "room_alias_name": "medre-ci-e2ee",
+            "name": "MEDRE CI E2EE Test Room",
+            "preset": "private_chat",
+            "visibility": "private",
+        }
+    ).encode()
+    room_resp = _make_request(
+        f"{base_url}/_matrix/client/v3/createRoom",
+        data=room_payload,
+        headers=json_headers,
+        method="POST",
+    )
+    encrypted_room_id = room_resp["room_id"]
+
+    # 2. Test user joins the encrypted room.
+    _make_request(
+        f"{base_url}/_matrix/client/v3/join/{encrypted_room_id}",
+        data=b"{}",
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {test_token}",
+        },
+        method="POST",
+    )
+
+    # 3. Enable encryption on the room via m.room.encryption state event.
+    encryption_payload = json.dumps(
+        {"algorithm": "m.megolm.v1.aes-sha2"}
+    ).encode()
+    _make_request(
+        f"{base_url}/_matrix/client/v3/rooms/{encrypted_room_id}"
+        f"/state/m.room.encryption",
+        data=encryption_payload,
+        headers=json_headers,
+        method="PUT",
+    )
+
+    # 4. Create temporary store_path directories for crypto stores.
+    bot_store_dir = tempfile.mkdtemp(prefix="medre-e2ee-bot-")
+    test_store_dir = tempfile.mkdtemp(prefix="medre-e2ee-test-")
+
+    # Update synapse_env with store_path for reuse.
+    synapse_env.bot_store_path = bot_store_dir
+
+    logger.info(
+        "E2EE env ready: encrypted_room=%s bot_device=%s test_device=%s",
+        encrypted_room_id,
+        synapse_env.bot_device_id,
+        synapse_env.test_device_id,
+    )
+
+    yield E2EETestEnvironment(
+        synapse_env=synapse_env,
+        encrypted_room_id=encrypted_room_id,
+        bot_store_path=bot_store_dir,
+        test_store_path=test_store_dir,
+    )
+
+    # Cleanup store directories.
+    for d in (bot_store_dir, test_store_dir):
+        try:
+            shutil.rmtree(d, ignore_errors=True)
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------

@@ -19,6 +19,7 @@ from medre.adapters.fakes.matrix import FakeMatrixAdapter
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.core.contracts.adapter import AdapterContext
 
+from .conftest import E2EETestEnvironment
 from .conftest import SynapseEnvironment
 
 logger = logging.getLogger(__name__)
@@ -274,3 +275,44 @@ def make_context(adapter_id: str = "synapse-bridge-bot") -> AdapterContext:
         clock=lambda: datetime.now(timezone.utc),
         shutdown_event=asyncio.Event(),
     )
+
+
+def send_encrypted_message_as_test_user(
+    e2ee_env: E2EETestEnvironment,
+    body: str,
+    txn_id: str,
+) -> str:
+    """Send a message to the encrypted room as the test user via Synapse HTTP API.
+
+    This is a plain HTTP POST — Synapse handles encryption transparently
+    for the test user (no client-side crypto needed since we're using the
+    server API).  The message will be stored as ``m.room.encrypted`` in
+    Synapse and any E2EE-capable client syncing on the room will receive
+    the encrypted event.
+
+    Returns the Matrix event_id assigned by Synapse.
+    """
+    payload = json.dumps(
+        {
+            "msgtype": "m.text",
+            "body": body,
+        }
+    ).encode()
+    url = (
+        f"{e2ee_env.base_url}/_matrix/client/v3/rooms/"
+        f"{e2ee_env.encrypted_room_id}/send/m.room.message/{txn_id}"
+    )
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {e2ee_env.test_access_token}",
+        },
+        method="PUT",
+    )
+    with urllib.request.urlopen(
+        req, timeout=10
+    ) as resp:  # nosec: localhost test container
+        resp_body = json.loads(resp.read())
+    return resp_body["event_id"]

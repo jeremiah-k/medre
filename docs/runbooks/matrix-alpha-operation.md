@@ -835,6 +835,116 @@ Check these in order:
    This should print `True`. If `False`, the `[e2e]` extra is not installed. Run `pip install -e ".[matrix-e2e]"`.
 3. **Is the device verified by the sender?** MEDRE internally passes `ignore_unverified_devices=True` to nio's `room_send` when `encryption_mode` is not `"plaintext"`. This is **not a MEDRE design choice** — nio does not support cross-signing (MSC1756) and provides no API for programmatic device verification, making this flag mandatory for every nio-based automated E2EE client. This is applied automatically and is not an operator toggle.
 4. **Was the room key shared?** If the adapter joined the encrypted room before the crypto store was initialized, room keys may not have been distributed to this device. Sending a message from another client into the room after the adapter is running with E2EE should trigger key distribution.
+5. **Did the initial sync complete?** The first sync must include `full_state=True` so nio learns which rooms are encrypted. Check diagnostics: `initial_sync_completed` should be `True`. If the adapter restarted before the first sync completed, restart it again.
+6. **Are device keys uploaded?** Check diagnostics: `device_keys_uploaded` should be `True`. If `False`, the key upload step may be failing. Check logs for `keys_upload failed` warnings.
+7. **Is Olm loaded?** Check diagnostics: `olm_loaded` should be `True`. If `False`, the crypto subsystem did not initialize. Verify vodozemac is installed (`pip show vodozemac`).
+8. **Is the store loaded?** Check diagnostics: `store_loaded` should be `True`. If `False`, check that the store path directory exists and is writable. Check file permissions on the store directory.
+
+### 14.16a Encrypted Room Troubleshooting (E2EE Key Chain Debugging)
+
+When encrypted messages arrive but fail to decrypt, the E2EE key management chain has a gap somewhere. This section walks through diagnosing and fixing each link.
+
+**Background:** MEDRE's manual sync loop now performs four key management operations after each successful sync (mirroring nio's `sync_forever` pattern): `keys_upload()`, `keys_query()`, `keys_claim()`, and `send_to_device_messages()`. Without these, device keys are never uploaded, other users' device keys are never queried, Olm sessions are never established, and room key shares are never received. The initial sync also passes `full_state=True` so nio learns which rooms are encrypted. When an undecryptable live MegolmEvent arrives, MEDRE actively requests the missing room key via `as_key_request()`.
+
+**Step 1: Verify E2EE dependencies**
+
+```bash
+# All three must be installed for E2EE to work
+pip show mindroom-nio 2>/dev/null || echo "NOT INSTALLED"
+pip show vodozemac 2>/dev/null || echo "NOT INSTALLED (E2EE crypto)"
+pip show peewee 2>/dev/null || echo "NOT INSTALLED (E2EE store)"
+python -c "import nio; print('ENCRYPTION_ENABLED:', nio.crypto.ENCRYPTION_ENABLED)"
+```
+
+All three packages must be present, and `ENCRYPTION_ENABLED` must be `True`. If any are missing:
+```bash
+pip install -e ".[matrix-e2e]"
+```
+
+**Step 2: Inspect the store_path directory**
+
+The adapter derives its store path under `{state}/adapters/{adapter_id}/matrix/store`. Check that it exists and contains the crypto database:
+
+```bash
+# Find the store path from diagnostics
+python -c "
+from medre.adapters.matrix.adapter import MatrixAdapter
+from medre.config.adapters.matrix import MatrixConfig
+# ... construct config from your env vars ...
+# adapter.diagnostics()['store_path_exists'] should be True
+"
+
+# Or inspect directly
+ls -la ${MEDRE_STATE_DIR:-$HOME/.local/state/medre}/adapters/matrix-alpha/matrix/store/
+```
+
+The store directory should contain a SQLite database file. If it is empty, this is a first run — the adapter will create the store on startup. If it does not exist at all, check that the parent state directory is writable.
+
+**Step 3: Compare user_id and device_id**
+
+The adapter discovers its device_id via `whoami()` on startup. Verify the identity:
+
+```bash
+# Check diagnostics for device_id_in_use
+python -c "
+# adapter.diagnostics()['device_id_in_use'] should be a non-None string
+"
+```
+
+The `device_id_in_use` must match the device that has access to the room keys. If the access token was regenerated (re-login), a new device_id may be associated and old room keys are inaccessible.
+
+**Step 4: Check diagnostics for key chain state**
+
+Use the diagnostics API to inspect each link:
+
+```python
+diag = adapter.diagnostics()
+print(f"olm_loaded: {diag['olm_loaded']}")               # must be True
+print(f"store_loaded: {diag['store_loaded']}")             # must be True
+print(f"device_keys_uploaded: {diag['device_keys_uploaded']}")  # must be True
+print(f"key_query_needed: {diag['key_query_needed']}")     # False = all keys queried
+print(f"initial_sync_completed: {diag['initial_sync_completed']}")  # must be True
+print(f"store_path_exists: {diag['store_path_exists']}")   # must be True
+print(f"crypto_store_loaded: {diag['crypto_store_loaded']}") # must be True
+```
+
+Interpretation:
+- `olm_loaded=False`: vodozemac not installed or Olm init failed. Reinstall `.[matrix-e2e]`.
+- `store_loaded=False`: SQLite store failed to load. Check file permissions and disk space.
+- `device_keys_uploaded=False`: Device keys not yet on the server. Wait for the next sync cycle or check logs for `keys_upload failed`.
+- `key_query_needed=True`: Some users' device keys have not been fetched. This resolves on the next sync cycle.
+- `initial_sync_completed=False`: First sync has not completed yet. Wait.
+- `store_path_exists=False`: Store directory is missing. The adapter creates it on startup, so this indicates a configuration or filesystem issue.
+
+**Step 5: Rotate token/device safely**
+
+If the crypto identity is corrupted or the device_id has changed:
+
+1. Stop the adapter.
+2. **Clear only the crypto store**, not the entire MEDRE state:
+   ```bash
+   # ONLY delete the crypto store, not the state directory
+   rm -rf ${MEDRE_STATE_DIR:-$HOME/.local/state/medre}/adapters/matrix-alpha/matrix/store/*
+   ```
+3. Regenerate the access token if needed (section 4.1).
+4. Restart the adapter. It will create a fresh crypto identity on the first sync.
+5. Other users in encrypted rooms must send a new message to re-share room keys with the new device.
+
+**Step 6: Clear only the crypto store (not entire MEDRE state)**
+
+The MEDRE state directory contains adapter state, routing tables, and event storage in addition to the crypto store. **Never delete the entire state directory to fix an E2EE issue.** Only clear the crypto store:
+
+```bash
+# Safe: only clears E2EE crypto identity
+rm -rf ${MEDRE_STATE_DIR:-$HOME/.local/state/medre}/adapters/matrix-alpha/matrix/store/*
+# After clearing, restart the adapter to create a fresh identity
+```
+
+**Step 7: Rerun with Docker Synapse E2EE harness**
+
+The Docker Synapse E2EE test harness provides a controlled environment for E2EE validation. See `docs/runbooks/matrix-live-smoke.md` for setup instructions. This tests the full key chain end-to-end without production credentials.
+
+**mmrelay behavioral reference:** mmrelay (meshtastic-matrix-relay) uses nio's `sync_forever()` which handles all four key management operations plus `full_state=True` internally. MEDRE's manual sync loop now mirrors this pattern explicitly. mmrelay is a conceptual reference only — do not copy its architecture or code.
 
 ### 14.17 E2EE: `ImportError` or `ModuleNotFoundError` for `vodozemac`
 
@@ -975,7 +1085,7 @@ If `store_path` is changed or the store is deleted, the adapter creates a new cr
 | Inbound encrypted text decryption | Working — `MegolmEvent` auto-decrypted to `RoomMessageText` during sync   |
 | Outbound encrypted text           | Working — `room_send` auto-encrypts for encrypted rooms                   |
 | Crypto store persistence          | Working — store loads on `restore_login`, saves incrementally during sync |
-| Automatic key management          | Working — upload/query/claim/share handled by `sync_forever`              |
+| Automatic key management          | Working — upload/query/claim/share handled by manual sync loop (mirrors nio sync_forever pattern) |
 | Plaintext rooms                   | Working — identical behavior to plaintext alpha                           |
 
 ### 13.8 What does NOT work in E2EE text alpha
