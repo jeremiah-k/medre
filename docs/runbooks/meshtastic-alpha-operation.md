@@ -380,7 +380,7 @@ When `stop()` is called:
 4. `_client` is set to `None`, `_session` is set to `None`, `_started` is set to `False`.
 5. A shutdown log line is emitted: `"MeshtasticAdapter mesh-alpha stopped"`.
 
-**Shutdown queue abandonment — non-guarantee:** Items remaining in the outbound queue at shutdown are **not** persisted, **not** requeued, and **not** recovered on restart. The adapter-local outbound queue is in-memory and non-durable. If the process terminates (graceful or ungraceful) with pending items in the queue, those items are lost. This is a documented non-guarantee — durable queue persistence and crash-recovery are deferred to a future implementation. Operators requiring delivery assurance must ensure the queue is drained before shutdown or accept the loss of in-flight items.
+**Shutdown queue abandonment — partial recovery:** Items remaining in the adapter-local outbound queue at shutdown are **not** persisted to the adapter queue itself and are lost. However, the `delivery_outbox` table (see Contract 59 §3) provides durable tracking: outbox rows with status `in_progress` and an expired lease, or status `retry_wait`/`pending`, survive the crash and are re-claimable by the RetryWorker on restart (when `[retry] enabled = true`). Adapter-local queue contents are in-memory and non-durable; outbox state is persisted to SQLite. Operators should ensure the queue is drained before shutdown for cleanest recovery.
 
 Shutdown is **idempotent** — calling `stop()` on an already-stopped adapter is a no-op.
 

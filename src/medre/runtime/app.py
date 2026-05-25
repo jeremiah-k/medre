@@ -288,7 +288,9 @@ class MedreApp:
                 self._outbox_state = await self.storage.count_outbox_by_status()
                 self._outbox_storage_authoritative = True
             except Exception:
-                _logger.debug("Failed to refresh outbox state from storage", exc_info=True)
+                _logger.debug(
+                    "Failed to refresh outbox state from storage", exc_info=True
+                )
 
     @property
     def adapter_states(self) -> dict[str, AdapterState]:

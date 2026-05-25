@@ -48,7 +48,7 @@ Meshtastic delivery is best-effort fire-and-forget at the radio layer. Expect pa
 
 **Outbound gate (`outbound_mode`):** The Meshtastic adapter supports `outbound_mode` with values `"enabled"` (default) and `"listen_only"`. When `outbound_mode = "listen_only"`, the adapter connects normally and receives inbound packets, but suppresses all outbound delivery — `deliver()` rejects payloads as non-retryable failures with detail `outbound suppressed: listen_only mode`. This is an intentional operator-configured gate for receive-only monitoring. Enable via TOML or `MEDRE_ADAPTER__RADIO__OUTBOUND_MODE=listen_only`.
 
-**Shutdown queue abandonment:** Items remaining in the Meshtastic adapter's in-memory outbound queue at shutdown are not persisted, not requeued, and not recovered on restart. The adapter-local queue is non-durable. Durable queue persistence and crash-recovery are deferred to a future implementation. Operators requiring delivery assurance must ensure the queue is drained before shutdown.
+**Shutdown queue abandonment:** Items remaining in the Meshtastic adapter's in-memory outbound queue at shutdown are not persisted, not requeued, and not recovered on restart. The adapter-local queue is non-durable. However, the `delivery_outbox` table provides durable operational tracking: a `queued` outbox row may survive if committed before the crash (such rows are ambiguous after restart and are not automatically retried). Operators requiring delivery assurance must ensure the queue is drained before shutdown.
 
 ### MeshCore
 
@@ -649,7 +649,7 @@ Bridge delivery state has a clear persistence boundary. This section describes w
 
 ### What Does NOT Persist
 
-- **In-flight bridge deliveries** — if the runtime crashes while a Matrix-to-Meshtastic bridge delivery is in progress, the delivery is lost. The source event exists in SQLite (it was stored before delivery), but there is no receipt for the interrupted delivery. The operator cannot distinguish "delivery was attempted but crashed" from "delivery was never attempted."
+- **In-flight bridge deliveries** — if the runtime crashes while a Matrix-to-Meshtastic bridge delivery is in progress, the in-memory delivery is lost. The source event exists in SQLite (it was stored before delivery), and a `delivery_outbox` row with status `in_progress` may survive if the pipeline created it before the adapter call. An expired `in_progress` outbox row is reclaimable by the RetryWorker on restart. If no outbox row exists, the operator cannot distinguish "delivery was attempted but crashed" from "delivery was never attempted." Receipt absence alone is no longer authoritative — check `delivery_outbox` alongside `delivery_receipts` during crash analysis.
 - **Runtime bridge counters** — `capacity_rejections`, `outbound_failed`, per-route delivery counts: all reset to zero on restart. There is no persistent metric store.
 - **Active replay deliveries** — if a `BEST_EFFORT` replay was bridging historical events when the crash occurred, the replay run is lost. Completed deliveries from that replay run (those that produced receipts) are preserved. Remaining events must be re-replayed manually.
 
@@ -739,7 +739,7 @@ The bridge operation layer explicitly does **not** provide:
 
 8. **Persistent in-flight recovery.** No in-flight delivery state survives shutdown. No replay resume after restart. Cancelled deliveries are lost.
 
-9. **Adapter-local outbound queue durability.** The Meshtastic adapter's outbound queue is in-memory and non-durable. Items remaining in the queue at process termination (graceful or ungraceful) are lost. Durable queue persistence is a documented non-guarantee — it is deferred to a future implementation.
+9. **Adapter-local outbound queue durability.** The Meshtastic adapter's outbound queue is in-memory and non-durable. Items remaining in the queue at process termination (graceful or ungraceful) are lost. The `delivery_outbox` table provides durable operational tracking — a `queued` outbox row may survive if committed before the crash — but adapter-local queue contents themselves are not persisted.
 
 10. **Outbound gate suppression is non-retryable.** When `outbound_mode = "listen_only"` is configured on a Meshtastic adapter, suppressed deliveries are classified as non-retryable adapter failures. The pipeline does not retry them because the suppression is an intentional operator decision, not a transient transport error.
 

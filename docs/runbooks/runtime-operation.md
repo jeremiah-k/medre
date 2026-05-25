@@ -803,7 +803,7 @@ medre evidence --config config.toml --json
 medre inspect receipts --event <event_id> --config config.toml
 ```
 
-If the event exists but has no receipts, it was stored but delivery was never completed (crash during delivery). Use SQL for bulk detection:
+If the event exists but has no receipts, it was stored but delivery was never completed (crash during delivery). Check `delivery_outbox` for surviving operational state before concluding the event is unrecoverable. Use SQL for bulk detection:
 
 ```sql
 SELECT e.event_id, e.source_adapter, e.created_at
@@ -851,14 +851,14 @@ This section summarizes what MEDRE state survives restarts and what is lost. For
 
 ### What Is NOT Persisted (Lost on Process Termination)
 
-| State                                       | Nature                                                                                                                      | Impact                                            |
-| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| In-flight deliveries                        | Evidence persisted as `suppressed` receipts with `failure_kind_detail=shutdown_drain_timeout`; delivery itself is abandoned | No retry, no recovery — but identity is auditable |
-| Active replay runs                          | Lost on crash or shutdown                                                                                                   | Must re-initiate manually                         |
-| Runtime counters (`inbound_accepted`, etc.) | Process-local only                                                                                                          | Reset to zero on every startup                    |
-| RouteStats per-route counters               | Process-local only                                                                                                          | No historical route statistics                    |
-| CapacityController gauges                   | Process-local only                                                                                                          | Reset on startup                                  |
-| Adapter health/connection state             | Process-local only                                                                                                          | Adapters reconnect from scratch                   |
+| State                                       | Nature                                                                                                                      | Impact                                                                                                                   |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| In-flight deliveries                        | Evidence persisted as `suppressed` receipts with `failure_kind_detail=shutdown_drain_timeout`; delivery itself is abandoned | No retry of deliveries without outbox rows; `in_progress` outbox rows with expired leases are reclaimable by RetryWorker |
+| Active replay runs                          | Lost on crash or shutdown                                                                                                   | Must re-initiate manually                                                                                                |
+| Runtime counters (`inbound_accepted`, etc.) | Process-local only                                                                                                          | Reset to zero on every startup                                                                                           |
+| RouteStats per-route counters               | Process-local only                                                                                                          | No historical route statistics                                                                                           |
+| CapacityController gauges                   | Process-local only                                                                                                          | Reset on startup                                                                                                         |
+| Adapter health/connection state             | Process-local only                                                                                                          | Adapters reconnect from scratch                                                                                          |
 
 ### Crash Recovery
 
@@ -1136,10 +1136,10 @@ automatically claims and re-attempts due items on each cycle.
 
 - Deliveries that never created an outbox row are lost on crash (no durable state exists).
 - Deliveries with a persisted outbox row survive the crash.
-- Expired ``in_progress`` rows become reclaimable by the RetryWorker after restart.
+- Expired `in_progress` rows become reclaimable by the RetryWorker after restart.
 - Adapter-local queue contents (e.g., Meshtastic in-memory deque) may still be lost.
-- ``queued`` outbox rows after a crash are ambiguous — the adapter may have sent
-  the message before crashing or not.  These items are NOT auto-retried.
+- `queued` outbox rows after a crash are ambiguous — the adapter may have sent
+  the message before crashing or not. These items are NOT auto-retried.
 
 **Dead-lettered items**: Outbox items with status `dead_lettered` require
 explicit operator action. Query the `delivery_outbox` table to inspect

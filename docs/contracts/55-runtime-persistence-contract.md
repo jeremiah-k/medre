@@ -86,7 +86,7 @@ All of these reset to zero on startup. No history is retained across restarts.
 
 ### 3.3 In-Flight Deliveries
 
-Active adapter `deliver()` calls that have not yet completed. Not persisted. Events are already stored in SQLite (§2.1), but no receipt exists until the delivery attempt completes.
+Active adapter `deliver()` calls that have not yet completed. Not persisted as receipts. Events are already stored in SQLite (§2.1), but no receipt exists until the delivery attempt completes. A `delivery_outbox` row (status `in_progress`) may exist if the pipeline created it before the adapter call — this outbox row survives the crash and can be reclaimed after lease expiry.
 
 ### 3.4 Active Replay Runs
 
@@ -119,7 +119,7 @@ The **store** step writes the canonical event to SQLite before any delivery begi
 - Events that entered the pipeline are always persisted, even if delivery never happens.
 - Delivery receipts are written after each delivery attempt completes.
 - A receipt with `status="sent"` or `status="confirmed"` proves the delivery attempt completed and the adapter reported success.
-- An event with no receipt means delivery was never attempted or never completed.
+- An event with no receipt means delivery was never attempted or never completed. Check `delivery_outbox` for surviving operational state before concluding the event is unrecoverable.
 
 ### 4.2 Write Atomicity
 
@@ -314,17 +314,17 @@ If recovery fails, delete the database and accept data loss. Crypto stores and i
 
 ## 13. Persistence Expectations Summary
 
-| Question                                         | Answer                                            |
-| ------------------------------------------------ | ------------------------------------------------- |
-| Is event history preserved across restarts?      | **Yes.** Events are in SQLite.                    |
-| Are delivery receipts preserved across restarts? | **Yes.** Receipts are in SQLite.                  |
-| Is route attribution on receipts preserved?      | **Yes.** `route_id` is stored with the receipt.   |
-| Are runtime counters preserved across restarts?  | **No.** All counters reset to zero.               |
-| Is in-flight work recoverable after crash?       | **No.** No retry, no recovery, no receipt.        |
-| Are replay requests durable?                     | **No.** Replay is ephemeral, not a job queue.     |
-| Does replay deduplication exist?                 | **No.** Re-running replay may produce duplicates. |
-| Are E2EE sessions preserved across restarts?     | **Yes.** Crypto store is on disk.                 |
-| Is transport identity preserved across restarts? | **Yes.** Identity files are on disk.              |
-| Are logs preserved across restarts?              | **Yes.** Appended to log file.                    |
-| Is there a persistent metrics store?             | **No.** Counters are process-local only.          |
-| Does MEDRE backup its own database?              | **No.** Operators are responsible for backup.     |
+| Question                                         | Answer                                                                                                                                                         |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Is event history preserved across restarts?      | **Yes.** Events are in SQLite.                                                                                                                                 |
+| Are delivery receipts preserved across restarts? | **Yes.** Receipts are in SQLite.                                                                                                                               |
+| Is route attribution on receipts preserved?      | **Yes.** `route_id` is stored with the receipt.                                                                                                                |
+| Are runtime counters preserved across restarts?  | **No.** All counters reset to zero.                                                                                                                            |
+| Is in-flight work recoverable after crash?       | **Partially.** No receipt, no automatic retry of deliveries without outbox rows. `in_progress` outbox rows with expired leases are reclaimable by RetryWorker. |
+| Are replay requests durable?                     | **No.** Replay is ephemeral, not a job queue.                                                                                                                  |
+| Does replay deduplication exist?                 | **No.** Re-running replay may produce duplicates.                                                                                                              |
+| Are E2EE sessions preserved across restarts?     | **Yes.** Crypto store is on disk.                                                                                                                              |
+| Is transport identity preserved across restarts? | **Yes.** Identity files are on disk.                                                                                                                           |
+| Are logs preserved across restarts?              | **Yes.** Appended to log file.                                                                                                                                 |
+| Is there a persistent metrics store?             | **No.** Counters are process-local only.                                                                                                                       |
+| Does MEDRE backup its own database?              | **No.** Operators are responsible for backup.                                                                                                                  |

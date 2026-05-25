@@ -180,7 +180,7 @@ class TestInProgressLeaseProtection:
         item, the original short lease (60s) would expire, but the renewal
         task extends it (to 1800s).  The retry worker must not reclaim it.
         """
-        from datetime import datetime, timedelta, timezone
+        from datetime import datetime, timedelta
 
         now = _now()
         now_dt = datetime.fromisoformat(now)
@@ -204,9 +204,7 @@ class TestInProgressLeaseProtection:
 
         # At T+120s (past the original 60s lease, within the renewed 1800s
         # lease), the retry worker MUST NOT be able to claim this item.
-        after_original_lease = (
-            now_dt + timedelta(seconds=120)
-        ).isoformat()
+        after_original_lease = (now_dt + timedelta(seconds=120)).isoformat()
         retry_claimed = await temp_storage.claim_due_outbox_items(
             now=after_original_lease,
             worker_id="retry-worker-1",

@@ -518,9 +518,7 @@ class TestOutboxShutdownBehavior:
 class TestLeaseRenewal:
     """Live delivery leases should be renewable and prevent reclaim."""
 
-    async def test_renew_outbox_lease_method(
-        self, temp_storage: SQLiteStorage
-    ) -> None:
+    async def test_renew_outbox_lease_method(self, temp_storage: SQLiteStorage) -> None:
         """renew_outbox_lease should extend the lease on an in_progress item."""
         from datetime import datetime, timedelta, timezone
 
@@ -690,9 +688,7 @@ class TestLeaseRenewal:
         await temp_storage.create_outbox_item(item)
 
         # Transition to queued.
-        await temp_storage.mark_outbox_queued(
-            "obox-renew-queued", receipt_id="rcpt-q"
-        )
+        await temp_storage.mark_outbox_queued("obox-renew-queued", receipt_id="rcpt-q")
 
         new_lease = (now + timedelta(seconds=1800)).isoformat()
         result = await temp_storage.renew_outbox_lease(
@@ -880,9 +876,9 @@ class TestTargetedOutboxLookupRegression:
         # -- 5. Assert: target outbox item is now "sent" -------------------
         updated_target = await temp_storage.get_outbox_item("obox-target-regression")
         assert updated_target is not None, "Target outbox item should exist"
-        assert updated_target.status == "sent", (
-            f"Expected 'sent', got '{updated_target.status}'"
-        )
+        assert (
+            updated_target.status == "sent"
+        ), f"Expected 'sent', got '{updated_target.status}'"
 
         # -- 6. Assert: all noise rows remain unchanged --------------------
         for i in range(15):

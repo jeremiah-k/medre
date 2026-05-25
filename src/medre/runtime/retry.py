@@ -240,9 +240,7 @@ class RetryWorker:
             item.target_adapter,
         )
         # Filter to the same target channel for correct lineage.
-        receipts = [
-            r for r in receipts if r.target_channel == item.target_channel
-        ]
+        receipts = [r for r in receipts if r.target_channel == item.target_channel]
         previous_receipt = receipts[-1] if receipts else None
 
         # Initialise retry-policy defaults before the capacity check so
@@ -408,7 +406,8 @@ class RetryWorker:
                         item.target_adapter,
                     )
                     _dl_receipts = [
-                        r for r in _dl_receipts
+                        r
+                        for r in _dl_receipts
                         if r.target_channel == item.target_channel
                     ]
                     if _dl_receipts:
@@ -443,7 +442,8 @@ class RetryWorker:
                             item.target_adapter,
                         )
                         _latest_receipts = [
-                            r for r in _latest_receipts
+                            r
+                            for r in _latest_receipts
                             if r.target_channel == item.target_channel
                         ]
                         if _latest_receipts:

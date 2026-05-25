@@ -14,7 +14,6 @@ import pytest
 
 from medre.runtime.app import MedreApp
 from medre.runtime.snapshot import build_runtime_snapshot
-
 from tests.helpers.snapshot import make_fake_app
 
 
@@ -70,7 +69,9 @@ class TestOutboxStorageBackedCounts:
         # 4) Worker-only state -> worker cache counts used.
         app3 = make_fake_app()
         app3._retry_worker = MagicMock(outbox_counts={"pending": 7})
-        assert build_runtime_snapshot(app3, snapshot_scope="build")["outbox"]["counts"] == {"pending": 7}
+        assert build_runtime_snapshot(app3, snapshot_scope="build")["outbox"][
+            "counts"
+        ] == {"pending": 7}
 
         # 5) Structure check.
         assert set(snap["outbox"].keys()) == {"counts", "live_refresh", "note", "scope"}
@@ -90,11 +91,17 @@ class TestStorageBackedOutboxRefresh:
         await storage.initialize()
         try:
             for i in range(3):
-                await storage.create_outbox_item(DeliveryOutboxItem(
-                    outbox_id=f"obx-refresh-{i}", event_id=f"evt-refresh-{i}",
-                    route_id="route-refresh", delivery_plan_id=f"plan-refresh-{i}",
-                    target_adapter="adapter_refresh", attempt_number=1, status="pending",
-                ))
+                await storage.create_outbox_item(
+                    DeliveryOutboxItem(
+                        outbox_id=f"obx-refresh-{i}",
+                        event_id=f"evt-refresh-{i}",
+                        route_id="route-refresh",
+                        delivery_plan_id=f"plan-refresh-{i}",
+                        target_adapter="adapter_refresh",
+                        attempt_number=1,
+                        status="pending",
+                    )
+                )
             app = make_fake_app(storage=storage)
             snap_before = build_runtime_snapshot(app, snapshot_scope="build")
             assert snap_before["outbox"]["counts"] == {}
@@ -134,25 +141,29 @@ class TestStorageRefreshAuthoritativeOverWorkerCache:
         await storage.initialize()
         try:
             for i in range(5):
-                await storage.create_outbox_item(DeliveryOutboxItem(
-                    outbox_id=f"obx-auth-{i}",
-                    event_id=f"evt-auth-{i}",
-                    route_id="route-auth",
-                    delivery_plan_id=f"plan-auth-{i}",
-                    target_adapter="adapter_auth",
-                    attempt_number=1,
-                    status="pending",
-                ))
+                await storage.create_outbox_item(
+                    DeliveryOutboxItem(
+                        outbox_id=f"obx-auth-{i}",
+                        event_id=f"evt-auth-{i}",
+                        route_id="route-auth",
+                        delivery_plan_id=f"plan-auth-{i}",
+                        target_adapter="adapter_auth",
+                        attempt_number=1,
+                        status="pending",
+                    )
+                )
             for i in range(3):
-                await storage.create_outbox_item(DeliveryOutboxItem(
-                    outbox_id=f"obx-retry-{i}",
-                    event_id=f"evt-retry-{i}",
-                    route_id="route-auth",
-                    delivery_plan_id=f"plan-retry-{i}",
-                    target_adapter="adapter_auth",
-                    attempt_number=2,
-                    status="retry_wait",
-                ))
+                await storage.create_outbox_item(
+                    DeliveryOutboxItem(
+                        outbox_id=f"obx-retry-{i}",
+                        event_id=f"evt-retry-{i}",
+                        route_id="route-auth",
+                        delivery_plan_id=f"plan-retry-{i}",
+                        target_adapter="adapter_auth",
+                        attempt_number=2,
+                        status="retry_wait",
+                    )
+                )
 
             # Build a real MedreApp with storage and a retry worker mock.
             app = _make_medre_app()

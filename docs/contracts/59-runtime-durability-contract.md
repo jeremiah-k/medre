@@ -21,7 +21,7 @@ This contract specifies the **durability boundary** of the MEDRE runtime — wha
 
 For the **storage locations** and **write timing** of persisted state (SQLite tables, file paths, WAL mode details), see Contract 55 (Runtime Persistence). This contract references those storage details but does not duplicate them.
 
-This contract describes the current runtime's actual behavior. No new storage mechanisms or durability features are introduced.
+This contract describes the current runtime's actual behavior, including the `delivery_outbox` operational state machine and durable retry/recovery mechanisms.
 
 ## 2. Runtime Guarantees
 
@@ -31,7 +31,7 @@ Every normalized event that enters the pipeline is written to durable storage **
 
 ### 2.2 Delivery Receipts Are Written After Completion
 
-A delivery receipt is written to durable storage after each delivery attempt completes (success or failure). If the runtime crashes during a delivery, no receipt is written for that attempt. The event remains in storage without a receipt.
+A delivery receipt is written to durable storage after each delivery attempt completes (success or failure). If the runtime crashes during a delivery, no receipt is written for that attempt. The event remains in storage without a receipt, but may have a `delivery_outbox` row (status `in_progress`) that survives the crash and can be reclaimed after lease expiry (see §3.3).
 
 ### 2.3 Committed Transactions Survive Hard Crash
 
@@ -222,8 +222,8 @@ provide RF confirmation, ACK, remote receipt, or exactly-once guarantees.
 
 **Crash/shutdown impact on queued items:**
 
-- Events whose delivery was enqueued but not yet sent: event survives in SQLite (no receipt, no native ref). Identifiable via the orphaned-events query in §7.
-- Events whose send completed but receipt was not yet written: event survives in SQLite (no receipt). Same orphaned-events query applies.
+- Events whose delivery was enqueued but not yet sent: event survives in SQLite (no receipt, no native ref). An `in_progress` or `queued` outbox row may exist if the pipeline created it before adapter delivery (see §3.3). Identifiable via the orphaned-events query in §7.
+- Events whose send completed but receipt was not yet written: event survives in SQLite (no receipt). An `in_progress` outbox row may exist. Same orphaned-events query applies.
 - Queue counters (`total_enqueued`, `total_sent`, `total_failed`, `total_rejected`, `total_requeued`, `total_exhausted`, `total_permanent_failed`): reset to zero on restart. These reflect the current process run only.
 
 The outbox provides durable tracking for Meshtastic deliveries. Adapter-local queue contents remain non-durable. After restart, a `queued` outbox row is ambiguous: the adapter may or may not have sent the message before the crash. Queued rows are not automatically retried by the RetryWorker. Operators must inspect and decide whether to re-deliver.
@@ -317,6 +317,17 @@ LEFT JOIN delivery_receipts r ON e.event_id = r.event_id
 WHERE r.event_id IS NULL
 ORDER BY e.created_at DESC;
 ```
+
+Events returned by this query are not necessarily unrecoverable. Operators should also check the `delivery_outbox` table for matching rows:
+
+```sql
+SELECT outbox_id, event_id, delivery_plan_id, target_adapter,
+       target_channel, status, lease_until, attempt_number
+FROM delivery_outbox
+WHERE event_id = ?;
+```
+
+An `in_progress` row with an expired lease is re-claimable by the RetryWorker on restart. A `queued` row is ambiguous (adapter may or may not have sent). A `pending` or `retry_wait` row is eligible for automatic retry. Rows with no match in `delivery_outbox` indicate the event was stored before outbox creation (e.g., pre-capacity-acceptance) and cannot be automatically retried.
 
 ## 8. Explicit Non-Guarantees
 

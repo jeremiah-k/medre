@@ -538,19 +538,19 @@ CREATE TABLE delivery_outbox (
 
 **Terminal** (no further state changes; may be replaced on re-delivery):
 
-- ``sent``
-- ``dead_lettered``
-- ``cancelled``
-- ``abandoned``
+- `sent`
+- `dead_lettered`
+- `cancelled`
+- `abandoned`
 
 **Non-terminal** (may transition to other states):
 
-- ``pending``
-- ``in_progress``
-- ``queued``
-- ``retry_wait``
+- `pending`
+- `in_progress`
+- `queued`
+- `retry_wait`
 
-**Idempotent create**: Creating an item with the same key tuple returns the existing row when non-terminal.  When the existing row is terminal, it is deleted and a new row is inserted (re-delivery).
+**Idempotent create**: Creating an item with the same key tuple returns the existing row when non-terminal. When the existing row is terminal, it is deleted and a new row is inserted (re-delivery).
 
 **Uniqueness:** The `UNIQUE` constraint on `(delivery_plan_id, target_adapter, target_channel, attempt_number)` is supplemented by a partial unique index `WHERE target_channel IS NULL` to close the SQLite `NULL != NULL` gap:
 
