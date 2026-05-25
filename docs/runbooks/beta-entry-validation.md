@@ -99,16 +99,16 @@ All evidence must follow these rules:
 
 The following runtime guarantees must be verifiable (via existing tests, not live evidence) before beta entry. These are documented in Contract 59 (Runtime Durability) and Contract 60 (Runtime Cancellation).
 
-| #   | Guarantee                                                       | Verified By                                                                                                           | Contract Reference     |
-| --- | --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ---------------------- |
-| G1  | Events stored before delivery                                   | `test_runtime_recovery.py`                                                                                            | Contract 59 §2.1       |
-| G2  | Delivery receipts written after completion                      | `test_runtime_recovery.py`                                                                                            | Contract 59 §2.2       |
-| G3  | Capacity bounded by semaphores                                  | `test_runtime_cancellation.py`                                                                                        | Contract 59 §2.5       |
-| G4  | Counter resets on restart                                       | `test_runtime_recovery.py`                                                                                            | Contract 59 §4.2       |
+| #   | Guarantee                                                       | Verified By                                                                                                                                               | Contract Reference     |
+| --- | --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| G1  | Events stored before delivery                                   | `test_runtime_recovery.py`                                                                                                                                | Contract 59 §2.1       |
+| G2  | Delivery receipts written after completion                      | `test_runtime_recovery.py`                                                                                                                                | Contract 59 §2.2       |
+| G3  | Capacity bounded by semaphores                                  | `test_runtime_cancellation.py`                                                                                                                            | Contract 59 §2.5       |
+| G4  | Counter resets on restart                                       | `test_runtime_recovery.py`                                                                                                                                | Contract 59 §4.2       |
 | G5  | In-flight work lost on crash (partially recoverable via outbox) | By design + outbox lease-reclaim tests (`test_outbox_race_model`, `test_storage_outbox`); the "no outbox row = fully lost" aspect is documented by design | Contract 59 §3.3, §4.1 |
-| G6  | Stop-during-startup cleans up resources                         | `test_runtime_cancellation.py`                                                                                        | Contract 60 §7         |
-| G7  | Idempotent stop                                                 | `test_runtime_cancellation.py`                                                                                        | Contract 60 §7.2       |
-| G8  | CapacityController stop gates new work                          | `test_runtime_cancellation.py`                                                                                        | Contract 60 §3         |
+| G6  | Stop-during-startup cleans up resources                         | `test_runtime_cancellation.py`                                                                                                                            | Contract 60 §7         |
+| G7  | Idempotent stop                                                 | `test_runtime_cancellation.py`                                                                                                                            | Contract 60 §7.2       |
+| G8  | CapacityController stop gates new work                          | `test_runtime_cancellation.py`                                                                                                                            | Contract 60 §3         |
 
 All G1–G8 must be verified by passing tests or documented design rationale. G5 is partially verified by outbox reclaim tests; the "no outbox row = fully lost" aspect is documented by design.
 

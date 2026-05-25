@@ -102,7 +102,6 @@ These apply to all transports unless specifically noted.
 2. **No dead-letter admin UI or management command.** Dead-lettered receipts are recorded in storage when retries are exhausted, but there is no dedicated CLI command or UI for browsing, replaying, or managing dead-lettered events. Operators can inspect them via `medre inspect receipts --event <id>` or evidence bundles.
 
 3. **Local delivery outbox is durable but does not provide exactly-once or RF confirmation.** The outbox (`delivery_outbox` table) persists pending, retry_wait, in_progress, queued, sent, dead_lettered, cancelled, and abandoned items across process restart. However:
-
    - **(a) Crash timing risk:** A process may crash after local adapter send succeeds but before the sent receipt is committed — recovery may resend.
    - **(b) Meshtastic queue ambiguity:** Meshtastic adapter-local queue contents are in-memory and non-durable — items queued but not sent at crash time are lost, though a `queued` outbox row may survive if committed before the crash (such rows are ambiguous after restart and are not automatically retried).
    - **(c) No end-to-end tracking:** The outbox does not track RF confirmation, ACK, remote receipt, or end-to-end delivery.

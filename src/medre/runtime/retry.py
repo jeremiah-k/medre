@@ -429,6 +429,7 @@ class RetryWorker:
                         r
                         for r in _dl_receipts
                         if r.target_channel == item.target_channel
+                        and r.status == "dead_lettered"
                     ]
                     if _dl_receipts:
                         _dl_receipt_id = _dl_receipts[-1].receipt_id
@@ -597,9 +598,6 @@ class RetryWorker:
         return any(
             r.status == "dead_lettered"
             and r.target_adapter == target_adapter
-            and (
-                parent_receipt_id is None
-                or r.parent_receipt_id == parent_receipt_id
-            )
+            and (parent_receipt_id is None or r.parent_receipt_id == parent_receipt_id)
             for r in receipts
         )

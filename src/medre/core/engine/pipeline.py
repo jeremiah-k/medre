@@ -1830,9 +1830,7 @@ class PipelineRunner:
                 target_adapter=adapter_name,
                 target_channel=target.channel,
                 target_address=(
-                    target.destination.destination_hash
-                    if target.destination
-                    else None
+                    target.destination.destination_hash if target.destination else None
                 ),
                 attempt_number=1,
                 status="in_progress",
@@ -1928,31 +1926,23 @@ class PipelineRunner:
                         await self._config.storage.mark_outbox_dead_lettered(
                             outbox_id,
                             failure_kind=failure_kind_val.value,
-                            error_summary=(
-                                error[:512] if error else None
-                            ),
+                            error_summary=(error[:512] if error else None),
                         )
                     else:
                         _backoff = RetryExecutor(retry_policy).compute_backoff(1)
-                        _next_at = (
-                            datetime.now(timezone.utc) + _backoff
-                        ).isoformat()
+                        _next_at = (datetime.now(timezone.utc) + _backoff).isoformat()
                         await self._config.storage.mark_outbox_retry_wait(
                             outbox_id,
                             next_attempt_at=_next_at,
                             failure_kind=failure_kind_val.value,
-                            error_summary=(
-                                error[:512] if error else None
-                            ),
+                            error_summary=(error[:512] if error else None),
                             attempt_number=1,
                         )
                 else:
                     await self._config.storage.mark_outbox_dead_lettered(
                         outbox_id,
                         failure_kind=failure_kind_val.value,
-                        error_summary=(
-                            error[:512] if error else None
-                        ),
+                        error_summary=(error[:512] if error else None),
                     )
         except Exception:
             self._log.exception(
