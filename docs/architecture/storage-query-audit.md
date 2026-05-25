@@ -265,8 +265,10 @@ persistent in SQLite and never reused.
 
 `sequence` is an auto-increment integer stored in the SQLite database file. It
 survives crashes and restarts. After restart, new receipts continue from the
-next auto-increment value with no gap filling. Gaps in the sequence indicate
-lost in-flight deliveries (no receipt was written). A `delivery_outbox` row may still exist for these events.
+next auto-increment value with no gap filling. Gaps in the sequence may indicate lost in-flight deliveries (no receipt was
+written), but are not definitive evidence — SQLite can advance AUTOINCREMENT on
+failed or rolled-back inserts. A surviving `delivery_outbox` row provides
+stronger evidence of an undelivered event.
 
 `replay_run_id` is an operator-assigned string (or auto-generated UUID). It is
 stored on each replay receipt and persists across restarts. Repeated replays of

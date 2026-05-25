@@ -398,6 +398,7 @@ class RetryWorker:
                         item.event_id,
                         item.target_adapter,
                         previous_receipt.receipt_id,
+                        target_channel=item.target_channel,
                     )
                     # Fallback: if parent-specific check missed, check for
                     # any dead-lettered receipt for this event+adapter.
@@ -408,6 +409,7 @@ class RetryWorker:
                         is_dead_lettered = await self._check_dead_lettered(
                             item.event_id,
                             item.target_adapter,
+                            target_channel=item.target_channel,
                         )
                 except Exception:
                     _logger.exception(
@@ -587,17 +589,22 @@ class RetryWorker:
         event_id: str,
         target_adapter: str,
         parent_receipt_id: str | None = None,
+        target_channel: str | None = None,
     ) -> bool:
         """Check if a dead-lettered receipt exists for this event+adapter.
 
         When *parent_receipt_id* is provided, matches receipts whose parent
         is that receipt.  When omitted, matches ANY dead-lettered receipt
         for the event+adapter pair (used by the exhaustion guard).
+
+        When *target_channel* is provided, only matches receipts targeting
+        that channel, preventing cross-channel false positives.
         """
         receipts = await self._storage.list_receipts_for_event(event_id)
         return any(
             r.status == "dead_lettered"
             and r.target_adapter == target_adapter
             and (parent_receipt_id is None or r.parent_receipt_id == parent_receipt_id)
+            and (target_channel is None or r.target_channel == target_channel)
             for r in receipts
         )

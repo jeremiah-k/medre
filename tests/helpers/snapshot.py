@@ -176,11 +176,8 @@ def make_fake_app(
             """Mirror MedreApp.refresh_outbox_state_from_storage for tests."""
             storage = getattr(self, "storage", None)
             if storage is not None:
-                try:
-                    self._outbox_state = await storage.count_outbox_by_status()  # type: ignore[attr-defined]
-                    self._outbox_storage_authoritative = True
-                except Exception:
-                    pass
+                self._outbox_state = await storage.count_outbox_by_status()  # type: ignore[attr-defined]
+                self._outbox_storage_authoritative = True
 
         @property
         def outbox_state(self) -> dict[str, int]:

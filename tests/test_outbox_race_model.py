@@ -11,6 +11,7 @@ distinguishes between:
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 from medre.core.storage import DeliveryOutboxItem, SQLiteStorage
 
@@ -167,7 +168,8 @@ class TestInProgressLeaseProtection:
         assert c.worker_id == "worker-lease-test"
 
         # Verify lease_until is in the future relative to 'now'
-        assert c.lease_until > now
+        assert c.lease_until is not None
+        assert datetime.fromisoformat(c.lease_until) > datetime.fromisoformat(now)
 
     async def test_renewed_lease_remains_unclaimable(
         self, temp_storage: SQLiteStorage
@@ -180,7 +182,7 @@ class TestInProgressLeaseProtection:
         item, the original short lease (60s) would expire, but the renewal
         task extends it (to 1800s).  The retry worker must not reclaim it.
         """
-        from datetime import datetime, timedelta
+        from datetime import timedelta
 
         now = _now()
         now_dt = datetime.fromisoformat(now)

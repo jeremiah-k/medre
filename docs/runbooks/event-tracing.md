@@ -719,8 +719,7 @@ only the current process, not cumulative history.
    no receipt yet. If the runtime crashes mid-delivery, no receipt is written.
    The event exists in `canonical_events` but has no corresponding entry in
    `delivery_receipts`. However, a `delivery_outbox` row (status `in_progress`)
-   may survive the crash and can be inspected via `SELECT * FROM delivery_outbox
-WHERE event_id = ?` or reclaimed by the RetryWorker after lease expiry.
+   may survive the crash and can be inspected via `SELECT * FROM delivery_outbox WHERE event_id = ?` or reclaimed by the RetryWorker after lease expiry.
 
 2. **Counters reset on restart.** Process-local counters (capacity_rejections,
    outbound_failed, RouteStats) are not stored in SQLite. Timeline reports

@@ -994,7 +994,7 @@ The runtime snapshot includes `outbox.counts` with per-status tallies.
 **Query outbox items directly:**
 
 ```bash
-sqlite3 $MEDRE_HOME/medre.db "SELECT status, COUNT(*) FROM delivery_outbox GROUP BY status;"
+sqlite3 {state}/medre.sqlite "SELECT status, COUNT(*) FROM delivery_outbox GROUP BY status;"
 ```
 
 **Understanding outbox statuses:**

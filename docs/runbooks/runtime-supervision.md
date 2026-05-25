@@ -203,7 +203,7 @@ Then check capacity gauges:
 
 **What was lost:**
 
-- All in-flight deliveries (no receipts, but `in_progress` outbox rows may survive and be reclaimable by RetryWorker).
+- Some in-flight deliveries are lost (no receipts), although `in_progress` outbox rows may survive and be reclaimable by RetryWorker.
 - Active replay runs (no resume, must re-initiate).
 - Runtime counters (all reset to zero).
 - Adapter connection states (adapters reconnect from scratch).

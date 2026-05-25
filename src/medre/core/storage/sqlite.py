@@ -1685,7 +1685,8 @@ class SQLiteStorage:
             "target_adapter = ?",
             "target_channel IS ?",
         ]
-        params: list[Any] = [event_id, delivery_plan_id, target_adapter, target_channel]
+        channel = target_channel or None
+        params: list[Any] = [event_id, delivery_plan_id, target_adapter, channel]
         if status is not None:
             clauses.append("status = ?")
             params.append(status)
@@ -2039,6 +2040,13 @@ class SQLiteStorage:
         Clears locked_at, lease_until, worker_id and sets status to
         *release_status*.  Only succeeds when the current worker_id matches.
         """
+        _allowed_release_statuses = {
+            "pending",
+            "retry_wait",
+        }
+        if release_status not in _allowed_release_statuses:
+            raise ValueError(f"Invalid release_status: {release_status!r}")
+
         await self._write(
             """UPDATE delivery_outbox
                SET locked_at = NULL, lease_until = NULL, worker_id = NULL,

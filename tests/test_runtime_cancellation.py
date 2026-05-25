@@ -18,6 +18,7 @@ Does not overlap with test_runtime_hygiene.py or test_runtime_recovery.py.
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -1362,10 +1363,8 @@ class TestDrainAbandonedEvidencePersistence:
             # closed even if stop() exited before reaching its internal
             # close step (e.g. due to an unexpected exception).
             if storage is not None:
-                try:
+                with suppress(Exception):
                     await storage.close()
-                except Exception:
-                    pass
 
         assert app.state == RuntimeState.STOPPED
 
@@ -1474,10 +1473,8 @@ class TestDrainAbandonedEvidencePersistence:
             # closed even if stop() exited before reaching its internal
             # close step.
             if storage is not None:
-                try:
+                with suppress(Exception):
                     await storage.close()
-                except Exception:
-                    pass
 
         assert app.state == RuntimeState.STOPPED
 

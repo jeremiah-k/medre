@@ -553,20 +553,20 @@ class TestPersistence:
 
             item = _make_outbox_item(delivery_plan_id="plan-persist")
             created = await storage.create_outbox_item(item)
+        finally:
             await storage.close()
 
-            # Re-open
-            storage2 = SQLiteStorage(db_path=db_path)
-            try:
-                await storage2.initialize()
-                retrieved = await storage2.get_outbox_item(created.outbox_id)
-                assert retrieved is not None
-                assert retrieved.status == "pending"
-                assert retrieved.delivery_plan_id == "plan-persist"
-            finally:
-                await storage2.close()
+        # Re-open
+        storage2 = SQLiteStorage(db_path=db_path)
+        try:
+            await storage2.initialize()
+            retrieved = await storage2.get_outbox_item(created.outbox_id)
+            assert retrieved is not None
+            assert retrieved.status == "pending"
+            assert retrieved.delivery_plan_id == "plan-persist"
         finally:
-            os.unlink(db_path)
+            await storage2.close()
+        os.unlink(db_path)
 
 
 # ===================================================================

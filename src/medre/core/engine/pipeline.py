@@ -1840,6 +1840,9 @@ class PipelineRunner:
             )
             created = await self._config.storage.create_outbox_item(outbox_item)
             outbox_id = created.outbox_id
+            # create_outbox_item may return an existing non-terminal row;
+            # always use the persisted owner for lease renewals.
+            pipeline_worker = created.worker_id or pipeline_worker
             outbox_created = True
         except Exception:
             self._log.exception(

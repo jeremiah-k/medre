@@ -126,7 +126,7 @@ def _deny(
     reason: str,
     blocked_field: str,
     blocked_value: str,
-    policy: RoutePolicy,
+    _policy: RoutePolicy,
 ) -> RouteDecision:
     """Build a denial decision."""
     if len(blocked_value) >= _BLOCKED_VALUE_CUTOFF:

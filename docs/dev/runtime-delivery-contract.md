@@ -25,16 +25,14 @@ This document describes how MEDRE routes, delivers, tracks, and recovers events.
    - Self-loop guard: skip if `target.adapter == event.source_adapter`
    - Enrich relations with target-native refs
    - Render event via `RenderingPipeline.render()`
+   - **Outbox creation**: a `delivery_outbox` item is created (status `in_progress` with a pipeline lease) before the adapter delivery call. This ensures pending work survives a crash and live work is protected from the retry worker.
    - Call `adapter.deliver(rendering_result)` → `AdapterDeliveryResult`
-   - Record `DeliveryReceipt` (status="sent" or "failed")
-   - **Outbox creation**: after capacity acquisition and before adapter delivery, a `delivery_outbox` item is created (status `in_progress` with a pipeline lease). This ensures pending work survives a crash and live work is protected from the retry worker.
-   - On success: mark outbox `sent` and append `sent` receipt.
-   - On `queued`: mark outbox `queued` and append `queued` receipt.
-   - On retryable failure: mark outbox `retry_wait` with next attempt time computed from the plan's `RetryPolicy`.
-   - On permanent failure: mark outbox `dead_lettered`.
-   - On success: store `NativeMessageRef(direction="outbound")`
-   - On retryable failure with retry policy: set `next_retry_at` on receipt
-   - On retry exhaustion: append `dead_lettered` receipt
+   - Record `DeliveryReceipt` and outbox state transitions for each outcome:
+     - On success: mark outbox `sent`, append `sent` receipt, store `NativeMessageRef(direction="outbound")`
+     - On `queued`: mark outbox `queued` and append `queued` receipt
+     - On retryable failure: mark outbox `retry_wait` with next attempt time computed from the plan's `RetryPolicy`; set `next_retry_at` on receipt
+     - On permanent failure: mark outbox `dead_lettered`; append `dead_lettered` receipt
+     - On retry exhaustion: append `dead_lettered` receipt
 
 ## Delivery Outcome Model
 

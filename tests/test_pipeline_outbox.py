@@ -393,13 +393,30 @@ class TestLiveDeliveryClaimRace:
         self,
         temp_storage: SQLiteStorage,
         router_with_routes: Router,
-        fake_presentation: FakePresentationAdapter,
     ) -> None:
-        """A live in_progress item with unexpired lease should not be claimable."""
+        """A live in_progress item with an active lease should not be claimable."""
+        import asyncio
+
+        from medre.core.contracts.adapter import AdapterDeliveryResult
+
+        class BlockingAdapter(FakePresentationAdapter):
+            def __init__(self) -> None:
+                super().__init__(adapter_id="fake_presentation")
+                self.release = asyncio.Event()
+
+            async def deliver(self, payload: RenderingResult) -> AdapterDeliveryResult:
+                self.delivered_payloads.append(payload)
+                await self.release.wait()
+                return AdapterDeliveryResult(
+                    native_message_id=f"msg-{payload.event_id}",
+                    native_channel_id=payload.target_channel,
+                )
+
+        blocking_adapter = BlockingAdapter()
         config = make_pipeline_config_for_pipeline(
             storage=temp_storage,
             router=router_with_routes,
-            adapters={"fake_presentation": fake_presentation},
+            adapters={"fake_presentation": blocking_adapter},
         )
         runner = PipelineRunner(config)
         await runner.start()
@@ -407,31 +424,37 @@ class TestLiveDeliveryClaimRace:
         event = make_event(event_id="obox-race-001")
 
         try:
-            await runner.handle_ingress(event)
+            ingress_task = asyncio.create_task(runner.handle_ingress(event))
 
-            # After delivery completes, the item should be in a terminal or
-            # post-delivery status.  An in_progress item with an unexpired
-            # lease must NOT be claimable by the retry worker.
-            items = await temp_storage.list_outbox_items()
-            matching = [i for i in items if i.event_id == "obox-race-001"]
-            assert len(matching) == 1
+            # Poll until the outbox item appears as in_progress
+            item = None
+            for _ in range(100):
+                matches = [
+                    i
+                    for i in await temp_storage.list_outbox_items()
+                    if i.event_id == "obox-race-001"
+                ]
+                if matches and matches[0].status == "in_progress":
+                    item = matches[0]
+                    break
+                await asyncio.sleep(0.01)
 
-            # The item should have transitioned away from in_progress
-            # (to sent/queued) since delivery completed synchronously.
-            # But even if it were still in_progress, the retry worker
-            # should not claim it if the lease is valid.
-            item = matching[0]
-            assert item.status in ("sent", "queued", "in_progress")
+            assert item is not None, "Outbox item should reach in_progress"
 
-            # If still in_progress (race window), verify it cannot be claimed.
-            if item.status == "in_progress":
-                now = "2026-01-01T00:00:00"
-                claimed = await temp_storage.claim_due_outbox_items(
-                    now=now, worker_id="retry-worker", lease_seconds=30, limit=10
-                )
-                assert not any(
-                    c.outbox_id == item.outbox_id for c in claimed
-                ), "Live in_progress item with valid lease must not be claimed"
+            # Try to claim with retry worker while lease is live — must fail
+            claimed = await temp_storage.claim_due_outbox_items(
+                now=item.locked_at,  # within lease window
+                worker_id="retry-worker",
+                lease_seconds=30,
+                limit=10,
+            )
+            assert not any(
+                c.outbox_id == item.outbox_id for c in claimed
+            ), "Live in_progress item with valid lease must not be claimed"
+
+            # Release the adapter and let delivery complete
+            blocking_adapter.release.set()
+            await ingress_task
         finally:
             await runner.stop()
 
