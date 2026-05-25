@@ -280,6 +280,8 @@ def not_executed_result(
 # Live artifact directory convention
 # ---------------------------------------------------------------------------
 
+_default_artifact_dir: Path | None = None
+
 
 def get_live_artifact_dir() -> Path:
     """Return the live-test artifact directory, creating it if needed.
@@ -288,19 +290,27 @@ def get_live_artifact_dir() -> Path:
     defaults to ``.ci-artifacts/live-evidence/<timestamp>`` relative to
     the repository root (the directory containing ``pyproject.toml``).
 
+    The default timestamped path is cached in the module on first call
+    so that every call within a single test run returns the same
+    directory.  Use ``MEDRE_LIVE_ARTIFACT_DIR`` to override.
+
     The directory is created with ``mkdir(parents=True, exist_ok=True)``
     before returning.
 
     Returns:
         A :class:`Path` to the artifact directory (guaranteed to exist).
     """
+    global _default_artifact_dir
     env_val = os.environ.get("MEDRE_LIVE_ARTIFACT_DIR", "").strip()
     if env_val:
         p = Path(env_val)
     else:
-        # Walk upward from this file to find the repo root (pyproject.toml).
-        repo_root = Path(__file__).resolve().parent.parent.parent
-        timestamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
-        p = repo_root / ".ci-artifacts" / "live-evidence" / timestamp
+        if _default_artifact_dir is None:
+            repo_root = Path(__file__).resolve().parent.parent.parent
+            timestamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+            _default_artifact_dir = (
+                repo_root / ".ci-artifacts" / "live-evidence" / timestamp
+            )
+        p = _default_artifact_dir
     p.mkdir(parents=True, exist_ok=True)
     return p

@@ -372,9 +372,16 @@ class TestGetLiveArtifactDir:
         # The function walks up from live_harness.py to find pyproject.toml.
         # We just verify it returns a Path and the directory exists.
         artifact_dir = get_live_artifact_dir()
-        assert isinstance(artifact_dir, Path)
-        assert artifact_dir.exists()
-        assert "live-evidence" in str(artifact_dir)
+        try:
+            assert isinstance(artifact_dir, Path)
+            assert artifact_dir.exists()
+            assert "live-evidence" in str(artifact_dir)
+        finally:
+            if artifact_dir.exists():
+                artifact_dir.rmdir()
+            for parent in (artifact_dir.parent, artifact_dir.parent.parent):
+                if parent.exists() and not any(parent.iterdir()):
+                    parent.rmdir()
 
     def test_env_override_respected(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
