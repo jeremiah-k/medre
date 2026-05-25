@@ -1949,7 +1949,8 @@ class PipelineRunner:
                             error_summary=(error[:512] if error else None),
                         )
                     else:
-                        _backoff = RetryExecutor(retry_policy).compute_backoff(1)
+                        _attempt = _att or 1
+                        _backoff = RetryExecutor(retry_policy).compute_backoff(_attempt)
                         _next_at = (datetime.now(timezone.utc) + _backoff).isoformat()
                         await self._config.storage.mark_outbox_retry_wait(
                             outbox_id,
@@ -1957,7 +1958,7 @@ class PipelineRunner:
                             receipt_id=_rec_id,
                             failure_kind=failure_kind_val.value,
                             error_summary=(error[:512] if error else None),
-                            attempt_number=_att or 1,
+                            attempt_number=_attempt,
                         )
                 else:
                     await self._config.storage.mark_outbox_dead_lettered(

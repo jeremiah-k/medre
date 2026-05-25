@@ -214,3 +214,45 @@ class TestInProgressLeaseProtection:
             limit=10,
         )
         assert not any(c.outbox_id == oid for c in retry_claimed)
+
+    async def test_live_delivery_expires_without_renewal_not_claimable(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """A completed live delivery (sent) whose lease has since expired
+        must NOT be reclaimable by another worker.  Terminal states are
+        final regardless of lease expiry."""
+        from datetime import timedelta
+
+        now = _now()
+        now_dt = datetime.fromisoformat(now)
+
+        # 1. Create item and claim with a short 10s lease.
+        item = _make_outbox_item(delivery_plan_id="plan-race-expire-sent")
+        await temp_storage.create_outbox_item(item)
+
+        claimed = await temp_storage.claim_due_outbox_items(
+            now=now, worker_id="live-pipeline-1", lease_seconds=10, limit=10
+        )
+        assert len(claimed) == 1
+        oid = claimed[0].outbox_id
+
+        # 2. Live delivery completes — mark as sent.
+        await temp_storage.mark_outbox_sent(oid, receipt_id="rcpt-expire-sent")
+
+        # 3. Advance time well past the 10s lease.
+        after_expiry = (now_dt + timedelta(seconds=120)).isoformat()
+
+        # 4. Second worker tries to claim — must NOT reclaim a sent item.
+        retry_claimed = await temp_storage.claim_due_outbox_items(
+            now=after_expiry,
+            worker_id="retry-worker-1",
+            lease_seconds=30,
+            limit=10,
+        )
+        assert not any(c.outbox_id == oid for c in retry_claimed)
+
+        # 5. Verify final state is still sent.
+        final = await temp_storage.get_outbox_item(oid)
+        assert final is not None
+        assert final.status == "sent"
+        assert final.locked_at is None

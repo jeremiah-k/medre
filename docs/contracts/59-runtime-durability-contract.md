@@ -110,7 +110,7 @@ The `delivery_outbox` table (see Contract 03 §3.11) persists operational delive
 - In-flight deliveries that have not yet created an outbox item
 
 **Recovery on restart:**
-When the RetryWorker is enabled (`[retry] enabled = true`), due outbox items (status `pending` or `retry_wait` with `next_attempt_at <= now`) are claimed and re-attempted automatically on the next worker cycle.
+When the RetryWorker is enabled (`[retry] enabled = true`), due outbox items are claimed and re-attempted automatically on the next worker cycle. Claimable categories: `pending` or `retry_wait` (direct claim), `in_progress` with expired lease, and stale `queued` rows past the grace threshold (`STALE_QUEUED_GRACE_SECONDS`, default 300 s).
 
 **Known risks:**
 
@@ -202,12 +202,16 @@ However, when a delivery is accepted by the Meshtastic adapter queue, a
 storage. These survive if committed before the crash.
 
 After restart, a `queued` outbox row is **ambiguous**: the adapter may
-or may not have sent the message before the crash. Queued rows are
-**not** automatically retried by the RetryWorker. Operators must inspect
-and decide whether to re-deliver.
+or may not have sent the message before the crash. Freshly queued rows
+(within the `STALE_QUEUED_GRACE_SECONDS` window, default 300 s) are **not**
+automatically reclaimed. Stale queued rows past the grace threshold are
+reclaimed by the RetryWorker like other due items, which may produce a
+duplicate send. Operators should inspect stale queued rows before relying
+on automatic recovery.
 
 Pending, `retry_wait`, and expired `in_progress` outbox rows are
 claimable by the RetryWorker on restart (when `[retry] enabled = true`).
+Stale `queued` rows (past the grace threshold) are also reclaimable.
 
 Local outbox recovery may produce duplicate sends. The outbox does not
 provide RF confirmation, ACK, remote receipt, or exactly-once guarantees.
@@ -226,7 +230,7 @@ provide RF confirmation, ACK, remote receipt, or exactly-once guarantees.
 - Events whose send completed but receipt was not yet written: event survives in SQLite (no receipt). An `in_progress` outbox row may exist. Same orphaned-events query applies.
 - Queue counters (`total_enqueued`, `total_sent`, `total_failed`, `total_rejected`, `total_requeued`, `total_exhausted`, `total_permanent_failed`): reset to zero on restart. These reflect the current process run only.
 
-The outbox provides durable tracking for Meshtastic deliveries. Adapter-local queue contents remain non-durable. After restart, a `queued` outbox row is ambiguous: the adapter may or may not have sent the message before the crash. Queued rows are not automatically retried by the RetryWorker. Operators must inspect and decide whether to re-deliver.
+The outbox provides durable tracking for Meshtastic deliveries. Adapter-local queue contents remain non-durable. After restart, a `queued` outbox row is ambiguous: the adapter may or may not have sent the message before the crash. Freshly queued rows (within the `STALE_QUEUED_GRACE_SECONDS` window) are not automatically reclaimed. Stale queued rows past the grace threshold are reclaimed by the RetryWorker, which may produce a duplicate send. Operators should inspect stale queued rows before relying on automatic recovery.
 
 ## 5. Degraded-Runtime Semantics
 
@@ -327,7 +331,7 @@ FROM delivery_outbox
 WHERE event_id = ?;
 ```
 
-An `in_progress` row with an expired lease is re-claimable by the RetryWorker on restart. A `queued` row is ambiguous (adapter may or may not have sent). A `pending` or `retry_wait` row is eligible for automatic retry. Rows with no match in `delivery_outbox` indicate the event was stored before outbox creation (e.g., pre-capacity-acceptance) and cannot be automatically retried.
+An `in_progress` row with an expired lease is re-claimable by the RetryWorker on restart. A `queued` row is ambiguous (adapter may or may not have sent); freshly queued rows within the grace window are not reclaimed, but stale queued rows past `STALE_QUEUED_GRACE_SECONDS` (default 300 s) are automatically reclaimed — this may produce a duplicate send. A `pending` or `retry_wait` row is eligible for automatic retry. Rows with no match in `delivery_outbox` indicate the event was stored before outbox creation (e.g., pre-capacity-acceptance) and cannot be automatically retried.
 
 ## 8. Explicit Non-Guarantees
 
@@ -344,7 +348,7 @@ The following are explicitly **not** provided:
 - **Database size bounding.** SQLite grows with event volume. No automatic pruning or retention policy.
 - **Hot restart.** The runtime is a single-process application. No zero-downtime restart mechanism.
 - **Per-adapter restart.** Individual adapters cannot be restarted without shutting down the entire runtime.
-- **Meshtastic outbound queue durability.** The Meshtastic outbound queue is in-memory and non-durable. Items queued but not sent at crash/shutdown time are permanently lost. However, a `queued` outbox row and corresponding receipt may survive if committed before the crash (see §4.5). After restart, `queued` outbox rows are ambiguous and are not automatically retried.
+- **Meshtastic outbound queue durability.** The Meshtastic outbound queue is in-memory and non-durable. Items queued but not sent at crash/shutdown time are permanently lost. However, a `queued` outbox row and corresponding receipt may survive if committed before the crash (see §4.5). After restart, `queued` outbox rows are ambiguous; freshly queued rows within the grace window are not reclaimed, but stale queued rows past `STALE_QUEUED_GRACE_SECONDS` are automatically reclaimed (which may produce a duplicate send).
 
 ## 9. Cross-References
 

@@ -323,17 +323,29 @@ class RetryWorker:
                     item.outbox_id,
                 )
                 try:
-                    _restore_status = (
-                        "retry_wait" if item.next_attempt_at else "pending"
+                    # claim_due_outbox_items clears next_attempt_at, so
+                    # release_outbox_claim would always restore to "pending"
+                    # and cause immediate re-claim.  Use mark_outbox_retry_wait
+                    # with a proper backoff instead.
+                    _err_policy = RetryPolicy(
+                        max_attempts=_max_attempts,
+                        backoff_base=_backoff_base,
+                        max_delay_seconds=_max_delay,
+                        jitter=_jitter,
                     )
-                    await self._storage.release_outbox_claim(
+                    _err_backoff = RetryExecutor(_err_policy).compute_backoff(
+                        item.attempt_number,
+                    )
+                    _err_next = datetime.now(timezone.utc) + _err_backoff
+                    await self._storage.mark_outbox_retry_wait(
                         item.outbox_id,
-                        item.worker_id or "",
-                        release_status=_restore_status,
+                        next_attempt_at=_err_next.isoformat(),
+                        failure_kind="capacity_error",
+                        attempt_number=item.attempt_number,
                     )
                 except Exception:
                     _logger.exception(
-                        "RetryWorker: failed to release claim for outbox %s",
+                        "RetryWorker: failed to backoff outbox %s on capacity error",
                         item.outbox_id,
                     )
                 return

@@ -1,6 +1,6 @@
 # MEDRE Runtime Supervision Runbook
 
-> Last updated: 2026-05-11
+> Last updated: 2026-05-25
 > Scope: Operator-facing supervision and persistence guidance for the MEDRE runtime
 > Status: Pre-beta. Not production. Operational model is accurate to code; supervision tooling is in progress.
 

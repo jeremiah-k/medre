@@ -109,7 +109,7 @@ class TestOutboxCreation:
         """Policy-suppressed targets should NOT create outbox items."""
 
         policy = RoutePolicy(
-            allowed_source_adapters=["some_other_adapter"],
+            allowed_source_adapters=("some_other_adapter",),
         )
         route = Route(
             id="route-policy-test",
@@ -327,7 +327,6 @@ class TestNoRetryPolicyDeadLetters:
     async def test_queued_delivery_marks_queued(
         self,
         temp_storage: SQLiteStorage,
-        fake_presentation: FakePresentationAdapter,
     ) -> None:
         """Queue-based delivery marks outbox as queued."""
         from medre.core.contracts.adapter import (
@@ -448,6 +447,7 @@ class TestLiveDeliveryClaimRace:
             assert item is not None, "Outbox item should reach in_progress"
 
             # Try to claim with retry worker while lease is live — must fail
+            assert item.locked_at is not None
             claimed = await temp_storage.claim_due_outbox_items(
                 now=item.locked_at,  # within lease window
                 worker_id="retry-worker",
@@ -634,7 +634,6 @@ class TestLeaseRenewal:
         self,
         temp_storage: SQLiteStorage,
         router_with_routes: Router,
-        fake_presentation: FakePresentationAdapter,
     ) -> None:
         """A slow delivery should complete and reach a terminal outbox status.
 
@@ -937,7 +936,6 @@ class TestLeaseRenewalResilience:
         self,
         temp_storage: SQLiteStorage,
         router_with_routes: Router,
-        fake_presentation: FakePresentationAdapter,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """renew_outbox_lease raising once must NOT permanently kill the
@@ -1090,7 +1088,6 @@ class TestLeaseRenewalResilience:
         self,
         temp_storage: SQLiteStorage,
         router_with_routes: Router,
-        fake_presentation: FakePresentationAdapter,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Even when renewal keeps failing, the finalization cleanup must

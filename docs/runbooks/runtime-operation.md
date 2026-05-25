@@ -1139,7 +1139,10 @@ automatically claims and re-attempts due items on each cycle.
 - Expired `in_progress` rows become reclaimable by the RetryWorker after restart.
 - Adapter-local queue contents (e.g., Meshtastic in-memory deque) may still be lost.
 - `queued` outbox rows after a crash are ambiguous — the adapter may have sent
-  the message before crashing or not. These items are NOT auto-retried.
+  the message before crashing or not. Freshly queued rows (within the
+  `STALE_QUEUED_GRACE_SECONDS` grace window, default 300 s) are not reclaimed.
+  Stale queued rows past the grace threshold are automatically reclaimed by
+  the RetryWorker, which may produce a duplicate send.
 
 **Dead-lettered items**: Outbox items with status `dead_lettered` require
 explicit operator action. Query the `delivery_outbox` table to inspect

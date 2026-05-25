@@ -25,7 +25,7 @@ This document describes how MEDRE routes, delivers, tracks, and recovers events.
    - Self-loop guard: skip if `target.adapter == event.source_adapter`
    - Enrich relations with target-native refs
    - Render event via `RenderingPipeline.render()`
-   - **Outbox creation**: a `delivery_outbox` item is created (status `in_progress` with a pipeline lease) before the adapter delivery call. This ensures pending work survives a crash and live work is protected from the retry worker.
+   - **Outbox creation**: a `delivery_outbox` item is created (status `in_progress` with a pipeline lease) before the adapter delivery call. This ensures pending work survives a crash. The lease protects the item from the RetryWorker while it remains valid and is being renewed, but if the lease expires without renewal (e.g., process crash), the row becomes reclaimable by any worker — which may produce a duplicate send on recovery.
    - Call `adapter.deliver(rendering_result)` → `AdapterDeliveryResult`
    - Record `DeliveryReceipt` and outbox state transitions for each outcome:
      - On success: mark outbox `sent`, append `sent` receipt, store `NativeMessageRef(direction="outbound")`

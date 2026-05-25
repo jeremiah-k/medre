@@ -1,6 +1,6 @@
 # Bridge Operation Runbook
 
-> Last updated: 2026-05-16
+> Last updated: 2026-05-25
 > Scope: Delivery-state discipline for cross-transport bridge operation
 > Status: Pre-beta. Not production. Operational model is accurate to code; live bridge validation is not claimed. Docker SDK-boundary bridge tests prove real SDK lifecycle against containerized services, including cross-adapter Matrix→Meshtastic routing.
 

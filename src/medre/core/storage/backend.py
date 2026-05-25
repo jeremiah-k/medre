@@ -481,13 +481,22 @@ class StorageBackend(Protocol):
     async def create_outbox_item(self, item: DeliveryOutboxItem) -> DeliveryOutboxItem:
         """Create a new outbox item.
 
-        If an item with the same ``(delivery_plan_id, target_adapter,
-        target_channel, attempt_number)`` already exists and is not
-        terminal, the existing row is reclaimed (updated with the new
-        claim/status fields) and returned.  If the existing item is
-        terminal, a new row is inserted (the key tuple is not
-        terminal-guarded — operators who need re-delivery after
-        dead-letter use ``recover``).
+        Checks for an existing item with the same key tuple
+        ``(delivery_plan_id, target_adapter, target_channel,
+        attempt_number)`` before inserting.  The behaviour depends on
+        the existing row's status (see ``sqlite.py`` for the canonical
+        implementation):
+
+        * **Reclaimable** (``pending`` or ``retry_wait``): the existing
+          row is reclaimed — its ``status``, ``worker_id``,
+          ``locked_at``, ``lease_until``, and ``updated_at`` are
+          updated so the caller receives a properly-claimed row.
+        * **Active** (``in_progress`` or ``queued``): returned
+          unchanged — active work is never stolen.
+        * **Terminal** (``sent``, ``dead_lettered``, ``cancelled``, or
+          ``abandoned``): the existing row is deleted first and a new
+          row is inserted so re-delivery can proceed without violating
+          the UNIQUE constraint.
         """
         ...
 
@@ -541,15 +550,27 @@ class StorageBackend(Protocol):
     ) -> list[DeliveryOutboxItem]:
         """Atomically claim due outbox items for processing.
 
-        Selects items with status ``pending`` or ``retry_wait`` (or
-        ``in_progress`` whose lease has expired) whose
-        ``next_attempt_at`` is ``<= now`` (or ``NULL`` for pending items
-        with no schedule) and whose ``lease_until`` is ``NULL`` or
-        ``<= now`` (expired lease).
+        Uses a transaction to SELECT candidates and UPDATE in one step.
+        Claims items matching **any** of these status conditions:
 
-        Updates ``status='in_progress'``, ``locked_at=now``,
-        ``lease_until=now+lease_seconds``, ``worker_id=worker_id``
-        for each claimed item.  Returns the claimed items.
+        - ``status IN ('pending', 'retry_wait')`` — directly
+          claimable;
+        - ``status = 'in_progress' AND lease_until <= now`` — expired
+          leases (worker crashed or stalled);
+        - ``status = 'queued' AND updated_at <= now - GRACE`` — stale
+          queued items past the grace threshold defined by
+          :data:`~medre.core.storage.sqlite.STALE_QUEUED_GRACE_SECONDS`
+          (default 300 s).
+
+        Additional guards applied to every candidate:
+
+        - ``(next_attempt_at IS NULL OR next_attempt_at <= now)``
+        - ``(lease_until IS NULL OR lease_until <= now)``
+
+        Each claimed item is set to ``status='in_progress'`` with
+        ``locked_at=now``, ``lease_until=now+lease_seconds``,
+        ``worker_id=worker_id``, and ``next_attempt_at=NULL``.
+        Returns the claimed items.
 
         The operation is atomic: two concurrent calls with the same
         criteria receive disjoint sets of items.

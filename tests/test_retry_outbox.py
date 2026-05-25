@@ -148,6 +148,8 @@ class TestRestartVisibility:
         db_path = f.name
         f.close()
 
+        storage: SQLiteStorage | None = None
+        storage2: SQLiteStorage | None = None
         try:
             storage = SQLiteStorage(db_path=db_path)
             await storage.initialize()
@@ -157,7 +159,6 @@ class TestRestartVisibility:
                 status="pending",
             )
             await storage.create_outbox_item(item)
-            await storage.close()
 
             # Re-open
             storage2 = SQLiteStorage(db_path=db_path)
@@ -169,8 +170,11 @@ class TestRestartVisibility:
             ]
             assert len(matching) == 1
             assert matching[0].status == "pending"
-            await storage2.close()
         finally:
+            if storage is not None:
+                await storage.close()
+            if storage2 is not None:
+                await storage2.close()
             os.unlink(db_path)
 
     async def test_due_retry_visible_after_restart(self) -> None:
@@ -181,6 +185,8 @@ class TestRestartVisibility:
         db_path = f.name
         f.close()
 
+        storage: SQLiteStorage | None = None
+        storage2: SQLiteStorage | None = None
         try:
             storage = SQLiteStorage(db_path=db_path)
             await storage.initialize()
@@ -191,7 +197,6 @@ class TestRestartVisibility:
                 next_attempt_at="2025-01-01T00:00:00",
             )
             await storage.create_outbox_item(item)
-            await storage.close()
 
             # Re-open
             storage2 = SQLiteStorage(db_path=db_path)
@@ -205,8 +210,11 @@ class TestRestartVisibility:
             assert len(claimed) >= 1
             matching = [c for c in claimed if c.delivery_plan_id == "plan-restart-due"]
             assert len(matching) == 1
-            await storage2.close()
         finally:
+            if storage is not None:
+                await storage.close()
+            if storage2 is not None:
+                await storage2.close()
             os.unlink(db_path)
 
     async def test_dead_lettered_visible_after_restart(self) -> None:
@@ -217,6 +225,8 @@ class TestRestartVisibility:
         db_path = f.name
         f.close()
 
+        storage: SQLiteStorage | None = None
+        storage2: SQLiteStorage | None = None
         try:
             storage = SQLiteStorage(db_path=db_path)
             await storage.initialize()
@@ -226,7 +236,6 @@ class TestRestartVisibility:
                 status="dead_lettered",
             )
             await storage.create_outbox_item(item)
-            await storage.close()
 
             # Re-open
             storage2 = SQLiteStorage(db_path=db_path)
@@ -236,8 +245,11 @@ class TestRestartVisibility:
             matching = [i for i in items if i.delivery_plan_id == "plan-restart-dl"]
             assert len(matching) == 1
             assert matching[0].status == "dead_lettered"
-            await storage2.close()
         finally:
+            if storage is not None:
+                await storage.close()
+            if storage2 is not None:
+                await storage2.close()
             os.unlink(db_path)
 
     async def test_ambiguous_meshtastic_after_restart(self) -> None:
@@ -251,6 +263,8 @@ class TestRestartVisibility:
         db_path = f.name
         f.close()
 
+        storage: SQLiteStorage | None = None
+        storage2: SQLiteStorage | None = None
         try:
             storage = SQLiteStorage(db_path=db_path)
             await storage.initialize()
@@ -261,7 +275,6 @@ class TestRestartVisibility:
                 target_adapter="meshtastic",
             )
             await storage.create_outbox_item(item)
-            await storage.close()
 
             # Re-open: queued item is visible.
             storage2 = SQLiteStorage(db_path=db_path)
@@ -277,8 +290,11 @@ class TestRestartVisibility:
                 now=now, worker_id="worker-1", lease_seconds=30, limit=10
             )
             assert not any(c.delivery_plan_id == "plan-ambiguous-msh" for c in claimed)
-            await storage2.close()
         finally:
+            if storage is not None:
+                await storage.close()
+            if storage2 is not None:
+                await storage2.close()
             os.unlink(db_path)
 
 
