@@ -1021,29 +1021,27 @@ class TestBlockedValueSanitization:
             assert outcome.status == "skipped"
             assert outcome.failure_kind is DeliveryFailureKind.POLICY_SUPPRESSED
 
-            # The error string should contain the capped value in the
-            # blocked_field portion (before the ';'), not the full 512 chars.
             error = outcome.error
             assert error is not None
 
-            # Split on ';' — the first part contains the capped blocked_value,
-            # the second part is allowed_summary (which may still contain
-            # the raw value per design).
-            before_semi = error.split(";")[0]
-
-            # The capped portion should not contain the full 512-char value.
-            assert long_sender not in before_semi, (
-                "Full 512-char blocked_value should not appear in the "
-                "capped portion of the error string"
+            # Raw 512-char blocked_value must NOT appear anywhere in the
+            # error string — allowed_summary now uses <blocked> instead.
+            assert long_sender not in error, (
+                "Full 512-char blocked_value should not appear anywhere "
+                "in the error string"
             )
 
-            # The cap marker should appear in the capped portion.
-            assert "..." in before_semi
-
-            # The capped value is 256 'x' chars + '...' inside repr.
+            # The capped value (256 'x' chars + '...') must appear in the
+            # error string — this comes from the pipeline's capped logging
+            # of decision.blocked_value.
             capped_repr = repr("x" * 256 + "...")
-            assert (
-                capped_repr in before_semi
-            ), f"Expected capped repr {capped_repr[:40]}... not found in first part"
+            assert capped_repr in error, (
+                f"Expected capped repr {capped_repr[:40]}... not found in error"
+            )
+
+            # The generic denial summary with <blocked> must appear.
+            assert "<blocked>" in error, (
+                "Generic <blocked> placeholder should appear in error"
+            )
         finally:
             await runner.stop()

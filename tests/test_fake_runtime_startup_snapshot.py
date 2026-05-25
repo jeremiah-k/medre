@@ -254,7 +254,7 @@ class TestSnapshotIntegration:
 
     @pytest.mark.asyncio
     async def test_accounting_section(self, tmp_paths: MedrePaths) -> None:
-        """Accounting section has all 8 counters."""
+        """Accounting section has all 9 counters."""
         config = make_multi_adapter_config()
         app = await build_and_start(config, tmp_paths)
         try:
@@ -270,6 +270,7 @@ class TestSnapshotIntegration:
                 "replay_rejected",
                 "loop_prevented",
                 "capacity_rejections",
+                "policy_suppressed",
             ):
                 assert key in acc, f"Missing accounting key: {key}"
                 assert isinstance(acc[key], int)

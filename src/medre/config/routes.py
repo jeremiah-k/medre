@@ -86,7 +86,7 @@ class BridgePolicy:
     Attributes
     ----------
     allowed_event_types:
-        Event kinds this policy permits (e.g. ``("message",)``).
+        Event kinds this policy permits (e.g. ``("message.created",)``).
     allowed_source_adapters:
         Source adapter IDs this policy permits.
     allowed_dest_adapters:

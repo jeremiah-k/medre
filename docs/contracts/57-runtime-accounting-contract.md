@@ -161,6 +161,7 @@ The pipeline classifies delivery failures using `DeliveryFailureKind`:
 | `CAPACITY_REJECTION` | Capacity controller exhausted or timed out while accepting work | No        |
 | `SHUTDOWN_REJECTION` | Runtime shutdown cancelled delivery before capacity acquire     | No        |
 | `LOOP_SUPPRESSED`    | Self-loop or route-trace guard fired                            | No        |
+| `POLICY_SUPPRESSED`  | Route-policy evaluator denied delivery                          | No        |
 
 `TARGET_NOT_FOUND` and `DUPLICATE_SUPPRESSED` were removed from the enum.
 Channel-not-found and target-address failures map to `ADAPTER_PERMANENT`.
@@ -172,12 +173,12 @@ exhausted but the controller is still accepting work. `SHUTDOWN_REJECTION`
 is used when the controller has called `stop_accepting()` (pipeline
 shutdown in progress).
 
-**Receipt non-persistence:** `CAPACITY_REJECTION` and `SHUTDOWN_REJECTION`
-intentionally do **not** produce a persisted `DeliveryReceipt`. The event
-never entered the delivery stage — the rejection occurs at the capacity
-gate _before_ any adapter interaction. Durable evidence of the rejection
-is recorded via `RuntimeAccounting` counters and `RouteStats`, not via
-`delivery_receipts`.
+**Receipt persistence for capacity/shutdown:** `CAPACITY_REJECTION` and
+`SHUTDOWN_REJECTION` produce a persisted suppression receipt
+(status=`"suppressed"`) with `failure_kind` `capacity_rejection` or
+`shutdown_rejection`. Runtime accounting also increments
+`capacity_rejections`. These rejections occur at the capacity checkpoint
+before renderer/adapter delivery.
 
 **Receipt traceability:** When receipts are created, each `DeliveryReceipt`
 carries a `source` field (`"live"`, `"retry"`, or `"replay"`) and a nullable
