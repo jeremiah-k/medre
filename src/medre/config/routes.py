@@ -214,14 +214,10 @@ def _validate_policy(
 ) -> None:
     """Validate a :class:`BridgePolicy` after construction.
 
-    All six policy fields are now supported at runtime:
-
-    * ``allowed_event_types`` maps to :attr:`RouteSource.event_kinds`
-      during route expansion (already enforced structurally).
-    * ``allowed_source_adapters``, ``allowed_dest_adapters``,
-      ``room_allowlist``, ``channel_allowlist``, ``sender_allowlist``
-      are enforced by the route-policy evaluator in the delivery
-      pipeline (:func:`evaluate_route_policy`).
+    allowed_event_types maps to RouteSource.event_kinds during route
+    expansion. allowed_source_adapters, allowed_dest_adapters,
+    sender_allowlist, room_allowlist, and channel_allowlist are
+    enforced by the route-policy evaluator during delivery planning.
 
     This function is retained as a validation hook for future
     cross-field consistency checks.

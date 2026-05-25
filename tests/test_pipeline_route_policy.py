@@ -20,12 +20,15 @@ from pathlib import Path
 import pytest
 
 from medre.adapters.fakes.presentation import FakePresentationAdapter
+from medre.config.model import RuntimeLimits
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.planning.delivery_plan import DeliveryFailureKind
 from medre.core.policies.route_policy import RoutePolicy
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.routing.stats import RouteStats
 from medre.core.storage import SQLiteStorage
+from medre.core.supervision.accounting import RuntimeAccounting
+from medre.core.supervision.capacity import CapacityController
 from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
 
 
@@ -847,3 +850,200 @@ class TestPolicyDenialReasonInTrace:
         target_state = next(iter(dsbt.values()))
         assert target_state["failure_kind"] == "policy_suppressed"
         assert target_state["failure_kind_detail"] == "policy_suppressed"
+
+
+# ===================================================================
+# 11. Regression: policy-denied target with saturated capacity
+#     must produce policy_suppressed, NOT capacity_rejection
+# ===================================================================
+
+
+class TestPolicyDeniedWithSaturatedCapacity:
+    """When capacity is saturated AND policy denies the target, the
+    outcome must be policy_suppressed — policy runs before capacity
+    acquisition, so capacity_rejection counters must remain zero.
+
+    Regression guard: the original bug evaluated policy AFTER capacity
+    acquisition, so a saturated controller would produce
+    CAPACITY_REJECTION instead of POLICY_SUPPRESSED.
+    """
+
+    @pytest.mark.asyncio
+    async def test_policy_denied_before_capacity_check(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Policy-denied target skips capacity entirely; capacity counters stay 0."""
+        adapter = FakePresentationAdapter(adapter_id="dest")
+
+        # Policy that denies based on source adapter.
+        policy = RoutePolicy(allowed_source_adapters=("other_source",))
+        route = Route(
+            id="policy-before-cap-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[RouteTarget(adapter="dest")],
+            policy=policy,
+        )
+        router = Router(routes=[route])
+
+        accounting = RuntimeAccounting()
+        stats = RouteStats()
+
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router,
+            adapters={"dest": adapter},
+        )
+        config.runtime_accounting = accounting
+        config.route_stats = stats
+
+        runner = PipelineRunner(config)
+
+        # Saturate the capacity controller: 1 slot, pre-acquired.
+        limits = RuntimeLimits(
+            max_inflight_deliveries=1,
+            delivery_acquire_timeout_seconds=0.001,
+        )
+        cc = CapacityController(limits)
+        runner.set_capacity_controller(cc)
+
+        await runner.start()
+
+        # Pre-acquire the single slot so capacity is fully saturated.
+        await cc.acquire_delivery()
+
+        event = make_event(
+            event_id="policy-before-cap-001",
+            source_adapter="src",
+            source_channel_id=None,
+        )
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+
+            assert len(outcomes) == 1
+            outcome = outcomes[0]
+
+            # Policy suppression, NOT capacity rejection.
+            assert outcome.status == "skipped", (
+                f"Expected status='skipped' but got '{outcome.status}' "
+                f"with failure_kind={outcome.failure_kind}"
+            )
+            assert outcome.failure_kind is DeliveryFailureKind.POLICY_SUPPRESSED, (
+                f"Expected POLICY_SUPPRESSED but got {outcome.failure_kind}"
+            )
+            assert "policy_suppressed" in (outcome.error or "")
+            assert "source_adapter_not_allowed" in (outcome.error or "")
+
+            # Capacity rejection counters must be zero — policy ran first.
+            acc_snap = accounting.snapshot()
+            assert acc_snap["capacity_rejections"] == 0, (
+                f"Expected 0 capacity_rejections but got {acc_snap['capacity_rejections']}"
+            )
+
+            # Policy suppressed counter must be 1.
+            assert acc_snap["policy_suppressed"] == 1
+
+            # RouteStats confirms policy_suppressed, no failures.
+            stats_snap = stats.snapshot()
+            assert stats_snap["policy-before-cap-route"]["policy_suppressed"] == 1
+            assert stats_snap["policy-before-cap-route"]["failed"] == 0
+
+            # Adapter was never called.
+            assert len(adapter.delivered_payloads) == 0
+        finally:
+            await runner.stop()
+
+
+# ===================================================================
+# 12. blocked_value sanitization: values over 256 chars are capped
+# ===================================================================
+
+
+class TestBlockedValueSanitization:
+    """Policy denial error text caps blocked_value at 256 chars."""
+
+    @pytest.mark.asyncio
+    async def test_long_blocked_value_capped_in_error(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """A sender ID longer than 256 chars is capped in the error string."""
+        adapter = FakePresentationAdapter(adapter_id="dest")
+
+        # Very long sender ID (512 chars).
+        long_sender = "x" * 512
+
+        policy = RoutePolicy(sender_allowlist=("allowed_sender",))
+        route = Route(
+            id="sanitize-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[RouteTarget(adapter="dest")],
+            policy=policy,
+        )
+        router = Router(routes=[route])
+
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router,
+            adapters={"dest": adapter},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        # Event with a very long source_transport_id (sender).
+        from datetime import datetime, timezone
+        from medre.core.events import CanonicalEvent, EventMetadata
+
+        event = CanonicalEvent(
+            event_id="sanitize-001",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="src",
+            source_transport_id=long_sender,
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"text": "hello"},
+            metadata=EventMetadata(),
+        )
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+            assert len(outcomes) == 1
+            outcome = outcomes[0]
+            assert outcome.status == "skipped"
+            assert outcome.failure_kind is DeliveryFailureKind.POLICY_SUPPRESSED
+
+            # The error string should contain the capped value in the
+            # blocked_field portion (before the ';'), not the full 512 chars.
+            error = outcome.error
+            assert error is not None
+
+            # Split on ';' — the first part contains the capped blocked_value,
+            # the second part is allowed_summary (which may still contain
+            # the raw value per design).
+            before_semi = error.split(";")[0]
+
+            # The capped portion should not contain the full 512-char value.
+            assert long_sender not in before_semi, (
+                "Full 512-char blocked_value should not appear in the "
+                "capped portion of the error string"
+            )
+
+            # The cap marker should appear in the capped portion.
+            assert "..." in before_semi
+
+            # The capped value is 256 'x' chars + '...' inside repr.
+            capped_repr = repr("x" * 256 + "...")
+            assert capped_repr in before_semi, (
+                f"Expected capped repr {capped_repr[:40]}... not found in first part"
+            )
+        finally:
+            await runner.stop()

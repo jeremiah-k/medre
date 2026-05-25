@@ -24,7 +24,7 @@ directionality = "source_to_dest"
 enabled = true
 
 [routes.matrix_to_radio.policy]
-allowed_event_types = ["message"]
+allowed_event_types = ["message.created"]
 ```
 
 Each route declares source adapters, destination adapters, directionality, an optional bridge policy, and an enabled flag. Route IDs must be unique within the configuration.

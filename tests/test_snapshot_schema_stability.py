@@ -475,7 +475,7 @@ class TestDiagnosticsSnapshotSchemaConsistency:
 
 
 class TestAccountingSchemaConsistency:
-    """RuntimeAccounting.snapshot() has exactly 8 sorted keys."""
+    """RuntimeAccounting.snapshot() has exactly 9 sorted keys."""
 
     def test_empty_snapshot_has_expected_keys(self) -> None:
         acc = RuntimeAccounting()
