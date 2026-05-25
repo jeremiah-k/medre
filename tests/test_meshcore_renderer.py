@@ -13,7 +13,7 @@ from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.rendering.renderer import RenderingResult
 
-pytestmark = pytest.mark.asyncio
+
 
 
 def _make_config(
@@ -157,6 +157,8 @@ class TestMeshCoreRendererCanRender:
 class TestMeshCoreRendererBasic:
     """Basic rendering output shape and content."""
 
+    pytestmark = pytest.mark.asyncio
+
     async def test_render_basic_text(self) -> None:
         renderer = _make_renderer()
         event = _make_event(payload={"body": "hello meshcore"})
@@ -238,6 +240,8 @@ class TestMeshCoreRendererBasic:
 class TestMeshCoreRendererTargetResolution:
     """Missing target adapter raises KeyError."""
 
+    pytestmark = pytest.mark.asyncio
+
     async def test_render_unknown_adapter_raises_key_error(self) -> None:
         renderer = _make_renderer("meshcore_node")
         event = _make_event()
@@ -270,6 +274,8 @@ class TestMeshCoreRendererTargetResolution:
 class TestMeshCoreRendererMeshnetName:
     """meshnet_name comes from config, not hardcoded."""
 
+    pytestmark = pytest.mark.asyncio
+
     async def test_render_meshnet_name_from_config(self) -> None:
         renderer = _make_renderer(meshnet_name="testnet")
         event = _make_event()
@@ -289,6 +295,7 @@ class TestMeshCoreRendererMeshnetName:
 
 
 class TestMeshCoreRendererMetadata:
+    pytestmark = pytest.mark.asyncio
     """Metadata includes all required fields."""
 
     async def test_metadata_includes_renderer(self) -> None:
@@ -344,6 +351,8 @@ class TestMeshCoreRendererMetadata:
 
 class TestMeshCoreRendererTruncation:
     """UTF-8-safe byte-budget truncation."""
+
+    pytestmark = pytest.mark.asyncio
 
     async def test_default_512_byte_budget_no_truncation(self) -> None:
         """Default max_text_bytes=512; text under budget passes through."""

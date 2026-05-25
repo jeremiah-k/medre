@@ -514,17 +514,22 @@ class TestStartupFailureResourceCleanup:
 
         # Make storage.close raise an error too.
         assert app.storage is not None
+        real_close = app.storage.close
 
         async def _failing_close() -> None:
             raise RuntimeError("storage cleanup exploded")
 
         app.storage.close = _failing_close  # type: ignore[assignment]
 
-        # The original RuntimeStartupError should still be raised.
-        with pytest.raises(RuntimeStartupError, match="Total startup failure"):
-            await app.start()
+        try:
+            # The original RuntimeStartupError should still be raised.
+            with pytest.raises(RuntimeStartupError, match="Total startup failure"):
+                await app.start()
 
-        assert app.state == RuntimeState.FAILED
+            assert app.state == RuntimeState.FAILED
+        finally:
+            # Actually close the database so no ResourceWarning leaks.
+            await real_close()
 
     @pytest.mark.asyncio
     async def test_started_adapters_cleaned_up_on_total_failure(

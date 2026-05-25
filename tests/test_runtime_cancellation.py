@@ -1358,6 +1358,14 @@ class TestDrainAbandonedEvidencePersistence:
                 "shutdown_drain_timeout_seconds",
                 original_drain,
             )
+            # Defense-in-depth: ensure the app's storage connection is
+            # closed even if stop() exited before reaching its internal
+            # close step (e.g. due to an unexpected exception).
+            if storage is not None:
+                try:
+                    await storage.close()
+                except Exception:
+                    pass
 
         assert app.state == RuntimeState.STOPPED
 
@@ -1462,6 +1470,14 @@ class TestDrainAbandonedEvidencePersistence:
                 "shutdown_drain_timeout_seconds",
                 original_drain,
             )
+            # Defense-in-depth: ensure the app's storage connection is
+            # closed even if stop() exited before reaching its internal
+            # close step.
+            if storage is not None:
+                try:
+                    await storage.close()
+                except Exception:
+                    pass
 
         assert app.state == RuntimeState.STOPPED
 
