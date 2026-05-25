@@ -989,22 +989,24 @@ This tells you: the event exhausted its retry budget, and the pipeline will not 
 ### 14.5 Inspecting and Recovering the Delivery Outbox
 
 **Check outbox counts:**
-The runtime snapshot includes ``outbox.counts`` with per-status tallies.
+The runtime snapshot includes `outbox.counts` with per-status tallies.
 
 **Query outbox items directly:**
+
 ```bash
 sqlite3 $MEDRE_HOME/medre.db "SELECT status, COUNT(*) FROM delivery_outbox GROUP BY status;"
 ```
 
 **Understanding outbox statuses:**
-- ``in_progress`` — live pipeline delivery in progress; not claimable by retry worker (unless lease expired).
-- ``pending`` — work exists but has not started (pre-outbox or manually created).
-- ``retry_wait`` — transient failure; will retry automatically on next worker cycle.
-- ``queued`` — accepted by adapter-local queue. After crash, this state is ambiguous.
-- ``sent`` — local send succeeded (terminal).
-- ``dead_lettered`` — retries exhausted or permanent failure; requires operator intervention.
-- ``cancelled`` — operator cancelled.
-- ``abandoned`` — drain timeout during shutdown.
+
+- `in_progress` — live pipeline delivery in progress; not claimable by retry worker (unless lease expired).
+- `pending` — work exists but delivery attempt has not started. Live pipeline normally starts as `in_progress`; `pending` may appear from recovery or manual tooling.
+- `retry_wait` — transient failure; will retry automatically when retry worker is enabled and the item becomes due.
+- `queued` — accepted by adapter-local queue. After crash, this state is ambiguous.
+- `sent` — local send succeeded (terminal).
+- `dead_lettered` — retries exhausted or permanent failure; requires operator intervention.
+- `cancelled` — operator cancelled.
+- `abandoned` — drain timeout during shutdown.
 
 ### 14.6 "Queued locally but not RF-confirmed" (Meshtastic)
 

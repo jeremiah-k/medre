@@ -480,6 +480,26 @@ class StorageBackend(Protocol):
         """
         ...
 
+    async def get_outbox_item_for_delivery(
+        self,
+        event_id: str,
+        delivery_plan_id: str,
+        target_adapter: str,
+        target_channel: str | None,
+        status: str | None = None,
+    ) -> DeliveryOutboxItem | None:
+        """Retrieve an outbox item by its delivery target key.
+
+        Performs a targeted SELECT matching *event_id*,
+        *delivery_plan_id*, *target_adapter*, *target_channel*
+        (using ``IS`` for proper ``NULL`` handling) and optionally
+        *status*.  Returns the first match or ``None``.
+
+        This replaces the O(n) scan previously needed to locate an
+        outbox item for a specific delivery target.
+        """
+        ...
+
     async def list_outbox_items(
         self,
         status_filter: list[str] | None = None,

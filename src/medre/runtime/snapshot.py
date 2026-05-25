@@ -49,6 +49,12 @@ stable operator-facing data from unstable/debug internals::
         "uptime_seconds": float | null,
       },
       "limits": {...},
+      "outbox": {
+        "counts": dict[str, int] | null,
+        "live_refresh": false,
+        "note": str,
+        "scope": "storage_seeded",
+      },
       "persistence": {},
       "replay": {"available": bool, "counters": {...} | null},
       "routes": {
@@ -139,6 +145,15 @@ routes:
     startup-derived readiness.  Each sub-section carries explicit
     ``scope`` and ``live_refresh`` metadata so operators can distinguish
     build-time facts from startup-time facts from live state.
+outbox:
+    Delivery outbox status counts grouped by outbox status.
+    ``counts`` maps status strings (``pending``, ``in_progress``,
+    ``queued``, ``sent``, ``retry_wait``, ``dead_lettered``,
+    ``cancelled``, ``abandoned``) to integer counts.  Seeded from
+    storage on startup and refreshed after each retry worker cycle.
+    Carries ``scope="storage_seeded"`` and ``live_refresh=false``
+    (counts reflect the last storage query, not real-time polling).
+    ``null`` when no storage is configured.
 persistence:
     Reserved for future durable-storage status (last-persisted event
     ID, storage health, queue depths).  Currently always ``{}``.
@@ -868,8 +883,8 @@ def build_runtime_snapshot(
         "outbox": {
             "counts": outbox_counts,
             "live_refresh": False,
-            "scope": "worker_cached",
-            "note": "Counts from retry worker cache, refreshed after each worker cycle. Seeded from storage on start.",
+            "scope": "storage_seeded",
+            "note": "Counts seeded from storage on start and refreshed after each retry worker cycle. Reflects last storage query, not real-time.",
         },
         "persistence": {},
         "replay": {

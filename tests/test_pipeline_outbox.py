@@ -92,10 +92,10 @@ class TestOutboxCreation:
                     "dead_lettered",
                 ],
             )
-            assert len(items) >= 1
-            # At least one item should reference our event.
+            assert len(items) == 1
+            # The item should reference our event.
             matching = [i for i in items if i.event_id == "obox-accepted-001"]
-            assert len(matching) >= 1
+            assert len(matching) == 1
             assert matching[0].status in ("sent", "queued")
             assert matching[0].target_adapter == "fake_presentation"
         finally:
@@ -266,8 +266,8 @@ class TestOutboxStatusTransitions:
                 status_filter=["sent"],
             )
             matching = [i for i in items if i.event_id == "obox-sent-001"]
-            assert len(matching) >= 1
-            assert matching[-1].status == "sent"
+            assert len(matching) == 1
+            assert matching[0].status == "sent"
         finally:
             await runner.stop()
 
@@ -322,8 +322,8 @@ class TestOutboxStatusTransitions:
                 status_filter=["queued"],
             )
             matching = [i for i in items if i.event_id == "obox-queued-001"]
-            assert len(matching) >= 1
-            assert matching[-1].status == "queued"
+            assert len(matching) == 1
+            assert matching[0].status == "queued"
         finally:
             await runner.stop()
 
@@ -363,7 +363,7 @@ class TestLiveDeliveryClaimRace:
             # lease must NOT be claimable by the retry worker.
             items = await temp_storage.list_outbox_items()
             matching = [i for i in items if i.event_id == "obox-race-001"]
-            assert len(matching) >= 1
+            assert len(matching) == 1
 
             # The item should have transitioned away from in_progress
             # (to sent/queued) since delivery completed synchronously.
@@ -406,7 +406,7 @@ class TestLiveDeliveryClaimRace:
 
             items = await temp_storage.list_outbox_items()
             matching = [i for i in items if i.event_id == "obox-lifecycle-001"]
-            assert len(matching) >= 1
+            assert len(matching) == 1
 
             # Synchronous successful delivery: should end at "sent".
             item = matching[0]
@@ -454,6 +454,6 @@ class TestOutboxShutdownBehavior:
         # completed before shutdown).
         items = await temp_storage.list_outbox_items()
         matching = [i for i in items if i.event_id == "obox-shutdown-001"]
-        assert len(matching) >= 1
+        assert len(matching) == 1
         # Delivery completed normally, so status should be sent.
-        assert matching[-1].status == "sent"
+        assert matching[0].status == "sent"

@@ -333,11 +333,11 @@ Receipts are **append-only records**. The "current status" of a delivery is a **
 
 **Indexes:**
 
-| Index                 | Columns                                                        | Type                  | Purpose                                                                                                                                                                                                                                                                                                                                                           |
-| --------------------- | -------------------------------------------------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Index                 | Columns                                                                        | Type                  | Purpose                                                                                                                                                                                                                                                                                                                                                 |
+| --------------------- | ------------------------------------------------------------------------------ | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `idx_receipts_plan`   | `(delivery_plan_id, target_adapter, target_channel, attempt_number, sequence)` | Manual `CREATE INDEX` | Supports `delivery_status` view's `GROUP BY (delivery_plan_id, target_adapter, COALESCE(target_channel, ''))` + `MAX(sequence)` projection and `list_receipts_for_plan()` `ORDER BY attempt_number, sequence` lineage walk. The five-column composite covers the view's three-column grouping prefix and the full ordering of `list_receipts_for_plan`. |
-| `idx_receipts_event`  | `(event_id, sequence)`                                         | Manual `CREATE INDEX` | Supports receipt lookups by event (e.g., finding all delivery attempts for a given event).                                                                                                                                                                                                                                                                        |
-| `idx_receipts_source` | `(source, replay_run_id)`                                      | Manual `CREATE INDEX` | Supports filtering receipts by replay run — traceability queries for `source='replay'` with a specific `replay_run_id`.                                                                                                                                                                                                                                           |
+| `idx_receipts_event`  | `(event_id, sequence)`                                                         | Manual `CREATE INDEX` | Supports receipt lookups by event (e.g., finding all delivery attempts for a given event).                                                                                                                                                                                                                                                              |
+| `idx_receipts_source` | `(source, replay_run_id)`                                                      | Manual `CREATE INDEX` | Supports filtering receipts by replay run — traceability queries for `source='replay'` with a specific `replay_run_id`.                                                                                                                                                                                                                                 |
 
 ### 3.5 delivery_status View
 
@@ -490,7 +490,7 @@ Key points:
 
 ### 3.11 delivery_outbox
 
-The `delivery_outbox` table persists operational delivery work state (distinct from the evidence/audit `delivery_receipts` log). Where receipts record what *did* happen, the outbox records what *still needs to happen*.
+The `delivery_outbox` table persists operational delivery work state (distinct from the evidence/audit `delivery_receipts` log). Where receipts record what _did_ happen, the outbox records what _still needs to happen_.
 
 ```sql
 CREATE TABLE delivery_outbox (
@@ -523,16 +523,16 @@ CREATE TABLE delivery_outbox (
 
 **Statuses:**
 
-| Status | Meaning |
-|---|---|
-| `pending` | Work exists but has not started. |
-| `in_progress` | Claimed by a worker for processing. |
-| `queued` | Handed to adapter-local queue (e.g. Meshtastic). |
-| `sent` | Local SDK/client send returned success (terminal). |
-| `retry_wait` | Transient failure, awaiting next attempt. |
-| `dead_lettered` | Retries exhausted or terminal failure. |
-| `cancelled` | Operator or shutdown cancelled. |
-| `abandoned` | Drain timeout or ambiguous loss. |
+| Status          | Meaning                                            |
+| --------------- | -------------------------------------------------- |
+| `pending`       | Work exists but has not started.                   |
+| `in_progress`   | Claimed by a worker for processing.                |
+| `queued`        | Handed to adapter-local queue (e.g. Meshtastic).   |
+| `sent`          | Local SDK/client send returned success (terminal). |
+| `retry_wait`    | Transient failure, awaiting next attempt.          |
+| `dead_lettered` | Retries exhausted or terminal failure.             |
+| `cancelled`     | Operator or shutdown cancelled.                    |
+| `abandoned`     | Drain timeout or ambiguous loss.                   |
 
 **Idempotent Create:** Creating an outbox item with the same `(delivery_plan_id, target_adapter, target_channel, attempt_number)` key tuple as an existing non-terminal item returns the existing item unchanged. If the existing item is terminal, it is deleted and a new row is inserted to allow re-delivery after dead-letter recovery.
 

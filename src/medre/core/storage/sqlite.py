@@ -1499,82 +1499,184 @@ class SQLiteStorage:
         returned unchanged (idempotent create).  If the existing item is
         terminal it is deleted first so a new row for re-delivery can
         be inserted without violating the UNIQUE constraint.
+
+        The entire SELECT + conditional DELETE + INSERT runs inside a
+        single ``BEGIN IMMEDIATE`` transaction so that two concurrent
+        callers cannot both pass the existence check and race on INSERT.
+        If the INSERT still fails with a UNIQUE constraint violation
+        (extreme edge case), the existing row is re-read and returned.
         """
+        _terminal = {"sent", "dead_lettered", "cancelled", "abandoned"}
         now = _now_iso()
         meta_json = _encode_json(item.metadata or {})
-        # Check if item with same key tuple already exists (before insert).
-        existing = await self._read_one(
-            """SELECT outbox_id, status FROM delivery_outbox
-               WHERE delivery_plan_id = ? AND target_adapter = ?
-                 AND target_channel IS ? AND attempt_number = ?""",
-            (
-                item.delivery_plan_id,
-                item.target_adapter,
-                item.target_channel,
-                item.attempt_number,
-            ),
-        )
-        if existing is not None:
-            # If the existing item is terminal, allow a new row (re-delivery
-            # after dead-letter via recover).
-            _terminal = {"sent", "dead_lettered", "cancelled", "abandoned"}
-            if existing["status"] not in _terminal:
-                return await self.get_outbox_item(existing["outbox_id"]) or item
-            # Existing item is terminal — remove it so the UNIQUE
-            # constraint on (delivery_plan_id, target_adapter,
-            # target_channel, attempt_number) permits re-insertion
-            # with the same key tuple.
-            await self._write(
-                "DELETE FROM delivery_outbox WHERE outbox_id = ?",
-                (existing["outbox_id"],),
-            )
 
-        try:
-            await self._write(
-                """INSERT INTO delivery_outbox
-                   (outbox_id, event_id, route_id, delivery_plan_id,
-                    target_adapter, target_channel, target_address,
-                    attempt_number, status, failure_kind, failure_kind_detail,
-                    next_attempt_at, created_at, updated_at, last_attempt_at,
-                    locked_at, lease_until, worker_id, payload_hash,
-                    receipt_id, parent_receipt_id, error_summary, metadata)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    item.outbox_id,
-                    item.event_id,
-                    item.route_id,
-                    item.delivery_plan_id,
-                    item.target_adapter,
-                    item.target_channel,
-                    item.target_address,
-                    item.attempt_number,
-                    item.status or "pending",
-                    item.failure_kind,
-                    item.failure_kind_detail,
-                    item.next_attempt_at,
-                    item.created_at or now,
-                    item.updated_at or now,
-                    item.last_attempt_at,
-                    item.locked_at,
-                    item.lease_until,
-                    item.worker_id,
-                    item.payload_hash,
-                    item.receipt_id,
-                    item.parent_receipt_id,
-                    item.error_summary,
-                    meta_json,
-                ),
-            )
-        except Exception:
-            logger.exception("Failed to create outbox item %s", item.outbox_id)
-            raise
+        select_sql = (
+            "SELECT outbox_id, status FROM delivery_outbox"
+            " WHERE delivery_plan_id = ? AND target_adapter = ?"
+            " AND target_channel IS ? AND attempt_number = ?"
+        )
+        select_params = (
+            item.delivery_plan_id,
+            item.target_adapter,
+            item.target_channel,
+            item.attempt_number,
+        )
+        delete_sql = "DELETE FROM delivery_outbox WHERE outbox_id = ?"
+        insert_sql = (
+            "INSERT INTO delivery_outbox"
+            " (outbox_id, event_id, route_id, delivery_plan_id,"
+            "  target_adapter, target_channel, target_address,"
+            "  attempt_number, status, failure_kind, failure_kind_detail,"
+            "  next_attempt_at, created_at, updated_at, last_attempt_at,"
+            "  locked_at, lease_until, worker_id, payload_hash,"
+            "  receipt_id, parent_receipt_id, error_summary, metadata)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        )
+        insert_params = (
+            item.outbox_id,
+            item.event_id,
+            item.route_id,
+            item.delivery_plan_id,
+            item.target_adapter,
+            item.target_channel,
+            item.target_address,
+            item.attempt_number,
+            item.status or "pending",
+            item.failure_kind,
+            item.failure_kind_detail,
+            item.next_attempt_at,
+            item.created_at or now,
+            item.updated_at or now,
+            item.last_attempt_at,
+            item.locked_at,
+            item.lease_until,
+            item.worker_id,
+            item.payload_hash,
+            item.receipt_id,
+            item.parent_receipt_id,
+            item.error_summary,
+            meta_json,
+        )
+
+        if self._use_aiosqlite:
+            db = self._require_db()
+            try:
+                await db.execute("BEGIN IMMEDIATE")  # type: ignore[union-attr]
+                # SELECT existing
+                async with db.execute(select_sql, select_params) as cur:  # type: ignore[union-attr]
+                    row = await cur.fetchone()
+                if row is not None:
+                    existing = dict(row)
+                    if existing["status"] not in _terminal:
+                        await db.execute("COMMIT")  # type: ignore[union-attr]
+                        return await self.get_outbox_item(existing["outbox_id"]) or item
+                    # Terminal — delete so re-insertion can proceed.
+                    await db.execute(delete_sql, (existing["outbox_id"],))  # type: ignore[union-attr]
+                try:
+                    await db.execute(insert_sql, insert_params)  # type: ignore[union-attr]
+                except Exception:
+                    await db.execute("ROLLBACK")  # type: ignore[union-attr]
+                    raise
+                await db.execute("COMMIT")  # type: ignore[union-attr]
+            except sqlite3.IntegrityError:
+                # UNIQUE race: another writer inserted between our SELECT
+                # and INSERT.  Re-read the winning row.
+                existing = await self._read_one(select_sql, select_params)
+                if existing is not None:
+                    return await self.get_outbox_item(existing["outbox_id"]) or item
+                raise
+        else:
+            try:
+                existing_id = await asyncio.to_thread(
+                    self._sync_atomic_create_outbox,
+                    self._require_db(),
+                    select_sql,
+                    select_params,
+                    delete_sql,
+                    insert_sql,
+                    insert_params,
+                    _terminal,
+                )
+                if existing_id is not None:
+                    return await self.get_outbox_item(existing_id) or item
+            except sqlite3.IntegrityError:
+                existing = await self._read_one(select_sql, select_params)
+                if existing is not None:
+                    return await self.get_outbox_item(existing["outbox_id"]) or item
+                raise
+
         return await self.get_outbox_item(item.outbox_id) or item
+
+    def _sync_atomic_create_outbox(
+        self,
+        db: sqlite3.Connection,
+        select_sql: str,
+        select_params: tuple[Any, ...],
+        delete_sql: str,
+        insert_sql: str,
+        insert_params: tuple[Any, ...],
+        terminal: frozenset[str],
+    ) -> str | None:
+        """Synchronous helper: BEGIN IMMEDIATE, SELECT, optional DELETE, INSERT, COMMIT.
+
+        Returns the existing outbox_id when a non-terminal row was found
+        (idempotent), or None when a new row was inserted.
+        """
+        with self._lock:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                row = db.execute(select_sql, select_params).fetchone()
+                if row is not None:
+                    existing = dict(row)
+                    if existing["status"] not in terminal:
+                        db.execute("COMMIT")
+                        return existing["outbox_id"]
+                    db.execute(delete_sql, (existing["outbox_id"],))
+                db.execute(insert_sql, insert_params)
+                db.execute("COMMIT")
+            except BaseException:
+                db.execute("ROLLBACK")
+                raise
 
     async def get_outbox_item(self, outbox_id: str) -> DeliveryOutboxItem | None:
         """Retrieve a single outbox item by its ID."""
         row = await self._read_one(
             "SELECT * FROM delivery_outbox WHERE outbox_id = ?",
             (outbox_id,),
+        )
+        if row is None:
+            return None
+        return _row_to_outbox_item(row)
+
+    async def get_outbox_item_for_delivery(
+        self,
+        event_id: str,
+        delivery_plan_id: str,
+        target_adapter: str,
+        target_channel: str | None,
+        status: str | None = None,
+    ) -> DeliveryOutboxItem | None:
+        """Retrieve an outbox item by its delivery target key.
+
+        Performs a targeted SELECT matching *event_id*,
+        *delivery_plan_id*, *target_adapter*, *target_channel*
+        (using ``IS`` for proper ``NULL`` handling) and optionally
+        *status*.  Returns the first match or ``None``.
+        """
+        clauses = [
+            "event_id = ?",
+            "delivery_plan_id = ?",
+            "target_adapter = ?",
+            "target_channel IS ?",
+        ]
+        params: list[Any] = [event_id, delivery_plan_id, target_adapter, target_channel]
+        if status is not None:
+            clauses.append("status = ?")
+            params.append(status)
+        where = " AND ".join(clauses)
+        row = await self._read_one(
+            f"SELECT * FROM delivery_outbox WHERE {where} LIMIT 1",  # nosec: where clause built from hardcoded identifiers only, values via ? params
+            tuple(params),
         )
         if row is None:
             return None
@@ -1671,6 +1773,7 @@ class SQLiteStorage:
         outbox_id: str,
         new_status: str,
         *,
+        allowed_from: tuple[str, ...] | None = None,
         receipt_id: str | None = None,
         attempt_number: int | None = None,
         failure_kind: str | None = None,
@@ -1682,6 +1785,9 @@ class SQLiteStorage:
 
         Only updates non-terminal items.  The ``WHERE status NOT IN``
         clause prevents regression once a terminal status is set.
+        If *allowed_from* is provided, an additional ``AND status IN
+        (...)`` guard is added so the transition is only valid from
+        the listed source statuses.
         """
         now = _now_iso()
         sets = ["status = ?", "updated_at = ?"]
@@ -1708,15 +1814,33 @@ class SQLiteStorage:
         if new_status in ("in_progress", "queued", "sent", "retry_wait"):
             sets.append("last_attempt_at = ?")
             params.append(now)
-        if new_status in ("sent", "dead_lettered", "cancelled", "abandoned", "retry_wait"):
+        if new_status in (
+            "sent",
+            "dead_lettered",
+            "cancelled",
+            "abandoned",
+            "retry_wait",
+            "queued",
+        ):
             sets.append("locked_at = NULL")
             sets.append("lease_until = NULL")
             sets.append("worker_id = NULL")
 
+        where_clauses = [
+            "outbox_id = ?",
+            "status NOT IN ('sent', 'dead_lettered', 'cancelled', 'abandoned')",
+        ]
+        params.append(outbox_id)
+        if allowed_from is not None:
+            holders = ",".join("?" for _ in allowed_from)
+            where_clauses.append(f"status IN ({holders})")
+            params.extend(allowed_from)
+
         set_clause = ", ".join(sets)
+        where_sql = " AND ".join(where_clauses)
         await self._write(
-            f"UPDATE delivery_outbox SET {set_clause} WHERE outbox_id = ? AND status NOT IN ('sent', 'dead_lettered', 'cancelled', 'abandoned')",  # nosec: set_clause contains only hardcoded column names, values via ? params
-            (*params, outbox_id),
+            f"UPDATE delivery_outbox SET {set_clause} WHERE {where_sql}",  # nosec: set_clause contains only hardcoded column names, values via ? params
+            tuple(params),
         )
 
     async def mark_outbox_sent(
@@ -1725,10 +1849,14 @@ class SQLiteStorage:
         receipt_id: str | None = None,
         attempt_number: int | None = None,
     ) -> None:
-        """Mark an outbox item as ``sent`` (terminal)."""
+        """Mark an outbox item as ``sent`` (terminal).
+
+        Only transitions from ``in_progress`` or ``queued``.
+        """
         await self._update_outbox_status(
             outbox_id,
             "sent",
+            allowed_from=("in_progress", "queued"),
             receipt_id=receipt_id,
             attempt_number=attempt_number,
         )
@@ -1738,10 +1866,14 @@ class SQLiteStorage:
         outbox_id: str,
         receipt_id: str | None = None,
     ) -> None:
-        """Mark an outbox item as ``queued`` (adapter-local queue acceptance)."""
+        """Mark an outbox item as ``queued`` (adapter-local queue acceptance).
+
+        Only transitions from ``in_progress``.
+        """
         await self._update_outbox_status(
             outbox_id,
             "queued",
+            allowed_from=("in_progress",),
             receipt_id=receipt_id,
         )
 
@@ -1755,10 +1887,15 @@ class SQLiteStorage:
         error_summary: str | None = None,
         attempt_number: int | None = None,
     ) -> None:
-        """Mark an outbox item as ``retry_wait`` (transient failure)."""
+        """Mark an outbox item as ``retry_wait`` (transient failure).
+
+        Sets ``next_attempt_at`` for the next scheduled attempt.
+        Only transitions from ``in_progress``.
+        """
         await self._update_outbox_status(
             outbox_id,
             "retry_wait",
+            allowed_from=("in_progress",),
             receipt_id=receipt_id,
             attempt_number=attempt_number,
             failure_kind=failure_kind,
@@ -1775,10 +1912,14 @@ class SQLiteStorage:
         failure_kind_detail: str | None = None,
         error_summary: str | None = None,
     ) -> None:
-        """Mark an outbox item as ``dead_lettered`` (terminal failure)."""
+        """Mark an outbox item as ``dead_lettered`` (terminal failure).
+
+        Only transitions from ``in_progress`` or ``retry_wait``.
+        """
         await self._update_outbox_status(
             outbox_id,
             "dead_lettered",
+            allowed_from=("in_progress", "retry_wait"),
             receipt_id=receipt_id,
             failure_kind=failure_kind,
             failure_kind_detail=failure_kind_detail,
@@ -1790,10 +1931,15 @@ class SQLiteStorage:
         outbox_id: str,
         error_summary: str | None = None,
     ) -> None:
-        """Mark an outbox item as ``cancelled`` (terminal)."""
+        """Mark an outbox item as ``cancelled`` (terminal).
+
+        May be called from ``pending``, ``in_progress``, ``retry_wait``,
+        or ``queued``.
+        """
         await self._update_outbox_status(
             outbox_id,
             "cancelled",
+            allowed_from=("pending", "in_progress", "retry_wait", "queued"),
             error_summary=error_summary,
         )
 
@@ -1802,10 +1948,15 @@ class SQLiteStorage:
         outbox_id: str,
         error_summary: str | None = None,
     ) -> None:
-        """Mark an outbox item as ``abandoned`` (terminal)."""
+        """Mark an outbox item as ``abandoned`` (terminal).
+
+        May be called from ``pending``, ``in_progress``, ``retry_wait``,
+        or ``queued``.
+        """
         await self._update_outbox_status(
             outbox_id,
             "abandoned",
+            allowed_from=("pending", "in_progress", "retry_wait", "queued"),
             error_summary=error_summary,
         )
 

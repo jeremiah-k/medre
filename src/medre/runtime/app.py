@@ -246,15 +246,33 @@ class MedreApp:
     def outbox_state(self) -> dict[str, int]:
         """Return the last-known outbox status counts.
 
-        Refreshed after each retry worker cycle.  Returns an empty dict
-        when no outbox items exist or the retry worker has not completed
-        a cycle yet.
+        Seeded from storage on startup.  Refreshed from storage after each
+        retry worker cycle.  Falls back to the storage-seeded snapshot when
+        the retry worker cache is empty (before first worker cycle).
         """
         if self._retry_worker is not None:
             latest = self._retry_worker.outbox_counts
-            self._outbox_state = latest
-            return latest
+            if latest:
+                # Worker has fresh counts from a completed cycle.
+                self._outbox_state = latest
+                return latest
+            # Worker exists but hasn't completed a cycle yet.
+            # Prefer storage-seeded counts over empty worker cache.
+            return dict(self._outbox_state)
         return dict(self._outbox_state)
+
+    async def refresh_outbox_state_from_storage(self) -> None:
+        """Refresh outbox counts from storage if available.
+
+        Called by diagnostics and runtime snapshot paths to ensure
+        outbox counts reflect current storage state, not just the
+        retry worker cache.
+        """
+        if self.storage is not None:
+            try:
+                self._outbox_state = await self.storage.count_outbox_by_status()
+            except Exception:
+                pass
 
     @property
     def adapter_states(self) -> dict[str, AdapterState]:

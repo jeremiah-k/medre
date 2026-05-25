@@ -279,21 +279,21 @@ These tests use fake adapters only and do not require live transport dependencie
 
 ### 12.1 Outbox Item Creation Before Shutdown
 
-Outbox items are created in ``PipelineRunner._deliver_one`` after route/policy/loop/capacity acceptance and before the adapter delivery attempt.  If ``stop_accepting()`` has been called, the capacity controller rejects the delivery before outbox creation — no pending outbox item is left behind.
+Outbox items are created in `PipelineRunner._deliver_one` after route/policy/loop/capacity acceptance and before the adapter delivery attempt. If `stop_accepting()` has been called, the capacity controller rejects the delivery before outbox creation — no pending outbox item is left behind.
 
 ### 12.2 In-Flight Outbox Items at Shutdown
 
 During the drain phase of shutdown:
 
-- If a delivery completes within the drain window, the outbox item is updated normally (``sent``, ``queued``, ``retry_wait``, or ``dead_lettered``).
-- If the drain timeout expires while an outbox item is ``in_progress``, the item retains its ``in_progress`` status with an expired lease.  On restart, the item is re-claimable by the RetryWorker.
+- If a delivery completes within the drain window, the outbox item is updated normally (`sent`, `queued`, `retry_wait`, or `dead_lettered`).
+- If the drain timeout expires while an outbox item is `in_progress`, the item retains its `in_progress` status with an expired lease. On restart, the item is re-claimable by the RetryWorker.
 - The shutdown does **not** cancel, delete, or modify outbox items directly — it relies on lease expiry for recovery.
 
 ### 12.3 RetryWorker Shutdown
 
-When ``RetryWorker.stop()`` is called:
+When `RetryWorker.stop()` is called:
 
 1. The shutdown event is set.
 2. In-flight retry attempts that are already mid-processing continue to completion (they are not cancelled mid-delivery).
-3. Items that were claimed but not yet processed have their lease released via ``release_outbox_claim`` (capacity rejection path) or retain their lease (which expires naturally).
+3. Items that were claimed but not yet processed have their lease released via `release_outbox_claim` (capacity rejection path) or retain their lease (which expires naturally).
 4. The worker waits up to 5 seconds for the internal loop to exit.

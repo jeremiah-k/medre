@@ -274,3 +274,98 @@ class TestRestartVisibility:
         await storage2.close()
 
         os.unlink(db_path)
+
+
+# ===================================================================
+# Group 5: RetryWorker NameError regression test
+# ===================================================================
+
+
+class TestRetryWorkerNameErrorRegression:
+    """Verify that RetryWorker._retry_outbox_item does not raise NameError
+    when Route/RouteTarget reconstruction fails.
+
+    The fix ensures that _max_attempts, _backoff_base, _max_delay, and
+    _jitter are initialised BEFORE the reconstruction try block so that
+    the exception handler can safely reference them.
+    """
+
+    async def test_retry_outbox_item_handles_reconstruction_failure_gracefully(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """When Route/RouteTarget reconstruction raises, RetryWorker should
+        mark the item as retry_wait (or dead_lettered) without NameError."""
+        # Create and persist a canonical event for the outbox item to reference
+        from datetime import datetime, timezone
+        from unittest.mock import AsyncMock, MagicMock
+
+        from medre.core.engine.pipeline import PipelineRunner
+        from medre.core.events import CanonicalEvent, EventMetadata
+
+        event = CanonicalEvent(
+            event_id="evt-retry-regress-1",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="fake_transport",
+            source_transport_id="node-1",
+            source_channel_id="ch-0",
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"text": "regression test"},
+            metadata=EventMetadata(),
+        )
+        await temp_storage.append(event)
+
+        # Create an outbox item referencing that event
+        item = _make_outbox_item(
+            delivery_plan_id="plan-regress-1",
+            target_adapter="fake_presentation",
+            target_channel="ch-0",
+            status="pending",
+        )
+        item.event_id = "evt-retry-regress-1"
+        await temp_storage.create_outbox_item(item)
+
+        # Claim the item so it becomes in_progress
+        now = "2026-01-01T00:00:00"
+        claimed = await temp_storage.claim_due_outbox_items(
+            now=now, worker_id="worker-1", lease_seconds=30, limit=10
+        )
+        assert len(claimed) == 1
+        oid = claimed[0].outbox_id
+
+        # Construct a minimal RetryWorker with a mock pipeline that raises
+        # during deliver_to_target (simulating reconstruction failure).
+        mock_pipeline = MagicMock(spec=PipelineRunner)
+        mock_pipeline.deliver_to_target = AsyncMock(
+            side_effect=ValueError("Simulated reconstruction failure")
+        )
+
+        from medre.runtime.retry import RetryWorker
+
+        worker = RetryWorker(
+            storage=temp_storage,
+            pipeline=mock_pipeline,
+            capacity_controller=None,
+            enabled=True,
+            max_attempts=3,
+        )
+
+        # _retry_outbox_item should NOT raise NameError
+        try:
+            await worker._retry_outbox_item(claimed[0])
+        except NameError as err:
+            raise AssertionError(
+                "RetryWorker._retry_outbox_item raised NameError — "
+                "the _max_attempts fix is not in place"
+            ) from err
+        except Exception:
+            pass  # Other exceptions are acceptable
+
+        # The outbox item should have transitioned away from in_progress
+        # (either retry_wait or dead_lettered)
+        item_after = await temp_storage.get_outbox_item(oid)
+        assert item_after is not None
+        assert item_after.status in ("retry_wait", "dead_lettered", "abandoned")

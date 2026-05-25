@@ -1460,3 +1460,76 @@ class TestLiveHealthTypes:
         assert snap["health"]["live_health"] is None
         assert snap["health"]["live_refresh"] is False
         assert snap["health"]["scope"] == "startup"
+
+
+# ---------------------------------------------------------------------------
+# Tests: Outbox storage-backed counts
+# ---------------------------------------------------------------------------
+
+
+class TestOutboxStorageBackedCounts:
+    """Outbox counts should reflect storage-seeded data."""
+
+    def test_outbox_counts_prefers_storage_seeded_over_empty_worker_cache(
+        self,
+    ) -> None:
+        """Outbox counts should reflect storage-seeded data, not empty worker cache."""
+        from unittest.mock import MagicMock
+
+        app = _make_fake_app()
+        # Simulate storage-seeded outbox counts.
+        app.outbox_state = {"pending": 3, "retry_wait": 1}
+
+        # Mock retry worker with empty cache (hasn't completed a cycle yet).
+        mock_worker = MagicMock()
+        mock_worker.outbox_counts = {}
+        app._retry_worker = mock_worker
+
+        snap = build_runtime_snapshot(app, snapshot_scope="build")
+
+        assert snap["outbox"]["counts"] == {"pending": 3, "retry_wait": 1}
+        assert snap["outbox"]["scope"] == "storage_seeded"
+
+    def test_outbox_counts_uses_worker_cache_when_available(self) -> None:
+        """When worker has completed a cycle, its fresher counts take precedence."""
+        from unittest.mock import MagicMock
+
+        app = _make_fake_app()
+        # Simulate the fixed outbox_state property: worker has fresh counts
+        # so the property returns the worker's counts, not the storage-seeded ones.
+        app.outbox_state = {"pending": 1, "sent": 2}
+
+        mock_worker = MagicMock()
+        mock_worker.outbox_counts = {"pending": 1, "sent": 2}
+        app._retry_worker = mock_worker
+
+        snap = build_runtime_snapshot(app, snapshot_scope="build")
+
+        assert snap["outbox"]["counts"] == {"pending": 1, "sent": 2}
+        assert snap["outbox"]["scope"] == "storage_seeded"
+
+    def test_outbox_counts_null_when_no_state(self) -> None:
+        """Outbox counts is null when no outbox state is set."""
+        snap = build_runtime_snapshot(_make_fake_app(), snapshot_scope="build")
+        # Default _FakeApp has no outbox_state attribute, so getattr returns None.
+        assert snap["outbox"]["counts"] is None
+
+    def test_outbox_section_has_expected_keys(self) -> None:
+        """Outbox section has the required structure."""
+        from unittest.mock import MagicMock
+
+        app = _make_fake_app()
+        app.outbox_state = {"pending": 5}
+        app._retry_worker = MagicMock()
+        app._retry_worker.outbox_counts = {"pending": 5}
+
+        snap = build_runtime_snapshot(app)
+
+        assert set(snap["outbox"].keys()) == {
+            "counts",
+            "live_refresh",
+            "note",
+            "scope",
+        }
+        assert snap["outbox"]["live_refresh"] is False
+        assert snap["outbox"]["scope"] == "storage_seeded"

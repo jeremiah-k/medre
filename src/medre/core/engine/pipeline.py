@@ -1116,26 +1116,22 @@ class PipelineRunner:
 
         # Transition the matching outbox item from queued → sent.
         try:
-            outbox_items = await self._config.storage.list_outbox_items(
-                status_filter=["queued"],
+            _obi = await self._config.storage.get_outbox_item_for_delivery(
+                event_id=record.event_id,
+                delivery_plan_id=queued_receipt.delivery_plan_id,
+                target_adapter=record.adapter,
+                target_channel=queued_receipt.target_channel,
+                status="queued",
             )
-            for _obi in outbox_items:
-                if (
-                    _obi.event_id == record.event_id
-                    and _obi.target_adapter == record.adapter
-                    and _obi.delivery_plan_id
-                    == queued_receipt.delivery_plan_id
-                ):
-                    await self._config.storage.mark_outbox_sent(
-                        _obi.outbox_id,
-                        receipt_id=supplemental.receipt_id,
-                        attempt_number=supplemental.attempt_number,
-                    )
-                    break
+            if _obi is not None:
+                await self._config.storage.mark_outbox_sent(
+                    _obi.outbox_id,
+                    receipt_id=supplemental.receipt_id,
+                    attempt_number=supplemental.attempt_number,
+                )
         except Exception:
             self._log.exception(
-                "Failed to transition outbox queued→sent: "
-                "event_id=%s adapter=%s",
+                "Failed to transition outbox queued→sent: " "event_id=%s adapter=%s",
                 record.event_id,
                 record.adapter,
             )
