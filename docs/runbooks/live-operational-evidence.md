@@ -6,8 +6,8 @@
 > physical radio interaction, no MeshCore BLE connection, no LXMF/Reticulum instance
 > were provided or available. All live procedure sections remain as previously
 > recorded or NOT EXECUTED. This update adds dependency/version capture commands
-> (§6A), Docker Synapse second-bot inbound procedure template (§1.5b), and clarifies
-> evidence artifact locations (§7A). No statuses were promoted.
+> (§6), Docker Synapse second-bot inbound procedure template (§1.5b), and clarifies
+> evidence artifact locations (§7). No statuses were promoted.
 > Baseline: HEAD 41a07c7, Python 3.12.3, medre 0.1.0.
 > Tracks: 1, 2, 7, 8 (v2 consolidation + hardware probe)
 > Status: Procedures documented. Meshtastic serial live validation: **EXECUTED 2026-05-12** (CLI-level: device discovery, hardware/firmware capture, one outbound send on channel 0, 2 reconnect cycles). MEDRE adapter lifecycle and Matrix live tests: **NOT EXECUTED** (2026-05-12: sk.community access token rejected `M_UNKNOWN_TOKEN`; matrix.org password login rejected `M_FORBIDDEN Invalid username/password` — see §1.7). M14 third-party inbound validation attempted 2026-05-12: `matrix.sk.community` homeserver confirmed reachable and healthy, but no `MATRIX_*` env vars are set in the current session. 13 live tests skip cleanly. Test infrastructure (`test_inbound_message_received`) is complete and validates all M14 requirements (sender attribution, room attribution, canonical event shape, source_native_ref, diagnostics). Blocker is purely operational: need valid `MATRIX_ACCESS_TOKEN` for `@forxrelay:sk.community` (password-to-token exchange required). mtjk not in project venv. **Hardware probe (2026-05-12):** CP2104 `/dev/ttyUSB0` (stable by-id, likely T-Beam) — no serial chatter observed; CH9102F `/dev/ttyACM0` (stable by-id, confirmed T-LoRa V2.1-1.6). MeshCore serial path confirmed NOT VIABLE (companion heartbeat protocol). BLE preconditions met, connection NOT ATTEMPTED. RNode KISS probe to ttyUSB0 returned NO RESPONSE. LXMF/Reticulum live path setup pending.
@@ -1175,12 +1175,12 @@ The Meshtastic adapter tracks `started` in diagnostics. To record actual runtime
 6. **Degraded/outbound behavior unobserved:** The `degraded` health state and transient send retry path have not been observed against real hardware. S-tier tests confirm logic; R-tier observation pending. Procedure in §2.8.
 7. **Long-running stability unknown:** No sustained Meshtastic session (>60s) has been executed against real hardware. Runtime observation procedure in §2.9.
 
-## 6A. Dependency and Version Capture Commands (Tranche 6)
+## 6. Dependency and Version Capture Commands (Tranche 6)
 
 Before running any live validation, capture the exact dependency and environment
 metadata. This ensures evidence is reproducible and traceable.
 
-### 6A.1 Matrix Dependency Capture
+### 6.1 Matrix Dependency Capture
 
 ```bash
 # Project metadata
@@ -1200,7 +1200,7 @@ pip show peewee 2>/dev/null || echo "peewee: NOT INSTALLED"
 curl -s https://matrix.example.com/_matrix/client/versions 2>/dev/null | python3 -m json.tool
 ```
 
-### 6A.2 Meshtastic Dependency Capture
+### 6.2 Meshtastic Dependency Capture
 
 ```bash
 # Project metadata
@@ -1220,7 +1220,7 @@ ls -la /dev/ttyACM* /dev/ttyUSB* /dev/serial/by-id/* 2>/dev/null || echo "No ser
 groups | grep -q dialout && echo "dialout: YES" || echo "dialout: NO (serial access may fail)"
 ```
 
-### 6A.3 MeshCore Dependency Capture
+### 6.3 MeshCore Dependency Capture
 
 ```bash
 pip show meshcore-py 2>/dev/null || echo "meshcore-py: NOT INSTALLED"
@@ -1228,14 +1228,14 @@ pip show bleak 2>/dev/null || echo "bleak: NOT INSTALLED (required for BLE)"
 ls -la /dev/ttyACM* /dev/ttyUSB* 2>/dev/null || echo "No serial devices found"
 ```
 
-### 6A.4 LXMF/Reticulum Dependency Capture
+### 6.4 LXMF/Reticulum Dependency Capture
 
 ```bash
 pip show Reticulum 2>/dev/null || echo "Reticulum: NOT INSTALLED"
 pip show LXMF 2>/dev/null || echo "LXMF: NOT INSTALLED"
 ```
 
-## 7A. Evidence Artifact Locations (Tranche 6)
+## 7. Evidence Artifact Locations (Tranche 6)
 
 When live evidence is recorded, the following locations store the artifacts:
 
@@ -1252,7 +1252,7 @@ When live evidence is recorded, the following locations store the artifacts:
 | Evidence schema              | `docs/contracts/61-operational-evidence-contract.md`        | Markdown contract |
 | Longrun evidence             | `docs/runbooks/longrun-validation.md`                       | Markdown tables   |
 
-## 7B. Docker Synapse Second-Bot Inbound Procedure Template (Tranche 6)
+## 8. Docker Synapse Second-Bot Inbound Procedure Template (Tranche 6)
 
 This procedure template resolves the M14 third-party inbound blocker using
 Docker Synapse (local, no external server required).
@@ -1305,7 +1305,7 @@ curl -s -X POST "http://localhost:8008/_matrix/client/v3/rooms/${MATRIX_ROOM_ID}
 **Status:** NOT EXECUTED in Tranche 6 session. No Docker Synapse instance running,
 no second user registered. This procedure template is provided for operator execution.
 
-## 5. Cross-References
+## 9. Cross-References
 
 | Document                                                   | Relationship                                          |
 | ---------------------------------------------------------- | ----------------------------------------------------- |
@@ -1325,7 +1325,7 @@ no second user registered. This procedure template is provided for operator exec
 | `tests/test_deployment_boundaries.py`                      | Deployment boundary enforcement tests                 |
 | `tests/test_runtime_deployment_boundaries.py`              | Runtime-level boundary enforcement tests              |
 
-## 6. Evidence Separation Summary
+## 10. Evidence Separation Summary
 
 This document contains the following evidence categories, clearly separated:
 
@@ -1341,7 +1341,7 @@ This document contains the following evidence categories, clearly separated:
 
 **No overclaims:** This document does not claim any transport is production-ready, reliable, or performs at any specific latency. All live procedures are documented as NOT EXECUTED unless explicitly marked with R-tier evidence and an execution date.
 
-## 7. Unresolved Risks (Track 9 Consolidation)
+## 11. Unresolved Risks (Track 9 Consolidation)
 
 | Risk                                         | Status                                                                                 | Affects            | Mitigation                                                                                                                                           |
 | -------------------------------------------- | -------------------------------------------------------------------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |

@@ -139,7 +139,7 @@ No transport qualifies as production-ready.
 
 ## 5. Live Evidence Consolidation Plan
 
-### 5.1 What exists now (2026-05-12, post hardware probe tranche)
+### 5.1 What exists now (May 2026 snapshot)
 
 - **Matrix:** H-tier evidence from 2026-05-10 (plaintext 13/13, E2EE 7/7, encrypted room 7/7 post-fix). R-tier Docker SDK-boundary evidence from 2026-05-22 (15/1 xf passed against local Docker Synapse). 2026-05-12 external live attempt failed (credential issues, not code issues). Deterministic: 4596 passed.
 - **Meshtastic:** H-tier adapter evidence from 2026-05-10 (10/10). R-tier CLI evidence from 2026-05-12 (serial validation, 4 reconnects, 1 outbound). Deterministic: 4596 passed.

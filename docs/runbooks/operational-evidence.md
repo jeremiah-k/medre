@@ -63,7 +63,7 @@ R-tier evidence should be annotated with the *environment boundary* where it was
 | **External live**     | Real external server over the network. Credentials to a third-party or self-hosted service.                  | Matrix: matrix.org or sk.community (H-tier 2026-05-10, NOT EXECUTED 2026-05-12) |
 | **Hardware**          | Physical radio hardware connected via serial/TCP/BLE. Real RF transmission or reception.                     | Meshtastic: serial CLI validation on /dev/ttyACM0 (R-tier 2026-05-12)           |
 
-When sub-class is not specified, assume the broadest interpretation. **Do not treat Docker SDK-boundary evidence as equivalent to external live or hardware evidence.** Each boundary validates different properties: SDK-boundary validates SDK integration and adapter wiring; external live validates network connectivity and real server behavior; hardware validates physical radio operation.
+When sub-class is not specified, treat the evidence as **UNSPECIFIED** and do not use it for boundary-specific claims until explicitly classified. **Do not treat Docker SDK-boundary evidence as equivalent to external live or hardware evidence.** Each boundary validates different properties: SDK-boundary validates SDK integration and adapter wiring; external live validates network connectivity and real server behavior; hardware validates physical radio operation.
 
 **How to use this document:**
 

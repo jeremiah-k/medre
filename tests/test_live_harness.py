@@ -365,7 +365,7 @@ class TestGetLiveArtifactDir:
     """Tests for the live artifact directory convention helper."""
 
     def test_default_path_under_ci_artifacts(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+        self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """When MEDRE_LIVE_ARTIFACT_DIR is unset, returns .ci-artifacts/live-evidence/<ts>."""
         monkeypatch.delenv("MEDRE_LIVE_ARTIFACT_DIR", raising=False)

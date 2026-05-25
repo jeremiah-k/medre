@@ -164,17 +164,20 @@ docker exec medre-synapse python -m synapse.app.homeserver --version 2>/dev/null
 After a successful live test run, capture evidence for the repository:
 
 ```bash
+# 0. Timestamp for unique filenames
+TS="$(date +%Y%m%d-%H%M%S)"
+
 # 1. Capture pytest output with verbose timestamps
 pytest tests/test_matrix_live.py -v -m live 2>&1 | tee matrix-docker-live-$(date +%Y%m%d-%H%M%S).log
 
 # 2. Capture diagnostics (if running medre runtime)
-medre evidence --config /tmp/medre-live/medre.toml --json 2>/dev/null | tee matrix-docker-evidence-$(date +%Y%m%d).json || echo "Evidence command not applicable"
+medre evidence --config /tmp/medre-live/medre.toml --json 2>/dev/null | tee matrix-docker-evidence-${TS}.json || echo "Evidence command not applicable"
 
 # 3. Record dependency versions
-pip show mindroom-nio > matrix-docker-deps-$(date +%Y%m%d).txt 2>&1
+pip show mindroom-nio > matrix-docker-deps-${TS}.txt 2>&1
 
 # 4. Record Synapse info
-docker exec medre-synapse python -m synapse.app.homeserver --version >> matrix-docker-deps-$(date +%Y%m%d).txt 2>&1 || true
+docker exec medre-synapse python -m synapse.app.homeserver --version >> matrix-docker-deps-${TS}.txt 2>&1 || true
 ```
 
 **Evidence recording:** Copy relevant results into the Live Validation Evidence

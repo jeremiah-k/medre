@@ -77,7 +77,7 @@ and runs the full integration suite with a 13-minute timeout.
 | Variable                     | Default                            | Purpose                                    |
 | ---------------------------- | ---------------------------------- | ------------------------------------------ |
 | `MEDRE_SKIP_DOCKER`          | _(unset)_                          | Set to `1`/`true` to skip all Docker tests |
-| `MEDRE_SYNAPSE_IMAGE`        | `matrixdotorg/synapse:v1.149.0`    | Synapse Docker image                       |
+| `MEDRE_SYNAPSE_IMAGE`        | `matrixdotorg/synapse:v1.153.0`    | Synapse Docker image                       |
 | `MEDRE_MESHTASTICD_IMAGE`    | `meshtastic/meshtasticd:2.7.15`    | meshtasticd Docker image                   |
 | `MEDRE_SYNAPSE_PORT`         | `8008`                             | Host port for Synapse                      |
 | `MEDRE_MESHTASTICD_PORT`     | `4403`                             | Host port for meshtasticd                  |
