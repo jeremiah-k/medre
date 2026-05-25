@@ -1114,6 +1114,32 @@ class PipelineRunner:
         )
         await self._config.storage.append_receipt(supplemental)
 
+        # Transition the matching outbox item from queued → sent.
+        try:
+            outbox_items = await self._config.storage.list_outbox_items(
+                status_filter=["queued"],
+            )
+            for _obi in outbox_items:
+                if (
+                    _obi.event_id == record.event_id
+                    and _obi.target_adapter == record.adapter
+                    and _obi.delivery_plan_id
+                    == queued_receipt.delivery_plan_id
+                ):
+                    await self._config.storage.mark_outbox_sent(
+                        _obi.outbox_id,
+                        receipt_id=supplemental.receipt_id,
+                        attempt_number=supplemental.attempt_number,
+                    )
+                    break
+        except Exception:
+            self._log.exception(
+                "Failed to transition outbox queued→sent: "
+                "event_id=%s adapter=%s",
+                record.event_id,
+                record.adapter,
+            )
+
     # -- Stage 3-4: Routing + Planning -------------------------------------
 
     async def route_event(
@@ -1569,7 +1595,6 @@ class PipelineRunner:
                 )
                 # Non-fatal: pipeline continues without outbox tracking.
                 # The delivery still produces a receipt as before.
-                pass
 
             # ── Phase 4: Inflight tracking + delivery ────────────────
 
@@ -1752,12 +1777,17 @@ class PipelineRunner:
                                 )
                         elif _outcome_failure_kind_val is not None:
                             if _outcome_failure_kind_val.is_retryable:
-                                # Compute next attempt time for retry.
-                                import datetime as _dt_mod
+                                # Compute next attempt time for retry using
+                                # the delivery plan's retry policy.
+                                from datetime import timedelta
 
-                                _retry_interval = _dt_mod.timedelta(seconds=60)
+                                _backoff = timedelta(seconds=60)
+                                if route_plan.retry_policy is not None:
+                                    _backoff = RetryExecutor(
+                                        route_plan.retry_policy
+                                    ).compute_backoff(1)
                                 _next_at = (
-                                    datetime.now(timezone.utc) + _retry_interval
+                                    datetime.now(timezone.utc) + _backoff
                                 ).isoformat()
                                 await self._config.storage.mark_outbox_retry_wait(
                                     _outbox_id,
@@ -1766,6 +1796,7 @@ class PipelineRunner:
                                     error_summary=(
                                         _outcome_error[:512] if _outcome_error else None
                                     ),
+                                    attempt_number=1,
                                 )
                             else:
                                 await self._config.storage.mark_outbox_dead_lettered(

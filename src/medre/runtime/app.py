@@ -250,8 +250,10 @@ class MedreApp:
         when no outbox items exist or the retry worker has not completed
         a cycle yet.
         """
-        if self._retry_worker is not None and self._retry_worker._outbox_counts:
-            return dict(self._retry_worker._outbox_counts)
+        if self._retry_worker is not None:
+            latest = self._retry_worker.outbox_counts
+            self._outbox_state = latest
+            return latest
         return dict(self._outbox_state)
 
     @property

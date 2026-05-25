@@ -317,6 +317,7 @@ class TestSnapshotOnShutdown:
             "identity",
             "lifecycle",
             "limits",
+            "outbox",
             "persistence",
             "replay",
             "retry",

@@ -335,15 +335,13 @@ class TestOutboxStatusTransitions:
 class TestOutboxShutdownBehavior:
     """Outbox behavior during shutdown."""
 
-    async def test_shutdown_abandons_inflight_but_leaves_pending(
+    async def test_shutdown_after_send_succeeds_leaves_sent_outbox(
         self,
         temp_storage: SQLiteStorage,
         router_with_routes: Router,
         fake_presentation: FakePresentationAdapter,
     ) -> None:
-        """Shutdown before delivery attempt leaves pending outbox items
-        visible (not abandoned) — the item was created but the delivery
-        try block never started."""
+        """Delivery completed before shutdown leaves outbox item as sent."""
         config = make_pipeline_config_for_pipeline(
             storage=temp_storage,
             router=router_with_routes,

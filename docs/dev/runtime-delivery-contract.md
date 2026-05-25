@@ -27,6 +27,11 @@ This document describes how MEDRE routes, delivers, tracks, and recovers events.
    - Render event via `RenderingPipeline.render()`
    - Call `adapter.deliver(rendering_result)` → `AdapterDeliveryResult`
    - Record `DeliveryReceipt` (status="sent" or "failed")
+   - **Outbox creation**: after capacity acquisition and before adapter delivery, a `delivery_outbox` item is created (status `pending`).  This ensures pending work survives a crash between this point and receipt commit.
+   - On success: mark outbox `sent` and append `sent` receipt.
+   - On `queued`: mark outbox `queued` and append `queued` receipt.
+   - On retryable failure: mark outbox `retry_wait` with next attempt time computed from the plan's `RetryPolicy`.
+   - On permanent failure: mark outbox `dead_lettered`.
    - On success: store `NativeMessageRef(direction="outbound")`
    - On retryable failure with retry policy: set `next_retry_at` on receipt
    - On retry exhaustion: append `dead_lettered` receipt
@@ -75,6 +80,28 @@ This document describes how MEDRE routes, delivers, tracks, and recovers events.
 | retry_max_delay    | float or None                                                                         | From RetryPolicy               |
 | retry_jitter       | bool or None                                                                          | From RetryPolicy               |
 | created_at         | datetime                                                                              | Timestamp                      |
+
+## Delivery Outbox Model
+
+`DeliveryOutboxItem` (src/medre/core/storage/backend.py):
+
+| Field            | Type            | Description                              |
+| ---------------- | --------------- | ---------------------------------------- |
+| outbox_id        | str             | UUID ("obox-...")                        |
+| event_id         | str             | Canonical event being delivered          |
+| route_id         | str             | Route that triggered delivery            |
+| delivery_plan_id | str             | Plan identifier                          |
+| target_adapter   | str             | Target adapter name                      |
+| target_channel   | str or None     | Target channel                           |
+| target_address   | str or None     | Target address if used                   |
+| attempt_number   | int             | 1-indexed attempt counter                |
+| status           | str             | pending/queued/sent/retry_wait/dead_lettered/cancelled/abandoned |
+| failure_kind     | str or None     | Failure classification                   |
+| next_attempt_at  | str or None     | ISO-8601 next retry time                 |
+| receipt_id       | str or None     | Most recent receipt for this attempt     |
+| parent_receipt_id| str or None     | Previous receipt in retry lineage        |
+| error_summary    | str or None     | Capped error string                      |
+| metadata         | dict or None    | Transport-neutral metadata               |
 
 ## Delivery Failure Classification
 

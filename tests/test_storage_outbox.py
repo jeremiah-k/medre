@@ -102,6 +102,30 @@ class TestIdempotentCreate:
         created2 = await temp_storage.create_outbox_item(item2)
         assert created1.outbox_id != created2.outbox_id
 
+    async def test_null_channel_duplicate_returns_existing(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Two items with NULL target_channel and same key tuple should
+        not create duplicates (covered by partial UNIQUE index)."""
+        item1 = _make_outbox_item(
+            delivery_plan_id="plan-null-ch",
+            target_channel=None,
+        )
+        created1 = await temp_storage.create_outbox_item(item1)
+
+        item2 = DeliveryOutboxItem(
+            outbox_id=f"obox-{uuid.uuid4()}",
+            event_id=item1.event_id,
+            route_id=item1.route_id,
+            delivery_plan_id="plan-null-ch",
+            target_adapter="fake_presentation",
+            target_channel=None,
+            attempt_number=1,
+        )
+        created2 = await temp_storage.create_outbox_item(item2)
+        # Should return existing item (idempotent).
+        assert created2.outbox_id == created1.outbox_id
+
     async def test_different_attempt_allows_separate(
         self, temp_storage: SQLiteStorage
     ) -> None:
@@ -110,6 +134,54 @@ class TestIdempotentCreate:
         created1 = await temp_storage.create_outbox_item(item1)
         created2 = await temp_storage.create_outbox_item(item2)
         assert created1.outbox_id != created2.outbox_id
+
+    async def test_recreate_after_terminal_allows_new_row(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """After an item reaches a terminal status, creating a new item
+        with the same key tuple should succeed (re-delivery)."""
+        # Create and mark as dead_lettered (terminal).
+        item1 = _make_outbox_item(
+            delivery_plan_id="plan-recreate",
+            target_channel="ch-r1",
+        )
+        created1 = await temp_storage.create_outbox_item(item1)
+        await temp_storage.mark_outbox_dead_lettered(
+            created1.outbox_id, failure_kind="adapter_permanent"
+        )
+
+        # Re-create with same key tuple.
+        item2 = _make_outbox_item(
+            delivery_plan_id="plan-recreate",
+            target_channel="ch-r1",
+        )
+        created2 = await temp_storage.create_outbox_item(item2)
+
+        # Should succeed with a NEW outbox_id (terminal row was deleted).
+        assert created2.outbox_id == item2.outbox_id
+        assert created2.outbox_id != created1.outbox_id
+        assert created2.status == "pending"
+
+    async def test_recreate_after_sent_allows_new_row(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """After an item is marked sent (terminal), re-creation should succeed."""
+        item1 = _make_outbox_item(
+            delivery_plan_id="plan-recreate-sent",
+            target_channel="ch-rs",
+        )
+        created1 = await temp_storage.create_outbox_item(item1)
+        await temp_storage.mark_outbox_sent(
+            created1.outbox_id, receipt_id="rcpt-1"
+        )
+
+        item2 = _make_outbox_item(
+            delivery_plan_id="plan-recreate-sent",
+            target_channel="ch-rs",
+        )
+        created2 = await temp_storage.create_outbox_item(item2)
+        assert created2.outbox_id == item2.outbox_id
+        assert created2.outbox_id != created1.outbox_id
 
 
 # ===================================================================
@@ -207,12 +279,11 @@ class TestClaimDueItems:
         # Worker 2 should get nothing — all items claimed by worker 1.
         assert len(worker2) == 0
 
-    async def test_lease_expiry_does_not_auto_reclaim(
+    async def test_lease_expiry_allows_reclaim(
         self, temp_storage: SQLiteStorage
     ) -> None:
-        """After lease expiry, items stay ``in_progress`` and are not
-        auto-reclaimed.  This prevents duplicate processing.  Operators
-        must resolve stale in_progress items manually."""
+        """After lease expiry, in_progress items are reclaimable by another
+        worker.  This prevents items from getting permanently stuck."""
         item = _make_outbox_item(delivery_plan_id="plan-lease-expire")
         await temp_storage.create_outbox_item(item)
 
@@ -222,12 +293,13 @@ class TestClaimDueItems:
         )
         assert len(claimed1) == 1
 
-        # After lease expiry, item is still in_progress — not reclaimable.
+        # After lease expiry, item is reclaimable by another worker.
         later = "2026-02-01T00:00:00"  # well past lease expiry
         claimed2 = await temp_storage.claim_due_outbox_items(
             now=later, worker_id="worker-2", lease_seconds=30, limit=10
         )
-        assert len(claimed2) == 0
+        assert len(claimed2) == 1
+        assert claimed2[0].worker_id == "worker-2"
 
     async def test_claim_skips_sent_items(self, temp_storage: SQLiteStorage) -> None:
         sent_item = _make_outbox_item(delivery_plan_id="plan-sent-skip", status="sent")
@@ -359,6 +431,7 @@ class TestReleaseClaim:
         assert released.locked_at is None
         assert released.lease_until is None
         assert released.worker_id is None
+        assert released.status == "pending"
 
     async def test_release_wrong_worker_noop(self, temp_storage: SQLiteStorage) -> None:
         item = _make_outbox_item(delivery_plan_id="plan-release-wrong")

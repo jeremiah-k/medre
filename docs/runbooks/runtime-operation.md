@@ -1116,6 +1116,21 @@ for the full evidence collection workflow using `medre evidence`.
 
 Diagnostics are per-adapter. Each adapter's snapshot is isolated from other adapters. See Contract 29 for the complete diagnostics schema.
 
+### Delivery Outbox
+
+The delivery outbox persists pending and retryable delivery work.  Operators can inspect outbox state via:
+
+- **Runtime snapshot**: The `outbox` section of the runtime snapshot shows status counts (`pending`, `retry_wait`, `in_progress`, `dead_lettered`, etc.)
+- **Storage queries**: Outbox items are in the `delivery_outbox` SQLite table.  Use `sqlite3` to query directly:
+  ```
+  SELECT status, COUNT(*) FROM delivery_outbox GROUP BY status;
+  ```
+- **Recover CLI**: The `medre recover` command lists pending, retry, and dead-lettered items with target adapter, channel, and error summaries.
+
+**Automatic recovery**: When `[retry] enabled = true`, the RetryWorker automatically claims and re-attempts due items on each cycle.  No operator intervention is needed for transient failures.
+
+**Manual recovery**: Dead-lettered items require explicit operator action via `recover`.  The operator may choose to re-deliver, re-route, or acknowledge and discard.
+
 ### Sample Output
 
 The following compact excerpts illustrate the key structural differences between plain diagnostics and `--refresh-health` output. Values are illustrative, not from a real run.

@@ -211,7 +211,7 @@ class DeliveryOutboxItem:
     @property
     def is_claimable(self) -> bool:
         """Return ``True`` if this item can be claimed for processing."""
-        return self.status in {"pending", "retry_wait"} and not self.is_terminal
+        return self.status in {"pending", "retry_wait"}
 
 
 # ---------------------------------------------------------------------------

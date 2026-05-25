@@ -20,7 +20,8 @@ For each due outbox item claimed, the RetryWorker:
 2. Finds the most recent receipt for this delivery plan / target.
 3. Reconstructs minimal Route + DeliveryPlan from outbox/receipt metadata.
 4. Calls ``PipelineRunner.deliver_to_target(... previous_receipt=...)``.
-5. Creates a new outbox item for the next attempt (or marks terminal).
+5. Marks terminal on success or updates the existing item to retry_wait
+   for the next attempt (or marks dead-lettered on exhaustion).
 
 Legacy receipt-based retry (pre-outbox databases) is supported as a
 fallback via ``_process_due_receipts()``.
@@ -40,6 +41,15 @@ if TYPE_CHECKING:
     from medre.core.storage.sqlite import SQLiteStorage
     from medre.core.supervision.capacity import CapacityController
     from medre.runtime.events import EventBuffer
+
+from medre.core.planning.delivery_plan import (
+    DeliveryPlan,
+    DeliveryStrategy,
+    RetryExecutor,
+    RetryPolicy,
+)
+from medre.core.routing.models import Route, RouteSource, RouteTarget
+from medre.runtime.events import RuntimeEventType
 
 __all__ = ["RetryWorker", "RetryWorkerState"]
 
@@ -91,11 +101,15 @@ class RetryWorker:
         self._outbox_counts: dict[str, int] = {}
         self.state = RetryWorkerState(enabled=enabled)
 
+    @property
+    def outbox_counts(self) -> dict[str, int]:
+        """Return a copy of the last-known outbox status counts."""
+        return dict(self._outbox_counts)
+
     def _emit(self, event_type: str, detail: dict[str, Any]) -> None:
         """Emit a runtime event if an event buffer is configured."""
         if self._event_buffer is None:
             return
-        from medre.runtime.events import RuntimeEventType
 
         try:
             rt = RuntimeEventType(event_type)
@@ -238,13 +252,6 @@ class RetryWorker:
         context, finds the latest receipt for lineage, and re-attempts
         delivery through the pipeline.
         """
-        from medre.core.planning.delivery_plan import (
-            DeliveryPlan,
-            DeliveryStrategy,
-            RetryPolicy,
-        )
-        from medre.core.routing.models import Route, RouteSource, RouteTarget
-
         event = await self._storage.get(item.event_id)
         if event is None:
             _logger.warning(
@@ -303,6 +310,15 @@ class RetryWorker:
                     "RetryWorker: capacity error for outbox %s",
                     item.outbox_id,
                 )
+                try:
+                    await self._storage.release_outbox_claim(
+                        item.outbox_id, item.worker_id or ""
+                    )
+                except Exception:
+                    _logger.exception(
+                        "RetryWorker: failed to release claim for outbox %s",
+                        item.outbox_id,
+                    )
                 return
             capacity_acquired = True
 
@@ -368,11 +384,17 @@ class RetryWorker:
             # Success — deliver_to_target returned a receipt.
             self.state.processed += 1
             self.state.succeeded += 1
-            await self._storage.mark_outbox_sent(
-                item.outbox_id,
-                receipt_id=result_receipt.receipt_id,
-                attempt_number=result_receipt.attempt_number,
-            )
+            if result_receipt.status == "queued":
+                await self._storage.mark_outbox_queued(
+                    item.outbox_id,
+                    receipt_id=result_receipt.receipt_id,
+                )
+            else:
+                await self._storage.mark_outbox_sent(
+                    item.outbox_id,
+                    receipt_id=result_receipt.receipt_id,
+                    attempt_number=result_receipt.attempt_number,
+                )
             self._emit(
                 "retry_succeeded",
                 {
@@ -409,8 +431,20 @@ class RetryWorker:
 
             if is_dead_lettered:
                 self.state.dead_lettered += 1
+                # Find the dead-lettered receipt to link the outbox item.
+                _dl_receipt_id = None
+                try:
+                    _dl_receipts = await self._storage.list_receipts_for_plan(
+                        item.delivery_plan_id,
+                        item.target_adapter,
+                    )
+                    if _dl_receipts:
+                        _dl_receipt_id = _dl_receipts[-1].receipt_id
+                except Exception:
+                    pass
                 await self._storage.mark_outbox_dead_lettered(
                     item.outbox_id,
+                    receipt_id=_dl_receipt_id,
                     failure_kind="retry_exhausted",
                 )
                 self._emit(
@@ -427,10 +461,20 @@ class RetryWorker:
             else:
                 # Compute backoff for next retry attempt.
                 try:
-                    from medre.core.planning.delivery_plan import (
-                        RetryExecutor,
-                        RetryPolicy,
-                    )
+                    # Try to get the actual failure kind from the latest
+                    # receipt (which the pipeline already persisted).
+                    _actual_kind = "delivery_failure"
+                    try:
+                        _latest_receipts = await self._storage.list_receipts_for_plan(
+                            item.delivery_plan_id,
+                            item.target_adapter,
+                        )
+                        if _latest_receipts:
+                            _latest = _latest_receipts[-1]
+                            if _latest.failure_kind:
+                                _actual_kind = _latest.failure_kind
+                    except Exception:
+                        pass  # fall through to default
 
                     policy = RetryPolicy(
                         max_attempts=_max_attempts,
@@ -438,15 +482,16 @@ class RetryWorker:
                         max_delay_seconds=_max_delay,
                         jitter=_jitter,
                     )
+                    next_attempt = item.attempt_number + 1
                     backoff = RetryExecutor(policy).compute_backoff(
-                        item.attempt_number,
+                        next_attempt,
                     )
                     next_at = datetime.now(timezone.utc) + backoff
                     await self._storage.mark_outbox_retry_wait(
                         item.outbox_id,
                         next_attempt_at=next_at.isoformat(),
-                        failure_kind="delivery_failure",
-                        attempt_number=item.attempt_number + 1,
+                        failure_kind=_actual_kind,
+                        attempt_number=next_attempt,
                     )
                 except Exception:
                     _logger.exception(
@@ -475,13 +520,6 @@ class RetryWorker:
 
     async def _retry_one_legacy(self, receipt: Any) -> None:
         """Legacy retry for a single receipt (pre-outbox databases)."""
-        from medre.core.planning.delivery_plan import (
-            DeliveryPlan,
-            DeliveryStrategy,
-            RetryPolicy,
-        )
-        from medre.core.routing.models import Route, RouteSource, RouteTarget
-
         event = await self._storage.get(receipt.event_id)
         if event is None:
             _logger.warning(
@@ -505,11 +543,6 @@ class RetryWorker:
                         receipt.receipt_id,
                     )
                     try:
-                        from medre.core.planning.delivery_plan import (
-                            RetryExecutor,
-                            RetryPolicy,
-                        )
-
                         policy = RetryPolicy(
                             max_attempts=(
                                 receipt.retry_max_attempts
@@ -554,7 +587,7 @@ class RetryWorker:
                             "target_adapter": receipt.target_adapter,
                             "attempt_number": receipt.attempt_number,
                             "status": "capacity_rejection",
-                            "failure_kind": "capacity_rejection",
+                            "failure_kind": receipt.failure_kind or "delivery_failure",
                             "error": "delivery capacity not available",
                             "next_retry_at": None,
                         },

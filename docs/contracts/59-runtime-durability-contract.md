@@ -1,6 +1,7 @@
 # Contract 59 — Runtime Durability Contract
 
 **Status:** Active
+**Last reviewed:** 2026-05-25
 **Scope:** Durability semantics for the MEDRE runtime: what is durable, what is process-local, crash recovery expectations, boundedness guarantees, and explicit non-guarantees. For **where** state is stored and **when** it is written, see Contract 55 (Runtime Persistence).
 **Audience:** Runtime builders, adapter authors, operators.
 **Tracks:** 9 (evidence consolidation and boundary enforcement)
@@ -77,6 +78,7 @@ The following state survives process termination (crash, shutdown, or restart). 
 | Matrix E2EE crypto keys                                                                        | Yes                    | SDK-managed (see Contract 55 §2.2)                                                  |
 | LXMF identities                                                                                | Yes                    | Transport-managed (see Contract 55 §2.2)                                            |
 | Log history                                                                                    | Yes (up to last flush) | Append-only                                                                         |
+| Delivery outbox items                                                                           | Yes                    | On outbox create (before delivery); status updated on each attempt                 |
 
 ### 3.1 Persistence Timing
 
@@ -92,6 +94,26 @@ MEDRE persists state to a local SQLite database and local filesystem (see Contra
 - No shared storage across MEDRE instances.
 
 Operators are responsible for database backup, log rotation, and monitoring disk space (a full disk stops event persistence).
+
+### 3.3 Delivery Outbox
+
+The `delivery_outbox` table (see Contract 03 §3.11) persists operational delivery work state. Outbox items are created **after** route/policy/loop/capacity acceptance and **before** the adapter delivery attempt, so pending work survives a crash between acceptance and receipt commit.
+
+**What survives crash:**
+- Items with status `pending`, `retry_wait`, `queued` (queued-but-unsent Meshtastic items are lost — the adapter queue is in-memory)
+- Items with status `in_progress` whose lease has expired (re-claimable on restart)
+
+**What is lost on crash:**
+- Meshtastic adapter-local queue contents (in-memory, not durable)
+- In-flight deliveries that have not yet created an outbox item
+
+**Recovery on restart:**
+When the RetryWorker is enabled (`[retry] enabled = true`), due outbox items (status `pending` or `retry_wait` with `next_attempt_at <= now`) are claimed and re-attempted automatically on the next worker cycle.
+
+**Known risks:**
+- A crash after local adapter send succeeds but before the `sent` receipt is committed may cause a duplicate send on recovery.
+- Config changes between crash and recovery can change rendered output or make recovery impossible (producing abandoned/dead-lettered evidence).
+- The outbox does **not** provide exactly-once delivery, RF confirmation, ACK, remote receipt, or end-to-end delivery guarantees.
 
 ## 4. Process-Local State
 

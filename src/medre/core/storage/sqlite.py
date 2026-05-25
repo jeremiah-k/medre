@@ -12,7 +12,7 @@ import logging
 import os
 import sqlite3
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, AsyncGenerator
 
 import msgspec
@@ -218,6 +218,12 @@ CREATE INDEX IF NOT EXISTS idx_outbox_plan_target
     ON delivery_outbox(delivery_plan_id, target_adapter, target_channel);
 CREATE INDEX IF NOT EXISTS idx_outbox_event
     ON delivery_outbox(event_id);
+-- SQLite treats NULL != NULL in UNIQUE constraints.  This partial unique
+-- index closes the gap: no two outbox items with NULL target_channel can
+-- share the same (delivery_plan_id, target_adapter, attempt_number) tuple.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_null_channel_unique
+    ON delivery_outbox(delivery_plan_id, target_adapter, attempt_number)
+    WHERE target_channel IS NULL;
 """
 
 # ---------------------------------------------------------------------------
@@ -622,9 +628,7 @@ def _add_seconds_iso(iso_str: str, seconds: int) -> str:
         dt = datetime.fromisoformat(iso_str)
     except (ValueError, TypeError):
         return iso_str
-    import datetime as dt_mod
-
-    return (dt + dt_mod.timedelta(seconds=seconds)).isoformat()
+    return (dt + timedelta(seconds=seconds)).isoformat()
 
 
 def _build_query_sql(filt: EventFilter) -> tuple[str, tuple[Any, ...]]:
@@ -1489,11 +1493,12 @@ class SQLiteStorage:
     async def create_outbox_item(self, item: DeliveryOutboxItem) -> DeliveryOutboxItem:
         """Create a new outbox item.
 
-        Uses ``INSERT OR IGNORE`` with the UNIQUE constraint on
+        Checks for an existing item with the same key tuple
         ``(delivery_plan_id, target_adapter, target_channel, attempt_number)``
-        so that duplicate creates for the same key tuple are silently
-        ignored (idempotent create).  When the insert is skipped the
-        existing item is returned unchanged.
+        before inserting.  If a non-terminal item already exists it is
+        returned unchanged (idempotent create).  If the existing item is
+        terminal it is deleted first so a new row for re-delivery can
+        be inserted without violating the UNIQUE constraint.
         """
         now = _now_iso()
         meta_json = _encode_json(item.metadata or {})
@@ -1515,6 +1520,14 @@ class SQLiteStorage:
             _terminal = {"sent", "dead_lettered", "cancelled", "abandoned"}
             if existing["status"] not in _terminal:
                 return await self.get_outbox_item(existing["outbox_id"]) or item
+            # Existing item is terminal — remove it so the UNIQUE
+            # constraint on (delivery_plan_id, target_adapter,
+            # target_channel, attempt_number) permits re-insertion
+            # with the same key tuple.
+            await self._write(
+                "DELETE FROM delivery_outbox WHERE outbox_id = ?",
+                (existing["outbox_id"],),
+            )
 
         try:
             await self._write(
@@ -1607,6 +1620,7 @@ class SQLiteStorage:
         Uses a transaction to SELECT FOR UPDATE equivalent (rowid-based)
         and updates in one step.  Claims items that are:
         - status IN ('pending', 'retry_wait')
+          OR (status = 'in_progress' AND lease_until <= now) — expired leases
         - (next_attempt_at IS NULL OR next_attempt_at <= now)
         - (lease_until IS NULL OR lease_until <= now)
         """
@@ -1616,12 +1630,13 @@ class SQLiteStorage:
         # so we select first, then update by outbox_id.
         rows = await self._read_all(
             """SELECT * FROM delivery_outbox
-               WHERE status IN ('pending', 'retry_wait')
+               WHERE (status IN ('pending', 'retry_wait')
+                      OR (status = 'in_progress' AND lease_until <= ?))
                  AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
                  AND (lease_until IS NULL OR lease_until <= ?)
                ORDER BY next_attempt_at ASC, created_at ASC
                LIMIT ?""",
-            (now, now, limit),
+            (now, now, now, limit),
         )
         if not rows:
             return []
@@ -1636,9 +1651,10 @@ class SQLiteStorage:
                     worker_id = ?,
                     updated_at = ?
                 WHERE outbox_id IN ({placeholders})
-                  AND status IN ('pending', 'retry_wait')
+                  AND (status IN ('pending', 'retry_wait')
+                       OR (status = 'in_progress' AND lease_until <= ?))
                   AND (lease_until IS NULL OR lease_until <= ?)""",  # nosec: placeholders are only ? markers, values passed as params
-            (now, lease_until, worker_id, now, *outbox_ids, now),
+            (now, lease_until, worker_id, now, *outbox_ids, now, now),
         )
 
         # Re-read to get the updated rows (some may have been claimed by
@@ -1798,14 +1814,14 @@ class SQLiteStorage:
         outbox_id: str,
         worker_id: str,
     ) -> None:
-        """Release a claim on an outbox item without changing status.
+        """Release a claim on an outbox item, resetting status to pending.
 
-        Only clears lease fields when the current worker_id matches.
+        Clears lease fields and resets status so the item can be reclaimed.
         """
         await self._write(
             """UPDATE delivery_outbox
                SET locked_at = NULL, lease_until = NULL, worker_id = NULL,
-                   updated_at = ?
+                   status = 'pending', updated_at = ?
                WHERE outbox_id = ? AND worker_id = ?""",
             (_now_iso(), outbox_id, worker_id),
         )

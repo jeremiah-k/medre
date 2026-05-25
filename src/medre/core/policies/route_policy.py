@@ -119,6 +119,9 @@ def _safe_summary(field_name: str, values: tuple[str, ...]) -> str:
     return f"{field_name}: [{preview}, ... ({len(values)} total)]"
 
 
+_BLOCKED_VALUE_CUTOFF = 256
+
+
 def _deny(
     reason: str,
     blocked_field: str,
@@ -126,12 +129,16 @@ def _deny(
     policy: RoutePolicy,
 ) -> RouteDecision:
     """Build a denial decision."""
+    if len(blocked_value) >= _BLOCKED_VALUE_CUTOFF:
+        safe_display = "<blocked>"
+    else:
+        safe_display = blocked_value.encode("unicode_escape").decode("ascii")
     return RouteDecision(
         allowed=False,
         reason=reason,
         blocked_field=blocked_field,
         blocked_value=blocked_value,
-        allowed_summary=f"denied: {reason} ({blocked_field}={blocked_value})",
+        allowed_summary=f"denied: {reason} ({blocked_field}={safe_display})",
     )
 
 
