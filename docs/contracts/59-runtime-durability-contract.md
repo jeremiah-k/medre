@@ -1,6 +1,7 @@
 # Contract 59 — Runtime Durability Contract
 
 **Status:** Active
+**Last reviewed:** 2026-05-25
 **Scope:** Durability semantics for the MEDRE runtime: what is durable, what is process-local, crash recovery expectations, boundedness guarantees, and explicit non-guarantees. For **where** state is stored and **when** it is written, see Contract 55 (Runtime Persistence).
 **Audience:** Runtime builders, adapter authors, operators.
 **Tracks:** 9 (evidence consolidation and boundary enforcement)
@@ -20,7 +21,7 @@ This contract specifies the **durability boundary** of the MEDRE runtime — wha
 
 For the **storage locations** and **write timing** of persisted state (SQLite tables, file paths, WAL mode details), see Contract 55 (Runtime Persistence). This contract references those storage details but does not duplicate them.
 
-This contract describes the current runtime's actual behavior. No new storage mechanisms or durability features are introduced.
+This contract describes the current runtime's actual behavior, including the `delivery_outbox` operational state machine and durable retry/recovery mechanisms.
 
 ## 2. Runtime Guarantees
 
@@ -30,7 +31,7 @@ Every normalized event that enters the pipeline is written to durable storage **
 
 ### 2.2 Delivery Receipts Are Written After Completion
 
-A delivery receipt is written to durable storage after each delivery attempt completes (success or failure). If the runtime crashes during a delivery, no receipt is written for that attempt. The event remains in storage without a receipt.
+A delivery receipt is written to durable storage after each delivery attempt completes (success or failure). If the runtime crashes during a delivery, no receipt is written for that attempt. The event remains in storage without a receipt, but may have a `delivery_outbox` row (status `in_progress`) that survives the crash and can be reclaimed after lease expiry (see §3.3).
 
 ### 2.3 Committed Transactions Survive Hard Crash
 
@@ -68,7 +69,7 @@ The following state survives process termination (crash, shutdown, or restart). 
 | ---------------------------------------------------------------------------------------------- | ---------------------- | ----------------------------------------------------------------------------------- |
 | Canonical events                                                                               | Yes                    | During pipeline store step, before delivery                                         |
 | Delivery receipts                                                                              | Yes                    | After each delivery attempt completes                                               |
-| Retry pending state (`next_retry_at`, `failure_kind` on failed receipts)                       | Yes                    | With the failed delivery receipt; RetryWorker reads these on next cycle             |
+| Outbox retry state (`next_attempt_at`, `failure_kind`, `attempt_number` on outbox items)       | Yes                    | On outbox status update; RetryWorker claims due outbox items on each cycle          |
 | Receipt traceability (`source` (`"live"`, `"retry"`, `"replay"`), `replay_run_id` on receipts) | Yes                    | With the delivery receipt                                                           |
 | Route attribution (`route_id` on receipts)                                                     | Yes                    | With the delivery receipt                                                           |
 | Native references (platform message IDs)                                                       | Yes                    | With the delivery receipt (only on successful delivery, including successful retry) |
@@ -77,6 +78,7 @@ The following state survives process termination (crash, shutdown, or restart). 
 | Matrix E2EE crypto keys                                                                        | Yes                    | SDK-managed (see Contract 55 §2.2)                                                  |
 | LXMF identities                                                                                | Yes                    | Transport-managed (see Contract 55 §2.2)                                            |
 | Log history                                                                                    | Yes (up to last flush) | Append-only                                                                         |
+| Delivery outbox items                                                                          | Yes                    | On outbox create (before delivery); status updated on each attempt                  |
 
 ### 3.1 Persistence Timing
 
@@ -93,27 +95,52 @@ MEDRE persists state to a local SQLite database and local filesystem (see Contra
 
 Operators are responsible for database backup, log rotation, and monitoring disk space (a full disk stops event persistence).
 
+### 3.3 Delivery Outbox
+
+The `delivery_outbox` table (see Contract 03 §3.11) persists operational delivery work state. Outbox items are created **after** route/policy/loop/capacity acceptance and **before** the adapter delivery attempt, so pending work survives a crash between acceptance and receipt commit.
+
+**What survives crash:**
+
+- Items with status `pending`, `retry_wait`, `queued` (queued outbox rows survive; adapter-local queue contents are lost on crash)
+- Items with status `in_progress` whose lease has expired (re-claimable on restart)
+
+**What is lost on crash:**
+
+- Meshtastic adapter-local queue contents (in-memory, not durable)
+- In-flight deliveries that have not yet created an outbox item
+
+**Recovery on restart:**
+When the RetryWorker is enabled (`[retry] enabled = true`), due outbox items are claimed and re-attempted automatically on the next worker cycle. Claimable categories: `pending` or `retry_wait` (direct claim), `in_progress` with expired lease, and stale `queued` rows past the grace threshold (`STALE_QUEUED_GRACE_SECONDS`, default 300 s).
+
+**Known risks:**
+
+- A crash after local adapter send succeeds but before the `sent` receipt is committed may cause a duplicate send on recovery.
+- Config changes between crash and recovery can change rendered output or make recovery impossible (producing abandoned/dead-lettered evidence).
+- The outbox does **not** provide exactly-once delivery, RF confirmation, ACK, remote receipt, or end-to-end delivery guarantees.
+
 ## 4. Process-Local State
 
 The following state is **lost** on process termination (crash, shutdown, or restart):
 
-| State                                                                                                 | Nature                        | Impact of Loss                                                                               |
-| ----------------------------------------------------------------------------------------------------- | ----------------------------- | -------------------------------------------------------------------------------------------- |
-| In-flight deliveries                                                                                  | Semaphore-tracked coroutines  | No receipt, no retry, no recovery                                                            |
-| Active replay runs                                                                                    | Async generator iterations    | Must re-initiate manually                                                                    |
-| ReplaySummary (completed replay results)                                                              | In-memory dataclass           | Must re-run replay to regenerate                                                             |
-| Meshtastic outbound queue (`MeshtasticOutboundQueue` internal deque)                                  | In-memory `collections.deque` | All queued-but-unsent items lost; events survive in SQLite but have no receipt or native ref |
-| `CapacityController` internal gauges (`delivery_timeouts`, `delivery_rejections`, etc.)               | In-memory counters            | Reset to zero on every startup                                                               |
-| `RouteStats` per-route counters                                                                       | In-memory counters            | No historical route statistics                                                               |
-| `RuntimeAccounting` counters                                                                          | In-memory counters            | Reset to zero on every startup                                                               |
-| Retry snapshot counters (`retry_processed`, `retry_succeeded`, `retry_failed`, `retry_dead_lettered`) | In-memory counters            | Reset to zero on every startup; reflect current run only                                     |
-| Adapter health / connection state                                                                     | In-memory                     | Adapters reconnect from scratch on restart                                                   |
-| `Diagnostician` counters                                                                              | In-memory                     | Reset to zero on every startup                                                               |
-| `BootSummary`                                                                                         | In-memory                     | Recomputed on next startup                                                                   |
+| State                                                                                                 | Nature                        | Impact of Loss                                                                    |
+| ----------------------------------------------------------------------------------------------------- | ----------------------------- | --------------------------------------------------------------------------------- |
+| In-flight deliveries                                                                                  | Semaphore-tracked coroutines  | No receipt; outbox item with expired lease is re-claimable on restart             |
+| Active replay runs                                                                                    | Async generator iterations    | Must re-initiate manually                                                         |
+| ReplaySummary (completed replay results)                                                              | In-memory dataclass           | Must re-run replay to regenerate                                                  |
+| Meshtastic outbound queue (`MeshtasticOutboundQueue` internal deque)                                  | In-memory `collections.deque` | All queued-but-unsent items lost; events and queued outbox rows survive in SQLite |
+| `CapacityController` internal gauges (`delivery_timeouts`, `delivery_rejections`, etc.)               | In-memory counters            | Reset to zero on every startup                                                    |
+| `RouteStats` per-route counters                                                                       | In-memory counters            | No historical route statistics                                                    |
+| `RuntimeAccounting` counters                                                                          | In-memory counters            | Reset to zero on every startup                                                    |
+| Retry snapshot counters (`retry_processed`, `retry_succeeded`, `retry_failed`, `retry_dead_lettered`) | In-memory counters            | Reset to zero on every startup; reflect current run only                          |
+| Adapter health / connection state                                                                     | In-memory                     | Adapters reconnect from scratch on restart                                        |
+| `Diagnostician` counters                                                                              | In-memory                     | Reset to zero on every startup                                                    |
+| `BootSummary`                                                                                         | In-memory                     | Recomputed on next startup                                                        |
 
-### 4.1 No Recovery of In-Flight Work
+### 4.1 In-Flight Delivery Recovery
 
-In-flight deliveries and replay events that are abandoned at shutdown or lost on crash are **not** recovered on restart. There is no persistent in-flight queue, no replay resume mechanism, and no deduplication on restart. Restart begins with a clean in-flight state.
+In-flight deliveries that have an `in_progress` outbox item with an **expired lease** are re-claimable by the RetryWorker on restart (when `[retry] enabled = true`). Deliveries that never created an outbox item (e.g., pre-capacity-acceptance failures) are lost. Adapter-local queue contents (Meshtastic) are in-memory and non-durable.
+
+Restart begins with a clean in-flight semaphore state. The outbox provides durable operational work state; adapter-local queues do not.
 
 ### 4.2 Counters Reset on Every Startup
 
@@ -135,17 +162,19 @@ All `CapacityController`, `RouteStats`, `RuntimeAccounting`, and `Diagnostician`
 
 ## 4.4 Retry Persistence
 
-Transient-failure receipts with `next_retry_at` set survive process restart. The `RetryWorker` loads due receipts on its next cycle after restart.
+Outbox items with status `retry_wait` and `next_attempt_at` set survive process restart. The `RetryWorker` claims due outbox items on its next cycle after restart.
 
 **Durable retry state (survives crash):**
 
 | State                                                                                                 | Storage                   | Notes                                                                                              |
 | ----------------------------------------------------------------------------------------------------- | ------------------------- | -------------------------------------------------------------------------------------------------- |
-| Failed receipts with `failure_kind='adapter_transient'` and `next_retry_at` set                       | `delivery_receipts` table | RetryWorker queries these on each cycle                                                            |
+| Outbox items with `status='retry_wait'` and `next_attempt_at` set                                     | `delivery_outbox` table   | RetryWorker claims these on each cycle (pending or retry_wait with next_attempt_at <= now)         |
+| Outbox items with `status='in_progress'` and expired lease                                            | `delivery_outbox` table   | Claimable by RetryWorker after restart when lease_until <= now                                     |
+| Failed delivery receipts (evidence/audit)                                                             | `delivery_receipts` table | Append-only evidence trail; retry state tracked on outbox items                                    |
 | Retry policy metadata (`retry_max_attempts`, `retry_backoff_base`, `retry_max_delay`, `retry_jitter`) | `delivery_receipts` table | Persisted on first failure receipt; RetryWorker reads policy from stored receipt, not route config |
 | Retry lineage (`parent_receipt_id`, `attempt_number`)                                                 | `delivery_receipts` table | Each retry attempt produces a new receipt linked to the previous                                   |
 | Dead-lettered receipts (exhausted retries)                                                            | `delivery_receipts` table | Final receipt in the chain with `status='dead_lettered'`                                           |
-| Frozen target metadata (`target_adapter`, `target_channel`)                                           | `delivery_receipts` table | Retry targets the adapter/channel from the original failure, not current route config              |
+| Frozen target metadata (`target_adapter`, `target_channel`)                                           | `delivery_outbox` table   | Retry targets the adapter/channel on the outbox item, not current route config                     |
 
 **Retry policy persistence:** The first failure receipt captures the `RetryPolicy` parameters from the active route as `retry_max_attempts`, `retry_backoff_base`, `retry_max_delay`, and `retry_jitter` columns. The `RetryWorker` reads these values from the stored receipt on each cycle, not from the current route configuration. This ensures that route or `RetryPolicy` changes after the original failure do not affect in-flight retry behavior. The retry policy is frozen at first failure.
 
@@ -153,20 +182,39 @@ Transient-failure receipts with `next_retry_at` set survive process restart. The
 
 | State                                                                                                 | Nature             | Impact of Loss                                     |
 | ----------------------------------------------------------------------------------------------------- | ------------------ | -------------------------------------------------- |
-| RetryWorker cycle timer                                                                               | In-memory task     | Next cycle resumes from persistent receipts        |
+| RetryWorker cycle timer                                                                               | In-memory task     | Next cycle resumes from outbox items               |
 | Snapshot retry counters (`retry_processed`, `retry_succeeded`, `retry_failed`, `retry_dead_lettered`) | In-memory counters | Reset to zero on restart; reflect current run only |
 
 **Native refs on retry:** Native references (`NativeMessageRef`) are only persisted on successful retry delivery, not on the original transient failure. The original failure receipt has no native ref because the adapter did not produce a transport-level message ID.
 
-**Retry snapshot counters reflect the current process run, not cumulative history.** After restart, all retry counters reset to zero even though durable retry state (pending receipts) persists in SQLite. Operators must query `delivery_receipts` directly for cumulative retry history.
+**Retry snapshot counters reflect the current process run, not cumulative history.** After restart, all retry counters reset to zero even though durable retry state (outbox items) persists in SQLite. Operators must query `delivery_outbox` directly for current retry state.
 
-**Capacity rejection does not persist a receipt.** If the RetryWorker cannot acquire the delivery semaphore when processing a due retry, it emits a `retry_failed` runtime event and reschedules the existing receipt's `next_retry_at` to the next worker interval. No new `DeliveryReceipt` row is created for capacity rejection. The original failed receipt remains the only record. Capacity rejection is backpressure, not a delivery failure — it does not advance `attempt_number` and does not count toward `RetryPolicy` exhaustion.
+**Capacity rejection does not advance the outbox item.** If the RetryWorker cannot acquire the delivery semaphore when processing a due outbox item, it emits a `retry_failed` runtime event, transitions the outbox item to `retry_wait` with a computed backoff and `failure_kind="capacity_rejection"`, and the item will be reclaimed on the next worker cycle. No new `DeliveryReceipt` row is created for capacity rejection. Capacity rejection is backpressure, not a delivery failure — it does not advance `attempt_number` and does not count toward `RetryPolicy` exhaustion.
 
-## 4.5 Meshtastic Outbound Queue — Non-Durability Decision
+## 4.5 Meshtastic Queue Durability
 
-The `MeshtasticOutboundQueue` is an **in-memory, non-durable** queue (`collections.deque`). This is an intentional alpha limitation, not a bug.
+Meshtastic adapter-local queue contents (`collections.deque`) remain
+**in-memory and non-durable** — queue contents are lost on process crash
+or shutdown.
 
-**Design decision:** The Meshtastic outbound queue provides local-only send ordering and bounded retry within the process lifetime. It is not a persistent queue. Items that are enqueued but not yet sent at the time of crash, shutdown, or process termination are **permanently lost**.
+However, when a delivery is accepted by the Meshtastic adapter queue, a
+`queued` outbox row and corresponding receipt are written to durable
+storage. These survive if committed before the crash.
+
+After restart, a `queued` outbox row is **ambiguous**: the adapter may
+or may not have sent the message before the crash. Freshly queued rows
+(within the `STALE_QUEUED_GRACE_SECONDS` window, default 300 s) are **not**
+automatically reclaimed. Stale queued rows past the grace threshold are
+reclaimed by the RetryWorker like other due items, which may produce a
+duplicate send. Operators should inspect stale queued rows before relying
+on automatic recovery.
+
+Pending, `retry_wait`, and expired `in_progress` outbox rows are
+claimable by the RetryWorker on restart (when `[retry] enabled = true`).
+Stale `queued` rows (past the grace threshold) are also reclaimable.
+
+Local outbox recovery may produce duplicate sends. The outbox does not
+provide RF confirmation, ACK, remote receipt, or exactly-once guarantees.
 
 **Evidence lifecycle (best-effort, process-scoped):**
 
@@ -176,13 +224,15 @@ The `MeshtasticOutboundQueue` is an **in-memory, non-durable** queue (`collectio
 4. On successful send, the adapter returns a `QueueDeliveryResult` with the native packet ID. The pipeline then writes a `DeliveryReceipt` and `NativeMessageRef` to SQLite (§2.2). These are durable.
 5. On transient send failure, the queue front-requeues the item for bounded retry within the process. This retry is **not** durable across restarts.
 
-**Crash/shutdown impact on queued items:**
+**Crash/shutdown impact on queued items (timing-dependent):**
 
-- Events whose delivery was enqueued but not yet sent: event survives in SQLite (no receipt, no native ref). Identifiable via the orphaned-events query in §7.
-- Events whose send completed but receipt was not yet written: event survives in SQLite (no receipt). Same orphaned-events query applies.
+- **Crash before queued receipt/outbox commit:** The event survives in SQLite with no receipt and no outbox row. The delivery is unrecoverable by the RetryWorker (no outbox row to reclaim). Identifiable via the orphaned-events query in §7.
+- **Crash after queued receipt/outbox commit, before local SDK send:** The event survives in SQLite. A `queued` outbox row and corresponding receipt survive. A native ref does **not** yet exist (native ref is only created after successful local SDK send). The `queued` outbox row is ambiguous after restart: the adapter may or may not have sent the message before the crash. Freshly queued rows (within `STALE_QUEUED_GRACE_SECONDS`, default 300 s) are not automatically reclaimed. Stale queued rows past the grace threshold are reclaimed by the RetryWorker, which may produce a duplicate send.
+- **Crash after local SDK send success, before receipt commit:** The event survives in SQLite. An `in_progress` outbox row may survive. A native ref may or may not exist depending on whether `store_native_ref` committed before the crash. No `sent` receipt exists. The surviving outbox row is reclaimable after lease expiry. This case may produce a duplicate send on recovery.
+- **Native ref only exists after local SDK send success.** The `store_native_ref` call is made after the adapter returns a transport-native message ID. A crash before local SDK send success means no native ref was ever created, regardless of whether an outbox row exists.
+- **Adapter-local Meshtastic queue contents are non-durable.** The in-memory `collections.deque` is lost on crash. Only SQLite-persisted state (events, receipts, outbox rows, native refs) survives. Queued-but-unsent items in the adapter-local deque are permanently lost; corresponding events and outbox rows survive in SQLite.
+- **Queued rows after restart are ambiguous and may duplicate if reclaimed.** A `queued` outbox row indicates the pipeline handed the delivery to the adapter, but does not confirm the message was sent over the air. Reclaiming a stale `queued` row retries the delivery, which may produce a duplicate if the original send completed before the crash.
 - Queue counters (`total_enqueued`, `total_sent`, `total_failed`, `total_rejected`, `total_requeued`, `total_exhausted`, `total_permanent_failed`): reset to zero on restart. These reflect the current process run only.
-
-**Deferred work:** Durable queue recovery (persisting queued-but-unsent items across restarts) is deferred to a future release. The current contract explicitly does not provide it.
 
 ## 5. Degraded-Runtime Semantics
 
@@ -259,7 +309,7 @@ On hard crash (`kill -9`, OOM, power loss):
 
 1. **No graceful shutdown.** No shutdown logs. No drain phase.
 2. **SQLite database is preserved.** WAL mode provides crash consistency. Events and committed receipts survive.
-3. **In-flight deliveries are lost.** Events that were stored but had no receipt written remain in the database as undelivered. They are not automatically retried.
+3. **In-flight deliveries with outbox items are re-claimable.** Events that had `in_progress` outbox rows with expired leases can be reclaimed by the RetryWorker. Events that were stored but had no outbox item remain in the database as undelivered and are not automatically retried.
 4. **All process-local state is lost.** Counters, route stats, adapter connection state — all reset.
 5. **Restart with the same config.** Adapters reconnect autonomously.
 6. **Adapters may suppress stale messages** based on their `startup_backlog_suppress_seconds` setting.
@@ -274,13 +324,24 @@ WHERE r.event_id IS NULL
 ORDER BY e.created_at DESC;
 ```
 
+Events returned by this query are not necessarily unrecoverable. Operators should also check the `delivery_outbox` table for matching rows:
+
+```sql
+SELECT outbox_id, event_id, delivery_plan_id, target_adapter,
+       target_channel, status, lease_until, attempt_number
+FROM delivery_outbox
+WHERE event_id = ?;
+```
+
+An `in_progress` row with an expired lease is re-claimable by the RetryWorker on restart. A `queued` row is ambiguous (adapter may or may not have sent); freshly queued rows within the grace window are not reclaimed, but stale queued rows past `STALE_QUEUED_GRACE_SECONDS` (default 300 s) are automatically reclaimed — this may produce a duplicate send. A `pending` or `retry_wait` row is eligible for automatic retry. Rows with no match in `delivery_outbox` indicate the event was stored before outbox creation (e.g., pre-capacity-acceptance) and cannot be automatically retried.
+
 ## 8. Explicit Non-Guarantees
 
 The following are explicitly **not** provided:
 
 - **Exactly-once delivery.** MEDRE is best-effort. Delivery receipts may be duplicated on retry. Events may be delivered more than once.
 - **Transactionality.** There is no transactional boundary across multiple adapter deliveries. A fan-out to 3 adapters may have 2 succeed and 1 fail.
-- **Persistent in-flight recovery.** In-flight work is lost on crash or shutdown. No retry of abandoned deliveries.
+- **Persistent in-flight recovery (partial).** Outbox items with expired `in_progress` leases are re-claimable on restart. Deliveries that never created an outbox item are lost. No retry of abandoned deliveries that lack an outbox row.
 - **Replay deduplication.** Replayed events may produce duplicate deliveries. BEST_EFFORT replay creates new `DeliveryReceipt` and `NativeMessageRef` records. Replay receipts are distinguishable from live receipts by `source`/`replay_run_id` (see §4.3), but no deduplication mechanism prevents duplicate sends.
 - **Replay resume.** An interrupted replay run must be re-initiated manually. Completed `ReplaySummary` results are not durably persisted.
 - **Replay run audit table.** There is no separate persistent replay run or audit table. Replay run traceability is available via `source` and `replay_run_id` columns on `delivery_receipts`, not via a dedicated audit store.
@@ -289,7 +350,7 @@ The following are explicitly **not** provided:
 - **Database size bounding.** SQLite grows with event volume. No automatic pruning or retention policy.
 - **Hot restart.** The runtime is a single-process application. No zero-downtime restart mechanism.
 - **Per-adapter restart.** Individual adapters cannot be restarted without shutting down the entire runtime.
-- **Meshtastic outbound queue durability.** The Meshtastic outbound queue is in-memory and non-durable. Items queued but not sent at crash/shutdown time are permanently lost. Events survive in SQLite but have no delivery receipt or native ref. Durable queue recovery is deferred to a future release (see §4.5).
+- **Meshtastic outbound queue durability.** The Meshtastic outbound queue is in-memory and non-durable. Items queued but not sent at crash/shutdown time are permanently lost. However, a `queued` outbox row and corresponding receipt may survive if committed before the crash (see §4.5). After restart, `queued` outbox rows are ambiguous — the adapter may or may not have sent the message before the crash. Freshly queued rows within the grace window are not reclaimed, but stale queued rows past `STALE_QUEUED_GRACE_SECONDS` are automatically reclaimed (which may produce a duplicate send). A crash before the queued receipt/outbox commit leaves no receipt and no outbox row; a crash after the commit leaves a surviving receipt and outbox row but no confirmation of over-the-air delivery.
 
 ## 9. Cross-References
 

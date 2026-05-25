@@ -304,6 +304,7 @@ _EXPECTED_RUNTIME_SNAPSHOT_TOP_KEYS: frozenset[str] = frozenset(
         "identity",
         "lifecycle",
         "limits",
+        "outbox",
         "persistence",
         "replay",
         "retry",

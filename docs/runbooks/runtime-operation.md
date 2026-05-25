@@ -341,7 +341,7 @@ If the overall budget is exceeded, `RuntimeShutdownError` is raised with a summa
 - **No per-adapter restart.** Shutdown stops the entire runtime. Individual adapters cannot be restarted independently.
 - **No graceful connection drain.** Adapters do not wait for pending transport-level operations (e.g., Matrix sync responses, Meshtastic pending packets) before disconnecting.
 - **No replay deduplication on restart.** If the runtime restarts, replayed events may be delivered again.
-- **No persistent queue.** Delivery state is in-memory only. In-flight deliveries that are cancelled on shutdown are lost.
+- **No persistent adapter-local queue.** Adapter-local queues (e.g., Meshtastic outbound deque) are in-memory and lost on shutdown. The delivery outbox persists operational work state across restart. Outbox items with expired `in_progress` leases are re-claimable by the RetryWorker.
 - **No distributed coordination.** Shutdown is local to the process.
 
 See Contract 54 (Runtime Shutdown), Contract 59 (Runtime Durability), and Contract 60 (Runtime Cancellation) for full specifications.
@@ -747,7 +747,7 @@ Signal handlers are reset/reinstalled at the start of each `medre run` invocatio
 
 **Hard kill (SIGKILL / `kill -9`):**
 
-No graceful shutdown occurs. No shutdown logs are emitted. No shutdown snapshot is written. SQLite data on disk is preserved (WAL mode). In-flight deliveries are lost without receipts. See [Crash Recovery](#crash-recovery) for the full recovery procedure.
+No graceful shutdown occurs. No shutdown logs are emitted. No shutdown snapshot is written. SQLite data on disk is preserved (WAL mode). Deliveries that never created an outbox row are lost without receipts. Accepted deliveries that already created an `in_progress` outbox row persist in SQLite; if their lease expires, the RetryWorker can reclaim them on restart. A receipt may still be absent if the crash occurred before attempt completion. Adapter-local queue contents remain non-durable. See [Crash Recovery](#crash-recovery) for the full recovery procedure.
 
 **No active restart.** After shutdown (graceful or hard), the runtime does not restart automatically. Operators must re-run `medre run` manually or use an external process supervisor (systemd, Docker restart policy, etc.). MEDRE does not provide its own supervision.
 
@@ -803,7 +803,7 @@ medre evidence --config config.toml --json
 medre inspect receipts --event <event_id> --config config.toml
 ```
 
-If the event exists but has no receipts, it was stored but delivery was never completed (crash during delivery). Use SQL for bulk detection:
+If the event exists but has no receipts, it was stored but delivery was never completed (possible crash or incomplete delivery). Check `delivery_outbox` for surviving operational state before concluding the event is unrecoverable. Use SQL for bulk detection:
 
 ```sql
 SELECT e.event_id, e.source_adapter, e.created_at
@@ -851,14 +851,14 @@ This section summarizes what MEDRE state survives restarts and what is lost. For
 
 ### What Is NOT Persisted (Lost on Process Termination)
 
-| State                                       | Nature                                                                                                                      | Impact                                            |
-| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| In-flight deliveries                        | Evidence persisted as `suppressed` receipts with `failure_kind_detail=shutdown_drain_timeout`; delivery itself is abandoned | No retry, no recovery — but identity is auditable |
-| Active replay runs                          | Lost on crash or shutdown                                                                                                   | Must re-initiate manually                         |
-| Runtime counters (`inbound_accepted`, etc.) | Process-local only                                                                                                          | Reset to zero on every startup                    |
-| RouteStats per-route counters               | Process-local only                                                                                                          | No historical route statistics                    |
-| CapacityController gauges                   | Process-local only                                                                                                          | Reset on startup                                  |
-| Adapter health/connection state             | Process-local only                                                                                                          | Adapters reconnect from scratch                   |
+| State                                       | Nature                                                                                                                                                                                                                                                                     | Impact                                                                                                                   |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| In-flight deliveries                        | Graceful shutdown: evidence persisted as `suppressed` receipts with `failure_kind_detail=shutdown_drain_timeout`. Hard crash: no receipt, but `in_progress` outbox rows with expired leases are reclaimable by RetryWorker. Deliveries without outbox rows are fully lost. | No retry of deliveries without outbox rows; `in_progress` outbox rows with expired leases are reclaimable by RetryWorker |
+| Active replay runs                          | Lost on crash or shutdown                                                                                                                                                                                                                                                  | Must re-initiate manually                                                                                                |
+| Runtime counters (`inbound_accepted`, etc.) | Process-local only                                                                                                                                                                                                                                                         | Reset to zero on every startup                                                                                           |
+| RouteStats per-route counters               | Process-local only                                                                                                                                                                                                                                                         | No historical route statistics                                                                                           |
+| CapacityController gauges                   | Process-local only                                                                                                                                                                                                                                                         | Reset on startup                                                                                                         |
+| Adapter health/connection state             | Process-local only                                                                                                                                                                                                                                                         | Adapters reconnect from scratch                                                                                          |
 
 ### Crash Recovery
 
@@ -866,7 +866,7 @@ On hard crash (`kill -9`, OOM, power loss):
 
 1. No graceful shutdown. No shutdown logs.
 2. SQLite database is preserved (WAL mode). Events and committed receipts survive.
-3. In-flight deliveries are lost — the corresponding events exist in SQLite but have no receipt.
+3. Deliveries that never created an outbox row are lost without receipts. Accepted deliveries that already created an `in_progress` outbox row persist in SQLite; if their lease expires, the RetryWorker can reclaim them on restart. A receipt may still be absent if the crash occurred before attempt completion. Adapter-local queue contents remain non-durable.
 4. All runtime counters are lost.
 5. Restart with the same config. Adapters reconnect autonomously.
 6. Adapters may replay or suppress stale messages based on their `startup_backlog_suppress_seconds` setting.
@@ -1115,6 +1115,38 @@ for the full evidence collection workflow using `medre evidence`.
 ### Per-Adapter Diagnostics
 
 Diagnostics are per-adapter. Each adapter's snapshot is isolated from other adapters. See Contract 29 for the complete diagnostics schema.
+
+### Delivery Outbox
+
+The delivery outbox persists pending and retryable delivery work.
+Operators can inspect outbox state via:
+
+- **Runtime snapshot**: The `outbox` section shows status counts from storage
+  (`pending`, `retry_wait`, `in_progress`, `dead_lettered`, etc.)
+- **Storage queries**: Outbox items are in the `delivery_outbox` SQLite table
+  (see the storage contract for schema).
+- **Live delivery protection**: Items created by the live pipeline are
+  `in_progress` with a pipeline lease — they are not claimable by the
+  RetryWorker until the live attempt finishes or the lease expires.
+
+**Automatic recovery**: When `[retry] enabled = true`, the RetryWorker
+automatically claims and re-attempts due items on each cycle.
+
+**Crash recovery:**
+
+- Deliveries that never created an outbox row are lost on crash (no durable state exists).
+- Deliveries with a persisted outbox row survive the crash.
+- Expired `in_progress` rows become reclaimable by the RetryWorker after restart.
+- Adapter-local queue contents (e.g., Meshtastic in-memory deque) may still be lost.
+- `queued` outbox rows after a crash are ambiguous — the adapter may have sent
+  the message before crashing or not. Freshly queued rows (within the
+  `STALE_QUEUED_GRACE_SECONDS` grace window, default 300 s) are not reclaimed.
+  Stale queued rows past the grace threshold are automatically reclaimed by
+  the RetryWorker, which may produce a duplicate send.
+
+**Dead-lettered items**: Outbox items with status `dead_lettered` require
+explicit operator action. Query the `delivery_outbox` table to inspect
+them, then decide whether to re-deliver, re-route, or discard.
 
 ### Sample Output
 
@@ -1410,7 +1442,7 @@ This is an explicit design tradeoff: runtime stability over delivery completenes
 The entire MEDRE runtime is best-effort:
 
 - No replay deduplication. Replayed events may be delivered again.
-- No persistent in-flight recovery. Cancelled deliveries are lost on shutdown.
+- No persistent adapter-local queue. Adapter-local queue contents (Meshtastic) are lost on shutdown. The delivery outbox persists operational work state; expired `in_progress` outbox items are re-claimable on restart. Deliveries cancelled during shutdown drain produce `suppressed` receipts as evidence.
 - No distributed coordination. State is local to the process.
 - No per-adapter restart. Only full runtime stop/start is supported.
 

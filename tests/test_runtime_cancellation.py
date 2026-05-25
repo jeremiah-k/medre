@@ -18,6 +18,7 @@ Does not overlap with test_runtime_hygiene.py or test_runtime_recovery.py.
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -1358,6 +1359,12 @@ class TestDrainAbandonedEvidencePersistence:
                 "shutdown_drain_timeout_seconds",
                 original_drain,
             )
+            # Defense-in-depth: ensure the app's storage connection is
+            # closed even if stop() exited before reaching its internal
+            # close step (e.g. due to an unexpected exception).
+            if storage is not None:
+                with suppress(Exception):
+                    await storage.close()
 
         assert app.state == RuntimeState.STOPPED
 
@@ -1462,6 +1469,12 @@ class TestDrainAbandonedEvidencePersistence:
                 "shutdown_drain_timeout_seconds",
                 original_drain,
             )
+            # Defense-in-depth: ensure the app's storage connection is
+            # closed even if stop() exited before reaching its internal
+            # close step.
+            if storage is not None:
+                with suppress(Exception):
+                    await storage.close()
 
         assert app.state == RuntimeState.STOPPED
 

@@ -27,7 +27,7 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Literal, cast
 
 import msgspec
@@ -57,13 +57,13 @@ from medre.core.planning.delivery_plan import (
 )
 from medre.core.planning.fallback_resolution import FallbackResolver
 from medre.core.planning.relation_resolution import RelationResolver
-from medre.core.policies.route_policy import evaluate_route_policy
+from medre.core.policies.route_policy import BLOCKED_VALUE_CUTOFF, evaluate_route_policy
 from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing.models import Route, RouteTarget
 from medre.core.routing.router import Router
 from medre.core.routing.stats import RouteStats
-from medre.core.storage.backend import StorageBackend
+from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
 from medre.core.supervision.accounting import RuntimeAccounting
 
 if TYPE_CHECKING:
@@ -76,6 +76,12 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Outbox lease-renewal tuning constants
+# ---------------------------------------------------------------------------
+
+_OUTBOX_RENEWAL_INTERVAL_SECONDS: int = 30  # seconds between lease renewals
+_OUTBOX_RENEWAL_DURATION_SECONDS: int = 60  # lease TTL (kept short; renewed)
 
 # ---------------------------------------------------------------------------
 # Pipeline config
@@ -179,6 +185,8 @@ class InflightDelivery:
         When ``source="replay"``, the replay run identifier.
     acquired_at:
         Monotonic timestamp when the delivery slot was acquired.
+    outbox_id:
+        ID of the outbox item tracking this delivery, if created.
     """
 
     event_id: str
@@ -189,15 +197,17 @@ class InflightDelivery:
     source: str
     replay_run_id: str | None
     acquired_at: float
+    outbox_id: str | None = None
 
 
 class _AdapterDeliveryError(Exception):
     """Raised by ``deliver_to_target`` after persisting a failed receipt.
 
-    Carries the adapter ID, error string, the original exception, and
-    an optional pre-classified ``failure_kind`` so that callers can
-    produce a deterministic :class:`DeliveryOutcome` without re-inspecting
-    the exception type.
+    Carries the adapter ID, error string, the original exception,
+    an optional pre-classified ``failure_kind``, and the persisted
+    ``receipt`` so that callers can produce a deterministic
+    :class:`DeliveryOutcome` without re-inspecting the exception type
+    and can correlate the outbox row with the actual receipt.
     """
 
     def __init__(
@@ -207,24 +217,30 @@ class _AdapterDeliveryError(Exception):
         original: Exception | None = None,
         *,
         failure_kind: DeliveryFailureKind | None = None,
+        receipt: DeliveryReceipt | None = None,
     ) -> None:
         self.adapter_id = adapter_id
         self.error = error
         self.original = original
         self.failure_kind = failure_kind
+        self.receipt = receipt
         super().__init__(error)
 
 
 class _RendererDeliveryError(Exception):
     """Raised by ``deliver_to_target`` when rendering fails before delivery.
 
-    Carries the adapter ID and error string so callers can produce a
-    deterministic :class:`DeliveryOutcome`.
+    Carries the adapter ID, error string, and optional persisted
+    ``receipt`` so callers can produce a deterministic
+    :class:`DeliveryOutcome` and correlate the outbox row.
     """
 
-    def __init__(self, adapter_id: str, error: str) -> None:
+    def __init__(
+        self, adapter_id: str, error: str, *, receipt: DeliveryReceipt | None = None
+    ) -> None:
         self.adapter_id = adapter_id
         self.error = error
+        self.receipt = receipt
         super().__init__(error)
 
 
@@ -1111,6 +1127,40 @@ class PipelineRunner:
         )
         await self._config.storage.append_receipt(supplemental)
 
+        # Transition the matching outbox item from queued → sent.
+        # The item may still be in_progress if the callback fires before
+        # _deliver_one() marks the outbox row as queued.  Prefer queued
+        # status over in_progress so that a fully-queued row is always
+        # selected first.
+        try:
+            _obi = await self._config.storage.get_outbox_item_for_delivery(
+                event_id=record.event_id,
+                delivery_plan_id=queued_receipt.delivery_plan_id,
+                target_adapter=record.adapter,
+                target_channel=queued_receipt.target_channel,
+                status="queued",
+            )
+            if _obi is None:
+                _obi = await self._config.storage.get_outbox_item_for_delivery(
+                    event_id=record.event_id,
+                    delivery_plan_id=queued_receipt.delivery_plan_id,
+                    target_adapter=record.adapter,
+                    target_channel=queued_receipt.target_channel,
+                    status="in_progress",
+                )
+            if _obi is not None:
+                await self._config.storage.mark_outbox_sent(
+                    _obi.outbox_id,
+                    receipt_id=supplemental.receipt_id,
+                    attempt_number=supplemental.attempt_number,
+                )
+        except Exception:
+            self._log.exception(
+                "Failed to transition outbox queued→sent: " "event_id=%s adapter=%s",
+                record.event_id,
+                record.adapter,
+            )
+
     # -- Stage 3-4: Routing + Planning -------------------------------------
 
     async def route_event(
@@ -1435,8 +1485,8 @@ class PipelineRunner:
                     # Sanitize blocked_value FIRST: cap at 256 chars to prevent
                     # large externally-sourced IDs from flooding logs/receipts.
                     _blocked_val = decision.blocked_value or ""
-                    if len(_blocked_val) > 256:
-                        _blocked_val = _blocked_val[:256] + "..."
+                    if len(_blocked_val) >= BLOCKED_VALUE_CUTOFF:
+                        _blocked_val = _blocked_val[:BLOCKED_VALUE_CUTOFF] + "..."
                     self._log.info(
                         "policy_suppressed: route_id=%s event_id=%s "
                         "target_adapter=%s reason=%s "
@@ -1535,12 +1585,39 @@ class PipelineRunner:
                         duration_ms=elapsed,
                     )
 
+            # ── Phase 3.5: Outbox creation ─────────────────────────
+
+            # Create a durable outbox item tracking this delivery attempt.
+            # The outbox is created AFTER route/policy/loop/capacity acceptance
+            # and BEFORE the adapter delivery attempt, so that pending work
+            # survives a crash between this point and the receipt commit.
+            _outbox_id, _outbox_created, _pipeline_worker = (
+                await self._create_outbox_for_delivery(
+                    event, route, route_plan, target, adapter_id
+                )
+            )
+
+            # ── Phase 3.75: Lease renewal background task ────────────
+
+            # Start a background task that periodically renews the outbox
+            # lease during long adapter deliveries (e.g. radio-based
+            # transports).  The renewal task is cancelled in the finally
+            # block after the delivery attempt completes.
+            _renewal_task: asyncio.Task | None = self._start_outbox_lease_renewal(
+                _outbox_id, _outbox_created, _pipeline_worker
+            )
+
             # ── Phase 4: Inflight tracking + delivery ────────────────
 
             # Compute tracking key outside try to satisfy static analysis.
             _inflight_key: str = (
                 f"{event.event_id}:{route.id}:{adapter_id}:{route_plan.plan_id}"
             )
+            # Track outcome for outbox update — declared here so the outer
+            # finally block always sees them (e.g. on CancelledError propagate).
+            _outcome_receipt: DeliveryReceipt | None = None
+            _outcome_failure_kind_val: DeliveryFailureKind | None = None
+            _outcome_error: str | None = None
             try:
                 # Track in-flight delivery identity for shutdown evidence.
                 if self._capacity_controller is not None:
@@ -1553,6 +1630,7 @@ class PipelineRunner:
                         source=source,
                         replay_run_id=replay_run_id,
                         acquired_at=t0,
+                        outbox_id=_outbox_id,
                     )
 
                 try:
@@ -1566,6 +1644,7 @@ class PipelineRunner:
                         source=source,
                         replay_run_id=replay_run_id,
                     )
+                    _outcome_receipt = receipt
                     elapsed = (time.monotonic() - t0) * 1000.0
                     if self._route_stats is not None:
                         self._route_stats.record_delivered(route.id)
@@ -1592,6 +1671,8 @@ class PipelineRunner:
                     )
                 except _AdapterDeliveryError as exc:
                     elapsed = (time.monotonic() - t0) * 1000.0
+                    _outcome_receipt = exc.receipt
+                    _outcome_error = exc.error
                     self._diagnostician.record_adapter_failure(
                         event.event_id, adapter_id, exc.error
                     )
@@ -1611,6 +1692,7 @@ class PipelineRunner:
                         )
                     else:
                         failure_kind = DeliveryFailureKind.ADAPTER_TRANSIENT
+                    _outcome_failure_kind_val = failure_kind
                     outcome_status: Literal[
                         "transient_failure", "permanent_failure"
                     ] = (
@@ -1632,6 +1714,9 @@ class PipelineRunner:
                     )
                 except _RendererDeliveryError as exc:
                     elapsed = (time.monotonic() - t0) * 1000.0
+                    _outcome_receipt = exc.receipt
+                    _outcome_error = exc.error
+                    _outcome_failure_kind_val = DeliveryFailureKind.RENDERER_FAILURE
                     if self._route_stats is not None:
                         self._route_stats.record_failed(route.id, exc.error)
                     if self._runtime_accounting is not None:
@@ -1654,11 +1739,13 @@ class PipelineRunner:
                     raise
                 except Exception as exc:
                     elapsed = (time.monotonic() - t0) * 1000.0
+                    _outcome_error = f"{type(exc).__name__}: {exc}"
                     exc_type = type(exc)
                     failure_kind = RetryExecutor.classify_failure(
                         exc,
                         adapter_registered=(adapter_id in self._config.adapters),
                     )
+                    _outcome_failure_kind_val = failure_kind
                     status = (
                         "transient_failure"
                         if failure_kind.is_retryable
@@ -1685,6 +1772,29 @@ class PipelineRunner:
                         duration_ms=elapsed,
                     )
             finally:
+                # Stop lease renewal.
+                if _renewal_task is not None:
+                    _renewal_task.cancel()
+                    try:
+                        await _renewal_task
+                    except asyncio.CancelledError:
+                        pass
+                    except Exception:
+                        self._log.debug(
+                            "Outbox lease renewal task ended with error",
+                            exc_info=True,
+                        )
+
+                # Update outbox based on delivery outcome.
+                await self._finalize_outbox_outcome(
+                    _outbox_id,
+                    _outbox_created,
+                    _outcome_receipt,
+                    _outcome_failure_kind_val,
+                    _outcome_error,
+                    route_plan.retry_policy,
+                )
+
                 # Untrack in-flight delivery identity.
                 if self._capacity_controller is not None:
                     self._inflight_deliveries.pop(_inflight_key, None)
@@ -1693,6 +1803,175 @@ class PipelineRunner:
         return list(
             await asyncio.gather(*[_deliver_one(r, p) for r, p in route_targets])
         )
+
+    # ------------------------------------------------------------------
+    # Outbox helpers (extracted from _deliver_one for readability)
+    # ------------------------------------------------------------------
+
+    async def _create_outbox_for_delivery(
+        self,
+        event: CanonicalEvent,
+        route: Route,
+        route_plan: DeliveryPlan,
+        target: RouteTarget,
+        adapter_name: str,
+    ) -> tuple[str | None, bool, str]:
+        """Create a durable outbox item tracking a delivery attempt.
+
+        Returns ``(outbox_id, outbox_created, pipeline_worker)``.
+        On failure the outbox_id is ``None`` and ``outbox_created`` is
+        ``False`` — the pipeline continues without outbox tracking.
+        """
+        outbox_id: str | None = None
+        outbox_created: bool = False
+        pipeline_worker: str = ""
+        try:
+            _now = datetime.now(timezone.utc)
+            pipeline_worker = f"pipeline:{uuid.uuid4().hex[:12]}"
+            _lease_until = (
+                _now + timedelta(seconds=_OUTBOX_RENEWAL_DURATION_SECONDS)
+            ).isoformat()
+            outbox_item = DeliveryOutboxItem(
+                outbox_id=f"obox-{uuid.uuid4()}",
+                event_id=event.event_id,
+                route_id=route.id,
+                delivery_plan_id=route_plan.plan_id,
+                target_adapter=adapter_name,
+                target_channel=target.channel,
+                target_address=(
+                    target.destination.destination_hash if target.destination else None
+                ),
+                attempt_number=1,
+                status="in_progress",
+                locked_at=_now.isoformat(),
+                lease_until=_lease_until,
+                worker_id=pipeline_worker,
+            )
+            created = await self._config.storage.create_outbox_item(outbox_item)
+            outbox_id = created.outbox_id
+            # create_outbox_item may return an existing non-terminal row;
+            # always use the persisted owner for lease renewals.
+            pipeline_worker = created.worker_id or pipeline_worker
+            outbox_created = True
+        except Exception:
+            self._log.exception(
+                "Failed to create outbox item for event_id=%s adapter=%s",
+                event.event_id,
+                adapter_name,
+            )
+            # Non-fatal: pipeline continues without outbox tracking.
+        return outbox_id, outbox_created, pipeline_worker
+
+    def _start_outbox_lease_renewal(
+        self,
+        outbox_id: str | None,
+        outbox_created: bool,
+        pipeline_worker: str,
+    ) -> asyncio.Task | None:
+        """Start a background task that periodically renews the outbox lease.
+
+        Returns the :class:`asyncio.Task` managing the renewal loop, or
+        ``None`` if no outbox item was created.
+        """
+
+        async def _renew_lease() -> None:
+            while True:
+                await asyncio.sleep(_OUTBOX_RENEWAL_INTERVAL_SECONDS)
+                if outbox_id is not None:
+                    try:
+                        _new_lease = (
+                            datetime.now(timezone.utc)
+                            + timedelta(seconds=_OUTBOX_RENEWAL_DURATION_SECONDS)
+                        ).isoformat()
+                        renewed = await self._config.storage.renew_outbox_lease(
+                            outbox_id, pipeline_worker, _new_lease
+                        )
+                    except Exception:
+                        self._log.exception(
+                            "Transient error renewing outbox lease for %s; "
+                            "will retry on next cycle",
+                            outbox_id,
+                        )
+                        continue
+                    if not renewed:
+                        # Item is no longer ours — stop renewing.
+                        break
+
+        if outbox_id is not None and outbox_created:
+            return asyncio.create_task(_renew_lease())
+        return None
+
+    async def _finalize_outbox_outcome(
+        self,
+        outbox_id: str | None,
+        outbox_created: bool,
+        receipt: DeliveryReceipt | None,
+        failure_kind_val: DeliveryFailureKind | None,
+        error: str | None,
+        retry_policy: RetryPolicy | None,
+    ) -> None:
+        """Update the outbox item status based on the delivery outcome.
+
+        Handles the queued / sent / retry_wait / dead_lettered state
+        transitions.  Silently skips when no outbox item was created.
+        """
+        if outbox_id is None or not outbox_created:
+            return
+        try:
+            if receipt is not None and receipt.status not in ("failed",):
+                _r_status = receipt.status
+                if _r_status == "queued":
+                    await self._config.storage.mark_outbox_queued(
+                        outbox_id,
+                        receipt_id=receipt.receipt_id,
+                        attempt_number=receipt.attempt_number,
+                    )
+                else:
+                    await self._config.storage.mark_outbox_sent(
+                        outbox_id,
+                        receipt_id=receipt.receipt_id,
+                        attempt_number=receipt.attempt_number,
+                    )
+            elif failure_kind_val is not None:
+                _rec_id: str | None = (
+                    receipt.receipt_id if receipt is not None else None
+                )
+                _att: int | None = (
+                    receipt.attempt_number if receipt is not None else None
+                )
+                if failure_kind_val.is_retryable:
+                    if retry_policy is None:
+                        # No retry policy — treat as terminal.
+                        await self._config.storage.mark_outbox_dead_lettered(
+                            outbox_id,
+                            receipt_id=_rec_id,
+                            failure_kind=failure_kind_val.value,
+                            error_summary=(error[:512] if error else None),
+                        )
+                    else:
+                        _attempt = _att or 1
+                        _backoff = RetryExecutor(retry_policy).compute_backoff(_attempt)
+                        _next_at = (datetime.now(timezone.utc) + _backoff).isoformat()
+                        await self._config.storage.mark_outbox_retry_wait(
+                            outbox_id,
+                            next_attempt_at=_next_at,
+                            receipt_id=_rec_id,
+                            failure_kind=failure_kind_val.value,
+                            error_summary=(error[:512] if error else None),
+                            attempt_number=_attempt,
+                        )
+                else:
+                    await self._config.storage.mark_outbox_dead_lettered(
+                        outbox_id,
+                        receipt_id=_rec_id,
+                        failure_kind=failure_kind_val.value,
+                        error_summary=(error[:512] if error else None),
+                    )
+        except Exception:
+            self._log.exception(
+                "Failed to update outbox %s after delivery",
+                outbox_id,
+            )
 
     @staticmethod
     def _classify_adapter_error(
@@ -1821,6 +2100,7 @@ class PipelineRunner:
                 f"Adapter {adapter_id!r} is not registered — "
                 f"check if the adapter was configured and built successfully",
                 failure_kind=DeliveryFailureKind.ADAPTER_MISSING,
+                receipt=receipt,
             ) from None
 
         # Check delivery plan deadline.
@@ -1858,6 +2138,7 @@ class PipelineRunner:
                 adapter_id or "",
                 "Delivery deadline exceeded",
                 failure_kind=DeliveryFailureKind.DEADLINE_EXCEEDED,
+                receipt=receipt,
             ) from None
 
         # Render the event into a RenderingResult before adapter delivery.
@@ -1916,7 +2197,9 @@ class PipelineRunner:
                 retry_jitter=(plan.retry_policy.jitter if plan.retry_policy else None),
             )
             await self._config.storage.append_receipt(receipt)
-            raise _RendererDeliveryError(adapter_id or "", rendering_error) from None
+            raise _RendererDeliveryError(
+                adapter_id or "", rendering_error, receipt=receipt
+            ) from None
 
         # Guard: adapter must expose a callable deliver() method.
         deliver_fn: Callable[..., Any] | None = getattr(adapter, "deliver", None)
@@ -1960,6 +2243,7 @@ class PipelineRunner:
                 adapter_id or "",
                 no_deliver_error,
                 failure_kind=DeliveryFailureKind.ADAPTER_PERMANENT,
+                receipt=receipt,
             ) from None
 
         # Deliver the rendered result via adapter.
@@ -2125,7 +2409,7 @@ class PipelineRunner:
         # The receipt and native ref are already persisted at this point.
         if status == "failed":
             raise _AdapterDeliveryError(
-                adapter_id or "", error or "", delivery_exc
+                adapter_id or "", error or "", delivery_exc, receipt=receipt
             ) from None
 
         return receipt

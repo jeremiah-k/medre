@@ -194,6 +194,8 @@ class MedreApp:
     _adapter_states: dict[str, AdapterState] = field(default_factory=dict, init=False)
     _live_health_state: LiveHealthSnapshot | None = field(default=None, init=False)
     _live_health_poll_count: int = field(default=0, init=False)
+    _outbox_state: dict[str, int] = field(default_factory=dict, init=False)
+    _outbox_storage_authoritative: bool = field(default=False, init=False)
 
     # -- Post-init --------------------------------------------------------------
 
@@ -240,6 +242,55 @@ class MedreApp:
         if self._retry_worker is not None:
             return self._retry_worker.state
         return RetryWorkerState()
+
+    @property
+    def outbox_state(self) -> dict[str, int]:
+        """Return the last-known outbox status counts.
+
+        Seeded from storage on startup.  Refreshed from storage after each
+        retry worker cycle.  After :meth:`refresh_outbox_state_from_storage`
+        is called, storage counts are authoritative for one read (typically
+        a snapshot) — the retry worker cache is bypassed to prevent a
+        stale ``{}`` from overwriting freshly queried storage counts.
+
+        When no storage refresh is pending, the retry worker cache is used
+        as the authoritative source (including ``{}`` when the worker has
+        completed a cycle with no outbox items).
+        """
+        if self._outbox_storage_authoritative:
+            # Storage refresh was called — return storage counts and clear
+            # the flag so subsequent reads resume normal worker-cache logic.
+            self._outbox_storage_authoritative = False
+            return dict(self._outbox_state)
+        if self._retry_worker is not None:
+            latest = self._retry_worker.outbox_counts
+            if latest is not None:
+                # Worker has fresh counts from a completed cycle.
+                self._outbox_state = dict(latest)
+                return dict(latest)
+            # Worker exists but hasn't completed a cycle yet.
+            # Prefer storage-seeded counts over empty worker cache.
+            return dict(self._outbox_state)
+        return dict(self._outbox_state)
+
+    async def refresh_outbox_state_from_storage(self) -> None:
+        """Refresh outbox counts from storage if available.
+
+        Called by diagnostics and runtime snapshot paths to ensure
+        outbox counts reflect current storage state, not just the
+        retry worker cache.  After a successful refresh, storage
+        counts are marked authoritative so that the next read of
+        :attr:`outbox_state` returns storage data instead of
+        potentially stale worker cache.
+        """
+        if self.storage is not None:
+            try:
+                self._outbox_state = await self.storage.count_outbox_by_status()
+                self._outbox_storage_authoritative = True
+            except Exception:
+                _logger.debug(
+                    "Failed to refresh outbox state from storage", exc_info=True
+                )
 
     @property
     def adapter_states(self) -> dict[str, AdapterState]:
@@ -527,6 +578,15 @@ class MedreApp:
                 raise RuntimeStartupError(
                     f"Failed to initialise storage: {exc}"
                 ) from exc
+
+        # 1.5 Seed outbox counts from storage so snapshot has data before
+        #     the first retry-worker cycle populates the worker cache.
+        if self.storage is not None:
+            try:
+                self._outbox_state = await self.storage.count_outbox_by_status()
+                self._outbox_storage_authoritative = True
+            except Exception:
+                _logger.debug("Failed to seed outbox state from storage", exc_info=True)
 
         # 2. Start the pipeline runner.
         try:

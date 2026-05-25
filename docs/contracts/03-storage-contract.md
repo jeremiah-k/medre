@@ -3,7 +3,7 @@
 > **Status:** Active
 > **Classification:** Normative
 > **Authority:** Primary contract for StorageBackend protocol, SQLite schema, and receipt semantics
-> **Last reviewed:** 2026-05-24
+> **Last reviewed:** 2026-05-25
 >
 > Extracted from: Modular Event Communications Runtime Specification, Sections 12, 18, 19
 > Version: 0.1.0 (Draft)
@@ -11,7 +11,7 @@
 
 ## 1. Overview
 
-The storage layer is the single source of truth for the runtime. It persists canonical events, native message references, delivery receipts, event relations, identity data, plugin state, and raw native archives. The initial backend is SQLite.
+The storage layer is the single source of truth for the runtime. It persists canonical events, native message references, delivery receipts, event relations, identity data, plugin state, raw native archives, and operational delivery outbox state (pending, retry_wait, in_progress, queued, sent, dead_lettered, cancelled, abandoned). The initial backend is SQLite.
 
 Design constraints:
 
@@ -333,11 +333,11 @@ Receipts are **append-only records**. The "current status" of a delivery is a **
 
 **Indexes:**
 
-| Index                 | Columns                                                        | Type                  | Purpose                                                                                                                                                                                                                                                                                                                                                           |
-| --------------------- | -------------------------------------------------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Index                 | Columns                                                                        | Type                  | Purpose                                                                                                                                                                                                                                                                                                                                                 |
+| --------------------- | ------------------------------------------------------------------------------ | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `idx_receipts_plan`   | `(delivery_plan_id, target_adapter, target_channel, attempt_number, sequence)` | Manual `CREATE INDEX` | Supports `delivery_status` view's `GROUP BY (delivery_plan_id, target_adapter, COALESCE(target_channel, ''))` + `MAX(sequence)` projection and `list_receipts_for_plan()` `ORDER BY attempt_number, sequence` lineage walk. The five-column composite covers the view's three-column grouping prefix and the full ordering of `list_receipts_for_plan`. |
-| `idx_receipts_event`  | `(event_id, sequence)`                                         | Manual `CREATE INDEX` | Supports receipt lookups by event (e.g., finding all delivery attempts for a given event).                                                                                                                                                                                                                                                                        |
-| `idx_receipts_source` | `(source, replay_run_id)`                                      | Manual `CREATE INDEX` | Supports filtering receipts by replay run — traceability queries for `source='replay'` with a specific `replay_run_id`.                                                                                                                                                                                                                                           |
+| `idx_receipts_event`  | `(event_id, sequence)`                                                         | Manual `CREATE INDEX` | Supports receipt lookups by event (e.g., finding all delivery attempts for a given event).                                                                                                                                                                                                                                                              |
+| `idx_receipts_source` | `(source, replay_run_id)`                                                      | Manual `CREATE INDEX` | Supports filtering receipts by replay run — traceability queries for `source='replay'` with a specific `replay_run_id`.                                                                                                                                                                                                                                 |
 
 ### 3.5 delivery_status View
 
@@ -487,6 +487,80 @@ Key points:
 - **Recreation guidance.** Existing old pre-release databases that predate an index addition will gain the index on the next `initialize()` call. No manual intervention is required.
 - **Column-shape validation remains the hard compatibility check.** The `_validate_schema_shape()` check (Section 5.10) catches structural incompatibilities. Missing indexes are never a compatibility failure.
 - **SQLite autoindexes are not duplicated.** Tables with `UNIQUE` constraints (e.g., `native_message_refs(adapter, native_channel_id, native_message_id)`) already have an SQLite autoindex. No manual `CREATE INDEX` is created for those column sets.
+
+### 3.11 delivery_outbox
+
+The `delivery_outbox` table persists operational delivery work state (distinct from the evidence/audit `delivery_receipts` log). Where receipts record what _did_ happen, the outbox records what _still needs to happen_.
+
+```sql
+CREATE TABLE delivery_outbox (
+    outbox_id       TEXT PRIMARY KEY,
+    event_id        TEXT NOT NULL,
+    route_id        TEXT NOT NULL DEFAULT '',
+    delivery_plan_id TEXT NOT NULL,
+    target_adapter   TEXT NOT NULL,
+    target_channel   TEXT,
+    target_address   TEXT,
+    attempt_number   INTEGER NOT NULL DEFAULT 1,
+    status          TEXT NOT NULL DEFAULT 'pending',
+    failure_kind    TEXT,
+    failure_kind_detail TEXT,
+    next_attempt_at TEXT,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL,
+    last_attempt_at TEXT,
+    locked_at       TEXT,
+    lease_until     TEXT,
+    worker_id       TEXT,
+    payload_hash    TEXT,
+    receipt_id      TEXT,
+    parent_receipt_id TEXT,
+    error_summary   TEXT,
+    metadata        TEXT NOT NULL DEFAULT '{}',
+    UNIQUE(delivery_plan_id, target_adapter, target_channel, attempt_number)
+);
+```
+
+**Statuses:**
+
+| Status          | Meaning                                            |
+| --------------- | -------------------------------------------------- |
+| `pending`       | Work exists but has not started.                   |
+| `in_progress`   | Claimed by a worker for processing.                |
+| `queued`        | Handed to adapter-local queue (e.g. Meshtastic).   |
+| `sent`          | Local SDK/client send returned success (terminal). |
+| `retry_wait`    | Transient failure, awaiting next attempt.          |
+| `dead_lettered` | Retries exhausted or terminal failure.             |
+| `cancelled`     | Operator or shutdown cancelled.                    |
+| `abandoned`     | Drain timeout or ambiguous loss.                   |
+
+### Status Classification
+
+**Terminal** (no further state changes; may be replaced on re-delivery):
+
+- `sent`
+- `dead_lettered`
+- `cancelled`
+- `abandoned`
+
+**Non-terminal** (may transition to other states):
+
+- `pending`
+- `in_progress`
+- `queued`
+- `retry_wait`
+
+**Idempotent create with reclaim**: Creating an item with the same key tuple `(delivery_plan_id, target_adapter, target_channel, attempt_number)` when a non-terminal row already exists does **not** return the existing row unchanged. Instead, the existing row is **reclaimed**: its `status`, `worker_id`, `locked_at`, `lease_until`, and `updated_at` are updated to match the new item's values. This ensures the caller always receives a properly-claimed operational row suitable for finalization (e.g., `in_progress → sent`). The operation remains idempotent in the sense that it preserves a single row for the unique key tuple. Reclaim is used for pending/expired operational work recovery, not compatibility behavior. When the existing row is terminal, it is deleted and a new row is inserted (re-delivery).
+
+**Uniqueness:** The `UNIQUE` constraint on `(delivery_plan_id, target_adapter, target_channel, attempt_number)` is supplemented by a partial unique index `WHERE target_channel IS NULL` to close the SQLite `NULL != NULL` gap:
+
+```sql
+CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_null_channel_unique
+    ON delivery_outbox (delivery_plan_id, target_adapter, attempt_number)
+    WHERE target_channel IS NULL;
+```
+
+**Protocol Methods:** See `StorageBackend` protocol in `src/medre/core/storage/backend.py` for the complete outbox method signatures: `create_outbox_item`, `get_outbox_item`, `list_outbox_items`, `claim_due_outbox_items`, `mark_outbox_*`, `release_outbox_claim`, `count_outbox_by_status`.
 
 ## 4. Required Guarantees
 

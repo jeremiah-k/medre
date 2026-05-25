@@ -18,6 +18,7 @@ Package-level imports
 """
 
 from medre.core.storage.backend import (
+    DeliveryOutboxItem,
     DuplicateEventError,
     EventFilter,
     EventNotFoundError,
@@ -40,6 +41,7 @@ from medre.core.storage.replay import (
 from medre.core.storage.sqlite import SQLiteStorage
 
 __all__ = [
+    "DeliveryOutboxItem",
     "DuplicateEventError",
     "EventFilter",
     "EventNotFoundError",

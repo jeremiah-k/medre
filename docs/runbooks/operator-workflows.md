@@ -986,7 +986,29 @@ Example:
 
 This tells you: the event exhausted its retry budget, and the pipeline will not retry further. The event is effectively dead — operators can use `medre replay --mode BEST_EFFORT` to attempt re-delivery if the underlying condition has resolved.
 
-### 14.5 "Queued locally but not RF-confirmed" (Meshtastic)
+### 14.5 Inspecting and Recovering the Delivery Outbox
+
+**Check outbox counts:**
+The runtime snapshot includes `outbox.counts` with per-status tallies.
+
+**Query outbox items directly:**
+
+```bash
+sqlite3 {state}/medre.sqlite "SELECT status, COUNT(*) FROM delivery_outbox GROUP BY status;"
+```
+
+**Understanding outbox statuses:**
+
+- `in_progress` — live pipeline delivery in progress; not claimable by retry worker (unless lease expired). Treated as equivalent to `leased` for SQL triage purposes.
+- `pending` — work exists but delivery attempt has not started. Live pipeline normally starts as `in_progress`; `pending` may appear from recovery or manual tooling.
+- `retry_wait` — transient failure; will retry automatically when retry worker is enabled and the item becomes due.
+- `queued` — accepted by adapter-local queue. After crash, this state is ambiguous.
+- `sent` — local send succeeded (terminal).
+- `dead_lettered` — retries exhausted or permanent failure; requires operator intervention.
+- `cancelled` — operator cancelled.
+- `abandoned` — drain timeout during shutdown.
+
+### 14.6 "Queued locally but not RF-confirmed" (Meshtastic)
 
 **Question:** The Meshtastic receipt says `sent`, but did the remote node actually receive it?
 
@@ -1005,7 +1027,7 @@ medre evidence --config /path/to/config.toml --json | jq '.sections.diagnostics_
 
 Look for `queue_total_sent`, `queue_total_failed`, `queue_total_rejected` to understand queue-level throughput. `queue_total_rejected` indicates the queue was full and new messages were turned away.
 
-### 14.6 "Matrix tx_id used"
+### 14.7 "Matrix tx_id used"
 
 **Question:** How does Matrix transaction ID deduplication work?
 
@@ -1026,7 +1048,7 @@ Check the delivery receipt's metadata for `matrix_txn_id`:
 }
 ```
 
-### 14.7 "Matrix E2EE blocked"
+### 14.8 "Matrix E2EE blocked"
 
 **Question:** Why are some Matrix inbound events not being processed in an encrypted room?
 
@@ -1044,7 +1066,7 @@ Look for `undecryptable_event_count`. A non-zero value indicates E2EE decryption
 
 E2EE decryption is an upstream nio/vodozemac property. MEDRE does not manage key distribution, cross-signing, or key backup. See `docs/runbooks/matrix-alpha-operation.md` for E2EE setup requirements.
 
-### 14.8 "Meshtastic classifier ignored/dropped/deferred"
+### 14.9 "Meshtastic classifier ignored/dropped/deferred"
 
 **Question:** Why are Meshtastic inbound packets not being relayed?
 
@@ -1077,7 +1099,7 @@ Sub-counters break down by reason:
 
 **Important:** These are **aggregate counters**, not per-packet records. They explain how many packets were classified and what aggregate decisions were made. They do **not** mean live validation — the classifier is a pure function that examines packet structure, not a real-time validator. They do **not** persist a record of every individual ignored, dropped, or deferred packet. Counters reset on adapter restart (in-memory only).
 
-### 14.9 Summary: Evidence Non-Guarantees
+### 14.10 Summary: Evidence Non-Guarantees
 
 | Question                     | Answer                                                           | Evidence available?                 |
 | ---------------------------- | ---------------------------------------------------------------- | ----------------------------------- |

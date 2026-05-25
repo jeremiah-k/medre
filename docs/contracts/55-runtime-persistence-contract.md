@@ -17,7 +17,7 @@ This contract defines **where** MEDRE runtime state is stored and **when** it is
 
 Crash recovery expectations, durability guarantees and non-guarantees, boundedness, and degraded-runtime behavior are in **Contract 59 (Runtime Durability)**. This contract focuses on the storage layer; Contract 59 focuses on the behavioral guarantees that layer provides.
 
-This is not a persistence design document. It describes the current runtime's actual persistence behavior. No new storage mechanisms are introduced by this contract.
+This is not a persistence design document. It describes the current runtime's actual persistence behavior. The `delivery_outbox` table (Contract 03 §3.11) is the primary storage mechanism introduced for operational delivery work state, and is documented throughout this contract.
 
 ## 2. Authoritative Persisted State
 
@@ -25,21 +25,24 @@ This is not a persistence design document. It describes the current runtime's ac
 
 The single SQLite database at `{state}/medre.sqlite` is the authoritative persisted state of the MEDRE runtime. It holds:
 
-| Table/Area                  | Contents                                                          | Written When                                               |
-| --------------------------- | ----------------------------------------------------------------- | ---------------------------------------------------------- |
-| Canonical events            | Every normalized event that entered the pipeline                  | During the pipeline store step, before delivery begins     |
-| Delivery receipts           | `DeliveryReceipt` records with status, attribution, retry lineage | After each delivery attempt completes (success or failure) |
-| Native references           | Platform-native message IDs and channel IDs                       | With the delivery receipt                                  |
-| Route attribution           | `route_id` on `DeliveryReceipt`                                   | With the delivery receipt                                  |
-| Replay state                | Replay run metadata and results                                   | After each replay run completes                            |
-| Cross-adapter relationships | Links between events across adapters                              | During the pipeline store step                             |
-| Global runtime metadata     | Schema version, runtime identity                                  | On first creation and migration                            |
+| Table/Area                  | Contents                                                                                                                              | Written When                                                                                                            |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Canonical events            | Every normalized event that entered the pipeline                                                                                      | During the pipeline store step, before delivery begins                                                                  |
+| Delivery receipts           | `DeliveryReceipt` records with status, attribution, retry lineage                                                                     | After each delivery attempt completes (success or failure)                                                              |
+| Native references           | Platform-native message IDs and channel IDs                                                                                           | With the delivery receipt                                                                                               |
+| Route attribution           | `route_id` on `DeliveryReceipt`                                                                                                       | With the delivery receipt                                                                                               |
+| Replay state                | Replay run metadata and results                                                                                                       | After each replay run completes                                                                                         |
+| Cross-adapter relationships | Links between events across adapters                                                                                                  | During the pipeline store step                                                                                          |
+| Global runtime metadata     | Schema version, runtime identity                                                                                                      | On first creation and migration                                                                                         |
+| Delivery outbox             | Operational delivery work state (`pending`, `in_progress`, `queued`, `retry_wait`, `sent`, `dead_lettered`, `cancelled`, `abandoned`) | On outbox create (after route/policy/loop/capacity acceptance, before adapter delivery); status updated on each attempt |
 
 **Key properties:**
 
 - SQLite uses WAL (Write-Ahead Logging) journal mode. This provides good crash consistency: committed transactions are durable even if the process is killed without a clean shutdown.
 - Events are stored **before** delivery begins. If the runtime crashes after storing an event but before delivering it, the event is in the database with no delivery receipt. The event was preserved; the delivery was not.
 - Delivery receipts are written **after** each delivery attempt, not before. A receipt exists only if the delivery attempt completed far enough to produce a result.
+- An `in_progress` `delivery_outbox` row may exist before the adapter delivery completes. This row survives a crash and can be reclaimed by the RetryWorker after lease expiry. A crash before receipt commit can leave an event with no receipt but a surviving outbox row. Operators should check `delivery_outbox` before concluding an event is unrecoverable (see §4.1 and Contract 59 §7).
+- The outbox is **local/single-machine** persisted SQLite state. It provides no exactly-once delivery, RF confirmation, ACK, remote receipt, or end-to-end delivery guarantees.
 - There are **no per-adapter databases**. All persisted state is in the single global database. Adapter-local filesystem state (section 2.2) is transport-owned.
 
 ### 2.2 Transport-Owned Persistent Files
@@ -86,7 +89,7 @@ All of these reset to zero on startup. No history is retained across restarts.
 
 ### 3.3 In-Flight Deliveries
 
-Active adapter `deliver()` calls that have not yet completed. Not persisted. Events are already stored in SQLite (§2.1), but no receipt exists until the delivery attempt completes.
+Active adapter `deliver()` calls that have not yet completed. Not persisted as receipts. Events are already stored in SQLite (§2.1), but no receipt exists until the delivery attempt completes. A `delivery_outbox` row (status `in_progress`) may exist if the pipeline created it before the adapter call — this outbox row survives the crash and can be reclaimed after lease expiry.
 
 ### 3.4 Active Replay Runs
 
@@ -119,7 +122,7 @@ The **store** step writes the canonical event to SQLite before any delivery begi
 - Events that entered the pipeline are always persisted, even if delivery never happens.
 - Delivery receipts are written after each delivery attempt completes.
 - A receipt with `status="sent"` or `status="confirmed"` proves the delivery attempt completed and the adapter reported success.
-- An event with no receipt means delivery was never attempted or never completed.
+- An event with no receipt means delivery was never attempted or never completed. Check `delivery_outbox` for surviving operational state before concluding the event is unrecoverable.
 
 ### 4.2 Write Atomicity
 
@@ -314,17 +317,17 @@ If recovery fails, delete the database and accept data loss. Crypto stores and i
 
 ## 13. Persistence Expectations Summary
 
-| Question                                         | Answer                                            |
-| ------------------------------------------------ | ------------------------------------------------- |
-| Is event history preserved across restarts?      | **Yes.** Events are in SQLite.                    |
-| Are delivery receipts preserved across restarts? | **Yes.** Receipts are in SQLite.                  |
-| Is route attribution on receipts preserved?      | **Yes.** `route_id` is stored with the receipt.   |
-| Are runtime counters preserved across restarts?  | **No.** All counters reset to zero.               |
-| Is in-flight work recoverable after crash?       | **No.** No retry, no recovery, no receipt.        |
-| Are replay requests durable?                     | **No.** Replay is ephemeral, not a job queue.     |
-| Does replay deduplication exist?                 | **No.** Re-running replay may produce duplicates. |
-| Are E2EE sessions preserved across restarts?     | **Yes.** Crypto store is on disk.                 |
-| Is transport identity preserved across restarts? | **Yes.** Identity files are on disk.              |
-| Are logs preserved across restarts?              | **Yes.** Appended to log file.                    |
-| Is there a persistent metrics store?             | **No.** Counters are process-local only.          |
-| Does MEDRE backup its own database?              | **No.** Operators are responsible for backup.     |
+| Question                                         | Answer                                                                                                                                                         |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Is event history preserved across restarts?      | **Yes.** Events are in SQLite.                                                                                                                                 |
+| Are delivery receipts preserved across restarts? | **Yes.** Receipts are in SQLite.                                                                                                                               |
+| Is route attribution on receipts preserved?      | **Yes.** `route_id` is stored with the receipt.                                                                                                                |
+| Are runtime counters preserved across restarts?  | **No.** All counters reset to zero.                                                                                                                            |
+| Is in-flight work recoverable after crash?       | **Partially.** No receipt, no automatic retry of deliveries without outbox rows. `in_progress` outbox rows with expired leases are reclaimable by RetryWorker. |
+| Are replay requests durable?                     | **No.** Replay is ephemeral, not a job queue.                                                                                                                  |
+| Does replay deduplication exist?                 | **No.** Re-running replay may produce duplicates.                                                                                                              |
+| Are E2EE sessions preserved across restarts?     | **Yes.** Crypto store is on disk.                                                                                                                              |
+| Is transport identity preserved across restarts? | **Yes.** Identity files are on disk.                                                                                                                           |
+| Are logs preserved across restarts?              | **Yes.** Appended to log file.                                                                                                                                 |
+| Is there a persistent metrics store?             | **No.** Counters are process-local only.                                                                                                                       |
+| Does MEDRE backup its own database?              | **No.** Operators are responsible for backup.                                                                                                                  |

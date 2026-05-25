@@ -49,6 +49,12 @@ stable operator-facing data from unstable/debug internals::
         "uptime_seconds": float | null,
       },
       "limits": {...},
+      "outbox": {
+        "counts": dict[str, int] | null,
+        "live_refresh": false,
+        "note": str,
+        "scope": "storage_seeded",
+      },
       "persistence": {},
       "replay": {"available": bool, "counters": {...} | null},
       "routes": {
@@ -139,6 +145,16 @@ routes:
     startup-derived readiness.  Each sub-section carries explicit
     ``scope`` and ``live_refresh`` metadata so operators can distinguish
     build-time facts from startup-time facts from live state.
+outbox:
+    Delivery outbox status counts grouped by outbox status.
+    ``counts`` maps status strings (``pending``, ``in_progress``,
+    ``queued``, ``sent``, ``retry_wait``, ``dead_lettered``,
+    ``cancelled``, ``abandoned``) to integer counts.  Seeded from
+    storage on startup and refreshed after each retry worker cycle.
+    Carries ``scope="storage_seeded"`` and ``live_refresh=false``
+    (counts reflect the last storage query, not real-time polling).
+    ``null`` only when the app does not expose an outbox state surface
+    (e.g., storage not yet initialized at snapshot time).
 persistence:
     Reserved for future durable-storage status (last-persisted event
     ID, storage health, queue depths).  Currently always ``{}``.
@@ -680,6 +696,18 @@ def build_runtime_snapshot(
 
     has_live_health: bool = live_health_snapshot is not None
 
+    # -- Outbox state ---------------------------------------------------------
+    try:
+        outbox_state_obj: Any = getattr(app, "outbox_state", None)
+    except Exception:
+        _logger.warning("Failed to read app.outbox_state", exc_info=True)
+        outbox_state_obj = None
+    outbox_counts: dict[str, int] | None
+    if outbox_state_obj is not None and isinstance(outbox_state_obj, dict):
+        outbox_counts = dict(outbox_state_obj)
+    else:
+        outbox_counts = None
+
     # -- Runtime accounting counters -----------------------------------------
     accounting_obj: Any = getattr(app, "_runtime_accounting", None)
     accounting_snapshot: dict[str, int] | None
@@ -857,6 +885,12 @@ def build_runtime_snapshot(
         "identity": {},
         "lifecycle": lifecycle,
         "limits": limits_snapshot,
+        "outbox": {
+            "counts": outbox_counts,
+            "live_refresh": False,
+            "scope": "storage_seeded",
+            "note": "Counts seeded from storage on start and refreshed after each retry worker cycle. Reflects last storage query, not real-time.",
+        },
         "persistence": {},
         "replay": {
             "available": replay_available,

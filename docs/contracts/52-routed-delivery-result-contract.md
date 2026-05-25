@@ -188,7 +188,7 @@ The routing layer explicitly does **not** provide:
 - Exactly-once delivery semantics.
 - Distributed loop prevention across MEDRE instances.
 - Delivery confirmation beyond what the adapter reports.
-- Adapter-local outbound queue durability. Items remaining in an adapter's in-memory outbound queue at process termination (graceful or ungraceful) are lost. The Meshtastic adapter's outbound queue is non-durable; durable queue persistence and crash-recovery are deferred to a future implementation. This is a documented non-guarantee — operators requiring delivery assurance must ensure the queue is drained before shutdown or accept the loss of in-flight items.
+- Adapter-local outbound queue durability. Items remaining in an adapter's in-memory outbound queue at process termination (graceful or ungraceful) are lost. The Meshtastic adapter's outbound queue is non-durable; however, the `delivery_outbox` table provides durable tracking for in-flight and retry-waiting deliveries, and the RetryWorker can re-claim outbox items with expired leases after restart (see Contract 59 §3). Adapter-local queue contents are still lost on crash — only the outbox row survives.
 - Outbound gate suppression retry. When `outbound_mode = "listen_only"` is configured on a Meshtastic adapter, suppressed outbound deliveries are non-retryable. The routing layer records the failure honestly; retry is not attempted because the suppression is an intentional operator decision.
 
 ## 7. Duplicate-Send Risk for Radio and Async Transports

@@ -1,6 +1,6 @@
 # MEDRE Transport Capability Status
 
-> **Generated:** 2026-05-24
+> **Generated:** 2026-05-25 (updated Tranche 5: local delivery outbox)
 >
 > **Context:** This is a living document. It tracks which MEDRE capabilities are implemented, tested, and validated across each transport adapter. It exists so operators and developers can see, at a glance, what works and what does not.
 >
@@ -29,6 +29,7 @@ This document is the single source of truth for per-transport capability trackin
 | Run-session path                    | live-validated | not started             | not started | not started |
 | Operator runbook                    | live-validated | opt-in live test exists | designed    | designed    |
 | Live validation recorded            | live-validated | not started             | not started | not started |
+| Local delivery outbox               | fake-tested    | fake-tested             | fake-tested | fake-tested |
 | Matrix live adapter (local Synapse) | live-validated |                         |             |             |
 
 ## Interpretation
@@ -100,25 +101,32 @@ These apply to all transports unless specifically noted.
 
 2. **No dead-letter admin UI or management command.** Dead-lettered receipts are recorded in storage when retries are exhausted, but there is no dedicated CLI command or UI for browsing, replaying, or managing dead-lettered events. Operators can inspect them via `medre inspect receipts --event <id>` or evidence bundles.
 
-3. **Runtime capacity control exists; transport-aware rate limiting is incomplete.** The runtime enforces a configurable max-inflight-delivery limit via the capacity controller. Meshtastic has bounded adapter-local outbound queue retry: transient SDK send failures are retried up to `queue_send_max_attempts` from the in-memory queue; permanent failures and exhausted retries are dropped. Retry is best-effort, adapter-local, non-durable across process restart, and not exactly-once. Meshtastic queue overflow is explicit: when the queue is full, new enqueues are rejected with a transient error (not silently evicted), allowing pipeline retry. Queue stats (depth, max size, enqueued, sent, failed, rejected, requeued, exhausted, max attempts) are visible in adapter diagnostics. Being queued / locally accepted does not mean RF-delivered. Matrix relies on homeserver-side rate limiting; MEDRE does not yet model Matrix rate-limit headers or adaptive transport backoff as runtime policy. Matrix M_LIMIT_EXCEEDED / HTTP 429 responses are classified as transient and retried with bounded backoff. The retry_after_ms header is not yet honored.
+3. **Local delivery outbox is durable but does not provide exactly-once or RF confirmation.** The outbox (`delivery_outbox` table) persists pending, retry_wait, in_progress, queued, sent, dead_lettered, cancelled, and abandoned items across process restart. However:
+   - **(a) Crash timing risk:** A process may crash after local adapter send succeeds but before the sent receipt is committed — recovery may resend.
+   - **(b) Meshtastic queue ambiguity:** Meshtastic adapter-local queue contents are in-memory and non-durable — items queued but not sent at crash time are lost, though a `queued` outbox row may survive if committed before the crash (such rows are ambiguous after restart and are not automatically retried).
+   - **(c) No end-to-end tracking:** The outbox does not track RF confirmation, ACK, remote receipt, or end-to-end delivery.
 
-4. **Graceful shutdown is bounded, not fully durable.** On stop, the runtime stops accepting new work and stops the retry worker, then waits up to `limits.shutdown_drain_timeout_seconds` for in-flight delivery and replay capacity to drain. Work still inside adapter SDK sync loops, adapter-local queues, or inbound callbacks is not durably queued before pipeline acceptance; in-flight work may still be abandoned after the drain timeout.
+   Operators can inspect aggregate outbox counts through runtime diagnostics snapshots (`medre diagnostics --refresh-health`) and can query detailed rows in the `delivery_outbox` table through SQLite/storage-level inspection. A first-class outbox inspect/recover CLI command is future work. The RetryWorker processes due outbox items when `[retry] enabled = true`.
 
-5. **No inbound persistence.** Inbound events are published directly to the pipeline. If the pipeline is slow or fails, the event is gone. No retry, no redelivery at the inbound stage.
+4. **Runtime capacity control exists; transport-aware rate limiting is incomplete.** The runtime enforces a configurable max-inflight-delivery limit via the capacity controller. Meshtastic has bounded adapter-local outbound queue retry: transient SDK send failures are retried up to `queue_send_max_attempts` from the in-memory queue; permanent failures and exhausted retries are dropped. Retry is best-effort, adapter-local, non-durable across process restart, and not exactly-once. Meshtastic queue overflow is explicit: when the queue is full, new enqueues are rejected with a transient error (not silently evicted), allowing pipeline retry. Queue stats (depth, max size, enqueued, sent, failed, rejected, requeued, exhausted, max attempts) are visible in adapter diagnostics. Being queued / locally accepted does not mean RF-delivered. Matrix relies on homeserver-side rate limiting; MEDRE does not yet model Matrix rate-limit headers or adaptive transport backoff as runtime policy. Matrix M_LIMIT_EXCEEDED / HTTP 429 responses are classified as transient and retried with bounded backoff. The retry_after_ms header is not yet honored.
 
-6. **No structured logging.** All log output is format-string based. No trace IDs, no correlation across events, no structured fields.
+5. **Graceful shutdown is bounded, not fully durable.** On stop, the runtime stops accepting new work and stops the retry worker, then waits up to `limits.shutdown_drain_timeout_seconds` for in-flight delivery and replay capacity to drain. Work still inside adapter SDK sync loops, adapter-local queues, or inbound callbacks is not durably queued before pipeline acceptance; in-flight work may still be abandoned after the drain timeout.
 
-7. **No metrics export.** Diagnostics counters exist in memory but there is no Prometheus endpoint, no statsd, no external export. The only observability is logs, `health_check()`, and `diagnostics()`.
+6. **No inbound persistence.** Inbound events are published directly to the pipeline. If the pipeline is slow or fails, the event is gone. No retry, no redelivery at the inbound stage.
 
-8. **Single-operator only.** Everything is tested and documented for a single person on a single machine. Multi-node, multi-operator, and deployment scenarios do not exist.
+7. **No structured logging.** All log output is format-string based. No trace IDs, no correlation across events, no structured fields.
 
-9. **Matrix-specific.** Multi-room concurrent inbound has not been tested against a real homeserver. E2EE text alpha does not support reactions, edits, media, cross-signing, or key backup.
+8. **No metrics export.** Diagnostics counters exist in memory but there is no Prometheus endpoint, no statsd, no external export. The only observability is logs, `health_check()`, and `diagnostics()`.
 
-10. **Meshtastic-specific.** Inbound processing is text messages only. Telemetry, position, and nodeinfo portnum types are not processed inbound.
+9. **Single-operator only.** Everything is tested and documented for a single person on a single machine. Multi-node, multi-operator, and deployment scenarios do not exist.
 
-11. **MeshCore-specific.** SDK findings are based on source extraction, not hardware testing. BLE is implemented at the session layer (`MeshCore.create_ble()` path wired); hardware validation against a real BLE node is pending. Mock-based BLE validation tests pass without hardware.
+10. **Matrix-specific.** Multi-room concurrent inbound has not been tested against a real homeserver. E2EE text alpha does not support reactions, edits, media, cross-signing, or key backup.
 
-12. **LXMF-specific.** Multi-hop mesh delivery is not tested. E2EE beyond Reticulum's native link-layer encryption is not in scope.
+11. **Meshtastic-specific.** Inbound processing is text messages only. Telemetry, position, and nodeinfo portnum types are not processed inbound.
+
+12. **MeshCore-specific.** SDK findings are based on source extraction, not hardware testing. BLE is implemented at the session layer (`MeshCore.create_ble()` path wired); hardware validation against a real BLE node is pending. Mock-based BLE validation tests pass without hardware.
+
+13. **LXMF-specific.** Multi-hop mesh delivery is not tested. E2EE beyond Reticulum's native link-layer encryption is not in scope.
 
 ## How to Update This Document
 

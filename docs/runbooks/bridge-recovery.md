@@ -19,7 +19,7 @@ and the decision tree for choosing the right recovery action.
 
 **What recovery does NOT do:**
 
-- Recover in-flight deliveries lost during crash (they are gone).
+- Recover in-flight deliveries lost during crash. Deliveries that never created an outbox row are fully lost. Accepted deliveries that already created an `in_progress` outbox row persist in SQLite; if their lease expires, the RetryWorker can reclaim them on restart. A receipt may still be absent if the crash occurred before attempt completion.
 - Resume interrupted replay runs (they must be re-initiated).
 - Automatically restart failed adapters (only full runtime restart).
 - Deduplicate replay deliveries.
@@ -203,19 +203,19 @@ What happened?
 
 On hard crash (kill -9, OOM, power loss):
 
-| State                                            | Survived? | Notes                                                                                                                                                   |
-| ------------------------------------------------ | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Canonical events                                 | **Yes**   | Written to SQLite before delivery. Storage remains durable across crashes.                                                                              |
-| Delivery receipts                                | **Yes**   | Written after each delivery attempt. SQLite persists.                                                                                                   |
-| Native message refs                              | **Yes**   | Persisted in SQLite alongside receipts.                                                                                                                 |
-| Receipt traceability (`source`, `replay_run_id`) | **Yes**   | Stored on receipts in SQLite. Survives crash.                                                                                                           |
-| Matrix E2EE crypto keys                          | **Yes**   | On disk under adapter state root                                                                                                                        |
-| LXMF identity files                              | **Yes**   | On disk under adapter state root                                                                                                                        |
-| Logs (pre-crash)                                 | **Yes**   | Appended to `{log_dir}/medre.log`                                                                                                                       |
-| In-flight deliveries                             | **No**    | Lost — no receipt, no recovery                                                                                                                          |
-| Active replay runs                               | **No**    | Lost — must re-initiate manually                                                                                                                        |
-| Runtime counters (accounting)                    | **No**    | Process-local accounting resets after restart. All `RuntimeAccounting`, `CapacityController`, `RouteStats`, and `Diagnostician` counters reset to zero. |
-| Adapter connection state                         | **No**    | Adapters reconnect from scratch                                                                                                                         |
+| State                                            | Survived?   | Notes                                                                                                                                                   |
+| ------------------------------------------------ | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Canonical events                                 | **Yes**     | Written to SQLite before delivery. Storage remains durable across crashes.                                                                              |
+| Delivery receipts                                | **Yes**     | Written after each delivery attempt. SQLite persists.                                                                                                   |
+| Native message refs                              | **Yes**     | Persisted in SQLite alongside receipts.                                                                                                                 |
+| Receipt traceability (`source`, `replay_run_id`) | **Yes**     | Stored on receipts in SQLite. Survives crash.                                                                                                           |
+| Matrix E2EE crypto keys                          | **Yes**     | On disk under adapter state root                                                                                                                        |
+| LXMF identity files                              | **Yes**     | On disk under adapter state root                                                                                                                        |
+| Logs (pre-crash)                                 | **Yes**     | Appended to `{log_dir}/medre.log`                                                                                                                       |
+| In-flight deliveries                             | **Partial** | No receipt, but an `in_progress` outbox row may survive. Expired leases are reclaimable by RetryWorker. Deliveries without outbox rows are fully lost.  |
+| Active replay runs                               | **No**      | Lost — must re-initiate manually                                                                                                                        |
+| Runtime counters (accounting)                    | **No**      | Process-local accounting resets after restart. All `RuntimeAccounting`, `CapacityController`, `RouteStats`, and `Diagnostician` counters reset to zero. |
+| Adapter connection state                         | **No**      | Adapters reconnect from scratch                                                                                                                         |
 
 ### 2.2 Crash Recovery Steps
 
@@ -393,10 +393,12 @@ supported. All adapters restart together.
 Events are orphaned when they were stored in `canonical_events` but have no
 corresponding entry in `delivery_receipts`. This happens when:
 
-- The runtime crashed mid-delivery.
+- The runtime crashed mid-delivery (a `delivery_outbox` row may survive — check before concluding the event is unrecoverable).
 - Delivery was cancelled during shutdown.
 - Route matching found no matching routes (by design — not an error).
 - Loop prevention suppressed delivery (a `status="suppressed"` receipt is persisted when event/target context exists).
+
+**Note:** Receipt absence alone is no longer authoritative after the durable outbox introduction. An event with no receipts may still have a `delivery_outbox` row (check `SELECT * FROM delivery_outbox WHERE event_id = ?`). An `in_progress` row with an expired lease is reclaimable by the RetryWorker. A `pending` or `retry_wait` row is eligible for automatic retry.
 
 ```sql
 -- All orphaned events
@@ -833,7 +835,8 @@ reset to zero. This means:
 2. Receipts from before the restart are still in `delivery_receipts` with
    their original `sequence` values.
 3. New receipts after restart continue the `sequence` auto-increment (no gap
-   filling -- gaps indicate lost in-flight deliveries).
+   filling -- gaps indicate lost in-flight deliveries; a `delivery_outbox` row
+   may still exist for these events).
 4. Counter-based diagnostics (`medre diagnostics`) reflect only post-restart
    state.
 
@@ -913,13 +916,13 @@ When an operator invokes `medre replay --mode BEST_EFFORT`, events are re-delive
 
 ### 7.3 When to Use Which
 
-| Scenario                                              | Use                   | Why                                                                         |
-| ----------------------------------------------------- | --------------------- | --------------------------------------------------------------------------- |
-| Transient adapter failure (timeout, connection reset) | **Retry** (automatic) | RetryWorker handles this. No operator action needed.                        |
-| Retry exhausted (dead-lettered)                       | **Replay** (manual)   | After fixing the underlying cause, replay the event.                        |
-| Event never delivered (orphaned by crash)             | **Replay** (manual)   | No receipt exists, so retry has nothing to chain from.                      |
-| Permanent failure                                     | **Replay** (manual)   | After fixing the underlying cause (e.g., auth, config).                     |
-| Retry disabled (no RetryPolicy)                       | **Replay** (manual)   | Without a RetryPolicy, the RetryWorker does not pick up transient failures. |
+| Scenario                                              | Use                                                     | Why                                                                                                                |
+| ----------------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Transient adapter failure (timeout, connection reset) | **Retry** (automatic)                                   | RetryWorker handles this. No operator action needed.                                                               |
+| Retry exhausted (dead-lettered)                       | **Replay** (manual)                                     | After fixing the underlying cause, replay the event.                                                               |
+| Event never delivered (orphaned by crash)             | **Replay** (manual) or **Retry** (if outbox row exists) | If a `delivery_outbox` row exists, RetryWorker may reclaim it. If no outbox row exists, replay is the only option. |
+| Permanent failure                                     | **Replay** (manual)                                     | After fixing the underlying cause (e.g., auth, config).                                                            |
+| Retry disabled (no RetryPolicy)                       | **Replay** (manual)                                     | Without a RetryPolicy, the RetryWorker does not pick up transient failures.                                        |
 
 ### 7.4 Checking Pending Retries
 

@@ -5,6 +5,7 @@
 **Audience:** Runtime builders, adapter authors, operators.
 **Tracks:** 9 (evidence consolidation and boundary enforcement)
 **References:** Contract 47 (Runtime Assembly), Contract 53 (Resource Control), Contract 54 (Runtime Shutdown), Contract 59 (Runtime Durability), Contract 61 (Operational Evidence).
+**Last reviewed:** 2026-05-25
 
 Every agent or document that references MEDRE cancellation behavior, stop semantics, shutdown task cancellation, or capacity controller stop behavior must defer to this contract.
 
@@ -273,3 +274,26 @@ These tests use fake adapters only and do not require live transport dependencie
 | Durability semantics, what survives crash, process-local vs persisted     | Contract 59 (Runtime Durability)  |
 | Runtime assembly, `RuntimeState` lifecycle, startup classification        | Contract 47 (Runtime Assembly)    |
 | Persistence timing, WAL consistency, receipt durability                   | Contract 55 (Runtime Persistence) |
+
+## 12. Outbox Interaction During Shutdown
+
+### 12.1 Outbox Item Creation Before Shutdown
+
+Outbox items are created in `PipelineRunner._deliver_one` after route/policy/loop/capacity acceptance and before the adapter delivery attempt. If `stop_accepting()` has been called, the capacity controller rejects the delivery before outbox creation — no pending outbox item is left behind.
+
+### 12.2 In-Flight Outbox Items at Shutdown
+
+During the drain phase of shutdown:
+
+- If a delivery completes within the drain window, the outbox item is updated normally (`sent`, `queued`, `retry_wait`, or `dead_lettered`).
+- If the drain timeout expires while an outbox item is `in_progress`, the item retains its `in_progress` status with an expired lease. On restart, the item is re-claimable by the RetryWorker.
+- The shutdown does **not** cancel, delete, or modify outbox items directly — it relies on lease expiry for recovery.
+
+### 12.3 RetryWorker Shutdown
+
+When `RetryWorker.stop()` is called:
+
+1. The shutdown event is set.
+2. In-flight retry attempts that are already mid-processing continue to completion (they are not cancelled mid-delivery).
+3. Items that were claimed but not yet processed have their lease released via `release_outbox_claim` (capacity rejection path) or retain their lease (which expires naturally).
+4. The worker waits up to 5 seconds for the internal loop to exit.

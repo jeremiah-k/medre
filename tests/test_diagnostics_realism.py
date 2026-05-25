@@ -393,6 +393,7 @@ class TestSnapshotReadability:
             "identity",
             "lifecycle",
             "limits",
+            "outbox",
             "persistence",
             "replay",
             "retry",

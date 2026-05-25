@@ -331,6 +331,16 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
             shutdown_errors: list[tuple[str, str]] = []
             drain_outcome = "completed"
             abandoned_count = 0
+
+            # Refresh outbox from storage while it is still open.
+            try:
+                if app.storage is not None:
+                    await app.refresh_outbox_state_from_storage()
+            except Exception:
+                logger.debug(
+                    "Failed to refresh outbox state before shutdown", exc_info=True
+                )
+
             try:
                 await app.stop()
             except Exception as exc:
