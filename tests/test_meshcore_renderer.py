@@ -14,8 +14,6 @@ from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.rendering.renderer import RenderingResult
 
 
-
-
 def _make_config(
     adapter_id: str = "meshcore_node",
     *,

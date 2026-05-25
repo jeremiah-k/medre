@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
+
 from medre.core.storage import DeliveryOutboxItem, SQLiteStorage
 
 
@@ -923,3 +925,55 @@ class TestQueuedLeaseSemantics:
         assert item.lease_until is None
         assert item.worker_id is None
         assert item.receipt_id == "rcpt-final"
+
+
+class TestAsyncTransactionRollback:
+    """Regression: aiosqlite create_outbox_item must rollback on any failure
+    between BEGIN IMMEDIATE and COMMIT, leaving the connection usable."""
+
+    async def test_rollback_after_mid_transaction_error(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Force an error between BEGIN and INSERT, then verify the same
+        storage connection can still create outbox items."""
+
+        item = _make_outbox_item(delivery_plan_id="plan-txn-rollback")
+        await temp_storage.create_outbox_item(item)
+        fetched = await temp_storage.get_outbox_item(item.outbox_id)
+        assert fetched is not None
+
+        # Now force a failure inside the aiosqlite path by making execute
+        # raise after the BEGIN.  We patch at the storage layer.
+        if not temp_storage._use_aiosqlite:
+            # Sync path uses threading.Lock and _sync_atomic_create_outbox
+            # which already has proper rollback via BaseException handler.
+            pytest.skip("aiosqlite not available")
+
+        real_execute = temp_storage._db.execute
+        call_count = 0
+
+        async def _flaky_execute(stmt, params=None):
+            nonlocal call_count
+            call_count += 1
+            # Let BEGIN succeed, fail on the SELECT.
+            if call_count == 2:
+                raise RuntimeError("injected mid-transaction error")
+            if params is not None:
+                return await real_execute(stmt, params)
+            return await real_execute(stmt)
+
+        temp_storage._db.execute = _flaky_execute  # type: ignore[assignment]
+
+        try:
+            item2 = _make_outbox_item(delivery_plan_id="plan-txn-rollback-2")
+            with pytest.raises(RuntimeError, match="injected mid-transaction"):
+                await temp_storage.create_outbox_item(item2)
+        finally:
+            temp_storage._db.execute = real_execute  # type: ignore[assignment]
+
+        # The connection must still be usable after the failed transaction.
+        item3 = _make_outbox_item(delivery_plan_id="plan-txn-recovery")
+        await temp_storage.create_outbox_item(item3)
+        fetched3 = await temp_storage.get_outbox_item(item3.outbox_id)
+        assert fetched3 is not None
+        assert fetched3.delivery_plan_id == "plan-txn-recovery"

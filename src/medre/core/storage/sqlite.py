@@ -1577,18 +1577,28 @@ class SQLiteStorage:
                             )
                         # Terminal — delete so re-insertion can proceed.
                         await db.execute(delete_sql, (existing["outbox_id"],))  # type: ignore[union-attr]
-                    try:
-                        await db.execute(insert_sql, insert_params)  # type: ignore[union-attr]
-                    except Exception:
-                        await db.execute("ROLLBACK")  # type: ignore[union-attr]
-                        raise
+                    await db.execute(insert_sql, insert_params)  # type: ignore[union-attr]
                     await db.execute("COMMIT")  # type: ignore[union-attr]
                 except sqlite3.IntegrityError:
                     # UNIQUE race: another writer inserted between our SELECT
-                    # and INSERT.  Re-read the winning row.
+                    # and INSERT.  Rollback if the transaction is still active,
+                    # then re-read the winning row.
+                    try:
+                        await db.execute("ROLLBACK")  # type: ignore[union-attr]
+                    except Exception:
+                        pass
                     existing = await self._read_one(select_sql, select_params)
                     if existing is not None:
                         return await self.get_outbox_item(existing["outbox_id"]) or item
+                    raise
+                except BaseException:
+                    # Ensure the transaction is rolled back on any other failure
+                    # (e.g. operational error between BEGIN and COMMIT) so the
+                    # connection is not left with an open transaction.
+                    try:
+                        await db.execute("ROLLBACK")  # type: ignore[union-attr]
+                    except Exception:
+                        pass
                     raise
         else:
             try:

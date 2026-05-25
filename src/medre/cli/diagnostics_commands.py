@@ -149,6 +149,9 @@ async def _diagnostics_refresh(config_path: str | None) -> None:
         # Refresh live health — refreshes each adapter's health_check() once.
         await app.refresh_live_health()
 
+        # Refresh outbox counts from storage before snapshot.
+        await app.refresh_outbox_state_from_storage()
+
         # Build snapshot with REAL timestamps (not fixed).
         from medre.runtime.snapshot import build_runtime_snapshot
 

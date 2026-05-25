@@ -95,6 +95,7 @@ async def _collect_live_health(
 
     try:
         await app.refresh_live_health()
+        await app.refresh_outbox_state_from_storage()
         snapshot = build_runtime_snapshot(app)
         return _section_ok(snapshot)
     except Exception as exc:

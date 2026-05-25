@@ -370,6 +370,10 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
                 try:
                     from medre.runtime.snapshot import build_runtime_snapshot
 
+                    # Refresh outbox counts from storage before final snapshot.
+                    if app.storage is not None:
+                        await app.refresh_outbox_state_from_storage()
+
                     snap = build_runtime_snapshot(app)
                     snap_path = Path(snapshot_path)
                     snap_path.parent.mkdir(parents=True, exist_ok=True)

@@ -166,6 +166,7 @@ def _make_fake_app(
     startup_wall: str | None = None,
     startup_monotonic: float | None = None,
     health_state: Any = None,
+    storage: Any = None,
 ) -> Any:
     """Build a fake app object for testing."""
 
@@ -182,6 +183,24 @@ def _make_fake_app(
         _startup_wall: str | None = None
         _startup_monotonic: float | None = None
         _health_state: Any = None
+        _outbox_state: dict = field(default_factory=dict)
+        storage: Any = None
+
+        async def refresh_outbox_state_from_storage(self) -> None:
+            """Mirror MedreApp.refresh_outbox_state_from_storage for tests."""
+            storage = getattr(self, "storage", None)
+            if storage is not None:
+                try:
+                    self._outbox_state = await storage.count_outbox_by_status()  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+
+        @property
+        def outbox_state(self) -> dict[str, int] | None:
+            """Mirror MedreApp.outbox_state property for tests."""
+            if self._outbox_state:
+                return dict(self._outbox_state)
+            return None
 
     app = _FakeApp(
         adapters=adapters or {},
@@ -195,6 +214,7 @@ def _make_fake_app(
         _startup_wall=startup_wall,
         _startup_monotonic=startup_monotonic,
         _health_state=health_state,
+        storage=storage,
     )
     return app
 
@@ -1442,7 +1462,7 @@ class TestOutboxStorageBackedCounts:
 
         # 2) Storage-seeded counts win over empty worker cache.
         app = _make_fake_app()
-        app.outbox_state = {"pending": 3, "retry_wait": 1}
+        app._outbox_state = {"pending": 3, "retry_wait": 1}
         mock_worker = MagicMock()
         mock_worker.outbox_counts = {}
         app._retry_worker = mock_worker
@@ -1453,7 +1473,7 @@ class TestOutboxStorageBackedCounts:
 
         # 3) Worker cache takes precedence when non-empty.
         app2 = _make_fake_app()
-        app2.outbox_state = {"pending": 1, "sent": 2}
+        app2._outbox_state = {"pending": 1, "sent": 2}
         mock_worker2 = MagicMock()
         mock_worker2.outbox_counts = {"pending": 1, "sent": 2}
         app2._retry_worker = mock_worker2
@@ -1469,3 +1489,48 @@ class TestOutboxStorageBackedCounts:
             "scope",
         }
         assert snap["outbox"]["live_refresh"] is False
+
+
+class TestStorageBackedOutboxRefresh:
+    """Regression: refresh_outbox_state_from_storage must propagate storage
+    rows into the snapshot even when the retry worker has not completed a
+    cycle."""
+
+    async def test_refresh_populates_snapshot_from_storage(self, tmp_path) -> None:
+        """Create outbox rows in storage, refresh, build snapshot — counts
+        must reflect storage, not an empty worker cache."""
+        from medre.core.storage.backend import DeliveryOutboxItem
+        from medre.core.storage.sqlite import SQLiteStorage
+
+        db_path = tmp_path / "test_refresh.db"
+        storage = SQLiteStorage(str(db_path))
+        await storage.initialize()
+
+        try:
+            # Insert outbox rows directly.
+            for i in range(3):
+                item = DeliveryOutboxItem(
+                    outbox_id=f"obx-refresh-{i}",
+                    event_id=f"evt-refresh-{i}",
+                    route_id="route-refresh",
+                    delivery_plan_id=f"plan-refresh-{i}",
+                    target_adapter="adapter_refresh",
+                    attempt_number=1,
+                    status="pending",
+                )
+                await storage.create_outbox_item(item)
+
+            # Build a fake app with this storage and no retry worker cycle.
+            app = _make_fake_app(storage=storage)
+
+            # Before refresh: no outbox state set (property returns None).
+            snap_before = build_runtime_snapshot(app, snapshot_scope="build")
+            assert snap_before["outbox"]["counts"] is None
+
+            # After refresh: counts must reflect the 3 pending rows.
+            await app.refresh_outbox_state_from_storage()
+            snap_after = build_runtime_snapshot(app, snapshot_scope="build")
+            assert snap_after["outbox"]["counts"] == {"pending": 3}
+            assert snap_after["outbox"]["scope"] == "storage_seeded"
+        finally:
+            await storage.close()
