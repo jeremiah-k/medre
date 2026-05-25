@@ -27,7 +27,7 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Literal, cast
 
 import msgspec
@@ -1574,6 +1574,9 @@ class PipelineRunner:
             _outbox_created: bool = False
             try:
                 # Fresh delivery via _deliver_one is always attempt 1.
+                _now = datetime.now(timezone.utc)
+                _pipeline_worker = f"pipeline:{uuid.uuid4().hex[:12]}"
+                _lease_until = (_now + timedelta(seconds=300)).isoformat()
                 outbox_item = DeliveryOutboxItem(
                     outbox_id=f"obox-{uuid.uuid4()}",
                     event_id=event.event_id,
@@ -1582,7 +1585,10 @@ class PipelineRunner:
                     target_adapter=adapter_id,
                     target_channel=target.channel,
                     attempt_number=1,
-                    status="pending",
+                    status="in_progress",
+                    locked_at=_now.isoformat(),
+                    lease_until=_lease_until,
+                    worker_id=_pipeline_worker,
                 )
                 created = await self._config.storage.create_outbox_item(outbox_item)
                 _outbox_id = created.outbox_id
@@ -1779,8 +1785,6 @@ class PipelineRunner:
                             if _outcome_failure_kind_val.is_retryable:
                                 # Compute next attempt time for retry using
                                 # the delivery plan's retry policy.
-                                from datetime import timedelta
-
                                 _backoff = timedelta(seconds=60)
                                 if route_plan.retry_policy is not None:
                                     _backoff = RetryExecutor(

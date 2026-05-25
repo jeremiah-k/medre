@@ -27,7 +27,7 @@ This document describes how MEDRE routes, delivers, tracks, and recovers events.
    - Render event via `RenderingPipeline.render()`
    - Call `adapter.deliver(rendering_result)` → `AdapterDeliveryResult`
    - Record `DeliveryReceipt` (status="sent" or "failed")
-   - **Outbox creation**: after capacity acquisition and before adapter delivery, a `delivery_outbox` item is created (status `pending`).  This ensures pending work survives a crash between this point and receipt commit.
+    - **Outbox creation**: after capacity acquisition and before adapter delivery, a `delivery_outbox` item is created (status `in_progress` with a pipeline lease). This ensures pending work survives a crash and live work is protected from the retry worker.
    - On success: mark outbox `sent` and append `sent` receipt.
    - On `queued`: mark outbox `queued` and append `queued` receipt.
    - On retryable failure: mark outbox `retry_wait` with next attempt time computed from the plan's `RetryPolicy`.

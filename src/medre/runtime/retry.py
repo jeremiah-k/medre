@@ -285,8 +285,11 @@ class RetryWorker:
                         item.outbox_id,
                     )
                     # Release the claim so the item is visible next cycle.
+                    _restore_status = "retry_wait" if item.next_attempt_at else "pending"
                     await self._storage.release_outbox_claim(
-                        item.outbox_id, item.worker_id or ""
+                        item.outbox_id,
+                        item.worker_id or "",
+                        release_status=_restore_status,
                     )
                     self._emit(
                         "retry_failed",
@@ -311,8 +314,11 @@ class RetryWorker:
                     item.outbox_id,
                 )
                 try:
+                    _restore_status = "retry_wait" if item.next_attempt_at else "pending"
                     await self._storage.release_outbox_claim(
-                        item.outbox_id, item.worker_id or ""
+                        item.outbox_id,
+                        item.worker_id or "",
+                        release_status=_restore_status,
                     )
                 except Exception:
                     _logger.exception(

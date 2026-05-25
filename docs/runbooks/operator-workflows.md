@@ -988,34 +988,23 @@ This tells you: the event exhausted its retry budget, and the pipeline will not 
 
 ### 14.5 Inspecting and Recovering the Delivery Outbox
 
-**Check outbox status:**
-```bash
-medre inspect outbox
-```
+**Check outbox counts:**
+The runtime snapshot includes ``outbox.counts`` with per-status tallies.
 
-**List dead-lettered items:**
+**Query outbox items directly:**
 ```bash
-medre recover list --status dead_lettered
-```
-
-**Recover a specific dead-lettered item:**
-```bash
-medre recover reattempt <outbox_id>
-```
-
-**Recover all dead-lettered items for a target adapter:**
-```bash
-medre recover reattempt --adapter meshtastic --status dead_lettered
+sqlite3 $MEDRE_HOME/medre.db "SELECT status, COUNT(*) FROM delivery_outbox GROUP BY status;"
 ```
 
 **Understanding outbox statuses:**
-- `pending` — work not yet attempted.  Normal after restart or before worker cycle.
-- `retry_wait` — transient failure; will retry automatically on next worker cycle.
-- `dead_lettered` — retries exhausted or permanent failure; requires operator intervention.
-- `cancelled` — operator cancelled during processing.
-- `abandoned` — drain timeout during shutdown; operator should inspect and decide.
-
-**Warning:** Re-delivering a previously `sent` item may produce a duplicate delivery.  MEDRE does not provide exactly-once guarantees.
+- ``in_progress`` — live pipeline delivery in progress; not claimable by retry worker (unless lease expired).
+- ``pending`` — work exists but has not started (pre-outbox or manually created).
+- ``retry_wait`` — transient failure; will retry automatically on next worker cycle.
+- ``queued`` — accepted by adapter-local queue. After crash, this state is ambiguous.
+- ``sent`` — local send succeeded (terminal).
+- ``dead_lettered`` — retries exhausted or permanent failure; requires operator intervention.
+- ``cancelled`` — operator cancelled.
+- ``abandoned`` — drain timeout during shutdown.
 
 ### 14.6 "Queued locally but not RF-confirmed" (Meshtastic)
 

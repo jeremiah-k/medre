@@ -15,6 +15,7 @@ def _make_outbox_item(
     target_channel: str | None = "ch-0",
     attempt_number: int = 1,
     status: str = "pending",
+    next_attempt_at: str | None = None,
 ) -> DeliveryOutboxItem:
     """Build a minimal DeliveryOutboxItem for tests."""
     return DeliveryOutboxItem(
@@ -26,6 +27,7 @@ def _make_outbox_item(
         target_channel=target_channel,
         attempt_number=attempt_number,
         status=status,
+        next_attempt_at=next_attempt_at,
     )
 
 
@@ -367,6 +369,9 @@ class TestStatusTransitions:
         assert item.next_attempt_at == next_at
         assert item.failure_kind == "adapter_transient"
         assert item.error_summary == "Connection timeout"
+        assert item.locked_at is None  # retry_wait clears lease
+        assert item.lease_until is None
+        assert item.worker_id is None
 
     async def test_mark_dead_lettered(self, temp_storage: SQLiteStorage) -> None:
         oid = await self._create_and_claim(temp_storage, "plan-ts-dl")
@@ -411,10 +416,10 @@ class TestStatusTransitions:
 
 
 class TestReleaseClaim:
-    """release_outbox_claim() clears lease fields when worker matches."""
+    """release_outbox_claim() clears lease fields and restores status."""
 
-    async def test_release_claim(self, temp_storage: SQLiteStorage) -> None:
-        item = _make_outbox_item(delivery_plan_id="plan-release")
+    async def test_release_claim_restores_pending(self, temp_storage: SQLiteStorage) -> None:
+        item = _make_outbox_item(delivery_plan_id="plan-rel-pend")
         await temp_storage.create_outbox_item(item)
         claimed = await temp_storage.claim_due_outbox_items(
             now="2026-01-01T00:00:00",
@@ -425,13 +430,42 @@ class TestReleaseClaim:
         assert len(claimed) == 1
         oid = claimed[0].outbox_id
 
-        await temp_storage.release_outbox_claim(oid, "worker-1")
+        await temp_storage.release_outbox_claim(
+            oid, "worker-1", release_status="pending"
+        )
         released = await temp_storage.get_outbox_item(oid)
         assert released is not None
         assert released.locked_at is None
         assert released.lease_until is None
         assert released.worker_id is None
         assert released.status == "pending"
+
+    async def test_release_claim_restores_retry_wait(self, temp_storage: SQLiteStorage) -> None:
+        item = _make_outbox_item(
+            delivery_plan_id="plan-rel-rw",
+            status="retry_wait",
+            next_attempt_at="2026-01-01T00:05:00",
+        )
+        await temp_storage.create_outbox_item(item)
+        claimed = await temp_storage.claim_due_outbox_items(
+            now="2026-01-01T00:05:00",
+            worker_id="worker-1",
+            lease_seconds=30,
+            limit=10,
+        )
+        assert len(claimed) == 1
+        oid = claimed[0].outbox_id
+
+        await temp_storage.release_outbox_claim(
+            oid, "worker-1", release_status="retry_wait"
+        )
+        released = await temp_storage.get_outbox_item(oid)
+        assert released is not None
+        assert released.locked_at is None
+        assert released.lease_until is None
+        assert released.worker_id is None
+        assert released.status == "retry_wait"
+        assert released.next_attempt_at == "2026-01-01T00:05:00"
 
     async def test_release_wrong_worker_noop(self, temp_storage: SQLiteStorage) -> None:
         item = _make_outbox_item(delivery_plan_id="plan-release-wrong")

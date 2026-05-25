@@ -100,7 +100,7 @@ Operators are responsible for database backup, log rotation, and monitoring disk
 The `delivery_outbox` table (see Contract 03 §3.11) persists operational delivery work state. Outbox items are created **after** route/policy/loop/capacity acceptance and **before** the adapter delivery attempt, so pending work survives a crash between acceptance and receipt commit.
 
 **What survives crash:**
-- Items with status `pending`, `retry_wait`, `queued` (queued-but-unsent Meshtastic items are lost — the adapter queue is in-memory)
+- Items with status `pending`, `retry_wait`, `queued` (queued outbox rows survive; adapter-local queue contents are lost on crash)
 - Items with status `in_progress` whose lease has expired (re-claimable on restart)
 
 **What is lost on crash:**
@@ -184,11 +184,26 @@ Transient-failure receipts with `next_retry_at` set survive process restart. The
 
 **Capacity rejection does not persist a receipt.** If the RetryWorker cannot acquire the delivery semaphore when processing a due retry, it emits a `retry_failed` runtime event and reschedules the existing receipt's `next_retry_at` to the next worker interval. No new `DeliveryReceipt` row is created for capacity rejection. The original failed receipt remains the only record. Capacity rejection is backpressure, not a delivery failure — it does not advance `attempt_number` and does not count toward `RetryPolicy` exhaustion.
 
-## 4.5 Meshtastic Outbound Queue — Non-Durability Decision
+## 4.5 Meshtastic Queue Durability
 
-The `MeshtasticOutboundQueue` is an **in-memory, non-durable** queue (`collections.deque`). This is an intentional alpha limitation, not a bug.
+Meshtastic adapter-local queue contents (``collections.deque``) remain
+**in-memory and non-durable** — queue contents are lost on process crash
+or shutdown.
 
-**Design decision:** The Meshtastic outbound queue provides local-only send ordering and bounded retry within the process lifetime. It is not a persistent queue. Items that are enqueued but not yet sent at the time of crash, shutdown, or process termination are **permanently lost**.
+However, when a delivery is accepted by the Meshtastic adapter queue, a
+``queued`` outbox row and corresponding receipt are written to durable
+storage.  These survive if committed before the crash.
+
+After restart, a ``queued`` outbox row is **ambiguous**: the adapter may
+or may not have sent the message before the crash.  Queued rows are
+**not** automatically retried by the RetryWorker.  Operators must inspect
+and decide whether to re-deliver.
+
+Pending, ``retry_wait``, and expired ``in_progress`` outbox rows are
+claimable by the RetryWorker on restart (when ``[retry] enabled = true``).
+
+Local outbox recovery may produce duplicate sends.  The outbox does not
+provide RF confirmation, ACK, remote receipt, or exactly-once guarantees.
 
 **Evidence lifecycle (best-effort, process-scoped):**
 
@@ -204,7 +219,7 @@ The `MeshtasticOutboundQueue` is an **in-memory, non-durable** queue (`collectio
 - Events whose send completed but receipt was not yet written: event survives in SQLite (no receipt). Same orphaned-events query applies.
 - Queue counters (`total_enqueued`, `total_sent`, `total_failed`, `total_rejected`, `total_requeued`, `total_exhausted`, `total_permanent_failed`): reset to zero on restart. These reflect the current process run only.
 
-**Deferred work:** Durable queue recovery (persisting queued-but-unsent items across restarts) is deferred to a future release. The current contract explicitly does not provide it.
+The outbox provides durable tracking for Meshtastic deliveries. Adapter-local queue contents remain non-durable. After restart, a ``queued`` outbox row is ambiguous: the adapter may or may not have sent the message before the crash. Queued rows are not automatically retried by the RetryWorker. Operators must inspect and decide whether to re-deliver.
 
 ## 5. Degraded-Runtime Semantics
 
@@ -311,7 +326,7 @@ The following are explicitly **not** provided:
 - **Database size bounding.** SQLite grows with event volume. No automatic pruning or retention policy.
 - **Hot restart.** The runtime is a single-process application. No zero-downtime restart mechanism.
 - **Per-adapter restart.** Individual adapters cannot be restarted without shutting down the entire runtime.
-- **Meshtastic outbound queue durability.** The Meshtastic outbound queue is in-memory and non-durable. Items queued but not sent at crash/shutdown time are permanently lost. Events survive in SQLite but have no delivery receipt or native ref. Durable queue recovery is deferred to a future release (see §4.5).
+- **Meshtastic outbound queue durability.** The Meshtastic outbound queue is in-memory and non-durable. Items queued but not sent at crash/shutdown time are permanently lost. However, a ``queued`` outbox row and corresponding receipt may survive if committed before the crash (see §4.5). After restart, ``queued`` outbox rows are ambiguous and are not automatically retried.
 
 ## 9. Cross-References
 

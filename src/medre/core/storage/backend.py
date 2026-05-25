@@ -601,13 +601,14 @@ class StorageBackend(Protocol):
         self,
         outbox_id: str,
         worker_id: str,
+        *,
+        release_status: str = "pending",
     ) -> None:
-        """Release a claim on an outbox item without changing status.
+        """Release a claim on an outbox item, restoring its prior status.
 
-        Clears ``locked_at``, ``lease_until``, and ``worker_id``.
+        Clears ``locked_at``, ``lease_until``, and ``worker_id`` and sets
+        ``status`` to *release_status* (default ``"pending"``).
         Only succeeds when the current ``worker_id`` matches.
-        Used when a worker releases a claimed item without completing
-        processing (e.g. graceful shutdown of idle lease).
         """
         ...
 

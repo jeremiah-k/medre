@@ -1118,18 +1118,24 @@ Diagnostics are per-adapter. Each adapter's snapshot is isolated from other adap
 
 ### Delivery Outbox
 
-The delivery outbox persists pending and retryable delivery work.  Operators can inspect outbox state via:
+The delivery outbox persists pending and retryable delivery work.
+Operators can inspect outbox state via:
 
-- **Runtime snapshot**: The `outbox` section of the runtime snapshot shows status counts (`pending`, `retry_wait`, `in_progress`, `dead_lettered`, etc.)
-- **Storage queries**: Outbox items are in the `delivery_outbox` SQLite table.  Use `sqlite3` to query directly:
-  ```
-  SELECT status, COUNT(*) FROM delivery_outbox GROUP BY status;
-  ```
-- **Recover CLI**: The `medre recover` command lists pending, retry, and dead-lettered items with target adapter, channel, and error summaries.
+- **Runtime snapshot**: The ``outbox`` section shows status counts from storage
+  (``pending``, ``retry_wait``, ``in_progress``, ``dead_lettered``, etc.)
+- **Storage queries**: Outbox items are in the ``delivery_outbox`` SQLite table
+  (see the storage contract for schema).
+- **Live delivery protection**: Items created by the live pipeline are
+  ``in_progress`` with a pipeline lease — they are not claimable by the
+  RetryWorker until the live attempt finishes or the lease expires.
 
-**Automatic recovery**: When `[retry] enabled = true`, the RetryWorker automatically claims and re-attempts due items on each cycle.  No operator intervention is needed for transient failures.
+**Automatic recovery**: When ``[retry] enabled = true``, the RetryWorker
+automatically claims and re-attempts due items on each cycle.  No operator
+intervention is needed for transient failures.
 
-**Manual recovery**: Dead-lettered items require explicit operator action via `recover`.  The operator may choose to re-deliver, re-route, or acknowledge and discard.
+**Dead-lettered items**: Outbox items with status ``dead_lettered`` require
+explicit operator action.  Query the ``delivery_outbox`` table to inspect
+them, then decide whether to re-deliver, re-route, or discard.
 
 ### Sample Output
 

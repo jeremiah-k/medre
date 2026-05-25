@@ -868,7 +868,8 @@ def build_runtime_snapshot(
         "outbox": {
             "counts": outbox_counts,
             "live_refresh": False,
-            "scope": "process_local",
+            "scope": "worker_cached",
+            "note": "Counts from retry worker cache, refreshed after each worker cycle. Seeded from storage on start.",
         },
         "persistence": {},
         "replay": {

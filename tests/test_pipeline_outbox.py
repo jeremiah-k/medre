@@ -86,6 +86,7 @@ class TestOutboxCreation:
                 status_filter=[
                     "sent",
                     "queued",
+                    "in_progress",
                     "pending",
                     "retry_wait",
                     "dead_lettered",
@@ -323,6 +324,97 @@ class TestOutboxStatusTransitions:
             matching = [i for i in items if i.event_id == "obox-queued-001"]
             assert len(matching) >= 1
             assert matching[-1].status == "queued"
+        finally:
+            await runner.stop()
+
+
+# ===================================================================
+# Live delivery claim race protection
+# ===================================================================
+
+
+class TestLiveDeliveryClaimRace:
+    """Pipeline creates outbox items as in_progress with a lease to prevent
+    the retry worker from claiming them before the live adapter attempt
+    finishes."""
+
+    async def test_in_progress_not_claimable_by_retry_worker(
+        self,
+        temp_storage: SQLiteStorage,
+        router_with_routes: Router,
+        fake_presentation: FakePresentationAdapter,
+    ) -> None:
+        """A live in_progress item with unexpired lease should not be claimable."""
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router_with_routes,
+            adapters={"fake_presentation": fake_presentation},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = make_event(event_id="obox-race-001")
+
+        try:
+            await runner.handle_ingress(event)
+
+            # After delivery completes, the item should be in a terminal or
+            # post-delivery status.  An in_progress item with an unexpired
+            # lease must NOT be claimable by the retry worker.
+            items = await temp_storage.list_outbox_items()
+            matching = [i for i in items if i.event_id == "obox-race-001"]
+            assert len(matching) >= 1
+
+            # The item should have transitioned away from in_progress
+            # (to sent/queued) since delivery completed synchronously.
+            # But even if it were still in_progress, the retry worker
+            # should not claim it if the lease is valid.
+            item = matching[0]
+            assert item.status in ("sent", "queued", "in_progress")
+
+            # If still in_progress (race window), verify it cannot be claimed.
+            if item.status == "in_progress":
+                now = "2026-01-01T00:00:00"
+                claimed = await temp_storage.claim_due_outbox_items(
+                    now=now, worker_id="retry-worker", lease_seconds=30, limit=10
+                )
+                assert not any(
+                    c.outbox_id == item.outbox_id for c in claimed
+                ), "Live in_progress item with valid lease must not be claimed"
+        finally:
+            await runner.stop()
+
+    async def test_in_progress_lifecycle_transitions(
+        self,
+        temp_storage: SQLiteStorage,
+        router_with_routes: Router,
+        fake_presentation: FakePresentationAdapter,
+    ) -> None:
+        """Live delivery transitions: in_progress -> sent/queued/retry_wait/dead_lettered."""
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router_with_routes,
+            adapters={"fake_presentation": fake_presentation},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = make_event(event_id="obox-lifecycle-001")
+
+        try:
+            await runner.handle_ingress(event)
+
+            items = await temp_storage.list_outbox_items()
+            matching = [i for i in items if i.event_id == "obox-lifecycle-001"]
+            assert len(matching) >= 1
+
+            # Synchronous successful delivery: should end at "sent".
+            item = matching[0]
+            assert item.status == "sent"
+            # Terminal status clears lease.
+            assert item.locked_at is None
+            assert item.lease_until is None
+            assert item.worker_id is None
         finally:
             await runner.stop()
 

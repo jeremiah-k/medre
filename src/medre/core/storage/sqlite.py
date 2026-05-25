@@ -1708,7 +1708,7 @@ class SQLiteStorage:
         if new_status in ("in_progress", "queued", "sent", "retry_wait"):
             sets.append("last_attempt_at = ?")
             params.append(now)
-        if new_status in ("sent", "dead_lettered", "cancelled", "abandoned"):
+        if new_status in ("sent", "dead_lettered", "cancelled", "abandoned", "retry_wait"):
             sets.append("locked_at = NULL")
             sets.append("lease_until = NULL")
             sets.append("worker_id = NULL")
@@ -1813,17 +1813,20 @@ class SQLiteStorage:
         self,
         outbox_id: str,
         worker_id: str,
+        *,
+        release_status: str = "pending",
     ) -> None:
-        """Release a claim on an outbox item, resetting status to pending.
+        """Release a claim on an outbox item, restoring the caller-specified status.
 
-        Clears lease fields and resets status so the item can be reclaimed.
+        Clears locked_at, lease_until, worker_id and sets status to
+        *release_status*.  Only succeeds when the current worker_id matches.
         """
         await self._write(
             """UPDATE delivery_outbox
                SET locked_at = NULL, lease_until = NULL, worker_id = NULL,
-                   status = 'pending', updated_at = ?
+                   status = ?, updated_at = ?
                WHERE outbox_id = ? AND worker_id = ?""",
-            (_now_iso(), outbox_id, worker_id),
+            (release_status, _now_iso(), outbox_id, worker_id),
         )
 
     async def count_outbox_by_status(self) -> dict[str, int]:

@@ -543,6 +543,14 @@ class MedreApp:
                     f"Failed to initialise storage: {exc}"
                 ) from exc
 
+        # 1.5 Seed outbox counts from storage so snapshot has data before
+        #     the first retry-worker cycle populates the worker cache.
+        if self.storage is not None:
+            try:
+                self._outbox_state = await self.storage.count_outbox_by_status()
+            except Exception:
+                pass
+
         # 2. Start the pipeline runner.
         try:
             await self.pipeline_runner.start()
