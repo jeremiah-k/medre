@@ -252,10 +252,10 @@ class MedreApp:
         """
         if self._retry_worker is not None:
             latest = self._retry_worker.outbox_counts
-            if latest:
+            if latest is not None:
                 # Worker has fresh counts from a completed cycle.
-                self._outbox_state = latest
-                return latest
+                self._outbox_state = dict(latest)
+                return dict(latest)
             # Worker exists but hasn't completed a cycle yet.
             # Prefer storage-seeded counts over empty worker cache.
             return dict(self._outbox_state)
@@ -272,7 +272,7 @@ class MedreApp:
             try:
                 self._outbox_state = await self.storage.count_outbox_by_status()
             except Exception:
-                pass
+                _logger.debug("Failed to refresh outbox state from storage", exc_info=True)
 
     @property
     def adapter_states(self) -> dict[str, AdapterState]:
@@ -567,7 +567,7 @@ class MedreApp:
             try:
                 self._outbox_state = await self.storage.count_outbox_by_status()
             except Exception:
-                pass
+                _logger.debug("Failed to seed outbox state from storage", exc_info=True)
 
         # 2. Start the pipeline runner.
         try:

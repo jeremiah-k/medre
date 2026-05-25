@@ -1453,14 +1453,14 @@ class TestOutboxStorageBackedCounts:
     """Outbox counts should reflect storage-seeded data."""
 
     def test_outbox_precedence_and_structure(self) -> None:
-        """Outbox counts, precedence, and structure in one sweep."""
+        """Outbox counts reflect storage-backed truth, not worker cache."""
         from unittest.mock import MagicMock
 
         # 1) No state → null counts, expected keys present.
         snap_empty = build_runtime_snapshot(_make_fake_app(), snapshot_scope="build")
         assert snap_empty["outbox"]["counts"] is None
 
-        # 2) Storage-seeded counts win over empty worker cache.
+        # 2) Storage-seeded counts are used even when worker cache is empty.
         app = _make_fake_app()
         app._outbox_state = {"pending": 3, "retry_wait": 1}
         mock_worker = MagicMock()
@@ -1471,17 +1471,31 @@ class TestOutboxStorageBackedCounts:
         assert snap["outbox"]["counts"] == {"pending": 3, "retry_wait": 1}
         assert snap["outbox"]["scope"] == "storage_seeded"
 
-        # 3) Worker cache takes precedence when non-empty.
+        # 3) Storage-backed truth wins over stale worker cache.
+        #    Even when the worker cache disagrees, the snapshot must
+        #    reflect the storage-seeded outbox_state.
         app2 = _make_fake_app()
-        app2._outbox_state = {"pending": 1, "sent": 2}
+        app2._outbox_state = {"pending": 5, "sent": 10}
         mock_worker2 = MagicMock()
-        mock_worker2.outbox_counts = {"pending": 1, "sent": 2}
+        mock_worker2.outbox_counts = {"pending": 99, "sent": 0}  # stale
         app2._retry_worker = mock_worker2
 
         snap2 = build_runtime_snapshot(app2, snapshot_scope="build")
-        assert snap2["outbox"]["counts"] == {"pending": 1, "sent": 2}
+        # Storage-backed truth must win over worker cache.
+        assert snap2["outbox"]["counts"] == {"pending": 5, "sent": 10}
 
-        # 4) Structure check.
+        # 4) Empty worker cache must not resurrect stale seeded state.
+        app3 = _make_fake_app()
+        # No _outbox_state set → outbox_state property returns None.
+        mock_worker3 = MagicMock()
+        mock_worker3.outbox_counts = {"pending": 7}  # stale worker data
+        app3._retry_worker = mock_worker3
+
+        snap3 = build_runtime_snapshot(app3, snapshot_scope="build")
+        # No storage state → null, regardless of worker cache content.
+        assert snap3["outbox"]["counts"] is None
+
+        # 5) Structure check.
         assert set(snap["outbox"].keys()) == {
             "counts",
             "live_refresh",

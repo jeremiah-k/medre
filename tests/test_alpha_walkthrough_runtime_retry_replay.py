@@ -15,6 +15,7 @@ from typing import Any
 
 import pytest
 
+from medre.core.planning.delivery_plan import DeliveryPlan
 from medre.runtime.builder import RuntimeBuilder
 
 # ===========================================================================
@@ -114,7 +115,7 @@ class TestAlphaRetryScenario:
         )
 
         class _FallbackWithRetry(_BaseFallback):
-            def resolve_fallback(self, event, target, capabilities):
+            def resolve_fallback(self, event, target, capabilities) -> DeliveryPlan:
                 plan = super().resolve_fallback(event, target, capabilities)
                 plan.retry_policy = RetryPolicy(max_attempts=3)
                 return plan

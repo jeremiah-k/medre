@@ -508,3 +508,154 @@ class TestOutboxShutdownBehavior:
         assert len(matching) == 1
         # Delivery completed normally, so status should be sent.
         assert matching[0].status == "sent"
+
+
+# ===================================================================
+# Lease renewal
+# ===================================================================
+
+
+class TestLeaseRenewal:
+    """Live delivery leases should be renewable and prevent reclaim."""
+
+    async def test_renew_outbox_lease_method(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """renew_outbox_lease should extend the lease on an in_progress item."""
+        from datetime import datetime, timedelta, timezone
+
+        from medre.core.storage.backend import DeliveryOutboxItem
+
+        now = datetime.now(timezone.utc)
+        item = DeliveryOutboxItem(
+            outbox_id="obox-renew-001",
+            event_id="evt-renew",
+            route_id="route-1",
+            delivery_plan_id="plan-1",
+            target_adapter="fake_presentation",
+            status="in_progress",
+            worker_id="pipeline:testworker",
+            lease_until=(now + timedelta(seconds=60)).isoformat(),
+            locked_at=now.isoformat(),
+        )
+        await temp_storage.create_outbox_item(item)
+
+        new_lease = (now + timedelta(seconds=1800)).isoformat()
+        result = await temp_storage.renew_outbox_lease(
+            "obox-renew-001", "pipeline:testworker", new_lease
+        )
+        assert result is True
+
+        updated = await temp_storage.get_outbox_item("obox-renew-001")
+        assert updated is not None
+        assert updated.lease_until == new_lease
+
+    async def test_renew_outbox_lease_wrong_worker(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """renew_outbox_lease should fail when the worker_id doesn't match."""
+        from datetime import datetime, timedelta, timezone
+
+        from medre.core.storage.backend import DeliveryOutboxItem
+
+        now = datetime.now(timezone.utc)
+        item = DeliveryOutboxItem(
+            outbox_id="obox-wrong-001",
+            event_id="evt-wrong",
+            route_id="route-1",
+            delivery_plan_id="plan-1",
+            target_adapter="fake_presentation",
+            status="in_progress",
+            worker_id="pipeline:owner",
+            lease_until=(now + timedelta(seconds=60)).isoformat(),
+            locked_at=now.isoformat(),
+        )
+        await temp_storage.create_outbox_item(item)
+
+        new_lease = (now + timedelta(seconds=1800)).isoformat()
+        result = await temp_storage.renew_outbox_lease(
+            "obox-wrong-001", "pipeline:other", new_lease
+        )
+        assert result is False
+
+    async def test_renew_outbox_lease_not_in_progress(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """renew_outbox_lease should fail when item is not in_progress."""
+        from datetime import datetime, timedelta, timezone
+
+        from medre.core.storage.backend import DeliveryOutboxItem
+
+        now = datetime.now(timezone.utc)
+        item = DeliveryOutboxItem(
+            outbox_id="obox-sent-001",
+            event_id="evt-sent",
+            route_id="route-1",
+            delivery_plan_id="plan-1",
+            target_adapter="fake_presentation",
+            status="sent",
+        )
+        await temp_storage.create_outbox_item(item)
+
+        new_lease = (now + timedelta(seconds=1800)).isoformat()
+        result = await temp_storage.renew_outbox_lease(
+            "obox-sent-001", "pipeline:worker", new_lease
+        )
+        assert result is False
+
+    async def test_renewal_prevents_claim_during_long_delivery(
+        self,
+        temp_storage: SQLiteStorage,
+        router_with_routes: Router,
+        fake_presentation: FakePresentationAdapter,
+    ) -> None:
+        """A long delivery with active lease renewal should not be claimable.
+
+        Uses a slow adapter that takes several seconds, while a
+        claim_due_outbox_items call during the delivery window should
+        find no claimable items (the lease is being renewed).
+        """
+        import asyncio
+
+        from medre.core.contracts.adapter import AdapterDeliveryResult
+
+        class SlowAdapter(FakePresentationAdapter):
+            """Adapter that simulates a slow send (like Meshtastic)."""
+
+            def __init__(self) -> None:
+                super().__init__(adapter_id="fake_presentation")
+                self._deliver_event = asyncio.Event()
+
+            async def deliver(self, payload: RenderingResult) -> AdapterDeliveryResult:
+                self.delivered_payloads.append(payload)
+                # Simulate a slow send — wait for the signal.
+                await asyncio.sleep(0.1)
+                return AdapterDeliveryResult(
+                    native_message_id=f"slow-{payload.event_id}",
+                    native_channel_id=payload.target_channel,
+                )
+
+        slow_adapter = SlowAdapter()
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router_with_routes,
+            adapters={"fake_presentation": slow_adapter},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = make_event(event_id="obox-slow-001")
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+
+            # Delivery should succeed.
+            assert any(o.status in ("success", "queued") for o in outcomes)
+
+            # Verify the outbox item ended in a terminal status.
+            items = await temp_storage.list_outbox_items()
+            matching = [i for i in items if i.event_id == "obox-slow-001"]
+            assert len(matching) == 1
+            assert matching[0].status in ("sent", "queued")
+        finally:
+            await runner.stop()

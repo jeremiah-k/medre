@@ -294,10 +294,11 @@ class TestRetryWorkerNameErrorRegression:
         self, temp_storage: SQLiteStorage
     ) -> None:
         """When Route/RouteTarget reconstruction raises, RetryWorker should
-        mark the item as retry_wait (or dead_lettered) without NameError."""
+        mark the item as retry_wait (or dead_lettered) without NameError,
+        and deliver_to_target must NOT be awaited."""
         # Create and persist a canonical event for the outbox item to reference
         from datetime import datetime, timezone
-        from unittest.mock import AsyncMock, MagicMock
+        from unittest.mock import AsyncMock, MagicMock, patch
 
         from medre.core.engine.pipeline import PipelineRunner
         from medre.core.events import CanonicalEvent, EventMetadata
@@ -336,12 +337,11 @@ class TestRetryWorkerNameErrorRegression:
         assert len(claimed) == 1
         oid = claimed[0].outbox_id
 
-        # Construct a minimal RetryWorker with a mock pipeline that raises
-        # during deliver_to_target (simulating reconstruction failure).
+        # Construct a minimal RetryWorker with a mock pipeline.
+        # deliver_to_target is tracked — it must NOT be called when
+        # reconstruction fails.
         mock_pipeline = MagicMock(spec=PipelineRunner)
-        mock_pipeline.deliver_to_target = AsyncMock(
-            side_effect=ValueError("Simulated reconstruction failure")
-        )
+        mock_pipeline.deliver_to_target = AsyncMock()
 
         from medre.runtime.retry import RetryWorker
 
@@ -353,16 +353,26 @@ class TestRetryWorkerNameErrorRegression:
             max_attempts=3,
         )
 
-        # _retry_outbox_item should NOT raise NameError
-        try:
-            await worker._retry_outbox_item(claimed[0])
-        except NameError as err:
-            raise AssertionError(
-                "RetryWorker._retry_outbox_item raised NameError — "
-                "the _max_attempts fix is not in place"
-            ) from err
-        except Exception:
-            pass  # Other exceptions are acceptable
+        # Monkeypatch RouteTarget to raise during construction so the failure
+        # occurs in the reconstruction block, NOT in deliver_to_target.
+        with patch(
+            "medre.runtime.retry.RouteTarget",
+            side_effect=ValueError("Simulated reconstruction failure"),
+        ):
+            # _retry_outbox_item should NOT raise NameError
+            try:
+                await worker._retry_outbox_item(claimed[0])
+            except NameError as err:
+                raise AssertionError(
+                    "RetryWorker._retry_outbox_item raised NameError — "
+                    "the _max_attempts fix is not in place"
+                ) from err
+            except Exception:
+                pass  # Other exceptions are acceptable
+
+        # deliver_to_target must NOT have been awaited — reconstruction
+        # failed before reaching the delivery call.
+        mock_pipeline.deliver_to_target.assert_not_awaited()
 
         # The outbox item should have transitioned away from in_progress
         # (either retry_wait or dead_lettered)

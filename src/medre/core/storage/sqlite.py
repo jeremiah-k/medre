@@ -1507,7 +1507,7 @@ class SQLiteStorage:
         If the INSERT still fails with a UNIQUE constraint violation
         (extreme edge case), the existing row is re-read and returned.
         """
-        _terminal = {"sent", "dead_lettered", "cancelled", "abandoned"}
+        _terminal = frozenset({"sent", "dead_lettered", "cancelled", "abandoned"})
         now = _now_iso()
         meta_json = _encode_json(item.metadata or {})
 
@@ -1881,6 +1881,7 @@ class SQLiteStorage:
         self,
         outbox_id: str,
         receipt_id: str | None = None,
+        attempt_number: int | None = None,
     ) -> None:
         """Mark an outbox item as ``queued`` (adapter-local queue acceptance).
 
@@ -1891,6 +1892,7 @@ class SQLiteStorage:
             "queued",
             allowed_from=("in_progress",),
             receipt_id=receipt_id,
+            attempt_number=attempt_number,
         )
 
     async def mark_outbox_retry_wait(
@@ -1975,6 +1977,33 @@ class SQLiteStorage:
             allowed_from=("pending", "in_progress", "retry_wait", "queued"),
             error_summary=error_summary,
         )
+
+    async def renew_outbox_lease(
+        self,
+        outbox_id: str,
+        worker_id: str,
+        lease_until: str,
+    ) -> bool:
+        """Renew the lease on an in_progress outbox item.
+
+        Returns True if the lease was renewed, False if the item is no
+        longer owned by this worker or is not in_progress.
+        """
+        now = _now_iso()
+        await self._write(
+            """UPDATE delivery_outbox
+               SET lease_until = ?, updated_at = ?
+               WHERE outbox_id = ?
+                 AND worker_id = ?
+                 AND status = 'in_progress'""",
+            (lease_until, now, outbox_id, worker_id),
+        )
+        # Verify the update matched a row.
+        row = await self._read_one(
+            "SELECT outbox_id FROM delivery_outbox WHERE outbox_id = ? AND worker_id = ? AND status = 'in_progress'",
+            (outbox_id, worker_id),
+        )
+        return row is not None
 
     async def release_outbox_claim(
         self,

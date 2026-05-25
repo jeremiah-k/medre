@@ -491,6 +491,7 @@ class RetryWorker:
                     await self._storage.mark_outbox_queued(
                         item.outbox_id,
                         receipt_id=result_receipt.receipt_id,
+                        attempt_number=result_receipt.attempt_number,
                     )
                 else:
                     await self._storage.mark_outbox_sent(

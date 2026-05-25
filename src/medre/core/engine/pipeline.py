@@ -1115,14 +1115,27 @@ class PipelineRunner:
         await self._config.storage.append_receipt(supplemental)
 
         # Transition the matching outbox item from queued → sent.
+        # The item may still be in_progress if the callback fires before
+        # _deliver_one() marks the outbox row as queued.
         try:
-            _obi = await self._config.storage.get_outbox_item_for_delivery(
-                event_id=record.event_id,
-                delivery_plan_id=queued_receipt.delivery_plan_id,
-                target_adapter=record.adapter,
-                target_channel=queued_receipt.target_channel,
-                status="queued",
+            items = await self._config.storage.list_outbox_items(
+                status_filter=["queued", "in_progress"],
+                limit=10,
             )
+            matching = [
+                i
+                for i in items
+                if i.event_id == record.event_id
+                and i.target_adapter == record.adapter
+                and i.delivery_plan_id == queued_receipt.delivery_plan_id
+            ]
+            if queued_receipt.target_channel is not None:
+                matching = [
+                    i
+                    for i in matching
+                    if i.target_channel == queued_receipt.target_channel
+                ]
+            _obi = matching[0] if matching else None
             if _obi is not None:
                 await self._config.storage.mark_outbox_sent(
                     _obi.outbox_id,
@@ -1568,11 +1581,12 @@ class PipelineRunner:
             # survives a crash between this point and the receipt commit.
             _outbox_id: str | None = None
             _outbox_created: bool = False
+            _pipeline_worker: str = ""
             try:
                 # Fresh delivery via _deliver_one is always attempt 1.
                 _now = datetime.now(timezone.utc)
                 _pipeline_worker = f"pipeline:{uuid.uuid4().hex[:12]}"
-                _lease_until = (_now + timedelta(seconds=300)).isoformat()
+                _lease_until = (_now + timedelta(seconds=60)).isoformat()
                 outbox_item = DeliveryOutboxItem(
                     outbox_id=f"obox-{uuid.uuid4()}",
                     event_id=event.event_id,
@@ -1602,6 +1616,34 @@ class PipelineRunner:
                 )
                 # Non-fatal: pipeline continues without outbox tracking.
                 # The delivery still produces a receipt as before.
+
+            # ── Phase 3.75: Lease renewal background task ────────────
+
+            # Start a background task that periodically renews the outbox
+            # lease during long adapter deliveries (e.g. Meshtastic can
+            # take minutes).  The renewal task is cancelled in the finally
+            # block after the delivery attempt completes.
+            _renewal_task: asyncio.Task | None = None
+            _renewal_interval = 30  # seconds between renewals
+            _renewal_duration = 1800  # 30 minute total lease per renewal
+
+            async def _renew_lease() -> None:
+                while True:
+                    await asyncio.sleep(_renewal_interval)
+                    if _outbox_id is not None:
+                        _new_lease = (
+                            datetime.now(timezone.utc)
+                            + timedelta(seconds=_renewal_duration)
+                        ).isoformat()
+                        renewed = await self._config.storage.renew_outbox_lease(
+                            _outbox_id, _pipeline_worker, _new_lease
+                        )
+                        if not renewed:
+                            # Item is no longer ours — stop renewing.
+                            break
+
+            if _outbox_id is not None and _outbox_created:
+                _renewal_task = asyncio.create_task(_renew_lease())
 
             # ── Phase 4: Inflight tracking + delivery ────────────────
 
@@ -1766,6 +1808,14 @@ class PipelineRunner:
                         duration_ms=elapsed,
                     )
             finally:
+                # Stop lease renewal.
+                if _renewal_task is not None:
+                    _renewal_task.cancel()
+                    try:
+                        await _renewal_task
+                    except asyncio.CancelledError:
+                        pass
+
                 # Update outbox based on delivery outcome.
                 if _outbox_id is not None and _outbox_created:
                     try:

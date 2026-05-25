@@ -1130,8 +1130,16 @@ Operators can inspect outbox state via:
   RetryWorker until the live attempt finishes or the lease expires.
 
 **Automatic recovery**: When `[retry] enabled = true`, the RetryWorker
-automatically claims and re-attempts due items on each cycle. No operator
-intervention is needed for transient failures.
+automatically claims and re-attempts due items on each cycle.
+
+**Crash recovery:**
+
+- Deliveries that never created an outbox row are lost on crash (no durable state exists).
+- Deliveries with a persisted outbox row survive the crash.
+- Expired ``in_progress`` rows become reclaimable by the RetryWorker after restart.
+- Adapter-local queue contents (e.g., Meshtastic in-memory deque) may still be lost.
+- ``queued`` outbox rows after a crash are ambiguous — the adapter may have sent
+  the message before crashing or not.  These items are NOT auto-retried.
 
 **Dead-lettered items**: Outbox items with status `dead_lettered` require
 explicit operator action. Query the `delivery_outbox` table to inspect

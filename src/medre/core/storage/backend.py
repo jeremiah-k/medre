@@ -555,6 +555,7 @@ class StorageBackend(Protocol):
         self,
         outbox_id: str,
         receipt_id: str | None = None,
+        attempt_number: int | None = None,
     ) -> None:
         """Mark an outbox item as ``queued`` (adapter-local queue acceptance).
 
@@ -615,6 +616,19 @@ class StorageBackend(Protocol):
 
         Used for in-flight items lost at drain timeout.  No-op if already
         terminal.
+        """
+        ...
+
+    async def renew_outbox_lease(
+        self,
+        outbox_id: str,
+        worker_id: str,
+        lease_until: str,
+    ) -> bool:
+        """Renew the lease on an in_progress outbox item.
+
+        Returns True if the lease was renewed, False if the item is no
+        longer owned by this worker or is not in_progress.
         """
         ...
 
