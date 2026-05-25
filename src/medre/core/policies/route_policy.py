@@ -131,7 +131,7 @@ def _deny(
         reason=reason,
         blocked_field=blocked_field,
         blocked_value=blocked_value,
-        allowed_summary=f"denied: {reason} ({blocked_field}=<blocked>)",
+        allowed_summary=f"denied: {reason} ({blocked_field}={blocked_value})",
     )
 
 
