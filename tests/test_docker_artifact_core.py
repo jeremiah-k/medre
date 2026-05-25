@@ -88,7 +88,7 @@ class TestRedactConfigSnapshot:
 
     def test_preserves_safe_values(self) -> None:
         config = {
-            "synapse_image": "matrixdotorg/synapse:v1.149.0",
+            "synapse_image": "matrixdotorg/synapse:v1.153.0",
             "port": 8008,
             "enabled": True,
             "timeout": None,

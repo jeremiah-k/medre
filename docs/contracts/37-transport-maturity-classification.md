@@ -1,9 +1,11 @@
 # Transport Maturity Classification
 
 > Contract version: 2
-> Last updated: 2026-05-24
+> Last updated: 2026-05-25 (Tranche 6 truth-surface update)
 > Track: Beta Operational Maturity (Track 2)
 > Supersedes: Contract 37 v1 (2026-05-10). Tranche 1 evidence tiering cleanup: live-test evidence now carries H/C/S/R tier labels per Contract 61. Meshtastic live-test evidence reclassified as H-tier (historical, not current-tranche live-validated). Added Meshtastic queue local-acceptance caveats throughout. MeshCore/LXMF live-test axes explicitly marked NOT EXECUTED.
+> Tranche 6 session (2026-05-25): Did NOT execute live hardware/server tests. No Matrix credentials, no second Matrix account token, no Meshtastic radio, no MeshCore BLE, no LXMF/Reticulum provided. This update adds Docker SDK-boundary sub-classification for R-tier Matrix evidence (2026-05-22 local Docker Synapse 15 passed) and clarifies evidence artifact locations. No maturity tiers were promoted.
+> Baseline: HEAD 41a07c7, Python 3.12.3, medre 0.1.0.
 > Status: Classification. Rates each transport along defined maturity axes.
 > Evidence schema: `docs/contracts/61-operational-evidence-contract.md` (H/C/S/R tiers, NOT EXECUTED).
 > Capability status anchor: `docs/STATUS.md`.
@@ -67,7 +69,7 @@ No transport in MEDRE currently qualifies as production-ready.
 | -------------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Architectural maturity** | High        | Full adapter suite: codec (217 LOC), renderer (162 LOC), session (694 LOC), adapter (559 LOC), config (144 LOC), errors (41 LOC), compat (44 LOC), metadata (125 LOC), relations (103 LOC). E2EE layer implemented. Most complete transport. |
 | **Unit-test maturity**     | High        | 2,903 LOC across 10 test files. `test_matrix_session.py` alone has 102 test functions. Covers codec, renderer, adapter, session, config, metadata, relations, boundaries, lifecycle, pipeline, E2EE live.                                    |
-| **Live-test maturity**     | High        | H-tier: 13/13 plaintext pass against matrix.org (2026-05-10, historical). H-tier: 7/7 E2EE pass in encrypted room (2026-05-10, historical). Inbound reception confirmed via self-message suppression. Third-party inbound **not** confirmed (M14 blocked). No current-tranche live re-run (2026-05-12 credential failures). Per STATUS.md, Matrix is `live-validated` on recorded evidence. |
+| **Live-test maturity**     | High        | H-tier: 13/13 plaintext pass against matrix.org (2026-05-10, historical). H-tier: 7/7 E2EE pass in encrypted room (2026-05-10, historical). R-tier Docker SDK-boundary: 15/1 xf pass against local Docker Synapse (2026-05-22). Inbound reception confirmed via self-message suppression. Third-party inbound **not** confirmed (M14 blocked). No current-tranche external live re-run (2026-05-12 credential failures). Per STATUS.md, Matrix is `live-validated` on recorded evidence (H-tier + Docker SDK-boundary). |
 | **Operational maturity**   | High        | Full runbooks (`matrix-live-smoke.md`, `matrix-alpha-operation.md`). Failure modes classified in contract 33. Resource containment reviewed in contract 35. E2EE readiness documented in contract 25. Session boundary in contract 31.       |
 | **Known risks**            | Moderate    | Fork dependency (`mindroom-nio`) maintained by project. E2EE install friction (vodozemac/Rust). Access token stored as plain string. No cross-signed device trust. No confirmed third-party inbound.                                         |
 | **Production suitability** | Constrained | Suitable for beta with documented caveats. Fork maintenance is an ongoing responsibility. E2EE requires Rust toolchain on some platforms. Token security is operator's responsibility.                                                       |
@@ -157,7 +159,7 @@ No transport in MEDRE currently qualifies as production-ready.
 
 | Transport  | Tier | Label             | Key Distinguishing Factor                                                                                           |
 | ---------- | ---- | ----------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Matrix     | 3    | Beta-candidate    | Live evidence recorded H-tier (20/20 pass). E2EE validated. Most complete adapter. Per STATUS.md: `live-validated`. |
+| Matrix     | 3    | Beta-candidate    | Live evidence recorded H-tier (20/20 pass). Docker SDK-boundary R-tier (15/1 xf pass 2026-05-22). E2EE validated. Most complete adapter. Per STATUS.md: `live-validated`. |
 | Meshtastic | 3    | Beta-candidate    | Live evidence recorded H-tier (10/10 pass). CLI-level R-tier hardware evidence (2026-05-12). Per STATUS.md: `opt-in live test exists` for most capabilities; adapter live pytest NOT EXECUTED at current commit. `queued`/`sent` = local acceptance, not RF confirmation. |
 | MeshCore   | 2    | Alpha-operational | No live evidence. Unit-tested only. Hardware probe: serial NOT VIABLE, BLE not attempted.                           |
 | LXMF       | 2    | Alpha-operational | No live evidence. Most complex session. Delivery state model unvalidated. Hardware probe: RNode serial blocked.     |

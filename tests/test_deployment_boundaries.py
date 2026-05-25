@@ -149,6 +149,18 @@ def _has_live_marker(path: Path) -> bool:
     return bool(re.search(r"pytest\.mark\.live", source))
 
 
+def _has_hardware_marker(path: Path) -> bool:
+    """Return True if the test file declares a hardware marker.
+
+    Checks for:
+    - ``pytestmark = pytest.mark.hardware``
+    - ``pytestmark = [pytest.mark.hardware]``
+    - ``@pytest.mark.hardware`` decorator
+    """
+    source = _file_source(path)
+    return bool(re.search(r"pytest\.mark\.hardware", source))
+
+
 # ===================================================================
 # 1. Clean-env test files do not require live SDKs
 # ===================================================================
@@ -601,6 +613,7 @@ class TestSoakFrameworkFakeOnly:
 class TestNoLiveTestsRunByDefault:
     """Enforce that the default ``pytest`` invocation does not run live
     tests and that all SDK-importing test files carry the live marker.
+    Also enforces the ``hardware`` marker discipline.
     """
 
     def test_pytest_config_excludes_live_marker(self) -> None:
@@ -613,6 +626,16 @@ class TestNoLiveTestsRunByDefault:
             "(expected: addopts = \"-m 'not live'\")"
         )
 
+    def test_pytest_config_excludes_hardware_marker(self) -> None:
+        """``pyproject.toml`` must have ``addopts`` excluding ``hardware``."""
+        pyproject = _REPO_ROOT / "pyproject.toml"
+        assert pyproject.exists(), "pyproject.toml not found"
+        content = _file_source(pyproject)
+        assert "not hardware" in content, (
+            "pyproject.toml addopts must exclude hardware marker "
+            "(expected: addopts = \"-m 'not live and not docker and not hardware'\")"
+        )
+
     def test_live_marker_registered(self) -> None:
         """``pyproject.toml`` must register the ``live`` marker."""
         pyproject = _REPO_ROOT / "pyproject.toml"
@@ -620,6 +643,36 @@ class TestNoLiveTestsRunByDefault:
         assert (
             "live:" in content
         ), "pyproject.toml must register 'live' marker in markers list"
+
+    def test_hardware_marker_registered(self) -> None:
+        """``pyproject.toml`` must register the ``hardware`` marker."""
+        pyproject = _REPO_ROOT / "pyproject.toml"
+        content = _file_source(pyproject)
+        assert (
+            "hardware:" in content
+        ), "pyproject.toml must register 'hardware' marker in markers list"
+
+    def test_hardware_marker_description_mentions_live(self) -> None:
+        """The ``hardware`` marker description must state it implies live."""
+        pyproject = _REPO_ROOT / "pyproject.toml"
+        content = _file_source(pyproject)
+        # Find the hardware marker line and verify it mentions "live"
+        for line in content.splitlines():
+            if "hardware:" in line:
+                assert "live" in line.lower(), (
+                    "hardware marker description must state it implies live"
+                )
+                break
+        else:
+            pytest.fail("hardware marker not found in pyproject.toml")
+
+    def test_docker_marker_registered(self) -> None:
+        """``pyproject.toml`` must register the ``docker`` marker."""
+        pyproject = _REPO_ROOT / "pyproject.toml"
+        content = _file_source(pyproject)
+        assert (
+            "docker:" in content
+        ), "pyproject.toml must register 'docker' marker in markers list"
 
     @pytest.mark.parametrize(
         "filename",
@@ -777,3 +830,41 @@ class TestSnapshotNoTransportCoupling:
         assert (
             violations == []
         ), "Snapshot test files have transport SDK imports:\n" + "\n".join(violations)
+
+
+# ===================================================================
+# 8. Hardware marker discipline
+# ===================================================================
+
+
+class TestHardwareMarkerDiscipline:
+    """Enforce that ``hardware``-marked tests also carry ``live`` marker.
+
+    The ``hardware`` marker identifies tests requiring physical hardware
+    (serial/BLE Meshtastic radios, etc.).  Hardware tests are a strict
+    subset of live tests — they connect to real devices.  Therefore,
+    any file that uses ``@pytest.mark.hardware`` must also use
+    ``@pytest.mark.live`` (either via ``pytestmark`` or decorator).
+    """
+
+    def test_hardware_marked_files_also_have_live_marker(self) -> None:
+        """Files using ``pytest.mark.hardware`` must also use ``pytest.mark.live``."""
+        violations: list[str] = []
+        for path in sorted(_TESTS_DIR.glob("test_*.py")):
+            if _has_hardware_marker(path) and not _has_live_marker(path):
+                violations.append(path.name)
+
+        assert violations == [], (
+            "Files use pytest.mark.hardware without pytest.mark.live "
+            "(hardware tests must also be live-marked):\n"
+            + "\n".join(f"  - {v}" for v in violations)
+        )
+
+    def test_addopts_excludes_all_three_markers(self) -> None:
+        """``pyproject.toml`` addopts must exclude live, docker, and hardware."""
+        pyproject = _REPO_ROOT / "pyproject.toml"
+        content = _file_source(pyproject)
+        for marker in ("live", "docker", "hardware"):
+            assert f"not {marker}" in content, (
+                f"pyproject.toml addopts must exclude '{marker}' marker"
+            )

@@ -1,9 +1,11 @@
 # Contract 62 — Adapter Operational Maturity Matrix
 
 > Contract version: 3
-> Last updated: 2026-05-24 (Tranche 1 evidence tiering cleanup)
+> Last updated: 2026-05-25 (Tranche 6 truth-surface update)
 > Track: Operational Maturity Consolidation
 > Status: Active. Cross-adapter maturity assessment with per-field evidence labels. Hardware probe findings incorporated.
+> Tranche 6 session (2026-05-25): Did NOT execute live hardware/server tests. This update adds Docker SDK-boundary evidence classification for Matrix (2026-05-22 local Docker Synapse 15/1 xf), clarifies evidence sub-classification taxonomy (Docker SDK-boundary / external live / hardware), and adds dependency/version capture procedure references. No maturity labels were promoted.
+> Baseline: HEAD 41a07c7, Python 3.12.3, medre 0.1.0.
 > References: Contract 37 (Transport Maturity Classification), Contract 61 (Operational Evidence Contract), Contract 32 (Beta Readiness Checklist)
 > Evidence source: `docs/runbooks/operational-evidence.md`, `docs/releases/beta-candidate-notes.md`
 > Capability status anchor: `docs/STATUS.md`
@@ -11,6 +13,8 @@
 This document provides a single cross-adapter view of operational maturity. Every field is either backed by recorded evidence with a tier label (H/C/S/R per Contract 61 §2) or explicitly marked NOT EXECUTED. No field is invented or extrapolated.
 
 **Evidence tiering convention:** H = historical (may be stale). C = current-tranche. S = simulated/fake. R = real-live-runtime. NOT EXECUTED = no evidence of any tier. Where this document's claims appear to conflict with `docs/STATUS.md`, STATUS.md is the capability status anchor. Meshtastic `queued`/`sent` statuses mean local queue acceptance and local SDK send return, not RF confirmation or remote-node receipt (see Contract 61 §3.8.3, §3.8.6).
+
+**R-tier sub-classification (Tranche 6):** R-tier evidence should be annotated with the environment boundary: **Docker SDK-boundary** (local containerized server, validates SDK integration), **external live** (real external server over network), or **hardware** (physical radio). Docker SDK-boundary is not equivalent to external live or hardware. See `docs/runbooks/operational-evidence.md` §Evidence sub-classification for details.
 
 ## 1. Maturity Tier Definitions
 
@@ -58,6 +62,7 @@ No transport qualifies as production-ready.
 | **Repeated start/stop**     | Stop → start cycle re-establishes sync; second `health_check()` returns `healthy`.                                                                                                                  | H           | `operational-evidence.md` §1.1                            |
 | **Cleanup/reconnect**       | Health stays `degraded` during reconnect, `healthy` after recovery. Budget exhaustion → `failed`.                                                                                                   | H           | `operational-evidence.md` §1.1                            |
 | **2026-05-12 live attempt** | sk.community: NOT EXECUTED (access token rejected `M_UNKNOWN_TOKEN`). matrix.org: NOT EXECUTED (password login rejected `M_FORBIDDEN`).                                                             | —           | `operational-evidence.md` §1.4, §1.4b                     |
+| **2026-05-22 Docker SDK-boundary** | 15/1 xf passed against local Docker Synapse (localhost:8008, `MATRIX_LOCAL_SYNAPSE=1`). SDK-boundary evidence only — no external network.                                                               | R (Docker)  | `operational-evidence.md` §1.1b, `matrix-local-bringup.md` |
 | **Known blockers**          | (1) Third-party inbound live validation blocked — no second account. (2) Fork dependency `mindroom-nio`. (3) E2EE requires `ignore_unverified_devices=True` (upstream nio gap, not MEDRE deferral). | —           | `operational-evidence.md` §1.7.4                          |
 
 **Assessment:** Most complete adapter. Live evidence is H-tier (historical, 2026-05-10). Current-tranche live re-run failed (credential issues, not code issues). All deterministic tests pass. Beta-candidate is justified on H-tier evidence strength plus full deterministic coverage.
@@ -127,16 +132,16 @@ No transport qualifies as production-ready.
 
 | Adapter    | S-tier fields                         | H-tier fields                                                              | R-tier fields               | NOT EXECUTED fields                               |
 | ---------- | ------------------------------------- | -------------------------------------------------------------------------- | --------------------------- | ------------------------------------------------- |
-| Matrix     | 3 (fake, unit, mock)                  | 6 (startup, send-plain, send-e2ee, start/stop, reconnect, receive-partial) | 0                           | 1 (third-party inbound live)                      |
+| Matrix     | 3 (fake, unit, mock)                  | 6 (startup, send-plain, send-e2ee, start/stop, reconnect, receive-partial) | 1 (Docker SDK-boundary) | 1 (third-party inbound live)                      |
 | Meshtastic | 3 (fake, unit, mock)                  | 4 (startup, send-adapter, receive, start/stop)                             | 2 (send-CLI, reconnect-CLI) | 2 (adapter reconnect, second-node inbound)        |
 | MeshCore   | 4 (fake, unit, mock, sdk-factory-fix) | 0                                                                          | 2 (serial-probe, ble-probe) | 5 (startup, send, receive, start/stop, reconnect) |
 | LXMF       | 4 (fake, unit, mock, diagnostics-fix) | 0                                                                          | 1 (rnode-kiss-probe)        | 5 (startup, send, receive, start/stop, reconnect) |
 
 ## 5. Live Evidence Consolidation Plan
 
-### 5.1 What exists now (2026-05-12, post hardware probe tranche)
+### 5.1 What exists now (May 2026 snapshot)
 
-- **Matrix:** H-tier evidence from 2026-05-10 (plaintext 13/13, E2EE 7/7, encrypted room 7/7 post-fix). 2026-05-12 live attempt failed (credential issues, not code issues). Deterministic: 4596 passed.
+- **Matrix:** H-tier evidence from 2026-05-10 (plaintext 13/13, E2EE 7/7, encrypted room 7/7 post-fix). R-tier Docker SDK-boundary evidence from 2026-05-22 (15/1 xf passed against local Docker Synapse). 2026-05-12 external live attempt failed (credential issues, not code issues). Deterministic: 4596 passed.
 - **Meshtastic:** H-tier adapter evidence from 2026-05-10 (10/10). R-tier CLI evidence from 2026-05-12 (serial validation, 4 reconnects, 1 outbound). Deterministic: 4596 passed.
 - **MeshCore:** S-tier only for live evidence. R-tier hardware probe evidence (2026-05-12): serial NOT VIABLE (companion heartbeat), BLE preconditions met but connection NOT ATTEMPTED. SDK factory methods corrected. Deterministic: 4596 passed.
 - **LXMF:** S-tier only for live evidence. R-tier hardware probe evidence (2026-05-12): KISS probe to ttyUSB0 returned NO RESPONSE at 115200 and 57600. Diagnostics fix complete. **Downgraded to Experimental (Tier 1).** Deterministic: 4596 passed.

@@ -46,6 +46,7 @@ from medre.config.model import RuntimeConfig
 __all__ = [
     "all_live_env_set",
     "matrix_env_set",
+    "matrix_second_user_env_set",
     "meshtastic_env_set",
     "build_live_bridge_runtime_config",
     "write_live_bridge_toml",
@@ -64,6 +65,18 @@ def _get_matrix_env() -> tuple[str, str, str, str]:
         os.environ.get("MATRIX_USER_ID", ""),
         os.environ.get("MATRIX_ACCESS_TOKEN", ""),
         os.environ.get("MATRIX_ROOM_ID", ""),
+    )
+
+
+def _get_matrix_second_env() -> tuple[str, str]:
+    """Return (user_id, access_token) for a second Matrix test user.
+
+    Reads ``MATRIX_SECOND_USER_ID`` and ``MATRIX_SECOND_ACCESS_TOKEN``.
+    Values are never printed or logged — callers only check for presence.
+    """
+    return (
+        os.environ.get("MATRIX_SECOND_USER_ID", ""),
+        os.environ.get("MATRIX_SECOND_ACCESS_TOKEN", ""),
     )
 
 
@@ -93,6 +106,19 @@ def matrix_env_set() -> bool:
     """Return ``True`` when all ``MATRIX_*`` vars are populated."""
     homeserver, user_id, access_token, room_id = _get_matrix_env()
     return bool(homeserver and user_id and access_token and room_id)
+
+
+def matrix_second_user_env_set() -> bool:
+    """Return ``True`` when ``MATRIX_SECOND_USER_ID`` and
+    ``MATRIX_SECOND_ACCESS_TOKEN`` are both populated.
+
+    These variables are used by inbound-message live tests that require a
+    second Matrix identity (separate from the bot) to send messages into
+    the test room.  The values are never read or printed by the helper —
+    callers only gate on the boolean.
+    """
+    user_id, access_token = _get_matrix_second_env()
+    return bool(user_id and access_token)
 
 
 def meshtastic_env_set() -> bool:

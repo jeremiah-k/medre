@@ -1,8 +1,9 @@
 # Meshtastic Alpha Operation Runbook
 
-> Last updated: 2026-05-24
+> Last updated: 2026-05-25 (Tranche 6 truth-surface update)
 > Scope: Real Meshtastic Operation Alpha
 > Status: Alpha. Not production. Not hardened. Not complete. Fake mode is the primary development and testing path. Real connectivity (TCP/serial) is available for live validation.
+> Tranche 6 session (2026-05-25): Did NOT execute live Meshtastic tests. No physical radio was provided or interacted with. No `MESHTASTIC_*` env vars were set. This update adds hardware validation commands, dependency/version capture, and clarifies evidence boundaries. Baseline: HEAD 41a07c7, Python 3.12.3, medre 0.1.0.
 
 This runbook describes how to run the MEDRE Meshtastic adapter against a real Meshtastic radio node in alpha mode. Alpha mode means the MeshtasticAdapter connects to a real node using TCP or serial, receives real radio packets via pubsub callbacks, and sends real messages via the queued `send_one` path. It does not mean the system is ready for anything beyond a single operator on a single node.
 
@@ -988,6 +989,61 @@ are deferred behind runtime guards. Fake mode should never trigger a top-level
 `import meshtastic`.
 
 ## Live Validation Evidence
+
+### Tranche 6 Status (2026-05-25)
+
+**Tranche 6 did NOT execute live Meshtastic tests.** No physical radio was
+provided or interacted with in this session. No `MESHTASTIC_*` environment
+variables were set. The live test section below remains as previously recorded.
+
+### Hardware Validation Commands (Operator Procedure)
+
+Before running live validation, capture the exact hardware and dependency state:
+
+```bash
+# Project baseline
+python3 --version                        # Expected: Python 3.12.3
+grep 'version = ' pyproject.toml         # Expected: version = "0.1.0"
+git log --oneline -1                     # Expected: 41a07c7
+
+# Meshtastic SDK
+pip show mtjk 2>/dev/null || echo "mtjk: NOT INSTALLED (required for live tests)"
+python3 -c "import meshtastic; print(meshtastic.__file__)" 2>/dev/null || echo "meshtastic: NOT IMPORTABLE"
+
+# Serial port access
+pip show pyserial 2>/dev/null || echo "pyserial: NOT INSTALLED"
+ls -la /dev/ttyACM* /dev/ttyUSB* 2>/dev/null || echo "No serial devices found"
+groups | grep -q dialout && echo "dialout: YES" || echo "dialout: NO (run: sudo usermod -aG dialout \$USER)"
+
+# Device discovery (requires mtjk or platformio penv meshtastic)
+meshtastic --port /dev/ttyACM0 --info    # Serial connection
+meshtastic --host 192.168.1.100 --info   # TCP connection
+
+# Hardware/firmware capture
+meshtastic --port /dev/ttyACM0 --nodes   # Node DB listing
+```
+
+### Dependency / Version Capture Template
+
+When recording live evidence, capture these versions:
+
+| Dependency          | Capture command                              | Example result           |
+| ------------------- | -------------------------------------------- | ------------------------ |
+| Python              | `python3 --version`                          | 3.12.3                   |
+| medre               | `grep 'version = ' pyproject.toml`           | 0.1.0                    |
+| mtjk                | `pip show mtjk`                              | 2.7.8.post2+             |
+| pyserial            | `pip show pyserial`                          | 3.5                      |
+| Firmware            | `meshtastic --info` (firmware_version)       | 2.7.19.bb3d6d5           |
+| Hardware model      | `meshtastic --info` (hwModel)                | TLORA_V2_1_1P6           |
+| Node ID             | `meshtastic --info` (myNodeInfo.num)         | !25d6e474                |
+
+### Evidence Boundaries
+
+| Evidence type              | Date       | Result                 | Boundary                         |
+| -------------------------- | ---------- | ---------------------- | -------------------------------- |
+| Adapter live pytest        | 2026-05-10 | 10/10 passed (H-tier)  | Serial, external live (H-tier)   |
+| CLI-level serial validation| 2026-05-12 | 1 send, 3 reconnects   | Hardware (R-tier, CLI-level)     |
+| MEDRE adapter live pytest  | 2026-05-25 | NOT EXECUTED           | mtjk not installed, no radio     |
 
 ### Test Results
 

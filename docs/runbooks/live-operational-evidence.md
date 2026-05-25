@@ -1,6 +1,14 @@
 # Live Operational Evidence Runbook
 
-> Last updated: 2026-05-24
+> Last updated: 2026-05-25 (Tranche 6 truth-surface update)
+> Tranche 6 session (2026-05-25): **Did NOT execute live hardware/server tests.**
+> No Matrix homeserver credentials, no second Matrix account token, no Meshtastic
+> physical radio interaction, no MeshCore BLE connection, no LXMF/Reticulum instance
+> were provided or available. All live procedure sections remain as previously
+> recorded or NOT EXECUTED. This update adds dependency/version capture commands
+> (§6), Docker Synapse second-bot inbound procedure template (§1.5b), and clarifies
+> evidence artifact locations (§7). No statuses were promoted.
+> Baseline: HEAD 41a07c7, Python 3.12.3, medre 0.1.0.
 > Tracks: 1, 2, 7, 8 (v2 consolidation + hardware probe)
 > Status: Procedures documented. Meshtastic serial live validation: **EXECUTED 2026-05-12** (CLI-level: device discovery, hardware/firmware capture, one outbound send on channel 0, 2 reconnect cycles). MEDRE adapter lifecycle and Matrix live tests: **NOT EXECUTED** (2026-05-12: sk.community access token rejected `M_UNKNOWN_TOKEN`; matrix.org password login rejected `M_FORBIDDEN Invalid username/password` — see §1.7). M14 third-party inbound validation attempted 2026-05-12: `matrix.sk.community` homeserver confirmed reachable and healthy, but no `MATRIX_*` env vars are set in the current session. 13 live tests skip cleanly. Test infrastructure (`test_inbound_message_received`) is complete and validates all M14 requirements (sender attribution, room attribution, canonical event shape, source_native_ref, diagnostics). Blocker is purely operational: need valid `MATRIX_ACCESS_TOKEN` for `@forxrelay:sk.community` (password-to-token exchange required). mtjk not in project venv. **Hardware probe (2026-05-12):** CP2104 `/dev/ttyUSB0` (stable by-id, likely T-Beam) — no serial chatter observed; CH9102F `/dev/ttyACM0` (stable by-id, confirmed T-LoRa V2.1-1.6). MeshCore serial path confirmed NOT VIABLE (companion heartbeat protocol). BLE preconditions met, connection NOT ATTEMPTED. RNode KISS probe to ttyUSB0 returned NO RESPONSE. LXMF/Reticulum live path setup pending.
 > **Meshtastic queue note:** Per Contract 61 §3.8.3, Meshtastic `queued`/`sent` statuses mean local queue acceptance and local SDK send return, not RF confirmation, remote-node receipt, or ACK. This applies to all Meshtastic maturity evidence in this document.
@@ -1167,7 +1175,137 @@ The Meshtastic adapter tracks `started` in diagnostics. To record actual runtime
 6. **Degraded/outbound behavior unobserved:** The `degraded` health state and transient send retry path have not been observed against real hardware. S-tier tests confirm logic; R-tier observation pending. Procedure in §2.8.
 7. **Long-running stability unknown:** No sustained Meshtastic session (>60s) has been executed against real hardware. Runtime observation procedure in §2.9.
 
-## 5. Cross-References
+## 6. Dependency and Version Capture Commands (Tranche 6)
+
+Before running any live validation, capture the exact dependency and environment
+metadata. This ensures evidence is reproducible and traceable.
+
+### 6.1 Matrix Dependency Capture
+
+```bash
+# Project metadata
+python3 --version
+grep 'version = ' pyproject.toml
+git log --oneline -1
+
+# Matrix SDK
+pip show mindroom-nio 2>/dev/null || echo "mindroom-nio: NOT INSTALLED"
+pip show matrix-nio 2>/dev/null || echo "matrix-nio: NOT INSTALLED"
+
+# E2EE dependencies (if applicable)
+pip show vodozemac 2>/dev/null || echo "vodozemac: NOT INSTALLED (required for E2EE)"
+pip show peewee 2>/dev/null || echo "peewee: NOT INSTALLED"
+
+# Homeserver connectivity (non-secret)
+curl -s https://matrix.example.com/_matrix/client/versions 2>/dev/null | python3 -m json.tool
+```
+
+### 6.2 Meshtastic Dependency Capture
+
+```bash
+# Project metadata
+python3 --version
+grep 'version = ' pyproject.toml
+git log --oneline -1
+
+# Meshtastic SDK
+pip show mtjk 2>/dev/null || echo "mtjk: NOT INSTALLED"
+python3 -c "import meshtastic; print(f'meshtastic import: {meshtastic.__file__}')" 2>/dev/null || echo "meshtastic: NOT IMPORTABLE"
+
+# Serial
+pip show pyserial 2>/dev/null || echo "pyserial: NOT INSTALLED"
+
+# Hardware detection
+ls -la /dev/ttyACM* /dev/ttyUSB* /dev/serial/by-id/* 2>/dev/null || echo "No serial devices found"
+groups | grep -q dialout && echo "dialout: YES" || echo "dialout: NO (serial access may fail)"
+```
+
+### 6.3 MeshCore Dependency Capture
+
+```bash
+pip show meshcore-py 2>/dev/null || echo "meshcore-py: NOT INSTALLED"
+pip show bleak 2>/dev/null || echo "bleak: NOT INSTALLED (required for BLE)"
+ls -la /dev/ttyACM* /dev/ttyUSB* 2>/dev/null || echo "No serial devices found"
+```
+
+### 6.4 LXMF/Reticulum Dependency Capture
+
+```bash
+pip show Reticulum 2>/dev/null || echo "Reticulum: NOT INSTALLED"
+pip show LXMF 2>/dev/null || echo "LXMF: NOT INSTALLED"
+```
+
+## 7. Evidence Artifact Locations (Tranche 6)
+
+When live evidence is recorded, the following locations store the artifacts:
+
+| Artifact                     | Location                                                    | Format            |
+| ---------------------------- | ----------------------------------------------------------- | ----------------- |
+| Operational evidence record  | `docs/runbooks/operational-evidence.md`                     | Markdown tables   |
+| Live procedure observations  | `docs/runbooks/live-operational-evidence.md`                | Markdown tables   |
+| Docker Synapse evidence      | `docs/runbooks/matrix-local-bringup.md` §Live Validation    | Markdown table    |
+| Matrix alpha live evidence   | `docs/runbooks/matrix-alpha-operation.md` §Live Validation  | Markdown section  |
+| Meshtastic alpha evidence    | `docs/runbooks/meshtastic-alpha-operation.md` §Live Validation | Markdown section |
+| Capability status            | `docs/STATUS.md`                                            | Markdown table    |
+| Maturity classification      | `docs/contracts/37-transport-maturity-classification.md`    | Markdown tables   |
+| Maturity matrix              | `docs/contracts/62-adapter-operational-maturity-matrix.md`  | Markdown tables   |
+| Evidence schema              | `docs/contracts/61-operational-evidence-contract.md`        | Markdown contract |
+| Longrun evidence             | `docs/runbooks/longrun-validation.md`                       | Markdown tables   |
+
+## 8. Docker Synapse Second-Bot Inbound Procedure Template (Tranche 6)
+
+This procedure template resolves the M14 third-party inbound blocker using
+Docker Synapse (local, no external server required).
+
+**Prerequisites:**
+
+1. Docker Synapse running (see `docs/runbooks/matrix-local-bringup.md`)
+2. Bot user registered and access token obtained
+3. A second user registered on the same Docker Synapse
+
+**Setup:**
+
+```bash
+# 1. Register a second user on local Synapse
+docker exec -it medre-synapse register_new_matrix_user \
+  -u alice -p alice_password -c /data/homeserver.yaml \
+  http://localhost:8008
+
+# 2. Obtain second user's access token
+curl -s -X POST http://localhost:8008/_matrix/client/v3/login \
+  -H "Content-Type: application/json" \
+  -d '{"type":"m.login.password","user":"alice","password":"alice_password"}'
+
+# 3. Have both users join the same room (via Element or API)
+# Bot: POST /_matrix/client/v3/join/{room_id_or_alias}
+# Alice: POST /_matrix/client/v3/join/{room_id_or_alias}
+```
+
+**Execute inbound test:**
+
+```bash
+# Set bot env vars
+export MATRIX_HOMESERVER=http://localhost:8008
+export MATRIX_USER_ID=@bot_user:matrix.local
+export MATRIX_ACCESS_TOKEN=syt_<bot_token>
+export MATRIX_ROOM_ID=!<room_id>:matrix.local
+export MATRIX_LOCAL_SYNAPSE=1
+export MATRIX_INBOUND_SENDER=@alice:matrix.local
+
+# Run inbound test (30s window)
+pytest tests/test_matrix_live.py::TestMatrixLiveSmoke::test_inbound_message_received -m live -v
+
+# During the 30s window, send a message from Alice's account:
+curl -s -X POST "http://localhost:8008/_matrix/client/v3/rooms/${MATRIX_ROOM_ID}/send/m.room.message" \
+  -H "Authorization: Bearer syt_<alice_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"msgtype":"m.text","body":"MEDRE inbound validation test"}'
+```
+
+**Status:** NOT EXECUTED in Tranche 6 session. No Docker Synapse instance running,
+no second user registered. This procedure template is provided for operator execution.
+
+## 9. Cross-References
 
 | Document                                                   | Relationship                                          |
 | ---------------------------------------------------------- | ----------------------------------------------------- |
@@ -1187,13 +1325,14 @@ The Meshtastic adapter tracks `started` in diagnostics. To record actual runtime
 | `tests/test_deployment_boundaries.py`                      | Deployment boundary enforcement tests                 |
 | `tests/test_runtime_deployment_boundaries.py`              | Runtime-level boundary enforcement tests              |
 
-## 6. Evidence Separation Summary
+## 10. Evidence Separation Summary
 
 This document contains the following evidence categories, clearly separated:
 
 | Category                       | Section                                                          | Status                                                                                                              |
 | ------------------------------ | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| **R-tier (real-live-runtime)** | §2.2 (Meshtastic CLI-level serial validation 2026-05-12)         | Meshtastic CLI-level evidence recorded                                                                              |
+| **R-tier (hardware)**          | §2.2 (Meshtastic CLI-level serial validation 2026-05-12)         | Meshtastic CLI-level hardware evidence recorded                                                                     |
+| **R-tier (Docker SDK-boundary)** | (recorded in matrix-local-bringup.md, not in this document)   | Matrix local Docker Synapse 2026-05-22, 15 passed                                                                   |
 | **H-tier (historical)**        | §1.3, §1.7, §1.8, §1.12 (Matrix); §2.2, §2.7, §2.11 (Meshtastic) | Historical evidence from 2026-05-10. May be stale.                                                                  |
 | **Hardware probe**             | §2.13                                                            | CP2104/ttyUSB0 (likely T-Beam, no serial chatter), CH9102F/ttyACM0 (confirmed T-LoRa). Not live-transport evidence. |
 | **Follow-up placeholders**     | §2.14 (MeshCore), §2.15 (LXMF)                                   | Pending follow-up hardware/Reticulum operations.                                                                    |
@@ -1202,7 +1341,7 @@ This document contains the following evidence categories, clearly separated:
 
 **No overclaims:** This document does not claim any transport is production-ready, reliable, or performs at any specific latency. All live procedures are documented as NOT EXECUTED unless explicitly marked with R-tier evidence and an execution date.
 
-## 7. Unresolved Risks (Track 9 Consolidation)
+## 11. Unresolved Risks (Track 9 Consolidation)
 
 | Risk                                         | Status                                                                                 | Affects            | Mitigation                                                                                                                                           |
 | -------------------------------------------- | -------------------------------------------------------------------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |

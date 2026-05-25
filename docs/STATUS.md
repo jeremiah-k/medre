@@ -1,10 +1,14 @@
 # MEDRE Transport Capability Status
 
-> **Generated:** 2026-05-25 (updated Tranche 5: local delivery outbox)
+> **Generated:** 2026-05-25 (Tranche 6 truth-surface update; no live tests executed this session)
+>
+> **Baseline:** HEAD 41a07c7, Python 3.12.3, medre 0.1.0
 >
 > **Context:** This is a living document. It tracks which MEDRE capabilities are implemented, tested, and validated across each transport adapter. It exists so operators and developers can see, at a glance, what works and what does not.
 >
 > **Policy:** No capability is marked `live-validated` unless there is recorded live evidence in the repository (test results, runbook logs, or CI artifacts). No `ready` labels. No aspirational statuses. If it has not been tested and confirmed, it says so.
+>
+> **Evidence boundaries (Tranche 6):** `live-validated` includes Docker SDK-boundary evidence (e.g. local Docker Synapse). Docker SDK-boundary validates SDK integration and adapter wiring but not external network behavior, federation, or real-world rate limits. See `docs/runbooks/operational-evidence.md` §Evidence sub-classification for the full taxonomy (Docker SDK-boundary / external live / hardware).
 
 This document is the single source of truth for per-transport capability tracking. The operator workflows runbook (`docs/runbooks/operator-workflows.md`) references this file for capability status.
 
@@ -30,7 +34,7 @@ This document is the single source of truth for per-transport capability trackin
 | Operator runbook                    | live-validated | opt-in live test exists | designed    | designed    |
 | Live validation recorded            | live-validated | not started             | not started | not started |
 | Local delivery outbox               | fake-tested    | fake-tested             | fake-tested | fake-tested |
-| Matrix live adapter (local Synapse) | live-validated |                         |             |             |
+| Matrix live adapter (local Synapse) | live-validated (Docker SDK-boundary) |             |             |             |
 
 ## Interpretation
 
@@ -49,7 +53,7 @@ These statuses mean specific things. Do not read between the lines.
 
 ### Matrix
 
-Matrix is the most mature transport. Live validation was recorded on 2026-05-10 (13 plaintext tests passed, 7 E2EE tests passed) and again on 2026-05-22 (15 live tests passed, 1 xfailed against local Docker Synapse). See `docs/runbooks/matrix-alpha-operation.md` section "Live Validation Evidence" and `docs/runbooks/matrix-local-bringup.md` section "Live Validation Evidence" for details.
+Matrix is the most mature transport. Live validation was recorded on 2026-05-10 (13 plaintext tests passed, 7 E2EE tests passed) and again on 2026-05-22 (15 live tests passed, 1 xfailed against local Docker Synapse — Docker SDK-boundary evidence). See `docs/runbooks/matrix-alpha-operation.md` section "Live Validation Evidence" and `docs/runbooks/matrix-local-bringup.md` section "Live Validation Evidence" for details. Docker SDK-boundary evidence validates SDK integration and adapter wiring; it does not validate external network behavior. External live re-run (2026-05-12) failed on credential issues, not code issues.
 
 The Matrix adapter supports plaintext and E2EE text alpha. E2EE supports encrypted rooms for text messages only. See the alpha operation runbook for the full unsupported features list.
 

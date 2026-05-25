@@ -1,5 +1,13 @@
 # Local Matrix Live Validation with Docker Synapse
 
+> Last updated: 2026-05-25 (Tranche 6 truth-surface update)
+> Tranche 6 session (2026-05-25): Did NOT start Docker Synapse or execute live tests.
+> This update adds evidence artifact capture commands, dependency/version section,
+> and clarifies Docker SDK-boundary evidence scope.
+> Baseline: HEAD 41a07c7, Python 3.12.3, medre 0.1.0.
+> Evidence sub-classification: Docker SDK-boundary (local containerized Synapse).
+> This validates SDK integration and adapter wiring, not external network behavior.
+
 This guide covers setting up a local Matrix Synapse instance via Docker for
 live-testing MEDRE's Matrix adapter without relying on an external homeserver.
 
@@ -129,6 +137,52 @@ After a live test run:
 ```bash
 medre evidence --config /tmp/medre-live/medre.toml --json
 ```
+
+## Dependency / Version Capture
+
+Before running Docker Synapse live validation, capture the environment:
+
+```bash
+# Project baseline
+python3 --version                        # Expected: Python 3.12.3
+grep 'version = ' pyproject.toml         # Expected: version = "0.1.0"
+git log --oneline -1                     # Expected: 41a07c7
+
+# Matrix SDK
+pip show mindroom-nio 2>/dev/null || echo "NOT INSTALLED"
+
+# Docker
+docker --version
+docker compose version
+
+# Synapse version (after starting)
+docker exec medre-synapse python -m synapse.app.homeserver --version 2>/dev/null || echo "Synapse version unavailable"
+```
+
+## Evidence Artifact Capture
+
+After a successful live test run, capture evidence for the repository:
+
+```bash
+# 0. Timestamp for unique filenames
+TS="$(date +%Y%m%d-%H%M%S)"
+
+# 1. Capture pytest output with verbose timestamps
+pytest tests/test_matrix_live.py -v -m live 2>&1 | tee matrix-docker-live-$(date +%Y%m%d-%H%M%S).log
+
+# 2. Capture diagnostics (if running medre runtime)
+medre evidence --config /tmp/medre-live/medre.toml --json 2>/dev/null | tee matrix-docker-evidence-${TS}.json || echo "Evidence command not applicable"
+
+# 3. Record dependency versions
+pip show mindroom-nio > matrix-docker-deps-${TS}.txt 2>&1
+
+# 4. Record Synapse info
+docker exec medre-synapse python -m synapse.app.homeserver --version >> matrix-docker-deps-${TS}.txt 2>&1 || true
+```
+
+**Evidence recording:** Copy relevant results into the Live Validation Evidence
+table below and into `docs/runbooks/operational-evidence.md` §1.1b. Include:
+date, Docker Synapse version, test result counts, duration, and any caveats.
 
 ## Cleanup
 

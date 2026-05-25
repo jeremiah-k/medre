@@ -432,6 +432,7 @@ class TestCliWorkflowsRuntimeLayerOnly:
 class TestNoLiveTestsRunByDefault:
     """Enforce that the default ``pytest`` invocation does not run live
     tests and that all SDK-importing test files carry the live marker.
+    Also enforces the ``hardware`` marker discipline.
     """
 
     def test_pytest_config_excludes_live_marker(self) -> None:
@@ -443,6 +444,24 @@ class TestNoLiveTestsRunByDefault:
             "pyproject.toml addopts must exclude live marker "
             "(expected: addopts = \"-m 'not live'\")"
         )
+
+    def test_pytest_config_excludes_hardware_marker(self) -> None:
+        """``pyproject.toml`` must have ``addopts`` excluding ``hardware``."""
+        pyproject = _TESTS_DIR.parent / "pyproject.toml"
+        assert pyproject.exists(), "pyproject.toml not found"
+        content = _file_source(pyproject)
+        assert "not hardware" in content, (
+            "pyproject.toml addopts must exclude hardware marker "
+            "(expected: addopts = \"-m 'not live and not docker and not hardware'\")"
+        )
+
+    def test_hardware_marker_registered(self) -> None:
+        """``pyproject.toml`` must register the ``hardware`` marker."""
+        pyproject = _TESTS_DIR.parent / "pyproject.toml"
+        content = _file_source(pyproject)
+        assert (
+            "hardware:" in content
+        ), "pyproject.toml must register 'hardware' marker in markers list"
 
     def test_live_marker_registered(self) -> None:
         """``pyproject.toml`` must register the ``live`` marker."""

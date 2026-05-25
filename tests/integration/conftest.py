@@ -65,7 +65,7 @@ if _SKIP_DOCKER or not _DOCKER_AVAILABLE:
 # Defaults — configurable via environment variables.
 # ---------------------------------------------------------------------------
 
-_SYNAPSE_IMAGE = os.environ.get("MEDRE_SYNAPSE_IMAGE", "matrixdotorg/synapse:v1.149.0")
+_SYNAPSE_IMAGE = os.environ.get("MEDRE_SYNAPSE_IMAGE", "matrixdotorg/synapse:v1.153.0")
 _MESHTASTICD_IMAGE = os.environ.get(
     "MEDRE_MESHTASTICD_IMAGE", "meshtastic/meshtasticd:2.7.15"
 )

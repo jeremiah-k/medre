@@ -134,7 +134,7 @@ When a best-effort file is absent, `summary.json` explains why in its `limitatio
   "timestamp": "2026-05-16T12:00:00+00:00",
   "run_directory": "/path/to/.ci-artifacts/docker-bridge-runs/2026-05-16T12-00-00Z",
   "matrix": {
-    "container": "matrixdotorg/synapse:v1.149.0",
+    "container": "matrixdotorg/synapse:v1.153.0",
     "room": "!roomid:localhost",
     "event_id": "$synapse_event_id",
     "ingress_path": "sync_loop | direct_on_room_message_fallback | null"
@@ -161,7 +161,7 @@ When a best-effort file is absent, `summary.json` explains why in its `limitatio
     "pytest_stderr": "..."
   },
   "config_snapshot": {
-    "synapse_image": "matrixdotorg/synapse:v1.149.0",
+    "synapse_image": "matrixdotorg/synapse:v1.153.0",
     "synapse_port": "8008",
     "..."
   },
@@ -396,7 +396,7 @@ Reuses the existing Docker integration variables:
 
 | Variable                     | Default                            | Description                    |
 | ---------------------------- | ---------------------------------- | ------------------------------ |
-| `MEDRE_SYNAPSE_IMAGE`        | `matrixdotorg/synapse:v1.149.0`    | Synapse Docker image           |
+| `MEDRE_SYNAPSE_IMAGE`        | `matrixdotorg/synapse:v1.153.0`    | Synapse Docker image           |
 | `MEDRE_MESHTASTICD_IMAGE`    | `meshtastic/meshtasticd:2.7.15`    | meshtasticd Docker image       |
 | `MEDRE_SYNAPSE_PORT`         | `8008`                             | Synapse HTTP port              |
 | `MEDRE_MESHTASTICD_PORT`     | `4403`                             | meshtasticd TCP port           |
