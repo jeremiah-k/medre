@@ -803,7 +803,7 @@ medre evidence --config config.toml --json
 medre inspect receipts --event <event_id> --config config.toml
 ```
 
-If the event exists but has no receipts, it was stored but delivery was never completed (crash during delivery). Check `delivery_outbox` for surviving operational state before concluding the event is unrecoverable. Use SQL for bulk detection:
+If the event exists but has no receipts, it was stored but delivery was never completed (possible crash or incomplete delivery). Check `delivery_outbox` for surviving operational state before concluding the event is unrecoverable. Use SQL for bulk detection:
 
 ```sql
 SELECT e.event_id, e.source_adapter, e.created_at
@@ -853,7 +853,7 @@ This section summarizes what MEDRE state survives restarts and what is lost. For
 
 | State                                       | Nature                                                                                                                      | Impact                                                                                                                   |
 | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| In-flight deliveries                        | Evidence persisted as `suppressed` receipts with `failure_kind_detail=shutdown_drain_timeout`; delivery itself is abandoned | No retry of deliveries without outbox rows; `in_progress` outbox rows with expired leases are reclaimable by RetryWorker |
+| In-flight deliveries                        | Graceful shutdown: evidence persisted as `suppressed` receipts with `failure_kind_detail=shutdown_drain_timeout`. Hard crash: no receipt, but `in_progress` outbox rows with expired leases are reclaimable by RetryWorker. Deliveries without outbox rows are fully lost. | No retry of deliveries without outbox rows; `in_progress` outbox rows with expired leases are reclaimable by RetryWorker |
 | Active replay runs                          | Lost on crash or shutdown                                                                                                   | Must re-initiate manually                                                                                                |
 | Runtime counters (`inbound_accepted`, etc.) | Process-local only                                                                                                          | Reset to zero on every startup                                                                                           |
 | RouteStats per-route counters               | Process-local only                                                                                                          | No historical route statistics                                                                                           |

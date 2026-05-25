@@ -737,7 +737,7 @@ The bridge operation layer explicitly does **not** provide:
 
 7. **Queue-bound delivery completeness.** Capacity semaphores and adapter-level queue bounds prevent unbounded memory accumulation but do not guarantee that every message is delivered. Under extreme pressure, messages are dropped or rejected to protect process stability.
 
-8. **Persistent in-flight recovery.** No in-flight delivery state survives shutdown. No replay resume after restart. Cancelled deliveries are lost.
+8. **Persistent in-flight recovery.** In-flight delivery state does not survive as in-memory state. `in_progress` outbox rows with expired leases are reclaimable by RetryWorker; deliveries without outbox rows are lost. No replay resume after restart.
 
 9. **Adapter-local outbound queue durability.** The Meshtastic adapter's outbound queue is in-memory and non-durable. Items remaining in the queue at process termination (graceful or ungraceful) are lost. The `delivery_outbox` table provides durable operational tracking — a `queued` outbox row may survive if committed before the crash — but adapter-local queue contents themselves are not persisted.
 

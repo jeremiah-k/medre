@@ -1777,10 +1777,9 @@ class SQLiteStorage:
 
         # Re-read to get the updated rows (some may have been claimed by
         # another worker if the SELECT/UPDATE window was contested).
-        final_ids_tuple = tuple(outbox_ids)
         final_rows = await self._read_all(
             f"SELECT * FROM delivery_outbox WHERE outbox_id IN ({','.join('?' for _ in outbox_ids)}) AND worker_id = ? AND status = 'in_progress'",  # nosec: placeholders are only ? markers, values passed as params
-            (*final_ids_tuple, worker_id),
+            (*outbox_ids, worker_id),
         )
         return [_row_to_outbox_item(r) for r in final_rows]
 
@@ -1850,7 +1849,7 @@ class SQLiteStorage:
             # error_summary as callers pass meaningful values.
             if failure_kind_detail is None:
                 sets.append("failure_kind_detail = NULL")
-        if new_status in ("in_progress", "queued", "sent", "retry_wait"):
+        if new_status in ("queued", "sent", "retry_wait"):
             sets.append("last_attempt_at = ?")
             params.append(now)
         if new_status in (

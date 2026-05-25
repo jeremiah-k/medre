@@ -19,7 +19,7 @@ and the decision tree for choosing the right recovery action.
 
 **What recovery does NOT do:**
 
-- Recover in-flight deliveries lost during crash (they are gone).
+- Recover in-flight deliveries lost during crash (those without outbox rows are gone; those with outbox rows may be partially recovered).
 - Resume interrupted replay runs (they must be re-initiated).
 - Automatically restart failed adapters (only full runtime restart).
 - Deduplicate replay deliveries.

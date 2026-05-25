@@ -44,6 +44,7 @@ from medre.core.planning.delivery_plan import (
     RetryPolicy,
 )
 from medre.core.routing.models import Route, RouteSource, RouteTarget
+from medre.core.storage.backend import DeliveryOutboxItem
 from medre.runtime.events import RuntimeEventType
 
 __all__ = ["RetryWorker", "RetryWorkerState"]
@@ -223,7 +224,7 @@ class RetryWorker:
         except Exception:
             _logger.debug("RetryWorker: failed to refresh outbox counts")
 
-    async def _retry_outbox_item(self, item: Any) -> None:
+    async def _retry_outbox_item(self, item: DeliveryOutboxItem) -> None:
         """Retry delivery for a single due outbox item.
 
         Uses the outbox item's metadata to reconstruct the delivery
@@ -451,6 +452,7 @@ class RetryWorker:
                 )
             else:
                 # Compute backoff for next retry attempt.
+                _exhausted = False
                 try:
                     # Try to get the actual failure kind from the latest
                     # receipt (which the pipeline already persisted).
@@ -508,6 +510,7 @@ class RetryWorker:
                                 "attempt_number": next_attempt,
                             },
                         )
+                        _exhausted = True
                     else:
                         backoff = RetryExecutor(policy).compute_backoff(
                             next_attempt,
@@ -524,17 +527,18 @@ class RetryWorker:
                         "RetryWorker: failed to backoff outbox %s",
                         item.outbox_id,
                     )
-                self._emit(
-                    "retry_failed",
-                    {
-                        "receipt_id": item.receipt_id or item.outbox_id,
-                        "parent_receipt_id": item.parent_receipt_id,
-                        "retry_receipt_id": None,
-                        "event_id": item.event_id,
-                        "target_adapter": item.target_adapter,
-                        "attempt_number": item.attempt_number,
-                    },
-                )
+                if not _exhausted:
+                    self._emit(
+                        "retry_failed",
+                        {
+                            "receipt_id": item.receipt_id or item.outbox_id,
+                            "parent_receipt_id": item.parent_receipt_id,
+                            "retry_receipt_id": None,
+                            "event_id": item.event_id,
+                            "target_adapter": item.target_adapter,
+                            "attempt_number": item.attempt_number,
+                        },
+                    )
             _logger.debug(
                 "RetryWorker: delivery failed for outbox %s",
                 item.outbox_id,

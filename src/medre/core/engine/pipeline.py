@@ -76,6 +76,12 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Outbox lease-renewal tuning constants
+# ---------------------------------------------------------------------------
+
+_OUTBOX_RENEWAL_INTERVAL_SECONDS: int = 30  # seconds between lease renewals
+_OUTBOX_RENEWAL_DURATION_SECONDS: int = 60  # lease TTL (kept short; renewed)
 
 # ---------------------------------------------------------------------------
 # Pipeline config
@@ -1578,43 +1584,11 @@ class PipelineRunner:
             # The outbox is created AFTER route/policy/loop/capacity acceptance
             # and BEFORE the adapter delivery attempt, so that pending work
             # survives a crash between this point and the receipt commit.
-            _outbox_id: str | None = None
-            _outbox_created: bool = False
-            _pipeline_worker: str = ""
-            try:
-                # Fresh delivery via _deliver_one is always attempt 1.
-                _now = datetime.now(timezone.utc)
-                _pipeline_worker = f"pipeline:{uuid.uuid4().hex[:12]}"
-                _lease_until = (_now + timedelta(seconds=60)).isoformat()
-                outbox_item = DeliveryOutboxItem(
-                    outbox_id=f"obox-{uuid.uuid4()}",
-                    event_id=event.event_id,
-                    route_id=route.id,
-                    delivery_plan_id=route_plan.plan_id,
-                    target_adapter=adapter_id,
-                    target_channel=target.channel,
-                    target_address=(
-                        target.destination.destination_hash
-                        if target.destination
-                        else None
-                    ),
-                    attempt_number=1,
-                    status="in_progress",
-                    locked_at=_now.isoformat(),
-                    lease_until=_lease_until,
-                    worker_id=_pipeline_worker,
+            _outbox_id, _outbox_created, _pipeline_worker = (
+                await self._create_outbox_for_delivery(
+                    event, route, route_plan, target, adapter_id
                 )
-                created = await self._config.storage.create_outbox_item(outbox_item)
-                _outbox_id = created.outbox_id
-                _outbox_created = True
-            except Exception:
-                self._log.exception(
-                    "Failed to create outbox item for event_id=%s adapter=%s",
-                    event.event_id,
-                    adapter_id,
-                )
-                # Non-fatal: pipeline continues without outbox tracking.
-                # The delivery still produces a receipt as before.
+            )
 
             # ── Phase 3.75: Lease renewal background task ────────────
 
@@ -1622,34 +1596,9 @@ class PipelineRunner:
             # lease during long adapter deliveries (e.g. radio-based
             # transports).  The renewal task is cancelled in the finally
             # block after the delivery attempt completes.
-            _renewal_task: asyncio.Task | None = None
-            _renewal_interval = 30  # seconds between renewals
-            _renewal_duration = 60  # keep lease short; renewed every 30s
-
-            async def _renew_lease() -> None:
-                while True:
-                    await asyncio.sleep(_renewal_interval)
-                    if _outbox_id is not None:
-                        try:
-                            _new_lease = (
-                                datetime.now(timezone.utc)
-                                + timedelta(seconds=_renewal_duration)
-                            ).isoformat()
-                            renewed = await self._config.storage.renew_outbox_lease(
-                                _outbox_id, _pipeline_worker, _new_lease
-                            )
-                        except Exception:
-                            self._log.exception(
-                                "Failed to renew outbox lease for %s",
-                                _outbox_id,
-                            )
-                            return
-                        if not renewed:
-                            # Item is no longer ours — stop renewing.
-                            break
-
-            if _outbox_id is not None and _outbox_created:
-                _renewal_task = asyncio.create_task(_renew_lease())
+            _renewal_task: asyncio.Task | None = self._start_outbox_lease_renewal(
+                _outbox_id, _outbox_created, _pipeline_worker
+            )
 
             # ── Phase 4: Inflight tracking + delivery ────────────────
 
@@ -1828,66 +1777,14 @@ class PipelineRunner:
                         )
 
                 # Update outbox based on delivery outcome.
-                if _outbox_id is not None and _outbox_created:
-                    try:
-                        if _outcome_receipt is not None:
-                            _r_status = _outcome_receipt.status
-                            if _r_status == "queued":
-                                await self._config.storage.mark_outbox_queued(
-                                    _outbox_id,
-                                    receipt_id=_outcome_receipt.receipt_id,
-                                    attempt_number=_outcome_receipt.attempt_number,
-                                )
-                            else:
-                                await self._config.storage.mark_outbox_sent(
-                                    _outbox_id,
-                                    receipt_id=_outcome_receipt.receipt_id,
-                                    attempt_number=_outcome_receipt.attempt_number,
-                                )
-                        elif _outcome_failure_kind_val is not None:
-                            if _outcome_failure_kind_val.is_retryable:
-                                if route_plan.retry_policy is None:
-                                    # No retry policy — treat as terminal.
-                                    await self._config.storage.mark_outbox_dead_lettered(
-                                        _outbox_id,
-                                        failure_kind=_outcome_failure_kind_val.value,
-                                        error_summary=(
-                                            _outcome_error[:512]
-                                            if _outcome_error
-                                            else None
-                                        ),
-                                    )
-                                else:
-                                    _backoff = RetryExecutor(
-                                        route_plan.retry_policy
-                                    ).compute_backoff(1)
-                                    _next_at = (
-                                        datetime.now(timezone.utc) + _backoff
-                                    ).isoformat()
-                                    await self._config.storage.mark_outbox_retry_wait(
-                                        _outbox_id,
-                                        next_attempt_at=_next_at,
-                                        failure_kind=_outcome_failure_kind_val.value,
-                                        error_summary=(
-                                            _outcome_error[:512]
-                                            if _outcome_error
-                                            else None
-                                        ),
-                                        attempt_number=1,
-                                    )
-                            else:
-                                await self._config.storage.mark_outbox_dead_lettered(
-                                    _outbox_id,
-                                    failure_kind=_outcome_failure_kind_val.value,
-                                    error_summary=(
-                                        _outcome_error[:512] if _outcome_error else None
-                                    ),
-                                )
-                    except Exception:
-                        self._log.exception(
-                            "Failed to update outbox %s after delivery",
-                            _outbox_id,
-                        )
+                await self._finalize_outbox_outcome(
+                    _outbox_id,
+                    _outbox_created,
+                    _outcome_receipt,
+                    _outcome_failure_kind_val,
+                    _outcome_error,
+                    route_plan.retry_policy,
+                )
 
                 # Untrack in-flight delivery identity.
                 if self._capacity_controller is not None:
@@ -1897,6 +1794,171 @@ class PipelineRunner:
         return list(
             await asyncio.gather(*[_deliver_one(r, p) for r, p in route_targets])
         )
+
+    # ------------------------------------------------------------------
+    # Outbox helpers (extracted from _deliver_one for readability)
+    # ------------------------------------------------------------------
+
+    async def _create_outbox_for_delivery(
+        self,
+        event: CanonicalEvent,
+        route: Route,
+        route_plan: DeliveryPlan,
+        target: RouteTarget,
+        adapter_name: str,
+    ) -> tuple[str | None, bool, str]:
+        """Create a durable outbox item tracking a delivery attempt.
+
+        Returns ``(outbox_id, outbox_created, pipeline_worker)``.
+        On failure the outbox_id is ``None`` and ``outbox_created`` is
+        ``False`` — the pipeline continues without outbox tracking.
+        """
+        outbox_id: str | None = None
+        outbox_created: bool = False
+        pipeline_worker: str = ""
+        try:
+            _now = datetime.now(timezone.utc)
+            pipeline_worker = f"pipeline:{uuid.uuid4().hex[:12]}"
+            _lease_until = (
+                _now + timedelta(seconds=_OUTBOX_RENEWAL_DURATION_SECONDS)
+            ).isoformat()
+            outbox_item = DeliveryOutboxItem(
+                outbox_id=f"obox-{uuid.uuid4()}",
+                event_id=event.event_id,
+                route_id=route.id,
+                delivery_plan_id=route_plan.plan_id,
+                target_adapter=adapter_name,
+                target_channel=target.channel,
+                target_address=(
+                    target.destination.destination_hash
+                    if target.destination
+                    else None
+                ),
+                attempt_number=1,
+                status="in_progress",
+                locked_at=_now.isoformat(),
+                lease_until=_lease_until,
+                worker_id=pipeline_worker,
+            )
+            created = await self._config.storage.create_outbox_item(outbox_item)
+            outbox_id = created.outbox_id
+            outbox_created = True
+        except Exception:
+            self._log.exception(
+                "Failed to create outbox item for event_id=%s adapter=%s",
+                event.event_id,
+                adapter_name,
+            )
+            # Non-fatal: pipeline continues without outbox tracking.
+        return outbox_id, outbox_created, pipeline_worker
+
+    def _start_outbox_lease_renewal(
+        self,
+        outbox_id: str | None,
+        outbox_created: bool,
+        pipeline_worker: str,
+    ) -> asyncio.Task | None:
+        """Start a background task that periodically renews the outbox lease.
+
+        Returns the :class:`asyncio.Task` managing the renewal loop, or
+        ``None`` if no outbox item was created.
+        """
+
+        async def _renew_lease() -> None:
+            while True:
+                await asyncio.sleep(_OUTBOX_RENEWAL_INTERVAL_SECONDS)
+                if outbox_id is not None:
+                    try:
+                        _new_lease = (
+                            datetime.now(timezone.utc)
+                            + timedelta(seconds=_OUTBOX_RENEWAL_DURATION_SECONDS)
+                        ).isoformat()
+                        renewed = await self._config.storage.renew_outbox_lease(
+                            outbox_id, pipeline_worker, _new_lease
+                        )
+                    except Exception:
+                        self._log.exception(
+                            "Failed to renew outbox lease for %s",
+                            outbox_id,
+                        )
+                        return
+                    if not renewed:
+                        # Item is no longer ours — stop renewing.
+                        break
+
+        if outbox_id is not None and outbox_created:
+            return asyncio.create_task(_renew_lease())
+        return None
+
+    async def _finalize_outbox_outcome(
+        self,
+        outbox_id: str | None,
+        outbox_created: bool,
+        receipt: DeliveryReceipt | None,
+        failure_kind_val: DeliveryFailureKind | None,
+        error: str | None,
+        retry_policy: RetryPolicy | None,
+    ) -> None:
+        """Update the outbox item status based on the delivery outcome.
+
+        Handles the queued / sent / retry_wait / dead_lettered state
+        transitions.  Silently skips when no outbox item was created.
+        """
+        if outbox_id is None or not outbox_created:
+            return
+        try:
+            if receipt is not None:
+                _r_status = receipt.status
+                if _r_status == "queued":
+                    await self._config.storage.mark_outbox_queued(
+                        outbox_id,
+                        receipt_id=receipt.receipt_id,
+                        attempt_number=receipt.attempt_number,
+                    )
+                else:
+                    await self._config.storage.mark_outbox_sent(
+                        outbox_id,
+                        receipt_id=receipt.receipt_id,
+                        attempt_number=receipt.attempt_number,
+                    )
+            elif failure_kind_val is not None:
+                if failure_kind_val.is_retryable:
+                    if retry_policy is None:
+                        # No retry policy — treat as terminal.
+                        await self._config.storage.mark_outbox_dead_lettered(
+                            outbox_id,
+                            failure_kind=failure_kind_val.value,
+                            error_summary=(
+                                error[:512] if error else None
+                            ),
+                        )
+                    else:
+                        _backoff = RetryExecutor(retry_policy).compute_backoff(1)
+                        _next_at = (
+                            datetime.now(timezone.utc) + _backoff
+                        ).isoformat()
+                        await self._config.storage.mark_outbox_retry_wait(
+                            outbox_id,
+                            next_attempt_at=_next_at,
+                            failure_kind=failure_kind_val.value,
+                            error_summary=(
+                                error[:512] if error else None
+                            ),
+                            attempt_number=1,
+                        )
+                else:
+                    await self._config.storage.mark_outbox_dead_lettered(
+                        outbox_id,
+                        failure_kind=failure_kind_val.value,
+                        error_summary=(
+                            error[:512] if error else None
+                        ),
+                    )
+        except Exception:
+            self._log.exception(
+                "Failed to update outbox %s after delivery",
+                outbox_id,
+            )
 
     @staticmethod
     def _classify_adapter_error(
