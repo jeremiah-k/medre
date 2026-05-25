@@ -1116,26 +1116,25 @@ class PipelineRunner:
 
         # Transition the matching outbox item from queued → sent.
         # The item may still be in_progress if the callback fires before
-        # _deliver_one() marks the outbox row as queued.
+        # _deliver_one() marks the outbox row as queued.  Prefer queued
+        # status over in_progress so that a fully-queued row is always
+        # selected first.
         try:
-            items = await self._config.storage.list_outbox_items(
-                status_filter=["queued", "in_progress"],
-                limit=10,
+            _obi = await self._config.storage.get_outbox_item_for_delivery(
+                event_id=record.event_id,
+                delivery_plan_id=queued_receipt.delivery_plan_id,
+                target_adapter=record.adapter,
+                target_channel=queued_receipt.target_channel,
+                status="queued",
             )
-            matching = [
-                i
-                for i in items
-                if i.event_id == record.event_id
-                and i.target_adapter == record.adapter
-                and i.delivery_plan_id == queued_receipt.delivery_plan_id
-            ]
-            if queued_receipt.target_channel is not None:
-                matching = [
-                    i
-                    for i in matching
-                    if i.target_channel == queued_receipt.target_channel
-                ]
-            _obi = matching[0] if matching else None
+            if _obi is None:
+                _obi = await self._config.storage.get_outbox_item_for_delivery(
+                    event_id=record.event_id,
+                    delivery_plan_id=queued_receipt.delivery_plan_id,
+                    target_adapter=record.adapter,
+                    target_channel=queued_receipt.target_channel,
+                    status="in_progress",
+                )
             if _obi is not None:
                 await self._config.storage.mark_outbox_sent(
                     _obi.outbox_id,

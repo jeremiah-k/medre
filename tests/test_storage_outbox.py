@@ -952,15 +952,18 @@ class TestAsyncTransactionRollback:
         real_execute = temp_storage._db.execute
         call_count = 0
 
-        async def _flaky_execute(stmt, params=None):
+        def _flaky_execute(stmt, params=None):
             nonlocal call_count
             call_count += 1
-            # Let BEGIN succeed, fail on the SELECT.
+            # Let BEGIN succeed (call 1), fail on the SELECT (call 2).
             if call_count == 2:
                 raise RuntimeError("injected mid-transaction error")
+            # Delegate to the real aiosqlite Connection.execute, which is a
+            # regular function returning a Result that supports both ``await``
+            # and ``async with``.
             if params is not None:
-                return await real_execute(stmt, params)
-            return await real_execute(stmt)
+                return real_execute(stmt, params)
+            return real_execute(stmt)
 
         temp_storage._db.execute = _flaky_execute  # type: ignore[assignment]
 

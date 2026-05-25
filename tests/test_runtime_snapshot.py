@@ -1444,4 +1444,3 @@ class TestLiveHealthTypes:
         assert snap["health"]["live_health"] is None
         assert snap["health"]["live_refresh"] is False
         assert snap["health"]["scope"] == "startup"
-

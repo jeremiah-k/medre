@@ -168,3 +168,49 @@ class TestInProgressLeaseProtection:
 
         # Verify lease_until is in the future relative to 'now'
         assert c.lease_until > now
+
+    async def test_renewed_lease_remains_unclaimable(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """After renew_outbox_lease extends the lease, the item must still
+        not be claimable at a time past the *original* lease but within
+        the renewed lease window.
+
+        This models the slow live delivery scenario: the pipeline owns the
+        item, the original short lease (60s) would expire, but the renewal
+        task extends it (to 1800s).  The retry worker must not reclaim it.
+        """
+        from datetime import datetime, timedelta, timezone
+
+        now = _now()
+        now_dt = datetime.fromisoformat(now)
+
+        # Create and claim with a short 60s lease.
+        item = _make_outbox_item(delivery_plan_id="plan-race-renewed")
+        await temp_storage.create_outbox_item(item)
+
+        claimed = await temp_storage.claim_due_outbox_items(
+            now=now, worker_id="live-pipeline-1", lease_seconds=60, limit=10
+        )
+        assert len(claimed) == 1
+        oid = claimed[0].outbox_id
+
+        # Renew the lease to 1800s from now (simulating the renewal task).
+        renewed_lease = (now_dt + timedelta(seconds=1800)).isoformat()
+        result = await temp_storage.renew_outbox_lease(
+            oid, "live-pipeline-1", renewed_lease
+        )
+        assert result is True
+
+        # At T+120s (past the original 60s lease, within the renewed 1800s
+        # lease), the retry worker MUST NOT be able to claim this item.
+        after_original_lease = (
+            now_dt + timedelta(seconds=120)
+        ).isoformat()
+        retry_claimed = await temp_storage.claim_due_outbox_items(
+            now=after_original_lease,
+            worker_id="retry-worker-1",
+            lease_seconds=30,
+            limit=10,
+        )
+        assert not any(c.outbox_id == oid for c in retry_claimed)

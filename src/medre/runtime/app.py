@@ -195,6 +195,7 @@ class MedreApp:
     _live_health_state: LiveHealthSnapshot | None = field(default=None, init=False)
     _live_health_poll_count: int = field(default=0, init=False)
     _outbox_state: dict[str, int] = field(default_factory=dict, init=False)
+    _outbox_storage_authoritative: bool = field(default=False, init=False)
 
     # -- Post-init --------------------------------------------------------------
 
@@ -247,9 +248,20 @@ class MedreApp:
         """Return the last-known outbox status counts.
 
         Seeded from storage on startup.  Refreshed from storage after each
-        retry worker cycle.  Falls back to the storage-seeded snapshot when
-        the retry worker cache is empty (before first worker cycle).
+        retry worker cycle.  After :meth:`refresh_outbox_state_from_storage`
+        is called, storage counts are authoritative for one read (typically
+        a snapshot) — the retry worker cache is bypassed to prevent a
+        stale ``{}`` from overwriting freshly queried storage counts.
+
+        When no storage refresh is pending, the retry worker cache is used
+        as the authoritative source (including ``{}`` when the worker has
+        completed a cycle with no outbox items).
         """
+        if self._outbox_storage_authoritative:
+            # Storage refresh was called — return storage counts and clear
+            # the flag so subsequent reads resume normal worker-cache logic.
+            self._outbox_storage_authoritative = False
+            return dict(self._outbox_state)
         if self._retry_worker is not None:
             latest = self._retry_worker.outbox_counts
             if latest is not None:
@@ -266,11 +278,15 @@ class MedreApp:
 
         Called by diagnostics and runtime snapshot paths to ensure
         outbox counts reflect current storage state, not just the
-        retry worker cache.
+        retry worker cache.  After a successful refresh, storage
+        counts are marked authoritative so that the next read of
+        :attr:`outbox_state` returns storage data instead of
+        potentially stale worker cache.
         """
         if self.storage is not None:
             try:
                 self._outbox_state = await self.storage.count_outbox_by_status()
+                self._outbox_storage_authoritative = True
             except Exception:
                 _logger.debug("Failed to refresh outbox state from storage", exc_info=True)
 

@@ -659,3 +659,234 @@ class TestLeaseRenewal:
             assert matching[0].status in ("sent", "queued")
         finally:
             await runner.stop()
+
+    async def test_renew_outbox_lease_after_queued_returns_false(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """After in_progress -> queued, renew_outbox_lease must return False.
+
+        This verifies that the renewal loop in the pipeline will stop
+        once the item transitions to queued (adapter-local queue acceptance).
+        """
+        from datetime import datetime, timedelta, timezone
+
+        from medre.core.storage.backend import DeliveryOutboxItem
+
+        now = datetime.now(timezone.utc)
+        item = DeliveryOutboxItem(
+            outbox_id="obox-renew-queued",
+            event_id="evt-rq",
+            route_id="route-1",
+            delivery_plan_id="plan-1",
+            target_adapter="fake_presentation",
+            status="in_progress",
+            worker_id="pipeline:w1",
+            lease_until=(now + timedelta(seconds=60)).isoformat(),
+            locked_at=now.isoformat(),
+        )
+        await temp_storage.create_outbox_item(item)
+
+        # Transition to queued.
+        await temp_storage.mark_outbox_queued(
+            "obox-renew-queued", receipt_id="rcpt-q"
+        )
+
+        new_lease = (now + timedelta(seconds=1800)).isoformat()
+        result = await temp_storage.renew_outbox_lease(
+            "obox-renew-queued", "pipeline:w1", new_lease
+        )
+        assert result is False
+
+    async def test_renew_outbox_lease_after_retry_wait_returns_false(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """After in_progress -> retry_wait, renew_outbox_lease must return False.
+
+        Verifies the renewal loop stops when the item enters retry_wait.
+        """
+        from datetime import datetime, timedelta, timezone
+
+        from medre.core.storage.backend import DeliveryOutboxItem
+
+        now = datetime.now(timezone.utc)
+        item = DeliveryOutboxItem(
+            outbox_id="obox-renew-rw",
+            event_id="evt-rw",
+            route_id="route-1",
+            delivery_plan_id="plan-1",
+            target_adapter="fake_presentation",
+            status="in_progress",
+            worker_id="pipeline:w1",
+            lease_until=(now + timedelta(seconds=60)).isoformat(),
+            locked_at=now.isoformat(),
+        )
+        await temp_storage.create_outbox_item(item)
+
+        next_at = (now + timedelta(seconds=120)).isoformat()
+        await temp_storage.mark_outbox_retry_wait(
+            "obox-renew-rw",
+            next_attempt_at=next_at,
+            failure_kind="adapter_transient",
+        )
+
+        new_lease = (now + timedelta(seconds=1800)).isoformat()
+        result = await temp_storage.renew_outbox_lease(
+            "obox-renew-rw", "pipeline:w1", new_lease
+        )
+        assert result is False
+
+    async def test_renew_outbox_lease_after_dead_lettered_returns_false(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """After in_progress -> dead_lettered, renew_outbox_lease must return False.
+
+        Verifies the renewal loop stops when the item is dead-lettered.
+        """
+        from datetime import datetime, timedelta, timezone
+
+        from medre.core.storage.backend import DeliveryOutboxItem
+
+        now = datetime.now(timezone.utc)
+        item = DeliveryOutboxItem(
+            outbox_id="obox-renew-dl",
+            event_id="evt-dl",
+            route_id="route-1",
+            delivery_plan_id="plan-1",
+            target_adapter="fake_presentation",
+            status="in_progress",
+            worker_id="pipeline:w1",
+            lease_until=(now + timedelta(seconds=60)).isoformat(),
+            locked_at=now.isoformat(),
+        )
+        await temp_storage.create_outbox_item(item)
+
+        await temp_storage.mark_outbox_dead_lettered(
+            "obox-renew-dl",
+            failure_kind="adapter_permanent",
+        )
+
+        new_lease = (now + timedelta(seconds=1800)).isoformat()
+        result = await temp_storage.renew_outbox_lease(
+            "obox-renew-dl", "pipeline:w1", new_lease
+        )
+        assert result is False
+
+
+# ===================================================================
+# Regression: targeted outbox lookup with >10 noise rows
+# ===================================================================
+
+
+class TestTargetedOutboxLookupRegression:
+    """Verify that _record_outbound_native_ref uses a targeted outbox lookup
+    instead of scanning, so that the correct row transitions to ``sent`` even
+    when more than 10 unrelated queued/in_progress rows exist."""
+
+    async def test_matching_outbox_transitions_sent_despite_many_noise_rows(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Create 15 noise outbox rows + 1 target row, then call
+        _record_outbound_native_ref and assert only the target transitions."""
+        import uuid
+        from datetime import datetime, timezone
+
+        from medre.core.contracts.adapter import OutboundNativeRefRecord
+        from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
+        from medre.core.events.bus import EventBus
+        from medre.core.events.canonical import DeliveryReceipt
+        from medre.core.planning import FallbackResolver, RelationResolver
+        from medre.core.routing import Router
+        from medre.core.storage.backend import DeliveryOutboxItem
+
+        TARGET_EVENT_ID = "evt-target-regression"
+        TARGET_PLAN_ID = "plan-target-regression"
+        TARGET_ADAPTER = "adapter-target"
+        TARGET_CHANNEL = "ch-target"
+        TARGET_ROUTE_ID = "route-target"
+
+        # -- 1. Create 15 noise outbox items (queued + in_progress) --------
+        for i in range(15):
+            noise_status = "queued" if i % 2 == 0 else "in_progress"
+            noise_item = DeliveryOutboxItem(
+                outbox_id=f"obox-noise-{i:03d}",
+                event_id=f"evt-noise-{i:03d}",
+                route_id=f"route-noise-{i:03d}",
+                delivery_plan_id=f"plan-noise-{i:03d}",
+                target_adapter=f"adapter-noise-{i:03d}",
+                target_channel=f"ch-noise-{i:03d}",
+                status=noise_status,
+            )
+            await temp_storage.create_outbox_item(noise_item)
+
+        # -- 2. Create the matching outbox item (queued) --------------------
+        target_item = DeliveryOutboxItem(
+            outbox_id="obox-target-regression",
+            event_id=TARGET_EVENT_ID,
+            route_id=TARGET_ROUTE_ID,
+            delivery_plan_id=TARGET_PLAN_ID,
+            target_adapter=TARGET_ADAPTER,
+            target_channel=TARGET_CHANNEL,
+            status="queued",
+        )
+        await temp_storage.create_outbox_item(target_item)
+
+        # -- 3. Create a "queued" receipt so _append_queued_to_sent_receipt
+        #         can find it and inherit plan/route context. ---------------
+        now = datetime.now(tz=timezone.utc)
+        queued_receipt = DeliveryReceipt(
+            sequence=0,
+            receipt_id=f"rcpt-queued-{uuid.uuid4()}",
+            event_id=TARGET_EVENT_ID,
+            delivery_plan_id=TARGET_PLAN_ID,
+            target_adapter=TARGET_ADAPTER,
+            target_channel=TARGET_CHANNEL,
+            route_id=TARGET_ROUTE_ID,
+            status="queued",
+            error=None,
+            failure_kind=None,
+            adapter_message_id=None,
+            next_retry_at=None,
+            created_at=now,
+            attempt_number=1,
+            parent_receipt_id=None,
+            source="live",
+        )
+        await temp_storage.append_receipt(queued_receipt)
+
+        # -- 4. Build a minimal PipelineRunner and call the production path -
+        router = Router(routes=[])
+        config = PipelineConfig(
+            storage=temp_storage,
+            router=router,
+            fallback_resolver=FallbackResolver(),
+            relation_resolver=RelationResolver(storage=temp_storage),
+            adapters={},
+            event_bus=EventBus(),
+        )
+        runner = PipelineRunner(config)
+
+        record = OutboundNativeRefRecord(
+            event_id=TARGET_EVENT_ID,
+            adapter=TARGET_ADAPTER,
+            native_channel_id=TARGET_CHANNEL,
+            native_message_id="native-msg-target-regression",
+        )
+        await runner._record_outbound_native_ref(record)
+
+        # -- 5. Assert: target outbox item is now "sent" -------------------
+        updated_target = await temp_storage.get_outbox_item("obox-target-regression")
+        assert updated_target is not None, "Target outbox item should exist"
+        assert updated_target.status == "sent", (
+            f"Expected 'sent', got '{updated_target.status}'"
+        )
+
+        # -- 6. Assert: all noise rows remain unchanged --------------------
+        for i in range(15):
+            noise = await temp_storage.get_outbox_item(f"obox-noise-{i:03d}")
+            assert noise is not None, f"Noise item {i} should still exist"
+            expected_status = "queued" if i % 2 == 0 else "in_progress"
+            assert noise.status == expected_status, (
+                f"Noise item {i} should remain '{expected_status}', "
+                f"got '{noise.status}'"
+            )
