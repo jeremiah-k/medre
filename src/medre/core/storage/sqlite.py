@@ -26,6 +26,7 @@ from medre.core.events import (
     NativeRef,
 )
 from medre.core.storage.backend import (
+    DeliveryOutboxItem,
     DuplicateEventError,
     EventFilter,
     StorageError,
@@ -141,6 +142,33 @@ JOIN (
     FROM delivery_receipts GROUP BY delivery_plan_id, target_adapter, COALESCE(target_channel, '')
 ) latest ON dr.sequence = latest.max_seq;
 
+CREATE TABLE IF NOT EXISTS delivery_outbox (
+    outbox_id TEXT PRIMARY KEY,
+    event_id TEXT NOT NULL,
+    route_id TEXT NOT NULL DEFAULT '',
+    delivery_plan_id TEXT NOT NULL,
+    target_adapter TEXT NOT NULL,
+    target_channel TEXT,
+    target_address TEXT,
+    attempt_number INTEGER NOT NULL DEFAULT 1,
+    status TEXT NOT NULL DEFAULT 'pending',
+    failure_kind TEXT,
+    failure_kind_detail TEXT,
+    next_attempt_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    last_attempt_at TEXT,
+    locked_at TEXT,
+    lease_until TEXT,
+    worker_id TEXT,
+    payload_hash TEXT,
+    receipt_id TEXT,
+    parent_receipt_id TEXT,
+    error_summary TEXT,
+    metadata TEXT NOT NULL DEFAULT '{}',
+    UNIQUE(delivery_plan_id, target_adapter, target_channel, attempt_number)
+);
+
 CREATE TABLE IF NOT EXISTS plugin_state (
     plugin_id TEXT NOT NULL,
     key TEXT NOT NULL,
@@ -184,6 +212,12 @@ CREATE INDEX IF NOT EXISTS idx_receipts_retry_due
     ON delivery_receipts(status, failure_kind, next_retry_at);
 CREATE INDEX IF NOT EXISTS idx_receipts_parent_retry
     ON delivery_receipts(parent_receipt_id, source);
+CREATE INDEX IF NOT EXISTS idx_outbox_due
+    ON delivery_outbox(status, next_attempt_at);
+CREATE INDEX IF NOT EXISTS idx_outbox_plan_target
+    ON delivery_outbox(delivery_plan_id, target_adapter, target_channel);
+CREATE INDEX IF NOT EXISTS idx_outbox_event
+    ON delivery_outbox(event_id);
 """
 
 # ---------------------------------------------------------------------------
@@ -281,6 +315,33 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
             "retry_max_delay",
             "retry_jitter",
             "created_at",
+        }
+    ),
+    "delivery_outbox": frozenset(
+        {
+            "outbox_id",
+            "event_id",
+            "route_id",
+            "delivery_plan_id",
+            "target_adapter",
+            "target_channel",
+            "target_address",
+            "attempt_number",
+            "status",
+            "failure_kind",
+            "failure_kind_detail",
+            "next_attempt_at",
+            "created_at",
+            "updated_at",
+            "last_attempt_at",
+            "locked_at",
+            "lease_until",
+            "worker_id",
+            "payload_hash",
+            "receipt_id",
+            "parent_receipt_id",
+            "error_summary",
+            "metadata",
         }
     ),
     "plugin_state": frozenset(
@@ -517,6 +578,53 @@ def _row_to_native_ref(row: dict[str, Any]) -> NativeMessageRef:
         metadata=_decode_json(row["metadata"]) if row.get("metadata") else {},
         created_at=datetime.fromisoformat(row["created_at"]),
     )
+
+
+def _row_to_outbox_item(row: dict[str, Any]) -> DeliveryOutboxItem:
+    """Map a ``delivery_outbox`` row to a :class:`DeliveryOutboxItem`."""
+    meta_raw = row.get("metadata", "{}")
+    try:
+        meta: dict[str, Any] = (
+            _decode_json(meta_raw) if isinstance(meta_raw, str) else {}
+        )
+    except Exception:
+        meta = {}
+    return DeliveryOutboxItem(
+        outbox_id=row["outbox_id"],
+        event_id=row["event_id"],
+        route_id=row.get("route_id", ""),
+        delivery_plan_id=row["delivery_plan_id"],
+        target_adapter=row["target_adapter"],
+        target_channel=row.get("target_channel"),
+        target_address=row.get("target_address"),
+        attempt_number=row.get("attempt_number", 1),
+        status=row.get("status", "pending"),
+        failure_kind=row.get("failure_kind"),
+        failure_kind_detail=row.get("failure_kind_detail"),
+        next_attempt_at=row.get("next_attempt_at"),
+        created_at=row.get("created_at"),
+        updated_at=row.get("updated_at"),
+        last_attempt_at=row.get("last_attempt_at"),
+        locked_at=row.get("locked_at"),
+        lease_until=row.get("lease_until"),
+        worker_id=row.get("worker_id"),
+        payload_hash=row.get("payload_hash"),
+        receipt_id=row.get("receipt_id"),
+        parent_receipt_id=row.get("parent_receipt_id"),
+        error_summary=row.get("error_summary"),
+        metadata=meta,
+    )
+
+
+def _add_seconds_iso(iso_str: str, seconds: int) -> str:
+    """Add *seconds* to an ISO-8601 string and return the new ISO string."""
+    try:
+        dt = datetime.fromisoformat(iso_str)
+    except (ValueError, TypeError):
+        return iso_str
+    import datetime as dt_mod
+
+    return (dt + dt_mod.timedelta(seconds=seconds)).isoformat()
 
 
 def _build_query_sql(filt: EventFilter) -> tuple[str, tuple[Any, ...]]:
@@ -1373,6 +1481,341 @@ class SQLiteStorage:
             "UPDATE delivery_receipts SET next_retry_at = ? WHERE receipt_id = ?",
             (next_retry_at.isoformat(), receipt_id),
         )
+
+    # -------------------------------------------------------------------
+    # Outbox
+    # -------------------------------------------------------------------
+
+    async def create_outbox_item(self, item: DeliveryOutboxItem) -> DeliveryOutboxItem:
+        """Create a new outbox item.
+
+        Uses ``INSERT OR IGNORE`` with the UNIQUE constraint on
+        ``(delivery_plan_id, target_adapter, target_channel, attempt_number)``
+        so that duplicate creates for the same key tuple are silently
+        ignored (idempotent create).  When the insert is skipped the
+        existing item is returned unchanged.
+        """
+        now = _now_iso()
+        meta_json = _encode_json(item.metadata or {})
+        # Check if item with same key tuple already exists (before insert).
+        existing = await self._read_one(
+            """SELECT outbox_id, status FROM delivery_outbox
+               WHERE delivery_plan_id = ? AND target_adapter = ?
+                 AND target_channel IS ? AND attempt_number = ?""",
+            (
+                item.delivery_plan_id,
+                item.target_adapter,
+                item.target_channel,
+                item.attempt_number,
+            ),
+        )
+        if existing is not None:
+            # If the existing item is terminal, allow a new row (re-delivery
+            # after dead-letter via recover).
+            _terminal = {"sent", "dead_lettered", "cancelled", "abandoned"}
+            if existing["status"] not in _terminal:
+                return await self.get_outbox_item(existing["outbox_id"]) or item
+
+        try:
+            await self._write(
+                """INSERT INTO delivery_outbox
+                   (outbox_id, event_id, route_id, delivery_plan_id,
+                    target_adapter, target_channel, target_address,
+                    attempt_number, status, failure_kind, failure_kind_detail,
+                    next_attempt_at, created_at, updated_at, last_attempt_at,
+                    locked_at, lease_until, worker_id, payload_hash,
+                    receipt_id, parent_receipt_id, error_summary, metadata)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    item.outbox_id,
+                    item.event_id,
+                    item.route_id,
+                    item.delivery_plan_id,
+                    item.target_adapter,
+                    item.target_channel,
+                    item.target_address,
+                    item.attempt_number,
+                    item.status or "pending",
+                    item.failure_kind,
+                    item.failure_kind_detail,
+                    item.next_attempt_at,
+                    item.created_at or now,
+                    item.updated_at or now,
+                    item.last_attempt_at,
+                    item.locked_at,
+                    item.lease_until,
+                    item.worker_id,
+                    item.payload_hash,
+                    item.receipt_id,
+                    item.parent_receipt_id,
+                    item.error_summary,
+                    meta_json,
+                ),
+            )
+        except Exception:
+            logger.exception("Failed to create outbox item %s", item.outbox_id)
+            raise
+        return await self.get_outbox_item(item.outbox_id) or item
+
+    async def get_outbox_item(self, outbox_id: str) -> DeliveryOutboxItem | None:
+        """Retrieve a single outbox item by its ID."""
+        row = await self._read_one(
+            "SELECT * FROM delivery_outbox WHERE outbox_id = ?",
+            (outbox_id,),
+        )
+        if row is None:
+            return None
+        return _row_to_outbox_item(row)
+
+    async def list_outbox_items(
+        self,
+        status_filter: list[str] | None = None,
+        due_before: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[DeliveryOutboxItem]:
+        """List outbox items matching optional status and due filters."""
+        clauses: list[str] = []
+        params: list[Any] = []
+
+        if status_filter:
+            holders = ",".join("?" for _ in status_filter)
+            clauses.append(f"status IN ({holders})")
+            params.extend(status_filter)
+
+        if due_before is not None:
+            clauses.append("(next_attempt_at IS NOT NULL AND next_attempt_at <= ?)")
+            params.append(due_before)
+
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        sql = f"SELECT * FROM delivery_outbox{where} ORDER BY next_attempt_at ASC, created_at ASC LIMIT ? OFFSET ?"  # nosec
+        params.append(limit)
+        params.append(offset)
+
+        rows = await self._read_all(sql, tuple(params))
+        return [_row_to_outbox_item(r) for r in rows]
+
+    async def claim_due_outbox_items(
+        self,
+        now: str,
+        worker_id: str,
+        lease_seconds: int = 30,
+        limit: int = 20,
+    ) -> list[DeliveryOutboxItem]:
+        """Atomically claim due outbox items for processing.
+
+        Uses a transaction to SELECT FOR UPDATE equivalent (rowid-based)
+        and updates in one step.  Claims items that are:
+        - status IN ('pending', 'retry_wait')
+        - (next_attempt_at IS NULL OR next_attempt_at <= now)
+        - (lease_until IS NULL OR lease_until <= now)
+        """
+        lease_until = _add_seconds_iso(now, lease_seconds)
+        # Use a two-step approach: SELECT candidates, then UPDATE matching.
+        # SQLite doesn't support RETURNING with ORIGIN in all configurations,
+        # so we select first, then update by outbox_id.
+        rows = await self._read_all(
+            """SELECT * FROM delivery_outbox
+               WHERE status IN ('pending', 'retry_wait')
+                 AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
+                 AND (lease_until IS NULL OR lease_until <= ?)
+               ORDER BY next_attempt_at ASC, created_at ASC
+               LIMIT ?""",
+            (now, now, limit),
+        )
+        if not rows:
+            return []
+
+        outbox_ids = [r["outbox_id"] for r in rows]
+        placeholders = ",".join("?" for _ in outbox_ids)
+        await self._write(
+            f"""UPDATE delivery_outbox
+                SET status = 'in_progress',
+                    locked_at = ?,
+                    lease_until = ?,
+                    worker_id = ?,
+                    updated_at = ?
+                WHERE outbox_id IN ({placeholders})
+                  AND status IN ('pending', 'retry_wait')
+                  AND (lease_until IS NULL OR lease_until <= ?)""",  # nosec: placeholders are only ? markers, values passed as params
+            (now, lease_until, worker_id, now, *outbox_ids, now),
+        )
+
+        # Re-read to get the updated rows (some may have been claimed by
+        # another worker if the SELECT/UPDATE window was contested).
+        final_ids_tuple = tuple(outbox_ids)
+        final_rows = await self._read_all(
+            f"SELECT * FROM delivery_outbox WHERE outbox_id IN ({','.join('?' for _ in outbox_ids)}) AND worker_id = ?",  # nosec: placeholders are only ? markers, values passed as params
+            (*final_ids_tuple, worker_id),
+        )
+        return [_row_to_outbox_item(r) for r in final_rows]
+
+    async def _update_outbox_status(
+        self,
+        outbox_id: str,
+        new_status: str,
+        *,
+        receipt_id: str | None = None,
+        attempt_number: int | None = None,
+        failure_kind: str | None = None,
+        failure_kind_detail: str | None = None,
+        error_summary: str | None = None,
+        next_attempt_at: str | None = None,
+    ) -> None:
+        """Shared helper for status transitions.
+
+        Only updates non-terminal items.  The ``WHERE status NOT IN``
+        clause prevents regression once a terminal status is set.
+        """
+        now = _now_iso()
+        sets = ["status = ?", "updated_at = ?"]
+        params: list[Any] = [new_status, now]
+
+        if receipt_id is not None:
+            sets.append("receipt_id = ?")
+            params.append(receipt_id)
+        if attempt_number is not None:
+            sets.append("attempt_number = ?")
+            params.append(attempt_number)
+        if failure_kind is not None:
+            sets.append("failure_kind = ?")
+            params.append(failure_kind)
+        if failure_kind_detail is not None:
+            sets.append("failure_kind_detail = ?")
+            params.append(failure_kind_detail)
+        if error_summary is not None:
+            sets.append("error_summary = ?")
+            params.append(error_summary)
+        if next_attempt_at is not None:
+            sets.append("next_attempt_at = ?")
+            params.append(next_attempt_at)
+        if new_status in ("in_progress", "queued", "sent", "retry_wait"):
+            sets.append("last_attempt_at = ?")
+            params.append(now)
+        if new_status in ("sent", "dead_lettered", "cancelled", "abandoned"):
+            sets.append("locked_at = NULL")
+            sets.append("lease_until = NULL")
+            sets.append("worker_id = NULL")
+
+        set_clause = ", ".join(sets)
+        await self._write(
+            f"UPDATE delivery_outbox SET {set_clause} WHERE outbox_id = ? AND status NOT IN ('sent', 'dead_lettered', 'cancelled', 'abandoned')",  # nosec: set_clause contains only hardcoded column names, values via ? params
+            (*params, outbox_id),
+        )
+
+    async def mark_outbox_sent(
+        self,
+        outbox_id: str,
+        receipt_id: str | None = None,
+        attempt_number: int | None = None,
+    ) -> None:
+        """Mark an outbox item as ``sent`` (terminal)."""
+        await self._update_outbox_status(
+            outbox_id,
+            "sent",
+            receipt_id=receipt_id,
+            attempt_number=attempt_number,
+        )
+
+    async def mark_outbox_queued(
+        self,
+        outbox_id: str,
+        receipt_id: str | None = None,
+    ) -> None:
+        """Mark an outbox item as ``queued`` (adapter-local queue acceptance)."""
+        await self._update_outbox_status(
+            outbox_id,
+            "queued",
+            receipt_id=receipt_id,
+        )
+
+    async def mark_outbox_retry_wait(
+        self,
+        outbox_id: str,
+        next_attempt_at: str,
+        receipt_id: str | None = None,
+        failure_kind: str | None = None,
+        failure_kind_detail: str | None = None,
+        error_summary: str | None = None,
+        attempt_number: int | None = None,
+    ) -> None:
+        """Mark an outbox item as ``retry_wait`` (transient failure)."""
+        await self._update_outbox_status(
+            outbox_id,
+            "retry_wait",
+            receipt_id=receipt_id,
+            attempt_number=attempt_number,
+            failure_kind=failure_kind,
+            failure_kind_detail=failure_kind_detail,
+            error_summary=error_summary,
+            next_attempt_at=next_attempt_at,
+        )
+
+    async def mark_outbox_dead_lettered(
+        self,
+        outbox_id: str,
+        receipt_id: str | None = None,
+        failure_kind: str | None = None,
+        failure_kind_detail: str | None = None,
+        error_summary: str | None = None,
+    ) -> None:
+        """Mark an outbox item as ``dead_lettered`` (terminal failure)."""
+        await self._update_outbox_status(
+            outbox_id,
+            "dead_lettered",
+            receipt_id=receipt_id,
+            failure_kind=failure_kind,
+            failure_kind_detail=failure_kind_detail,
+            error_summary=error_summary,
+        )
+
+    async def mark_outbox_cancelled(
+        self,
+        outbox_id: str,
+        error_summary: str | None = None,
+    ) -> None:
+        """Mark an outbox item as ``cancelled`` (terminal)."""
+        await self._update_outbox_status(
+            outbox_id,
+            "cancelled",
+            error_summary=error_summary,
+        )
+
+    async def mark_outbox_abandoned(
+        self,
+        outbox_id: str,
+        error_summary: str | None = None,
+    ) -> None:
+        """Mark an outbox item as ``abandoned`` (terminal)."""
+        await self._update_outbox_status(
+            outbox_id,
+            "abandoned",
+            error_summary=error_summary,
+        )
+
+    async def release_outbox_claim(
+        self,
+        outbox_id: str,
+        worker_id: str,
+    ) -> None:
+        """Release a claim on an outbox item without changing status.
+
+        Only clears lease fields when the current worker_id matches.
+        """
+        await self._write(
+            """UPDATE delivery_outbox
+               SET locked_at = NULL, lease_until = NULL, worker_id = NULL,
+                   updated_at = ?
+               WHERE outbox_id = ? AND worker_id = ?""",
+            (_now_iso(), outbox_id, worker_id),
+        )
+
+    async def count_outbox_by_status(self) -> dict[str, int]:
+        """Return counts of outbox items grouped by status."""
+        rows = await self._read_all(
+            "SELECT status, COUNT(*) AS cnt FROM delivery_outbox GROUP BY status"
+        )
+        return {r["status"]: r["cnt"] for r in rows}
 
     async def list_native_refs_for_event(
         self,

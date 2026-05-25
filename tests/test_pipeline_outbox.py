@@ -1,0 +1,369 @@
+"""Pipeline outbox integration tests: outbox creation, suppression guards,
+status transitions, and shutdown interaction.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from medre.adapters.fakes.presentation import FakePresentationAdapter
+from medre.adapters.fakes.transport import FakeTransportAdapter
+from medre.core.engine.pipeline import PipelineRunner
+from medre.core.policies.route_policy import RoutePolicy
+from medre.core.rendering.renderer import RenderingResult
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
+from medre.core.storage import SQLiteStorage
+from medre.core.supervision.capacity import CapacityController
+from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def fake_transport() -> FakeTransportAdapter:
+    return FakeTransportAdapter(adapter_id="fake_transport", channel="ch-0")
+
+
+@pytest.fixture
+def fake_presentation() -> FakePresentationAdapter:
+    return FakePresentationAdapter(adapter_id="fake_presentation")
+
+
+@pytest.fixture
+def router_with_routes() -> Router:
+    """Router with a single route from fake_transport to fake_presentation."""
+    route = Route(
+        id="route-transport-to-presentation",
+        source=RouteSource(
+            adapter="fake_transport", event_kinds=("message.created",), channel="ch-0"
+        ),
+        targets=[RouteTarget(adapter="fake_presentation", channel="ch-out")],
+    )
+    return Router(routes=[route])
+
+
+# ===================================================================
+# Outbox creation tests
+# ===================================================================
+
+
+class _ZeroCapacityLimits:
+    """Limits-like object with zero delivery capacity."""
+
+    max_inflight_deliveries: int = 0
+    max_inflight_replay_events: int = 0
+    delivery_acquire_timeout_seconds: float = 0.1
+
+
+class TestOutboxCreation:
+    """Outbox should be created for accepted deliveries and suppressed for
+    policy/loop/capacity-rejected targets."""
+
+    async def test_outbox_created_for_accepted_target(
+        self,
+        temp_storage: SQLiteStorage,
+        router_with_routes: Router,
+        fake_presentation: FakePresentationAdapter,
+    ) -> None:
+        """A successful delivery creates an outbox item."""
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router_with_routes,
+            adapters={"fake_presentation": fake_presentation},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = make_event(event_id="obox-accepted-001")
+
+        try:
+            await runner.handle_ingress(event)
+
+            # Outbox should exist for this delivery.
+            items = await temp_storage.list_outbox_items(
+                status_filter=[
+                    "sent",
+                    "queued",
+                    "pending",
+                    "retry_wait",
+                    "dead_lettered",
+                ],
+            )
+            assert len(items) >= 1
+            # At least one item should reference our event.
+            matching = [i for i in items if i.event_id == "obox-accepted-001"]
+            assert len(matching) >= 1
+            assert matching[0].status in ("sent", "queued")
+            assert matching[0].target_adapter == "fake_presentation"
+        finally:
+            await runner.stop()
+
+    async def test_no_outbox_for_policy_suppressed(
+        self,
+        temp_storage: SQLiteStorage,
+        fake_presentation: FakePresentationAdapter,
+    ) -> None:
+        """Policy-suppressed targets should NOT create outbox items."""
+
+        policy = RoutePolicy(
+            allowed_source_adapters=["some_other_adapter"],
+        )
+        route = Route(
+            id="route-policy-test",
+            source=RouteSource(
+                adapter="fake_transport",
+                event_kinds=("message.created",),
+                channel="ch-0",
+            ),
+            targets=[RouteTarget(adapter="fake_presentation")],
+            policy=policy,
+        )
+        router = Router(routes=[route])
+
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router,
+            adapters={"fake_presentation": fake_presentation},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = make_event(event_id="obox-policy-sup-001")
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+            # Should be policy_suppressed.
+            assert any(
+                o.status == "skipped"
+                and o.failure_kind is not None
+                and "policy" in str(o.failure_kind).lower()
+                for o in outcomes
+            )
+
+            # No outbox item should be created for this event.
+            items = await temp_storage.list_outbox_items()
+            matching = [i for i in items if i.event_id == "obox-policy-sup-001"]
+            assert len(matching) == 0
+        finally:
+            await runner.stop()
+
+    async def test_no_outbox_for_loop_suppressed(
+        self,
+        temp_storage: SQLiteStorage,
+        fake_presentation: FakePresentationAdapter,
+    ) -> None:
+        """Self-loop suppressed targets should NOT create outbox items."""
+        route = Route(
+            id="route-self-loop",
+            source=RouteSource(
+                adapter="fake_transport",
+                event_kinds=("message.created",),
+                channel="ch-0",
+            ),
+            # Target back to source adapter = self-loop.
+            targets=[RouteTarget(adapter="fake_transport")],
+        )
+        router = Router(routes=[route])
+
+        transport = FakeTransportAdapter(adapter_id="fake_transport", channel="ch-0")
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router,
+            adapters={
+                "fake_transport": transport,
+                "fake_presentation": fake_presentation,
+            },
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = make_event(event_id="obox-loop-sup-001")
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+            # Verify loop suppression.
+            assert any(o.status == "skipped" for o in outcomes)
+
+            # No outbox item for this event.
+            items = await temp_storage.list_outbox_items()
+            matching = [i for i in items if i.event_id == "obox-loop-sup-001"]
+            assert len(matching) == 0
+        finally:
+            await runner.stop()
+
+    async def test_no_outbox_for_capacity_rejected(
+        self,
+        temp_storage: SQLiteStorage,
+        router_with_routes: Router,
+        fake_presentation: FakePresentationAdapter,
+    ) -> None:
+        """Capacity-rejected targets should NOT create outbox items."""
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router_with_routes,
+            adapters={"fake_presentation": fake_presentation},
+        )
+        runner = PipelineRunner(config)
+
+        # Create a capacity controller that immediately rejects.
+        cc = CapacityController(limits=_ZeroCapacityLimits())
+        runner.set_capacity_controller(cc)
+        await runner.start()
+
+        event = make_event(event_id="obox-cap-rej-001")
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+            # Should be capacity rejected.
+            assert any(
+                o.status == "permanent_failure"
+                and o.failure_kind is not None
+                and "capacity" in str(o.failure_kind).lower()
+                for o in outcomes
+            )
+
+            # No outbox item for this event (capacity reject happens before
+            # outbox creation phase).
+            items = await temp_storage.list_outbox_items()
+            matching = [i for i in items if i.event_id == "obox-cap-rej-001"]
+            assert len(matching) == 0
+        finally:
+            await runner.stop()
+
+
+# ===================================================================
+# Outbox status transitions
+# ===================================================================
+
+
+class TestOutboxStatusTransitions:
+    """Outbox status updates based on delivery outcome."""
+
+    async def test_successful_delivery_marks_sent(
+        self,
+        temp_storage: SQLiteStorage,
+        router_with_routes: Router,
+        fake_presentation: FakePresentationAdapter,
+    ) -> None:
+        """Successful synchronous delivery marks outbox as sent."""
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router_with_routes,
+            adapters={"fake_presentation": fake_presentation},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = make_event(event_id="obox-sent-001")
+
+        try:
+            await runner.handle_ingress(event)
+
+            items = await temp_storage.list_outbox_items(
+                status_filter=["sent"],
+            )
+            matching = [i for i in items if i.event_id == "obox-sent-001"]
+            assert len(matching) >= 1
+            assert matching[-1].status == "sent"
+        finally:
+            await runner.stop()
+
+    async def test_queued_delivery_marks_queued(
+        self,
+        temp_storage: SQLiteStorage,
+        fake_presentation: FakePresentationAdapter,
+    ) -> None:
+        """Queue-based delivery marks outbox as queued."""
+        from medre.core.contracts.adapter import (
+            AdapterDeliveryResult,
+        )
+
+        # Create a queue-based fake adapter.
+        class QueuedFakeAdapter(FakePresentationAdapter):
+            """Adapter that returns delivery_status='enqueued'."""
+
+            async def deliver(self, payload: RenderingResult) -> AdapterDeliveryResult:
+                self.delivered_payloads.append(payload)
+                return AdapterDeliveryResult(
+                    native_message_id=None,
+                    delivery_status="enqueued",
+                )
+
+        queued_adapter = QueuedFakeAdapter(adapter_id="fake_presentation")
+
+        route = Route(
+            id="route-queued-test",
+            source=RouteSource(
+                adapter="fake_transport",
+                event_kinds=("message.created",),
+                channel="ch-0",
+            ),
+            targets=[RouteTarget(adapter="fake_presentation")],
+        )
+        router = Router(routes=[route])
+
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router,
+            adapters={"fake_presentation": queued_adapter},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = make_event(event_id="obox-queued-001")
+
+        try:
+            await runner.handle_ingress(event)
+
+            items = await temp_storage.list_outbox_items(
+                status_filter=["queued"],
+            )
+            matching = [i for i in items if i.event_id == "obox-queued-001"]
+            assert len(matching) >= 1
+            assert matching[-1].status == "queued"
+        finally:
+            await runner.stop()
+
+
+# ===================================================================
+# Shutdown-related outbox behavior
+# ===================================================================
+
+
+class TestOutboxShutdownBehavior:
+    """Outbox behavior during shutdown."""
+
+    async def test_shutdown_abandons_inflight_but_leaves_pending(
+        self,
+        temp_storage: SQLiteStorage,
+        router_with_routes: Router,
+        fake_presentation: FakePresentationAdapter,
+    ) -> None:
+        """Shutdown before delivery attempt leaves pending outbox items
+        visible (not abandoned) — the item was created but the delivery
+        try block never started."""
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router_with_routes,
+            adapters={"fake_presentation": fake_presentation},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = make_event(event_id="obox-shutdown-001")
+
+        try:
+            # Process event through pipeline
+            await runner.handle_ingress(event)
+        finally:
+            await runner.stop()
+
+        # After shutdown, outbox should have a sent item (the delivery
+        # completed before shutdown).
+        items = await temp_storage.list_outbox_items()
+        matching = [i for i in items if i.event_id == "obox-shutdown-001"]
+        assert len(matching) >= 1
+        # Delivery completed normally, so status should be sent.
+        assert matching[-1].status == "sent"

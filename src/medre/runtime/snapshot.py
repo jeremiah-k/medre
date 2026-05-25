@@ -680,6 +680,14 @@ def build_runtime_snapshot(
 
     has_live_health: bool = live_health_snapshot is not None
 
+    # -- Outbox state ---------------------------------------------------------
+    outbox_state_obj: Any = getattr(app, "outbox_state", None)
+    outbox_counts: dict[str, int] | None
+    if outbox_state_obj is not None and isinstance(outbox_state_obj, dict):
+        outbox_counts = dict(outbox_state_obj)
+    else:
+        outbox_counts = None
+
     # -- Runtime accounting counters -----------------------------------------
     accounting_obj: Any = getattr(app, "_runtime_accounting", None)
     accounting_snapshot: dict[str, int] | None
@@ -857,6 +865,11 @@ def build_runtime_snapshot(
         "identity": {},
         "lifecycle": lifecycle,
         "limits": limits_snapshot,
+        "outbox": {
+            "counts": outbox_counts,
+            "live_refresh": False,
+            "scope": "process_local",
+        },
         "persistence": {},
         "replay": {
             "available": replay_available,

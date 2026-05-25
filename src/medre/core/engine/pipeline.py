@@ -63,7 +63,7 @@ from medre.core.rendering.text import TextRenderer
 from medre.core.routing.models import Route, RouteTarget
 from medre.core.routing.router import Router
 from medre.core.routing.stats import RouteStats
-from medre.core.storage.backend import StorageBackend
+from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
 from medre.core.supervision.accounting import RuntimeAccounting
 
 if TYPE_CHECKING:
@@ -179,6 +179,8 @@ class InflightDelivery:
         When ``source="replay"``, the replay run identifier.
     acquired_at:
         Monotonic timestamp when the delivery slot was acquired.
+    outbox_id:
+        ID of the outbox item tracking this delivery, if created.
     """
 
     event_id: str
@@ -189,6 +191,7 @@ class InflightDelivery:
     source: str
     replay_run_id: str | None
     acquired_at: float
+    outbox_id: str | None = None
 
 
 class _AdapterDeliveryError(Exception):
@@ -1535,6 +1538,39 @@ class PipelineRunner:
                         duration_ms=elapsed,
                     )
 
+            # ── Phase 3.5: Outbox creation ─────────────────────────
+
+            # Create a durable outbox item tracking this delivery attempt.
+            # The outbox is created AFTER route/policy/loop/capacity acceptance
+            # and BEFORE the adapter delivery attempt, so that pending work
+            # survives a crash between this point and the receipt commit.
+            _outbox_id: str | None = None
+            _outbox_created: bool = False
+            try:
+                # Fresh delivery via _deliver_one is always attempt 1.
+                outbox_item = DeliveryOutboxItem(
+                    outbox_id=f"obox-{uuid.uuid4()}",
+                    event_id=event.event_id,
+                    route_id=route.id,
+                    delivery_plan_id=route_plan.plan_id,
+                    target_adapter=adapter_id,
+                    target_channel=target.channel,
+                    attempt_number=1,
+                    status="pending",
+                )
+                created = await self._config.storage.create_outbox_item(outbox_item)
+                _outbox_id = created.outbox_id
+                _outbox_created = True
+            except Exception:
+                self._log.exception(
+                    "Failed to create outbox item for event_id=%s adapter=%s",
+                    event.event_id,
+                    adapter_id,
+                )
+                # Non-fatal: pipeline continues without outbox tracking.
+                # The delivery still produces a receipt as before.
+                pass
+
             # ── Phase 4: Inflight tracking + delivery ────────────────
 
             # Compute tracking key outside try to satisfy static analysis.
@@ -1553,7 +1589,13 @@ class PipelineRunner:
                         source=source,
                         replay_run_id=replay_run_id,
                         acquired_at=t0,
+                        outbox_id=_outbox_id,
                     )
+
+                # Track outcome for outbox update after inner try/except.
+                _outcome_receipt: DeliveryReceipt | None = None
+                _outcome_failure_kind_val: DeliveryFailureKind | None = None
+                _outcome_error: str | None = None
 
                 try:
                     # Accounting: outbound delivery attempt.
@@ -1566,6 +1608,7 @@ class PipelineRunner:
                         source=source,
                         replay_run_id=replay_run_id,
                     )
+                    _outcome_receipt = receipt
                     elapsed = (time.monotonic() - t0) * 1000.0
                     if self._route_stats is not None:
                         self._route_stats.record_delivered(route.id)
@@ -1592,6 +1635,7 @@ class PipelineRunner:
                     )
                 except _AdapterDeliveryError as exc:
                     elapsed = (time.monotonic() - t0) * 1000.0
+                    _outcome_error = exc.error
                     self._diagnostician.record_adapter_failure(
                         event.event_id, adapter_id, exc.error
                     )
@@ -1611,6 +1655,7 @@ class PipelineRunner:
                         )
                     else:
                         failure_kind = DeliveryFailureKind.ADAPTER_TRANSIENT
+                    _outcome_failure_kind_val = failure_kind
                     outcome_status: Literal[
                         "transient_failure", "permanent_failure"
                     ] = (
@@ -1632,6 +1677,8 @@ class PipelineRunner:
                     )
                 except _RendererDeliveryError as exc:
                     elapsed = (time.monotonic() - t0) * 1000.0
+                    _outcome_error = exc.error
+                    _outcome_failure_kind_val = DeliveryFailureKind.RENDERER_FAILURE
                     if self._route_stats is not None:
                         self._route_stats.record_failed(route.id, exc.error)
                     if self._runtime_accounting is not None:
@@ -1654,11 +1701,13 @@ class PipelineRunner:
                     raise
                 except Exception as exc:
                     elapsed = (time.monotonic() - t0) * 1000.0
+                    _outcome_error = f"{type(exc).__name__}: {exc}"
                     exc_type = type(exc)
                     failure_kind = RetryExecutor.classify_failure(
                         exc,
                         adapter_registered=(adapter_id in self._config.adapters),
                     )
+                    _outcome_failure_kind_val = failure_kind
                     status = (
                         "transient_failure"
                         if failure_kind.is_retryable
@@ -1685,6 +1734,53 @@ class PipelineRunner:
                         duration_ms=elapsed,
                     )
             finally:
+                # Update outbox based on delivery outcome.
+                if _outbox_id is not None and _outbox_created:
+                    try:
+                        if _outcome_receipt is not None:
+                            _r_status = _outcome_receipt.status
+                            if _r_status == "queued":
+                                await self._config.storage.mark_outbox_queued(
+                                    _outbox_id,
+                                    receipt_id=_outcome_receipt.receipt_id,
+                                )
+                            else:
+                                await self._config.storage.mark_outbox_sent(
+                                    _outbox_id,
+                                    receipt_id=_outcome_receipt.receipt_id,
+                                    attempt_number=_outcome_receipt.attempt_number,
+                                )
+                        elif _outcome_failure_kind_val is not None:
+                            if _outcome_failure_kind_val.is_retryable:
+                                # Compute next attempt time for retry.
+                                import datetime as _dt_mod
+
+                                _retry_interval = _dt_mod.timedelta(seconds=60)
+                                _next_at = (
+                                    datetime.now(timezone.utc) + _retry_interval
+                                ).isoformat()
+                                await self._config.storage.mark_outbox_retry_wait(
+                                    _outbox_id,
+                                    next_attempt_at=_next_at,
+                                    failure_kind=_outcome_failure_kind_val.value,
+                                    error_summary=(
+                                        _outcome_error[:512] if _outcome_error else None
+                                    ),
+                                )
+                            else:
+                                await self._config.storage.mark_outbox_dead_lettered(
+                                    _outbox_id,
+                                    failure_kind=_outcome_failure_kind_val.value,
+                                    error_summary=(
+                                        _outcome_error[:512] if _outcome_error else None
+                                    ),
+                                )
+                    except Exception:
+                        self._log.exception(
+                            "Failed to update outbox %s after delivery",
+                            _outbox_id,
+                        )
+
                 # Untrack in-flight delivery identity.
                 if self._capacity_controller is not None:
                     self._inflight_deliveries.pop(_inflight_key, None)

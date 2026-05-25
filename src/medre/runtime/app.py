@@ -194,6 +194,7 @@ class MedreApp:
     _adapter_states: dict[str, AdapterState] = field(default_factory=dict, init=False)
     _live_health_state: LiveHealthSnapshot | None = field(default=None, init=False)
     _live_health_poll_count: int = field(default=0, init=False)
+    _outbox_state: dict[str, int] = field(default_factory=dict, init=False)
 
     # -- Post-init --------------------------------------------------------------
 
@@ -240,6 +241,18 @@ class MedreApp:
         if self._retry_worker is not None:
             return self._retry_worker.state
         return RetryWorkerState()
+
+    @property
+    def outbox_state(self) -> dict[str, int]:
+        """Return the last-known outbox status counts.
+
+        Refreshed after each retry worker cycle.  Returns an empty dict
+        when no outbox items exist or the retry worker has not completed
+        a cycle yet.
+        """
+        if self._retry_worker is not None and self._retry_worker._outbox_counts:
+            return dict(self._retry_worker._outbox_counts)
+        return dict(self._outbox_state)
 
     @property
     def adapter_states(self) -> dict[str, AdapterState]:
