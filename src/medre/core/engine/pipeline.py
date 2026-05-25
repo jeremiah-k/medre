@@ -1620,8 +1620,8 @@ class PipelineRunner:
             # ── Phase 3.75: Lease renewal background task ────────────
 
             # Start a background task that periodically renews the outbox
-            # lease during long adapter deliveries (e.g. Meshtastic can
-            # take minutes).  The renewal task is cancelled in the finally
+            # lease during long adapter deliveries (e.g. radio-based
+            # transports).  The renewal task is cancelled in the finally
             # block after the delivery attempt completes.
             _renewal_task: asyncio.Task | None = None
             _renewal_interval = 30  # seconds between renewals
