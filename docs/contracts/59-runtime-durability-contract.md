@@ -189,7 +189,7 @@ Outbox items with status `retry_wait` and `next_attempt_at` set survive process 
 
 **Retry snapshot counters reflect the current process run, not cumulative history.** After restart, all retry counters reset to zero even though durable retry state (outbox items) persists in SQLite. Operators must query `delivery_outbox` directly for current retry state.
 
-**Capacity rejection does not advance the outbox item.** If the RetryWorker cannot acquire the delivery semaphore when processing a due outbox item, it emits a `retry_failed` runtime event, releases the claim on the outbox item (restoring `retry_wait` or `pending` status), and the item will be reclaimed on the next worker cycle. No new `DeliveryReceipt` row is created for capacity rejection. Capacity rejection is backpressure, not a delivery failure — it does not advance `attempt_number` and does not count toward `RetryPolicy` exhaustion.
+**Capacity rejection does not advance the outbox item.** If the RetryWorker cannot acquire the delivery semaphore when processing a due outbox item, it emits a `retry_failed` runtime event, transitions the outbox item to `retry_wait` with a computed backoff and `failure_kind="capacity_rejection"`, and the item will be reclaimed on the next worker cycle. No new `DeliveryReceipt` row is created for capacity rejection. Capacity rejection is backpressure, not a delivery failure — it does not advance `attempt_number` and does not count toward `RetryPolicy` exhaustion.
 
 ## 4.5 Meshtastic Queue Durability
 

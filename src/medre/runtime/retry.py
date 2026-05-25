@@ -94,11 +94,18 @@ class RetryWorker:
         self._shutdown_event = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
         self._outbox_counts: dict[str, int] = {}
+        self._cycle_completed: bool = False
         self.state = RetryWorkerState(enabled=enabled)
 
     @property
-    def outbox_counts(self) -> dict[str, int]:
-        """Return a copy of the last-known outbox status counts."""
+    def outbox_counts(self) -> dict[str, int] | None:
+        """Return a copy of the last-known outbox status counts.
+
+        Returns ``None`` if the worker has not yet completed its first
+        cycle, so callers can distinguish "no data yet" from "zero items".
+        """
+        if not self._cycle_completed:
+            return None
         return dict(self._outbox_counts)
 
     def _emit(self, event_type: str, detail: dict[str, Any]) -> None:
@@ -191,6 +198,7 @@ class RetryWorker:
             # Refresh counts on idle cycles too.
             try:
                 self._outbox_counts = await self._storage.count_outbox_by_status()
+                self._cycle_completed = True
             except Exception:
                 _logger.debug("RetryWorker: failed to refresh outbox counts")
             return
@@ -211,6 +219,7 @@ class RetryWorker:
         # Refresh outbox counts after processing a batch.
         try:
             self._outbox_counts = await self._storage.count_outbox_by_status()
+            self._cycle_completed = True
         except Exception:
             _logger.debug("RetryWorker: failed to refresh outbox counts")
 

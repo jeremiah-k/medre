@@ -1848,7 +1848,8 @@ class SQLiteStorage:
             # failure_kind_detail which is not caller-specified for
             # these terminal transitions.  Keep failure_kind and
             # error_summary as callers pass meaningful values.
-            sets.append("failure_kind_detail = NULL")
+            if failure_kind_detail is None:
+                sets.append("failure_kind_detail = NULL")
         if new_status in ("in_progress", "queued", "sent", "retry_wait"):
             sets.append("last_attempt_at = ?")
             params.append(now)

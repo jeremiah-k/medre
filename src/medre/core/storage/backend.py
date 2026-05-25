@@ -116,7 +116,7 @@ class DeliveryOutboxItem:
 
     Outbox statuses are:
     * ``pending`` — work exists but has not started.
-    * ``in_progress`` / ``leased`` — claimed by a worker for processing.
+    * ``in_progress`` — claimed by a worker for processing.
     * ``queued`` — handed to adapter-local queue (e.g. Meshtastic).
     * ``sent`` — local SDK/client send returned success (terminal).
     * ``retry_wait`` — transient failure, awaiting next attempt.
@@ -210,7 +210,12 @@ class DeliveryOutboxItem:
 
     @property
     def is_claimable(self) -> bool:
-        """Return ``True`` if this item can be claimed for processing."""
+        """Return ``True`` if this item is in a directly-claimable status.
+
+        Note: expired ``in_progress`` items are also claimable via
+        ``claim_due_outbox_items`` (which reclaims items whose lease has
+        expired), but this property does not reflect that.
+        """
         return self.status in {"pending", "retry_wait"}
 
 
