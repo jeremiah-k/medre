@@ -284,7 +284,9 @@ class TestNoRetryPolicyDeadLetters:
         from medre.core.contracts.adapter import AdapterDeliveryResult
 
         class TransientFailAdapter(FakePresentationAdapter):
-            async def deliver(self, payload: RenderingResult) -> AdapterDeliveryResult:
+            async def deliver(
+                self, result: RenderingResult
+            ) -> AdapterDeliveryResult | None:
                 raise ConnectionError("transient failure for no-retry-policy test")
 
         adapter = TransientFailAdapter(adapter_id="transient_fail")
@@ -336,8 +338,10 @@ class TestNoRetryPolicyDeadLetters:
         class QueuedFakeAdapter(FakePresentationAdapter):
             """Adapter that returns delivery_status='enqueued'."""
 
-            async def deliver(self, payload: RenderingResult) -> AdapterDeliveryResult:
-                self.delivered_payloads.append(payload)
+            async def deliver(
+                self, result: RenderingResult
+            ) -> AdapterDeliveryResult | None:
+                self.delivered_payloads.append(result)
                 return AdapterDeliveryResult(
                     native_message_id=None,
                     delivery_status="enqueued",
@@ -404,12 +408,14 @@ class TestLiveDeliveryClaimRace:
                 super().__init__(adapter_id="fake_presentation")
                 self.release = asyncio.Event()
 
-            async def deliver(self, payload: RenderingResult) -> AdapterDeliveryResult:
-                self.delivered_payloads.append(payload)
+            async def deliver(
+                self, result: RenderingResult
+            ) -> AdapterDeliveryResult | None:
+                self.delivered_payloads.append(result)
                 await self.release.wait()
                 return AdapterDeliveryResult(
-                    native_message_id=f"msg-{payload.event_id}",
-                    native_channel_id=payload.target_channel,
+                    native_message_id=f"msg-{result.event_id}",
+                    native_channel_id=result.target_channel,
                 )
 
         blocking_adapter = BlockingAdapter()
@@ -650,13 +656,15 @@ class TestLeaseRenewal:
                 super().__init__(adapter_id="fake_presentation")
                 self._deliver_event = asyncio.Event()
 
-            async def deliver(self, payload: RenderingResult) -> AdapterDeliveryResult:
-                self.delivered_payloads.append(payload)
+            async def deliver(
+                self, result: RenderingResult
+            ) -> AdapterDeliveryResult | None:
+                self.delivered_payloads.append(result)
                 # Simulate a slow send — wait for the signal.
                 await asyncio.sleep(0.1)
                 return AdapterDeliveryResult(
-                    native_message_id=f"slow-{payload.event_id}",
-                    native_channel_id=payload.target_channel,
+                    native_message_id=f"slow-{result.event_id}",
+                    native_channel_id=result.target_channel,
                 )
 
         slow_adapter = SlowAdapter()
@@ -955,12 +963,14 @@ class TestLeaseRenewalResilience:
                 super().__init__(adapter_id="fake_presentation")
                 self._release = asyncio.Event()
 
-            async def deliver(self, payload: RenderingResult) -> AdapterDeliveryResult:
-                self.delivered_payloads.append(payload)
+            async def deliver(
+                self, result: RenderingResult
+            ) -> AdapterDeliveryResult | None:
+                self.delivered_payloads.append(result)
                 await self._release.wait()
                 return AdapterDeliveryResult(
-                    native_message_id=f"msg-{payload.event_id}",
-                    native_channel_id=payload.target_channel,
+                    native_message_id=f"msg-{result.event_id}",
+                    native_channel_id=result.target_channel,
                 )
 
         blocking_adapter = BlockingAdapter()
@@ -1108,12 +1118,14 @@ class TestLeaseRenewalResilience:
             def __init__(self) -> None:
                 super().__init__(adapter_id="fake_presentation")
 
-            async def deliver(self, payload: RenderingResult) -> AdapterDeliveryResult:
-                self.delivered_payloads.append(payload)
+            async def deliver(
+                self, result: RenderingResult
+            ) -> AdapterDeliveryResult | None:
+                self.delivered_payloads.append(result)
                 await asyncio.sleep(0.15)
                 return AdapterDeliveryResult(
-                    native_message_id=f"msg-{payload.event_id}",
-                    native_channel_id=payload.target_channel,
+                    native_message_id=f"msg-{result.event_id}",
+                    native_channel_id=result.target_channel,
                 )
 
         slow_adapter = SlowAdapter()

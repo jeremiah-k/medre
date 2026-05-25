@@ -1303,6 +1303,9 @@ class TestCreateOutboxNoSteal:
         assert created2.outbox_id == oid
         assert created2.status == "in_progress"
         assert created2.worker_id == "pipeline:reclaim"
+        assert created2.next_attempt_at is None, (
+            "Reclaiming a retry_wait row must clear next_attempt_at"
+        )
 
 
 # ===================================================================

@@ -19,6 +19,7 @@ import pytest
 from medre.config.routes import BridgePolicy
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.policies.route_policy import (
+    BLOCKED_VALUE_CUTOFF,
     RouteDecision,
     RoutePolicy,
     evaluate_route_policy,
@@ -372,6 +373,50 @@ class TestAllowedSummary:
         assert "20 total" in decision.allowed_summary
         # Should NOT contain all 20 items verbatim
         assert "item-19" not in decision.allowed_summary
+
+
+# ===================================================================
+# Large blocked_value sanitisation
+# ===================================================================
+
+
+class TestLargeBlockedValueSanitisation:
+    """blocked_value display is sanitised when the value is large or
+    contains special characters."""
+
+    def test_short_blocked_value_shown_in_summary(self) -> None:
+        """Values shorter than the cutoff are displayed escaped."""
+        policy = RoutePolicy(allowed_source_adapters=("ok",))
+        decision = evaluate_route_policy(
+            policy, _event(source_adapter="normal_value"), _target()
+        )
+        assert decision.blocked_value == "normal_value"
+        assert "normal_value" in decision.allowed_summary
+
+    def test_large_blocked_value_masked_in_summary(self) -> None:
+        """Values at or above the cutoff are replaced with '<blocked>' in
+        the allowed_summary but preserved in blocked_value."""
+        long_val = "x" * BLOCKED_VALUE_CUTOFF
+        policy = RoutePolicy(allowed_source_adapters=("ok",))
+        decision = evaluate_route_policy(
+            policy, _event(source_adapter=long_val), _target()
+        )
+        # blocked_value always carries the real value.
+        assert decision.blocked_value == long_val
+        # allowed_summary should mask it.
+        assert "<blocked>" in decision.allowed_summary
+        assert long_val not in decision.allowed_summary
+
+    def test_exactly_cutoff_minus_one_shown(self) -> None:
+        """A value of length (cutoff - 1) is still shown."""
+        val = "y" * (BLOCKED_VALUE_CUTOFF - 1)
+        policy = RoutePolicy(allowed_source_adapters=("ok",))
+        decision = evaluate_route_policy(
+            policy, _event(source_adapter=val), _target()
+        )
+        assert decision.blocked_value == val
+        # Not masked — the escape representation appears in the summary.
+        assert "<blocked>" not in decision.allowed_summary
 
 
 # ===================================================================

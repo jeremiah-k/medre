@@ -1593,11 +1593,14 @@ class SQLiteStorage:
                             # Re-claim: update status, worker, and lease
                             # so the pipeline always gets an in_progress
                             # row with a valid lease for finalization.
+                            # Clear next_attempt_at since the item is no
+                            # longer waiting for a scheduled retry.
                             await db.execute(  # type: ignore[union-attr]
                                 """UPDATE delivery_outbox
                                    SET status = ?, worker_id = ?,
                                        locked_at = ?, lease_until = ?,
-                                       updated_at = ?
+                                       updated_at = ?,
+                                       next_attempt_at = NULL
                                    WHERE outbox_id = ?""",
                                 (
                                     item.status or "pending",
@@ -1708,11 +1711,14 @@ class SQLiteStorage:
                     existing = dict(row)
                     if existing["status"] in reclaimable:
                         # Re-claim: update status, worker, and lease.
+                        # Clear next_attempt_at since the item is no
+                        # longer waiting for a scheduled retry.
                         db.execute(
                             """UPDATE delivery_outbox
                                SET status = ?, worker_id = ?,
                                    locked_at = ?, lease_until = ?,
-                                   updated_at = ?
+                                   updated_at = ?,
+                                   next_attempt_at = NULL
                                WHERE outbox_id = ?""",
                             (
                                 reclaim_status,
@@ -1735,7 +1741,10 @@ class SQLiteStorage:
                 db.execute("COMMIT")
                 return None
             except BaseException:
-                db.execute("ROLLBACK")
+                try:
+                    db.execute("ROLLBACK")
+                except Exception:
+                    pass
                 raise
 
     async def get_outbox_item(self, outbox_id: str) -> DeliveryOutboxItem | None:

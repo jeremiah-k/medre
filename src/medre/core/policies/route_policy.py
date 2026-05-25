@@ -22,6 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 __all__ = [
+    "BLOCKED_VALUE_CUTOFF",
     "RouteDecision",
     "RoutePolicy",
     "evaluate_route_policy",
@@ -119,7 +120,7 @@ def _safe_summary(field_name: str, values: tuple[str, ...]) -> str:
     return f"{field_name}: [{preview}, ... ({len(values)} total)]"
 
 
-_BLOCKED_VALUE_CUTOFF = 256
+BLOCKED_VALUE_CUTOFF = 256
 
 
 def _deny(
@@ -128,7 +129,7 @@ def _deny(
     blocked_value: str,
 ) -> RouteDecision:
     """Build a denial decision."""
-    if len(blocked_value) >= _BLOCKED_VALUE_CUTOFF:
+    if len(blocked_value) >= BLOCKED_VALUE_CUTOFF:
         safe_display = "<blocked>"
     else:
         safe_display = blocked_value.encode("unicode_escape").decode("ascii")

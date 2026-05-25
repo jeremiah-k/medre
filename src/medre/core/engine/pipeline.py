@@ -57,7 +57,7 @@ from medre.core.planning.delivery_plan import (
 )
 from medre.core.planning.fallback_resolution import FallbackResolver
 from medre.core.planning.relation_resolution import RelationResolver
-from medre.core.policies.route_policy import evaluate_route_policy
+from medre.core.policies.route_policy import BLOCKED_VALUE_CUTOFF, evaluate_route_policy
 from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing.models import Route, RouteTarget
@@ -1485,7 +1485,7 @@ class PipelineRunner:
                     # Sanitize blocked_value FIRST: cap at 256 chars to prevent
                     # large externally-sourced IDs from flooding logs/receipts.
                     _blocked_val = decision.blocked_value or ""
-                    if len(_blocked_val) > 256:
+                    if len(_blocked_val) >= BLOCKED_VALUE_CUTOFF:
                         _blocked_val = _blocked_val[:256] + "..."
                     self._log.info(
                         "policy_suppressed: route_id=%s event_id=%s "
@@ -1632,11 +1632,6 @@ class PipelineRunner:
                         acquired_at=t0,
                         outbox_id=_outbox_id,
                     )
-
-                # Track outcome for outbox update after inner try/except.
-                _outcome_receipt: DeliveryReceipt | None = None
-                _outcome_failure_kind_val: DeliveryFailureKind | None = None
-                _outcome_error: str | None = None
 
                 try:
                     # Accounting: outbound delivery attempt.
