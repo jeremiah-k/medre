@@ -86,7 +86,10 @@ _env = live_env_status(_MATRIX_REQUIREMENTS)
 
 pytestmark = [
     pytest.mark.live,
-    pytest.mark.skipif(not _env.ready, reason=_env.skip_reason),
+    pytest.mark.skipif(
+        not _env.enabled,
+        reason=f"Missing: {', '.join(_env.missing)}",
+    ),
 ]
 ```
 
