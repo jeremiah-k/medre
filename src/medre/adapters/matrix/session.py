@@ -1002,7 +1002,6 @@ class MatrixSession:
                             timeout=self._config.sync_timeout_ms,
                             full_state=True,
                         )
-                        self._initial_sync_done = True
                     else:
                         sync_kwargs = dict(
                             timeout=self._config.sync_timeout_ms,
@@ -1012,6 +1011,10 @@ class MatrixSession:
                     # nio returns SyncResponse on success, ErrorResponse
                     # or similar on failure.
                     if hasattr(resp, "next_batch") and resp.next_batch:
+                        # Mark initial sync done only after a
+                        # successful response so a failed first
+                        # attempt is retried with full_state=True.
+                        self._initial_sync_done = True
                         self._last_successful_sync = time.monotonic()
 
                         # A) E2EE key management — mirrors nio

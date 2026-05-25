@@ -282,13 +282,17 @@ def send_encrypted_message_as_test_user(
     body: str,
     txn_id: str,
 ) -> str:
-    """Send a message to the encrypted room as the test user via Synapse HTTP API.
+    """Send a plaintext message to the encrypted room via Synapse HTTP API.
 
-    This is a plain HTTP POST — Synapse handles encryption transparently
-    for the test user (no client-side crypto needed since we're using the
-    server API).  The message will be stored as ``m.room.encrypted`` in
-    Synapse and any E2EE-capable client syncing on the room will receive
-    the encrypted event.
+    Sends an unencrypted ``m.room.message`` via the Matrix CS API.
+    The message arrives at the bot as a plaintext ``RoomMessageText``
+    (Synapse does **not** encrypt client-submitted messages server-side,
+    so this does NOT exercise the Megolm decryption path).
+
+    Use this helper to verify the adapter receives messages in an
+    encrypted room and that crypto infrastructure initialises correctly.
+    For genuine Megolm decryption validation, send from a second
+    E2EE-capable nio client.
 
     Returns the Matrix event_id assigned by Synapse.
     """
