@@ -634,7 +634,7 @@ Source-audit verification of Matrix relation alignment on branch `t3-matrix-mind
 - **Reaction relations** use `content["m.relates_to"]` with `rel_type="m.annotation"`, `event_id`, and `key` for both inbound extraction and outbound rendering. This is Matrix-native format.
 - **All relation content** lives in the standard `m.relates_to` subtree. No custom fields are used for Matrix-native relation extraction or rendering.
 - **Transaction-ID hardening.** Deterministic `txn_id` computed per delivery, reused across retries. Enables homeserver deduplication within the Matrix txn-ID window.
-- **Rate-limit classification.** M_LIMIT_EXCEEDED / HTTP 429 responses classified as transient with bounded retry. `retry_after_ms` header not yet honored.
+- **Rate-limit classification.** M_LIMIT_EXCEEDED / HTTP 429 responses classified as transient with bounded retry. `retry_after_ms` value extracted and embedded in the transient error message for diagnostic observability; not yet used as a structured backoff hint by the pipeline retry worker.
 - **Undecryptable counting.** MegolmEvent counted, logged (event_id/room_id only), not forwarded to canonical pipeline.
 
 **Known limitation noted during verification:**

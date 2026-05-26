@@ -321,7 +321,7 @@ Tranche 3 (branch `t3-matrix-mindroom-hardening`) adds targeted hardening withou
 
 **Transaction-ID hardening.** Outbound delivery now computes a deterministic `txn_id` from the delivery identity before the retry loop, so all retry attempts reuse the same transaction ID. This enables homeserver-side deduplication of retried sends within the Matrix txn-ID window. Duplicates remain possible across process restarts or changed delivery identity.
 
-**Rate-limit classification hardening.** M_LIMIT_EXCEEDED / HTTP 429 responses from the homeserver are classified as transient errors and retried with bounded backoff. The `retry_after_ms` header is not yet honored.
+**Rate-limit classification hardening.** M_LIMIT_EXCEEDED / HTTP 429 responses from the homeserver are classified as transient errors and retried with bounded backoff. The `retry_after_ms` value is extracted and embedded in the transient error message for diagnostic observability; it is not yet used as a structured backoff hint by the pipeline retry worker.
 
 **E2EE secret sanitization.** Access tokens are never logged or embedded in events. `MatrixConfig.__repr__` redacts the token. No secrets appear in metadata envelopes, diagnostics, or evidence bundles. `undecryptable_event_count` and `last_crypto_error` in diagnostics contain no session IDs or key material.
 
@@ -339,7 +339,7 @@ These are explicitly out of scope for tranche 1:
 - Attachments, files, images, media (`m.file`, `m.image`, `m.audio`, `m.video`)
 - Matrix edits (`m.replace`)
 - Matrix deletes and redactions (`m.redaction`)
-- Matrix reactions (`m.annotation`). Reaction delivery and decoding are deferred to a later tranche.
+- ~~Matrix reactions (`m.annotation`). Reaction delivery and decoding are deferred to a later tranche.~~ (Implemented and verified in Tranche 3.)
 - Room membership sync beyond basic join
 - Admin API for Matrix configuration
 - Webhooks or HTTP server

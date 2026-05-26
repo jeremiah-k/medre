@@ -86,8 +86,8 @@ class _NioRateLimitError(Exception):
     Raised inside the retry loop when ``room_send`` returns a response
     with ``M_LIMIT_EXCEEDED`` or HTTP 429.  Caught by an explicit
     handler that converts it to :class:`AdapterSendError(transient=True)`
-    without sleeping, preserving ``retry_after_ms`` for the pipeline's
-    retry worker.  Not exposed outside this module.
+    without sleeping, embedding ``retry_after_ms`` in the error message
+    for diagnostic observability.  Not exposed outside this module.
 
     Attributes
     ----------
