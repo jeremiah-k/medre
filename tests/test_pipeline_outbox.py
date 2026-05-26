@@ -14,6 +14,7 @@ from medre.core.rendering.renderer import RenderingResult
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage import SQLiteStorage
 from medre.core.supervision.capacity import CapacityController
+from tests.helpers.async_utils import wait_until
 from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
 
 # ---------------------------------------------------------------------------
@@ -431,9 +432,11 @@ class TestLiveDeliveryClaimRace:
         try:
             ingress_task = asyncio.create_task(runner.handle_ingress(event))
 
-            # Poll until the outbox item appears as in_progress
+            # Wait until the outbox item reaches in_progress status.
             item = None
-            for _ in range(100):
+
+            async def _find_in_progress():
+                nonlocal item
                 matches = [
                     i
                     for i in await temp_storage.list_outbox_items()
@@ -441,8 +444,10 @@ class TestLiveDeliveryClaimRace:
                 ]
                 if matches and matches[0].status == "in_progress":
                     item = matches[0]
-                    break
-                await asyncio.sleep(0.01)
+                    return True
+                return False
+
+            await wait_until(_find_in_progress, timeout=2.0)
 
             assert item is not None, "Outbox item should reach in_progress"
 
@@ -995,8 +1000,8 @@ class TestLeaseRenewalResilience:
         try:
             ingress_task = asyncio.create_task(runner.handle_ingress(event))
 
-            # Wait long enough for ≥2 renewal cycles to fire (interval is 50ms).
-            await asyncio.sleep(0.25)
+            # Wait for ≥2 renewal cycles to fire (interval is 50ms).
+            await wait_until(lambda: call_count >= 2, timeout=2.0)
 
             # Release the adapter so delivery can complete.
             blocking_adapter._release.set()

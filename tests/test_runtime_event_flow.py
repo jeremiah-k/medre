@@ -40,6 +40,7 @@ from medre.core.observability.metrics import Diagnostician
 from medre.core.rendering.renderer import RenderingResult
 from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.runtime.builder import RuntimeBuilder
+from tests.helpers.async_utils import wait_until
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -287,8 +288,8 @@ class TestOutboundDeliveryReachesCorrectAdapter:
             )
             await alpha.simulate_inbound(event)
 
-            # Give pipeline time to process
-            await asyncio.sleep(0.1)
+            # Wait for pipeline delivery to complete.
+            await wait_until(lambda: len(beta.delivered_payloads) >= 1, timeout=2.0)
 
             # Beta should have received the delivery
             assert (
@@ -487,7 +488,9 @@ class TestDiagnosticsSnapshots:
 
             # Simulate inbound to trigger pipeline
             await adapter.simulate_inbound(event)
-            await asyncio.sleep(0.1)
+            # Yield to ensure async delivery tasks complete.
+            # No specific positive condition to poll — diagnostics are always present.
+            await asyncio.sleep(0)
 
             # Check diagnostics snapshot
             snap = app.diagnostician.snapshot()

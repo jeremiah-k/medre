@@ -29,6 +29,7 @@ from medre.config.adapters.lxmf import LxmfConfig
 from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.contracts.adapter import AdapterContext
+from tests.helpers.async_utils import wait_until
 from tests.helpers.bridge import make_meshcore_packet, make_text_packet
 from tests.helpers.matrix import make_matrix_config, make_nio_event, make_nio_room
 
@@ -237,9 +238,9 @@ class TestMeshtasticCallbackIsolation:
             valid = make_text_packet(text="sync recovery", sender="!sync-node")
             adapter._on_packet(valid)
 
-            # Yield to let the coroutine submitted via run_coroutine_threadsafe
-            # execute on the event loop.
-            await asyncio.sleep(0.1)
+            # Wait for the coroutine submitted via run_coroutine_threadsafe
+            # to execute on the event loop.
+            await wait_until(lambda: len(collector.events) >= 1, timeout=2.0)
 
             assert len(collector.events) == 1
             assert collector.events[0].payload.get("body") == "sync recovery"
@@ -816,9 +817,9 @@ class TestAsyncPublishFailureIsolation:
             pkt1 = make_text_packet(text="will fail to publish", sender="!fail-node")
             adapter._on_packet(pkt1)
 
-            # Yield to let the coroutine submitted via run_coroutine_threadsafe
-            # execute on the event loop.
-            await asyncio.sleep(0.1)
+            # Wait for the coroutine submitted via run_coroutine_threadsafe
+            # to execute on the event loop.
+            await wait_until(lambda: call_count >= 1, timeout=2.0)
 
             # Now swap to working context
             adapter.ctx = good_ctx
@@ -826,7 +827,7 @@ class TestAsyncPublishFailureIsolation:
             # Second packet: should succeed
             pkt2 = make_text_packet(text="will succeed", sender="!ok-node")
             adapter._on_packet(pkt2)
-            await asyncio.sleep(0.1)
+            await wait_until(lambda: len(collector.events) >= 1, timeout=2.0)
 
             assert len(collector.events) == 1
             assert collector.events[0].payload.get("body") == "will succeed"
