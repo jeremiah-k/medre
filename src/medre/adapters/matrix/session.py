@@ -18,6 +18,7 @@ events are counted and logged but not forwarded.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import importlib
 import logging
 import os
@@ -522,6 +523,20 @@ class MatrixSession:
             self._crypto_store_loaded = False
         else:
             self._crypto_store_loaded = True
+
+        # Fail-closed: e2ee_required mode must not silently downgrade
+        # when the crypto subsystem is broken.  For e2ee_optional the
+        # caller (_start_e2ee_optional) catches exceptions and falls
+        # back to plaintext.
+        if not self._crypto_enabled and self._config.encryption_mode == "e2ee_required":
+            if self._client:
+                try:
+                    await self._client.close()
+                except Exception:
+                    pass
+                self._client = None
+            raise MatrixConnectionError("E2EE required but olm/store failed to load")
+
         await self._finalize_start()
 
     async def _start_e2ee_optional(self) -> None:
@@ -842,6 +857,12 @@ class MatrixSession:
         # Live undecryptable dedup (60-second window per room:session_id).
         session_id = getattr(event, "session_id", "?")
         key = f"{room_id}:{session_id}"
+        # Hashed session_id for logging — never log raw Megolm session IDs.
+        session_id_tag = (
+            hashlib.sha256(session_id.encode()).hexdigest()[:8]
+            if session_id != "?"
+            else "unknown"
+        )
         now = time.monotonic()
         self._prune_undecryptable_dedup(now)
         prev = self._undecryptable_dedup.get(key)
@@ -849,10 +870,10 @@ class MatrixSession:
             self._suppressed_rate_limited_undecryptable += 1
             self._logger.debug(
                 "Rate-limited undecryptable MegolmEvent %s in room %s "
-                "(dedup key %s, %.1fs since last)",
+                "(dedup %s:%s, %.1fs since last)",
                 event_id,
                 room_id,
-                key,
+                session_id_tag,
                 now - prev,
             )
             return
@@ -876,7 +897,7 @@ class MatrixSession:
                     await self._client.to_device(key_request)
                     self._logger.debug(
                         "Requested missing room key for session %s in %s",
-                        session_id,
+                        session_id_tag,
                         room_id,
                     )
             except Exception:

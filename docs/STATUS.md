@@ -1,6 +1,6 @@
 # MEDRE Transport Capability Status
 
-> **Generated:** 2026-05-25 (Tranche 6 truth-surface update; no live tests executed this session)
+> **Generated:** 2026-05-25 (Tranche 6 truth-surface update; Docker Synapse E2EE 3/3 passed this session)
 >
 > **Baseline:** HEAD 41a07c7, Python 3.12.3, medre 0.1.0
 >
@@ -14,27 +14,27 @@ This document is the single source of truth for per-transport capability trackin
 
 ## Capability Matrix
 
-| Capability                          | Matrix         | Meshtastic              | MeshCore    | LXMF        |
-| ----------------------------------- | -------------- | ----------------------- | ----------- | ----------- |
-| Config load                         | live-validated | fake-tested             | fake-tested | fake-tested |
-| Instance-scoped env overrides       | live-validated | fake-tested             | fake-tested | fake-tested |
-| Env-first adapter creation          | fake-tested    | fake-tested             | fake-tested | fake-tested |
-| Env-driven route creation           | fake-tested    | fake-tested             | fake-tested | fake-tested |
-| Route policy enforcement            | fake-tested    | fake-tested             | fake-tested | fake-tested |
-| Fake lifecycle                      | live-validated | fake-tested             | fake-tested | fake-tested |
-| Real adapter import safe            | live-validated | opt-in live test exists | designed    | designed    |
-| Live start/health                   | live-validated | opt-in live test exists | not started | not started |
-| Outbound delivery                   | live-validated | opt-in live test exists | not started | not started |
-| Inbound decode                      | live-validated | opt-in live test exists | not started | not started |
-| Storage native refs                 | live-validated | fake-tested             | fake-tested | fake-tested |
-| Evidence bundle                     | live-validated | fake-tested             | fake-tested | fake-tested |
-| Delivery reliability                | fake-tested    | fake-tested             | designed    | designed    |
-| Delivery evidence (unified inspect) | fake-tested    | fake-tested             | not started | not started |
-| Run-session path                    | live-validated | not started             | not started | not started |
-| Operator runbook                    | live-validated | opt-in live test exists | designed    | designed    |
-| Live validation recorded            | live-validated | not started             | not started | not started |
-| Local delivery outbox               | fake-tested    | fake-tested             | fake-tested | fake-tested |
-| Matrix live adapter (local Synapse) | live-validated (Docker SDK-boundary) |             |             |             |
+| Capability                          | Matrix                               | Meshtastic              | MeshCore    | LXMF        |
+| ----------------------------------- | ------------------------------------ | ----------------------- | ----------- | ----------- |
+| Config load                         | live-validated                       | fake-tested             | fake-tested | fake-tested |
+| Instance-scoped env overrides       | live-validated                       | fake-tested             | fake-tested | fake-tested |
+| Env-first adapter creation          | fake-tested                          | fake-tested             | fake-tested | fake-tested |
+| Env-driven route creation           | fake-tested                          | fake-tested             | fake-tested | fake-tested |
+| Route policy enforcement            | fake-tested                          | fake-tested             | fake-tested | fake-tested |
+| Fake lifecycle                      | live-validated                       | fake-tested             | fake-tested | fake-tested |
+| Real adapter import safe            | live-validated                       | opt-in live test exists | designed    | designed    |
+| Live start/health                   | live-validated                       | opt-in live test exists | not started | not started |
+| Outbound delivery                   | live-validated                       | opt-in live test exists | not started | not started |
+| Inbound decode                      | live-validated                       | opt-in live test exists | not started | not started |
+| Storage native refs                 | live-validated                       | fake-tested             | fake-tested | fake-tested |
+| Evidence bundle                     | live-validated                       | fake-tested             | fake-tested | fake-tested |
+| Delivery reliability                | fake-tested                          | fake-tested             | designed    | designed    |
+| Delivery evidence (unified inspect) | fake-tested                          | fake-tested             | not started | not started |
+| Run-session path                    | live-validated                       | not started             | not started | not started |
+| Operator runbook                    | live-validated                       | opt-in live test exists | designed    | designed    |
+| Live validation recorded            | live-validated                       | not started             | not started | not started |
+| Local delivery outbox               | fake-tested                          | fake-tested             | fake-tested | fake-tested |
+| Matrix live adapter (local Synapse) | live-validated (Docker SDK-boundary) |                         |             |             |
 
 ## Interpretation
 
@@ -53,7 +53,7 @@ These statuses mean specific things. Do not read between the lines.
 
 ### Matrix
 
-Matrix is the most mature transport. Live validation was recorded on 2026-05-10 (13 plaintext tests passed, 7 E2EE tests passed) and again on 2026-05-22 (15 live tests passed, 1 xfailed against local Docker Synapse — Docker SDK-boundary evidence). See `docs/runbooks/matrix-alpha-operation.md` section "Live Validation Evidence" and `docs/runbooks/matrix-local-bringup.md` section "Live Validation Evidence" for details. Docker SDK-boundary evidence validates SDK integration and adapter wiring; it does not validate external network behavior. External live re-run (2026-05-12) failed on credential issues, not code issues.
+Matrix is the most mature transport. Live validation was recorded on 2026-05-10 (13 plaintext tests passed, 7 E2EE tests passed) and again on 2026-05-22 (15 live tests passed, 1 xfailed against local Docker Synapse — Docker SDK-boundary evidence). Docker Synapse E2EE harness executed 2026-05-25: 3/3 passed (`MEDRE_SYNAPSE_PORT=8009 pytest tests/integration/test_synapse_e2ee_smoke.py -m docker -v`, Python 3.12.3, nio E2EE ENCRYPTION_ENABLED=True, Synapse v1.153.0, Docker loopback). Third-party inbound confirmed at Docker SDK-boundary via second nio client (external-live not confirmed). See `docs/runbooks/matrix-alpha-operation.md` section "Live Validation Evidence", `docs/runbooks/matrix-local-bringup.md` section "Live Validation Evidence", and `docs/runbooks/operational-evidence.md` §1.1c for details. Docker SDK-boundary evidence validates SDK integration and adapter wiring; it does not validate external network behavior, federation, or real-world rate limits. External live re-run (2026-05-12) failed on credential issues, not code issues.
 
 The Matrix adapter supports plaintext and E2EE text alpha. E2EE supports encrypted rooms for text messages only. See the alpha operation runbook for the full unsupported features list.
 

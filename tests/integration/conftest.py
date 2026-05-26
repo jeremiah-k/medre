@@ -828,7 +828,9 @@ class E2EETestEnvironment:
         # Second nio client for genuine client-side encrypted sending.
         # Set by init_test_e2ee_client(); closed by close_test_e2ee_client().
         self.test_e2ee_client: Any = None
-        self._logger = logging.getLogger(f"medre.tests.integration.e2ee.{encrypted_room_id}")
+        self._logger = logging.getLogger(
+            f"medre.tests.integration.e2ee.{encrypted_room_id}"
+        )
 
     # Convenience proxies for commonly accessed fields.
     @property
@@ -881,9 +883,9 @@ class E2EETestEnvironment:
 
         import nio
 
-        assert self.test_device_id is not None, (
-            "test_device_id must be captured from login response for E2EE"
-        )
+        assert (
+            self.test_device_id is not None
+        ), "test_device_id must be captured from login response for E2EE"
 
         client_config = nio.AsyncClientConfig(encryption_enabled=True)
 

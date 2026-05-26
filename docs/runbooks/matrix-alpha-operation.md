@@ -3,7 +3,7 @@
 > Last updated: 2026-05-25 (Tranche 6 truth-surface update)
 > Scope: Real Matrix Operation Alpha (Track 7)
 > Status: Alpha. Not production. Not hardened. Not complete. Plaintext is the primary alpha path. E2EE text alpha is available as an add-on for encrypted rooms (see section 15).
-> Tranche 6 session (2026-05-25): Did NOT execute live Matrix tests. No `MATRIX_*` env vars were provided. This update adds dependency/version capture commands and clarifies evidence boundaries. Baseline: HEAD 41a07c7, Python 3.12.3, medre 0.1.0.
+> Tranche 6 session (2026-05-25): Docker Synapse E2EE harness executed 3/3 on 2026-05-25. No external-live tests executed (no `MATRIX_*` env vars for external homeserver). This update adds dependency/version capture commands and clarifies evidence boundaries. Baseline: HEAD 41a07c7, Python 3.12.3, medre 0.1.0.
 
 This runbook describes how to run MEDRE against a real Matrix homeserver in alpha mode. Alpha mode means the MatrixAdapter connects to a real homeserver using real credentials, syncs real rooms, sends real messages, and receives real events. It does not mean the system is ready for anything beyond a single operator on a local or test homeserver.
 
@@ -626,9 +626,7 @@ docker run -d --name medre-matrix \
 
 ### Tranche 6 Status (2026-05-25)
 
-**Tranche 6 did NOT execute live Matrix tests.** No `MATRIX_*` environment variables
-were provided in this session. No Docker Synapse was started. No external homeserver
-credentials were available. The live test sections below remain as previously recorded.
+**Docker Synapse E2EE harness executed 3/3 on 2026-05-25** (`MEDRE_SYNAPSE_PORT=8009 pytest tests/integration/test_synapse_e2ee_smoke.py -m docker -v`, Python 3.12.3, nio E2EE `ENCRYPTION_ENABLED=True`, Synapse v1.153.0, Docker loopback). Third-party inbound confirmed at Docker SDK-boundary via second nio client. External-live validation was NOT executed — no `MATRIX_*` environment variables for an external homeserver were provided. The external-live credential attempts from 2026-05-12 remain unresolved (see §1.4, §1.4b in`operational-evidence.md`).
 
 ### Dependency / Version Capture
 
@@ -653,12 +651,13 @@ curl -s http://localhost:8008/_matrix/client/versions 2>/dev/null | python3 -m j
 
 ### Evidence Boundaries
 
-| Evidence type                | Date       | Result                   | Boundary                                    |
-| ---------------------------- | ---------- | ------------------------ | ------------------------------------------- |
-| External live (matrix.org)   | 2026-05-10 | 13 passed, 7 E2EE passed | External live (H-tier)                      |
-| Docker SDK-boundary          | 2026-05-22 | 15 passed, 1 xfailed     | Local Docker Synapse (R-tier, SDK-boundary) |
-| External live (sk.community) | 2026-05-12 | NOT EXECUTED             | Credential failure                          |
-| External live (matrix.org)   | 2026-05-12 | NOT EXECUTED             | Credential failure                          |
+| Evidence type                | Date       | Result                   | Boundary                                           |
+| ---------------------------- | ---------- | ------------------------ | -------------------------------------------------- |
+| External live (matrix.org)   | 2026-05-10 | 13 passed, 7 E2EE passed | External live (H-tier)                             |
+| Docker SDK-boundary          | 2026-05-22 | 15 passed, 1 xfailed     | Local Docker Synapse (R-tier, SDK-boundary)        |
+| Docker SDK-boundary E2EE     | 2026-05-25 | 3/3 passed               | Docker Synapse E2EE harness (R-tier, SDK-boundary) |
+| External live (sk.community) | 2026-05-12 | NOT EXECUTED             | Credential failure                                 |
+| External live (matrix.org)   | 2026-05-12 | NOT EXECUTED             | Credential failure                                 |
 
 ### Test Results
 

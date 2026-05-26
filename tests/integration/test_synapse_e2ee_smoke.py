@@ -99,7 +99,7 @@ pytestmark: list[Any] = [
     pytest.mark.docker,
     pytest.mark.skipif(
         not HAS_E2EE,
-        reason="mindroom-nio[e2e] not installed; pip install -e \".[matrix-e2e]\"",
+        reason='mindroom-nio[e2e] not installed; pip install -e ".[matrix-e2e]"',
     ),
 ]
 
@@ -332,22 +332,24 @@ class TestSynapseE2EESmoke:
             runtime_accounting=accounting,
         )
         runner = PipelineRunner(pipeline_config)
-        await runner.start()
-
-        matrix_ctx = _make_adapter_context_for_pipeline(
-            "synapse-e2ee-bot",
-            runner,
-        )
-        await matrix_adapter.start(matrix_ctx)
-
-        fake_ctx = _make_adapter_context_for_pipeline("fake-out-e2ee", runner)
-        await fake_out.start(fake_ctx)
 
         # Track whether we used client-side encryption.
         client_side_encrypted = False
         native_event_id: str | None = None
 
         try:
+            # Start all components inside try for exception-safety.
+            await runner.start()
+
+            matrix_ctx = _make_adapter_context_for_pipeline(
+                "synapse-e2ee-bot",
+                runner,
+            )
+            await matrix_adapter.start(matrix_ctx)
+
+            fake_ctx = _make_adapter_context_for_pipeline("fake-out-e2ee", runner)
+            await fake_out.start(fake_ctx)
+
             # 2. Allow time for the bot's initial sync and key upload.
             #    The bot needs to upload its device keys before the test
             #    client can query them and encrypt for the bot's device.
@@ -359,6 +361,10 @@ class TestSynapseE2EESmoke:
                 if diag.get("initial_sync_completed"):
                     break
                 await asyncio.sleep(0.5)
+            else:
+                logger.warning(
+                    "Initial sync did not complete within 30s; proceeding anyway"
+                )
 
             # 3. Create and initialise the second nio client for the
             #    test user.  This performs restore_login, initial sync,
@@ -539,10 +545,23 @@ class TestSynapseE2EESmoke:
             )
         finally:
             # Clean up the second nio client.
-            await e2ee_env.close_test_e2ee_client()
-            await matrix_adapter.stop()
-            await fake_out.stop()
-            await runner.stop()
+            try:
+                await e2ee_env.close_test_e2ee_client()
+            except Exception:
+                logger.debug("close_test_e2ee_client cleanup error", exc_info=True)
+            # Clean up each component independently so one failure
+            # does not prevent the others from being stopped.
+            for _name, _stop_coro in [
+                ("matrix_adapter", matrix_adapter.stop()),
+                ("fake_out", fake_out.stop()),
+                ("runner", runner.stop()),
+            ]:
+                try:
+                    await _stop_coro
+                except Exception:
+                    logger.debug("%s cleanup error", _name, exc_info=True)
+            # Let pending tasks settle after teardown.
+            await asyncio.sleep(0.1)
 
     async def test_e2ee_diagnostics(
         self,

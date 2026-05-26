@@ -947,3 +947,147 @@ class TestE2EEKeyManagement:
                 assert len(error_records) == 0
             finally:
                 await session.stop()
+
+
+# ===================================================================
+# TestE2EERequiredFailClosed
+# ===================================================================
+
+
+class TestE2EERequiredFailClosed:
+    """e2ee_required mode must fail-closed when olm/store are None."""
+
+    async def test_e2ee_required_olm_none_raises(self, mock_nio) -> None:
+        """e2ee_required + olm is None → startup raises MatrixConnectionError."""
+        import medre.adapters.matrix.compat as compat
+        from medre.adapters.matrix.errors import MatrixConnectionError
+
+        original = compat.HAS_E2EE
+        try:
+            compat.HAS_E2EE = True
+            client = mock_nio.AsyncClient.return_value
+            client.olm = None
+            client.store = MagicMock(name="store")
+
+            config = make_matrix_config(
+                encryption_mode="e2ee_required",
+                store_path="/tmp/store",
+                device_id="DEV",
+            )
+            session = MatrixSession(config)
+            with pytest.raises(MatrixConnectionError, match="olm/store failed"):
+                await session.start()
+
+            # After failure, client should be cleaned up
+            assert session._client is None
+            assert session.crypto_enabled is False
+            assert session.crypto_store_loaded is False
+        finally:
+            compat.HAS_E2EE = original
+
+    async def test_e2ee_required_store_none_raises(self, mock_nio) -> None:
+        """e2ee_required + store is None → startup raises MatrixConnectionError."""
+        import medre.adapters.matrix.compat as compat
+        from medre.adapters.matrix.errors import MatrixConnectionError
+
+        original = compat.HAS_E2EE
+        try:
+            compat.HAS_E2EE = True
+            client = mock_nio.AsyncClient.return_value
+            client.olm = MagicMock(name="olm")
+            client.store = None
+
+            config = make_matrix_config(
+                encryption_mode="e2ee_required",
+                store_path="/tmp/store",
+                device_id="DEV",
+            )
+            session = MatrixSession(config)
+            with pytest.raises(MatrixConnectionError, match="olm/store failed"):
+                await session.start()
+
+            assert session._client is None
+            assert session.crypto_enabled is False
+            assert session.crypto_store_loaded is False
+        finally:
+            compat.HAS_E2EE = original
+
+    async def test_e2ee_optional_olm_none_continues(self, mock_nio) -> None:
+        """e2ee_optional + olm is None → startup continues, crypto_enabled=False."""
+        import medre.adapters.matrix.compat as compat
+
+        original = compat.HAS_E2EE
+        try:
+            compat.HAS_E2EE = True
+            client = mock_nio.AsyncClient.return_value
+            client.olm = None
+            client.store = MagicMock(name="store")
+
+            config = make_matrix_config(
+                encryption_mode="e2ee_optional",
+                store_path="/tmp/store",
+                device_id="DEV",
+            )
+            session = MatrixSession(config)
+            try:
+                await session.start()
+                # Should fall back to plaintext, not raise
+                assert session.crypto_enabled is False
+                assert session.crypto_store_loaded is False
+            finally:
+                await session.stop()
+        finally:
+            compat.HAS_E2EE = original
+
+    async def test_e2ee_optional_store_none_continues(self, mock_nio) -> None:
+        """e2ee_optional + store is None → startup continues, crypto_enabled=False."""
+        import medre.adapters.matrix.compat as compat
+
+        original = compat.HAS_E2EE
+        try:
+            compat.HAS_E2EE = True
+            client = mock_nio.AsyncClient.return_value
+            client.olm = MagicMock(name="olm")
+            client.store = None
+
+            config = make_matrix_config(
+                encryption_mode="e2ee_optional",
+                store_path="/tmp/store",
+                device_id="DEV",
+            )
+            session = MatrixSession(config)
+            try:
+                await session.start()
+                assert session.crypto_enabled is False
+                assert session.crypto_store_loaded is False
+            finally:
+                await session.stop()
+        finally:
+            compat.HAS_E2EE = original
+
+    async def test_e2ee_required_failure_closes_client(self, mock_nio) -> None:
+        """After e2ee_required failure, client.close() was called."""
+        import medre.adapters.matrix.compat as compat
+        from medre.adapters.matrix.errors import MatrixConnectionError
+
+        original = compat.HAS_E2EE
+        try:
+            compat.HAS_E2EE = True
+            client = mock_nio.AsyncClient.return_value
+            client.olm = None
+            client.store = MagicMock(name="store")
+
+            config = make_matrix_config(
+                encryption_mode="e2ee_required",
+                store_path="/tmp/store",
+                device_id="DEV",
+            )
+            session = MatrixSession(config)
+            with pytest.raises(MatrixConnectionError):
+                await session.start()
+
+            # Verify close was called on the nio client
+            client.close.assert_awaited()
+            assert session._client is None
+        finally:
+            compat.HAS_E2EE = original
