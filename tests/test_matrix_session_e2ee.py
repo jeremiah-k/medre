@@ -975,7 +975,7 @@ class TestE2EERequiredFailClosed:
                 device_id="DEV",
             )
             session = MatrixSession(config)
-            with pytest.raises(MatrixConnectionError, match="olm/store failed"):
+            with pytest.raises(MatrixConnectionError, match="Olm subsystem"):
                 await session.start()
 
             # After failure, client should be cleaned up
@@ -1003,7 +1003,7 @@ class TestE2EERequiredFailClosed:
                 device_id="DEV",
             )
             session = MatrixSession(config)
-            with pytest.raises(MatrixConnectionError, match="olm/store failed"):
+            with pytest.raises(MatrixConnectionError, match="crypto store"):
                 await session.start()
 
             assert session._client is None

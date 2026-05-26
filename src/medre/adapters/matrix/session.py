@@ -509,6 +509,7 @@ class MatrixSession:
         # If Olm/store are None despite E2EE deps, the crypto subsystem
         # is broken and we must not claim crypto is operational.
         if self._client.olm is None:
+            olm_missing = True
             self._logger.error(
                 "E2EE: olm is None after restore_login — "
                 "crypto subsystem not initialised"
@@ -516,12 +517,14 @@ class MatrixSession:
             self._crypto_enabled = False
             self._crypto_store_loaded = False
         elif self._client.store is None:
+            olm_missing = False
             self._logger.error(
                 "E2EE: store is None after restore_login — " "crypto store not loaded"
             )
             self._crypto_enabled = False
             self._crypto_store_loaded = False
         else:
+            olm_missing = False
             self._crypto_store_loaded = True
 
         # Fail-closed: e2ee_required mode must not silently downgrade
@@ -535,7 +538,13 @@ class MatrixSession:
                 except Exception:
                     pass
                 self._client = None
-            raise MatrixConnectionError("E2EE required but olm/store failed to load")
+            if olm_missing:
+                raise MatrixConnectionError(
+                    "E2EE required but Olm subsystem failed to initialise"
+                )
+            raise MatrixConnectionError(
+                "E2EE required but crypto store failed to load"
+            )
 
         await self._finalize_start()
 
@@ -870,7 +879,7 @@ class MatrixSession:
             self._suppressed_rate_limited_undecryptable += 1
             self._logger.debug(
                 "Rate-limited undecryptable MegolmEvent %s in room %s "
-                "(dedup %s:%s, %.1fs since last)",
+                "(session=%s, %.1fs since last)",
                 event_id,
                 room_id,
                 session_id_tag,
