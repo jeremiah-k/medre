@@ -808,9 +808,7 @@ class TestMockedSDKBLEStartup:
         assert mock_inst.subscribe.call_count == 3
 
         # Verify exact event types subscribed.
-        subscribed_types = [
-            call.args[0] for call in mock_inst.subscribe.call_args_list
-        ]
+        subscribed_types = [call.args[0] for call in mock_inst.subscribe.call_args_list]
         assert subscribed_types == [
             _MockEventType.CONTACT_MSG_RECV,
             _MockEventType.CHANNEL_MSG_RECV,

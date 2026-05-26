@@ -612,14 +612,14 @@ This section documents honest constraints that operators and developers should e
 
 ### 13.3 Operational Constraints
 
-| Constraint        | Reality                                                                                                                                               |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Process model     | One `RNS.Reticulum` per process (singleton). One delivery identity per `LXMRouter`. Multiple identities require multiple processes.                   |
-| Identity security | 64-byte raw private key file. No encryption. No passphrase. Anyone with the file can impersonate the identity and decrypt all messages.               |
+| Constraint        | Reality                                                                                                                                                                                                                                                                                                                          |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Process model     | One `RNS.Reticulum` per process (singleton). One delivery identity per `LXMRouter`. Multiple identities require multiple processes.                                                                                                                                                                                              |
+| Identity security | 64-byte raw private key file. No encryption. No passphrase. Anyone with the file can impersonate the identity and decrypt all messages.                                                                                                                                                                                          |
 | Threading         | Reticulum and LXMF use daemon threads, not asyncio. MEDRE bridges via `call_soon_threadsafe()`. Callbacks originate on Reticulum/LXMF threads; the session normalises to plain dicts and schedules onto the captured asyncio loop. Source/mock tested, not live Reticulum validated. Potential GIL/contention issues under load. |
-| Storage           | `LXMRouter` requires a writable `storagepath`. Message store grows over time. No automatic cleanup.                                                   |
-| License           | Reticulum uses a custom license that restricts AI training data usage and certain applications. Not OSI-approved. Review for downstream distribution. |
-| Daemon dependency | Reticulum is designed for long-running processes. Short-lived scripts may not establish stable connectivity before exiting.                           |
+| Storage           | `LXMRouter` requires a writable `storagepath`. Message store grows over time. No automatic cleanup.                                                                                                                                                                                                                              |
+| License           | Reticulum uses a custom license that restricts AI training data usage and certain applications. Not OSI-approved. Review for downstream distribution.                                                                                                                                                                            |
+| Daemon dependency | Reticulum is designed for long-running processes. Short-lived scripts may not establish stable connectivity before exiting.                                                                                                                                                                                                      |
 
 ### 13.4 What MEDRE Does NOT Provide
 

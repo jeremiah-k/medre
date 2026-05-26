@@ -465,15 +465,15 @@ BLE supports optional PIN pairing. How this interacts with MeshCore's Ed25519 id
 
 ### 6.1 What Exists
 
-| Component  | File                                     | Status                                                                                                                           |
-| ---------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| Adapter    | `adapters/meshcore/adapter.py`           | Fake mode functional. Real mode raises `MeshCoreConnectionError` for non-fake types without SDK. `deliver()` returns `None` in fake mode. |
+| Component  | File                                     | Status                                                                                                                                                                             |
+| ---------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Adapter    | `adapters/meshcore/adapter.py`           | Fake mode functional. Real mode raises `MeshCoreConnectionError` for non-fake types without SDK. `deliver()` returns `None` in fake mode.                                          |
 | Session    | `adapters/meshcore/session.py`           | Real session code exists: TCP/serial/BLE factory wiring, event subscription, bounded reconnect, error classification. Source-audited and mock-tested only; no hardware validation. |
-| Config     | `medre/config/adapters/meshcore.py`      | Complete. Supports `fake`, `tcp`, `serial`, `ble` connection types. Has `host`, `port`, `serial_port`, `ble_address`, `default_channel` fields. |
-| Codec      | `adapters/meshcore/codec.py`             | Functional. Converts MeshCore-shaped event dicts to `CanonicalEvent`.                                                              |
-| Classifier | `adapters/meshcore/packet_classifier.py` | Functional. Classifies by event type, detects ACKs.                                                                                |
-| Renderer   | `adapters/meshcore/renderer.py`          | Functional. UTF-8 byte-budget truncation, target-aware rendering.                                                                 |
-| Errors     | `adapters/meshcore/errors.py`            | Complete. `MeshCoreConnectionError`, `MeshCoreConfigError`.                                                                      |
+| Config     | `medre/config/adapters/meshcore.py`      | Complete. Supports `fake`, `tcp`, `serial`, `ble` connection types. Has `host`, `port`, `serial_port`, `ble_address`, `default_channel` fields.                                    |
+| Codec      | `adapters/meshcore/codec.py`             | Functional. Converts MeshCore-shaped event dicts to `CanonicalEvent`.                                                                                                              |
+| Classifier | `adapters/meshcore/packet_classifier.py` | Functional. Classifies by event type, detects ACKs.                                                                                                                                |
+| Renderer   | `adapters/meshcore/renderer.py`          | Functional. UTF-8 byte-budget truncation, target-aware rendering.                                                                                                                  |
+| Errors     | `adapters/meshcore/errors.py`            | Complete. `MeshCoreConnectionError`, `MeshCoreConfigError`.                                                                                                                        |
 
 ### 6.2 What Is Missing
 
@@ -508,21 +508,21 @@ Missing config fields that would be needed:
 
 ## 7. Protocol Comparison with Meshtastic
 
-| Aspect                 | Meshtastic                          | MeshCore                                              |
-| ---------------------- | ----------------------------------- | ----------------------------------------------------- |
-| Wire format            | Protobuf `MeshPacket`               | Custom binary (no protobuf)                           |
-| Identity               | NodeNum (int) + fromId (str)        | Ed25519 public key (hex)                              |
-| Addressing             | Broadcast + DM by NodeNum           | Contact-based by pubkey                               |
-| Send return            | `MeshPacket` with incrementing `id` | `Event` with `expected_ack` CRC + `suggested_timeout` |
-| Channel send           | `sendText(channelIndex=...)`        | `send_chan_msg(chan, msg)` returns `OK`/`ERROR`       |
-| ACK                    | `ROUTING_APP` protobuf              | Separate `ACK` event with code attribute              |
-| Reply threading        | `replyId` (int) field               | No native mechanism                                   |
-| Reactions              | `emoji` (int) field                 | No native mechanism                                   |
-| Encryption             | Optional per-packet                 | Always-on E2EE                                        |
-| Callback model         | Sync pubsub (`meshtastic.pub`)      | Async EventDispatcher with queue + attribute filters  |
-| Disconnect method      | N/A (stream-based)                  | `await mc.disconnect()` (NOT `close()`)               |
-| Message fetching       | Push (pubsub fires on receive)      | Pull (`MESSAGES_WAITING` → `get_msg()`)               |
-| SDK maturity           | Fork `mtjk` v2.7.8                  | `meshcore` v2.3.7 (PyPI)                              |
+| Aspect                 | Meshtastic                          | MeshCore                                               |
+| ---------------------- | ----------------------------------- | ------------------------------------------------------ |
+| Wire format            | Protobuf `MeshPacket`               | Custom binary (no protobuf)                            |
+| Identity               | NodeNum (int) + fromId (str)        | Ed25519 public key (hex)                               |
+| Addressing             | Broadcast + DM by NodeNum           | Contact-based by pubkey                                |
+| Send return            | `MeshPacket` with incrementing `id` | `Event` with `expected_ack` CRC + `suggested_timeout`  |
+| Channel send           | `sendText(channelIndex=...)`        | `send_chan_msg(chan, msg)` returns `OK`/`ERROR`        |
+| ACK                    | `ROUTING_APP` protobuf              | Separate `ACK` event with code attribute               |
+| Reply threading        | `replyId` (int) field               | No native mechanism                                    |
+| Reactions              | `emoji` (int) field                 | No native mechanism                                    |
+| Encryption             | Optional per-packet                 | Always-on E2EE                                         |
+| Callback model         | Sync pubsub (`meshtastic.pub`)      | Async EventDispatcher with queue + attribute filters   |
+| Disconnect method      | N/A (stream-based)                  | `await mc.disconnect()` (NOT `close()`)                |
+| Message fetching       | Push (pubsub fires on receive)      | Pull (`MESSAGES_WAITING` → `get_msg()`)                |
+| SDK maturity           | Fork `mtjk` v2.7.8                  | `meshcore` v2.3.7 (PyPI)                               |
 | MEDRE real client code | Exists (`_create_client`), untested | Session code exists (TCP/serial/BLE), mock-tested only |
 
 These protocols are not compatible at the wire level. Bridging would require application-level message translation, not protocol-level relay.
