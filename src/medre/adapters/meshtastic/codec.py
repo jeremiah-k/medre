@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 from medre.adapters.meshtastic.errors import MeshtasticCodecError
 from medre.adapters.meshtastic.packet_classifier import (
@@ -39,12 +39,22 @@ class MeshtasticCodec(AdapterCodec):
         Identifier of the owning adapter (used for ``source_adapter``).
     config:
         The :class:`~medre.config.adapters.meshtastic.MeshtasticConfig`.
+    clock:
+        Optional callable returning the current UTC datetime.  Defaults to
+        ``lambda: datetime.now(timezone.utc)``.  Inject a deterministic
+        clock in tests for reproducible timestamps.
     """
 
-    def __init__(self, adapter_id: str, config: Any) -> None:
+    def __init__(
+        self,
+        adapter_id: str,
+        config: Any,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
         self._adapter_id = adapter_id
         self._config = config
         self._classifier = MeshtasticPacketClassifier(config)
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
 
     def decode(
         self,
@@ -242,7 +252,7 @@ class MeshtasticCodec(AdapterCodec):
             event_id=str(uuid.uuid4()),
             event_kind=event_kind,
             schema_version=1,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=self._clock(),
             source_adapter=self._adapter_id,
             source_transport_id=sender,
             source_channel_id=str(pkt_channel) if pkt_channel is not None else None,

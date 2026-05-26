@@ -39,6 +39,7 @@ from medre.interop.mmrelay import (
     KEY_TEXT,
     PORTNUM_TEXT,
 )
+from tests.helpers.matrix_adapter import wire_mock_session as _wire_mock_session
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -658,7 +659,7 @@ class TestMatrixAdapterEventType:
         mock_client.room_send = AsyncMock(
             return_value=type("Resp", (), {"event_id": "$evt-1"})()
         )
-        adapter._session = mock_client
+        _wire_mock_session(adapter, mock_client)
 
         result = RenderingResult(
             event_id="evt-1",
@@ -682,7 +683,7 @@ class TestMatrixAdapterEventType:
         mock_client.room_send = AsyncMock(
             return_value=type("Resp", (), {"event_id": "$evt-2"})()
         )
-        adapter._session = mock_client
+        _wire_mock_session(adapter, mock_client)
 
         result = RenderingResult(
             event_id="evt-2",

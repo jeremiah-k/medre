@@ -191,14 +191,14 @@ Default backpressure policy for Matrix/LXMF:
 
 Before beta, the recommended default backpressure configuration:
 
-| Transport  | Queue Depth | Policy               | Retry on BP | Rationale                              |
-| ---------- | ----------- | -------------------- | ----------- | -------------------------------------- |
-| Meshtastic | 10          | Drop oldest          | No          | Slow radio, serial writes block        |
-| MeshCore   | 10          | Drop oldest          | No          | Slow radio, no flow control            |
-| Matrix     | 100         | Block (5s timeout)\* | No          | Fast async SDK, rate-limited by server |
-| LXMF       | 50          | Fail                 | No          | Fire-and-forget, fast                  |
+| Transport  | Queue Depth | Policy               | Retry on BP | Rationale                                                    |
+| ---------- | ----------- | -------------------- | ----------- | ------------------------------------------------------------ |
+| Meshtastic | 10          | Drop oldest          | No          | Slow radio, serial writes block                              |
+| MeshCore   | 10          | Drop oldest          | No          | Slow radio, no flow control                                  |
+| Matrix     | 100         | Fail / surface trans | No          | Fast async SDK; rate-limit surfaced as transient immediately |
+| LXMF       | 50          | Fail                 | No          | Fire-and-forget, fast                                        |
 
-\* Block policy is aspirational; the current implementation has no per-adapter outbound queue (see §15.8). Rate-limit responses are surfaced immediately as transient errors.
+Matrix has no per-adapter outbound queue. Rate-limit responses are surfaced immediately as `AdapterSendError(transient=True)`; the pipeline retry worker handles re-delivery.
 
 Global ceiling: 500 total in-flight deliveries across all adapters.
 

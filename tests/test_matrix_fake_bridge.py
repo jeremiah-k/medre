@@ -51,6 +51,7 @@ from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage import SQLiteStorage
 from medre.core.storage.backend import StorageBackend
+from tests.helpers.matrix_adapter import wire_mock_session as _wire_mock_session
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1081,7 +1082,7 @@ class TestMatrixBridgeDirectErrorBoundary:
         mock_client.room_send = AsyncMock(
             side_effect=MatrixSendError("timeout", transient=True)
         )
-        adapter._session = mock_client
+        _wire_mock_session(adapter, mock_client, config=config)
 
         result = RenderingResult(
             event_id="evt-trans-boundary",
@@ -1103,7 +1104,7 @@ class TestMatrixBridgeDirectErrorBoundary:
         mock_client.room_send = AsyncMock(
             side_effect=MatrixSendError("forbidden", transient=False)
         )
-        adapter._session = mock_client
+        _wire_mock_session(adapter, mock_client, config=config)
 
         result = RenderingResult(
             event_id="evt-perm-boundary",
@@ -1132,7 +1133,7 @@ class TestMatrixBridgeDirectErrorBoundary:
         config = _make_matrix_config()
         adapter = MatrixAdapter(config)
 
-        adapter._session = MagicMock()
+        _wire_mock_session(adapter, MagicMock(), config=config)
 
         result = RenderingResult(
             event_id="evt-no-room-boundary",
@@ -1153,8 +1154,9 @@ class TestMatrixBridgeDirectErrorBoundary:
         response = SimpleNamespace(
             event_id="$successful-evt-001", transport_response=None
         )
-        adapter._session = mock_nio.AsyncClient.return_value
-        adapter._session.room_send = AsyncMock(return_value=response)
+        mock_client = mock_nio.AsyncClient.return_value
+        mock_client.room_send = AsyncMock(return_value=response)
+        _wire_mock_session(adapter, mock_client, config=config)
 
         result = RenderingResult(
             event_id="evt-ok-boundary",

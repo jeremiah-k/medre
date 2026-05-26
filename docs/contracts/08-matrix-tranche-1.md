@@ -14,7 +14,7 @@ This is the first real adapter that exercises the MEDRE runtime's architecture b
 
 The adapter doesn't route, doesn't plan, and doesn't render fallback text. It decodes inbound Matrix events into canonical form and delivers outbound rendered content. That's it. The pipeline owns receipts, relation resolution, and storage. Adapters only transport messages and report native delivery metadata back to the pipeline. The Matrix-specific renderer lives inside the adapter package (`medre.adapters.matrix.renderer`), not in core. Core owns only the generic rendering protocol and pipeline machinery.
 
-Matrix capabilities in tranche 1 are limited to text message reception and reply basics. Reactions, edits, deletes/redactions, attachments/media, and E2EE are all deferred.
+Matrix capabilities in tranche 1 are limited to text message reception and reply basics. Reactions were implemented in Tranche 3. Edits, deletes/redactions, attachments/media, and E2EE remain deferred.
 
 ## Supported Features
 
@@ -102,7 +102,7 @@ A skipped-by-default live test harness at `tests/test_matrix_live.py` provides o
 - **Inbound message reception.** Validating that a real Matrix event flows through the sync loop, through `_on_room_message`, through the codec, and into `publish_inbound` requires a second Matrix account (or a second device) to send a message. With only one account, this is not reliably testable without polling loops and timeouts that make the suite flaky. Inbound codec correctness is covered by deterministic unit tests instead.
 - **Self-message suppression with real echoes.** The homeserver echoes outbound messages back via the sync stream. A live test would need to wait for that echo and assert `publish_inbound` was not called — but timing is unreliable without a second actor. Self-message suppression is covered by deterministic unit tests (`test_matrix_lifecycle.py`, `test_matrix_adapter.py`).
 - **MEDRE-origin envelope suppression.** This secondary suppression path is unit-tested. Live validation would require injecting an event with a matching envelope, which needs a second account or homeserver-level tricks.
-- **E2EE, reactions, edits, deletes, attachments, media.** None of these features are implemented in tranche 1.
+- **E2EE, edits, deletes, attachments, media.** None of these features are implemented in tranche 1. Reactions (`m.annotation`) were implemented and verified in Tranche 3.
 - **Admin API, webhooks, HTTP server.** Out of scope.
 - **Non-Matrix connectivity.** Meshtastic, MeshCore, LXMF adapters are out of scope.
 - **Auth command / credential storage.** The current tranche uses environment-variable access tokens. A future mmrelay-like `auth` command for interactive login may be useful but is not implemented.
@@ -193,7 +193,7 @@ Docker (optional, not required):
 
 - No E2EE. Tests target unencrypted rooms only. E2EE is deferred to a future release. When implemented, `mindroom-nio[e2e]` will be required (installable via `pip install -e ".[matrix-e2e]"`) and both `store_path` and `device_id` will become mandatory. The `.[matrix-e2e]` optional dependency group now exists in `pyproject.toml` as a scaffold; runtime encryption is not yet implemented. An `e2ee_required` config mode is being introduced that will refuse startup when E2EE deps are absent, but encrypted message operation remains unsupported until a future tranche. See the runbook (`docs/runbooks/matrix-alpha-operation.md`, section 8) and the E2EE readiness contract (`docs/contracts/25-matrix-e2ee-readiness.md`) for posture details.
 - Cross-signing/verification and room key backup/import/export remain deferred. No implementation timeline.
-- No reactions, edits, deletes, or attachments.
+- No edits, deletes, or attachments.
 - No production credential storage or auth command.
 - No admin API.
 - No inbound reception test (requires second actor).
@@ -268,7 +268,7 @@ The envelope is round-trip tolerant. Unknown fields are tolerated/ignored on dec
 
 **Inbound replies.** `MatrixCodec` decodes `m.in_reply_to` into an `EventRelation(relation_type="reply", target_native_ref=NativeRef(...))` directly, with no storage lookup in the codec or adapter. The pipeline invokes `RelationResolver` during ingress to resolve the `target_native_ref` to a canonical `target_event_id` via `resolve_native_ref` where the referenced event has already been stored. If resolution fails (the referenced event hasn't been seen yet), the native relation ref is preserved on the relation. Unresolved relations do not crash routing or rendering; `fallback_text` is used by the delivery stage when the target adapter lacks native relation support.
 
-**Reactions: deferred.** Matrix reaction delivery and `m.annotation` decoding are not part of tranche 1. Reaction semantics are deferred to a later tranche. No reaction-related event processing, storage, or rendering occurs in this tranche.
+**Reactions: implemented (Tranche 3).** Matrix reaction delivery and `m.annotation` decoding were implemented and verified in Tranche 3. The codec extracts true Matrix reactions (`m.annotation` → `MESSAGE_REACTED`) and MMRelay emote reactions. The renderer produces `m.reaction` content with `_matrix_event_type="m.reaction"`. Note: mindroom-nio's `room_send` does not encrypt `message_type="m.reaction"` events (see §3.3 nio limitation note). Tranche 1 did not include reactions.
 
 **Edits, deletes/redactions: deferred.** Matrix `m.replace` (edits) and `m.redaction` (deletes/redactions) are not part of tranche 1. No edit or redaction event processing, storage, or rendering occurs in this tranche.
 
@@ -339,7 +339,7 @@ These are explicitly out of scope for tranche 1:
 - Attachments, files, images, media (`m.file`, `m.image`, `m.audio`, `m.video`)
 - Matrix edits (`m.replace`)
 - Matrix deletes and redactions (`m.redaction`)
-- ~~Matrix reactions (`m.annotation`). Reaction delivery and decoding are deferred to a later tranche.~~ (Implemented and verified in Tranche 3.)
+- Matrix reactions (`m.annotation`). Implemented and verified in Tranche 3 — codec, renderer, and adapter delivery.
 - Room membership sync beyond basic join
 - Admin API for Matrix configuration
 - Webhooks or HTTP server

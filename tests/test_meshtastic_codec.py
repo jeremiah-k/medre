@@ -549,3 +549,28 @@ class TestMeshtasticCodecNodeInfo:
         assert event.metadata.native is not None
         assert event.metadata.native.data["longname"] == ""
         assert event.metadata.native.data["shortname"] == "SN"
+
+
+class TestMeshtasticCodecDeterministicClock:
+    """MeshtasticCodec injectable clock for deterministic timestamps."""
+
+    def test_custom_clock_produces_deterministic_timestamp(self) -> None:
+        """Injecting a fixed clock yields a reproducible event timestamp."""
+        from datetime import datetime, timezone
+
+        fixed_time = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+        codec = MeshtasticCodec("mesh-1", _make_config(), clock=lambda: fixed_time)
+        packet = _make_text_packet(text="hello")
+        event = codec.decode(packet)
+        assert event.timestamp == fixed_time
+
+    def test_default_clock_uses_utc_now(self) -> None:
+        """Default clock produces a timestamp close to datetime.now(UTC)."""
+        from datetime import datetime, timezone
+
+        before = datetime.now(timezone.utc)
+        codec = MeshtasticCodec("mesh-1", _make_config())
+        packet = _make_text_packet(text="hello")
+        event = codec.decode(packet)
+        after = datetime.now(timezone.utc)
+        assert before <= event.timestamp <= after

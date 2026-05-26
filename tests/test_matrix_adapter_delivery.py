@@ -208,3 +208,135 @@ class TestRateLimitRetryAfterMs:
         assert exc_info.value.transient is True
         error_msg = str(exc_info.value)
         assert "retry_after_ms" not in error_msg
+
+
+# ===================================================================
+# _matrix_event_type validation — message_type fallback
+# ===================================================================
+
+
+class TestMatrixEventTypeValidation:
+    """Cover _matrix_event_type None / empty / non-string fallback to m.room.message."""
+
+    async def test_none_event_type_falls_back(self) -> None:
+        """_matrix_event_type=None → message_type=m.room.message."""
+        session = MagicMock()
+        session.is_room_member.return_value = True
+        session.room_send = AsyncMock(return_value=SimpleNamespace(event_id="$evt-1"))
+        adapter = _make_adapter_with_session(session=session)
+
+        payload = {"msgtype": "m.text", "body": "hello", "_matrix_event_type": None}
+        result = RenderingResult(
+            event_id="evt-1",
+            target_adapter="matrix-test",
+            target_channel="!room:server",
+            payload=payload,
+        )
+        await adapter.deliver(result)
+
+        call_kwargs = session.room_send.call_args
+        assert call_kwargs.kwargs.get("message_type") == "m.room.message"
+
+    async def test_empty_string_event_type_falls_back(self) -> None:
+        """_matrix_event_type='' → message_type=m.room.message."""
+        session = MagicMock()
+        session.is_room_member.return_value = True
+        session.room_send = AsyncMock(return_value=SimpleNamespace(event_id="$evt-1"))
+        adapter = _make_adapter_with_session(session=session)
+
+        payload = {"msgtype": "m.text", "body": "hello", "_matrix_event_type": ""}
+        result = RenderingResult(
+            event_id="evt-1",
+            target_adapter="matrix-test",
+            target_channel="!room:server",
+            payload=payload,
+        )
+        await adapter.deliver(result)
+
+        call_kwargs = session.room_send.call_args
+        assert call_kwargs.kwargs.get("message_type") == "m.room.message"
+
+    async def test_non_string_event_type_falls_back(self) -> None:
+        """_matrix_event_type=42 (non-string) → message_type=m.room.message."""
+        session = MagicMock()
+        session.is_room_member.return_value = True
+        session.room_send = AsyncMock(return_value=SimpleNamespace(event_id="$evt-1"))
+        adapter = _make_adapter_with_session(session=session)
+
+        payload = {"msgtype": "m.text", "body": "hello", "_matrix_event_type": 42}
+        result = RenderingResult(
+            event_id="evt-1",
+            target_adapter="matrix-test",
+            target_channel="!room:server",
+            payload=payload,
+        )
+        await adapter.deliver(result)
+
+        call_kwargs = session.room_send.call_args
+        assert call_kwargs.kwargs.get("message_type") == "m.room.message"
+
+    async def test_valid_event_type_used(self) -> None:
+        """_matrix_event_type='m.reaction' → message_type=m.reaction."""
+        session = MagicMock()
+        session.is_room_member.return_value = True
+        session.room_send = AsyncMock(return_value=SimpleNamespace(event_id="$evt-1"))
+        adapter = _make_adapter_with_session(session=session)
+
+        payload = {
+            "msgtype": "m.text",
+            "body": "👍",
+            "_matrix_event_type": "m.reaction",
+        }
+        result = RenderingResult(
+            event_id="evt-1",
+            target_adapter="matrix-test",
+            target_channel="!room:server",
+            payload=payload,
+        )
+        await adapter.deliver(result)
+
+        call_kwargs = session.room_send.call_args
+        assert call_kwargs.kwargs.get("message_type") == "m.reaction"
+
+    async def test_whitespace_event_type_falls_back(self) -> None:
+        """_matrix_event_type='  ' (whitespace) → message_type=m.room.message."""
+        session = MagicMock()
+        session.is_room_member.return_value = True
+        session.room_send = AsyncMock(return_value=SimpleNamespace(event_id="$evt-1"))
+        adapter = _make_adapter_with_session(session=session)
+
+        payload = {"msgtype": "m.text", "body": "hello", "_matrix_event_type": "  "}
+        result = RenderingResult(
+            event_id="evt-1",
+            target_adapter="matrix-test",
+            target_channel="!room:server",
+            payload=payload,
+        )
+        await adapter.deliver(result)
+
+        call_kwargs = session.room_send.call_args
+        assert call_kwargs.kwargs.get("message_type") == "m.room.message"
+
+    async def test_event_type_not_leaked_into_content(self) -> None:
+        """_matrix_event_type is popped from content before room_send."""
+        session = MagicMock()
+        session.is_room_member.return_value = True
+        session.room_send = AsyncMock(return_value=SimpleNamespace(event_id="$evt-1"))
+        adapter = _make_adapter_with_session(session=session)
+
+        payload = {
+            "msgtype": "m.text",
+            "body": "hello",
+            "_matrix_event_type": "m.reaction",
+        }
+        result = RenderingResult(
+            event_id="evt-1",
+            target_adapter="matrix-test",
+            target_channel="!room:server",
+            payload=payload,
+        )
+        await adapter.deliver(result)
+
+        call_kwargs = session.room_send.call_args
+        sent_content = call_kwargs.kwargs.get("content", {})
+        assert "_matrix_event_type" not in sent_content
