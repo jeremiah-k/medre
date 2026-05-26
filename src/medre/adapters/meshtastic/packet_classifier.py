@@ -24,8 +24,10 @@ Classification policy (conservative defaults):
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Literal
 
+from medre.adapters.meshtastic.startup_backlog import extract_meshtastic_rx_time
 from medre.interop.mmrelay import EMOJI_FLAG_VALUE
 
 # --- Reason constants ---
@@ -222,6 +224,20 @@ class ClassificationResult:
         Text packet with ``replyId`` but no emoji flag.
     is_reaction:
         Text packet with ``replyId`` and emoji flag.
+    hop_start:
+        ``hopStart`` integer from the packet (mesh-relay diagnostic), or ``None``.
+    hop_limit:
+        ``hopLimit`` integer from the packet (mesh-relay diagnostic), or ``None``.
+    rx_time:
+        ``rxTime`` converted to a UTC :class:`~datetime.datetime` via
+        :func:`~medre.adapters.meshtastic.startup_backlog.extract_meshtastic_rx_time`,
+        or ``None`` when absent or invalid.
+    priority:
+        ``priority`` string (protobuf ``MeshPacket.Priority`` enum name), or ``None``.
+    rx_snr:
+        ``rxSnr`` float (signal-to-noise ratio in dB), or ``None``.
+    rx_rssi:
+        ``rxRssi`` integer (received signal strength indicator in dBm), or ``None``.
     """
 
     action: ClassificationAction
@@ -243,6 +259,12 @@ class ClassificationResult:
     reaction_key: str | None
     is_reply: bool
     is_reaction: bool
+    hop_start: int | None = None
+    hop_limit: int | None = None
+    rx_time: datetime | None = None
+    priority: str | None = None
+    rx_snr: float | None = None
+    rx_rssi: int | None = None
 
 
 class MeshtasticPacketClassifier:
@@ -310,7 +332,9 @@ class MeshtasticPacketClassifier:
         -------
         ClassificationResult
             Immutable classification result with action, category, reason,
-            and all metadata fields.
+            and all metadata fields including mesh-relay diagnostics
+            (``hop_start``, ``hop_limit``, ``rx_time``, ``priority``,
+            ``rx_snr``, ``rx_rssi``).
         """
         # --- Extract raw fields ---
         to_id = packet.get("toId", "")
@@ -332,14 +356,26 @@ class MeshtasticPacketClassifier:
             if from_numeric is not None:
                 sender_id = str(from_numeric)
 
-        is_encrypted = bool(packet.get("encrypted"))
-
         raw_decoded = packet.get("decoded", {})
         decoded = raw_decoded if isinstance(raw_decoded, dict) else {}
+
+        # ``encrypted`` is a protobuf bool on real mtjk packets (``True`` / ``False``).
+        # Some mtjk versions may embed it inside ``decoded`` as well — check both.
+        is_encrypted = bool(packet.get("encrypted"))
+        if not is_encrypted:
+            is_encrypted = bool(decoded.get("encrypted"))
         portnum = normalize_portnum(decoded.get("portnum", None))
 
         if channel_index is None:
             channel_index = decoded.get("channel")
+
+        # --- Mesh-relay and radio diagnostic fields ---
+        hop_start = packet.get("hopStart")
+        hop_limit = packet.get("hopLimit")
+        rx_time = extract_meshtastic_rx_time(packet)
+        priority = packet.get("priority")
+        rx_snr = packet.get("rxSnr")
+        rx_rssi = packet.get("rxRssi")
 
         # --- Reply / reaction semantics from decoded.replyId and decoded.emoji ---
         reply_id: int | None = None
@@ -477,4 +513,10 @@ class MeshtasticPacketClassifier:
             reaction_key=reaction_key,
             is_reply=is_reply,
             is_reaction=is_reaction,
+            hop_start=hop_start,
+            hop_limit=hop_limit,
+            rx_time=rx_time,
+            priority=priority,
+            rx_snr=rx_snr,
+            rx_rssi=rx_rssi,
         )

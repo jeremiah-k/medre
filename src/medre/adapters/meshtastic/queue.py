@@ -315,6 +315,12 @@ class MeshtasticOutboundQueue:
             return None
 
         # Apply pacing delay based on time since last send attempt.
+        # Pacing is per-send-ATTEMPT, not per-dequeue: the timestamp is
+        # recorded before send_fn so that transient retries also respect
+        # the minimum inter-message gap.  A rapid burst of messages from
+        # the queue will each wait for the remaining delay before their
+        # send attempt, ensuring the radio is never flooded faster than
+        # delay_between_messages allows.
         now = time.monotonic()
         elapsed_since_last = now - self._last_send_time
         remaining = self._delay - elapsed_since_last

@@ -1,6 +1,6 @@
 # MEDRE Transport Capability Status
 
-> **Generated:** 2026-05-25 (Tranche 6 truth-surface update; Docker Synapse E2EE 3/3 passed this session)
+> **Generated:** 2026-05-26 (Tranche 2 Meshtastic hardening update; no live tests executed this session)
 >
 > **Baseline:** HEAD 41a07c7, Python 3.12.3, medre 0.1.0
 >
@@ -80,6 +80,8 @@ Meshtastic has a complete alpha operation runbook and a live smoke test harness.
 As of this writing, no live validation against a physical radio has been recorded in the repository. The harness exists. An operator with a Meshtastic node needs to set the pytest convenience variables for radio connection settings and run the live smoke tests. Runtime adapter config overrides use instance-scoped `MEDRE_ADAPTER__<TOKEN>__<FIELD>` and `MEDRE_ROUTE__<TOKEN>__<FIELD>` variables. See `docs/runbooks/meshtastic-live-smoke.md`.
 
 Meshtastic adapter diagnostics expose aggregate inbound classification counters (`classifier_packets_seen`, `classifier_packets_relayed`, `classifier_packets_ignored`, `classifier_packets_dropped`, `classifier_packets_deferred`, plus reason-level sub-counters). These counters explain aggregate inbound skips but do not mean live validation and do not persist every ignored/dropped/deferred packet. Queue stats (`queue_total_enqueued`, `queue_total_sent`, `queue_total_failed`, `queue_total_rejected`, `queue_total_requeued`, `queue_total_exhausted`, `queue_total_permanent_failed`, `queue_send_max_attempts`) are visible in diagnostics. Being queued/enqueued means adapter-local queue acceptance only. Being sent means the SDK/client send returned success. Neither means RF confirmation, remote receipt, or ACK. Transient SDK send failures are retried from the adapter-local queue up to `queue_send_max_attempts`; permanent failures are not retried. Retry is best-effort, adapter-local, in-memory, non-durable across process restart, and not exactly-once. Startup backlog suppression via `startup_backlog_suppress_seconds` is wired to ingress pre-decode stale packet suppression using `rxTime`. It is best-effort, session-scoped/in-memory, not cryptographic replay prevention, not durable across restarts, not exactly-once. Suppressed packets do not create canonical events or delivery/evidence receipts. See `docs/runbooks/meshtastic-alpha-operation.md` section 13 item 6.
+
+Tranche 2 (branch `t2-meshtastic-reference-alignment`) added diagnostic-only classifier field extraction for `encrypted`, `hopStart`, `hopLimit`, `rxTime`, `rxSnr`, `rxRssi`, and `priority` from real packet dicts. These fields improve data extraction fidelity and adapter diagnostics but do not change any classification action, canonical event structure, or operational behavior. No classification policy changed — only data extraction fidelity improved.
 
 ### MeshCore
 

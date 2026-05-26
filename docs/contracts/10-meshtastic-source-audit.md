@@ -3,10 +3,17 @@
 > **Status:** Historical
 > **Classification:** Audit
 > **Authority:** Point-in-time audit of mtjk SDK and MMRelay; not current authority for adapter behaviour
-> **Last reviewed:** 2026-05-24
+> **Last reviewed:** 2026-05-26
 >
-> Contract version: 3
-> Last updated: 2026-05-24
+> Contract version: 4
+> Last updated: 2026-05-26
+>
+> **Tranche 2 incorporation note (2026-05-26):** The audit findings in this
+> document have been reviewed and incorporated into Tranche 2 hardening.
+> Section 2.3 now includes a "Tranche 2 Resolution" subsection detailing
+> which gaps were addressed by classifier field extraction improvements.
+> All original audit data is preserved unchanged. No audit findings were
+> invalidated; gaps that remain open are still listed.
 
 This document records findings from auditing MEDRE's Meshtastic adapter
 assumptions against available reference material: the old MMRelay codebase
@@ -118,18 +125,18 @@ packet_dict["toId"] = interface._node_num_to_id(packet_dict["to"])
 
 ### 2.2 Key Packet Shape Findings for MEDRE
 
-| Finding                                                                                | Status                   |
-| -------------------------------------------------------------------------------------- | ------------------------ |
-| `fromId`/`toId` are populated by interface's `_node_num_to_id` lookup, not by firmware | **Confirmed**            |
-| `to` (int) is always present; `toId` may be `None` for unknown nodes                   | **Confirmed**            |
-| `decoded.portnum` is the protobuf enum **name** string (e.g., `"TEXT_MESSAGE_APP"`)    | **Confirmed**            |
-| `decoded.payload` is raw bytes, decoded into `decoded.text` by `_on_text_receive`      | **Confirmed**            |
-| `decoded.replyId` is an optional int                                                   | **Confirmed**            |
-| `decoded.emoji` is an optional int (1 = emoji)                                         | **Confirmed**            |
-| `channel` may be absent → MEDRE defaults to `None`/`0`                                 | **Correct**              |
-| `id` is always present (MeshPacket requires it)                                        | **Correct**              |
-| `rxTime` is used for backlog suppression (rxTime < connect time → stale)               | **Implemented in MEDRE** |
-| `encrypted` flag exists on real packets                                                | **Not handled in MEDRE** |
+| Finding                                                                                | Status                                                                 |
+| -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `fromId`/`toId` are populated by interface's `_node_num_to_id` lookup, not by firmware | **Confirmed**                                                          |
+| `to` (int) is always present; `toId` may be `None` for unknown nodes                   | **Confirmed**                                                          |
+| `decoded.portnum` is the protobuf enum **name** string (e.g., `"TEXT_MESSAGE_APP"`)    | **Confirmed**                                                          |
+| `decoded.payload` is raw bytes, decoded into `decoded.text` by `_on_text_receive`      | **Confirmed**                                                          |
+| `decoded.replyId` is an optional int                                                   | **Confirmed**                                                          |
+| `decoded.emoji` is an optional int (1 = emoji)                                         | **Confirmed**                                                          |
+| `channel` may be absent → MEDRE defaults to `None`/`0`                                 | **Correct**                                                            |
+| `id` is always present (MeshPacket requires it)                                        | **Correct**                                                            |
+| `rxTime` is used for backlog suppression (rxTime < connect time → stale)               | **Implemented** — classifier extracts via `extract_meshtastic_rx_time` |
+| `encrypted` flag exists on real packets                                                | **Handled** — classifier extracts and assigns `drop` action            |
 
 ### 2.3 Gaps Between MEDRE Fixtures and Real Shapes
 
@@ -142,6 +149,30 @@ packet_dict["toId"] = interface._node_num_to_id(packet_dict["to"])
 | No `rxTime` field tested                              | Real packets carry `rxTime` for backlog suppression                           | MEDRE implements backlog suppression via shared utility (`startup_backlog_suppress.py`) |
 | No `decoded.emoji` field tested                       | Real packets may carry `emoji: 1` for reactions                               | MEDRE has no reaction support — out of scope                                            |
 | No `decoded.payload` bytes field                      | Real packets carry raw `payload` bytes alongside decoded fields               | MEDRE codec reads `decoded.text` not `payload` — matches post-processed shape           |
+
+### 2.3a Tranche 2 Resolution
+
+The following section-2.3 gaps were addressed by Tranche 2 classifier hardening
+(branch `t2-meshtastic-reference-alignment`). These changes improve data
+extraction fidelity and diagnostics. **No classification policy changed** —
+the 4-action model (relay/ignore/drop/deferred) and its decision tree are
+unchanged.
+
+| Gap (from 2.3 above)                      | Tranche 2 Resolution                                                                                       |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `encrypted` field: "Not handled in MEDRE" | Classifier now extracts the `encrypted` field and assigns `drop` action with reason `"encrypted packet"`   |
+| `hopStart`/`hopLimit` not extracted       | Classifier now extracts `hopStart` and `hopLimit` from packet dict for diagnostic use                      |
+| `rxTime` not tested                       | Classifier extracts `rxTime` via `extract_meshtastic_rx_time` helper; used for startup backlog suppression |
+| `rxSnr`/`rxRssi` not extracted            | Classifier now extracts `rxSnr` and `rxRssi` from packet dict for diagnostic/radio-quality tracking        |
+| `priority` not extracted                  | Classifier now extracts `priority` from packet dict for diagnostic use                                     |
+
+Fields not listed in the table above (e.g. `decoded.emoji`, `decoded.payload`)
+remain unchanged — they are out of scope for Tranche 2.
+
+All new field extractions are **diagnostic-only**: they populate classifier
+output fields but do not change any classification decision, action
+assignment, or canonical event structure. Queue diagnostics are now wired
+into adapter diagnostics via the existing `queue_health` property.
 
 ---
 

@@ -3,10 +3,10 @@
 > **Status:** Active
 > **Classification:** Normative
 > **Authority:** Current contract for Meshtastic adapter features, classifier, queue, and config
-> **Last reviewed:** 2026-05-24
+> **Last reviewed:** 2026-05-26
 >
-> Contract version: 4
-> Last updated: 2026-05-24
+> Contract version: 5
+> Last updated: 2026-05-26
 
 ## Overview
 
@@ -238,6 +238,46 @@ Changes in this pass:
 - Pytest `live` marker description updated to cover all services
 - No MMRelay compatibility mode implemented, no hardware/network required
   in default tests, no production connectivity added
+
+### Tranche 2.2: Classifier Hardening and Diagnostics (This Bundle)
+
+Tranche 2.2 is a classifier field-extraction and diagnostics wiring pass on
+branch `t2-meshtastic-reference-alignment`. It does not add new adapter
+capabilities, new classification actions, or any change to classification
+policy. **No classification POLICY changed — only data extraction fidelity
+improved.**
+
+Changes in this pass:
+
+- Classifier now extracts `encrypted` field from packet dicts and assigns
+  the `drop` action with reason `"encrypted packet"` (previously unhandled)
+- Classifier now extracts `hopStart` and `hopLimit` from packet dicts for
+  diagnostic use (previously not extracted)
+- Classifier now extracts `rxTime` from packet dicts via the
+  `extract_meshtastic_rx_time` helper for startup backlog suppression and
+  diagnostic tracking (previously extracted only in backlog suppression path)
+- Classifier now extracts `rxSnr` and `rxRssi` from packet dicts for
+  diagnostic/radio-quality tracking (previously not extracted)
+- Classifier now extracts `priority` from packet dicts for diagnostic use
+  (previously not extracted)
+- Queue diagnostics wired into adapter diagnostics via existing `queue_health`
+  property — no new diagnostic fields added, just confirmed wiring
+- Renderer UTF-8 byte-budget truncation verified as MMRelay-conceptual pattern
+  (matches MMRelay's payload truncation concept but is an independent MEDRE
+  implementation)
+- Source audit document (`10-meshtastic-source-audit.md`) updated with Tranche 2
+  resolution notes in section 2.3
+
+**What did NOT change:**
+
+- The 4-action classification model (relay/ignore/drop/deferred) is unchanged
+- The classifier's decision tree and action assignments are unchanged
+- Canonical event structure is unchanged
+- Queue behavior, pacing, and retry semantics are unchanged
+- Startup backlog suppression semantics are unchanged
+- Adapter capabilities declaration is unchanged
+- No new live validation evidence was produced
+- No real hardware was used; all changes verified through fake-tested unit tests
 
 ## Non-Goals (This Tranche)
 

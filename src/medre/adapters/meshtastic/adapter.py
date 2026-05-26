@@ -764,6 +764,10 @@ class MeshtasticAdapter(AdapterContract):
             # Outbound gate
             "outbound_mode": self._config.outbound_mode,
             "outbound_gate_suppressed": self._outbound_gate_suppressed,
+            # Full queue health snapshot (structurally identical to the
+            # individual queue_* keys above but provided as a single
+            # nested dict for programmatic consumers).
+            "queue": self._queue.queue_health,
         }
 
         if self._session is not None:
