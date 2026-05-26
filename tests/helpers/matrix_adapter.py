@@ -63,13 +63,17 @@ def to_event_dict(
     """Convert a (room, event) pair into the normalized dict expected by
     ``MatrixAdapter._on_room_message(event_dict)``.
     """
+    source = getattr(event, "source", {})
+    # Extract msgtype from source content if available
+    content = source.get("content", {}) if isinstance(source, dict) else {}
+    msgtype = content.get("msgtype", "m.text")
     d: dict[str, Any] = {
         "room_id": room.room_id,
         "sender": getattr(event, "sender", ""),
         "body": getattr(event, "body", ""),
         "event_id": getattr(event, "event_id", ""),
-        "source": getattr(event, "source", {}),
-        "msgtype": "m.text",
+        "source": source,
+        "msgtype": msgtype,
         "server_timestamp": 0,
     }
     if sender_display_name is not None:

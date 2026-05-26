@@ -377,7 +377,6 @@ class TestE2EEBlockedPermanent:
     async def test_encrypted_room_blocked_without_crypto(self) -> None:
         config = _make_config()
         adapter = MatrixAdapter(config)
-        adapter._client = MagicMock()
 
         # Simulate a session with crypto disabled and room known encrypted
         mock_session = MagicMock()
@@ -392,14 +391,13 @@ class TestE2EEBlockedPermanent:
     async def test_plaintext_room_send_allowed(self) -> None:
         config = _make_config()
         adapter = MatrixAdapter(config)
-        mock_client = MagicMock()
-        mock_client.room_send = AsyncMock(return_value=_make_send_response())
-        adapter._session = mock_client
 
         # Simulate a session with crypto disabled but room is plaintext
         mock_session = MagicMock()
         mock_session.crypto_enabled = False
         mock_session.room_state.return_value = "plaintext"
+        mock_session.is_room_encrypted = MagicMock(return_value=False)
+        mock_session.room_send = AsyncMock(return_value=_make_send_response())
         adapter._session = mock_session
 
         result = _make_result()

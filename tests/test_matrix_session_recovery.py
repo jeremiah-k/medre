@@ -593,7 +593,7 @@ class TestRoomStateTracking:
 
             response_mock = MagicMock()
             response_mock.event_id = "$evt_plain"
-            adapter._session.room_send = AsyncMock(return_value=response_mock)
+            adapter._session._client.room_send = AsyncMock(return_value=response_mock)
 
             result = RenderingResult(
                 event_id="evt_plain",
@@ -663,7 +663,7 @@ class TestDeliveryRetry:
         adapter = MatrixAdapter(config)
         try:
             await adapter.start(make_matrix_context())
-            adapter._session.room_send = _transient_then_ok
+            adapter._session._client.room_send = _transient_then_ok
 
             result = RenderingResult(
                 event_id="evt_retry",
@@ -697,7 +697,7 @@ class TestDeliveryRetry:
         adapter = MatrixAdapter(config)
         try:
             await adapter.start(make_matrix_context())
-            adapter._session.room_send = _always_transient
+            adapter._session._client.room_send = _always_transient
 
             result = RenderingResult(
                 event_id="evt_max_retry",
@@ -735,7 +735,7 @@ class TestDeliveryRetry:
         adapter = MatrixAdapter(config)
         try:
             await adapter.start(make_matrix_context())
-            adapter._session.room_send = _room_send_non_transient
+            adapter._session._client.room_send = _room_send_non_transient
 
             result = RenderingResult(
                 event_id="evt_non_transient",
@@ -776,7 +776,7 @@ class TestDeliveryRetry:
 
             response_mock = MagicMock()
             response_mock.event_id = "$diag_evt"
-            adapter._session.room_send = AsyncMock(return_value=response_mock)
+            adapter._session._client.room_send = AsyncMock(return_value=response_mock)
 
             result = RenderingResult(
                 event_id="evt_diag",

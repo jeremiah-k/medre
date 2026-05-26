@@ -152,8 +152,8 @@ class TestMatrixAdapterStart:
         try:
             await adapter.start(ctx)
             assert adapter.ctx is ctx
-            assert adapter._client is not None
-            assert adapter._sync_task is not None
+            assert adapter._session is not None
+            assert adapter._session.sync_task_running
         finally:
             await adapter.stop()
 
@@ -176,8 +176,7 @@ class TestMatrixAdapterStart:
                 MatrixConnectionError, match="mindroom-nio not installed"
             ):
                 await adapter.start(_make_context())
-        assert adapter._client is None
-        assert adapter._sync_task is None
+        assert adapter._session is None
 
     async def test_start_login_failure_raises(self, mock_nio):
         """start() raises when restore_login does not set logged_in."""
@@ -186,8 +185,9 @@ class TestMatrixAdapterStart:
         adapter = MatrixAdapter(config)
         with pytest.raises(MatrixConnectionError, match="failed to authenticate"):
             await adapter.start(_make_context())
-        # Client should be cleaned up
-        assert adapter._client is None
+        # Session exists but the underlying client was cleaned up
+        assert adapter._session is not None
+        assert adapter._session._client is None
 
     async def test_start_sync_failure_raises(self, mock_nio):
         """start() raises when asyncio.create_task fails."""
@@ -199,8 +199,9 @@ class TestMatrixAdapterStart:
         ):
             with pytest.raises(MatrixConnectionError, match="failed to start sync"):
                 await adapter.start(_make_context())
-        # Client should be cleaned up
-        assert adapter._client is None
+        # Session exists but the underlying client was cleaned up
+        assert adapter._session is not None
+        assert adapter._session._client is None
 
     async def test_start_passes_configured_store_path_to_async_client(self, mock_nio):
         """start() forwards config.store_path to nio.AsyncClient."""
@@ -241,8 +242,7 @@ class TestMatrixAdapterStop:
         adapter = MatrixAdapter(config)
         await adapter.start(_make_context())
         await adapter.stop()
-        assert adapter._sync_task is None
-        assert adapter._client is None
+        assert adapter._session is None
 
     async def test_double_stop_is_idempotent(self, mock_nio):
         """Calling stop() twice does not raise."""
@@ -251,14 +251,14 @@ class TestMatrixAdapterStop:
         await adapter.start(_make_context())
         await adapter.stop()
         await adapter.stop()  # second call — should not raise
-        assert adapter._sync_task is None
+        assert adapter._session is None
 
     async def test_stop_before_start_no_crash(self):
         """stop() on an unstarted adapter does not raise."""
         config = _make_config()
         adapter = MatrixAdapter(config)
         await adapter.stop()  # no start() call
-        assert adapter._client is None
+        assert adapter._session is None
 
     async def test_stop_closes_client(self, mock_nio):
         """stop() calls close() on the nio client."""
@@ -299,8 +299,12 @@ class TestMatrixAdapterHealthCheck:
         """When logged_in is False, health is 'failed'."""
         config = _make_config()
         adapter = MatrixAdapter(config)
-        adapter._client = AsyncMock()
-        adapter._client.logged_in = False
+        # Simulate a session with logged_in=False via a mock session
+        mock_session = MagicMock()
+        mock_session.last_sync_error = None
+        mock_session.connected = True
+        mock_session.is_logged_in.return_value = False
+        adapter._session = mock_session
         info = await adapter.health_check()
         assert info.health == "failed"
 
@@ -350,7 +354,7 @@ class TestMatrixAdapterLifecycleEdgeCases:
         config = _make_config()
         adapter = MatrixAdapter(config)
         # Don't call real start; manually verify default state is clean
-        assert adapter._sync_task is None
+        assert adapter._session is None
 
     async def test_stop_after_failed_start_no_crash(self):
         """stop() after a failed start attempt does not raise."""
@@ -360,7 +364,7 @@ class TestMatrixAdapterLifecycleEdgeCases:
             with pytest.raises(MatrixConnectionError):
                 await adapter.start(_make_context())
         await adapter.stop()  # should not raise
-        assert adapter._sync_task is None
+        assert adapter._session is None
 
 
 # ===================================================================
@@ -459,8 +463,7 @@ class TestMatrixAdapterSyncFailure:
 
         # stop() should handle the already-failed task cleanly
         await adapter.stop()
-        assert adapter._sync_task is None
-        assert adapter._client is None
+        assert adapter._session is None
         # Double-stop must still be idempotent
         await adapter.stop()
 

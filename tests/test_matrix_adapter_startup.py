@@ -17,6 +17,7 @@ from tests.helpers.matrix_adapter import (
 )
 from tests.helpers.matrix_adapter import make_fake_room as _make_fake_room
 from tests.helpers.matrix_adapter import make_matrix_config as _make_matrix_config
+from tests.helpers.matrix_adapter import to_event_dict as _to_event_dict
 
 
 class TestStartupHistorySuppression:
@@ -38,7 +39,7 @@ class TestStartupHistorySuppression:
         event = _make_fake_nio_event(sender="@alice:example.com")
         room = _make_fake_room()
 
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(_to_event_dict(room, event))
         assert len(published) == 0
         assert adapter._inbound_suppressed_startup == 1
 
@@ -60,7 +61,7 @@ class TestStartupHistorySuppression:
         event = _make_fake_nio_event(sender="@alice:example.com")
         room = _make_fake_room()
 
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(_to_event_dict(room, event))
         assert len(published) == 1
         assert adapter._inbound_suppressed_startup == 0
 
@@ -79,7 +80,7 @@ class TestStartupHistorySuppression:
         event = _make_fake_reaction_event(sender="@alice:example.com")
         room = _make_fake_room()
 
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(_to_event_dict(room, event))
         assert len(published) == 0
         assert adapter._inbound_suppressed_startup == 1
 
@@ -128,7 +129,7 @@ class TestStartupHistorySuppression:
         event = _make_fake_nio_event(sender="@bot:example.com")
         room = _make_fake_room()
 
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(_to_event_dict(room, event))
         assert adapter._inbound_suppressed_startup == 1
         assert adapter._inbound_suppressed_self == 0
         assert len(published) == 0
@@ -162,7 +163,7 @@ class TestStartupHistorySuppression:
         )
         room = _make_fake_room()
 
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(_to_event_dict(room, event))
         # Startup suppression fires first -- no decode, no envelope check
         assert adapter._inbound_suppressed_startup == 1
         assert adapter._inbound_suppressed_envelope == 0
@@ -183,7 +184,7 @@ class TestStartupHistorySuppression:
         event = _make_fake_nio_event(sender="@bot:example.com")
         room = _make_fake_room()
 
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(_to_event_dict(room, event))
         assert adapter._inbound_suppressed_self == 1
         assert adapter._inbound_suppressed_startup == 0
         assert len(published) == 0
@@ -203,7 +204,7 @@ class TestStartupHistorySuppression:
         event = _make_fake_nio_event(sender="@alice:example.com")
         room = _make_fake_room()
 
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(_to_event_dict(room, event))
         assert adapter._inbound_published == 1
         assert adapter._inbound_suppressed_startup == 0
         assert len(published) == 1

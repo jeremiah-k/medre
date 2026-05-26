@@ -111,6 +111,33 @@ def _make_nio_room(room_id: str = "!bridge_room:example.com") -> SimpleNamespace
     return SimpleNamespace(room_id=room_id)
 
 
+def _to_event_dict(
+    room: SimpleNamespace,
+    event: SimpleNamespace,
+    *,
+    sender_display_name: str | None = None,
+) -> dict[str, Any]:
+    """Convert a (room, event) pair into the normalized dict expected by
+    ``MatrixAdapter._on_room_message(event_dict)``.
+    """
+    source = getattr(event, "source", {})
+    # Extract msgtype from source content if available
+    content = source.get("content", {}) if isinstance(source, dict) else {}
+    msgtype = content.get("msgtype", "m.text")
+    d: dict[str, Any] = {
+        "room_id": room.room_id,
+        "sender": getattr(event, "sender", ""),
+        "body": getattr(event, "body", ""),
+        "event_id": getattr(event, "event_id", ""),
+        "source": source,
+        "msgtype": msgtype,
+        "server_timestamp": 0,
+    }
+    if sender_display_name is not None:
+        d["sender_display_name"] = sender_display_name
+    return d
+
+
 def _build_mock_nio_module() -> MagicMock:
     """Create a mock nio module suitable for MatrixSession/MatrixAdapter."""
     mock = MagicMock(name="mock_nio")
@@ -282,7 +309,7 @@ class TestMatrixInboundToFakeOutbound:
                 event_id="$bridge-inbound-001",
                 body="hello from matrix bridge",
             )
-            await matrix_adapter._on_room_message(room, event)
+            await matrix_adapter._on_room_message(_to_event_dict(room, event))
 
             # Fake adapter received a rendered payload
             assert len(fake_adapter.delivered_payloads) == 1
@@ -335,7 +362,7 @@ class TestMatrixInboundToFakeOutbound:
                 event_id="$native-ref-evt-001",
                 body="native ref test",
             )
-            await matrix_adapter._on_room_message(room, event)
+            await matrix_adapter._on_room_message(_to_event_dict(room, event))
 
             # Inbound native ref persisted
             resolved = await temp_storage.resolve_native_ref(
@@ -390,7 +417,7 @@ class TestMatrixInboundToFakeOutbound:
                 event_id="$self-evt-001",
                 body="self message",
             )
-            await matrix_adapter._on_room_message(room, event)
+            await matrix_adapter._on_room_message(_to_event_dict(room, event))
 
             # Nothing delivered to fake adapter
             assert len(fake_adapter.delivered_payloads) == 0
@@ -419,7 +446,7 @@ class TestMatrixInboundToFakeOutbound:
             sender="@alice:example.com",
             event_id="$channel-evt-001",
         )
-        await matrix_adapter._on_room_message(room, event)
+        await matrix_adapter._on_room_message(_to_event_dict(room, event))
 
         assert len(published) == 1
         assert published[0].source_channel_id == "!channel_room:example.com"
