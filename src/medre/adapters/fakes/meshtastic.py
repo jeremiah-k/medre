@@ -225,6 +225,8 @@ class FakeMeshtasticAdapter(AdapterContract):
         # Outbound gate suppression counter
         self._outbound_gate_suppressed: int = 0
         # Build per-config capabilities matching the real adapter pattern.
+        # NOTE: uses config.max_text_bytes (per-instance), not the module-level
+        # _FAKE_MESHTASTIC_CAPABILITIES constant (which uses the class default).
         self._capabilities = AdapterCapabilities(
             text=True,
             title=False,

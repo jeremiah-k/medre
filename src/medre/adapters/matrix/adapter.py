@@ -717,7 +717,7 @@ class MatrixAdapter(AdapterContract):
             # MEDRE envelope whose source_adapter matches this adapter,
             # skip publishing to prevent echo loops.  Missing or corrupt
             # envelopes are tolerated (accepted normally).
-            content = event.get("source", {}).get("content", {})
+            content = (event.get("source") or {}).get("content", {})
             envelope = self._envelope_handler.from_content(content)
             if envelope is not None and envelope.source_adapter == self.adapter_id:
                 self._inbound_suppressed_envelope += 1

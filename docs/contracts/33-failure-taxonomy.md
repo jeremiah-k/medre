@@ -71,15 +71,15 @@ cross-transport orchestration.
 
 ### 4.1 Connection Failures
 
-| Failure                | Transient/Permanent               | Reconnectable   | Notes                                                                          |
-| ---------------------- | --------------------------------- | --------------- | ------------------------------------------------------------------------------ |
-| Network unreachable    | Transient                         | Yes             | TCP/TLS failure to homeserver. Resolves when network returns.                  |
-| DNS resolution failure | Transient                         | Yes             | Resolves when DNS is restored.                                                 |
-| TLS handshake failure  | Transient (misconfig → permanent) | Yes (transient) | Bad cert = permanent until fixed. Transient = cert rotation in progress.       |
-| HTTP 429 (rate limit)  | Transient                         | Yes             | Homeserver enforces rate limit. nio/MEDRE should back off.                     |
-| HTTP 401/403 (auth)    | Permanent                         | No              | Access token revoked or invalid. Requires new token. Session is unrecoverable. |
-| Homeserver shutdown    | Transient                         | Yes             | If homeserver restarts, session can reconnect.                                 |
-| Federation timeout     | Transient                         | Yes             | Remote server unreachable; local server remains functional.                    |
+| Failure                | Transient/Permanent               | Reconnectable   | Notes                                                                                     |
+| ---------------------- | --------------------------------- | --------------- | ----------------------------------------------------------------------------------------- |
+| Network unreachable    | Transient                         | Yes             | TCP/TLS failure to homeserver. Resolves when network returns.                             |
+| DNS resolution failure | Transient                         | Yes             | Resolves when DNS is restored.                                                            |
+| TLS handshake failure  | Transient (misconfig → permanent) | Yes (transient) | Bad cert = permanent until fixed. Transient = cert rotation in progress.                  |
+| HTTP 429 (rate limit)  | Transient                         | Yes             | Homeserver enforces rate limit. Surfaced immediately as transient error in delivery path. |
+| HTTP 401/403 (auth)    | Permanent                         | No              | Access token revoked or invalid. Requires new token. Session is unrecoverable.            |
+| Homeserver shutdown    | Transient                         | Yes             | If homeserver restarts, session can reconnect.                                            |
+| Federation timeout     | Transient                         | Yes             | Remote server unreachable; local server remains functional.                               |
 
 ### 4.2 Sync Loop Failures
 

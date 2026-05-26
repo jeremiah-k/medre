@@ -233,12 +233,12 @@ Phase A proves nothing new. It confirms that existing code works against real en
 
 ### 6.1 Matrix Risks
 
-| Risk                                       | Likelihood | Impact                        | Mitigation                                                  |
-| ------------------------------------------ | ---------- | ----------------------------- | ----------------------------------------------------------- |
-| `mindroom-nio` fork diverges from upstream | Medium     | High — breaking API changes   | Pin version, monitor upstream                               |
-| E2EE key state corruption                  | Low        | High — undecryptable messages | Crypto store backup, `undecryptable_event_count` diagnostic |
-| Homeserver rate limiting                   | Medium     | Low — transient failures      | Bounded retry already implemented                           |
-| Access token exposure                      | Medium     | High — account compromise     | Env var only, never logged. Future: secure store.           |
+| Risk                                       | Likelihood | Impact                        | Mitigation                                                                                           |
+| ------------------------------------------ | ---------- | ----------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `mindroom-nio` fork diverges from upstream | Medium     | High — breaking API changes   | Pin version, monitor upstream                                                                        |
+| E2EE key state corruption                  | Low        | High — undecryptable messages | Crypto store backup, `undecryptable_event_count` diagnostic                                          |
+| Homeserver rate limiting                   | Medium     | Low — transient failures      | Rate-limit classified as transient, surfaced immediately. Pipeline retry/replay handles re-delivery. |
+| Access token exposure                      | Medium     | High — account compromise     | Env var only, never logged. Future: secure store.                                                    |
 
 ### 6.2 Meshtastic Risks
 

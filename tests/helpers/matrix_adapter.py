@@ -15,6 +15,7 @@ from typing import Any
 from medre.config.adapters.matrix import MatrixConfig
 from medre.core.contracts.adapter import AdapterContext
 from medre.core.events import CanonicalEvent
+from tests.helpers.matrix import to_event_dict  # noqa: F401 — re-export
 
 
 def make_matrix_config(**overrides: Any) -> MatrixConfig:
@@ -52,33 +53,6 @@ def make_fake_nio_event(
 def make_fake_room(room_id: str = "!room:server") -> SimpleNamespace:
     """Build a minimal fake nio Room object."""
     return SimpleNamespace(room_id=room_id)
-
-
-def to_event_dict(
-    room: SimpleNamespace,
-    event: SimpleNamespace,
-    *,
-    sender_display_name: str | None = None,
-) -> dict[str, Any]:
-    """Convert a (room, event) pair into the normalized dict expected by
-    ``MatrixAdapter._on_room_message(event_dict)``.
-    """
-    source = getattr(event, "source", {})
-    # Extract msgtype from source content if available
-    content = source.get("content", {}) if isinstance(source, dict) else {}
-    msgtype = content.get("msgtype", "m.text")
-    d: dict[str, Any] = {
-        "room_id": room.room_id,
-        "sender": getattr(event, "sender", ""),
-        "body": getattr(event, "body", ""),
-        "event_id": getattr(event, "event_id", ""),
-        "source": source,
-        "msgtype": msgtype,
-        "server_timestamp": 0,
-    }
-    if sender_display_name is not None:
-        d["sender_display_name"] = sender_display_name
-    return d
 
 
 def make_adapter_context(

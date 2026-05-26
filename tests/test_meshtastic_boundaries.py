@@ -592,7 +592,7 @@ class TestMeshtasticAdapterLifecycleBoundaries:
         assert adapter._session is None
 
 
-# ===================================================================
+# -- Callback boundary tests --
 
 
 class TestMeshtasticCallbackBoundary:
@@ -601,7 +601,7 @@ class TestMeshtasticCallbackBoundary:
     async def test_on_receive_callback_delegates_to_on_packet(
         self, make_adapter_context, inbound_collector
     ) -> None:
-        """_on_receive_callback delegates to _on_packet."""
+        """_on_packet processes and publishes inbound packets."""
         config = MeshtasticConfig(adapter_id="mesh-cb")
         adapter = MeshtasticAdapter(config)
         ctx = make_adapter_context("mesh-cb")

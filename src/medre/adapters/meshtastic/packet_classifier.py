@@ -266,7 +266,7 @@ class ClassificationResult:
     hop_start: int | None = None
     hop_limit: int | None = None
     rx_time: datetime | None = None
-    priority: int | str | None = None
+    priority: str | None = None
     rx_snr: float | None = None
     rx_rssi: int | None = None
     via_mqtt: bool = False
