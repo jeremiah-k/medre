@@ -895,7 +895,9 @@ class SQLiteStorage:
                 uri=True,
             )
             try:
-                db.row_factory = sqlite3.Row
+                db.row_factory = (
+                    sqlite3.Row
+                )  # redundant guard (connect won't fail), mirrors initialize() pattern
             except BaseException:
                 await db.close()
                 raise

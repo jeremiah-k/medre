@@ -29,7 +29,7 @@ _STATUS_RE = re.compile(
 )
 
 _OWNED_BY_OTHERS_RE = re.compile(
-    r"^## Files Owned by Other Agents\s*\n" r"(.*?)(?=\n## |\Z)",
+    r"^## Files Owned by Other Agents\s*\n(.*?)(?=\n## |\Z)",
     re.DOTALL | re.MULTILINE,
 )
 

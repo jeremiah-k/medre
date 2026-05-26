@@ -4,6 +4,7 @@ provably closed on both success and failure paths — no ResourceWarning leaks.
 
 from __future__ import annotations
 
+import gc
 import sqlite3
 import warnings
 from pathlib import Path
@@ -25,6 +26,17 @@ def _temp_db_path(tmp_path: Path) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Force sync-fallback path so these tests always exercise the sync code
+# regardless of whether aiosqlite is installed in the environment.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _force_sync_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("medre.core.storage.sqlite._HAS_AIOSQLITE", False)
+
+
+# ---------------------------------------------------------------------------
 # Tests: normal (success) path — connections must close cleanly
 # ---------------------------------------------------------------------------
 
@@ -42,6 +54,8 @@ class TestSyncFallbackNormalClose:
             warnings.simplefilter("always", ResourceWarning)
             await storage.initialize()
             await storage.close()
+            del storage
+            gc.collect()
 
         resource_warnings = [
             w for w in caught if issubclass(w.category, ResourceWarning)
@@ -59,12 +73,16 @@ class TestSyncFallbackNormalClose:
         storage = SQLiteStorage(db_path=db_path)
         await storage.initialize()
         await storage.close()
+        del storage
+        gc.collect()
 
         # Now open it read-only and verify no leak.
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always", ResourceWarning)
             ro = await SQLiteStorage.open_readonly(db_path)
             await ro.close()
+            del ro
+            gc.collect()
 
         resource_warnings = [
             w for w in caught if issubclass(w.category, ResourceWarning)
@@ -95,9 +113,13 @@ class TestSyncFallbackFailureClose:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always", ResourceWarning)
 
-            with patch("medre.core.storage.sqlite._SCHEMA", "INVALID SQL !!@@##"):
-                with pytest.raises(sqlite3.OperationalError):
-                    await storage.initialize()
+            with patch(
+                "medre.core.storage.sqlite._SCHEMA", "INVALID SQL !!@@##"
+            ), pytest.raises(sqlite3.OperationalError):
+                await storage.initialize()
+
+            del storage
+            gc.collect()
 
         resource_warnings = [
             w for w in caught if issubclass(w.category, ResourceWarning)
@@ -129,6 +151,8 @@ class TestSyncFallbackFailureClose:
             warnings.simplefilter("always", ResourceWarning)
             with pytest.raises(StorageInitializationError):
                 await storage2.initialize()
+            del storage2
+            gc.collect()
 
         resource_warnings = [
             w for w in caught if issubclass(w.category, ResourceWarning)
@@ -149,6 +173,7 @@ class TestSyncFallbackFailureClose:
             warnings.simplefilter("always", ResourceWarning)
             with pytest.raises(StorageInitializationError, match="does not exist"):
                 await SQLiteStorage.open_readonly(db_path)
+            gc.collect()
 
         resource_warnings = [
             w for w in caught if issubclass(w.category, ResourceWarning)

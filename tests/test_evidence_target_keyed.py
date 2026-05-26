@@ -167,9 +167,9 @@ class TestSingleAdapterSingleChannel:
         summary = await _get_incident_summary(db_path, event_id)
 
         dsbt = summary["delivery_state_by_target"]
-        assert isinstance(dsbt, dict), (
-            f"delivery_state_by_target must be dict, " f"got {type(dsbt).__name__}"
-        )
+        assert isinstance(
+            dsbt, dict
+        ), f"delivery_state_by_target must be dict, got {type(dsbt).__name__}"
         assert len(dsbt) == 1, (
             f"Expected exactly 1 entry for single adapter/single channel, "
             f"got {len(dsbt)}: {list(dsbt.keys())}"
@@ -477,13 +477,13 @@ class TestRetryMultiAttempt:
         dsbt = summary["delivery_state_by_target"]
 
         # Only one entry for this target key
-        assert len(dsbt) == 1, (
-            f"Expected 1 entry for same target key with 3 attempts, " f"got {len(dsbt)}"
-        )
+        assert (
+            len(dsbt) == 1
+        ), f"Expected 1 entry for same target key with 3 attempts, got {len(dsbt)}"
         entry = next(iter(dsbt.values()))
-        assert entry["attempt_number"] == 3, (
-            f"Expected attempt_number == 3 (highest), " f"got {entry['attempt_number']}"
-        )
+        assert (
+            entry["attempt_number"] == 3
+        ), f"Expected attempt_number == 3 (highest), got {entry['attempt_number']}"
 
     @pytest.mark.asyncio
     async def test_highest_attempt_reflects_latest_status(self, tmp_path: Any) -> None:
