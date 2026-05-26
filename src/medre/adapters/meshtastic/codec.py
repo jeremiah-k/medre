@@ -20,12 +20,13 @@ from medre.adapters.meshtastic.packet_classifier import (
     MeshtasticPacketClassifier,
 )
 from medre.adapters.meshtastic.packet_snapshot import snapshot_decoded, snapshot_packet
+from medre.core.contracts.adapter import AdapterCodec
 from medre.core.events.canonical import CanonicalEvent, EventRelation, NativeRef
 from medre.core.events.kinds import EventKind
 from medre.core.events.metadata import EventMetadata, NativeMetadata
 
 
-class MeshtasticCodec:
+class MeshtasticCodec(AdapterCodec):
     """Decode helper for the Meshtastic adapter.
 
     Decode uses :class:`MeshtasticPacketClassifier` as the source of truth
@@ -47,18 +48,25 @@ class MeshtasticCodec:
 
     def decode(
         self,
-        packet: dict[str, Any],
+        native_event: Any,
         channel_index: int | None = None,
+        node_info: dict[str, str] | None = None,
     ) -> CanonicalEvent:
         """Convert a native Meshtastic packet dict into a canonical event.
 
         Parameters
         ----------
-        packet:
+        native_event:
             Raw Meshtastic packet dict with native fields.
         channel_index:
             Optional channel index override; defaults to the packet's
             ``channel`` field.
+        node_info:
+            Optional dict with ``longname`` and ``shortname`` keys,
+            typically obtained from the session's node database.  When
+            provided, the values are embedded into the native metadata
+            so that downstream consumers have sender identity without
+            a second pass.
 
         Returns
         -------
@@ -76,6 +84,7 @@ class MeshtasticCodec:
         ClassificationResult.action.  The codec converts text-shaped packets
         and may be used by tests/tools to inspect metadata.
         """
+        packet = native_event
         if not isinstance(packet, dict):
             raise MeshtasticCodecError(
                 f"packet must be a dict, got {type(packet).__name__}"
@@ -183,11 +192,16 @@ class MeshtasticCodec:
 
         to_id = packet.get("toId", "") or ""
 
-        # longname/shortname are populated by the adapter from the SDK's
-        # nodes dict after decode, because text message packets do not
-        # carry user info (that comes from separate NODEINFO_APP packets).
-        longname = ""
-        shortname = ""
+        # longname/shortname are populated from node_info when provided
+        # (obtained via session.get_node_info from the SDK's nodes dict).
+        # Text message packets don't carry user info; that comes from
+        # separate NODEINFO_APP packets.
+        if node_info is not None:
+            longname = node_info.get("longname", "")
+            shortname = node_info.get("shortname", "")
+        else:
+            longname = ""
+            shortname = ""
 
         # Emoji raw value from decoded
         emoji_raw = decoded.get("emoji") if isinstance(decoded, dict) else None

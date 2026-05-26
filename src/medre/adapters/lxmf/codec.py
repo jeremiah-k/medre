@@ -12,44 +12,59 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 from medre.adapters.lxmf.errors import LxmfCodecError
 from medre.adapters.lxmf.fields import LxmfFieldsHelper
 from medre.adapters.lxmf.packet_classifier import LxmfPacketClassifier
+from medre.core.contracts.adapter import AdapterCodec
 from medre.core.events.canonical import CanonicalEvent, NativeRef
 from medre.core.events.kinds import EventKind
 from medre.core.events.metadata import EventMetadata, NativeMetadata
 
 
-class LxmfCodec:
+class LxmfCodec(AdapterCodec):
     """Decode helper for the LXMF adapter.
 
-    Decode uses :class:`LxmfPacketClassifier` as the source of truth
-    for category, sender identity, packet ID, and fields detection.
+    Implements the :class:`~medre.core.contracts.adapter.AdapterCodec`
+    ABC.  Decode uses :class:`LxmfPacketClassifier` as the source of
+    truth for category, sender identity, packet ID, and fields
+    detection.
 
     Parameters
     ----------
     adapter_id:
         Identifier of the owning adapter (used for ``source_adapter``).
     config:
-        The :class:`~medre.config.adapters.lxmf.LxmfConfig`.
+        The :class:`~medre/config/adapters/lxmf.LxmfConfig`.
+    clock:
+        Callable returning the current UTC datetime.  Defaults to
+        ``lambda: datetime.now(timezone.utc)``.  Override in tests for
+        deterministic timestamps.
     """
 
-    def __init__(self, adapter_id: str, config: Any) -> None:
+    def __init__(
+        self,
+        adapter_id: str,
+        config: Any,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
         self._adapter_id = adapter_id
         self._config = config
         self._classifier = LxmfPacketClassifier(config)
+        self._clock: Callable[[], datetime] = (
+            clock if clock is not None else (lambda: datetime.now(timezone.utc))
+        )
 
     def decode(
         self,
-        packet: dict[str, Any],
+        native_event: Any,
     ) -> CanonicalEvent:
         """Convert a native LXMF message payload dict into a canonical event.
 
         Parameters
         ----------
-        packet:
+        native_event:
             Raw LXMF message payload dict with native fields.
 
         Returns
@@ -62,6 +77,7 @@ class LxmfCodec:
         LxmfCodecError
             If the packet is fundamentally unparseable or unsupported.
         """
+        packet = native_event
         if not isinstance(packet, dict):
             raise LxmfCodecError(f"packet must be a dict, got {type(packet).__name__}")
 
@@ -140,7 +156,7 @@ class LxmfCodec:
             event_id=str(uuid.uuid4()),
             event_kind=event_kind,
             schema_version=1,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=self._clock(),
             source_adapter=self._adapter_id,
             source_transport_id=sender,
             source_channel_id=None,

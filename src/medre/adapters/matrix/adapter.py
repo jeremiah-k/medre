@@ -266,8 +266,6 @@ class MatrixAdapter(AdapterContract):
         "_config",
         "_capabilities",
         "_session",
-        "_client",
-        "_sync_task",
         "_sync_failure_stored",
         "_codec",
         "_relation_handler",
@@ -294,8 +292,6 @@ class MatrixAdapter(AdapterContract):
         self.adapter_id = config.adapter_id
         self._capabilities = _MATRIX_CAPABILITIES
         self._session: MatrixSession | None = None
-        self._client: Any = None
-        self._sync_task: asyncio.Task | None = None
         self._sync_failure_stored: Exception | None = None
         self._codec = MatrixCodec(config.adapter_id, config)
         self._relation_handler = MatrixRelationHandler()
@@ -376,10 +372,6 @@ class MatrixAdapter(AdapterContract):
         )
         await self._session.start()
 
-        # Mirror session state onto adapter for convenient access.
-        self._client = self._session.client
-        self._sync_task = self._session._sync_task
-
         ctx.logger.info("MatrixAdapter %s started", self.adapter_id)
 
         # Part D — auto-join configured rooms after startup.
@@ -406,9 +398,6 @@ class MatrixAdapter(AdapterContract):
             self._sync_failure_stored = self._session.last_sync_error
             await self._session.stop(timeout=timeout)
             self._session = None
-
-        self._client = None
-        self._sync_task = None
 
         if self.ctx is not None:
             self.ctx.logger.info("MatrixAdapter %s stopped", self.adapter_id)
@@ -452,9 +441,9 @@ class MatrixAdapter(AdapterContract):
 
         if sync_failure is not None:
             health = "failed"
-        elif self._client is None:
+        elif self._session is None or self._session.client is None:
             health = "unknown"
-        elif getattr(self._client, "logged_in", False):
+        elif getattr(self._session.client, "logged_in", False):
             health = "healthy"
         else:
             health = "failed"
@@ -566,10 +555,8 @@ class MatrixAdapter(AdapterContract):
         asyncio.CancelledError
             Propagates without swallowing task cancellation.
         """
-        client = self._client
-        if client is None:
-            # Lifecycle/startup state missing — cannot be repaired by retry.
-            raise AdapterPermanentError("client is not connected")
+        if self._session is None:
+            raise AdapterPermanentError("session is not initialized")
 
         payload_room_id = result.payload.get("room_id")
         room_id = result.target_channel or (
@@ -584,7 +571,9 @@ class MatrixAdapter(AdapterContract):
             and room_id in self._config.auto_join_rooms
             and self._session is not None
         ):
-            rooms = getattr(client, "rooms", None)
+            # Use session's client to check room membership (still session-owned).
+            client = self._session.client
+            rooms = getattr(client, "rooms", None) if client else None
             already_joined = (
                 rooms is not None and isinstance(rooms, dict) and room_id in rooms
             )
@@ -596,7 +585,7 @@ class MatrixAdapter(AdapterContract):
                     )
 
         try:
-            self._check_encrypted_room_safety(room_id, client)
+            self._check_encrypted_room_safety(room_id, self._session.client)
         except MatrixSendError as exc:
             if exc.transient:
                 raise AdapterSendError(str(exc), transient=True) from exc
@@ -611,7 +600,7 @@ class MatrixAdapter(AdapterContract):
         # Pop the internal _matrix_event_type key that the renderer uses
         # to signal non-default event types (e.g. m.reaction).  The key
         # must never leak into the homeserver content.
-        message_type = content.pop("_matrix_event_type", "m.room.message")
+        message_type = str(content.pop("_matrix_event_type", "m.room.message"))
 
         # Compute a deterministic transaction ID once before the retry
         # loop so all retry attempts reuse the same txn_id.  This allows
@@ -622,7 +611,7 @@ class MatrixAdapter(AdapterContract):
         last_exc: BaseException | None = None
         for attempt in range(_MAX_DELIVERY_RETRIES):
             try:
-                response = await client.room_send(
+                response = await self._session.room_send(
                     room_id=room_id,
                     message_type=message_type,
                     content=content,
@@ -705,12 +694,13 @@ class MatrixAdapter(AdapterContract):
 
     # -- Inbound callback ---------------------------------------------------
 
-    async def _on_room_message(self, room: Any, event: Any) -> None:
-        """nio callback for inbound room events.
+    async def _on_room_message(self, event: dict[str, Any]) -> None:
+        """Callback for inbound room events (normalized plain dict).
 
-        Decodes the native event (messages, reactions, etc.) into a
-        canonical event and publishes it into the framework's inbound
-        stream.  Self-messages (where the sender matches
+        Receives a normalized plain dict from the session boundary
+        (per §31 §7.1) — never raw nio objects.  Decodes the event
+        into a canonical event and publishes it into the framework's
+        inbound stream.  Self-messages (where the sender matches
         ``config.user_id``) are suppressed to prevent echo loops.
         Events carrying a MEDRE metadata envelope whose
         ``source_adapter`` equals this adapter's ID are also suppressed
@@ -718,24 +708,25 @@ class MatrixAdapter(AdapterContract):
 
         Parameters
         ----------
-        room:
-            The nio ``Room`` object.
         event:
-            The nio event object (``RoomMessage*``, ``ReactionEvent``,
-            etc.).
+            Normalized plain dict with keys: ``room_id``, ``sender``,
+            ``body``, ``event_id``, ``source``, ``msgtype``,
+            ``server_timestamp``, ``room``.
         """
         if self.ctx is None:
             return
 
+        room_id = event.get("room_id", "")
+        sender = event.get("sender", "")
+        room = event.get("room")
+
         # Track 4 — track room as seen
-        if self._session is not None:
-            room_id_val = getattr(room, "room_id", None)
-            if room_id_val is not None:
-                self._session._track_room(room_id_val)
+        if self._session is not None and room_id:
+            self._session._track_room(room_id)
 
         # Apply room allowlist filter
         if self._config.room_allowlist is not None:
-            if room.room_id not in self._config.room_allowlist:
+            if room_id not in self._config.room_allowlist:
                 self._inbound_filtered_allowlist += 1
                 return
 
@@ -744,7 +735,6 @@ class MatrixAdapter(AdapterContract):
         # dropped.  This check must happen before self-message suppression
         # so that pre-live self-messages are counted as startup-suppressed,
         # not self-suppressed.
-        sender = getattr(event, "sender", "")
         if self._session is not None and not self._session.is_live:
             self._inbound_suppressed_startup += 1
             self.ctx.logger.debug(
@@ -765,13 +755,13 @@ class MatrixAdapter(AdapterContract):
             return
 
         try:
-            canonical = self._codec.decode(event, room_id=room.room_id)
+            canonical = self._codec.decode(event, room_id=room_id)
 
             # MEDRE-origin loop hint suppression: if the event carries a
             # MEDRE envelope whose source_adapter matches this adapter,
             # skip publishing to prevent echo loops.  Missing or corrupt
             # envelopes are tolerated (accepted normally).
-            content = getattr(event, "source", {}).get("content", {})
+            content = event.get("source", {}).get("content", {})
             envelope = self._envelope_handler.from_content(content)
             if envelope is not None and envelope.source_adapter == self.adapter_id:
                 self._inbound_suppressed_envelope += 1

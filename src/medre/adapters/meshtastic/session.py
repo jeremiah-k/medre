@@ -210,6 +210,44 @@ class MeshtasticSession:
         """The underlying client interface, or ``None``."""
         return self._client
 
+    def get_node_info(self, node_id: str) -> dict[str, str] | None:
+        """Look up a node's longname and shortname from the SDK client.
+
+        Returns a plain dict with ``longname`` and ``shortname`` keys, or
+        ``None`` when the node is unknown or the client is unavailable.
+
+        Parameters
+        ----------
+        node_id:
+            The Meshtastic node ID to look up (e.g. ``"!abcdef12"``).
+
+        Returns
+        -------
+        dict[str, str] | None
+            ``{"longname": ..., "shortname": ...}`` or ``None``.
+        """
+        if self._client is None:
+            return None
+        client_nodes = getattr(self._client, "nodes", None)
+        if not isinstance(client_nodes, dict):
+            return None
+        node_info = client_nodes.get(node_id)
+        if not isinstance(node_info, dict):
+            return None
+        user_info = node_info.get("user")
+        if not isinstance(user_info, dict):
+            return None
+        longname = str(user_info.get("longName", "") or "")
+        shortname = str(user_info.get("shortName", "") or "")
+        if not longname and not shortname:
+            return None
+        result: dict[str, str] = {}
+        if longname:
+            result["longname"] = longname
+        if shortname:
+            result["shortname"] = shortname
+        return result
+
     # -- Lifecycle ------------------------------------------------------------
 
     async def start(
@@ -608,7 +646,11 @@ class MeshtasticSession:
             if conn == "tcp":
                 from meshtastic.tcp_interface import TCPInterface
 
-                assert self._config.host is not None  # validated by config
+                if self._config.host is None:
+                    raise RuntimeError(
+                        "config.host must be set for TCP connection "
+                        "(validated by config)"
+                    )
                 return TCPInterface(
                     hostname=self._config.host,
                     portNumber=(
@@ -624,7 +666,11 @@ class MeshtasticSession:
                     BLEInterface,  # type: ignore[attr-defined]
                 )
 
-                assert self._config.ble_address is not None
+                if self._config.ble_address is None:
+                    raise RuntimeError(
+                        "config.ble_address must be set for BLE connection "
+                        "(validated by config)"
+                    )
                 return BLEInterface(address=self._config.ble_address)
             else:
                 raise MeshtasticConnectionError(

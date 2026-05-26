@@ -30,13 +30,9 @@ import logging
 from types import MappingProxyType
 from typing import Any
 
+from medre.adapters.meshcore.adapter import increment_classifier_counters
 from medre.adapters.meshcore.codec import MeshCoreCodec
-from medre.adapters.meshcore.packet_classifier import (
-    REASON_ACK,
-    REASON_EMPTY_TEXT,
-    REASON_UNKNOWN,
-    MeshCorePacketClassifier,
-)
+from medre.adapters.meshcore.packet_classifier import MeshCorePacketClassifier
 from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.core.contracts.adapter import (
     AdapterCapabilities,
@@ -397,32 +393,7 @@ class FakeMeshCoreAdapter(AdapterContract):
             )
 
         classification = self._classifier.classify(packet)
-        self._classifier_packets_seen += 1
-
-        action = classification.action
-        if action == "relay":
-            self._classifier_packets_relayed += 1
-        elif action == "ignore":
-            self._classifier_packets_ignored += 1
-        elif action == "drop":
-            self._classifier_packets_dropped += 1
-        elif action == "deferred":
-            self._classifier_packets_deferred += 1
-
-        # Sub-counters (reason/action specific)
-        if classification.reason == REASON_ACK:
-            self._classifier_packets_ack_ignored += 1
-        elif classification.reason == REASON_EMPTY_TEXT:
-            self._classifier_packets_empty_text_ignored += 1
-        elif classification.reason == REASON_UNKNOWN:
-            self._classifier_packets_unknown_deferred += 1
-        elif (
-            classification.action == "relay"
-            and classification.category == "direct_message"
-        ):
-            self._classifier_packets_dm_relayed += 1
-        elif classification.category == "malformed":
-            self._classifier_packets_malformed += 1
+        increment_classifier_counters(self, classification)
 
         # Gate: only relay action packets enter the codec pipeline
         if classification.action != "relay":

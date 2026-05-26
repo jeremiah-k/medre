@@ -101,6 +101,48 @@ _MESHCORE_CAPS_BASE = AdapterCapabilities(
 )
 
 
+def increment_classifier_counters(adapter: Any, classification: Any) -> None:
+    """Increment aggregate classifier counters based on a ClassificationResult.
+
+    Shared by :class:`MeshCoreAdapter` and
+    :class:`~medre.adapters.fakes.meshcore.FakeMeshCoreAdapter` to avoid
+    duplicating the counter-switch logic.
+
+    Parameters
+    ----------
+    adapter:
+        An object with the ``_classifier_packets_*`` and
+        ``_inbound_published`` integer attributes.
+    classification:
+        A :class:`~medre.adapters.meshcore.packet_classifier.ClassificationResult`.
+    """
+    adapter._classifier_packets_seen += 1
+
+    action = classification.action
+    if action == "relay":
+        adapter._classifier_packets_relayed += 1
+    elif action == "ignore":
+        adapter._classifier_packets_ignored += 1
+    elif action == "drop":
+        adapter._classifier_packets_dropped += 1
+    elif action == "deferred":
+        adapter._classifier_packets_deferred += 1
+
+    # Sub-counters (reason/action specific)
+    if classification.reason == REASON_ACK:
+        adapter._classifier_packets_ack_ignored += 1
+    elif classification.reason == REASON_EMPTY_TEXT:
+        adapter._classifier_packets_empty_text_ignored += 1
+    elif classification.reason == REASON_UNKNOWN:
+        adapter._classifier_packets_unknown_deferred += 1
+    elif (
+        classification.action == "relay" and classification.category == "direct_message"
+    ):
+        adapter._classifier_packets_dm_relayed += 1
+    elif classification.category == "malformed":
+        adapter._classifier_packets_malformed += 1
+
+
 class MeshCoreAdapter(AdapterContract):
     """Transport adapter for MeshCore nodes.
 
@@ -133,7 +175,6 @@ class MeshCoreAdapter(AdapterContract):
             max_text_bytes=config.max_text_bytes,
             max_text_chars=None,
         )
-        self._client: Any = None
         self._codec = MeshCoreCodec(config.adapter_id, config)
         self._classifier = MeshCorePacketClassifier(config)
         self.ctx: AdapterContext | None = None
@@ -238,7 +279,6 @@ class MeshCoreAdapter(AdapterContract):
             await self._session.stop()
             self._session = None
 
-        self._client = None
         self._started = False
         if self.ctx is not None:
             self.ctx.logger.info("MeshCoreAdapter %s stopped", self.adapter_id)
@@ -255,8 +295,6 @@ class MeshCoreAdapter(AdapterContract):
             - ``"healthy"`` — adapter started and session connected.
             - ``"degraded"`` — adapter started but session disconnected.
             - ``"unknown"`` — adapter not yet started.
-            - ``"failed"`` — client exists but start did not complete
-              (subscription failure).
         """
         if self._started:
             if self._session is not None and self._session.connected:
@@ -265,9 +303,6 @@ class MeshCoreAdapter(AdapterContract):
                 health = "degraded"
             else:
                 health = "degraded"
-        elif self._client is not None and not self._started:
-            # Client exists but start did not complete — subscription failure.
-            health = "failed"
         else:
             health = "unknown"
         return AdapterInfo(
@@ -472,37 +507,9 @@ class MeshCoreAdapter(AdapterContract):
     def _increment_classifier_counters(self, classification: Any) -> None:
         """Increment aggregate classifier counters based on a ClassificationResult.
 
-        Parameters
-        ----------
-        classification:
-            A :class:`~medre.adapters.meshcore.packet_classifier.ClassificationResult`.
+        Delegates to :func:`increment_classifier_counters`.
         """
-        self._classifier_packets_seen += 1
-
-        action = classification.action
-        if action == "relay":
-            self._classifier_packets_relayed += 1
-        elif action == "ignore":
-            self._classifier_packets_ignored += 1
-        elif action == "drop":
-            self._classifier_packets_dropped += 1
-        elif action == "deferred":
-            self._classifier_packets_deferred += 1
-
-        # Sub-counters (reason/action specific)
-        if classification.reason == REASON_ACK:
-            self._classifier_packets_ack_ignored += 1
-        elif classification.reason == REASON_EMPTY_TEXT:
-            self._classifier_packets_empty_text_ignored += 1
-        elif classification.reason == REASON_UNKNOWN:
-            self._classifier_packets_unknown_deferred += 1
-        elif (
-            classification.action == "relay"
-            and classification.category == "direct_message"
-        ):
-            self._classifier_packets_dm_relayed += 1
-        elif classification.category == "malformed":
-            self._classifier_packets_malformed += 1
+        increment_classifier_counters(self, classification)
 
     def diagnostics(self) -> dict[str, Any]:
         """Return adapter-level diagnostics composed from session state.
@@ -555,7 +562,7 @@ class MeshCoreAdapter(AdapterContract):
 
     # -- Codec access -------------------------------------------------------
 
-    def get_codec(self) -> MeshCoreCodec:  # type: ignore[override]
+    def get_codec(self) -> MeshCoreCodec:
         """Return the adapter's codec.
 
         Returns

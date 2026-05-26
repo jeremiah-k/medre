@@ -107,19 +107,29 @@ class MatrixCodec(AdapterCodec):
         MatrixCodecError
             If the native event is missing required ``.source`` data.
         """
-        source = getattr(native_event, "source", None)
+        # Support both plain dicts (from the session boundary, per §31 §7.1)
+        # and nio-like objects (for direct test use).
+        if isinstance(native_event, dict):
+            source = native_event.get("source")
+            sender = native_event.get("sender", "")
+            body = native_event.get("body", "")
+            event_id = native_event.get("event_id", "")
+            msgtype = native_event.get("msgtype")
+        else:
+            source = getattr(native_event, "source", None)
+            sender = getattr(native_event, "sender", "")
+            body = getattr(native_event, "body", "")
+            event_id = getattr(native_event, "event_id", "")
+            msgtype = None
         if source is None:
             raise MatrixCodecError("native_event is missing .source attribute")
-
-        sender = getattr(native_event, "sender", "")
-        body = getattr(native_event, "body", "")
-        event_id = getattr(native_event, "event_id", "")
 
         if not body:
             body = ""
 
         content = source.get("content", {})
-        msgtype = content.get("msgtype") or getattr(native_event, "msgtype", None)
+        if msgtype is None:
+            msgtype = content.get("msgtype")
         effective_msgtype = (
             msgtype if isinstance(msgtype, str) and msgtype else "m.text"
         )
@@ -339,17 +349,24 @@ class MatrixCodec(AdapterCodec):
         back to ``now`` preserves behavior for synthetic events that do not
         model native timestamps.
         """
+        # Support both plain dicts (from the session boundary, per §31 §7.1)
+        # and nio-like objects (for direct test use).
+        if isinstance(native_event, dict):
+            raw = native_event.get("server_timestamp") or native_event.get(
+                "origin_server_ts"
+            )
+        else:
+            raw = getattr(native_event, "server_timestamp", None) or getattr(
+                native_event, "origin_server_ts", None
+            )
         raw = (
-            getattr(native_event, "server_timestamp", None)
-            or getattr(native_event, "origin_server_ts", None)
+            raw
             or source.get("origin_server_ts")
             or source.get("unsigned", {}).get("age_ts")
         )
         if isinstance(raw, (int, float)):
-            # Matrix timestamps are milliseconds. Accept seconds for defensive
-            # compatibility with lightweight fakes.
-            seconds = raw / 1000 if raw > 10_000_000_000 else raw
-            return datetime.fromtimestamp(seconds, tz=timezone.utc)
+            # Matrix timestamps are always milliseconds since epoch.
+            return datetime.fromtimestamp(raw / 1000, tz=timezone.utc)
         return datetime.now(timezone.utc)
 
     @staticmethod

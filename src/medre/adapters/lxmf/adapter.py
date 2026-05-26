@@ -461,7 +461,7 @@ class LxmfAdapter(AdapterContract):
 
     # -- Codec access -------------------------------------------------------
 
-    def get_codec(self) -> LxmfCodec:  # type: ignore[override]
+    def get_codec(self) -> LxmfCodec:
         """Return the adapter's codec.
 
         Returns
