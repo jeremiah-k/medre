@@ -203,7 +203,7 @@ These are explicitly out of scope for tranche 1:
 ## Tranche 5: Delivery Semantics Verification and Session Boundary Hardening
 
 > **Added:** 2026-05-26
-> **Scope:** Test coverage hardening. No source code changes to adapter, session, or codec.
+> **Scope:** Delivery semantics hardening. Threading bridge added (session.py call_soon_threadsafe, adapter.py delivery_note), plus test coverage and doc hardening.
 
 ### Delivery Semantics Verification
 

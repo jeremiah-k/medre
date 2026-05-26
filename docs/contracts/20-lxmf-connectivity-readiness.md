@@ -885,7 +885,7 @@ Key findings that this contract consolidates:
   (signature_validated, source_hash, timestamp, destination_hash,
   delivery_method, has_fields).
 
-- **No source code changes.** All Tranche 5 work is tests and docs. The
+- **Source changes:** Threading bridge in session.py (`call_soon_threadsafe` for Reticulum→asyncio), honest delivery_note in adapter.py. Plus test and doc hardening. The
   adapter, session, codec, renderer, fields helper, and config modules
   are untouched.
 

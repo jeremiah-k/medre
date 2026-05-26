@@ -1011,7 +1011,7 @@ rnsd &
 ## 19.5 Tranche 5: Hardening Summary
 
 > **Added:** 2026-05-26
-> **Scope:** Test coverage and documentation hardening only. No source code changes.
+> **Scope:** Delivery semantics hardening (threading bridge in session.py, honest delivery_note in adapter.py), plus test coverage and doc hardening.
 
 ### Test Coverage Added
 
@@ -1029,7 +1029,7 @@ Tranche 5 adds test classes covering areas previously only implied by existing t
 
 ### What Was Not Done
 
-- No source code changes to adapter, session, codec, renderer, or config.
+- Added `call_soon_threadsafe` threading bridge in session.py for Reticulum→asyncio, and honest delivery_note in adapter.py
 - No live Reticulum testing performed.
 - No new SDK APIs discovered or documented.
 
