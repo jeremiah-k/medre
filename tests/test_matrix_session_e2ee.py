@@ -659,9 +659,11 @@ class TestE2EEKeyManagement:
 
     @staticmethod
     def _make_e2e_session(mock_nio, **sync_overrides):
-        """Create an E2EE-enabled session with controllable sync.
-
-        Returns (session, client, sync_mock).
+        """Prepare config and mocks for an E2EE-enabled session with a
+        controllable sync mock.  Mocks ``olm``, ``store``, all four
+        key-management methods (``keys_upload``, ``keys_query``,
+        ``keys_claim``, ``send_to_device_messages``), and the client
+        ``sync`` method.  Returns ``(config, client, sync_mock)``.
         """
 
         client = mock_nio.AsyncClient.return_value

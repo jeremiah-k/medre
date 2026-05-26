@@ -880,7 +880,11 @@ class MatrixSession:
                         room_id,
                     )
             except Exception:
-                pass  # best-effort key request
+                self._logger.debug(
+                    "Key request failed for %s",
+                    event_id,
+                    exc_info=True,
+                )  # best-effort key request
 
     def _prune_undecryptable_dedup(self, now: float) -> None:
         """Evict expired entries from the live undecryptable dedup cache.

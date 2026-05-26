@@ -828,6 +828,7 @@ class E2EETestEnvironment:
         # Second nio client for genuine client-side encrypted sending.
         # Set by init_test_e2ee_client(); closed by close_test_e2ee_client().
         self.test_e2ee_client: Any = None
+        self._logger = logging.getLogger(f"medre.tests.integration.e2ee.{encrypted_room_id}")
 
     # Convenience proxies for commonly accessed fields.
     @property
@@ -863,7 +864,7 @@ class E2EETestEnvironment:
 
         1. ``restore_login()`` with the test-user credentials.
         2. Initial sync (``full_state=True``) to learn room encryption state.
-        3. Key upload / query / claim cycle to bootstrap crypto.
+        3. Key upload / query / claim / send_to_device cycle to bootstrap crypto.
 
         Requires ``HAS_E2EE`` to be ``True`` (ensured by test-level skipif).
 
@@ -880,6 +881,10 @@ class E2EETestEnvironment:
 
         import nio
 
+        assert self.test_device_id is not None, (
+            "test_device_id must be captured from login response for E2EE"
+        )
+
         client_config = nio.AsyncClientConfig(encryption_enabled=True)
 
         client = nio.AsyncClient(
@@ -892,7 +897,7 @@ class E2EETestEnvironment:
 
         client.restore_login(
             user_id=self.test_user_id,
-            device_id=self.test_device_id or "",
+            device_id=self.test_device_id,
             access_token=self.test_access_token,
         )
 
@@ -907,6 +912,21 @@ class E2EETestEnvironment:
         # for their devices.
         if client.should_query_keys:
             await client.keys_query()
+
+        # Claim keys for other users' devices (e.g. the bot) so that
+        # Megolm outbound sessions can encrypt for them.
+        if client.should_claim_keys:
+            try:
+                users = client.get_users_for_key_claiming()
+                if users:
+                    self._logger.debug(
+                        "E2EE test client claiming keys for %d user(s)", len(users)
+                    )
+                    await client.keys_claim(users)
+            except Exception as exc:
+                self._logger.debug(
+                    "E2EE test client key claim failed (non-fatal): %s", exc
+                )
 
         # Process any pending to-device messages (key shares).
         await client.send_to_device_messages()
@@ -1021,9 +1041,6 @@ def synapse_e2ee_env(
     bot_store_dir = tempfile.mkdtemp(prefix="medre-e2ee-bot-")
     test_store_dir = tempfile.mkdtemp(prefix="medre-e2ee-test-")
 
-    # Update synapse_env with store_path for reuse.
-    synapse_env.bot_store_path = bot_store_dir
-
     logger.info(
         "E2EE env ready: encrypted_room=%s bot_device=%s test_device=%s",
         encrypted_room_id,
@@ -1040,10 +1057,7 @@ def synapse_e2ee_env(
 
     # Cleanup store directories.
     for d in (bot_store_dir, test_store_dir):
-        try:
-            shutil.rmtree(d, ignore_errors=True)
-        except Exception:
-            pass
+        shutil.rmtree(d, ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------

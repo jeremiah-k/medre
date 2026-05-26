@@ -167,7 +167,8 @@ class TestMatrixSessionResourceContainment:
                 "secret" not in key.lower()
             ), f"Diagnostics contains secret-like field: {key}"
             assert (
-                "key" not in key.lower() or key == "encryption_mode"
+                "key" not in key.lower()
+                or key in ("encryption_mode", "device_keys_uploaded", "key_query_needed")
             ), f"Diagnostics contains key-like field: {key}"
 
 

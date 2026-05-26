@@ -41,7 +41,7 @@ Tests are gated behind ``pytest.mark.docker`` and ``HAS_E2EE`` (requires
 
 Running locally::
 
-    pip install -e ".[matrix,e2e]"
+    pip install -e ".[matrix-e2e]"
     pytest tests/integration/test_synapse_e2ee_smoke.py -m docker -v
 
 Evidence classification
@@ -99,7 +99,7 @@ pytestmark: list[Any] = [
     pytest.mark.docker,
     pytest.mark.skipif(
         not HAS_E2EE,
-        reason="mindroom-nio[e2e] not installed; run: pip install '.[matrix,e2e]'",
+        reason="mindroom-nio[e2e] not installed; pip install -e \".[matrix-e2e]\"",
     ),
 ]
 
@@ -351,7 +351,14 @@ class TestSynapseE2EESmoke:
             # 2. Allow time for the bot's initial sync and key upload.
             #    The bot needs to upload its device keys before the test
             #    client can query them and encrypt for the bot's device.
-            await asyncio.sleep(5.0)
+            #    Poll diagnostics instead of a fixed sleep so we proceed
+            #    as soon as the initial sync completes (or time out).
+            deadline = time.monotonic() + 30.0
+            while time.monotonic() < deadline:
+                diag = matrix_adapter.diagnostics()
+                if diag.get("initial_sync_completed"):
+                    break
+                await asyncio.sleep(0.5)
 
             # 3. Create and initialise the second nio client for the
             #    test user.  This performs restore_login, initial sync,
