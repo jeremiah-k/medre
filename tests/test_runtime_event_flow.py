@@ -271,7 +271,9 @@ class TestOutboundDeliveryReachesCorrectAdapter:
             beta = app.adapters["mx_beta"]
 
             # Simulate inbound on alpha — should route to beta
-            event = alpha.make_event("Route this to beta", event_kind=EventKind.MESSAGE_TEXT)
+            event = alpha.make_event(
+                "Route this to beta", event_kind=EventKind.MESSAGE_TEXT
+            )
             event = CanonicalEvent(
                 event_id=event.event_id,
                 event_kind=event.event_kind,

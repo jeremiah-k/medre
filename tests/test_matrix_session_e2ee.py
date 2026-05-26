@@ -243,7 +243,9 @@ class TestEncryptedRoomSafety:
 
                 response_mock = MagicMock()
                 response_mock.event_id = "$event_456"
-                adapter._session._client.room_send = AsyncMock(return_value=response_mock)
+                adapter._session._client.room_send = AsyncMock(
+                    return_value=response_mock
+                )
 
                 result = RenderingResult(
                     event_id="evt_4",

@@ -16,7 +16,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timezone
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -1025,38 +1024,46 @@ class TestRapidFireBadGood:
         room = make_nio_room("!rapid_room:example.com")
 
         # bad (no .source)
-        await adapter._on_room_message({
-            "room_id": room.room_id,
-            "sender": "@x:example.com",
-            "event_id": "$rb1",
-            "body": "x",
-            "msgtype": "m.text",
-            "server_timestamp": 0,
-        })
+        await adapter._on_room_message(
+            {
+                "room_id": room.room_id,
+                "sender": "@x:example.com",
+                "event_id": "$rb1",
+                "body": "x",
+                "msgtype": "m.text",
+                "server_timestamp": 0,
+            }
+        )
 
         # good
         await adapter._on_room_message(
             to_event_dict(
                 room,
-                make_nio_event(sender="@a:example.com", event_id="$rg1", body="mx-good-1"),
+                make_nio_event(
+                    sender="@a:example.com", event_id="$rg1", body="mx-good-1"
+                ),
             ),
         )
 
         # bad (no .source again)
-        await adapter._on_room_message({
-            "room_id": room.room_id,
-            "sender": "@y:example.com",
-            "event_id": "$rb2",
-            "body": "y",
-            "msgtype": "m.text",
-            "server_timestamp": 0,
-        })
+        await adapter._on_room_message(
+            {
+                "room_id": room.room_id,
+                "sender": "@y:example.com",
+                "event_id": "$rb2",
+                "body": "y",
+                "msgtype": "m.text",
+                "server_timestamp": 0,
+            }
+        )
 
         # good
         await adapter._on_room_message(
             to_event_dict(
                 room,
-                make_nio_event(sender="@b:example.com", event_id="$rg2", body="mx-good-2"),
+                make_nio_event(
+                    sender="@b:example.com", event_id="$rg2", body="mx-good-2"
+                ),
             ),
         )
 

@@ -237,7 +237,7 @@ class TestAdapterStartBehavior:
         try:
             await adapter.start(make_matrix_context())
             assert adapter._session is not None
-            assert adapter._client is not None
+            assert adapter._session._client is not None
         finally:
             await adapter.stop()
 
@@ -427,7 +427,8 @@ class TestAdapterDelegatesToSession:
         try:
             await adapter.start(make_matrix_context())
             assert adapter._session is not None
-            assert adapter._client is adapter._session.client
+            assert adapter._session._client is not None
+            assert adapter._session._client is mock_nio.AsyncClient.return_value
         finally:
             await adapter.stop()
 
@@ -437,7 +438,6 @@ class TestAdapterDelegatesToSession:
         await adapter.start(make_matrix_context())
         await adapter.stop()
         assert adapter._session is None
-        assert adapter._client is None
 
     async def test_adapter_health_check_delegates(self, mock_nio) -> None:
         config = make_matrix_config()
@@ -516,17 +516,21 @@ class TestReactionCallbackRegistration:
             await session.stop()
 
     async def test_reaction_callback_uses_same_handler(self, mock_nio) -> None:
-        """The reaction callback is the same function as message callback."""
+        """The reaction callback uses the same internal handler as the message callback."""
         cb = MagicMock()
         config = make_matrix_config()
         session = MatrixSession(config, message_callback=cb)
         try:
             await session.start()
             calls = mock_nio.AsyncClient.return_value.add_event_callback.call_args_list
-            # Find the call that includes ReactionEvent
+            # The session wraps the user callback in _on_nio_event.
+            # Both message and reaction callbacks should use the same internal handler.
+            # Bound methods create new objects on each access, so compare __func__.
+            handler_func = session._on_nio_event.__func__
+            # Find the call that includes ReactionEvent and verify it uses the session handler
             for call in calls:
                 if len(call[0]) >= 2 and mock_nio.ReactionEvent in call[0][1]:
-                    assert call[0][0] is cb
+                    assert call[0][0].__func__ is handler_func
                     break
             else:
                 pytest.fail("No ReactionEvent callback found")

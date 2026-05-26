@@ -194,7 +194,9 @@ class TestSyntheticEventRoutesThroughPipeline:
             assert isinstance(alpha, FakeMatrixAdapter)
             assert isinstance(beta, FakeMatrixAdapter)
 
-            event = alpha.make_event("Route this to beta", event_kind=EventKind.MESSAGE_TEXT)
+            event = alpha.make_event(
+                "Route this to beta", event_kind=EventKind.MESSAGE_TEXT
+            )
             await alpha.simulate_inbound(event)
 
             # Alpha should have recorded the inbound.
@@ -222,7 +224,9 @@ class TestSyntheticEventRoutesThroughPipeline:
             mx = app.adapters["mx_src"]
             assert isinstance(mx, FakeMatrixAdapter)
 
-            event = mx.make_event("Cross-transport message", event_kind=EventKind.MESSAGE_TEXT)
+            event = mx.make_event(
+                "Cross-transport message", event_kind=EventKind.MESSAGE_TEXT
+            )
             await mx.simulate_inbound(event)
 
             # Meshtastic adapter should have received the delivery.
@@ -247,7 +251,9 @@ class TestSyntheticEventRoutesThroughPipeline:
         try:
             mx = app.adapters["fake_matrix"]
             assert isinstance(mx, FakeMatrixAdapter)
-            event = mx.make_event("No route for this", event_kind=EventKind.MESSAGE_TEXT)
+            event = mx.make_event(
+                "No route for this", event_kind=EventKind.MESSAGE_TEXT
+            )
             await mx.simulate_inbound(event)
 
             # Event should be stored.
@@ -285,7 +291,9 @@ class TestDeliveryReceiptGenerated:
         try:
             alpha = app.adapters["mx_alpha"]
             assert isinstance(alpha, FakeMatrixAdapter)
-            event = alpha.make_event("Generate receipt", event_kind=EventKind.MESSAGE_TEXT)
+            event = alpha.make_event(
+                "Generate receipt", event_kind=EventKind.MESSAGE_TEXT
+            )
             await alpha.simulate_inbound(event)
 
             # Check storage for receipts.
@@ -597,7 +605,9 @@ class TestRepeatedStartStopCycles:
                 assert isinstance(beta, FakeMatrixAdapter)
 
                 # Route an event.
-                event = alpha.make_event(f"Soak cycle {cycle}", event_kind=EventKind.MESSAGE_TEXT)
+                event = alpha.make_event(
+                    f"Soak cycle {cycle}", event_kind=EventKind.MESSAGE_TEXT
+                )
                 await alpha.simulate_inbound(event)
 
                 # Verify delivery occurred.
@@ -657,7 +667,9 @@ class TestFailureKindIntegration:
             mesh.set_deliver_failure(True)
 
             mx = app.adapters["mx_src"]
-            event = mx.make_event("will fail transiently", event_kind=EventKind.MESSAGE_TEXT)
+            event = mx.make_event(
+                "will fail transiently", event_kind=EventKind.MESSAGE_TEXT
+            )
             outcomes = await app.pipeline_runner.handle_ingress(event)
 
             assert len(outcomes) == 1
@@ -692,7 +704,9 @@ class TestFailureKindIntegration:
             beta.deliver = _permanent_fail  # type: ignore[assignment]
 
             alpha = app.adapters["mx_alpha"]
-            event = alpha.make_event("will fail permanently", event_kind=EventKind.MESSAGE_TEXT)
+            event = alpha.make_event(
+                "will fail permanently", event_kind=EventKind.MESSAGE_TEXT
+            )
             outcomes = await app.pipeline_runner.handle_ingress(event)
 
             assert len(outcomes) == 1
@@ -715,7 +729,9 @@ class TestFailureKindIntegration:
         app.router.add_route(route)
         try:
             alpha = app.adapters["mx_alpha"]
-            event = alpha.make_event("routed to missing adapter", event_kind=EventKind.MESSAGE_TEXT)
+            event = alpha.make_event(
+                "routed to missing adapter", event_kind=EventKind.MESSAGE_TEXT
+            )
             outcomes = await app.pipeline_runner.handle_ingress(event)
 
             assert len(outcomes) == 1
@@ -744,7 +760,9 @@ class TestFailureKindIntegration:
             app.rendering_pipeline.render = _bad_render  # type: ignore[assignment]
 
             alpha = app.adapters["mx_alpha"]
-            event = alpha.make_event("renderer will fail", event_kind=EventKind.MESSAGE_TEXT)
+            event = alpha.make_event(
+                "renderer will fail", event_kind=EventKind.MESSAGE_TEXT
+            )
             outcomes = await app.pipeline_runner.handle_ingress(event)
 
             assert len(outcomes) == 1
@@ -774,7 +792,9 @@ class TestFailureKindIntegration:
             app.router.match = _bad_match  # type: ignore[assignment]
 
             alpha = app.adapters["mx_alpha"]
-            event = alpha.make_event("planner will fail", event_kind=EventKind.MESSAGE_TEXT)
+            event = alpha.make_event(
+                "planner will fail", event_kind=EventKind.MESSAGE_TEXT
+            )
             outcomes = await app.pipeline_runner.handle_ingress(event)
 
             assert len(outcomes) == 1
@@ -796,7 +816,9 @@ class TestFailureKindIntegration:
         app.router.add_route(route)
         try:
             alpha = app.adapters["mx_alpha"]
-            event = alpha.make_event("deadline already passed", event_kind=EventKind.MESSAGE_TEXT)
+            event = alpha.make_event(
+                "deadline already passed", event_kind=EventKind.MESSAGE_TEXT
+            )
             # Store event manually.
             await app.pipeline_runner.store_event(event)
 
