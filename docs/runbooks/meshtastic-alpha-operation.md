@@ -1027,23 +1027,23 @@ meshtastic --port /dev/ttyACM0 --nodes   # Node DB listing
 
 When recording live evidence, capture these versions:
 
-| Dependency          | Capture command                              | Example result           |
-| ------------------- | -------------------------------------------- | ------------------------ |
-| Python              | `python3 --version`                          | 3.12.3                   |
-| medre               | `grep 'version = ' pyproject.toml`           | 0.1.0                    |
-| mtjk                | `pip show mtjk`                              | 2.7.8.post2+             |
-| pyserial            | `pip show pyserial`                          | 3.5                      |
-| Firmware            | `meshtastic --info` (firmware_version)       | 2.7.19.bb3d6d5           |
-| Hardware model      | `meshtastic --info` (hwModel)                | TLORA_V2_1_1P6           |
-| Node ID             | `meshtastic --info` (myNodeInfo.num)         | !25d6e474                |
+| Dependency     | Capture command                        | Example result |
+| -------------- | -------------------------------------- | -------------- |
+| Python         | `python3 --version`                    | 3.12.3         |
+| medre          | `grep 'version = ' pyproject.toml`     | 0.1.0          |
+| mtjk           | `pip show mtjk`                        | 2.7.8.post2+   |
+| pyserial       | `pip show pyserial`                    | 3.5            |
+| Firmware       | `meshtastic --info` (firmware_version) | 2.7.19.bb3d6d5 |
+| Hardware model | `meshtastic --info` (hwModel)          | TLORA_V2_1_1P6 |
+| Node ID        | `meshtastic --info` (myNodeInfo.num)   | !25d6e474      |
 
 ### Evidence Boundaries
 
-| Evidence type              | Date       | Result                 | Boundary                         |
-| -------------------------- | ---------- | ---------------------- | -------------------------------- |
-| Adapter live pytest        | 2026-05-10 | 10/10 passed (H-tier)  | Serial, external live (H-tier)   |
-| CLI-level serial validation| 2026-05-12 | 1 send, 3 reconnects   | Hardware (R-tier, CLI-level)     |
-| MEDRE adapter live pytest  | 2026-05-25 | NOT EXECUTED           | mtjk not installed, no radio     |
+| Evidence type               | Date       | Result                | Boundary                       |
+| --------------------------- | ---------- | --------------------- | ------------------------------ |
+| Adapter live pytest         | 2026-05-10 | 10/10 passed (H-tier) | Serial, external live (H-tier) |
+| CLI-level serial validation | 2026-05-12 | 1 send, 3 reconnects  | Hardware (R-tier, CLI-level)   |
+| MEDRE adapter live pytest   | 2026-05-25 | NOT EXECUTED          | mtjk not installed, no radio   |
 
 ### Test Results
 

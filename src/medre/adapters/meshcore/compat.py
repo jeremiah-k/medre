@@ -14,7 +14,7 @@ from __future__ import annotations
 HAS_MESHCORE: bool
 
 try:
-    import meshcore  # noqa: F401
+    import meshcore  # type: ignore[import-unresolved]  # noqa: F401
 
     HAS_MESHCORE = True
 except ImportError:

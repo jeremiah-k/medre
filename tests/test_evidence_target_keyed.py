@@ -26,7 +26,6 @@ from medre.core.events.metadata import EventMetadata
 from medre.core.storage.sqlite import SQLiteStorage
 from medre.runtime.evidence._bundle import collect_evidence_bundle
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -169,8 +168,7 @@ class TestSingleAdapterSingleChannel:
 
         dsbt = summary["delivery_state_by_target"]
         assert isinstance(dsbt, dict), (
-            f"delivery_state_by_target must be dict, "
-            f"got {type(dsbt).__name__}"
+            f"delivery_state_by_target must be dict, " f"got {type(dsbt).__name__}"
         )
         assert len(dsbt) == 1, (
             f"Expected exactly 1 entry for single adapter/single channel, "
@@ -333,9 +331,7 @@ class TestSameAdapterTwoChannels:
         assert failed["failure_kind"] == "adapter_transient"
 
         # Find the sent entry
-        sent_entries = [
-            (k, v) for k, v in dsbt.items() if v.get("status") == "sent"
-        ]
+        sent_entries = [(k, v) for k, v in dsbt.items() if v.get("status") == "sent"]
         assert len(sent_entries) == 1
         _, sent = sent_entries[0]
         assert sent["target_channel"] == "ch-sent"
@@ -482,19 +478,15 @@ class TestRetryMultiAttempt:
 
         # Only one entry for this target key
         assert len(dsbt) == 1, (
-            f"Expected 1 entry for same target key with 3 attempts, "
-            f"got {len(dsbt)}"
+            f"Expected 1 entry for same target key with 3 attempts, " f"got {len(dsbt)}"
         )
         entry = next(iter(dsbt.values()))
         assert entry["attempt_number"] == 3, (
-            f"Expected attempt_number == 3 (highest), "
-            f"got {entry['attempt_number']}"
+            f"Expected attempt_number == 3 (highest), " f"got {entry['attempt_number']}"
         )
 
     @pytest.mark.asyncio
-    async def test_highest_attempt_reflects_latest_status(
-        self, tmp_path: Any
-    ) -> None:
+    async def test_highest_attempt_reflects_latest_status(self, tmp_path: Any) -> None:
         """When attempt 2 succeeded but attempt 3 exists, entry shows attempt 3."""
         event_id = "ev-tk-retry-status-001"
         db_path = str(tmp_path / "retry-status.db")
@@ -594,9 +586,10 @@ class TestDeadLetteredAndSentDifferentChannels:
         )
 
         statuses = {v["status"] for v in dsbt.values()}
-        assert statuses == {"dead_lettered", "sent"}, (
-            f"Expected both 'dead_lettered' and 'sent' statuses, got {statuses}"
-        )
+        assert statuses == {
+            "dead_lettered",
+            "sent",
+        }, f"Expected both 'dead_lettered' and 'sent' statuses, got {statuses}"
 
     @pytest.mark.asyncio
     async def test_dead_lettered_entry_fields(self, tmp_path: Any) -> None:
@@ -633,9 +626,7 @@ class TestDeadLetteredAndSentDifferentChannels:
         summary = await _get_incident_summary(db_path, event_id)
         dsbt = summary["delivery_state_by_target"]
 
-        dl_entries = [
-            v for v in dsbt.values() if v.get("status") == "dead_lettered"
-        ]
+        dl_entries = [v for v in dsbt.values() if v.get("status") == "dead_lettered"]
         assert len(dl_entries) == 1
         dl = dl_entries[0]
         assert dl["target_channel"] == "ch-dl"
@@ -678,9 +669,9 @@ class TestCompositeKeyDeterministicJsonSafe:
 
         for key in dsbt:
             parsed = json.loads(key)
-            assert isinstance(parsed, dict), (
-                f"Composite key must be a JSON dict, got {type(parsed).__name__}: {key!r}"
-            )
+            assert isinstance(
+                parsed, dict
+            ), f"Composite key must be a JSON dict, got {type(parsed).__name__}: {key!r}"
 
     @pytest.mark.asyncio
     async def test_key_contains_target_components(self, tmp_path: Any) -> None:
@@ -743,9 +734,9 @@ class TestCompositeKeyDeterministicJsonSafe:
         summary2 = await _get_incident_summary(db_path, event_id)
         dsbt2 = summary2["delivery_state_by_target"]
         key2 = next(iter(dsbt2.keys()))
-        assert key == key2, (
-            f"Composite key not deterministic across calls: {key!r} != {key2!r}"
-        )
+        assert (
+            key == key2
+        ), f"Composite key not deterministic across calls: {key!r} != {key2!r}"
 
         # Re-serialise parsed key and verify round-trip stability.
         parsed = json.loads(key)
@@ -1078,9 +1069,9 @@ class TestNullTargetChannel:
         assert len(dsbt) == 1
         key = next(iter(dsbt.keys()))
         parsed = json.loads(key)
-        assert parsed["target_channel"] is None, (
-            f"Expected target_channel=null in composite key, got {parsed['target_channel']!r}"
-        )
+        assert (
+            parsed["target_channel"] is None
+        ), f"Expected target_channel=null in composite key, got {parsed['target_channel']!r}"
 
     @pytest.mark.asyncio
     async def test_null_channel_entry_value_is_none(self, tmp_path: Any) -> None:
@@ -1107,12 +1098,14 @@ class TestNullTargetChannel:
 
         assert len(dsbt) == 1
         entry = next(iter(dsbt.values()))
-        assert entry["target_channel"] is None, (
-            f"Expected target_channel=None in entry value, got {entry['target_channel']!r}"
-        )
+        assert (
+            entry["target_channel"] is None
+        ), f"Expected target_channel=None in entry value, got {entry['target_channel']!r}"
 
     @pytest.mark.asyncio
-    async def test_null_channel_groups_distinctly_from_named(self, tmp_path: Any) -> None:
+    async def test_null_channel_groups_distinctly_from_named(
+        self, tmp_path: Any
+    ) -> None:
         """target_channel=None and target_channel='ch-0' produce separate entries."""
         event_id = "ev-tk-nullch-distinct-001"
         db_path = str(tmp_path / "nullch-distinct.db")

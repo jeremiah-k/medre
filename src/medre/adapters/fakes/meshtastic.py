@@ -29,6 +29,7 @@ from __future__ import annotations
 import logging
 import time
 from datetime import datetime, timezone
+from types import MappingProxyType
 from typing import Any
 
 from medre.adapters.meshtastic.codec import MeshtasticCodec
@@ -393,7 +394,7 @@ class FakeMeshtasticAdapter(AdapterContract):
         return AdapterDeliveryResult(
             native_message_id=str(packet_id),
             native_channel_id=str(channel_index),
-            metadata=result_metadata,
+            metadata=MappingProxyType(result_metadata),
         )
 
     # -- Inbound simulation -------------------------------------------------

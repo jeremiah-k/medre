@@ -238,7 +238,7 @@ async def _recover(
                     print(f"  Failed targets ({len(failed_targets)}):")
                     for ft in failed_targets:
                         fk = ft.get("failure_kind", "unknown")
-                        target_line = ft['target_adapter']
+                        target_line = ft["target_adapter"]
                         ch = ft.get("target_channel")
                         if ch:
                             target_line += f"/{ch}"

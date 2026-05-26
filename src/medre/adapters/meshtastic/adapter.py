@@ -111,27 +111,6 @@ from medre.core.policies.startup_backlog_suppress import (
 )
 from medre.core.rendering.renderer import RenderingResult
 
-# Base capabilities for the Meshtastic transport adapter (invariant flags).
-# Instance capabilities are constructed in __init__ with the configured
-# max_text_bytes.
-_MESHTASTIC_CAPS_FLAGS: dict[str, object] = dict(
-    text=True,
-    title=False,
-    replies="native",
-    reactions="native",
-    edits="unsupported",
-    deletes="unsupported",
-    attachments=False,
-    metadata_fields=True,
-    delivery_receipts=False,
-    store_and_forward=False,
-    direct_messages=False,
-    channels=True,
-    async_delivery=True,
-    mesh_routing=True,
-    max_text_chars=None,
-)
-
 
 class MeshtasticAdapter(AdapterContract):
     """Transport adapter for Meshtastic radio nodes.
@@ -167,7 +146,21 @@ class MeshtasticAdapter(AdapterContract):
         self._config = config
         self.adapter_id = config.adapter_id
         self._capabilities = AdapterCapabilities(
-            **_MESHTASTIC_CAPS_FLAGS,
+            text=True,
+            title=False,
+            replies="native",
+            reactions="native",
+            edits="unsupported",
+            deletes="unsupported",
+            attachments=False,
+            metadata_fields=True,
+            delivery_receipts=False,
+            store_and_forward=False,
+            direct_messages=False,
+            channels=True,
+            async_delivery=True,
+            mesh_routing=True,
+            max_text_chars=None,
             max_text_bytes=config.max_text_bytes,
         )
         self._session: MeshtasticSession | None = None

@@ -302,8 +302,7 @@ class TestCapacityRejectionEvidence:
             # ---- Phase 5: delivery_state_by_target ----
             dsbt = summary["delivery_state_by_target"]
             assert isinstance(dsbt, dict), (
-                f"delivery_state_by_target must be dict, "
-                f"got {type(dsbt).__name__}"
+                f"delivery_state_by_target must be dict, " f"got {type(dsbt).__name__}"
             )
             assert len(dsbt) >= 1, (
                 f"Expected at least 1 entry in delivery_state_by_target, "

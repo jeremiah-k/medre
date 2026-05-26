@@ -127,7 +127,7 @@ async def _collect_native_refs(
     receipts: list[Any],
     event_id: str,
     errors: list[str],
-) -> list[dict[str, str]]:
+) -> list[dict[str, object]]:
     """Resolve native refs for each successful delivery using stored receipts.
 
     Looks up ``NativeMessageRef`` records persisted by the pipeline and
@@ -135,7 +135,7 @@ async def _collect_native_refs(
     require ``DeliveryOutcome`` objects — works for both direct-pipeline
     and adapter-callback modes.
     """
-    refs: list[dict[str, str]] = []
+    refs: list[dict[str, object]] = []
     storage = app.storage
     if storage is None:
         return refs

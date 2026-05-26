@@ -659,9 +659,9 @@ class TestNoLiveTestsRunByDefault:
         # Find the hardware marker line and verify it mentions "live"
         for line in content.splitlines():
             if "hardware:" in line:
-                assert "live" in line.lower(), (
-                    "hardware marker description must state it implies live"
-                )
+                assert (
+                    "live" in line.lower()
+                ), "hardware marker description must state it implies live"
                 break
         else:
             pytest.fail("hardware marker not found in pyproject.toml")
@@ -865,6 +865,6 @@ class TestHardwareMarkerDiscipline:
         pyproject = _REPO_ROOT / "pyproject.toml"
         content = _file_source(pyproject)
         for marker in ("live", "docker", "hardware"):
-            assert f"not {marker}" in content, (
-                f"pyproject.toml addopts must exclude '{marker}' marker"
-            )
+            assert (
+                f"not {marker}" in content
+            ), f"pyproject.toml addopts must exclude '{marker}' marker"

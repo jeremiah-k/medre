@@ -1035,13 +1035,13 @@ class TestBlockedValueSanitization:
             # error string — this comes from the pipeline's capped logging
             # of decision.blocked_value.
             capped_repr = repr("x" * 256 + "...")
-            assert capped_repr in error, (
-                f"Expected capped repr {capped_repr[:40]}... not found in error"
-            )
+            assert (
+                capped_repr in error
+            ), f"Expected capped repr {capped_repr[:40]}... not found in error"
 
             # The generic denial summary with <blocked> must appear.
-            assert "<blocked>" in error, (
-                "Generic <blocked> placeholder should appear in error"
-            )
+            assert (
+                "<blocked>" in error
+            ), "Generic <blocked> placeholder should appear in error"
         finally:
             await runner.stop()

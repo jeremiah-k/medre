@@ -315,7 +315,7 @@ class TestBlocker3ClientConfigFailure:
         original = compat.HAS_E2EE
         try:
             compat.HAS_E2EE = True
-            mock_nio.ClientConfig.side_effect = TypeError("bad param")
+            mock_nio.AsyncClientConfig.side_effect = TypeError("bad param")
             config = make_matrix_config(
                 encryption_mode="e2ee_required",
                 store_path="/tmp/store",
@@ -327,7 +327,7 @@ class TestBlocker3ClientConfigFailure:
             assert session.crypto_enabled is False
         finally:
             compat.HAS_E2EE = original
-            mock_nio.ClientConfig.side_effect = None
+            mock_nio.AsyncClientConfig.side_effect = None
 
     async def test_client_closed_on_config_failure(
         self, mock_nio  # noqa: F811
@@ -338,7 +338,7 @@ class TestBlocker3ClientConfigFailure:
         original = compat.HAS_E2EE
         try:
             compat.HAS_E2EE = True
-            mock_nio.ClientConfig.side_effect = TypeError("bad param")
+            mock_nio.AsyncClientConfig.side_effect = TypeError("bad param")
             config = make_matrix_config(
                 encryption_mode="e2ee_required",
                 store_path="/tmp/store",
@@ -351,4 +351,4 @@ class TestBlocker3ClientConfigFailure:
             assert session.crypto_enabled is False
         finally:
             compat.HAS_E2EE = original
-            mock_nio.ClientConfig.side_effect = None
+            mock_nio.AsyncClientConfig.side_effect = None

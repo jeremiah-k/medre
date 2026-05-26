@@ -630,19 +630,31 @@ class TestDeliveryStatusByChannel:
 
         await temp_storage.append_receipt(
             self._make_channel_receipt(
-                "rcpt-ch-a", "evt-ch-distinct", "plan-ch", "adapter_ch", "channel-a",
+                "rcpt-ch-a",
+                "evt-ch-distinct",
+                "plan-ch",
+                "adapter_ch",
+                "channel-a",
                 status="sent",
             )
         )
         await temp_storage.append_receipt(
             self._make_channel_receipt(
-                "rcpt-ch-b", "evt-ch-distinct", "plan-ch", "adapter_ch", "channel-b",
+                "rcpt-ch-b",
+                "evt-ch-distinct",
+                "plan-ch",
+                "adapter_ch",
+                "channel-b",
                 status="failed",
             )
         )
 
-        status_a = await temp_storage.delivery_status("plan-ch", "adapter_ch", "channel-a")
-        status_b = await temp_storage.delivery_status("plan-ch", "adapter_ch", "channel-b")
+        status_a = await temp_storage.delivery_status(
+            "plan-ch", "adapter_ch", "channel-a"
+        )
+        status_b = await temp_storage.delivery_status(
+            "plan-ch", "adapter_ch", "channel-b"
+        )
 
         assert status_a is not None
         assert status_a.receipt_id == "rcpt-ch-a"
@@ -664,11 +676,17 @@ class TestDeliveryStatusByChannel:
 
         await temp_storage.append_receipt(
             self._make_channel_receipt(
-                "rcpt-ch-exist", "evt-ch-none", "plan-none", "adapter_none", "channel-x",
+                "rcpt-ch-exist",
+                "evt-ch-none",
+                "plan-none",
+                "adapter_none",
+                "channel-x",
             )
         )
 
-        status = await temp_storage.delivery_status("plan-none", "adapter_none", "channel-z")
+        status = await temp_storage.delivery_status(
+            "plan-none", "adapter_none", "channel-z"
+        )
         assert status is None
 
     async def test_channel_progression_returns_latest_for_channel(
@@ -682,12 +700,19 @@ class TestDeliveryStatusByChannel:
         for i, st in enumerate(["queued", "sent", "confirmed"]):
             await temp_storage.append_receipt(
                 self._make_channel_receipt(
-                    f"rcpt-prog-{i}", "evt-ch-prog", "plan-prog", "adapter_prog",
-                    "channel-prog", status=st, attempt_number=i + 1,
+                    f"rcpt-prog-{i}",
+                    "evt-ch-prog",
+                    "plan-prog",
+                    "adapter_prog",
+                    "channel-prog",
+                    status=st,
+                    attempt_number=i + 1,
                 )
             )
 
-        status = await temp_storage.delivery_status("plan-prog", "adapter_prog", "channel-prog")
+        status = await temp_storage.delivery_status(
+            "plan-prog", "adapter_prog", "channel-prog"
+        )
         assert status is not None
         assert status.status == "confirmed"
         assert status.attempt_number == 3
@@ -742,7 +767,11 @@ class TestDeliveryStatusByChannel:
         )
         await temp_storage.append_receipt(
             self._make_channel_receipt(
-                "rcpt-mix-named", "evt-ch-mix", "plan-mix", "adapter_mix", "channel-named",
+                "rcpt-mix-named",
+                "evt-ch-mix",
+                "plan-mix",
+                "adapter_mix",
+                "channel-named",
                 status="failed",
             )
         )
@@ -771,8 +800,12 @@ class TestDeliveryStatusByChannel:
 
         await temp_storage.append_receipt(
             self._make_channel_receipt(
-                "rcpt-no-named", "evt-ch-null-only", "plan-no",
-                "adapter_no", "channel-x", status="sent",
+                "rcpt-no-named",
+                "evt-ch-null-only",
+                "plan-no",
+                "adapter_no",
+                "channel-x",
+                status="sent",
             )
         )
 
@@ -790,14 +823,22 @@ class TestDeliveryStatusByChannel:
 
         await temp_storage.append_receipt(
             self._make_channel_receipt(
-                "rcpt-ma", "evt-ch-multi", "plan-multi",
-                "adapter_multi", "channel-a", status="sent",
+                "rcpt-ma",
+                "evt-ch-multi",
+                "plan-multi",
+                "adapter_multi",
+                "channel-a",
+                status="sent",
             )
         )
         await temp_storage.append_receipt(
             self._make_channel_receipt(
-                "rcpt-mb", "evt-ch-multi", "plan-multi",
-                "adapter_multi", "channel-b", status="failed",
+                "rcpt-mb",
+                "evt-ch-multi",
+                "plan-multi",
+                "adapter_multi",
+                "channel-b",
+                status="failed",
             )
         )
 
@@ -844,9 +885,7 @@ class TestDeliveryStatusByChannel:
         assert rows[0]["target_channel"] is None
 
         # Querying with target_channel=None returns the receipt.
-        status = await temp_storage.delivery_status(
-            "plan-empty", "adapter_empty", None
-        )
+        status = await temp_storage.delivery_status("plan-empty", "adapter_empty", None)
         assert status is not None
         assert status.receipt_id == "rcpt-empty"
         assert status.target_channel is None
@@ -889,9 +928,7 @@ class TestDeliveryStatusByChannel:
 
         # Both receipts should be in the same (NULL) channel group.
         # delivery_status with target_channel=None returns the latest (sent).
-        status = await temp_storage.delivery_status(
-            "plan-dup", "adapter_dup", None
-        )
+        status = await temp_storage.delivery_status("plan-dup", "adapter_dup", None)
         assert status is not None
         assert status.receipt_id == "rcpt-dup-empty"
         assert status.status == "sent"
