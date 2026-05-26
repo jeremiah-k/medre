@@ -371,10 +371,10 @@ class TestSyncStateResilience:
         session = MatrixSession(config)
         try:
             await session.start()
-            client_before = session.client
+            client_before = session._client
             # Second start should be a no-op
             await session.start()
-            assert session.client is client_before
+            assert session._client is client_before
         finally:
             await session.stop()
 
@@ -385,7 +385,7 @@ class TestSyncStateResilience:
         await session.start()
         await session.stop()
         await session.stop()  # no raise
-        assert session.client is None
+        assert session._client is None
         assert session.closed is True
 
     async def test_start_stop_start_cycles(self, mock_nio) -> None:
@@ -398,7 +398,7 @@ class TestSyncStateResilience:
             assert session.sync_task_running is True
             await session.stop()
             assert session.connected is False
-            assert session.client is None
+            assert session._client is None
 
     async def test_stop_during_sync_then_restart(self, mock_nio) -> None:
         """Stop during sync, then restart with clean state."""
@@ -410,7 +410,7 @@ class TestSyncStateResilience:
         await session.stop()
         # Verify clean state
         assert session._sync_task is None
-        assert session.client is None
+        assert session._client is None
         assert session._stop_requested is True
         # Restart
         await session.start()
@@ -450,7 +450,7 @@ class TestSyncStateResilience:
         session = MatrixSession(config)
         with pytest.raises(MatrixConnectionError):
             await session.start()
-        assert session.client is None
+        assert session._client is None
 
 
 # ===================================================================
@@ -593,7 +593,7 @@ class TestRoomStateTracking:
 
             response_mock = MagicMock()
             response_mock.event_id = "$evt_plain"
-            adapter._client.room_send = AsyncMock(return_value=response_mock)
+            adapter._session._client.room_send = AsyncMock(return_value=response_mock)
 
             result = RenderingResult(
                 event_id="evt_plain",
@@ -619,7 +619,7 @@ class TestRoomStateTracking:
             room_id = "!fallback_enc:example.com"
             room_obj = MagicMock(name="room_obj")
             room_obj.encrypted = True
-            adapter._client.rooms = {room_id: room_obj}
+            adapter._session._client.rooms = {room_id: room_obj}
 
             # Session doesn't know about this room
             assert adapter._session.room_state(room_id) == "unknown"  # type: ignore[union-attr]
@@ -663,7 +663,7 @@ class TestDeliveryRetry:
         adapter = MatrixAdapter(config)
         try:
             await adapter.start(make_matrix_context())
-            adapter._client.room_send = _transient_then_ok
+            adapter._session._client.room_send = _transient_then_ok
 
             result = RenderingResult(
                 event_id="evt_retry",
@@ -697,7 +697,7 @@ class TestDeliveryRetry:
         adapter = MatrixAdapter(config)
         try:
             await adapter.start(make_matrix_context())
-            adapter._client.room_send = _always_transient
+            adapter._session._client.room_send = _always_transient
 
             result = RenderingResult(
                 event_id="evt_max_retry",
@@ -735,7 +735,7 @@ class TestDeliveryRetry:
         adapter = MatrixAdapter(config)
         try:
             await adapter.start(make_matrix_context())
-            adapter._client.room_send = _room_send_non_transient
+            adapter._session._client.room_send = _room_send_non_transient
 
             result = RenderingResult(
                 event_id="evt_non_transient",
@@ -776,7 +776,7 @@ class TestDeliveryRetry:
 
             response_mock = MagicMock()
             response_mock.event_id = "$diag_evt"
-            adapter._client.room_send = AsyncMock(return_value=response_mock)
+            adapter._session._client.room_send = AsyncMock(return_value=response_mock)
 
             result = RenderingResult(
                 event_id="evt_diag",

@@ -511,7 +511,7 @@ class TestMeshtasticAdapterLifecycleBoundaries:
         adapter = MeshtasticAdapter(config)
         ctx = make_adapter_context("mesh-1")
         await adapter.start(ctx)
-        assert adapter._client is None
+        assert adapter._session is not None and adapter._session.client is None
         await adapter.stop()
 
     async def test_real_adapter_deliver_does_not_send(self) -> None:
@@ -589,12 +589,10 @@ class TestMeshtasticAdapterLifecycleBoundaries:
         # Double stop should be safe
         await adapter.stop()
         assert adapter._started is False
-        assert adapter._client is None
+        assert adapter._session is None
 
 
-# ===================================================================
-# Callback task boundary
-# ===================================================================
+# -- Callback boundary tests --
 
 
 class TestMeshtasticCallbackBoundary:
@@ -603,7 +601,7 @@ class TestMeshtasticCallbackBoundary:
     async def test_on_receive_callback_delegates_to_on_packet(
         self, make_adapter_context, inbound_collector
     ) -> None:
-        """_on_receive_callback delegates to _on_packet."""
+        """_on_packet processes and publishes inbound packets."""
         config = MeshtasticConfig(adapter_id="mesh-cb")
         adapter = MeshtasticAdapter(config)
         ctx = make_adapter_context("mesh-cb")
@@ -616,7 +614,7 @@ class TestMeshtasticCallbackBoundary:
             "id": 42,
             "decoded": {"portnum": "text_message", "text": "via callback"},
         }
-        adapter._on_receive_callback(packet, interface=None)
+        adapter._on_packet(packet)
 
         await asyncio.sleep(0.05)
 

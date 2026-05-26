@@ -70,7 +70,7 @@ _FAKE_MATRIX_CAPABILITIES = AdapterCapabilities(
     text=True,
     title=False,
     replies="native",
-    reactions="unsupported",
+    reactions="native",
     edits="unsupported",
     deletes="unsupported",
     attachments=False,
@@ -245,7 +245,7 @@ class FakeMatrixAdapter(AdapterContract):
     def make_event(
         self,
         text: str = "hello",
-        event_kind: str = EventKind.MESSAGE_TEXT,
+        event_kind: str = EventKind.MESSAGE_CREATED,
         channel: str | None = None,
         **extra_payload: object,
     ) -> CanonicalEvent:

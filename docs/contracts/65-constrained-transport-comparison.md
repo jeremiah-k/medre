@@ -55,7 +55,7 @@ Meshtastic uses an adapter-owned outbound queue (`MeshtasticOutboundQueue`) that
 
 MeshCore currently sends directly through the session to the SDK client without an intermediary queue. The adapter accepts a `message_delay_seconds` config field as a reserved pacing parameter, but it is not enforced at send time. When implemented, pacing will introduce a minimum delay between outbound sends. There is no queue, no retry, and no requeue. A successful send means local node acceptance, not mesh delivery, ACK receipt, or RF confirmation.
 
-Matrix has no per-message rate limit worth worrying about at typical meshnet scale. MEDRE does not model Matrix rate-limit headers or adaptive transport backoff as runtime policy. M_LIMIT_EXCEEDED / HTTP 429 responses are classified as transient and retried with bounded backoff.
+Matrix has no per-message rate limit worth worrying about at typical meshnet scale. MEDRE does not model Matrix rate-limit headers or adaptive transport backoff as runtime policy. M_LIMIT_EXCEEDED / HTTP 429 responses are classified as transient and surfaced immediately as `AdapterSendError(transient=True)`; they are not retried within the adapter's bounded retry loop.
 
 The pacing architecture being adapter-owned means each adapter controls its own send timing. This is **protocol-neutral** by design. No shared pacing constant or assumption leaks between adapters.
 

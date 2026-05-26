@@ -41,6 +41,7 @@ from medre.core.contracts.adapter import (
     AdapterSendError,
 )
 from medre.core.rendering.renderer import RenderingResult
+from tests.helpers.matrix_adapter import wire_mock_session as _wire_mock_session
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -172,7 +173,7 @@ class TestDeliverTxnIdPassed:
         adapter = MatrixAdapter(config)
         mock_client = MagicMock()
         mock_client.room_send = AsyncMock(return_value=_make_send_response())
-        adapter._client = mock_client
+        _wire_mock_session(adapter, mock_client, config=config)
 
         result = _make_result()
         await adapter.deliver(result)
@@ -209,7 +210,7 @@ class TestRetryReusesTxnId:
             return _make_send_response()
 
         mock_client.room_send = AsyncMock(side_effect=_flaky_then_ok)
-        adapter._client = mock_client
+        _wire_mock_session(adapter, mock_client, config=config)
 
         result = _make_result()
         with patch("asyncio.sleep", new_callable=AsyncMock):
@@ -237,7 +238,7 @@ class TestSuccessReturnsNativeMessageId:
         mock_client.room_send = AsyncMock(
             return_value=_make_send_response("$native-evt-123")
         )
-        adapter._client = mock_client
+        _wire_mock_session(adapter, mock_client, config=config)
 
         result = _make_result()
         delivery = await adapter.deliver(result)
@@ -260,7 +261,7 @@ class TestSuccessMetadataIncludesTxnId:
         adapter = MatrixAdapter(config)
         mock_client = MagicMock()
         mock_client.room_send = AsyncMock(return_value=_make_send_response())
-        adapter._client = mock_client
+        _wire_mock_session(adapter, mock_client, config=config)
 
         result = _make_result()
         delivery = await adapter.deliver(result)
@@ -302,7 +303,7 @@ class TestTransientErrorClassification:
         mock_client.room_send = AsyncMock(
             side_effect=[asyncio.TimeoutError(), _make_send_response()]
         )
-        adapter._client = mock_client
+        _wire_mock_session(adapter, mock_client, config=config)
 
         result = _make_result()
         with patch("asyncio.sleep", new_callable=AsyncMock):
@@ -355,14 +356,14 @@ class TestRateLimitTransient:
             return _make_send_response()
 
         mock_client.room_send = AsyncMock(side_effect=_rate_limit_then_ok)
-        adapter._client = mock_client
+        _wire_mock_session(adapter, mock_client, config=config)
 
         result = _make_result()
         with patch("asyncio.sleep", new_callable=AsyncMock):
-            delivery = await adapter.deliver(result)
-
-        assert delivery is not None
-        assert call_count == 2
+            with pytest.raises(AdapterSendError) as exc_info:
+                await adapter.deliver(result)
+        assert exc_info.value.transient is True
+        assert call_count == 1
         assert adapter._transient_delivery_failures == 1
 
 
@@ -377,13 +378,12 @@ class TestE2EEBlockedPermanent:
     async def test_encrypted_room_blocked_without_crypto(self) -> None:
         config = _make_config()
         adapter = MatrixAdapter(config)
-        adapter._client = MagicMock()
 
         # Simulate a session with crypto disabled and room known encrypted
-        mock_session = MagicMock()
-        mock_session.crypto_enabled = False
-        mock_session.room_state.return_value = "encrypted"
-        adapter._session = mock_session
+        mock_client = MagicMock()
+        session = _wire_mock_session(adapter, mock_client, config=config)
+        session._crypto_enabled = False
+        session._room_states["!room:example.com"] = "encrypted"
 
         result = _make_result()
         with pytest.raises(AdapterPermanentError, match="encrypted but E2EE"):
@@ -392,15 +392,13 @@ class TestE2EEBlockedPermanent:
     async def test_plaintext_room_send_allowed(self) -> None:
         config = _make_config()
         adapter = MatrixAdapter(config)
-        mock_client = MagicMock()
-        mock_client.room_send = AsyncMock(return_value=_make_send_response())
-        adapter._client = mock_client
 
         # Simulate a session with crypto disabled but room is plaintext
-        mock_session = MagicMock()
-        mock_session.crypto_enabled = False
-        mock_session.room_state.return_value = "plaintext"
-        adapter._session = mock_session
+        mock_client = MagicMock()
+        mock_client.room_send = AsyncMock(return_value=_make_send_response())
+        session = _wire_mock_session(adapter, mock_client, config=config)
+        session._crypto_enabled = False
+        session._room_states["!room:example.com"] = "plaintext"
 
         result = _make_result()
         delivery = await adapter.deliver(result)
@@ -420,7 +418,7 @@ class TestCancelledErrorPropagation:
         adapter = MatrixAdapter(config)
         mock_client = MagicMock()
         mock_client.room_send = AsyncMock(side_effect=asyncio.CancelledError())
-        adapter._client = mock_client
+        _wire_mock_session(adapter, mock_client, config=config)
 
         result = _make_result()
         with pytest.raises(asyncio.CancelledError):
@@ -431,7 +429,7 @@ class TestCancelledErrorPropagation:
         adapter = MatrixAdapter(config)
         mock_client = MagicMock()
         mock_client.room_send = AsyncMock(side_effect=asyncio.CancelledError())
-        adapter._client = mock_client
+        _wire_mock_session(adapter, mock_client, config=config)
 
         result = _make_result()
         with pytest.raises(asyncio.CancelledError):
@@ -454,7 +452,7 @@ class TestNoSecretsInMetadata:
         adapter = MatrixAdapter(config)
         mock_client = MagicMock()
         mock_client.room_send = AsyncMock(return_value=_make_send_response())
-        adapter._client = mock_client
+        _wire_mock_session(adapter, mock_client, config=config)
 
         result = _make_result()
         delivery = await adapter.deliver(result)
@@ -534,7 +532,7 @@ class TestNioPermanentResponse:
         resp.errcode = "M_FORBIDDEN"
 
         mock_client.room_send = AsyncMock(return_value=resp)
-        adapter._client = mock_client
+        _wire_mock_session(adapter, mock_client, config=config)
 
         result = _make_result()
         with pytest.raises(AdapterPermanentError, match="M_FORBIDDEN"):
@@ -557,7 +555,7 @@ class TestCounterAccuracy:
         mock_client.room_send = AsyncMock(
             side_effect=ConnectionError("persistent failure")
         )
-        adapter._client = mock_client
+        _wire_mock_session(adapter, mock_client, config=config)
 
         result = _make_result()
         with patch("asyncio.sleep", new_callable=AsyncMock):
@@ -580,7 +578,7 @@ class TestCounterAccuracy:
         resp.status_code = None
 
         mock_client.room_send = AsyncMock(return_value=resp)
-        adapter._client = mock_client
+        _wire_mock_session(adapter, mock_client, config=config)
 
         result = _make_result()
         with pytest.raises(AdapterPermanentError):

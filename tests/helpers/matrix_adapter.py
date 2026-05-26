@@ -11,10 +11,14 @@ import logging
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import MagicMock
 
+from medre.adapters.matrix.adapter import MatrixAdapter
+from medre.adapters.matrix.session import MatrixSession
 from medre.config.adapters.matrix import MatrixConfig
 from medre.core.contracts.adapter import AdapterContext
 from medre.core.events import CanonicalEvent
+from tests.helpers.matrix import to_event_dict  # noqa: F401 — re-export
 
 
 def make_matrix_config(**overrides: Any) -> MatrixConfig:
@@ -102,3 +106,26 @@ def make_fake_reaction_event(
             "type": "m.reaction",
         },
     )
+
+
+def wire_mock_session(
+    adapter: MatrixAdapter,
+    mock_client: MagicMock,
+    config: MatrixConfig | None = None,
+) -> MatrixSession:
+    """Wire a real MatrixSession around *mock_client* into *adapter*.
+
+    Boundary tests must not assign a raw client mock directly to
+    ``adapter._session``, because the adapter expects a MatrixSession, not
+    a bare SDK/client mock.  This helper creates a real MatrixSession,
+    injects the mock client, and assigns the session to the adapter —
+    preserving the session boundary.
+
+    Returns the session so callers can add attributes (e.g. ``.is_live``).
+    """
+    if config is None:
+        config = adapter._config  # type: ignore[attr-defined]
+    session = MatrixSession(config)
+    session._client = mock_client
+    adapter._session = session
+    return session

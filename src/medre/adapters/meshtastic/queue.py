@@ -9,7 +9,7 @@ Meshtastic-specific sleeping.
 
 ``process_one`` supports two modes:
 
-* **No ``send_fn``**: dequeues one item and returns ``None`` (scaffold mode).
+* **No ``send_fn``**: dequeues one item and returns ``None`` (fake mode).
 * **With ``send_fn``**: dequeues, applies pacing delay, calls the async
   *send_fn*, and returns a :class:`QueueDeliveryResult` with the
   dequeued item and the :class:`AdapterDeliveryResult` containing the
@@ -274,7 +274,7 @@ class MeshtasticOutboundQueue:
     ) -> QueueDeliveryResult | None:
         """Process one queued item.
 
-        When *send_fn* is ``None`` (scaffold mode), this method dequeues
+        When *send_fn* is ``None`` (fake mode), this method dequeues
         one item but does not perform any real send or pacing sleep.
         It returns ``None`` to indicate no delivery was performed.
 
@@ -303,7 +303,7 @@ class MeshtasticOutboundQueue:
         Returns
         -------
         QueueDeliveryResult | None
-            ``None`` in scaffold mode or when the queue is empty.
+            ``None`` in fake mode or when the queue is empty.
             A :class:`QueueDeliveryResult` when a send was attempted.
         """
         item = await self.dequeue()
@@ -311,10 +311,16 @@ class MeshtasticOutboundQueue:
             return None
 
         if send_fn is None:
-            # Scaffold mode: no send, no pacing sleep.
+            # Fake mode: no send, no pacing sleep.
             return None
 
         # Apply pacing delay based on time since last send attempt.
+        # Pacing is per-send-ATTEMPT, not per-dequeue: the timestamp is
+        # recorded before send_fn so that transient retries also respect
+        # the minimum inter-message gap.  A rapid burst of messages from
+        # the queue will each wait for the remaining delay before their
+        # send attempt, ensuring the radio is never flooded faster than
+        # delay_between_messages allows.
         now = time.monotonic()
         elapsed_since_last = now - self._last_send_time
         remaining = self._delay - elapsed_since_last

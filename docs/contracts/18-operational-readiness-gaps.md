@@ -20,7 +20,7 @@ All four adapters are in alpha. Fake mode is the default development path for al
 
 - No inbound message reception verified against a real homeserver. The sync loop starts, but no test confirms a real event flowing through `_on_room_message` to `publish_inbound`.
 - E2EE text alpha is active: inbound decryption and outbound encryption work for text in encrypted rooms. Initial encrypted-room test hit `OlmUnverifiedDeviceError`; after adapter fix (`ignore_unverified_devices=True`), the full E2EE live suite passed 7/7 in 3.73s against room `!rnmyZMhUoraPwZUDPP:matrix.org` (see `docs/runbooks/operational-evidence.md` §1.3). No cross-signing support in nio. Production device verification deferred.
-- Reactions, edits, deletes, and attachments are all deferred. Only text and replies work.
+- Reactions were implemented in Tranche 3 (codec, renderer, adapter delivery). Edits, deletes, and attachments remain deferred.
 - The `access_token` is a plain string in config. No secure storage or rotation mechanism.
 - `mindroom-nio` is a fork. Its maintenance status relative to upstream `matrix-nio` is unverified.
 - Sync loop error handling is untested under real network conditions (timeouts, reconnects, rate limiting).

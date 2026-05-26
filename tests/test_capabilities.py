@@ -334,7 +334,7 @@ class TestFakeMatrixCapabilities:
         caps = _FAKE_MATRIX_CAPABILITIES
         assert caps.text is True
         assert caps.replies == "native"
-        assert caps.reactions == "unsupported"
+        assert caps.reactions == "native"
         assert caps.edits == "unsupported"
         assert caps.deletes == "unsupported"
         assert caps.attachments is False
@@ -353,7 +353,7 @@ class TestFakeMatrixCapabilities:
         assert is_capability_summary(result)
         assert result["supports_direct_messages"] is True
         assert result["supports_channels"] is True
-        assert result["supports_reactions"] is False  # unsupported → False
+        assert result["supports_reactions"] is True  # native → True
         assert result["supports_edits"] is False
         assert result["supports_delivery_receipts"] is True
         assert result["supports_topic_rooms"] is True

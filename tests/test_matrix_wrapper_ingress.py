@@ -27,6 +27,7 @@ from tests.helpers.matrix import (  # noqa: F401
     make_nio_event,
     make_nio_room,
     mock_nio,
+    to_event_dict,
 )
 
 
@@ -79,7 +80,7 @@ class TestMatrixWrapperCallbackPath:
                 event_id="$cb-evt-001",
                 body="callback test",
             )
-            await matrix_adapter._on_room_message(room, event)
+            await matrix_adapter._on_room_message(to_event_dict(room, event))
 
             # Fake target received rendered payload
             assert len(fake_target.delivered_payloads) == 1
@@ -150,7 +151,7 @@ class TestMatrixWrapperCallbackPath:
                 datetime(2000, 1, 1, tzinfo=timezone.utc).timestamp() * 1000
             )
 
-            await matrix_adapter._on_room_message(room, event)
+            await matrix_adapter._on_room_message(to_event_dict(room, event))
 
             assert fake_target.delivered_payloads == []
             assert await temp_storage.count_events() == 0
@@ -197,7 +198,7 @@ class TestMatrixWrapperCallbackPath:
                 event_id="$nref-cb-evt-001",
                 body="native ref mapping test",
             )
-            await matrix_adapter._on_room_message(room, event)
+            await matrix_adapter._on_room_message(to_event_dict(room, event))
 
             # Inbound native ref persisted
             resolved = await temp_storage.resolve_native_ref(
@@ -264,7 +265,7 @@ class TestMatrixWrapperCallbackPath:
                 event_id="$bridge-evt-002",
                 body="bridge to mesh",
             )
-            await matrix_adapter._on_room_message(room, event)
+            await matrix_adapter._on_room_message(to_event_dict(room, event))
 
             # Fake meshtastic adapter received delivery
             assert len(fake_mesh.delivered_payloads) == 1

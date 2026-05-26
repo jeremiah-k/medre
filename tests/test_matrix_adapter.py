@@ -27,6 +27,7 @@ from tests.helpers.matrix_adapter import (
 )
 from tests.helpers.matrix_adapter import make_fake_room as _make_fake_room
 from tests.helpers.matrix_adapter import make_matrix_config as _make_matrix_config
+from tests.helpers.matrix_adapter import to_event_dict as _to_event_dict
 
 
 def _make_event(event_id: str = "evt-1") -> CanonicalEvent:
@@ -331,7 +332,7 @@ class TestSelfMessageSuppression:
         event = _make_fake_nio_event(sender="@bot:example.com")
         room = _make_fake_room()
 
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(_to_event_dict(room, event))
         assert len(published) == 0
 
     async def test_other_user_message_accepted(self) -> None:
@@ -344,7 +345,7 @@ class TestSelfMessageSuppression:
         event = _make_fake_nio_event(sender="@alice:example.com")
         room = _make_fake_room()
 
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(_to_event_dict(room, event))
         assert len(published) == 1
 
     async def test_missing_sender_accepted(self) -> None:
@@ -365,7 +366,7 @@ class TestSelfMessageSuppression:
         )
         room = _make_fake_room()
 
-        await adapter._on_room_message(room, evt)
+        await adapter._on_room_message(_to_event_dict(room, evt))
         assert len(published) == 1
 
 
@@ -399,7 +400,7 @@ class TestMEDREOriginLoopSuppression:
         )
         room = _make_fake_room()
 
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(_to_event_dict(room, event))
         assert len(published) == 0
 
     async def test_medre_envelope_different_adapter_accepted(self) -> None:
@@ -424,7 +425,7 @@ class TestMEDREOriginLoopSuppression:
         )
         room = _make_fake_room()
 
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(_to_event_dict(room, event))
         assert len(published) == 1
 
     async def test_missing_envelope_accepted(self) -> None:
@@ -440,7 +441,7 @@ class TestMEDREOriginLoopSuppression:
         )
         room = _make_fake_room()
 
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(_to_event_dict(room, event))
         assert len(published) == 1
 
     async def test_corrupt_envelope_accepted(self) -> None:
@@ -461,7 +462,7 @@ class TestMEDREOriginLoopSuppression:
         )
         room = _make_fake_room()
 
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(_to_event_dict(room, event))
         assert len(published) == 1
 
 
@@ -484,7 +485,7 @@ class TestRoomAllowlist:
         event = _make_fake_nio_event(sender="@alice:example.com")
         room = _make_fake_room(room_id="!any:server")
 
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(_to_event_dict(room, event))
         assert len(published) == 1
 
     async def test_allowlist_accepts_matching_room(self) -> None:
@@ -499,7 +500,7 @@ class TestRoomAllowlist:
         event = _make_fake_nio_event(sender="@alice:example.com")
         room = _make_fake_room(room_id="!allowed:server")
 
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(_to_event_dict(room, event))
         assert len(published) == 1
 
     async def test_allowlist_drops_non_matching_room(self) -> None:
@@ -514,7 +515,7 @@ class TestRoomAllowlist:
         event = _make_fake_nio_event(sender="@alice:example.com")
         room = _make_fake_room(room_id="!denied:server")
 
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(_to_event_dict(room, event))
         assert len(published) == 0
 
     async def test_allowlist_with_multiple_rooms(self) -> None:
@@ -532,7 +533,7 @@ class TestRoomAllowlist:
             event_id="$evt-r1",
         )
         room1 = _make_fake_room(room_id="!room1:server")
-        await adapter._on_room_message(room1, event1)
+        await adapter._on_room_message(_to_event_dict(room1, event1))
 
         # Test room2
         event2 = _make_fake_nio_event(
@@ -540,7 +541,7 @@ class TestRoomAllowlist:
             event_id="$evt-r2",
         )
         room2 = _make_fake_room(room_id="!room2:server")
-        await adapter._on_room_message(room2, event2)
+        await adapter._on_room_message(_to_event_dict(room2, event2))
 
         # Test denied room
         event3 = _make_fake_nio_event(
@@ -548,7 +549,7 @@ class TestRoomAllowlist:
             event_id="$evt-r3",
         )
         room3 = _make_fake_room(room_id="!room3:server")
-        await adapter._on_room_message(room3, event3)
+        await adapter._on_room_message(_to_event_dict(room3, event3))
 
         assert len(published) == 2
 
@@ -575,7 +576,7 @@ class TestThirdPartyInboundCanonicalEventShape:
 
         event = _make_fake_nio_event(sender="@carol:example.com")
         room = _make_fake_room(room_id="!test:server")
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(_to_event_dict(room, event))
 
         assert len(published) == 1
         assert published[0].source_adapter == "matrix-bridge"
@@ -589,7 +590,7 @@ class TestThirdPartyInboundCanonicalEventShape:
 
         event = _make_fake_nio_event(sender="@carol:example.com")
         room = _make_fake_room(room_id="!test:server")
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(_to_event_dict(room, event))
 
         assert len(published) == 1
         assert published[0].source_transport_id == "@carol:example.com"
@@ -603,7 +604,7 @@ class TestThirdPartyInboundCanonicalEventShape:
 
         event = _make_fake_nio_event(sender="@carol:example.com")
         room = _make_fake_room(room_id="!room42:example.com")
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(_to_event_dict(room, event))
 
         assert len(published) == 1
         assert published[0].source_channel_id == "!room42:example.com"
@@ -620,7 +621,7 @@ class TestThirdPartyInboundCanonicalEventShape:
             body="hello from carol",
         )
         room = _make_fake_room()
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(_to_event_dict(room, event))
 
         assert len(published) == 1
         assert published[0].payload["body"] == "hello from carol"
@@ -638,7 +639,7 @@ class TestThirdPartyInboundCanonicalEventShape:
             event_id="$matrix-evt-123",
         )
         room = _make_fake_room(room_id="!room42:example.com")
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(_to_event_dict(room, event))
 
         assert len(published) == 1
         ref = published[0].source_native_ref
@@ -656,7 +657,7 @@ class TestThirdPartyInboundCanonicalEventShape:
 
         event = _make_fake_nio_event(sender="@carol:example.com")
         room = _make_fake_room()
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(_to_event_dict(room, event))
 
         assert len(published) == 1
         assert published[0].event_kind == "message.created"
@@ -673,7 +674,7 @@ class TestThirdPartyInboundCanonicalEventShape:
             event_id="$matrix-evt-123",
         )
         room = _make_fake_room()
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(_to_event_dict(room, event))
 
         assert len(published) == 1
         # Canonical event_id is a UUID, not the Matrix event_id
@@ -694,7 +695,7 @@ class TestThirdPartyInboundCanonicalEventShape:
             content=content,
         )
         room = _make_fake_room()
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(_to_event_dict(room, event))
 
         assert len(published) == 1
         assert published[0].payload["msgtype"] == "m.notice"
@@ -722,7 +723,7 @@ class TestInboundDiagnosticsCounters:
 
         event = _make_fake_nio_event(sender="@alice:example.com")
         room = _make_fake_room()
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(_to_event_dict(room, event))
 
         assert adapter._inbound_published == 1
         assert len(published) == 1
@@ -738,7 +739,7 @@ class TestInboundDiagnosticsCounters:
 
         event = _make_fake_nio_event(sender="@bot:example.com")
         room = _make_fake_room()
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(_to_event_dict(room, event))
 
         assert adapter._inbound_suppressed_self == 1
         assert len(published) == 0
@@ -766,7 +767,7 @@ class TestInboundDiagnosticsCounters:
             content=content,
         )
         room = _make_fake_room()
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(_to_event_dict(room, event))
 
         assert adapter._inbound_suppressed_envelope == 1
         assert len(published) == 0
@@ -784,7 +785,7 @@ class TestInboundDiagnosticsCounters:
 
         event = _make_fake_nio_event(sender="@alice:example.com")
         room = _make_fake_room(room_id="!denied:server")
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(_to_event_dict(room, event))
 
         assert adapter._inbound_filtered_allowlist == 1
         assert len(published) == 0
@@ -801,23 +802,31 @@ class TestInboundDiagnosticsCounters:
 
         # 1 third-party message -> published
         await adapter._on_room_message(
-            _make_fake_room(),
-            _make_fake_nio_event(sender="@alice:example.com"),
+            _to_event_dict(
+                _make_fake_room(),
+                _make_fake_nio_event(sender="@alice:example.com"),
+            ),
         )
         # 1 self-message -> suppressed
         await adapter._on_room_message(
-            _make_fake_room(),
-            _make_fake_nio_event(sender="@bot:example.com"),
+            _to_event_dict(
+                _make_fake_room(),
+                _make_fake_nio_event(sender="@bot:example.com"),
+            ),
         )
         # 1 wrong room -> filtered
         await adapter._on_room_message(
-            _make_fake_room(room_id="!wrong:server"),
-            _make_fake_nio_event(sender="@alice:example.com"),
+            _to_event_dict(
+                _make_fake_room(room_id="!wrong:server"),
+                _make_fake_nio_event(sender="@alice:example.com"),
+            ),
         )
         # 1 more third-party -> published
         await adapter._on_room_message(
-            _make_fake_room(),
-            _make_fake_nio_event(sender="@carol:example.com"),
+            _to_event_dict(
+                _make_fake_room(),
+                _make_fake_nio_event(sender="@carol:example.com"),
+            ),
         )
 
         assert adapter._inbound_published == 2
@@ -860,8 +869,10 @@ class TestInboundDiagnosticsCounters:
 
         # Process a few events
         await adapter._on_room_message(
-            _make_fake_room(),
-            _make_fake_nio_event(sender="@alice:example.com"),
+            _to_event_dict(
+                _make_fake_room(),
+                _make_fake_nio_event(sender="@alice:example.com"),
+            ),
         )
         diag = adapter.diagnostics()
 
@@ -879,7 +890,7 @@ class TestInboundDiagnosticsCounters:
 
         event = _make_fake_nio_event(sender="@alice:example.com")
         room = _make_fake_room()
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(_to_event_dict(room, event))
 
         assert adapter._inbound_published == 0
         assert adapter._inbound_suppressed_self == 0
@@ -903,7 +914,7 @@ class TestReactionEventHandling:
         event = _make_fake_reaction_event(sender="@alice:example.com")
         room = _make_fake_room()
 
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(_to_event_dict(room, event))
         assert len(published) == 1
         assert published[0].event_kind == EventKind.MESSAGE_REACTED
 
@@ -917,7 +928,7 @@ class TestReactionEventHandling:
         event = _make_fake_reaction_event(sender="@bot:example.com")
         room = _make_fake_room()
 
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(_to_event_dict(room, event))
         assert len(published) == 0
         assert adapter._inbound_suppressed_self == 1
 
@@ -948,7 +959,7 @@ class TestReactionEventHandling:
         )
         room = _make_fake_room()
 
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(_to_event_dict(room, event))
         assert len(published) == 0
         assert adapter._inbound_suppressed_envelope == 1
 
@@ -962,22 +973,18 @@ class TestDisplayNameEnrichment:
     """Matrix display name enrichment for Meshtastic prefix formatting."""
 
     async def test_display_name_from_room_user_name(self) -> None:
-        """Display name is enriched from room.user_name()."""
+        """Display name is enriched from sender_display_name."""
         config = _make_matrix_config(user_id="@bot:example.com")
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
 
         event = _make_fake_nio_event(sender="@alice:example.com")
-        room = SimpleNamespace(
-            room_id="!room:server",
-            user_name=lambda uid: (
-                "Alice Display" if uid == "@alice:example.com" else uid
-            ),
-            users={},
-        )
+        room = _make_fake_room(room_id="!room:server")
 
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(
+            _to_event_dict(room, event, sender_display_name="Alice Display")
+        )
         assert len(published) == 1
         ndata = published[0].metadata.native.data
         assert ndata["longname"] == "Alice Display"
@@ -985,19 +992,18 @@ class TestDisplayNameEnrichment:
         assert ndata["shortname"] == "Alice"
 
     async def test_display_name_falls_back_to_users_dict(self) -> None:
-        """Without user_name, falls back to room.users dict."""
+        """Display name from users dict is passed via sender_display_name."""
         config = _make_matrix_config(user_id="@bot:example.com")
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
 
         event = _make_fake_nio_event(sender="@alice:example.com")
-        room = SimpleNamespace(
-            room_id="!room:server",
-            users={"@alice:example.com": {"display_name": "Alice From Dict"}},
-        )
+        room = _make_fake_room(room_id="!room:server")
 
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(
+            _to_event_dict(room, event, sender_display_name="Alice From Dict")
+        )
         assert len(published) == 1
         ndata = published[0].metadata.native.data
         assert ndata["longname"] == "Alice From Dict"
@@ -1010,9 +1016,9 @@ class TestDisplayNameEnrichment:
         adapter.ctx = ctx
 
         event = _make_fake_nio_event(sender="@alice:example.com")
-        room = SimpleNamespace(room_id="!room:server", users={})
+        room = _make_fake_room(room_id="!room:server")
 
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(_to_event_dict(room, event))
         assert len(published) == 1
         ndata = published[0].metadata.native.data
         assert ndata["longname"] == "@alice:example.com"
@@ -1033,13 +1039,11 @@ class TestDisplayNameEnrichment:
             "meshtastic_shortname": "NSh",
         }
         event = _make_fake_nio_event(sender="@alice:example.com", content=content)
-        room = SimpleNamespace(
-            room_id="!room:server",
-            user_name=lambda _uid: "Alice Display",
-            users={},
-        )
+        room = _make_fake_room(room_id="!room:server")
 
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(
+            _to_event_dict(room, event, sender_display_name="Alice Display")
+        )
         assert len(published) == 1
         ndata = published[0].metadata.native.data
         # MMRelay names should be preserved, not overwritten by Matrix name
@@ -1056,13 +1060,11 @@ class TestDisplayNameEnrichment:
         adapter.ctx = ctx
 
         event = _make_fake_reaction_event(sender="@bob:example.com")
-        room = SimpleNamespace(
-            room_id="!room:server",
-            user_name=lambda uid: "Bob Display" if uid == "@bob:example.com" else uid,
-            users={},
-        )
+        room = _make_fake_room(room_id="!room:server")
 
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(
+            _to_event_dict(room, event, sender_display_name="Bob Display")
+        )
         assert len(published) == 1
         ndata = published[0].metadata.native.data
         assert ndata["longname"] == "Bob Display"
@@ -1076,14 +1078,12 @@ class TestDisplayNameEnrichment:
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
 
-        UserObj = type("User", (), {"display_name": "Tad Chilly"})
         event = _make_fake_nio_event(sender="@tad:example.com")
-        room = SimpleNamespace(
-            room_id="!room:server",
-            users={"@tad:example.com": UserObj()},
-        )
+        room = _make_fake_room(room_id="!room:server")
 
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(
+            _to_event_dict(room, event, sender_display_name="Tad Chilly")
+        )
         assert len(published) == 1
         ndata = published[0].metadata.native.data
         assert ndata["longname"] == "Tad Chilly"
@@ -1095,33 +1095,27 @@ class TestDisplayNameEnrichment:
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
 
-        UserObj = type("User", (), {"displayname": "Tad Chilly"})
         event = _make_fake_nio_event(sender="@tad:example.com")
-        room = SimpleNamespace(
-            room_id="!room:server",
-            users={"@tad:example.com": UserObj()},
-        )
+        room = _make_fake_room(room_id="!room:server")
 
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(
+            _to_event_dict(room, event, sender_display_name="Tad Chilly")
+        )
         assert len(published) == 1
         ndata = published[0].metadata.native.data
         assert ndata["longname"] == "Tad Chilly"
 
     async def test_blank_display_name_falls_back_to_sender(self) -> None:
-        """Blank display_name on user object falls back to sender MXID."""
+        """Blank display_name falls back to sender MXID."""
         config = _make_matrix_config(user_id="@bot:example.com")
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
 
-        UserObj = type("User", (), {"display_name": "   "})
         event = _make_fake_nio_event(sender="@tad:example.com")
-        room = SimpleNamespace(
-            room_id="!room:server",
-            users={"@tad:example.com": UserObj()},
-        )
+        room = _make_fake_room(room_id="!room:server")
 
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(_to_event_dict(room, event))
         assert len(published) == 1
         ndata = published[0].metadata.native.data
         assert ndata["longname"] == "@tad:example.com"
@@ -1133,17 +1127,12 @@ class TestDisplayNameEnrichment:
         published, ctx = _make_adapter_context()
         adapter.ctx = ctx
 
-        UserObj = type("User", (), {"display_name": "User Object Name"})
         event = _make_fake_nio_event(sender="@tad:example.com")
-        room = SimpleNamespace(
-            room_id="!room:server",
-            user_name=lambda uid: (
-                "From User Name Fn" if uid == "@tad:example.com" else uid
-            ),
-            users={"@tad:example.com": UserObj()},
-        )
+        room = _make_fake_room(room_id="!room:server")
 
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(
+            _to_event_dict(room, event, sender_display_name="From User Name Fn")
+        )
         assert len(published) == 1
         ndata = published[0].metadata.native.data
         assert ndata["longname"] == "From User Name Fn"
@@ -1164,13 +1153,11 @@ class TestDisplayNameEnrichment:
             "meshtastic_shortname": "NSh",
         }
         event = _make_fake_nio_event(sender="@tad:example.com", content=content)
-        UserObj = type("User", (), {"display_name": "Tad Chilly"})
-        room = SimpleNamespace(
-            room_id="!room:server",
-            users={"@tad:example.com": UserObj()},
-        )
+        room = _make_fake_room(room_id="!room:server")
 
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(
+            _to_event_dict(room, event, sender_display_name="Tad Chilly")
+        )
         assert len(published) == 1
         ndata = published[0].metadata.native.data
         assert ndata["meshtastic_longname"] == "NodeLong"
@@ -1187,15 +1174,11 @@ class TestDisplayNameEnrichment:
         adapter.ctx = ctx
 
         event = _make_fake_nio_event(sender="@alice:example.com")
-        room = SimpleNamespace(
-            room_id="!room:server",
-            user_name=lambda uid: (
-                "Alice Display" if uid == "@alice:example.com" else uid
-            ),
-            users={},
-        )
+        room = _make_fake_room(room_id="!room:server")
 
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(
+            _to_event_dict(room, event, sender_display_name="Alice Display")
+        )
         assert len(published) == 1
         with pytest.raises(TypeError):
             published[0].metadata.native.data["longname"] = "tampered"
@@ -1211,15 +1194,11 @@ class TestDisplayNameEnrichment:
         # Build a canonical event with transport metadata so we can verify
         # it survives the enrichment rebuild path.
         event = _make_fake_nio_event(sender="@alice:example.com")
-        room = SimpleNamespace(
-            room_id="!room:server",
-            user_name=lambda uid: (
-                "Alice Display" if uid == "@alice:example.com" else uid
-            ),
-            users={},
-        )
+        room = _make_fake_room(room_id="!room:server")
 
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(
+            _to_event_dict(room, event, sender_display_name="Alice Display")
+        )
         assert len(published) == 1
         # Native metadata was enriched
         assert published[0].metadata.native is not None
@@ -1236,17 +1215,14 @@ class TestDisplayNameEnrichment:
         # own independent enrichment, proving no shared mutable state.
         event1 = _make_fake_nio_event(sender="@alice:example.com", event_id="$evt-a")
         event2 = _make_fake_nio_event(sender="@bob:example.com", event_id="$evt-b")
-        room = SimpleNamespace(
-            room_id="!room:server",
-            user_name=lambda uid: {
-                "@alice:example.com": "Alice",
-                "@bob:example.com": "Bob",
-            }.get(uid, uid),
-            users={},
-        )
+        room = _make_fake_room(room_id="!room:server")
 
-        await adapter._on_room_message(room, event1)
-        await adapter._on_room_message(room, event2)
+        await adapter._on_room_message(
+            _to_event_dict(room, event1, sender_display_name="Alice")
+        )
+        await adapter._on_room_message(
+            _to_event_dict(room, event2, sender_display_name="Bob")
+        )
 
         assert len(published) == 2
         assert published[0].metadata.native.data["longname"] == "Alice"

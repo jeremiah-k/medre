@@ -238,21 +238,22 @@ async def wait_for_sync_or_fallback(
         sync_health.get("inbound_published", 0),
     )
 
-    from types import SimpleNamespace
-
-    room = SimpleNamespace(room_id=synapse_env.test_room_id)
-    event = SimpleNamespace(
-        sender=synapse_env.test_user_id,
-        event_id=native_event_id,
-        body=body_text,
-        source={
+    event_dict = {
+        "room_id": synapse_env.test_room_id,
+        "sender": synapse_env.test_user_id,
+        "event_id": native_event_id,
+        "body": body_text,
+        "source": {
             "content": {"msgtype": "m.text", "body": body_text},
             "event_id": native_event_id,
             "sender": synapse_env.test_user_id,
             "type": "m.room.message",
         },
-    )
-    await matrix_adapter._on_room_message(room, event)
+        "msgtype": "m.text",
+        "server_timestamp": 0,
+        "sender_display_name": synapse_env.test_user_id,
+    }
+    await matrix_adapter._on_room_message(event_dict)
     await asyncio.sleep(fallback_grace)
 
     return IngressResult(

@@ -538,10 +538,9 @@ class TestPerAdapterErrorClassification:
             access_token="tok",
         )
         adapter = MatrixAdapter(config)
-        adapter._client = None
 
         result = _make_rendering_result()
-        with pytest.raises(AdapterPermanentError, match="not connected"):
+        with pytest.raises(AdapterPermanentError, match="session is not initialized"):
             await adapter.deliver(result)
 
     @pytest.mark.asyncio
@@ -557,7 +556,7 @@ class TestPerAdapterErrorClassification:
             access_token="tok",
         )
         adapter = MatrixAdapter(config)
-        adapter._client = MagicMock()
+        adapter._session = MagicMock()
 
         result = RenderingResult(
             event_id="evt-no-room",
@@ -583,9 +582,9 @@ class TestPerAdapterErrorClassification:
         )
         adapter = MatrixAdapter(config)
 
-        mock_client = MagicMock()
-        mock_client.room_send = AsyncMock(side_effect=MatrixSendError("forbidden"))
-        adapter._client = mock_client
+        mock_session = MagicMock()
+        mock_session.room_send = AsyncMock(side_effect=MatrixSendError("forbidden"))
+        adapter._session = mock_session
 
         result = _make_rendering_result()
         with pytest.raises(AdapterSendError) as exc_info:

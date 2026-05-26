@@ -500,3 +500,77 @@ class TestMeshtasticCodecTapbackSnapshot:
         snapshot = event.metadata.native.data["decoded"]
         assert snapshot.get("replyId") == 150
         assert snapshot.get("emoji") == 1
+
+
+class TestMeshtasticCodecNodeInfo:
+    """MeshtasticCodec decode node_info longname/shortname population."""
+
+    def test_node_info_both_names_populated(self) -> None:
+        """node_info with longname and shortname → populated in event metadata."""
+        codec = MeshtasticCodec("mesh-1", _make_config())
+        packet = _make_text_packet(text="hello")
+        event = codec.decode(
+            packet,
+            node_info={"longname": "LongNode", "shortname": "LN"},
+        )
+        assert event.metadata.native is not None
+        assert event.metadata.native.data["longname"] == "LongNode"
+        assert event.metadata.native.data["shortname"] == "LN"
+
+    def test_node_info_none_empty_strings(self) -> None:
+        """node_info=None → longname and shortname are empty strings."""
+        codec = MeshtasticCodec("mesh-1", _make_config())
+        packet = _make_text_packet(text="hello")
+        event = codec.decode(packet, node_info=None)
+        assert event.metadata.native is not None
+        assert event.metadata.native.data["longname"] == ""
+        assert event.metadata.native.data["shortname"] == ""
+
+    def test_node_info_only_longname(self) -> None:
+        """node_info with only longname → shortname is empty."""
+        codec = MeshtasticCodec("mesh-1", _make_config())
+        packet = _make_text_packet(text="hello")
+        event = codec.decode(
+            packet,
+            node_info={"longname": "LongNode"},
+        )
+        assert event.metadata.native is not None
+        assert event.metadata.native.data["longname"] == "LongNode"
+        assert event.metadata.native.data["shortname"] == ""
+
+    def test_node_info_only_shortname(self) -> None:
+        """node_info with only shortname → longname is empty."""
+        codec = MeshtasticCodec("mesh-1", _make_config())
+        packet = _make_text_packet(text="hello")
+        event = codec.decode(
+            packet,
+            node_info={"shortname": "SN"},
+        )
+        assert event.metadata.native is not None
+        assert event.metadata.native.data["longname"] == ""
+        assert event.metadata.native.data["shortname"] == "SN"
+
+
+class TestMeshtasticCodecDeterministicClock:
+    """MeshtasticCodec injectable clock for deterministic timestamps."""
+
+    def test_custom_clock_produces_deterministic_timestamp(self) -> None:
+        """Injecting a fixed clock yields a reproducible event timestamp."""
+        from datetime import datetime, timezone
+
+        fixed_time = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+        codec = MeshtasticCodec("mesh-1", _make_config(), clock=lambda: fixed_time)
+        packet = _make_text_packet(text="hello")
+        event = codec.decode(packet)
+        assert event.timestamp == fixed_time
+
+    def test_default_clock_uses_utc_now(self) -> None:
+        """Default clock produces a timestamp close to datetime.now(UTC)."""
+        from datetime import datetime, timezone
+
+        before = datetime.now(timezone.utc)
+        codec = MeshtasticCodec("mesh-1", _make_config())
+        packet = _make_text_packet(text="hello")
+        event = codec.decode(packet)
+        after = datetime.now(timezone.utc)
+        assert before <= event.timestamp <= after

@@ -51,6 +51,7 @@ from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage import SQLiteStorage
 from medre.core.storage.backend import StorageBackend
+from tests.helpers.matrix_adapter import wire_mock_session as _wire_mock_session
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -109,6 +110,33 @@ def _make_nio_event(
 def _make_nio_room(room_id: str = "!bridge_room:example.com") -> SimpleNamespace:
     """Build a duck-typed nio Room object."""
     return SimpleNamespace(room_id=room_id)
+
+
+def _to_event_dict(
+    room: SimpleNamespace,
+    event: SimpleNamespace,
+    *,
+    sender_display_name: str | None = None,
+) -> dict[str, Any]:
+    """Convert a (room, event) pair into the normalized dict expected by
+    ``MatrixAdapter._on_room_message(event_dict)``.
+    """
+    source = getattr(event, "source", {})
+    # Extract msgtype from source content if available
+    content = source.get("content", {}) if isinstance(source, dict) else {}
+    msgtype = content.get("msgtype", "m.text")
+    d: dict[str, Any] = {
+        "room_id": room.room_id,
+        "sender": getattr(event, "sender", ""),
+        "body": getattr(event, "body", ""),
+        "event_id": getattr(event, "event_id", ""),
+        "source": source,
+        "msgtype": msgtype,
+        "server_timestamp": 0,
+    }
+    if sender_display_name is not None:
+        d["sender_display_name"] = sender_display_name
+    return d
 
 
 def _build_mock_nio_module() -> MagicMock:
@@ -282,7 +310,7 @@ class TestMatrixInboundToFakeOutbound:
                 event_id="$bridge-inbound-001",
                 body="hello from matrix bridge",
             )
-            await matrix_adapter._on_room_message(room, event)
+            await matrix_adapter._on_room_message(_to_event_dict(room, event))
 
             # Fake adapter received a rendered payload
             assert len(fake_adapter.delivered_payloads) == 1
@@ -335,7 +363,7 @@ class TestMatrixInboundToFakeOutbound:
                 event_id="$native-ref-evt-001",
                 body="native ref test",
             )
-            await matrix_adapter._on_room_message(room, event)
+            await matrix_adapter._on_room_message(_to_event_dict(room, event))
 
             # Inbound native ref persisted
             resolved = await temp_storage.resolve_native_ref(
@@ -390,7 +418,7 @@ class TestMatrixInboundToFakeOutbound:
                 event_id="$self-evt-001",
                 body="self message",
             )
-            await matrix_adapter._on_room_message(room, event)
+            await matrix_adapter._on_room_message(_to_event_dict(room, event))
 
             # Nothing delivered to fake adapter
             assert len(fake_adapter.delivered_payloads) == 0
@@ -419,7 +447,7 @@ class TestMatrixInboundToFakeOutbound:
             sender="@alice:example.com",
             event_id="$channel-evt-001",
         )
-        await matrix_adapter._on_room_message(room, event)
+        await matrix_adapter._on_room_message(_to_event_dict(room, event))
 
         assert len(published) == 1
         assert published[0].source_channel_id == "!channel_room:example.com"
@@ -1054,7 +1082,7 @@ class TestMatrixBridgeDirectErrorBoundary:
         mock_client.room_send = AsyncMock(
             side_effect=MatrixSendError("timeout", transient=True)
         )
-        adapter._client = mock_client
+        _wire_mock_session(adapter, mock_client, config=config)
 
         result = RenderingResult(
             event_id="evt-trans-boundary",
@@ -1076,7 +1104,7 @@ class TestMatrixBridgeDirectErrorBoundary:
         mock_client.room_send = AsyncMock(
             side_effect=MatrixSendError("forbidden", transient=False)
         )
-        adapter._client = mock_client
+        _wire_mock_session(adapter, mock_client, config=config)
 
         result = RenderingResult(
             event_id="evt-perm-boundary",
@@ -1091,15 +1119,13 @@ class TestMatrixBridgeDirectErrorBoundary:
         """Client is None -> AdapterPermanentError (lifecycle state)."""
         config = _make_matrix_config()
         adapter = MatrixAdapter(config)
-        adapter._client = None
-
         result = RenderingResult(
             event_id="evt-no-client-boundary",
             target_adapter="matrix-bridge",
             target_channel="!room:example.com",
             payload={"msgtype": "m.text", "body": "test"},
         )
-        with pytest.raises(AdapterPermanentError, match="not connected"):
+        with pytest.raises(AdapterPermanentError, match="session is not initialized"):
             await adapter.deliver(result)
 
     async def test_no_room_id_is_permanent(self, mock_nio) -> None:
@@ -1107,8 +1133,7 @@ class TestMatrixBridgeDirectErrorBoundary:
         config = _make_matrix_config()
         adapter = MatrixAdapter(config)
 
-        mock_client = mock_nio.AsyncClient.return_value
-        adapter._client = mock_client
+        _wire_mock_session(adapter, MagicMock(), config=config)
 
         result = RenderingResult(
             event_id="evt-no-room-boundary",
@@ -1131,7 +1156,7 @@ class TestMatrixBridgeDirectErrorBoundary:
         )
         mock_client = mock_nio.AsyncClient.return_value
         mock_client.room_send = AsyncMock(return_value=response)
-        adapter._client = mock_client
+        _wire_mock_session(adapter, mock_client, config=config)
 
         result = RenderingResult(
             event_id="evt-ok-boundary",

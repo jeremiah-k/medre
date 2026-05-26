@@ -14,7 +14,7 @@ This is the first real adapter that exercises the MEDRE runtime's architecture b
 
 The adapter doesn't route, doesn't plan, and doesn't render fallback text. It decodes inbound Matrix events into canonical form and delivers outbound rendered content. That's it. The pipeline owns receipts, relation resolution, and storage. Adapters only transport messages and report native delivery metadata back to the pipeline. The Matrix-specific renderer lives inside the adapter package (`medre.adapters.matrix.renderer`), not in core. Core owns only the generic rendering protocol and pipeline machinery.
 
-Matrix capabilities in tranche 1 are limited to text message reception and reply basics. Reactions, edits, deletes/redactions, attachments/media, and E2EE are all deferred.
+Matrix capabilities in tranche 1 are limited to text message reception and reply basics. Reactions were implemented in Tranche 3. Edits, deletes/redactions, attachments/media, and E2EE remain deferred.
 
 ## Supported Features
 
@@ -102,7 +102,7 @@ A skipped-by-default live test harness at `tests/test_matrix_live.py` provides o
 - **Inbound message reception.** Validating that a real Matrix event flows through the sync loop, through `_on_room_message`, through the codec, and into `publish_inbound` requires a second Matrix account (or a second device) to send a message. With only one account, this is not reliably testable without polling loops and timeouts that make the suite flaky. Inbound codec correctness is covered by deterministic unit tests instead.
 - **Self-message suppression with real echoes.** The homeserver echoes outbound messages back via the sync stream. A live test would need to wait for that echo and assert `publish_inbound` was not called — but timing is unreliable without a second actor. Self-message suppression is covered by deterministic unit tests (`test_matrix_lifecycle.py`, `test_matrix_adapter.py`).
 - **MEDRE-origin envelope suppression.** This secondary suppression path is unit-tested. Live validation would require injecting an event with a matching envelope, which needs a second account or homeserver-level tricks.
-- **E2EE, reactions, edits, deletes, attachments, media.** None of these features are implemented in tranche 1.
+- **E2EE, edits, deletes, attachments, media.** None of these features are implemented in tranche 1. Reactions (`m.annotation`) were implemented and verified in Tranche 3.
 - **Admin API, webhooks, HTTP server.** Out of scope.
 - **Non-Matrix connectivity.** Meshtastic, MeshCore, LXMF adapters are out of scope.
 - **Auth command / credential storage.** The current tranche uses environment-variable access tokens. A future mmrelay-like `auth` command for interactive login may be useful but is not implemented.
@@ -193,7 +193,7 @@ Docker (optional, not required):
 
 - No E2EE. Tests target unencrypted rooms only. E2EE is deferred to a future release. When implemented, `mindroom-nio[e2e]` will be required (installable via `pip install -e ".[matrix-e2e]"`) and both `store_path` and `device_id` will become mandatory. The `.[matrix-e2e]` optional dependency group now exists in `pyproject.toml` as a scaffold; runtime encryption is not yet implemented. An `e2ee_required` config mode is being introduced that will refuse startup when E2EE deps are absent, but encrypted message operation remains unsupported until a future tranche. See the runbook (`docs/runbooks/matrix-alpha-operation.md`, section 8) and the E2EE readiness contract (`docs/contracts/25-matrix-e2ee-readiness.md`) for posture details.
 - Cross-signing/verification and room key backup/import/export remain deferred. No implementation timeline.
-- No reactions, edits, deletes, or attachments.
+- No edits, deletes, or attachments.
 - No production credential storage or auth command.
 - No admin API.
 - No inbound reception test (requires second actor).
@@ -268,7 +268,7 @@ The envelope is round-trip tolerant. Unknown fields are tolerated/ignored on dec
 
 **Inbound replies.** `MatrixCodec` decodes `m.in_reply_to` into an `EventRelation(relation_type="reply", target_native_ref=NativeRef(...))` directly, with no storage lookup in the codec or adapter. The pipeline invokes `RelationResolver` during ingress to resolve the `target_native_ref` to a canonical `target_event_id` via `resolve_native_ref` where the referenced event has already been stored. If resolution fails (the referenced event hasn't been seen yet), the native relation ref is preserved on the relation. Unresolved relations do not crash routing or rendering; `fallback_text` is used by the delivery stage when the target adapter lacks native relation support.
 
-**Reactions: deferred.** Matrix reaction delivery and `m.annotation` decoding are not part of tranche 1. Reaction semantics are deferred to a later tranche. No reaction-related event processing, storage, or rendering occurs in this tranche.
+**Reactions: implemented (Tranche 3).** Matrix reaction delivery and `m.annotation` decoding were implemented and verified in Tranche 3. The codec extracts true Matrix reactions (`m.annotation` → `MESSAGE_REACTED`) and MMRelay emote reactions. The renderer produces `m.reaction` content with `_matrix_event_type="m.reaction"`. Note: mindroom-nio's `room_send` does not encrypt `message_type="m.reaction"` events (see §3.3 nio limitation note). Tranche 1 did not include reactions.
 
 **Edits, deletes/redactions: deferred.** Matrix `m.replace` (edits) and `m.redaction` (deletes/redactions) are not part of tranche 1. No edit or redaction event processing, storage, or rendering occurs in this tranche.
 
@@ -308,6 +308,29 @@ This installs `mindroom-nio>=0.25`. The core install (`pip install medre`) does 
 - **Rationale.** `mindroom-nio` is a maintained fork of `matrix-nio`, selected because it is under active development. It is tracking the vodozemac migration path and other improvements that upstream `matrix-nio` has not shipped. This positions the adapter for future compatibility without requiring a library swap later.
 - **E2EE scope.** Selecting `mindroom-nio` for maintenance and future-compatibility reasons does not implement or expand E2EE in tranche 1. No `[e2e]` configuration, key upload/claim, device verification, SAS/QR, key backup, or encryption internals are part of this tranche. The dependency choice is about library health, not feature activation.
 
+### Tranche 3: Hardening and Alignment Verification (2026-05-26)
+
+Tranche 3 (branch `t3-matrix-mindroom-hardening`) adds targeted hardening. No new Matrix relation type or canonical event shape was added in this tranche. Transaction-ID deduplication, rate-limit classification, and undecryptable counting are behavioral hardening changes, not merely cosmetic.
+
+**Relation alignment verified.** The following were verified as Matrix-native aligned by source audit (no live testing, code-level verification only):
+
+- **Replies** use `content["m.relates_to"]["m.in_reply_to"]["event_id"]` for both inbound extraction (`relations.extract_reply_target`) and outbound rendering (`renderer` produces this structure). Reply fallback body stripping conforms to the Matrix `> <sender> text` quoted-block format. The renderer does not produce `format="org.matrix.custom.html"` or `formatted_body`; it relies on `m.relates_to` alone. This is valid but minimal — Matrix clients supporting `m.relates_to` render replies correctly; older clients see the plain body.
+- **Reactions** use `content["m.relates_to"]` with `rel_type="m.annotation"`, `event_id`, and `key` for both inbound extraction (`relations.extract_reaction`) and outbound rendering (`renderer._render_reaction` produces this structure when a Matrix-native target exists and mmrelay_compat is false). The internal `_matrix_event_type="m.reaction"` key signals the adapter to use `message_type="m.reaction"` in `room_send`; it is never sent to the homeserver.
+- **Codec inbound extraction** handles three categories: true Matrix reactions (m.annotation → MESSAGE_REACTED), MMRelay emote reactions (m.emote with meshtastic_replyId → MESSAGE_REACTED), and regular messages with optional reply relations. Missing relation data is handled gracefully (returns None, skips relation building). Both dict and nio-like object inputs are supported.
+- **All relation content is in the standard `m.relates_to` subtree.** No custom fields are used for Matrix-native relation extraction or rendering.
+
+**Transaction-ID hardening.** Outbound delivery now computes a deterministic `txn_id` from the delivery identity before the retry loop, so all retry attempts reuse the same transaction ID. This enables homeserver-side deduplication of retried sends within the Matrix txn-ID window. Duplicates remain possible across process restarts or changed delivery identity.
+
+**Rate-limit classification hardening.** M_LIMIT_EXCEEDED / HTTP 429 responses from the homeserver are classified as transient and surfaced to the pipeline immediately as `AdapterSendError(transient=True)`. The `retry_after_ms` value is embedded in the error message for diagnostics but is not yet structured or honored at the adapter level. The adapter does not retry rate-limited responses within its bounded retry loop.
+
+**E2EE secret sanitization.** Access tokens are never logged or embedded in events. `MatrixConfig.__repr__` redacts the token. No secrets appear in metadata envelopes, diagnostics, or evidence bundles. `undecryptable_event_count` and `last_crypto_error` in diagnostics contain no session IDs or key material.
+
+**Undecryptable event counting.** `MegolmEvent` callbacks count events, log warnings (event_id and room_id only), and do not forward to the canonical pipeline. `RoomEncryptionEvent` callbacks set `encrypted_room_seen` and are not forwarded.
+
+**mindroom-nio reaction encryption limitation.** mindroom-nio's `room_send` does not encrypt events when `message_type="m.reaction"` (line 1902-1906 in async_client.py: "Reactions as of yet don't support encryption"). This means MEDRE's true Matrix reaction path (`_matrix_event_type="m.reaction"`) sends reactions in cleartext even in encrypted rooms. This is a nio library limitation, not a MEDRE design choice. The MMRelay emote fallback path uses `message_type="m.room.message"` with `msgtype="m.emote"`, which IS encrypted in encrypted rooms.
+
+**mindroom-nio API compatibility.** The `room_send` signature `(room_id, message_type, content, tx_id=None, ignore_unverified_devices=False)` matches what the MEDRE adapter and session wrapper expect. Parameters are passed as kwargs. No API incompatibilities found between mindroom-nio and the adapter's usage. The adapter uses a manual sync loop (not `sync_forever`) with explicit reconnect logic.
+
 ## Non-Goals (This Tranche)
 
 These are explicitly out of scope for tranche 1:
@@ -316,7 +339,7 @@ These are explicitly out of scope for tranche 1:
 - Attachments, files, images, media (`m.file`, `m.image`, `m.audio`, `m.video`)
 - Matrix edits (`m.replace`)
 - Matrix deletes and redactions (`m.redaction`)
-- Matrix reactions (`m.annotation`). Reaction delivery and decoding are deferred to a later tranche.
+- Matrix reactions (`m.annotation`). Implemented and verified in Tranche 3 — codec, renderer, and adapter delivery.
 - Room membership sync beyond basic join
 - Admin API for Matrix configuration
 - Webhooks or HTTP server

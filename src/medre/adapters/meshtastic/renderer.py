@@ -433,6 +433,12 @@ class MeshtasticRenderer:
     def _truncate_utf8_bytes(text: str, max_bytes: int) -> tuple[str, bool, int, int]:
         """Truncate *text* to at most *max_bytes* UTF-8 bytes.
 
+        Follows the MMRelay conceptual pattern: encode the full text to
+        UTF-8 bytes, slice the byte buffer to the configured budget, then
+        decode back with ``errors="ignore"`` to avoid splitting multi-byte
+        codepoints.  This is the same approach used by mmrelay's
+        ``truncate_message_bytes`` utility.
+
         Parameters
         ----------
         text:

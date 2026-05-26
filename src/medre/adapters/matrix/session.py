@@ -241,11 +241,6 @@ class MatrixSession:
     # -- Properties -----------------------------------------------------------
 
     @property
-    def client(self) -> Any:
-        """The underlying ``nio.AsyncClient``, or ``None`` if not started."""
-        return self._client
-
-    @property
     def closed(self) -> bool:
         """``True`` after :meth:`stop` has completed."""
         return self._closed
@@ -336,6 +331,58 @@ class MatrixSession:
         Returns ``"unknown"`` for rooms not yet seen.
         """
         return self._room_states.get(room_id, "unknown")
+
+    # -- Session-boundary public query methods (per §31 §7.2) ----------------
+
+    def is_logged_in(self) -> bool:
+        """Return ``True`` if the underlying client reports ``logged_in``.
+
+        Safe to call when the client is not initialised (returns ``False``).
+        """
+        return self.logged_in
+
+    def has_access_token(self) -> bool:
+        """Return ``True`` if the underlying client has an ``access_token``.
+
+        Safe to call when the client is not initialised (returns ``False``).
+        """
+        if self._client is None:
+            return False
+        return getattr(self._client, "access_token", None) is not None
+
+    def is_room_member(self, room_id: str) -> bool:
+        """Return ``True`` if the session has joined the given room.
+
+        Checks ``self._client.rooms`` for the room ID.  Returns ``False``
+        when the client is not initialised or the room is not present.
+        """
+        if self._client is None:
+            return False
+        rooms = getattr(self._client, "rooms", None)
+        if rooms is None or not isinstance(rooms, dict):
+            return False
+        return room_id in rooms
+
+    def is_room_encrypted(self, room_id: str) -> bool:
+        """Return ``True`` if the room is known to be encrypted.
+
+        Checks the session's room-state tracking cache first, then
+        falls back to ``self._client.rooms[room_id].encrypted`` for
+        rooms not yet tracked.
+        """
+        state = self.room_state(room_id)
+        if state == "encrypted":
+            return True
+        if state == "plaintext":
+            return False
+        # "unknown" — fall back to client.rooms
+        if self._client is not None:
+            rooms = getattr(self._client, "rooms", None)
+            if rooms is not None and isinstance(rooms, dict):
+                room_obj = rooms.get(room_id)
+                if room_obj is not None and getattr(room_obj, "encrypted", False):
+                    return True
+        return False
 
     @property
     def encrypted_room_count(self) -> int:
@@ -605,15 +652,120 @@ class MatrixSession:
                 "whoami() did not return a device_id — the access token "
                 "may not be associated with a device"
             )
-        self._logger.info(
+        self._logger.debug(
             "Discovered device_id via whoami(): %s",
             device_id,
         )
         return str(device_id)
 
+    def _normalize_event(self, room: Any, event: Any) -> dict[str, Any]:
+        """Normalize a raw nio event + room pair into a plain dict.
+
+        Extracts proto-CanonicalEvent fields so that the adapter callback
+        never receives raw nio objects.  The returned dict contains:
+
+        * ``room_id`` — from ``room.room_id``
+        * ``sender`` — from ``event.sender``
+        * ``body`` — from ``event.body``
+        * ``event_id`` — from ``event.event_id``
+        * ``source`` — from ``event.source`` (raw Matrix event JSON dict)
+        * ``msgtype`` — from content or ``event.msgtype``
+        * ``server_timestamp`` — from ``event.server_timestamp`` or ``origin_server_ts``
+        * ``sender_display_name`` — pre-resolved display name for the sender
+
+        Per §31 §7.1 the session-to-adapter boundary only carries plain
+        dicts, never raw SDK objects.
+        """
+        source = getattr(event, "source", None)
+        content = source.get("content", {}) if isinstance(source, dict) else {}
+        msgtype = content.get("msgtype") or getattr(event, "msgtype", None)
+        server_timestamp = getattr(event, "server_timestamp", None) or getattr(
+            event, "origin_server_ts", None
+        )
+        sender = getattr(event, "sender", "")
+
+        # Pre-resolve display name from the room object so the adapter
+        # never needs to hold a reference to the raw nio Room.
+        sender_display_name = self._resolve_display_name(room, sender)
+
+        return {
+            "room_id": getattr(room, "room_id", ""),
+            "sender": sender,
+            "body": getattr(event, "body", ""),
+            "event_id": getattr(event, "event_id", ""),
+            "source": source if isinstance(source, dict) else {},
+            "msgtype": msgtype if isinstance(msgtype, str) else None,
+            "server_timestamp": server_timestamp,
+            "sender_display_name": sender_display_name,
+        }
+
+    @staticmethod
+    def _resolve_display_name(room: Any, sender: str) -> str:
+        """Resolve the display name for *sender* from a nio Room object.
+
+        Preference order:
+        1. ``room.user_name(sender)`` when callable and returns non-empty.
+        2. ``room.users[sender]`` dict fields: ``display_name``, ``displayname``, ``name``.
+        3. ``room.users[sender]`` object attributes: ``.display_name``, ``.displayname``, ``.name``.
+        4. *sender* MXID as final fallback.
+
+        ``None`` and blank / whitespace-only values are treated as missing.
+        """
+        # 1. room.user_name(sender)
+        user_name_fn = getattr(room, "user_name", None)
+        if callable(user_name_fn):
+            try:
+                val = str(user_name_fn(sender) or "").strip()
+                if val:
+                    return val
+            except Exception:
+                pass
+
+        # 2 & 3. room.users[sender] — dict fields then object attributes.
+        users = getattr(room, "users", None)
+        if users is None:
+            return sender
+        user_info = users.get(sender) if isinstance(users, dict) else None
+        if user_info is None:
+            return sender
+
+        # Dict path
+        if isinstance(user_info, dict):
+            for key in ("display_name", "displayname", "name"):
+                raw = user_info.get(key)
+                if raw is not None:
+                    val = str(raw).strip()
+                    if val:
+                        return val
+        else:
+            # Object path
+            for attr in ("display_name", "displayname", "name"):
+                raw = getattr(user_info, attr, None)
+                if raw is not None:
+                    val = str(raw).strip()
+                    if val:
+                        return val
+
+        return sender
+
+    async def _on_nio_event(self, room: Any, event: Any) -> None:
+        """nio callback wrapper that normalizes raw events to plain dicts.
+
+        Receives raw nio ``RoomMessage*`` / ``ReactionEvent`` objects,
+        converts them to plain dicts via :meth:`_normalize_event`, and
+        forwards the dict to the adapter-provided ``_message_callback``.
+        The adapter never sees raw nio objects.
+        """
+        if self._message_callback is None:
+            return
+        normalized = self._normalize_event(room, event)
+        room_id = normalized.get("room_id")
+        if isinstance(room_id, str) and room_id:
+            self._track_room(room_id)
+        await self._message_callback(normalized)
+
     async def _finalize_start(self) -> None:
-        """Common post-client-creation steps: validate login, register
-        callbacks, start sync task."""
+        """Common post-client-creation steps: validate login, register callbacks, start sync task."""
         if not getattr(self._client, "logged_in", False):
             # Track 3 — partial startup cleanup
             try:
@@ -630,7 +782,7 @@ class MatrixSession:
             import nio
 
             self._client.add_event_callback(
-                self._message_callback,
+                self._on_nio_event,
                 (nio.RoomMessageText, nio.RoomMessageNotice, nio.RoomMessageEmote),
             )
 
@@ -642,7 +794,7 @@ class MatrixSession:
                 reaction_classes = _reaction_event_classes(nio)
                 if reaction_classes:
                     self._client.add_event_callback(
-                        self._message_callback,
+                        self._on_nio_event,
                         reaction_classes,
                     )
                 else:
@@ -1197,13 +1349,6 @@ class MatrixSession:
             self._sync_task = None
 
         if self._client is not None:
-            # Vestigial: production code now uses manual sync loop, not
-            # sync_forever.  Kept for safety in case any code path or
-            # third-party wrapper still triggers sync_forever.
-            try:
-                self._client.stop_sync_forever()
-            except Exception:
-                pass
             try:
                 await self._client.close()
             except Exception as exc:
@@ -1224,6 +1369,55 @@ class MatrixSession:
         self._live_sync_started = False
         # Track 3 — reset reconnect counter so diagnostics are truthful after stop
         self._reconnect_attempts = 0
+
+    # -- Outbound send (per §31 §7.2 session owns all SDK interaction) -------
+
+    async def room_send(
+        self,
+        room_id: str,
+        message_type: str,
+        content: dict[str, Any],
+        ignore_unverified_devices: bool = False,
+        tx_id: str | None = None,
+    ) -> Any:
+        """Send a message to a Matrix room through the session's client.
+
+        Per §31 §7.2 the session is the sole owner of the SDK client.
+        The adapter delegates all ``room_send`` calls through this method
+        instead of accessing the client directly.
+
+        Parameters
+        ----------
+        room_id:
+            Target room ID.
+        message_type:
+            Matrix message type (e.g. ``"m.room.message"``).
+        content:
+            Event content dict.
+        ignore_unverified_devices:
+            Whether to send to unverified devices (E2EE workaround).
+        tx_id:
+            Transaction ID for idempotent sends.
+
+        Returns
+        -------
+        Any
+            The nio ``RoomSendResponse`` (or equivalent from test fakes).
+
+        Raises
+        ------
+        MatrixConnectionError
+            If the client is not initialised.
+        """
+        if self._client is None:
+            raise MatrixConnectionError("cannot send: client is not connected")
+        return await self._client.room_send(
+            room_id=room_id,
+            message_type=message_type,
+            content=content,
+            ignore_unverified_devices=ignore_unverified_devices,
+            tx_id=tx_id,
+        )
 
     # -- Diagnostics ----------------------------------------------------------
 

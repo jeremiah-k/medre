@@ -13,19 +13,20 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 from medre.adapters.meshtastic.errors import MeshtasticCodecError
 from medre.adapters.meshtastic.packet_classifier import (
     MeshtasticPacketClassifier,
 )
 from medre.adapters.meshtastic.packet_snapshot import snapshot_decoded, snapshot_packet
+from medre.core.contracts.adapter import AdapterCodec
 from medre.core.events.canonical import CanonicalEvent, EventRelation, NativeRef
 from medre.core.events.kinds import EventKind
 from medre.core.events.metadata import EventMetadata, NativeMetadata
 
 
-class MeshtasticCodec:
+class MeshtasticCodec(AdapterCodec):
     """Decode helper for the Meshtastic adapter.
 
     Decode uses :class:`MeshtasticPacketClassifier` as the source of truth
@@ -38,27 +39,44 @@ class MeshtasticCodec:
         Identifier of the owning adapter (used for ``source_adapter``).
     config:
         The :class:`~medre.config.adapters.meshtastic.MeshtasticConfig`.
+    clock:
+        Optional callable returning the current UTC datetime.  Defaults to
+        ``lambda: datetime.now(timezone.utc)``.  Inject a deterministic
+        clock in tests for reproducible timestamps.
     """
 
-    def __init__(self, adapter_id: str, config: Any) -> None:
+    def __init__(
+        self,
+        adapter_id: str,
+        config: Any,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
         self._adapter_id = adapter_id
         self._config = config
         self._classifier = MeshtasticPacketClassifier(config)
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
 
     def decode(
         self,
-        packet: dict[str, Any],
+        native_event: Any,
         channel_index: int | None = None,
+        node_info: dict[str, str] | None = None,
     ) -> CanonicalEvent:
         """Convert a native Meshtastic packet dict into a canonical event.
 
         Parameters
         ----------
-        packet:
+        native_event:
             Raw Meshtastic packet dict with native fields.
         channel_index:
             Optional channel index override; defaults to the packet's
             ``channel`` field.
+        node_info:
+            Optional dict with ``longname`` and ``shortname`` keys,
+            typically obtained from the session's node database.  When
+            provided, the values are embedded into the native metadata
+            so that downstream consumers have sender identity without
+            a second pass.
 
         Returns
         -------
@@ -76,6 +94,7 @@ class MeshtasticCodec:
         ClassificationResult.action.  The codec converts text-shaped packets
         and may be used by tests/tools to inspect metadata.
         """
+        packet = native_event
         if not isinstance(packet, dict):
             raise MeshtasticCodecError(
                 f"packet must be a dict, got {type(packet).__name__}"
@@ -183,11 +202,16 @@ class MeshtasticCodec:
 
         to_id = packet.get("toId", "") or ""
 
-        # longname/shortname are populated by the adapter from the SDK's
-        # nodes dict after decode, because text message packets do not
-        # carry user info (that comes from separate NODEINFO_APP packets).
-        longname = ""
-        shortname = ""
+        # longname/shortname are populated from node_info when provided
+        # (obtained via session.get_node_info from the SDK's nodes dict).
+        # Text message packets don't carry user info; that comes from
+        # separate NODEINFO_APP packets.
+        if node_info is not None:
+            longname = node_info.get("longname", "")
+            shortname = node_info.get("shortname", "")
+        else:
+            longname = ""
+            shortname = ""
 
         # Emoji raw value from decoded
         emoji_raw = decoded.get("emoji") if isinstance(decoded, dict) else None
@@ -228,7 +252,7 @@ class MeshtasticCodec:
             event_id=str(uuid.uuid4()),
             event_kind=event_kind,
             schema_version=1,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=self._clock(),
             source_adapter=self._adapter_id,
             source_transport_id=sender,
             source_channel_id=str(pkt_channel) if pkt_channel is not None else None,

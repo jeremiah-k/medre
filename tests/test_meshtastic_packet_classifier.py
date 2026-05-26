@@ -1107,3 +1107,392 @@ class TestChannelMappingSemantics:
         assert result.reason == "text message"
         assert result.channel_index == 0
         assert result.routeable is True
+
+
+# ===================================================================
+# Hardened field extraction tests (source audit gap closure)
+# ===================================================================
+
+
+class TestHopStartHopLimit:
+    """hop_start / hop_limit extraction from real mtjk packet fields."""
+
+    def test_hop_start_present(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        packet["hopStart"] = 3
+        result = cls.classify(packet)
+        assert result.hop_start == 3
+        assert result.hop_limit is None
+
+    def test_hop_limit_present(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        packet["hopLimit"] = 5
+        result = cls.classify(packet)
+        assert result.hop_start is None
+        assert result.hop_limit == 5
+
+    def test_both_hop_fields(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        packet["hopStart"] = 3
+        packet["hopLimit"] = 5
+        result = cls.classify(packet)
+        assert result.hop_start == 3
+        assert result.hop_limit == 5
+
+    def test_hop_fields_absent(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        result = cls.classify(packet)
+        assert result.hop_start is None
+        assert result.hop_limit is None
+
+    def test_hop_fields_zero(self) -> None:
+        """Zero is a valid hop value — extract it."""
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        packet["hopStart"] = 0
+        packet["hopLimit"] = 0
+        result = cls.classify(packet)
+        assert result.hop_start == 0
+        assert result.hop_limit == 0
+
+
+class TestRxTimeExtraction:
+    """rx_time extraction via extract_meshtastic_rx_time."""
+
+    def test_valid_rx_time(self) -> None:
+        from datetime import datetime, timezone
+
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        packet["rxTime"] = 1700000000
+        result = cls.classify(packet)
+        assert result.rx_time is not None
+        assert result.rx_time == datetime.fromtimestamp(1700000000, tz=timezone.utc)
+
+    def test_missing_rx_time(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        result = cls.classify(packet)
+        assert result.rx_time is None
+
+    def test_invalid_rx_time_zero(self) -> None:
+        """rxTime=0 is rejected by extract_meshtastic_rx_time (non-positive)."""
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        packet["rxTime"] = 0
+        result = cls.classify(packet)
+        assert result.rx_time is None
+
+    def test_invalid_rx_time_negative(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        packet["rxTime"] = -100
+        result = cls.classify(packet)
+        assert result.rx_time is None
+
+    def test_invalid_rx_time_string(self) -> None:
+        """Non-numeric rxTime is rejected."""
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        packet["rxTime"] = "not-a-timestamp"
+        result = cls.classify(packet)
+        assert result.rx_time is None
+
+    def test_invalid_rx_time_bool(self) -> None:
+        """Bool rxTime is rejected (bool is subclass of int)."""
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        packet["rxTime"] = True
+        result = cls.classify(packet)
+        assert result.rx_time is None
+
+
+class TestPriorityExtraction:
+    """priority field extraction (protobuf MeshPacket.Priority enum name)."""
+
+    def test_priority_present(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        packet["priority"] = "RELIABLE"
+        result = cls.classify(packet)
+        assert result.priority == "RELIABLE"
+
+    def test_priority_absent(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        result = cls.classify(packet)
+        assert result.priority is None
+
+    def test_priority_empty_string(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        packet["priority"] = ""
+        result = cls.classify(packet)
+        assert result.priority == ""
+
+    def test_priority_numeric(self) -> None:
+        """priority=3 (integer enum value) → stored as string '3'."""
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        packet["priority"] = 3
+        result = cls.classify(packet)
+        assert result.priority == "3"
+
+
+class TestRxSnrRxRssi:
+    """rx_snr / rx_rssi radio diagnostic field extraction."""
+
+    def test_rx_snr_present(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        packet["rxSnr"] = 7.5
+        result = cls.classify(packet)
+        assert result.rx_snr == 7.5
+        assert result.rx_rssi is None
+
+    def test_rx_rssi_present(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        packet["rxRssi"] = -80
+        result = cls.classify(packet)
+        assert result.rx_snr is None
+        assert result.rx_rssi == -80
+
+    def test_both_radio_fields(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        packet["rxSnr"] = 5.25
+        packet["rxRssi"] = -90
+        result = cls.classify(packet)
+        assert result.rx_snr == 5.25
+        assert result.rx_rssi == -90
+
+    def test_radio_fields_absent(self) -> None:
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        result = cls.classify(packet)
+        assert result.rx_snr is None
+        assert result.rx_rssi is None
+
+    def test_rx_snr_zero(self) -> None:
+        """Zero SNR is a valid measurement."""
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        packet["rxSnr"] = 0.0
+        result = cls.classify(packet)
+        assert result.rx_snr == 0.0
+
+    def test_rx_snr_negative(self) -> None:
+        """Negative rx_snr (valid — signal below noise floor)."""
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        packet["rxSnr"] = -5.5
+        result = cls.classify(packet)
+        assert result.rx_snr == -5.5
+
+
+class TestViaMqtt:
+    """via_mqtt diagnostic field extraction."""
+
+    def test_via_mqtt_true(self) -> None:
+        """viaMqtt=True → via_mqtt is True."""
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        packet["viaMqtt"] = True
+        result = cls.classify(packet)
+        assert result.via_mqtt is True
+
+    def test_via_mqtt_false(self) -> None:
+        """viaMqtt=False → via_mqtt is False."""
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        packet["viaMqtt"] = False
+        result = cls.classify(packet)
+        assert result.via_mqtt is False
+
+    def test_via_mqtt_absent(self) -> None:
+        """No viaMqtt field → via_mqtt defaults to False."""
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        result = cls.classify(packet)
+        assert result.via_mqtt is False
+
+
+class TestEncryptedHardening:
+    """Encrypted packet detection hardened for real mtjk protobuf bool."""
+
+    def test_encrypted_python_bool_true(self) -> None:
+        """encrypted=True (Python bool) triggers drop."""
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        packet["encrypted"] = True
+        result = cls.classify(packet)
+        assert result.is_encrypted is True
+        assert result.action == "drop"
+        assert result.reason == "encrypted packet"
+
+    def test_encrypted_truthy_int(self) -> None:
+        """encrypted=1 (truthy int) also triggers drop."""
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        packet["encrypted"] = 1
+        result = cls.classify(packet)
+        assert result.is_encrypted is True
+        assert result.action == "drop"
+
+    def test_encrypted_false_no_drop(self) -> None:
+        """encrypted=False does not trigger drop."""
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        packet["encrypted"] = False
+        result = cls.classify(packet)
+        assert result.is_encrypted is False
+        assert result.action == "relay"
+
+    def test_encrypted_decoded_level_fallback(self) -> None:
+        """encrypted inside decoded dict triggers drop when top-level absent."""
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        packet["decoded"]["encrypted"] = True
+        result = cls.classify(packet)
+        assert result.is_encrypted is True
+        assert result.action == "drop"
+        assert result.reason == "encrypted packet"
+
+    def test_encrypted_both_levels_top_wins(self) -> None:
+        """Top-level encrypted=True takes precedence over decoded.encrypted=False."""
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        packet["encrypted"] = True
+        packet["decoded"]["encrypted"] = False
+        result = cls.classify(packet)
+        assert result.is_encrypted is True
+        assert result.action == "drop"
+
+    def test_encrypted_neither_level(self) -> None:
+        """No encrypted at either level — not flagged."""
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        result = cls.classify(packet)
+        assert result.is_encrypted is False
+
+    def test_encrypted_false_top_true_decoded(self) -> None:
+        """encrypted=False at top level + encrypted=True in decoded → is_encrypted is True."""
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        packet["encrypted"] = False
+        packet["decoded"]["encrypted"] = True
+        result = cls.classify(packet)
+        assert result.is_encrypted is True
+        assert result.action == "drop"
+
+
+class TestBroadcastNumericToInt:
+    """to=0xFFFFFFFF (int) correctly identified as broadcast via numeric path."""
+
+    def test_numeric_to_broadcast_no_toid(self) -> None:
+        """Packet with to=0xFFFFFFFF and no toId is broadcast."""
+        cls = MeshtasticPacketClassifier()
+        packet = {
+            "fromId": "!node1",
+            "to": 0xFFFFFFFF,
+            "id": 1,
+            "decoded": {"portnum": "text_message", "text": "hello"},
+        }
+        result = cls.classify(packet)
+        assert result.is_direct_message is False
+        assert result.action == "relay"
+
+    def test_numeric_to_broadcast_with_empty_toid(self) -> None:
+        """Packet with to=0xFFFFFFFF and toId="" is broadcast."""
+        cls = MeshtasticPacketClassifier()
+        packet = {
+            "fromId": "!node1",
+            "toId": "",
+            "to": 0xFFFFFFFF,
+            "id": 1,
+            "decoded": {"portnum": "text_message", "text": "hello"},
+        }
+        result = cls.classify(packet)
+        assert result.is_direct_message is False
+        assert result.action == "relay"
+
+    def test_string_4294967295_toid_is_broadcast(self) -> None:
+        """toId='4294967295' (string form of 0xFFFFFFFF) is broadcast."""
+        cls = MeshtasticPacketClassifier()
+        packet = {
+            "fromId": "!node1",
+            "toId": "4294967295",
+            "id": 1,
+            "decoded": {"portnum": "text_message", "text": "hello"},
+        }
+        result = cls.classify(packet)
+        assert result.is_direct_message is False
+        assert result.action == "relay"
+
+    def test_numeric_to_direct_message(self) -> None:
+        """to=12345 (non-broadcast int) with broadcast toId flips to direct."""
+        cls = MeshtasticPacketClassifier()
+        packet = {
+            "fromId": "!node1",
+            "toId": "",
+            "to": 12345,
+            "id": 1,
+            "decoded": {"portnum": "text_message", "text": "hello"},
+        }
+        result = cls.classify(packet)
+        assert result.is_direct_message is True
+        assert result.action == "ignore"
+
+
+class TestAllNewFieldsTogether:
+    """Full packet with all new fields extracted correctly."""
+
+    def test_full_mtjk_packet(self) -> None:
+        from datetime import datetime, timezone
+
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet(text="full packet", sender="!abc123")
+        packet["hopStart"] = 3
+        packet["hopLimit"] = 7
+        packet["rxTime"] = 1700000000
+        packet["priority"] = "HIGH"
+        packet["rxSnr"] = 8.25
+        packet["rxRssi"] = -65
+        result = cls.classify(packet)
+
+        assert result.action == "relay"
+        assert result.hop_start == 3
+        assert result.hop_limit == 7
+        assert result.rx_time == datetime.fromtimestamp(1700000000, tz=timezone.utc)
+        assert result.priority == "HIGH"
+        assert result.rx_snr == 8.25
+        assert result.rx_rssi == -65
+        assert result.via_mqtt is False
+
+    def test_full_mtjk_packet_defaults(self) -> None:
+        """Packet without any new fields — all default to None."""
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        result = cls.classify(packet)
+
+        assert result.hop_start is None
+        assert result.hop_limit is None
+        assert result.rx_time is None
+        assert result.priority is None
+        assert result.rx_snr is None
+        assert result.rx_rssi is None
+        assert result.via_mqtt is False
+
+    def test_result_still_frozen_with_new_fields(self) -> None:
+        """ClassificationResult remains immutable with new fields."""
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        packet["hopStart"] = 2
+        result = cls.classify(packet)
+        with pytest.raises(AttributeError):
+            result.hop_start = 99  # type: ignore[misc]

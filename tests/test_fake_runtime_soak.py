@@ -14,6 +14,7 @@ import pytest
 
 from medre.adapters.fakes.matrix import FakeMatrixAdapter
 from medre.config.paths import MedrePaths, resolve
+from medre.core.events import EventKind
 from medre.runtime.app import RuntimeState
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.snapshot import SCHEMA_VERSION, build_runtime_snapshot
@@ -202,7 +203,9 @@ class TestFullFakeRuntimeHappyPath:
             assert isinstance(beta, FakeMatrixAdapter)
 
             # -- Inbound event through the full pipeline --
-            event = alpha.make_event("Full pipeline integration test")
+            event = alpha.make_event(
+                "Full pipeline integration test", event_kind=EventKind.MESSAGE_TEXT
+            )
             outcomes = await app.pipeline_runner.handle_ingress(event)
 
             # -- Canonical event stored --

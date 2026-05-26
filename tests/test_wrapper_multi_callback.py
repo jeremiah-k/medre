@@ -31,6 +31,7 @@ from tests.helpers.matrix import (
     make_matrix_config,
     make_nio_event,
     make_nio_room,
+    to_event_dict,
 )
 
 
@@ -90,7 +91,7 @@ class TestMatrixWrapperMultiCallback:
                     event_id=f"$multi-evt-{i:03d}",
                     body=f"multi message {i}",
                 )
-                await matrix_adapter._on_room_message(room, nio_event)
+                await matrix_adapter._on_room_message(to_event_dict(room, nio_event))
 
             # Exactly 5 canonical events
             all_events = await temp_storage._read_all(
@@ -167,7 +168,7 @@ class TestMatrixWrapperMultiCallback:
                 event_id="$self-evt-001",
                 body="this is from myself",
             )
-            await matrix_adapter._on_room_message(room, self_event)
+            await matrix_adapter._on_room_message(to_event_dict(room, self_event))
 
             # No canonical event stored
             all_events = await temp_storage._read_all(

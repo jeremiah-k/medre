@@ -73,8 +73,6 @@ from datetime import datetime, timezone
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
-import msgspec
-
 if TYPE_CHECKING:
     from medre.core.events.canonical import CanonicalEvent
 
@@ -164,7 +162,6 @@ class MeshtasticAdapter(AdapterContract):
             max_text_bytes=config.max_text_bytes,
         )
         self._session: MeshtasticSession | None = None
-        self._client: Any = None  # mirrors session.client for diagnostics
         self._codec = MeshtasticCodec(config.adapter_id, config)
         self._classifier = MeshtasticPacketClassifier(config)
         self._queue = MeshtasticOutboundQueue(
@@ -237,16 +234,12 @@ class MeshtasticAdapter(AdapterContract):
         except Exception:
             # Clean up session on failure
             self._session = None
-            self._client = None
             raise
 
         # Session-scoped startup backlog baseline — set AFTER session connects
         self._adapter_start_epoch = time.time()
         self._startup_backlog_packets_seen = 0
         self._startup_backlog_packets_suppressed = 0
-
-        # Mirror session client for diagnostics
-        self._client = self._session.client
 
         self._loop = asyncio.get_running_loop()
         self._drain_task = asyncio.create_task(self._process_queue())
@@ -299,7 +292,6 @@ class MeshtasticAdapter(AdapterContract):
         if self._session is not None:
             await self._session.stop(timeout=timeout)
 
-        self._client = None
         self._session = None
         if self.ctx is not None:
             self.ctx.logger.info("MeshtasticAdapter %s stopped", self.adapter_id)
@@ -321,8 +313,8 @@ class MeshtasticAdapter(AdapterContract):
                 health = "degraded"
             else:
                 health = "unknown"
-        elif self._client is not None and not self._started:
-            # Client exists but start did not complete — subscription failure.
+        elif self._session is not None and not self._started:
+            # Session exists but start did not complete — subscription failure.
             health = "failed"
         else:
             health = "unknown"
@@ -356,7 +348,7 @@ class MeshtasticAdapter(AdapterContract):
         Returns
         -------
         AdapterDeliveryResult | None
-            ``None`` in scaffold/fake mode (send is async via queue).
+            ``None`` in fake mode (send is async via queue).
 
         Raises
         ------
@@ -418,24 +410,6 @@ class MeshtasticAdapter(AdapterContract):
         )
 
     # -- Inbound callback ---------------------------------------------------
-
-    def _on_receive_callback(
-        self, packet: dict[str, Any], interface: Any = None
-    ) -> None:
-        """Pubsub callback matching the Meshtastic ``onReceive(packet, interface)`` signature.
-
-        Delegates to :meth:`_on_packet` for classification and processing.
-        The session's ``_on_receive`` forwards to the adapter's ``_on_packet``
-        via the message_callback.
-
-        Parameters
-        ----------
-        packet:
-            Raw Meshtastic packet dict.
-        interface:
-            The interface that received the packet (unused).
-        """
-        self._on_packet(packet)
 
     def _increment_classifier_counters(self, classification: Any) -> None:
         """Increment classifier counters based on a ClassificationResult.
@@ -519,6 +493,33 @@ class MeshtasticAdapter(AdapterContract):
                 classification.packet_id,
                 classification.from_id,
             )
+
+    def _enrich_with_node_info(self, packet: dict[str, Any]) -> dict[str, str] | None:
+        """Look up node info (longname/shortname) from the session node database.
+
+        Reads ``fromId`` directly from the raw packet dict so we never
+        need a preliminary codec decode just to obtain the sender ID.
+
+        Returns ``None`` when the session is unavailable, the node ID is
+        empty, the node is unknown, or the lookup raises.
+
+        Parameters
+        ----------
+        packet:
+            Raw Meshtastic packet dict.
+
+        Returns
+        -------
+        dict[str, str] | None
+            ``{"longname": ..., "shortname": ...}`` or ``None``.
+        """
+        from_id = str(packet.get("fromId", "") or "")
+        if not from_id or self._session is None:
+            return None
+        try:
+            return self._session.get_node_info(from_id)
+        except Exception:
+            return None  # Non-critical enrichment; names are best-effort
 
     def _check_startup_backlog_suppress(
         self, packet: dict[str, Any], packet_id: Any
@@ -613,48 +614,12 @@ class MeshtasticAdapter(AdapterContract):
                 self._startup_backlog_packets_suppressed += 1
                 return
 
-            canonical = self._codec.decode(packet)
-
-            # Enrich longname/shortname from the SDK's nodes dict.
+            # Enrich longname/shortname via the session's node database.
             # Text message packets don't carry user info; that comes from
-            # separate NODEINFO_APP packets.  The SDK client maintains a
-            # nodes dict mapping node IDs to user info.
-            try:
-                if (
-                    self._session is not None
-                    and self._session.client is not None
-                    and canonical.metadata.native is not None
-                ):
-                    from_id = canonical.metadata.native.data.get("from_id", "")
-                    if isinstance(from_id, str) and from_id:
-                        client_nodes = getattr(self._session.client, "nodes", None)
-                        if isinstance(client_nodes, dict):
-                            node_info = client_nodes.get(from_id, {})
-                            if isinstance(node_info, dict):
-                                user_info = node_info.get("user", {})
-                                if isinstance(user_info, dict):
-                                    ln = str(user_info.get("longName", "") or "")
-                                    sn = str(user_info.get("shortName", "") or "")
-                                    if ln or sn:
-                                        updated_data = dict(
-                                            canonical.metadata.native.data
-                                        )
-                                        updated_data["longname"] = ln
-                                        updated_data["shortname"] = sn
-                                        new_native = msgspec.structs.replace(
-                                            canonical.metadata.native,
-                                            data=updated_data,
-                                        )
-                                        new_metadata = msgspec.structs.replace(
-                                            canonical.metadata,
-                                            native=new_native,
-                                        )
-                                        canonical = msgspec.structs.replace(
-                                            canonical,
-                                            metadata=new_metadata,
-                                        )
-            except Exception:
-                pass  # Non-critical enrichment; names are best-effort
+            # separate NODEINFO_APP packets.  The codec handles embedding
+            # into native metadata when node_info is provided.
+            node_info = self._enrich_with_node_info(packet)
+            canonical = self._codec.decode(packet, node_info=node_info)
             # Schedule the async publish — _on_packet is called from the
             # Meshtastic SDK reader thread, so we use run_coroutine_threadsafe
             # instead of asyncio.create_task (which requires a running loop
@@ -737,7 +702,9 @@ class MeshtasticAdapter(AdapterContract):
             self._startup_backlog_packets_suppressed += 1
             return
 
-        canonical = self._codec.decode(packet)
+        # Enrich with node info (same path as _on_packet)
+        node_info = self._enrich_with_node_info(packet)
+        canonical = self._codec.decode(packet, node_info=node_info)
         await self.publish_inbound(canonical)
         self._inbound_published += 1
 
@@ -797,6 +764,10 @@ class MeshtasticAdapter(AdapterContract):
             # Outbound gate
             "outbound_mode": self._config.outbound_mode,
             "outbound_gate_suppressed": self._outbound_gate_suppressed,
+            # Full queue health snapshot (structurally identical to the
+            # individual queue_* keys above but provided as a single
+            # nested dict for programmatic consumers).
+            "queue": self._queue.queue_health,
         }
 
         if self._session is not None:
@@ -868,7 +839,7 @@ class MeshtasticAdapter(AdapterContract):
             or ``None``.
         """
         session = self._session
-        if session is None or session.client is None:
+        if session is None or not session.connected:
             return None
 
         async def _send_fn(item: dict[str, Any]) -> Any:
@@ -995,7 +966,11 @@ class MeshtasticAdapter(AdapterContract):
         # Caller guarantees native_message_id is non-None, but the type
         # checker cannot see the guard in _process_queue through the
         # method boundary.
-        assert delivery.native_message_id is not None
+        if delivery.native_message_id is None:
+            raise RuntimeError(
+                "delivery.native_message_id must be non-None when recording "
+                "delayed outbound ref"
+            )
 
         record = OutboundNativeRefRecord(
             event_id=event_id,
@@ -1028,7 +1003,7 @@ class MeshtasticAdapter(AdapterContract):
 
     # -- Codec access -------------------------------------------------------
 
-    def get_codec(self) -> MeshtasticCodec:  # type: ignore[override]
+    def get_codec(self) -> MeshtasticCodec:
         """Return the adapter's codec.
 
         Returns

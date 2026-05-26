@@ -189,7 +189,7 @@ class TestMeshtasticdSdkBridge:
             assert adapter._started is True
             assert adapter._session is not None
             assert adapter._session.connected is True
-            assert adapter._client is not None
+            assert adapter._session.client is not None
 
             # Health reports healthy with real session.
             info = await adapter.health_check()
@@ -213,7 +213,6 @@ class TestMeshtasticdSdkBridge:
         info = await adapter.health_check()
         assert info.health == "unknown"
         assert adapter._session is None
-        assert adapter._client is None
 
     @pytest.mark.asyncio
     async def test_outbound_send_one_through_real_session(

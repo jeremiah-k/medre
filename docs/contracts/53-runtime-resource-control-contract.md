@@ -168,7 +168,7 @@ Matrix adapters use `nio` (or the HTTP API) over TCP. Key constraints:
 - **Async SDK:** nio is fully async. Sending a message is an awaitable that completes quickly under normal conditions.
 - **Rate limiting:** Matrix homeservers impose rate limits (requests per second). Exceeding these returns HTTP 429 with a `retry_after_ms` header.
 - **Connection pooling:** a single Matrix adapter has one sync loop and one HTTP client. Outbound sends share this connection.
-- **Implication:** Matrix can tolerate a deeper queue because the underlying transport is fast. **Block with timeout** is viable for Matrix — if the homeserver rate-limits, the queue buffers until the rate limit resets.
+- **Implication:** Matrix can tolerate a deeper queue because the underlying transport is fast. Rate-limit responses (M_LIMIT_EXCEEDED / HTTP 429) are surfaced immediately as `AdapterSendError(transient=True)`; the adapter does not buffer, block, or sleep. The `retry_after_ms` header is embedded in the error message for diagnostics but is not yet structured or honored. Adaptive backoff based on `retry_after_ms` is deferred to a future tranche.
 
 ### 8.2 LXMF
 
@@ -183,20 +183,22 @@ LXMF (Reticulum) adapters use the Reticulum network stack:
 Default backpressure policy for Matrix/LXMF:
 
 - Queue depth: **moderate** (50-200 messages).
-- Policy: **block with timeout** (Matrix), **fail** (LXMF).
-- Matrix: respect homeserver rate limits; block until the rate limit resets (bounded by timeout).
+- Policy: **fail / surface transient** (Matrix), **fail** (LXMF).
+- Matrix: rate-limit responses are surfaced immediately as `AdapterSendError(transient=True)`; the adapter does not block or sleep. Pipeline retry/replay handles re-delivery. Adaptive backoff based on `retry_after_ms` is deferred.
 - LXMF: fail fast; LXMF's fire-and-forget semantics make backpressure unlikely.
 
 ## 9. Default Policy Recommendation
 
 Before beta, the recommended default backpressure configuration:
 
-| Transport  | Queue Depth | Policy             | Retry on BP | Rationale                              |
-| ---------- | ----------- | ------------------ | ----------- | -------------------------------------- |
-| Meshtastic | 10          | Drop oldest        | No          | Slow radio, serial writes block        |
-| MeshCore   | 10          | Drop oldest        | No          | Slow radio, no flow control            |
-| Matrix     | 100         | Block (5s timeout) | No          | Fast async SDK, rate-limited by server |
-| LXMF       | 50          | Fail               | No          | Fire-and-forget, fast                  |
+| Transport  | Queue Depth | Policy               | Retry on BP | Rationale                                                    |
+| ---------- | ----------- | -------------------- | ----------- | ------------------------------------------------------------ |
+| Meshtastic | 10          | Drop oldest          | No          | Slow radio, serial writes block                              |
+| MeshCore   | 10          | Drop oldest          | No          | Slow radio, no flow control                                  |
+| Matrix     | 100         | Fail / surface trans | No          | Fast async SDK; rate-limit surfaced as transient immediately |
+| LXMF       | 50          | Fail                 | No          | Fire-and-forget, fast                                        |
+
+Matrix has no per-adapter outbound queue. Rate-limit responses are surfaced immediately as `AdapterSendError(transient=True)`; the pipeline retry worker handles re-delivery.
 
 Global ceiling: 500 total in-flight deliveries across all adapters.
 
@@ -304,7 +306,7 @@ Some resource control behavior is inherently transport-specific and should not b
 
 1. **Meshtastic serial write behavior.** The fact that serial writes block at the OS level is not a "queue policy" — it is a physical constraint of the transport. The adapter must handle this internally regardless of the configured backpressure policy.
 
-2. **Matrix homeserver rate limits.** HTTP 429 responses are a server-side constraint, not a queue problem. The adapter must parse the `retry_after_ms` header and sleep, independently of the queue policy.
+2. **Matrix homeserver rate limits.** HTTP 429 responses are a server-side constraint, not a queue problem. The adapter surfaces `AdapterSendError(transient=True)` immediately, embedding `retry_after_ms` in the error message for diagnostics. It does not parse, sleep, or honor the header. Adaptive backoff based on `retry_after_ms` is deferred to a future tranche.
 
 3. **LXMF fire-and-forget semantics.** LXMF delivers to the Reticulum network, which handles store-and-forward. The adapter does not control when the message actually reaches the recipient. This is fundamentally different from Matrix (where send confirmation is synchronous) and Meshtastic (where send confirmation is implicit in the serial write completing).
 

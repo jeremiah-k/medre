@@ -93,7 +93,8 @@ async def _adapter_matrix_auth_login(args: object) -> None:
     # Step 3 (interactive password already acquired above)
 
     # Step 4: Homeserver derivation ------------------------------------------
-    assert user_id is not None  # guaranteed by tristate dispatch above
+    if user_id is None:
+        raise RuntimeError("user_id is None after tristate dispatch — this is a bug")
     if homeserver is None:
         from medre.adapters.matrix.auth import (
             discover_well_known,

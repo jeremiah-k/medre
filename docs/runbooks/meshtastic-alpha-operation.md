@@ -1,9 +1,11 @@
 # Meshtastic Alpha Operation Runbook
 
-> Last updated: 2026-05-25 (Tranche 6 truth-surface update)
+> Last updated: 2026-05-26 (Tranche 2 Meshtastic hardening — diagnostic field additions only)
 > Scope: Real Meshtastic Operation Alpha
 > Status: Alpha. Not production. Not hardened. Not complete. Fake mode is the primary development and testing path. Real connectivity (TCP/serial) is available for live validation.
 > Tranche 6 session (2026-05-25): Did NOT execute live Meshtastic tests. No physical radio was provided or interacted with. No `MESHTASTIC_*` env vars were set. This update adds hardware validation commands, dependency/version capture, and clarifies evidence boundaries. Baseline: HEAD 41a07c7, Python 3.12.3, medre 0.1.0.
+>
+> **Tranche 2 hardening note (2026-05-26):** No behavioral changes to the adapter's operational contract. The packet classifier now extracts `encrypted`, `hopStart`, `hopLimit`, `rxTime`, `rxSnr`, `rxRssi`, and `priority` fields from real packet dicts for diagnostic use. These additions improve data extraction fidelity and adapter diagnostics visibility but do not alter any classification action (relay/ignore/drop/deferred), canonical event structure, queue behavior, startup backlog suppression semantics, or any other operational behavior documented in this runbook. Queue diagnostics were already wired into adapter diagnostics; no change. Renderer UTF-8 truncation remains as documented (MMRelay-conceptual byte-budget pattern, `max_text_bytes=227` default).
 
 This runbook describes how to run the MEDRE Meshtastic adapter against a real Meshtastic radio node in alpha mode. Alpha mode means the MeshtasticAdapter connects to a real node using TCP or serial, receives real radio packets via pubsub callbacks, and sends real messages via the queued `send_one` path. It does not mean the system is ready for anything beyond a single operator on a single node.
 

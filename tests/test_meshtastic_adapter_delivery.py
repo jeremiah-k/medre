@@ -1123,6 +1123,7 @@ class TestAdapterDeliverPassthrough:
 
         class FakeSession:
             _started = True
+            connected = True
 
             @property
             def client(self):
@@ -1158,6 +1159,7 @@ class TestAdapterDeliverPassthrough:
 
         class FakeSession:
             _started = True
+            connected = True
 
             @property
             def client(self):
