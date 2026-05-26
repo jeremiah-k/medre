@@ -756,3 +756,499 @@ class TestMockedSDKDisconnectIdempotent:
 
         # disconnect should only have been called once.
         mock_inst.disconnect.assert_awaited_once()
+
+
+# ===================================================================
+# Tranche 4: BLE mock startup
+# ===================================================================
+
+
+class TestMockedSDKBLEStartup:
+    """Verify BLE-mode startup wiring against mocked SDK 2.3.7 API."""
+
+    async def test_ble_constructor_args(self) -> None:
+        """MeshCore.create_ble is called with address keyword arg."""
+        mock_mc, mock_inst = _build_mock_meshcore_module()
+
+        config = _make_config(
+            connection_type="ble",
+            ble_address="AA:BB:CC:DD:EE:FF",
+        )
+        session = MeshCoreSession(config, "ble-test")
+
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(lambda pkt: None)
+
+        mock_mc.MeshCore.create_ble.assert_awaited_once_with(
+            address="AA:BB:CC:DD:EE:FF",
+        )
+        assert session.connected is True
+
+        await session.stop()
+
+    async def test_ble_subscriptions_registered(self) -> None:
+        """BLE mode registers the same 3 subscriptions as TCP/serial."""
+        mock_mc, mock_inst = _build_mock_meshcore_module()
+
+        config = _make_config(
+            connection_type="ble",
+            ble_address="AA:BB:CC:DD:EE:FF",
+        )
+        session = MeshCoreSession(config, "ble-sub-test")
+
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(lambda pkt: None)
+
+        assert mock_inst.subscribe.call_count == 3
+
+        await session.stop()
+
+
+# ===================================================================
+# Tranche 4: send_text return value with message_id
+# ===================================================================
+
+
+class TestMockedSDKSendMsgWithId:
+    """Verify send_text returns native ID when SDK provides one."""
+
+    async def test_send_msg_returns_message_id_from_payload(self) -> None:
+        """When MSG_SENT payload has message_id, send_text returns it as str."""
+        mock_mc, mock_inst = _build_mock_meshcore_module()
+
+        mock_inst.commands.send_msg.return_value = _MockEvent(
+            type=_MockEventType.MSG_SENT,
+            payload={"expected_ack": "deadbeef", "message_id": 42},
+        )
+
+        config = _make_config(connection_type="tcp", host="localhost")
+        session = MeshCoreSession(config, "id-test")
+
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(lambda pkt: None)
+
+        result = await session.send_text("aabbcc", "test with id")
+
+        assert result == "42"
+        assert isinstance(result, str)
+
+        await session.stop()
+
+    async def test_send_msg_returns_message_id_from_attributes(self) -> None:
+        """When Event.attributes has message_id, send_text returns it."""
+        mock_mc, mock_inst = _build_mock_meshcore_module()
+
+        event = _MockEvent(
+            type=_MockEventType.MSG_SENT,
+            payload={"expected_ack": "abcd"},
+            attributes={"message_id": "pkt-99"},
+        )
+        mock_inst.commands.send_msg.return_value = event
+
+        config = _make_config(connection_type="tcp", host="localhost")
+        session = MeshCoreSession(config, "attr-id-test")
+
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(lambda pkt: None)
+
+        result = await session.send_text("aabbcc", "attr id test")
+
+        assert result == "pkt-99"
+
+        await session.stop()
+
+    async def test_send_chan_msg_returns_none_for_ok(self) -> None:
+        """Channel send with OK response and no message_id returns None."""
+        mock_mc, mock_inst = _build_mock_meshcore_module()
+
+        mock_inst.commands.send_chan_msg.return_value = _MockEvent(
+            type=_MockEventType.OK,
+            payload={},
+        )
+
+        config = _make_config(connection_type="tcp", host="localhost")
+        session = MeshCoreSession(config, "chan-ok-test")
+
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(lambda pkt: None)
+
+        result = await session.send_text("ignored", "chan msg", channel_index=0)
+
+        assert result is None
+
+        await session.stop()
+
+
+# ===================================================================
+# Tranche 4: Reconnect exponential backoff verification
+# ===================================================================
+
+
+class TestMockedSDKReconnectBackoff:
+    """Verify bounded exponential backoff with max attempts."""
+
+    async def test_reconnect_stops_after_max_attempts(self) -> None:
+        """Reconnect loop stops after _RECONNECT_MAX_ATTEMPTS failures."""
+        import medre.adapters.meshcore.session as session_mod
+
+        orig_base = session_mod._RECONNECT_BASE_DELAY
+        orig_max_delay = session_mod._RECONNECT_MAX_DELAY
+        orig_max_attempts = session_mod._RECONNECT_MAX_ATTEMPTS
+        orig_jitter = session_mod._RECONNECT_JITTER_FRACTION
+
+        session_mod._RECONNECT_BASE_DELAY = 0.01
+        session_mod._RECONNECT_MAX_DELAY = 0.02
+        session_mod._RECONNECT_MAX_ATTEMPTS = 4
+        session_mod._RECONNECT_JITTER_FRACTION = 0.0
+
+        try:
+            config = _make_config(connection_type="fake")
+            session = MeshCoreSession(config, "backoff-test")
+
+            async def noop(pkt: dict) -> None:
+                pass
+
+            await session.start(noop)
+            await session.stop()
+
+            async def _failing_connect():
+                raise RuntimeError("simulated failure")
+
+            session._connect_real = _failing_connect
+            session._stop_requested = False
+
+            await session._reconnect_loop()
+
+            assert session.reconnect_attempts == 4
+            assert session.reconnecting is False
+            assert session.last_error is not None
+            assert "4" in session.last_error
+        finally:
+            session_mod._RECONNECT_BASE_DELAY = orig_base
+            session_mod._RECONNECT_MAX_DELAY = orig_max_delay
+            session_mod._RECONNECT_MAX_ATTEMPTS = orig_max_attempts
+            session_mod._RECONNECT_JITTER_FRACTION = orig_jitter
+
+    async def test_reconnect_succeeds_mid_loop(self) -> None:
+        """Reconnect loop exits early on successful reconnection."""
+        import medre.adapters.meshcore.session as session_mod
+
+        orig_base = session_mod._RECONNECT_BASE_DELAY
+        orig_max_delay = session_mod._RECONNECT_MAX_DELAY
+        orig_max_attempts = session_mod._RECONNECT_MAX_ATTEMPTS
+        orig_jitter = session_mod._RECONNECT_JITTER_FRACTION
+
+        session_mod._RECONNECT_BASE_DELAY = 0.01
+        session_mod._RECONNECT_MAX_DELAY = 0.02
+        session_mod._RECONNECT_MAX_ATTEMPTS = 10
+        session_mod._RECONNECT_JITTER_FRACTION = 0.0
+
+        try:
+            config = _make_config(connection_type="fake")
+            session = MeshCoreSession(config, "mid-reconnect-test")
+
+            async def noop(pkt: dict) -> None:
+                pass
+
+            await session.start(noop)
+            await session.stop()
+
+            call_count = 0
+
+            async def _succeed_on_second():
+                nonlocal call_count
+                call_count += 1
+                if call_count < 2:
+                    raise RuntimeError("not yet")
+                # Mimic real _connect_real which sets connected on success.
+                session._diag.connected = True
+
+            session._connect_real = _succeed_on_second
+            session._stop_requested = False
+
+            await session._reconnect_loop()
+
+            assert session.reconnect_attempts == 1
+            assert session.reconnecting is False
+            assert session.connected is True
+        finally:
+            session_mod._RECONNECT_BASE_DELAY = orig_base
+            session_mod._RECONNECT_MAX_DELAY = orig_max_delay
+            session_mod._RECONNECT_MAX_ATTEMPTS = orig_max_attempts
+            session_mod._RECONNECT_JITTER_FRACTION = orig_jitter
+
+
+# ===================================================================
+# Tranche 4: Transient vs permanent error classification
+# ===================================================================
+
+
+class TestMockedSDKErrorClassification:
+    """Verify transient and permanent error counters track correctly."""
+
+    async def test_sdk_error_is_permanent(self) -> None:
+        """SDK ERROR response increments permanent counter only."""
+        mock_mc, mock_inst = _build_mock_meshcore_module()
+
+        mock_inst.commands.send_msg.return_value = _MockEvent(
+            type=_MockEventType.ERROR,
+            payload={"reason": "node_busy"},
+        )
+
+        config = _make_config(connection_type="tcp", host="localhost")
+        session = MeshCoreSession(config, "perm-err-test")
+
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(lambda pkt: None)
+
+        with pytest.raises(MeshCoreSendError, match="SDK send error"):
+            await session.send_text("aabbcc", "perm test")
+
+        assert session.permanent_delivery_failures == 1
+        assert session.transient_delivery_failures == 0
+
+        await session.stop()
+
+    async def test_oserror_is_transient_then_permanent(self) -> None:
+        """Transient OSError exhausts retries, then becomes permanent."""
+        mock_mc, mock_inst = _build_mock_meshcore_module()
+
+        mock_inst.commands.send_msg.side_effect = OSError("serial port error")
+
+        config = _make_config(connection_type="serial", serial_port="/dev/ttyUSB0")
+        session = MeshCoreSession(config, "transient-test-2")
+
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(lambda pkt: None)
+
+        with pytest.raises(MeshCoreSendError, match="Send failed after 3 attempts"):
+            await session.send_text("aabbcc", "transient test")
+
+        assert session.transient_delivery_failures == 3
+        assert session.permanent_delivery_failures == 1
+
+        await session.stop()
+
+    async def test_transient_recovery_on_second_attempt(self) -> None:
+        """Transient failure on first attempt, success on second — no permanent error."""
+        mock_mc, mock_inst = _build_mock_meshcore_module()
+
+        call_count = 0
+
+        async def _flaky_send(*args):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise OSError("transient glitch")
+            return _MockEvent(
+                type=_MockEventType.MSG_SENT,
+                payload={"expected_ack": "recovered"},
+            )
+
+        mock_inst.commands.send_msg.side_effect = _flaky_send
+
+        config = _make_config(connection_type="tcp", host="localhost")
+        session = MeshCoreSession(config, "recovery-test")
+
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(lambda pkt: None)
+
+        result = await session.send_text("aabbcc", "recover me")
+
+        assert result is None  # no message_id in this payload
+        assert session.transient_delivery_failures == 1
+        assert session.permanent_delivery_failures == 0
+        assert call_count == 2
+
+        await session.stop()
+
+    async def test_diagnostics_track_error_counters(self) -> None:
+        """Diagnostics snapshot includes accurate error counters after failures."""
+        mock_mc, mock_inst = _build_mock_meshcore_module()
+
+        mock_inst.commands.send_msg.return_value = _MockEvent(
+            type=_MockEventType.ERROR,
+            payload={"reason": "bad_state"},
+        )
+
+        config = _make_config(connection_type="tcp", host="localhost")
+        session = MeshCoreSession(config, "diag-err-test")
+
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(lambda pkt: None)
+
+        with pytest.raises(MeshCoreSendError):
+            await session.send_text("x", "first fail")
+
+        with pytest.raises(MeshCoreSendError):
+            await session.send_text("x", "second fail")
+
+        diag = session.diagnostics()
+        assert diag["permanent_delivery_failures"] == 2
+        assert diag["transient_delivery_failures"] == 0
+
+        await session.stop()
+
+
+# ===================================================================
+# Tranche 4: Inbound callback normalization edge cases
+# ===================================================================
+
+
+class TestMockedSDKCallbackNormalization:
+    """Verify _on_sdk_event normalizes various payload shapes to plain dicts."""
+
+    async def test_event_with_non_dict_payload(self) -> None:
+        """Event with non-dict payload is normalized to empty dict."""
+        mock_mc, mock_inst = _build_mock_meshcore_module()
+
+        config = _make_config(connection_type="tcp", host="localhost")
+        session = MeshCoreSession(config, "non-dict-test")
+        received: list[dict] = []
+
+        async def callback(pkt: dict) -> None:
+            received.append(pkt)
+
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(callback)
+
+        # Event with non-dict payload (e.g., string)
+        event = _MockEvent(
+            type=_MockEventType.CONTACT_MSG_RECV,
+            payload="not a dict",
+        )
+        await session._on_sdk_event(event)
+
+        assert len(received) == 1
+        assert received[0] == {}
+
+        await session.stop()
+
+    async def test_event_with_none_payload(self) -> None:
+        """Event with None payload is normalized to empty dict."""
+        mock_mc, mock_inst = _build_mock_meshcore_module()
+
+        config = _make_config(connection_type="tcp", host="localhost")
+        session = MeshCoreSession(config, "none-payload-test")
+        received: list[dict] = []
+
+        async def callback(pkt: dict) -> None:
+            received.append(pkt)
+
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(callback)
+
+        event = _MockEvent(
+            type=_MockEventType.CONTACT_MSG_RECV,
+            payload=None,
+        )
+        await session._on_sdk_event(event)
+
+        assert len(received) == 1
+        assert received[0] == {}
+
+        await session.stop()
+
+    async def test_callback_exception_does_not_crash_session(self) -> None:
+        """Exception in user callback is caught; session remains connected."""
+        mock_mc, mock_inst = _build_mock_meshcore_module()
+
+        config = _make_config(connection_type="tcp", host="localhost")
+        session = MeshCoreSession(config, "cb-exc-test")
+
+        async def bad_callback(pkt: dict) -> None:
+            raise ValueError("callback blew up")
+
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(bad_callback)
+
+        event = _MockEvent(
+            type=_MockEventType.CONTACT_MSG_RECV,
+            payload={"text": "trigger error", "type": "PRIV"},
+        )
+        # Should NOT raise
+        await session._on_sdk_event(event)
+
+        assert session.connected is True
+        assert session.last_message_time is not None
+
+        await session.stop()
+
+    async def test_last_message_time_updated_on_each_event(self) -> None:
+        """last_message_time advances with each inbound event."""
+        mock_mc, mock_inst = _build_mock_meshcore_module()
+
+        config = _make_config(connection_type="tcp", host="localhost")
+        session = MeshCoreSession(config, "time-test")
+
+        async def callback(pkt: dict) -> None:
+            pass
+
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(callback)
+
+        assert session.last_message_time is None
+
+        await session._on_sdk_event(
+            _MockEvent(
+                type=_MockEventType.CONTACT_MSG_RECV,
+                payload={"text": "first"},
+            )
+        )
+        t1 = session.last_message_time
+        assert t1 is not None
+
+        import asyncio
+
+        await asyncio.sleep(0.01)
+
+        await session._on_sdk_event(
+            _MockEvent(
+                type=_MockEventType.CHANNEL_MSG_RECV,
+                payload={"text": "second"},
+            )
+        )
+        t2 = session.last_message_time
+        assert t2 is not None
+        assert t2 >= t1
+
+        await session.stop()

@@ -3,10 +3,10 @@
 > **Status:** Assessment
 > **Classification:** Assessment
 > **Authority:** Readiness assessment from source extraction; does not claim production connectivity
-> **Last reviewed:** 2026-05-24
+> **Last reviewed:** 2026-05-26
 >
-> Contract version: 2
-> Last updated: 2026-05-12
+> Contract version: 3
+> Last updated: 2026-05-26
 > Supersedes: None (complements 11, 16, 18)
 > Audit source: PyPI package `meshcore` v2.3.7 wheel, source-extracted inspection
 
@@ -578,4 +578,72 @@ Contract 16 is the readiness authority. Where this document and Contract 16 conf
 - No bridge design between MeshCore and Meshtastic.
 - No timeline or priority for MeshCore production support.
 
-_This document records readiness state. It does not advance it._
+## 11. Tranche 4: Lifecycle Hardening (2026-05-26)
+
+Tranche 4 (`t4-meshcore-maturation`) hardens the MeshCore adapter's session lifecycle, renderer byte budget enforcement, and test coverage without changing production adapter code. No hardware validation occurred in this tranche.
+
+### 11.1 Session Lifecycle Hardening
+
+`MeshCoreSession` (`src/medre/adapters/meshcore/session.py`) now implements:
+
+- **Bounded exponential backoff reconnect**: Base delays double (1 s → 2 s → 4 s → …) capped at 30 s, ±25 % jitter, max 10 consecutive attempts. On `stop()`, a `_stop_requested` guard prevents further reconnects.
+- **Transient vs permanent error classification**: `send_text()` retries transient failures (OSError, transport errors) up to 3 times. SDK-level ERROR responses are classified as permanent immediately. Counters track `transient_delivery_failures` and `permanent_delivery_failures` independently.
+- **Inbound callback normalization**: `_on_sdk_event()` extracts `payload` from SDK `Event` objects, normalizing non-dict payloads to `{}`. SDK objects never leak past the session boundary.
+- **Idempotent start/stop**: Both `start()` and `stop()` are idempotent. Repeated calls are no-ops. Start/stop cycles reset state cleanly.
+- **Connection type support**: TCP (`create_tcp`), serial (`create_serial`), BLE (`create_ble`) factory paths all wired at the session layer.
+
+### 11.2 Renderer Byte Budget Verification
+
+`MeshCoreRenderer` (`src/medre/adapters/meshcore/renderer.py`) enforces:
+
+- **UTF-8 byte-budget truncation** via `_truncate_utf8_bytes()`: operates on byte count, not character count. Multi-byte UTF-8 codepoints are never split (uses `decode("utf-8", errors="ignore")`).
+- **Configurable `max_text_bytes`**: default 512, configurable per adapter. Zero budget produces empty string.
+- **Target-aware rendering**: config resolved per target adapter, supporting multi-node setups with different byte budgets.
+- **Truncation metadata**: `original_text_bytes`, `rendered_text_bytes`, `truncated` flag, `max_text_bytes` all reported in `RenderingResult.metadata`.
+
+### 11.3 Test Coverage Added (Tranche 4)
+
+New test classes in `tests/test_meshcore_session.py`:
+
+| Test class                           | What it verifies                                               |
+| ------------------------------------ | -------------------------------------------------------------- |
+| `TestMockedSDKBLEStartup`            | BLE factory wiring, subscription registration                  |
+| `TestMockedSDKSendMsgWithId`         | `message_id` extraction from payload and attributes            |
+| `TestMockedSDKReconnectBackoff`      | Bounded backoff, max attempts, mid-loop recovery               |
+| `TestMockedSDKErrorClassification`   | Transient vs permanent counters, recovery after retry          |
+| `TestMockedSDKCallbackNormalization` | Non-dict/None payloads, callback exceptions, timestamp updates |
+
+New test classes in `tests/test_meshcore_renderer.py`:
+
+| Test class                                  | What it verifies                                                          |
+| ------------------------------------------- | ------------------------------------------------------------------------- |
+| (added to `TestMeshCoreRendererTruncation`) | Mixed multi-byte, all-multibyte, exact fit, ASCII prefix, large text      |
+| `TestMeshCoreRendererPrefixFormatting`      | meshnet_name, channel_index, payload key structure, zero-budget multibyte |
+
+### 11.4 SDK API Findings Confirmed by Tests
+
+Mocked SDK tests confirm these API shapes against meshcore 2.3.7:
+
+- `MeshCore.create_tcp(host, port)` — positional args. CONFIRMED by test.
+- `MeshCore.create_serial(port, baudrate)` — positional args, default baudrate 115200. CONFIRMED by test.
+- `MeshCore.create_ble(address=)` — keyword arg. CONFIRMED by test.
+- `mc.subscribe(EventType, callback)` — called 3 times (CONTACT_MSG_RECV, CHANNEL_MSG_RECV, DISCONNECTED). CONFIRMED by test.
+- `mc.commands.send_msg(dst, msg)` — returns Event with `type`, `payload`, `attributes`. CONFIRMED by test.
+- `mc.commands.send_chan_msg(chan, msg)` — returns Event with OK/ERROR type. CONFIRMED by test.
+- `Event.is_error()` — returns True when type is ERROR. CONFIRMED by test.
+- `mc.disconnect()` — called once on stop, idempotent. CONFIRMED by test.
+
+### 11.5 Startup Backlog Suppression — Intentionally Absent
+
+MeshCore has no message history, store-and-forward, or initial sync. When the adapter connects, events arrive live from the SDK's event dispatcher; there is no backlog to suppress. The `sender_timestamp` field is sender-side and unverified. Suppressing live packets would risk dropping fresh traffic. This remains unchanged from the Tranche 3 assessment.
+
+### 11.6 Readiness Status Update
+
+No readiness status change. MeshCore remains third out of four adapters in readiness (per contract 16). The session lifecycle is hardened with tests, but no real hardware validation has occurred. All lifecycle hardening is tested via mocked SDK only.
+
+| Aspect               | Pre-Tranche 4              | Post-Tranche 4                                    |
+| -------------------- | -------------------------- | ------------------------------------------------- |
+| Session lifecycle    | Scaffold, no reconnect     | Hardened: bounded reconnect, error classification |
+| Renderer byte budget | Implemented, partial tests | Full test coverage for multi-byte edge cases      |
+| SDK API confidence   | Source-audit only          | Source-audit + mocked SDK test verification       |
+| Real connectivity    | Not tested                 | Not tested (unchanged)                            |

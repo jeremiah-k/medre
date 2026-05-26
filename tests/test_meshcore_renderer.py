@@ -445,3 +445,107 @@ class TestMeshCoreRendererTruncation:
         assert result.metadata["original_text_bytes"] == 5
         assert result.metadata["rendered_text_bytes"] == 3
         assert result.metadata["truncated"] is True
+
+    async def test_mixed_multibyte_truncation(self) -> None:
+        """Mixed ASCII + 2-byte + 3-byte + 4-byte chars truncated safely."""
+        # "a" (1B) + "é" (2B) + "中" (3B) + "😀" (4B) = 10 bytes total
+        # Truncate to 5 bytes → "a" (1B) + "é" (2B) = 3 bytes (drop 中, 😀)
+        renderer = _make_renderer(max_text_bytes=5)
+        event = _make_event(payload={"body": "aé中😀"})
+        result = await renderer.render(event, "meshcore_node")
+        rendered = str(result.payload["text"])
+        assert rendered.encode("utf-8") == b"a\xc3\xa9"  # "aé"
+        assert len(rendered.encode("utf-8")) <= 5
+        assert result.truncated is True
+
+    async def test_all_multibyte_string_budget_too_small(self) -> None:
+        """Budget of 1 byte with 4-byte emoji produces empty string."""
+        renderer = _make_renderer(max_text_bytes=1)
+        event = _make_event(payload={"body": "😀hello"})
+        result = await renderer.render(event, "meshcore_node")
+        assert result.payload["text"] == ""
+        assert result.truncated is True
+
+    async def test_single_multibyte_fits_exactly(self) -> None:
+        """A single 3-byte CJK char fits exactly in a 3-byte budget."""
+        renderer = _make_renderer(max_text_bytes=3)
+        event = _make_event(payload={"body": "中"})
+        result = await renderer.render(event, "meshcore_node")
+        assert result.payload["text"] == "中"
+        assert result.truncated is False
+
+    async def test_truncation_preserves_ascii_prefix(self) -> None:
+        """ASCII text before the truncation boundary is preserved exactly."""
+        renderer = _make_renderer(max_text_bytes=10)
+        event = _make_event(payload={"body": "1234567890X"})  # 11 bytes
+        result = await renderer.render(event, "meshcore_node")
+        assert result.payload["text"] == "1234567890"
+        assert result.truncated is True
+
+    async def test_large_text_truncated_to_small_budget(self) -> None:
+        """1000-char ASCII text truncated to 50-byte budget."""
+        renderer = _make_renderer(max_text_bytes=50)
+        event = _make_event(payload={"body": "A" * 1000})
+        result = await renderer.render(event, "meshcore_node")
+        assert result.payload["text"] == "A" * 50
+        assert len(str(result.payload["text"]).encode("utf-8")) == 50
+        assert result.truncated is True
+        assert result.metadata["original_text_bytes"] == 1000
+        assert result.metadata["rendered_text_bytes"] == 50
+
+
+# ===================================================================
+# Tranche 4: Prefix formatting and config propagation
+# ===================================================================
+
+
+class TestMeshCoreRendererPrefixFormatting:
+    """Verify meshnet_name and channel_index propagate correctly in output."""
+
+    pytestmark = pytest.mark.asyncio
+
+    async def test_meshnet_name_in_output(self) -> None:
+        """meshnet_name from config appears in rendered payload."""
+        renderer = _make_renderer(meshnet_name="testnet-alpha")
+        event = _make_event(payload={"body": "hello"})
+        result = await renderer.render(event, "meshcore_node")
+        assert result.payload["meshnet_name"] == "testnet-alpha"
+
+    async def test_empty_meshnet_name_default(self) -> None:
+        """Default meshnet_name is empty string."""
+        renderer = _make_renderer()
+        event = _make_event(payload={"body": "hello"})
+        result = await renderer.render(event, "meshcore_node")
+        assert result.payload["meshnet_name"] == ""
+
+    async def test_channel_index_from_target_channel(self) -> None:
+        """target_channel is parsed as channel_index in payload."""
+        renderer = _make_renderer()
+        event = _make_event(payload={"body": "hello"})
+        result = await renderer.render(event, "meshcore_node", target_channel="7")
+        assert result.payload["channel_index"] == 7
+
+    async def test_default_channel_used_when_no_target(self) -> None:
+        """default_channel from config used when no target_channel provided."""
+        cfg = _make_config("mc-ch", default_channel=3)
+        renderer = MeshCoreRenderer(configs={"mc-ch": cfg})
+        event = _make_event(payload={"body": "hello"})
+        result = await renderer.render(event, "mc-ch")
+        assert result.payload["channel_index"] == 3
+
+    async def test_payload_has_exactly_three_keys(self) -> None:
+        """Rendered payload has text, channel_index, meshnet_name only."""
+        renderer = _make_renderer()
+        event = _make_event(payload={"body": "hello"})
+        result = await renderer.render(event, "meshcore_node")
+        assert set(result.payload.keys()) == {"text", "channel_index", "meshnet_name"}
+
+    async def test_max_text_bytes_zero_with_multibyte(self) -> None:
+        """max_text_bytes=0 produces empty text even with multibyte input."""
+        renderer = _make_renderer(max_text_bytes=0)
+        event = _make_event(payload={"body": "中é😀abc"})
+        result = await renderer.render(event, "meshcore_node")
+        assert result.payload["text"] == ""
+        assert result.truncated is True
+        assert result.metadata["original_text_bytes"] == len("中é😀abc".encode("utf-8"))
+        assert result.metadata["rendered_text_bytes"] == 0

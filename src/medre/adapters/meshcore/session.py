@@ -651,15 +651,22 @@ class MeshCoreSession:
                     )
 
                 # Extract native message ID if available.
+                # SDK responses may carry message_id in payload OR
+                # attributes depending on the event type.  When the
+                # result is an Event object, check payload first then
+                # fall back to attributes.
                 native_id: str | None = None
                 if isinstance(result, dict):
                     native_id = result.get("message_id")
-                elif hasattr(result, "payload") and isinstance(result.payload, dict):
-                    native_id = result.payload.get("message_id")
-                elif hasattr(result, "attributes") and isinstance(
-                    result.attributes, dict
-                ):
-                    native_id = result.attributes.get("message_id")
+                else:
+                    if hasattr(result, "payload") and isinstance(result.payload, dict):
+                        native_id = result.payload.get("message_id")
+                    if (
+                        native_id is None
+                        and hasattr(result, "attributes")
+                        and isinstance(result.attributes, dict)
+                    ):
+                        native_id = result.attributes.get("message_id")
 
                 return str(native_id) if native_id is not None else None
 

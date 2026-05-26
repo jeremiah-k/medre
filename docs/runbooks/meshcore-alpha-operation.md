@@ -1,6 +1,6 @@
 # MeshCore Alpha Operation Runbook
 
-> Last updated: 2026-05-12
+> Last updated: 2026-05-26
 > Scope: Real MeshCore Operation Alpha
 > Status: Alpha. Not production. Not hardened. Not complete. Fake mode is the primary development and testing path. Real connectivity (TCP/serial/BLE) is implemented via `MeshCoreSession`; BLE is implemented at session layer, hardware validation pending.
 > SDK version audited: `meshcore` 2.3.7 (PyPI, source-extracted inspection)
@@ -1024,3 +1024,49 @@ The following features are not supported in alpha mode. Do not attempt to use th
 | Cross-transport orchestration        | Not in scope                                              | No bridge between MeshCore and other transports                                                                                                                                                  |
 | Bridge-policy redesign               | Not in scope                                              | No policy changes for MeshCore integration                                                                                                                                                       |
 | Non-MeshCore transports              | Not in scope                                              | This runbook covers MeshCore only                                                                                                                                                                |
+
+## 19. Tranche 4 Hardening (2026-05-26)
+
+Tranche 4 (`t4-meshcore-maturation`) adds lifecycle hardening to the MeshCore adapter session and verifies renderer byte budget behavior through comprehensive tests. No production adapter code was changed.
+
+### 19.1 Session Lifecycle Hardening
+
+`MeshCoreSession` now implements bounded reconnect with exponential backoff:
+
+- **Reconnect policy**: Base delay doubles on each attempt (1 s → 2 s → 4 s → 8 s → …) capped at 30 s. ±25 % jitter applied to avoid thundering-herd synchronisation. Maximum 10 consecutive attempts. After exhaustion, the session reports `last_error` and sets `reconnecting = False`.
+- **Stop guard**: `stop()` sets `_stop_requested`, which prevents the reconnect loop from scheduling further attempts. Any in-flight reconnect task is cancelled.
+- **Transient vs permanent error classification**: `send_text()` retries transient failures (OSError, transport errors) up to 3 times. SDK ERROR responses are permanent and not retried. `transient_delivery_failures` and `permanent_delivery_failures` counters are tracked independently and reported in `diagnostics()`.
+- **Recovery**: A transient failure followed by a successful retry increments `transient_delivery_failures` but not `permanent_delivery_failures`.
+
+### 19.2 Renderer Byte Budget Verification
+
+`MeshCoreRenderer` enforces UTF-8 byte-budget truncation via `_truncate_utf8_bytes()`:
+
+- Operates on byte count, not character count.
+- Multi-byte UTF-8 codepoints are never split. Uses `decode("utf-8", errors="ignore")` on the byte slice.
+- `max_text_bytes=0` produces empty string with `truncated=True` (unless input is also empty).
+- Configurable per adapter (default 512 bytes).
+- Truncation metadata (`original_text_bytes`, `rendered_text_bytes`, `truncated`, `max_text_bytes`) reported in `RenderingResult.metadata`.
+
+Tests added:
+
+- Mixed ASCII + 2-byte + 3-byte + 4-byte codepoint truncation
+- All-multibyte string with budget too small for any character
+- Single multibyte character fitting exactly
+- Large text (1000 chars) truncated to small budget (50 bytes)
+- Zero-budget with multibyte input
+
+### 19.3 Operational Caveats (Unchanged)
+
+- **No real hardware validation occurred in Tranche 4.** All lifecycle hardening is tested via mocked SDK only.
+- **Startup backlog suppression remains intentionally absent.** MeshCore has no store-and-forward; `sender_timestamp` is sender-side and unverified.
+- **No outbound queue.** Sends go directly through the session. A successful send means local node acceptance, not mesh delivery.
+- **BLE hardware validation pending.** BLE is wired at the session layer but has not been tested against real BLE hardware.
+- **512-byte text limit.** The renderer enforces `max_text_bytes=512` by default. The MeshCore wire protocol has a 255-byte frame payload maximum. Messages exceeding the wire limit may be truncated or rejected by the firmware.
+
+### 19.4 Test Coverage Summary
+
+| Test file                         | New classes                                   | Tests added                                                                                        |
+| --------------------------------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `tests/test_meshcore_session.py`  | 6 new classes                                 | BLE startup, send with message_id, reconnect backoff, error classification, callback normalization |
+| `tests/test_meshcore_renderer.py` | 1 new class + 6 new methods in existing class | Mixed multi-byte, prefix formatting, zero-budget multibyte, large text truncation                  |
