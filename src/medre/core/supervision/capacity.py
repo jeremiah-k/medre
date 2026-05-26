@@ -33,11 +33,19 @@ class _Limits(Protocol):
 
     Satisfied by :class:`medre.config.model.RuntimeLimits` without
     importing it — keeps core free of config dependencies.
+
+    Attributes are declared read-only (via ``@property``) so that
+    frozen dataclasses like ``RuntimeLimits`` satisfy the protocol.
     """
 
-    max_inflight_deliveries: int
-    max_inflight_replay_events: int
-    delivery_acquire_timeout_seconds: float
+    @property
+    def max_inflight_deliveries(self) -> int: ...
+
+    @property
+    def max_inflight_replay_events(self) -> int: ...
+
+    @property
+    def delivery_acquire_timeout_seconds(self) -> float: ...
 
 
 class CapacityController:

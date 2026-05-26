@@ -60,7 +60,9 @@ async def _trace_event(
                     target = data.get("target_adapter", "")
                     attempt = data.get("attempt_number", 1)
                     line = f"  {ts}  [{etype}] {status} -> {target}"
-                    channel = data.get("target_channel") or data.get("native_channel_id")
+                    channel = data.get("target_channel") or data.get(
+                        "native_channel_id"
+                    )
                     if channel:
                         line += f" channel={channel}"
                     route = data.get("route_id")
@@ -133,7 +135,9 @@ async def _trace_replay(
                     target = data.get("target_adapter", "")
                     eid = data.get("event_id", "")
                     line = f"  {ts}  [{etype}] {status} -> {target}"
-                    channel = data.get("target_channel") or data.get("native_channel_id")
+                    channel = data.get("target_channel") or data.get(
+                        "native_channel_id"
+                    )
                     if channel:
                         line += f" channel={channel}"
                     route = data.get("route_id")

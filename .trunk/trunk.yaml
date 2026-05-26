@@ -24,7 +24,7 @@ lint:
     - checkov@3.2.529
     - isort@8.0.1
     - renovate@43.150.0
-    - ruff@0.15.13
+    - ruff@0.15.14
     - shellcheck@0.11.0
     - shfmt@3.6.0
     - taplo@0.10.0

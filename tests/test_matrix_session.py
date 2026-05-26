@@ -339,7 +339,7 @@ class TestAdapterStartBehavior:
         try:
             compat.HAS_E2EE = True
             # Make ClientConfig raise so crypto setup fails
-            mock_nio.ClientConfig.side_effect = TypeError("nope")
+            mock_nio.AsyncClientConfig.side_effect = TypeError("nope")
             config = make_matrix_config(
                 encryption_mode="e2ee_optional",
                 # no store_path, no device_id
@@ -354,7 +354,7 @@ class TestAdapterStartBehavior:
                 await adapter.stop()
         finally:
             compat.HAS_E2EE = original
-            mock_nio.ClientConfig.side_effect = None
+            mock_nio.AsyncClientConfig.side_effect = None
 
     async def test_plaintext_no_nio_raises(self) -> None:
         config = make_matrix_config()

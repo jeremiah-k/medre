@@ -735,10 +735,14 @@ class SQLiteStorage:
         """
         if self._use_aiosqlite:
             db = await aiosqlite.connect(self._db_path)  # type: ignore[union-attr]
-            db.row_factory = sqlite3.Row
-            await db.executescript(_SCHEMA)
-            await db.execute("PRAGMA journal_mode=WAL")
-            await db.commit()
+            try:
+                db.row_factory = sqlite3.Row
+                await db.executescript(_SCHEMA)
+                await db.execute("PRAGMA journal_mode=WAL")
+                await db.commit()
+            except BaseException:
+                await db.close()
+                raise
             self._db = db
         else:
             self._db = await asyncio.to_thread(self._sync_open)
@@ -853,10 +857,14 @@ class SQLiteStorage:
     def _sync_open(self) -> sqlite3.Connection:
         """Synchronous counterpart of :meth:`initialize` for the fallback path."""
         db = sqlite3.connect(self._db_path, check_same_thread=False)
-        db.row_factory = sqlite3.Row
-        db.executescript(_SCHEMA)
-        db.execute("PRAGMA journal_mode=WAL")
-        db.commit()
+        try:
+            db.row_factory = sqlite3.Row
+            db.executescript(_SCHEMA)
+            db.execute("PRAGMA journal_mode=WAL")
+            db.commit()
+        except BaseException:
+            db.close()
+            raise
         return db
 
     @classmethod
@@ -886,7 +894,13 @@ class SQLiteStorage:
                 f"file:{db_path}?mode=ro",
                 uri=True,
             )
-            db.row_factory = sqlite3.Row
+            try:
+                db.row_factory = (
+                    sqlite3.Row
+                )  # redundant guard (connect won't fail), mirrors initialize() pattern
+            except BaseException:
+                await db.close()
+                raise
             instance._db = db
         else:
             instance._db = await asyncio.to_thread(instance._sync_open_readonly)
@@ -914,7 +928,11 @@ class SQLiteStorage:
             uri=True,
             check_same_thread=False,
         )
-        db.row_factory = sqlite3.Row
+        try:
+            db.row_factory = sqlite3.Row
+        except BaseException:
+            db.close()
+            raise
         return db
 
     async def _verify_schema_version_readonly(self) -> None:
@@ -967,11 +985,25 @@ class SQLiteStorage:
         db = self._db
         if db is None:
             return
-        self._db = None
         if self._use_aiosqlite:
             await db.close()
         else:
-            await asyncio.to_thread(self._sync_close, db)
+            # Close synchronously under the lock instead of via
+            # asyncio.to_thread.  On Python 3.14 ThreadPoolExecutor retains
+            # the sqlite3.Connection reference through internal work items,
+            # which causes a false ResourceWarning even after db.close()
+            # completes.  Use non-blocking lock acquisition with
+            # asyncio.sleep(0) to avoid blocking the event loop.  This is
+            # safe because self._db has already been snapshot into *db* —
+            # new operations will see None and raise before reaching the
+            # connection.
+            while not self._lock.acquire(blocking=False):
+                await asyncio.sleep(0)
+            try:
+                db.close()
+            finally:
+                self._lock.release()
+        self._db = None
 
     async def count_events(self) -> int:
         """Return the total number of persisted canonical events.

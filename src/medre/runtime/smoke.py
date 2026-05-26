@@ -211,9 +211,9 @@ def _run_preflight(config: Any) -> dict[str, Any]:
 async def _collect_native_refs(
     app: MedreApp,
     outcomes: list[Any],
-) -> list[dict[str, str]]:
+) -> list[dict[str, object]]:
     """Resolve native refs for each successful delivery outcome."""
-    refs: list[dict[str, str]] = []
+    refs: list[dict[str, object]] = []
     if app.storage is None:
         return refs
 

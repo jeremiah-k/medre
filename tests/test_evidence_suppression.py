@@ -175,10 +175,9 @@ class TestLoopSuppressionEvidence:
 
         # -- Phase 5: delivery_state_by_target assertions -------------------
         dsbt = summary["delivery_state_by_target"]
-        assert isinstance(dsbt, dict), (
-            f"delivery_state_by_target must be dict, "
-            f"got {type(dsbt).__name__}"
-        )
+        assert isinstance(
+            dsbt, dict
+        ), f"delivery_state_by_target must be dict, got {type(dsbt).__name__}"
         assert len(dsbt) == 1, (
             f"Expected exactly 1 entry in delivery_state_by_target, "
             f"got {len(dsbt)}: {list(dsbt.keys())}"

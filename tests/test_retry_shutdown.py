@@ -23,6 +23,7 @@ from medre.core.planning.delivery_plan import RetryExecutor, RetryPolicy
 from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.core.supervision.accounting import RuntimeAccounting
 from medre.core.supervision.capacity import CapacityController
+from tests.helpers.async_utils import wait_until
 
 # ---------------------------------------------------------------------------
 # RetryWorker (shutdown variant)
@@ -258,8 +259,11 @@ class TestRetryShutdown:
             interval=300,  # 5-minute interval — won't cycle during test
         )
         await worker.start()
-        # Let one loop iteration complete
-        await asyncio.sleep(0.05)
+        # Wait for at least one loop iteration to complete.
+        await wait_until(
+            lambda: storage.list_due_retry_receipts.call_count >= 1,
+            timeout=2.0,
+        )
         # Stop immediately
         await worker.stop()
 
@@ -306,14 +310,14 @@ class TestRetryShutdown:
 
         # Start worker — it will acquire a slot and block in deliver_to_target
         await worker.start()
-        await asyncio.sleep(0.1)
+        await wait_until(lambda: capacity.delivery_current >= 1, timeout=2.0)
 
         # The delivery slot should be occupied
         assert capacity.delivery_current >= 1
 
         # Fire the proceed event so delivery completes, then stop
         proceed.set()
-        await asyncio.sleep(0.05)
+        await wait_until(lambda: call_completed.is_set(), timeout=2.0)
         await worker.stop()
 
         # Capacity slot should be released
@@ -461,7 +465,7 @@ class TestRetryShutdownRealPipeline:
 
             # Start and immediately stop
             await worker.start()
-            await asyncio.sleep(0.05)
+            await wait_until(lambda: worker._task is not None, timeout=2.0)
             await worker.stop()
 
             # Worker stops cleanly

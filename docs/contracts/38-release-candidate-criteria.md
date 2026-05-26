@@ -76,14 +76,14 @@ advisory.
 Each transport must have recorded evidence in
 `docs/runbooks/operational-evidence.md`:
 
-| Transport                    | Minimum Live Evidence                                 | Current Status                                               | Tier   |
-| ---------------------------- | ----------------------------------------------------- | ------------------------------------------------------------ | ------ |
-| Matrix plaintext             | Lifecycle + send + receive + diagnostics              | ✅ 13/13 recorded 2026-05-10                                 | H      |
-| Matrix E2EE                  | Encrypted room send/receive                           | ✅ 7/7 recorded 2026-05-10                                   | H      |
-| Meshtastic                   | Lifecycle + send + diagnostics against real radio     | ✅ 10/10 recorded 2026-05-10 (H-tier). CLI-level R-tier serial validation 2026-05-12. MEDRE adapter pytest NOT EXECUTED at current commit. | H + R (CLI) |
-| MeshCore                     | Lifecycle + send + diagnostics against real hardware  | ⛔ Not run — requires radio hardware                         | NOT EXECUTED |
-| LXMF                         | Lifecycle + send + diagnostics against real Reticulum | ⛔ Not run — requires Reticulum instance                     | NOT EXECUTED |
-| Matrix inbound (third-party) | Inbound message from second account                   | ⛔ Not confirmed                                             | NOT EXECUTED |
+| Transport                    | Minimum Live Evidence                                 | Current Status                                                                                                                             | Tier         |
+| ---------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------ |
+| Matrix plaintext             | Lifecycle + send + receive + diagnostics              | ✅ 13/13 recorded 2026-05-10                                                                                                               | H            |
+| Matrix E2EE                  | Encrypted room send/receive                           | ✅ 7/7 recorded 2026-05-10                                                                                                                 | H            |
+| Meshtastic                   | Lifecycle + send + diagnostics against real radio     | ✅ 10/10 recorded 2026-05-10 (H-tier). CLI-level R-tier serial validation 2026-05-12. MEDRE adapter pytest NOT EXECUTED at current commit. | H + R (CLI)  |
+| MeshCore                     | Lifecycle + send + diagnostics against real hardware  | ⛔ Not run — requires radio hardware                                                                                                       | NOT EXECUTED |
+| LXMF                         | Lifecycle + send + diagnostics against real Reticulum | ⛔ Not run — requires Reticulum instance                                                                                                   | NOT EXECUTED |
+| Matrix inbound (third-party) | Inbound message from second account                   | ⛔ Not confirmed                                                                                                                           | NOT EXECUTED |
 
 **Tier definitions (per Contract 61 §2):** H = historical (recorded during prior phase, not re-confirmed). R = real-live-runtime. NOT EXECUTED = no evidence of any tier exists.
 

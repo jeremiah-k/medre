@@ -711,9 +711,7 @@ class TestRecoverChannelRoute:
             "medre.cli.recover_commands._open_readonly_storage",
             return_value=mock_storage,
         ):
-            output = _run_cli(
-                "recover", "--event", "evt-1", "--config", "/nonexistent"
-            )
+            output = _run_cli("recover", "--event", "evt-1", "--config", "/nonexistent")
             # Should show adapter/channel and route in the failed target line.
             assert "mesh_adptr/!room:beta" in output
             assert "route=route-99" in output
@@ -724,9 +722,7 @@ class TestRecoverChannelRoute:
             "medre.cli.recover_commands._open_readonly_storage",
             return_value=mock_storage,
         ):
-            output = _run_cli(
-                "recover", "--event", "evt-1", "--config", "/nonexistent"
-            )
+            output = _run_cli("recover", "--event", "evt-1", "--config", "/nonexistent")
             # Should show adapter without /channel suffix.
             assert "mesh_adptr route=route-x:" in output
             assert "/!ch-a" not in output

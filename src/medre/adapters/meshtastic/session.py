@@ -15,8 +15,9 @@ import inspect
 import logging
 import random
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, cast
 
 from medre.adapters.meshtastic.compat import HAS_MESHTASTIC
 from medre.adapters.meshtastic.errors import (
@@ -530,7 +531,7 @@ class MeshtasticSession:
         generate_packet_id = getattr(self._client, "_generatePacketId", None)
         if callable(generate_packet_id):
             try:
-                mesh_packet.id = generate_packet_id()
+                mesh_packet.id = cast(int, generate_packet_id())
             except Exception:
                 pass
 

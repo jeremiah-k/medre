@@ -5,7 +5,7 @@
 > Status: **Alpha. Patterns are evolving.** This guide describes current conventions, not final API contracts.
 > Tranche 6 note: Earlier this session, truth-surface updates added not_executed_result,
 > get_live_artifact_dir, and matrix_second_user_env_set helpers with hardware marker
-> discipline — no live tests were executed at that point.  Later, the Matrix E2EE
+> discipline — no live tests were executed at that point. Later, the Matrix E2EE
 > tranche ran Docker Synapse E2EE smoke tests (3/3 passed, Docker SDK-boundary).
 > No external-live or hardware validation was executed unless separately recorded.
 > Baseline: HEAD 41a07c7, Python 3.12.3, medre 0.1.0.
@@ -126,8 +126,8 @@ Check availability with `matrix_second_user_env_set()` from `tests.helpers.live_
 
 Live tests persist structured artifacts (results, logs, evidence) to a configurable directory via `get_live_artifact_dir()` from `tests.helpers.live_harness`.
 
-| Variable | Default | Description |
-|---|---|---|
+| Variable                  | Default                                   | Description               |
+| ------------------------- | ----------------------------------------- | ------------------------- |
 | `MEDRE_LIVE_ARTIFACT_DIR` | `.ci-artifacts/live-evidence/<timestamp>` | Override to a custom path |
 
 The default path includes an ISO-8601 timestamp to separate runs. The directory is created automatically.

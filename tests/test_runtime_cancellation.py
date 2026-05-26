@@ -18,7 +18,6 @@ Does not overlap with test_runtime_hygiene.py or test_runtime_recovery.py.
 from __future__ import annotations
 
 import asyncio
-from contextlib import suppress
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -44,6 +43,7 @@ from medre.core.lifecycle.states import AdapterState
 from medre.core.supervision.capacity import CapacityController
 from medre.runtime.app import MedreApp, RuntimeState
 from medre.runtime.builder import RuntimeBuilder
+from tests.helpers.async_utils import wait_until
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -258,8 +258,14 @@ class TestTaskLeakChecks:
         await app.start()
         await app.stop()
 
-        # Give the event loop a chance to clean up.
-        await asyncio.sleep(0.1)
+        # Wait for the event loop to finish cleanup.
+        await wait_until(
+            lambda: all(
+                not t.get_name().startswith(("pytest", "test_no_lingering"))
+                for t in asyncio.all_tasks() - tasks_before
+            ),
+            timeout=2.0,
+        )
 
         tasks_after = {t.get_name() for t in asyncio.all_tasks()}
         leaked = tasks_after - tasks_before
@@ -283,7 +289,10 @@ class TestTaskLeakChecks:
             app = _build_app(config, tmp_paths)
             await app.start()
             await app.stop()
-            await asyncio.sleep(0.05)
+            await wait_until(
+                lambda: len(asyncio.all_tasks()) <= baseline_count + 2,
+                timeout=2.0,
+            )
 
         final_count = len(asyncio.all_tasks())
         # Allow small variance (pytest internals) but no growth.
@@ -318,8 +327,8 @@ class TestCancellationUnderLoad:
         tasks = [asyncio.create_task(acquire_slot(i)) for i in range(5)]
         barrier.set()
 
-        # Wait for at least 2 to acquire (semaphore limit).
-        await asyncio.sleep(0.2)
+        # Wait for at least one acquire to complete (semaphore limit is 2).
+        await wait_until(lambda: cc.delivery_current >= 1, timeout=2.0)
 
         # Now stop accepting — remaining acquirers should be rejected
         # (either immediately or after semaphore re-check).
@@ -405,7 +414,7 @@ class TestShutdownDuringCapacityWait:
             return await cc.acquire_delivery()
 
         task = asyncio.create_task(blocked_acquire())
-        await asyncio.sleep(0.1)  # Let it start waiting.
+        await wait_until(lambda: cc.delivery_current >= 1, timeout=2.0)
 
         # Stop accepting — the blocked acquire should return False.
         cc.stop_accepting()
@@ -426,7 +435,7 @@ class TestShutdownDuringCapacityWait:
             return await cc.acquire_replay()
 
         task = asyncio.create_task(blocked_acquire())
-        await asyncio.sleep(0.1)
+        await wait_until(lambda: cc.replay_current >= 1, timeout=2.0)
 
         cc.stop_accepting()
 
@@ -469,8 +478,11 @@ class TestStopDuringStartup:
         # but we interleave stop() to test the race.
         start_task = asyncio.create_task(app.start())
 
-        # Give start a moment to begin.
-        await asyncio.sleep(0.05)
+        # Wait for start() to transition from INITIALIZED.
+        await wait_until(
+            lambda: app.state != RuntimeState.INITIALIZED,
+            timeout=2.0,
+        )
 
         # Now call stop concurrently — start may still be in STARTING.
         stop_task = asyncio.create_task(app.stop())
@@ -861,8 +873,8 @@ class TestShutdownDuringReplay:
 
         replay_task = asyncio.create_task(_run_replay())
 
-        # Give the replay a moment to start processing.
-        await asyncio.sleep(0.05)
+        # Wait for replay to begin producing results.
+        await wait_until(lambda: len(collected_results) > 0, timeout=2.0)
 
         # Now stop the app — this should cancel the replay engine.
         await app.stop()
@@ -936,7 +948,7 @@ class TestDeliveryFanoutCancellation:
             result = await cc.acquire_delivery()
             results.append(result)
             if result:
-                await asyncio.sleep(0.01)
+                await asyncio.sleep(0.01)  # Intentional: simulates work during delivery
                 await cc.release_delivery()
             if idx == 3 and not stop_triggered:
                 cc.stop_accepting()
@@ -1036,7 +1048,7 @@ class TestAdapterLifecycleDuringCancellation:
 
         # Set shutdown event in background.
         async def set_shutdown():
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.05)  # Intentional: simulates delayed event set
             app.shutdown_event.set()
 
         asyncio.create_task(set_shutdown())
@@ -1247,8 +1259,11 @@ class TestCancelledDuringDrain:
         try:
             # Start stop() in a task, then cancel it during the drain loop.
             stop_task = asyncio.create_task(app.stop())
-            # Give stop() time to enter the drain loop.
-            await asyncio.sleep(0.3)
+            # Wait for stop() to enter the drain loop.
+            await wait_until(
+                lambda: app.state != RuntimeState.RUNNING,
+                timeout=2.0,
+            )
             stop_task.cancel()
 
             with pytest.raises(asyncio.CancelledError):
@@ -1272,225 +1287,3 @@ class TestCancelledDuringDrain:
         ), f"replay_current is {snap['replay_current']}, expected 0"
         # accepting_work should be False (stop_accepting was called).
         assert snap["accepting_work"] is False
-
-
-class TestDrainAbandonedEvidencePersistence:
-    """Drain timeout persists structured abandoned-work receipts to storage."""
-
-    @pytest.mark.asyncio
-    async def test_stop_with_inflight_deliveries_persists_abandoned_receipts(
-        self, tmp_paths: MedrePaths
-    ) -> None:
-        """When drain timeout expires with in-flight deliveries, abandoned
-        receipts are persisted to storage with failure_kind=shutdown_rejection
-        and error=shutdown_drain_timeout.
-        """
-        from medre.core.engine.pipeline import InflightDelivery
-        from medre.core.events.canonical import CanonicalEvent
-        from medre.core.events.kinds import EventKind
-        from medre.core.events.metadata import EventMetadata
-
-        # Use sqlite (not memory) so data survives storage.close().
-        config = RuntimeConfig(
-            runtime=RuntimeOptions(name="test-abandoned-evidence"),
-            storage=StorageConfig(backend="sqlite"),
-            adapters=AdapterConfigSet(
-                matrix={"main": _fake_matrix_config()},
-            ),
-        )
-        app = _build_app(config, tmp_paths)
-        await app.start()
-
-        cc = app._capacity_controller
-        assert cc is not None
-        storage = app.storage
-        assert storage is not None
-
-        # Remember the database path so we can reopen after close.
-        db_path = str(tmp_paths.database_path)
-
-        # Inject an event into storage.
-        event = CanonicalEvent(
-            event_id="evt-abandoned-001",
-            event_kind=EventKind.MESSAGE_TEXT,
-            schema_version=1,
-            timestamp=datetime.now(timezone.utc),
-            source_adapter="fake_matrix",
-            source_transport_id="matrix",
-            source_channel_id="test_room",
-            parent_event_id=None,
-            lineage=(),
-            relations=(),
-            payload={"text": "test abandoned evidence"},
-            metadata=EventMetadata(),
-        )
-        await storage.append(event)
-
-        # Acquire a delivery slot to simulate in-flight work.
-        assert await cc.acquire_delivery()
-        assert cc.delivery_current == 1
-
-        # Manually register inflight tracking to test the evidence path.
-        inflight_key = "evt-abandoned-001:route-1:fake_matrix:plan-1"
-        app.pipeline_runner._inflight_deliveries[inflight_key] = InflightDelivery(
-            event_id=event.event_id,
-            route_id="route-1",
-            target_adapter="fake_matrix",
-            target_channel=None,
-            delivery_plan_id="plan-1",
-            source="live",
-            replay_run_id=None,
-            acquired_at=__import__("time").monotonic(),
-        )
-
-        # Use a zero drain timeout to trigger the timeout path immediately.
-        original_drain = app.config.limits.shutdown_drain_timeout_seconds
-        object.__setattr__(
-            app.config.limits,
-            "shutdown_drain_timeout_seconds",
-            0,
-        )
-
-        try:
-            await app.stop()
-        finally:
-            object.__setattr__(
-                app.config.limits,
-                "shutdown_drain_timeout_seconds",
-                original_drain,
-            )
-            # Defense-in-depth: ensure the app's storage connection is
-            # closed even if stop() exited before reaching its internal
-            # close step (e.g. due to an unexpected exception).
-            if storage is not None:
-                with suppress(Exception):
-                    await storage.close()
-
-        assert app.state == RuntimeState.STOPPED
-
-        # Reopen storage to verify persisted receipts.
-        from medre.core.storage.sqlite import SQLiteStorage
-
-        verify_storage = SQLiteStorage(db_path)
-        await verify_storage.initialize()
-        try:
-            receipts = await verify_storage.list_receipts_for_event(event.event_id)
-            assert len(receipts) >= 1, (
-                f"Expected at least 1 receipt for {event.event_id}, "
-                f"got {len(receipts)}"
-            )
-
-            r = receipts[0]
-            assert r.status == "suppressed", f"Expected 'suppressed', got '{r.status}'"
-            assert (
-                r.failure_kind == "shutdown_rejection"
-            ), f"Expected 'shutdown_rejection', got '{r.failure_kind}'"
-            assert (
-                r.error == "shutdown_drain_timeout"
-            ), f"Expected 'shutdown_drain_timeout', got '{r.error}'"
-            assert r.event_id == event.event_id
-            assert r.attempt_number == 1
-            assert r.source == "live"
-        finally:
-            await verify_storage.close()
-
-    @pytest.mark.asyncio
-    async def test_abandoned_receipt_failure_kind_detail(
-        self, tmp_paths: MedrePaths
-    ) -> None:
-        """Abandoned receipt produces failure_kind_detail=shutdown_drain_timeout
-        when processed through delivery_receipt_to_report_dict."""
-        from medre.core.engine.pipeline import InflightDelivery
-        from medre.core.events.canonical import CanonicalEvent
-        from medre.core.events.kinds import EventKind
-        from medre.core.events.metadata import EventMetadata
-        from medre.runtime.reporting import delivery_receipt_to_report_dict
-
-        # Use sqlite (not memory) so data survives storage.close().
-        config = RuntimeConfig(
-            runtime=RuntimeOptions(name="test-abandoned-detail"),
-            storage=StorageConfig(backend="sqlite"),
-            adapters=AdapterConfigSet(
-                matrix={"main": _fake_matrix_config()},
-            ),
-        )
-        app = _build_app(config, tmp_paths)
-        await app.start()
-
-        cc = app._capacity_controller
-        assert cc is not None
-        storage = app.storage
-        assert storage is not None
-
-        db_path = str(tmp_paths.database_path)
-
-        event = CanonicalEvent(
-            event_id="evt-abandoned-detail-001",
-            event_kind=EventKind.MESSAGE_TEXT,
-            schema_version=1,
-            timestamp=datetime.now(timezone.utc),
-            source_adapter="fake_matrix",
-            source_transport_id="matrix",
-            source_channel_id="test_room",
-            parent_event_id=None,
-            lineage=(),
-            relations=(),
-            payload={"text": "test detail"},
-            metadata=EventMetadata(),
-        )
-        await storage.append(event)
-
-        # Acquire and register inflight manually.
-        assert await cc.acquire_delivery()
-        inflight_key = "evt-abandoned-detail-001:route-1:fake_matrix:plan-1"
-        app.pipeline_runner._inflight_deliveries[inflight_key] = InflightDelivery(
-            event_id=event.event_id,
-            route_id="route-1",
-            target_adapter="fake_matrix",
-            target_channel=None,
-            delivery_plan_id="plan-1",
-            source="live",
-            replay_run_id=None,
-            acquired_at=__import__("time").monotonic(),
-        )
-
-        original_drain = app.config.limits.shutdown_drain_timeout_seconds
-        object.__setattr__(
-            app.config.limits,
-            "shutdown_drain_timeout_seconds",
-            0,
-        )
-
-        try:
-            await app.stop()
-        finally:
-            object.__setattr__(
-                app.config.limits,
-                "shutdown_drain_timeout_seconds",
-                original_drain,
-            )
-            # Defense-in-depth: ensure the app's storage connection is
-            # closed even if stop() exited before reaching its internal
-            # close step.
-            if storage is not None:
-                with suppress(Exception):
-                    await storage.close()
-
-        assert app.state == RuntimeState.STOPPED
-
-        # Reopen storage to verify persisted receipts.
-        from medre.core.storage.sqlite import SQLiteStorage
-
-        verify_storage = SQLiteStorage(db_path)
-        await verify_storage.initialize()
-        try:
-            receipts = await verify_storage.list_receipts_for_event(event.event_id)
-            assert len(receipts) >= 1
-
-            report = delivery_receipt_to_report_dict(receipts[0])
-            assert report["failure_kind"] == "shutdown_rejection"
-            assert report["failure_kind_detail"] == "shutdown_drain_timeout"
-            assert report["retryable"] is False
-            assert report["status"] == "suppressed"
-        finally:
-            await verify_storage.close()

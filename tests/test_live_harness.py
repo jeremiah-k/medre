@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 from pathlib import Path
 
 import pytest
 
+from tests.helpers.live_config import (
+    matrix_second_user_env_set,
+)
 from tests.helpers.live_harness import (
     LiveRequirement,
     LiveSmokeResult,
@@ -24,10 +26,6 @@ from tests.helpers.live_harness import (
     live_result_to_json,
     not_executed_result,
     redact_env_value,
-)
-
-from tests.helpers.live_config import (
-    matrix_second_user_env_set,
 )
 
 # ===================================================================
@@ -296,16 +294,12 @@ class TestNotExecutedResult:
 
     def test_status_is_not_executed(self) -> None:
         """Result has status='not_executed'."""
-        result = not_executed_result(
-            transport="meshtastic", adapter_id="radio-serial"
-        )
+        result = not_executed_result(transport="meshtastic", adapter_id="radio-serial")
         assert result.status == "not_executed"
 
     def test_transport_and_adapter_id_preserved(self) -> None:
         """Transport and adapter_id are passed through."""
-        result = not_executed_result(
-            transport="meshcore", adapter_id="ble-radio"
-        )
+        result = not_executed_result(transport="meshcore", adapter_id="ble-radio")
         assert result.transport == "meshcore"
         assert result.adapter_id == "ble-radio"
 
@@ -320,16 +314,12 @@ class TestNotExecutedResult:
 
     def test_no_reason_yields_empty_notes(self) -> None:
         """When no reason given, notes is empty tuple."""
-        result = not_executed_result(
-            transport="meshtastic", adapter_id="radio"
-        )
+        result = not_executed_result(transport="meshtastic", adapter_id="radio")
         assert result.notes == ()
 
     def test_optional_fields_are_none(self) -> None:
         """No native IDs, storage, or evidence paths."""
-        result = not_executed_result(
-            transport="meshtastic", adapter_id="radio"
-        )
+        result = not_executed_result(transport="meshtastic", adapter_id="radio")
         assert result.native_message_id is None
         assert result.native_channel_id is None
         assert result.storage_path is None
@@ -455,9 +445,7 @@ class TestMatrixSecondUserEnvSet:
         monkeypatch.setenv("MATRIX_SECOND_ACCESS_TOKEN", "")
         assert matrix_second_user_env_set() is False
 
-    def test_returns_true_when_both_set(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_returns_true_when_both_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Returns True when both vars are set and non-empty."""
         monkeypatch.setenv("MATRIX_SECOND_USER_ID", "@second:localhost")
         monkeypatch.setenv("MATRIX_SECOND_ACCESS_TOKEN", "syt_token_value")

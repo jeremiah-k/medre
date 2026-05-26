@@ -468,7 +468,7 @@ class MatrixSession:
         Path(store_path).mkdir(parents=True, exist_ok=True)
 
         try:
-            client_config: Any = nio.ClientConfig(encryption_enabled=True)
+            client_config: Any = nio.AsyncClientConfig(encryption_enabled=True)
         except Exception as exc:
             raise MatrixConnectionError(f"Failed to configure E2EE: {exc}") from exc
 
@@ -542,9 +542,7 @@ class MatrixSession:
                 raise MatrixConnectionError(
                     "E2EE required but Olm subsystem failed to initialise"
                 )
-            raise MatrixConnectionError(
-                "E2EE required but crypto store failed to load"
-            )
+            raise MatrixConnectionError("E2EE required but crypto store failed to load")
 
         await self._finalize_start()
 

@@ -1239,18 +1239,18 @@ pip show LXMF 2>/dev/null || echo "LXMF: NOT INSTALLED"
 
 When live evidence is recorded, the following locations store the artifacts:
 
-| Artifact                     | Location                                                    | Format            |
-| ---------------------------- | ----------------------------------------------------------- | ----------------- |
-| Operational evidence record  | `docs/runbooks/operational-evidence.md`                     | Markdown tables   |
-| Live procedure observations  | `docs/runbooks/live-operational-evidence.md`                | Markdown tables   |
-| Docker Synapse evidence      | `docs/runbooks/matrix-local-bringup.md` §Live Validation    | Markdown table    |
-| Matrix alpha live evidence   | `docs/runbooks/matrix-alpha-operation.md` §Live Validation  | Markdown section  |
-| Meshtastic alpha evidence    | `docs/runbooks/meshtastic-alpha-operation.md` §Live Validation | Markdown section |
-| Capability status            | `docs/STATUS.md`                                            | Markdown table    |
-| Maturity classification      | `docs/contracts/37-transport-maturity-classification.md`    | Markdown tables   |
-| Maturity matrix              | `docs/contracts/62-adapter-operational-maturity-matrix.md`  | Markdown tables   |
-| Evidence schema              | `docs/contracts/61-operational-evidence-contract.md`        | Markdown contract |
-| Longrun evidence             | `docs/runbooks/longrun-validation.md`                       | Markdown tables   |
+| Artifact                    | Location                                                       | Format            |
+| --------------------------- | -------------------------------------------------------------- | ----------------- |
+| Operational evidence record | `docs/runbooks/operational-evidence.md`                        | Markdown tables   |
+| Live procedure observations | `docs/runbooks/live-operational-evidence.md`                   | Markdown tables   |
+| Docker Synapse evidence     | `docs/runbooks/matrix-local-bringup.md` §Live Validation       | Markdown table    |
+| Matrix alpha live evidence  | `docs/runbooks/matrix-alpha-operation.md` §Live Validation     | Markdown section  |
+| Meshtastic alpha evidence   | `docs/runbooks/meshtastic-alpha-operation.md` §Live Validation | Markdown section  |
+| Capability status           | `docs/STATUS.md`                                               | Markdown table    |
+| Maturity classification     | `docs/contracts/37-transport-maturity-classification.md`       | Markdown tables   |
+| Maturity matrix             | `docs/contracts/62-adapter-operational-maturity-matrix.md`     | Markdown tables   |
+| Evidence schema             | `docs/contracts/61-operational-evidence-contract.md`           | Markdown contract |
+| Longrun evidence            | `docs/runbooks/longrun-validation.md`                          | Markdown tables   |
 
 ## 8. Docker Synapse Second-Bot Inbound Procedure Template (Tranche 6)
 
@@ -1329,15 +1329,15 @@ no second user registered. This procedure template is provided for operator exec
 
 This document contains the following evidence categories, clearly separated:
 
-| Category                       | Section                                                          | Status                                                                                                              |
-| ------------------------------ | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| **R-tier (hardware)**          | §2.2 (Meshtastic CLI-level serial validation 2026-05-12)         | Meshtastic CLI-level hardware evidence recorded                                                                     |
-| **R-tier (Docker SDK-boundary)** | (recorded in matrix-local-bringup.md, not in this document)   | Matrix local Docker Synapse 2026-05-22, 15 passed                                                                   |
-| **H-tier (historical)**        | §1.3, §1.7, §1.8, §1.12 (Matrix); §2.2, §2.7, §2.11 (Meshtastic) | Historical evidence from 2026-05-10. May be stale.                                                                  |
-| **Hardware probe**             | §2.13                                                            | CP2104/ttyUSB0 (likely T-Beam, no serial chatter), CH9102F/ttyACM0 (confirmed T-LoRa). Not live-transport evidence. |
-| **Follow-up placeholders**     | §2.14 (MeshCore), §2.15 (LXMF)                                   | Pending follow-up hardware/Reticulum operations.                                                                    |
-| **S-tier (simulated/fake)**    | §1.11, §1.10, §2.10, §3.1, §3.2, §3.3                            | Deterministic unit test coverage confirmed                                                                          |
-| **NOT EXECUTED**               | All live procedure NOT EXECUTED sections                         | Live endpoints unavailable or pending follow-up validation                                                          |
+| Category                         | Section                                                          | Status                                                                                                              |
+| -------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| **R-tier (hardware)**            | §2.2 (Meshtastic CLI-level serial validation 2026-05-12)         | Meshtastic CLI-level hardware evidence recorded                                                                     |
+| **R-tier (Docker SDK-boundary)** | (recorded in matrix-local-bringup.md, not in this document)      | Matrix local Docker Synapse 2026-05-22, 15 passed                                                                   |
+| **H-tier (historical)**          | §1.3, §1.7, §1.8, §1.12 (Matrix); §2.2, §2.7, §2.11 (Meshtastic) | Historical evidence from 2026-05-10. May be stale.                                                                  |
+| **Hardware probe**               | §2.13                                                            | CP2104/ttyUSB0 (likely T-Beam, no serial chatter), CH9102F/ttyACM0 (confirmed T-LoRa). Not live-transport evidence. |
+| **Follow-up placeholders**       | §2.14 (MeshCore), §2.15 (LXMF)                                   | Pending follow-up hardware/Reticulum operations.                                                                    |
+| **S-tier (simulated/fake)**      | §1.11, §1.10, §2.10, §3.1, §3.2, §3.3                            | Deterministic unit test coverage confirmed                                                                          |
+| **NOT EXECUTED**                 | All live procedure NOT EXECUTED sections                         | Live endpoints unavailable or pending follow-up validation                                                          |
 
 **No overclaims:** This document does not claim any transport is production-ready, reliable, or performs at any specific latency. All live procedures are documented as NOT EXECUTED unless explicitly marked with R-tier evidence and an execution date.
 

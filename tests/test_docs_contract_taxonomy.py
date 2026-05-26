@@ -29,17 +29,14 @@ _STATUS_RE = re.compile(
 )
 
 _OWNED_BY_OTHERS_RE = re.compile(
-    r"^## Files Owned by Other Agents\s*\n"
-    r"(.*?)(?=\n## |\Z)",
+    r"^## Files Owned by Other Agents\s*\n(.*?)(?=\n## |\Z)",
     re.DOTALL | re.MULTILINE,
 )
 
 
 def _contract_files() -> list[Path]:
     """All .md files in docs/contracts/ except README.md, sorted."""
-    return sorted(
-        p for p in CONTRACTS_DIR.glob("*.md") if p.name != "README.md"
-    )
+    return sorted(p for p in CONTRACTS_DIR.glob("*.md") if p.name != "README.md")
 
 
 def _files_owned_by_others() -> set[str]:

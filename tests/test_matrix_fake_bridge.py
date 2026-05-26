@@ -147,6 +147,7 @@ def _build_mock_nio_module() -> MagicMock:
 
     mock.AsyncClient = MagicMock(return_value=client)
     mock.ClientConfig = MagicMock(name="ClientConfig")
+    mock.AsyncClientConfig = mock.ClientConfig
     mock.RoomMessageText = MagicMock(name="RoomMessageText")
     mock.RoomMessageNotice = MagicMock(name="RoomMessageNotice")
     mock.RoomMessageEmote = MagicMock(name="RoomMessageEmote")

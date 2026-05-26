@@ -49,6 +49,7 @@ from medre.runtime.snapshot import (
     _MAX_ROUTES,
     build_runtime_snapshot,
 )
+from tests.helpers.async_utils import wait_until
 
 # =====================================================================
 # Fakes (no SDK imports)
@@ -1002,7 +1003,7 @@ class TestMeshtasticInboundLifecycleGuard:
             "decoded": {"portnum": "text_message", "text": "before stop"},
         }
         adapter._on_packet(valid)
-        await asyncio.sleep(0.1)
+        await wait_until(lambda: len(published) >= 1, timeout=2.0)
         assert len(published) == 1
 
         # Stop the adapter — _started is cleared.
@@ -1023,6 +1024,7 @@ class TestMeshtasticInboundLifecycleGuard:
         adapter._on_packet(late_pkt)  # Should be silently rejected
 
         # Give the event loop a chance to process any scheduled coroutines.
+        # No positive condition to poll — verifying absence of events.
         await asyncio.sleep(0.1)
 
         # No new events should have been published.
