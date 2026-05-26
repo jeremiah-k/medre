@@ -31,7 +31,12 @@ from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.contracts.adapter import AdapterContext
 from tests.helpers.async_utils import wait_until
 from tests.helpers.bridge import make_meshcore_packet, make_text_packet
-from tests.helpers.matrix import make_matrix_config, make_nio_event, make_nio_room
+from tests.helpers.matrix import (
+    make_matrix_config,
+    make_nio_event,
+    make_nio_room,
+    to_event_dict,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -110,14 +115,17 @@ class TestMatrixCallbackIsolation:
         room = make_nio_room("!robust_room:example.com")
 
         # --- BAD: event without .source → codec raises MatrixCodecError ---
-        bad_event = SimpleNamespace(
-            sender="@intruder:example.com",
-            event_id="$bad-001",
-            body="boom",
-            # no .source attribute → decode() raises
-        )
+        bad_event_dict = {
+            "room_id": room.room_id,
+            "sender": "@intruder:example.com",
+            "event_id": "$bad-001",
+            "body": "boom",
+            "msgtype": "m.text",
+            "server_timestamp": 0,
+            # no "source" key → decode() raises
+        }
         # Should NOT raise — the try/except in _on_room_message catches it
-        await adapter._on_room_message(room, bad_event)
+        await adapter._on_room_message(bad_event_dict)
         assert len(collector.events) == 0, "Bad event should not publish"
 
         # --- GOOD: valid event ---
@@ -126,7 +134,7 @@ class TestMatrixCallbackIsolation:
             event_id="$good-001",
             body="after the storm",
         )
-        await adapter._on_room_message(room, good_event)
+        await adapter._on_room_message(to_event_dict(room, good_event))
         assert len(collector.events) == 1, "Valid event should publish"
         assert collector.events[0].payload.get("body") == "after the storm"
 
@@ -141,11 +149,18 @@ class TestMatrixCallbackIsolation:
 
         room = make_nio_room("!state_room:example.com")
 
-        bad_event = SimpleNamespace(sender="@x:example.com", event_id="$b1", body="x")
-        await adapter._on_room_message(room, bad_event)
+        bad_event_dict = {
+            "room_id": room.room_id,
+            "sender": "@x:example.com",
+            "event_id": "$b1",
+            "body": "x",
+            "msgtype": "m.text",
+            "server_timestamp": 0,
+        }
+        await adapter._on_room_message(bad_event_dict)
 
         good_event = make_nio_event(sender="@y:example.com", event_id="$g1", body="ok")
-        await adapter._on_room_message(room, good_event)
+        await adapter._on_room_message(to_event_dict(room, good_event))
 
         # Published counter reflects only the successful callback
         assert adapter._inbound_published == 1
@@ -163,17 +178,20 @@ class TestMatrixCallbackIsolation:
         room = make_nio_room("!leak_room:example.com")
 
         for i in range(3):
-            bad = SimpleNamespace(
-                sender=f"@bad{i}:example.com",
-                event_id=f"$bad-{i}",
-                body=f"fail {i}",
-            )
-            await adapter._on_room_message(room, bad)
+            bad_dict = {
+                "room_id": room.room_id,
+                "sender": f"@bad{i}:example.com",
+                "event_id": f"$bad-{i}",
+                "body": f"fail {i}",
+                "msgtype": "m.text",
+                "server_timestamp": 0,
+            }
+            await adapter._on_room_message(bad_dict)
 
         good = make_nio_event(
             sender="@ok:example.com", event_id="$good-final", body="survivor"
         )
-        await adapter._on_room_message(room, good)
+        await adapter._on_room_message(to_event_dict(room, good))
 
         assert adapter._inbound_published == 1
         assert len(collector.events) == 1
@@ -578,8 +596,8 @@ class TestDuplicateEventId:
             sender="@b:example.com", event_id="$dup-001", body="mx-second"
         )
 
-        await adapter._on_room_message(room, evt1)
-        await adapter._on_room_message(room, evt2)
+        await adapter._on_room_message(to_event_dict(room, evt1))
+        await adapter._on_room_message(to_event_dict(room, evt2))
 
         assert len(collector.events) == 2
 
@@ -656,7 +674,7 @@ class TestEmptyPayload:
         room = make_nio_room("!empty_room:example.com")
 
         evt = make_nio_event(sender="@a:example.com", event_id="$empty-001", body="")
-        await adapter._on_room_message(room, evt)
+        await adapter._on_room_message(to_event_dict(room, evt))
         assert len(collector.events) == 1
         assert collector.events[0].payload.get("body") == ""
 
@@ -680,17 +698,22 @@ class TestMissingRequiredFields:
         room = make_nio_room("!missing_room:example.com")
 
         # Missing .source
-        bad = SimpleNamespace(
-            sender="@x:example.com", event_id="$bad-no-source", body="x"
-        )
-        await adapter._on_room_message(room, bad)
+        bad_dict = {
+            "room_id": room.room_id,
+            "sender": "@x:example.com",
+            "event_id": "$bad-no-source",
+            "body": "x",
+            "msgtype": "m.text",
+            "server_timestamp": 0,
+        }
+        await adapter._on_room_message(bad_dict)
         assert len(collector.events) == 0
 
         # Valid
         good = make_nio_event(
             sender="@y:example.com", event_id="$good-after-missing", body="ok"
         )
-        await adapter._on_room_message(room, good)
+        await adapter._on_room_message(to_event_dict(room, good))
         assert len(collector.events) == 1
 
     async def test_missing_decoded_on_meshtastic_not_crash(self) -> None:
@@ -1002,25 +1025,39 @@ class TestRapidFireBadGood:
         room = make_nio_room("!rapid_room:example.com")
 
         # bad (no .source)
-        await adapter._on_room_message(
-            room, SimpleNamespace(sender="@x:example.com", event_id="$rb1", body="x")
-        )
+        await adapter._on_room_message({
+            "room_id": room.room_id,
+            "sender": "@x:example.com",
+            "event_id": "$rb1",
+            "body": "x",
+            "msgtype": "m.text",
+            "server_timestamp": 0,
+        })
 
         # good
         await adapter._on_room_message(
-            room,
-            make_nio_event(sender="@a:example.com", event_id="$rg1", body="mx-good-1"),
+            to_event_dict(
+                room,
+                make_nio_event(sender="@a:example.com", event_id="$rg1", body="mx-good-1"),
+            ),
         )
 
         # bad (no .source again)
-        await adapter._on_room_message(
-            room, SimpleNamespace(sender="@y:example.com", event_id="$rb2", body="y")
-        )
+        await adapter._on_room_message({
+            "room_id": room.room_id,
+            "sender": "@y:example.com",
+            "event_id": "$rb2",
+            "body": "y",
+            "msgtype": "m.text",
+            "server_timestamp": 0,
+        })
 
         # good
         await adapter._on_room_message(
-            room,
-            make_nio_event(sender="@b:example.com", event_id="$rg2", body="mx-good-2"),
+            to_event_dict(
+                room,
+                make_nio_event(sender="@b:example.com", event_id="$rg2", body="mx-good-2"),
+            ),
         )
 
         assert len(collector.events) == 2
@@ -1119,14 +1156,21 @@ class TestNativeIdIsolation:
         room = make_nio_room("!native_room:example.com")
 
         # Bad: no .source
-        bad = SimpleNamespace(sender="@x:example.com", event_id="$bad-native", body="x")
-        await adapter._on_room_message(room, bad)
+        bad_dict = {
+            "room_id": room.room_id,
+            "sender": "@x:example.com",
+            "event_id": "$bad-native",
+            "body": "x",
+            "msgtype": "m.text",
+            "server_timestamp": 0,
+        }
+        await adapter._on_room_message(bad_dict)
 
         # Good
         good = make_nio_event(
             sender="@y:example.com", event_id="$good-native", body="clean"
         )
-        await adapter._on_room_message(room, good)
+        await adapter._on_room_message(to_event_dict(room, good))
 
         assert len(collector.events) == 1
         event = collector.events[0]

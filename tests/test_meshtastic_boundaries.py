@@ -614,7 +614,7 @@ class TestMeshtasticCallbackBoundary:
             "id": 42,
             "decoded": {"portnum": "text_message", "text": "via callback"},
         }
-        adapter._on_receive_callback(packet, interface=None)
+        adapter._on_packet(packet)
 
         await asyncio.sleep(0.05)
 

@@ -27,6 +27,7 @@ from tests.helpers.matrix_adapter import (
 )
 from tests.helpers.matrix_adapter import make_fake_room as _make_fake_room
 from tests.helpers.matrix_adapter import make_matrix_config as _make_matrix_config
+from tests.helpers.matrix_adapter import to_event_dict as _to_event_dict
 
 
 def _make_event(event_id: str = "evt-1") -> CanonicalEvent:
@@ -331,7 +332,7 @@ class TestSelfMessageSuppression:
         event = _make_fake_nio_event(sender="@bot:example.com")
         room = _make_fake_room()
 
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(_to_event_dict(room, event))
         assert len(published) == 0
 
     async def test_other_user_message_accepted(self) -> None:
@@ -344,7 +345,7 @@ class TestSelfMessageSuppression:
         event = _make_fake_nio_event(sender="@alice:example.com")
         room = _make_fake_room()
 
-        await adapter._on_room_message(room, event)
+        await adapter._on_room_message(_to_event_dict(room, event))
         assert len(published) == 1
 
     async def test_missing_sender_accepted(self) -> None:
@@ -365,7 +366,7 @@ class TestSelfMessageSuppression:
         )
         room = _make_fake_room()
 
-        await adapter._on_room_message(room, evt)
+        await adapter._on_room_message(_to_event_dict(room, evt))
         assert len(published) == 1
 
 

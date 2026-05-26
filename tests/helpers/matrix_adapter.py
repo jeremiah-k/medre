@@ -54,6 +54,29 @@ def make_fake_room(room_id: str = "!room:server") -> SimpleNamespace:
     return SimpleNamespace(room_id=room_id)
 
 
+def to_event_dict(
+    room: SimpleNamespace,
+    event: SimpleNamespace,
+    *,
+    sender_display_name: str | None = None,
+) -> dict[str, Any]:
+    """Convert a (room, event) pair into the normalized dict expected by
+    ``MatrixAdapter._on_room_message(event_dict)``.
+    """
+    d: dict[str, Any] = {
+        "room_id": room.room_id,
+        "sender": getattr(event, "sender", ""),
+        "body": getattr(event, "body", ""),
+        "event_id": getattr(event, "event_id", ""),
+        "source": getattr(event, "source", {}),
+        "msgtype": "m.text",
+        "server_timestamp": 0,
+    }
+    if sender_display_name is not None:
+        d["sender_display_name"] = sender_display_name
+    return d
+
+
 def make_adapter_context(
     adapter_id: str = "matrix-1",
 ) -> tuple[list[CanonicalEvent], AdapterContext]:
