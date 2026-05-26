@@ -16,6 +16,37 @@ from medre.core.storage import SQLiteStorage
 from medre.core.storage.backend import StorageInitializationError
 
 # ---------------------------------------------------------------------------
+# Mock connection helpers — used when the defensive try/except blocks
+# (e.g. ``row_factory`` assignment failures) cannot be triggered against
+# real ``sqlite3.Connection`` objects.
+# ---------------------------------------------------------------------------
+
+
+class _FailingRowFactoryConnection:
+    """Mock ``sqlite3.Connection`` whose ``row_factory`` setter raises.
+
+    Used to verify that :meth:`SQLiteStorage._sync_open_readonly` and the
+    equivalent aiosqlite path call ``.close()`` even when the assignment
+    ``db.row_factory = sqlite3.Row`` fails.
+    """
+
+    def __init__(self) -> None:
+        self._closed: bool = False
+
+    def close(self) -> None:
+        self._closed = True
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
+    def __setattr__(self, name: str, value: object) -> None:
+        if name == "row_factory":
+            raise RuntimeError("simulated row_factory assignment failure")
+        super().__setattr__(name, value)
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -181,3 +212,43 @@ class TestSyncFallbackFailureClose:
         assert (
             resource_warnings == []
         ), f"ResourceWarning(s) raised on read-only failure path: {resource_warnings}"
+
+
+# ---------------------------------------------------------------------------
+# Tests: _sync_open_readonly row_factory assignment failure (lines 933-935)
+# ---------------------------------------------------------------------------
+
+
+class TestSyncOpenReadonlyRowFactoryFailure:
+    """_sync_open_readonly must close the connection if row_factory fails."""
+
+    async def test_sync_open_readonly_row_factory_failure_closes_connection(
+        self, tmp_path: Path
+    ) -> None:
+        """When db.row_factory = sqlite3.Row raises inside _sync_open_readonly,
+        the raw connection is closed before the exception propagates."""
+        db_path = _temp_db_path(tmp_path)
+
+        # Create a valid database file so open_readonly() passes the
+        # file-existence guard at line 884.
+        storage = SQLiteStorage(db_path=db_path)
+        await storage.initialize()
+        await storage.close()
+        del storage
+        gc.collect()
+
+        mock_conn = _FailingRowFactoryConnection()
+
+        with patch(
+            "medre.core.storage.sqlite.sqlite3.connect", return_value=mock_conn
+        ), pytest.raises(
+            RuntimeError, match="simulated row_factory assignment failure"
+        ):
+            await SQLiteStorage.open_readonly(db_path)
+
+        assert mock_conn.closed, (
+            "_sync_open_readonly() must close the connection when "
+            "row_factory assignment fails"
+        )
+
+        gc.collect()
