@@ -26,6 +26,7 @@ from medre.core.contracts.adapter import (
     AdapterSendError,
 )
 from medre.core.rendering.renderer import RenderingResult
+from tests.helpers.matrix_adapter import wire_mock_session as _wire_mock_session
 
 
 def _make_config(**overrides) -> MatrixConfig:
@@ -68,13 +69,17 @@ def _make_result(
 
 def _make_adapter_with_session(
     config: MatrixConfig | None = None,
-    session: MagicMock | None = None,
+    mock_client: MagicMock | None = None,
 ) -> MatrixAdapter:
-    """Create a MatrixAdapter with a pre-injected mock session."""
+    """Create a MatrixAdapter with a pre-injected mock session.
+
+    Uses ``wire_mock_session`` to wrap the mock client in a real
+    MatrixSession, preserving the session boundary.
+    """
     cfg = config or _make_config()
     adapter = MatrixAdapter(cfg)
     adapter.ctx = _make_ctx()
-    adapter._session = session or MagicMock()
+    _wire_mock_session(adapter, mock_client or MagicMock(), config=cfg)
     return adapter
 
 
@@ -90,7 +95,7 @@ class TestEncryptedRoomSafetyErrorPropagation:
         session = MagicMock()
         session.is_room_member.return_value = True
         session.room_send = AsyncMock()
-        adapter = _make_adapter_with_session(session=session)
+        adapter = _make_adapter_with_session(mock_client=session)
 
         # Patch _check_encrypted_room_safety to raise transient MatrixSendError
         async def _fake_deliver(result):
@@ -118,7 +123,7 @@ class TestEncryptedRoomSafetyErrorPropagation:
         session = MagicMock()
         session.is_room_member.return_value = True
         session.room_send = AsyncMock()
-        adapter = _make_adapter_with_session(session=session)
+        adapter = _make_adapter_with_session(mock_client=session)
 
         with pytest.raises(AdapterPermanentError) as exc_info:
             with pytest.MonkeyPatch.context() as mp:
@@ -150,7 +155,7 @@ class TestDeliverRetryLoopSuccess:
         session = MagicMock()
         session.is_room_member.return_value = True
         session.room_send = AsyncMock(return_value=SimpleNamespace(event_id="$sent-1"))
-        adapter = _make_adapter_with_session(session=session)
+        adapter = _make_adapter_with_session(mock_client=session)
 
         result = await adapter.deliver(_make_result())
 
@@ -171,11 +176,9 @@ class TestRateLimitRetryAfterMs:
     async def test_rate_limit_with_retry_after_ms(self) -> None:
         session = MagicMock()
         session.is_room_member.return_value = True
-        # First call returns a rate-limited response (no event_id)
-        SimpleNamespace()
         # No event_id attr → triggers rate-limit check
         # _is_nio_rate_limited_response checks for specific attributes
-        adapter = _make_adapter_with_session(session=session)
+        adapter = _make_adapter_with_session(mock_client=session)
 
         # Patch _is_nio_rate_limited_response to return True and
         # make room_send raise _NioRateLimitError directly
@@ -200,7 +203,7 @@ class TestRateLimitRetryAfterMs:
             raise _NioRateLimitError("M_LIMIT_EXCEEDED", retry_after_ms=None)
 
         session.room_send = AsyncMock(side_effect=_raise_rate_limit)
-        adapter = _make_adapter_with_session(session=session)
+        adapter = _make_adapter_with_session(mock_client=session)
 
         with pytest.raises(AdapterSendError) as exc_info:
             await adapter.deliver(_make_result())
@@ -223,7 +226,7 @@ class TestMatrixEventTypeValidation:
         session = MagicMock()
         session.is_room_member.return_value = True
         session.room_send = AsyncMock(return_value=SimpleNamespace(event_id="$evt-1"))
-        adapter = _make_adapter_with_session(session=session)
+        adapter = _make_adapter_with_session(mock_client=session)
 
         payload = {"msgtype": "m.text", "body": "hello", "_matrix_event_type": None}
         result = RenderingResult(
@@ -242,7 +245,7 @@ class TestMatrixEventTypeValidation:
         session = MagicMock()
         session.is_room_member.return_value = True
         session.room_send = AsyncMock(return_value=SimpleNamespace(event_id="$evt-1"))
-        adapter = _make_adapter_with_session(session=session)
+        adapter = _make_adapter_with_session(mock_client=session)
 
         payload = {"msgtype": "m.text", "body": "hello", "_matrix_event_type": ""}
         result = RenderingResult(
@@ -261,7 +264,7 @@ class TestMatrixEventTypeValidation:
         session = MagicMock()
         session.is_room_member.return_value = True
         session.room_send = AsyncMock(return_value=SimpleNamespace(event_id="$evt-1"))
-        adapter = _make_adapter_with_session(session=session)
+        adapter = _make_adapter_with_session(mock_client=session)
 
         payload = {"msgtype": "m.text", "body": "hello", "_matrix_event_type": 42}
         result = RenderingResult(
@@ -280,7 +283,7 @@ class TestMatrixEventTypeValidation:
         session = MagicMock()
         session.is_room_member.return_value = True
         session.room_send = AsyncMock(return_value=SimpleNamespace(event_id="$evt-1"))
-        adapter = _make_adapter_with_session(session=session)
+        adapter = _make_adapter_with_session(mock_client=session)
 
         payload = {
             "msgtype": "m.text",
@@ -303,7 +306,7 @@ class TestMatrixEventTypeValidation:
         session = MagicMock()
         session.is_room_member.return_value = True
         session.room_send = AsyncMock(return_value=SimpleNamespace(event_id="$evt-1"))
-        adapter = _make_adapter_with_session(session=session)
+        adapter = _make_adapter_with_session(mock_client=session)
 
         payload = {"msgtype": "m.text", "body": "hello", "_matrix_event_type": "  "}
         result = RenderingResult(
@@ -322,7 +325,7 @@ class TestMatrixEventTypeValidation:
         session = MagicMock()
         session.is_room_member.return_value = True
         session.room_send = AsyncMock(return_value=SimpleNamespace(event_id="$evt-1"))
-        adapter = _make_adapter_with_session(session=session)
+        adapter = _make_adapter_with_session(mock_client=session)
 
         payload = {
             "msgtype": "m.text",

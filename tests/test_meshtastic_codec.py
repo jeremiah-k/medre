@@ -503,7 +503,7 @@ class TestMeshtasticCodecTapbackSnapshot:
 
 
 class TestMeshtasticCodecNodeInfo:
-    """MeshtasticCodec decode node_info longname/shortname population (lines 199-201)."""
+    """MeshtasticCodec decode node_info longname/shortname population."""
 
     def test_node_info_both_names_populated(self) -> None:
         """node_info with longname and shortname → populated in event metadata."""

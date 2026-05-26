@@ -645,10 +645,7 @@ class MeshtasticSession:
             conn = self._config.connection_type
             if conn == "tcp":
                 if self._config.host is None:
-                    raise RuntimeError(
-                        "config.host must be set for TCP connection "
-                        "(validated by config)"
-                    )
+                    raise RuntimeError("config.host must be set for TCP connection")
 
                 from meshtastic.tcp_interface import TCPInterface
 
@@ -659,14 +656,18 @@ class MeshtasticSession:
                     ),
                 )
             elif conn == "serial":
+                if self._config.serial_port is None:
+                    raise RuntimeError(
+                        "config.serial_port must be set for serial connection"
+                    )
+
                 from meshtastic.serial_interface import SerialInterface
 
                 return SerialInterface(devPath=self._config.serial_port)
             elif conn == "ble":
                 if self._config.ble_address is None:
                     raise RuntimeError(
-                        "config.ble_address must be set for BLE connection "
-                        "(validated by config)"
+                        "config.ble_address must be set for BLE connection"
                     )
 
                 from meshtastic.ble_interface import (

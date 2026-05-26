@@ -183,7 +183,7 @@ LXMF (Reticulum) adapters use the Reticulum network stack:
 Default backpressure policy for Matrix/LXMF:
 
 - Queue depth: **moderate** (50-200 messages).
-- Policy: **block with timeout** (Matrix), **fail** (LXMF).
+- Policy: **fail / surface transient** (Matrix), **fail** (LXMF).
 - Matrix: rate-limit responses are surfaced immediately as `AdapterSendError(transient=True)`; the adapter does not block or sleep. Pipeline retry/replay handles re-delivery. Adaptive backoff based on `retry_after_ms` is deferred.
 - LXMF: fail fast; LXMF's fire-and-forget semantics make backpressure unlikely.
 
