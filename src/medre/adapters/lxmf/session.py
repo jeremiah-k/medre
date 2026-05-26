@@ -387,6 +387,10 @@ class LxmfSession:
         "_router",
         # Inbound callback
         "_message_callback",
+        # Event loop — captured at start() so that SDK callbacks
+        # (which fire on Reticulum threads) can safely bridge onto
+        # the asyncio loop via call_soon_threadsafe().
+        "_loop",
         # Lifecycle guards
         "_started",
         "_stop_requested",
@@ -423,6 +427,11 @@ class LxmfSession:
 
         # Inbound callback set via start().
         self._message_callback: MessageCallback | None = None
+
+        # Event loop captured during start().  SDK callbacks run on
+        # Reticulum threads and must bridge back via
+        # loop.call_soon_threadsafe() — never asyncio.create_task().
+        self._loop: asyncio.AbstractEventLoop | None = None
 
         # Lifecycle guards.
         self._started: bool = False
@@ -542,6 +551,11 @@ class LxmfSession:
         if self._started:
             return
 
+        # Capture the running event loop so SDK callbacks (which fire
+        # on Reticulum threads) can bridge safely via
+        # call_soon_threadsafe().
+        self._loop = asyncio.get_running_loop()
+
         self._message_callback = message_callback
         self._stop_requested = False
 
@@ -627,6 +641,13 @@ class LxmfSession:
     ) -> tuple[str | None, LxmfDeliveryState]:
         """Send a text message via the LXMF router.
 
+        **Honest semantics**: this method hands the message to the
+        LXMRouter and returns the initial delivery state — typically
+        ``OUTBOUND`` or ``GENERATING``.  It does **not** wait for or
+        imply confirmed delivery to the recipient.  Actual delivery
+        progresses asynchronously through the LXMF state machine and
+        is tracked via ``_on_delivery_state_update``.
+
         Parameters
         ----------
         destination_hash:
@@ -645,7 +666,8 @@ class LxmfSession:
         tuple[str | None, LxmfDeliveryState]
             ``(native_message_id, initial_state)``.  In fake mode,
             returns ``(fake_id, OUTBOUND)``.  In real mode, returns the
-            message hash and the initial delivery state.
+            message hash and the initial delivery state — **not** the
+            final delivery state.
 
         Raises
         ------
@@ -849,9 +871,16 @@ class LxmfSession:
     def _on_lxmf_delivery(self, message: Any) -> None:
         """Handle an inbound LXMF.LXMessage from the router.
 
-        Normalises the raw message into a plain dict and forwards
-        it to the registered message callback.  No raw LXMF/RNS
-        objects leak past this boundary.
+        **Thread-safety**: LXMRouter invokes this callback on a
+        Reticulum I/O thread — NOT the asyncio event-loop thread.
+        Direct calls to ``asyncio.create_task()`` or
+        ``asyncio.get_running_loop()`` would raise ``RuntimeError``.
+
+        The fix is to normalise the message (pure CPU work, safe on any
+        thread) and then schedule the user callback on the captured
+        event loop via ``call_soon_threadsafe()``.  This ensures the
+        callback's own ``asyncio.create_task()`` calls execute on the
+        correct loop.
         """
         try:
             normalised = self._normalise_inbound_message(message)
@@ -868,8 +897,32 @@ class LxmfSession:
 
         self._diag.last_message_time = datetime.now(timezone.utc)
 
+        # Bridge from the Reticulum thread to the asyncio loop.
+        loop = self._loop
+        if loop is not None and loop.is_running():
+            loop.call_soon_threadsafe(self._invoke_inbound_callback, normalised)
+        else:
+            # Fallback: no captured loop (shouldn't happen in production
+            # after start()).  Invoke directly but warn.
+            self._logger.warning(
+                "LxmfSession %s: no event loop captured; invoking "
+                "inbound callback on Reticulum thread (unsafe)",
+                self._adapter_id,
+            )
+            self._invoke_inbound_callback(normalised)
+
+    def _invoke_inbound_callback(self, normalised: dict[str, Any]) -> None:
+        """Invoke the inbound message callback on the event-loop thread.
+
+        This is scheduled via ``call_soon_threadsafe`` so it always
+        runs on the asyncio loop.  The callback receives a plain dict
+        (never a raw SDK object).
+        """
+        callback = self._message_callback
+        if callback is None:
+            return
         try:
-            result = self._message_callback(normalised)
+            result = callback(normalised)
             # Support async callbacks
             if asyncio.iscoroutine(result):
                 try:
@@ -897,6 +950,10 @@ class LxmfSession:
 
     def _on_delivery_state_update(self, message: Any) -> None:
         """Handle delivery state updates for outbound messages.
+
+        **Thread-safety**: LXMRouter invokes this callback on a
+        Reticulum I/O thread.  All work here is synchronous dict
+        mutation (no asyncio calls), so no thread-bridging is needed.
 
         Tracks state transitions in the outbound delivery tracking
         dict without exposing raw objects.

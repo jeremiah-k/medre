@@ -292,6 +292,14 @@ class LxmfAdapter(AdapterContract):
         In real mode, sends via the session's LXMF router and returns
         an honest result with the LXMF message hash and delivery state.
 
+        **Honest delivery semantics**: the ``delivery_status`` is
+        ``"sent"`` meaning the adapter handed the message to the
+        LXMRouter (local acceptance).  This does **not** mean the
+        message was confirmed delivered to the recipient.  LXMF
+        delivery is asynchronous and multi-hop; the actual delivery
+        state transitions are tracked per-message in the session and
+        reflected in the ``metadata["lxmf"]["delivery_state"]`` field.
+
         Parameters
         ----------
         result:
@@ -358,6 +366,7 @@ class LxmfAdapter(AdapterContract):
         return AdapterDeliveryResult(
             native_message_id=native_id,
             native_channel_id=str(destination_hash) if destination_hash else None,
+            delivery_note="accepted by LXMRouter — async delivery pending",
             metadata=MappingProxyType(
                 {
                     "lxmf": {

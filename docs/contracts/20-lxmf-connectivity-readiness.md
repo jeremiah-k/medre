@@ -871,6 +871,38 @@ Key findings that this contract consolidates:
   real LXMF traffic.** It is a MEDRE convention that other clients may
   or may not respect.
 
+## 13. Tranche 5 Status Update
+
+> **Added:** 2026-05-26
+
+### What Changed
+
+- **Test coverage expanded.** Tranche 5 adds tests for delivery state
+  transition chains (outbound→sending→sent→delivered, failed, rejected),
+  callback threading safety (sync + async dispatch), send return
+  semantics (honest OUTBOUND, not DELIVERED), bounded outbound cleanup
+  on terminal states, and codec handling of missing/optional fields
+  (signature_validated, source_hash, timestamp, destination_hash,
+  delivery_method, has_fields).
+
+- **No source code changes.** All Tranche 5 work is tests and docs. The
+  adapter, session, codec, renderer, fields helper, and config modules
+  are untouched.
+
+### Readiness Assessment (Unchanged)
+
+The connectivity readiness assessment from sections 1–11 is unchanged.
+No new SDK APIs were discovered, no live testing was performed, and no
+real Reticulum connectivity was established. The adapter remains in
+fake-only mode for all non-live test execution.
+
+| Area                      | Tranche 5 Status                                                               |
+| ------------------------- | ------------------------------------------------------------------------------ |
+| SDK API knowledge         | Unchanged. Sections 2.1–2.13 remain accurate.                                  |
+| Real connectivity         | Not tested. No live evidence gathered.                                         |
+| Test coverage (fake mode) | Expanded. Delivery transitions, callback safety, field edge cases now covered. |
+| Implementation readiness  | Unchanged. All scaffold items in §6.2 remain scaffold.                         |
+
 ---
 
 _This document was produced by auditing the LXMF 0.9.6 and Reticulum

@@ -200,4 +200,35 @@ These are explicitly out of scope for tranche 1:
 
 ---
 
+## Tranche 5: Delivery Semantics Verification and Session Boundary Hardening
+
+> **Added:** 2026-05-26
+> **Scope:** Test coverage hardening. No source code changes to adapter, session, or codec.
+
+### Delivery Semantics Verification
+
+Tranche 5 adds tests verifying that the delivery semantics documented in this contract are actually enforced:
+
+1. **Honest OUTBOUND return.** `send_text()` in fake mode returns `LxmfDeliveryState.OUTBOUND` — never `DELIVERED`, `SENT`, or `SENDING`. Tests assert the state is exactly `OUTBOUND`.
+
+2. **Terminal-state untracking.** When a delivery callback transitions a tracked message to a terminal state (`DELIVERED`, `FAILED`, `REJECTED`, `CANCELLED`), the entry is removed from `_outbound_deliveries`. Tests verify each terminal state triggers cleanup.
+
+3. **Failure counter accuracy.** `permanent_delivery_failures` increments exactly once per `FAILED` or `REJECTED` callback. Tests verify the count before and after each transition.
+
+4. **Full transition chain.** Tests simulate the complete `OUTBOUND → SENDING → SENT → DELIVERED` progression via sequential delivery callbacks, verifying the entry stays tracked through intermediate states and is untracked on terminal state.
+
+### Session Boundary Hardening
+
+5. **Callback dispatch safety.** Tests verify both sync and async message callbacks work correctly through `inject_inbound()`. Async callbacks are scheduled on the running event loop; sync callbacks are called directly. Callback exceptions do not crash the session.
+
+6. **Concurrent send isolation.** Concurrent `send_text()` calls produce distinct message IDs with no tracking corruption.
+
+7. **Unknown message hash safety.** Delivery callbacks for untracked hashes are silently ignored — no crash, no tracking corruption.
+
+### No Changes to Production Code
+
+All Tranche 5 changes are in `tests/`. The adapter, session, codec, renderer, and config modules are untouched. The tests verify existing behaviour, they do not introduce new behaviour.
+
+---
+
 _This contract describes the implemented LXMF adapter tranche 1. If the implementation diverges from this document, the document should be updated to match the implementation's actual behavior._

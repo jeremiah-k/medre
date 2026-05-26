@@ -1008,6 +1008,35 @@ rnsd &
 - **No LXST (LXMF Streaming Transport) support.**
 - **No attachment, image, audio, or media transfer support.**
 
+## 19.5 Tranche 5: Hardening Summary
+
+> **Added:** 2026-05-26
+> **Scope:** Test coverage and documentation hardening only. No source code changes.
+
+### Test Coverage Added
+
+Tranche 5 adds test classes covering areas previously only implied by existing tests:
+
+| Test Class                             | Area Covered                                                        |
+| -------------------------------------- | ------------------------------------------------------------------- |
+| `TestTranche5CallbackThreadingSafety`  | Sync and async callback dispatch, exception tolerance               |
+| `TestTranche5SendReturnSemantics`      | Honest OUTBOUND return, not DELIVERED/SENT/SENDING; unique IDs      |
+| `TestTranche5DeliveryStateTransitions` | Full OUTBOUND→SENDING→SENT→DELIVERED chain; FAILED/REJECTED cleanup |
+| `TestTranche5BoundedOutboundCleanup`   | Terminal-state untracking, partial delivery counts                  |
+| `TestTranche5SignatureValidated`       | Codec handles signature_validated true/false/missing                |
+| `TestTranche5MissingOptionalFields`    | Codec handles missing source_hash, timestamp, fields, etc.          |
+| `TestTranche5DeliveryMethodMetadata`   | delivery_method and has_fields in native metadata                   |
+
+### What Was Not Done
+
+- No source code changes to adapter, session, codec, renderer, or config.
+- No live Reticulum testing performed.
+- No new SDK APIs discovered or documented.
+
+### Operational Impact
+
+None. Tranche 5 is purely tests and docs. The runtime behaviour of the adapter is unchanged.
+
 ## 20. Cross-References
 
 | Topic                                                               | Document                                                 |
