@@ -310,7 +310,7 @@ This installs `mindroom-nio>=0.25`. The core install (`pip install medre`) does 
 
 ### Tranche 3: Hardening and Alignment Verification (2026-05-26)
 
-Tranche 3 (branch `t3-matrix-mindroom-hardening`) adds targeted hardening without behavioral changes. No new features, no new relation types, no structural changes to event flow.
+Tranche 3 (branch `t3-matrix-mindroom-hardening`) adds targeted hardening. No new Matrix relation type or canonical event shape was added in this tranche. Transaction-ID deduplication, rate-limit classification, and undecryptable counting are behavioral hardening changes, not merely cosmetic.
 
 **Relation alignment verified.** The following were verified as Matrix-native aligned by source audit (no live testing, code-level verification only):
 
@@ -321,7 +321,7 @@ Tranche 3 (branch `t3-matrix-mindroom-hardening`) adds targeted hardening withou
 
 **Transaction-ID hardening.** Outbound delivery now computes a deterministic `txn_id` from the delivery identity before the retry loop, so all retry attempts reuse the same transaction ID. This enables homeserver-side deduplication of retried sends within the Matrix txn-ID window. Duplicates remain possible across process restarts or changed delivery identity.
 
-**Rate-limit classification hardening.** M_LIMIT_EXCEEDED / HTTP 429 responses from the homeserver are classified as transient errors and retried with bounded backoff. The `retry_after_ms` value is extracted and embedded in the transient error message for diagnostic observability; it is not yet used as a structured backoff hint by the pipeline retry worker.
+**Rate-limit classification hardening.** M_LIMIT_EXCEEDED / HTTP 429 responses from the homeserver are classified as transient and surfaced to the pipeline immediately as `AdapterSendError(transient=True)`. The `retry_after_ms` value is embedded in the error message for diagnostics but is not yet structured or honored at the adapter level. The adapter does not retry rate-limited responses within its bounded retry loop.
 
 **E2EE secret sanitization.** Access tokens are never logged or embedded in events. `MatrixConfig.__repr__` redacts the token. No secrets appear in metadata envelopes, diagnostics, or evidence bundles. `undecryptable_event_count` and `last_crypto_error` in diagnostics contain no session IDs or key material.
 

@@ -241,11 +241,6 @@ class MatrixSession:
     # -- Properties -----------------------------------------------------------
 
     @property
-    def client(self) -> Any:
-        """The underlying ``nio.AsyncClient``, or ``None`` if not started."""
-        return self._client
-
-    @property
     def closed(self) -> bool:
         """``True`` after :meth:`stop` has completed."""
         return self._closed
@@ -764,6 +759,9 @@ class MatrixSession:
         if self._message_callback is None:
             return
         normalized = self._normalize_event(room, event)
+        room_id = normalized.get("room_id")
+        if isinstance(room_id, str) and room_id:
+            self._track_room(room_id)
         await self._message_callback(normalized)
 
     async def _finalize_start(self) -> None:

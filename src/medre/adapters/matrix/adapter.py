@@ -671,13 +671,14 @@ class MatrixAdapter(AdapterContract):
         if self.ctx is None:
             return
 
-        room_id = event.get("room_id", "")
-        sender = event.get("sender", "")
-        sender_display_name: str = event.get("sender_display_name", sender)
-
-        # Track 4 — track room as seen
-        if self._session is not None and room_id:
-            self._session._track_room(room_id)
+        room_id = str(event.get("room_id", "") or "")
+        sender = str(event.get("sender", "") or "")
+        raw_display_name = event.get("sender_display_name")
+        sender_display_name: str = (
+            raw_display_name
+            if isinstance(raw_display_name, str) and raw_display_name.strip()
+            else sender
+        )
 
         # Apply room allowlist filter
         if self._config.room_allowlist is not None:
@@ -746,7 +747,7 @@ class MatrixAdapter(AdapterContract):
                     "meshtastic_shortname"
                 )
                 if not existing_longname and not existing_shortname:
-                    display_name = sender_display_name
+                    display_name = sender_display_name or sender
 
                     # shortname: first 5 chars of display name, or
                     # localpart of MXID if display_name is just the MXID.

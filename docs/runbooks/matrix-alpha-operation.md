@@ -3,7 +3,7 @@
 > Last updated: 2026-05-26 (Tranche 3 hardening update)
 > Scope: Real Matrix Operation Alpha (Track 7)
 > Status: Alpha. Not production. Not hardened. Not complete. Plaintext is the primary alpha path. E2EE text alpha is available as an add-on for encrypted rooms (see section 15).
-> Tranche 3 session (2026-05-26): Source-audit verification of Matrix relation alignment (replies, reactions). Transaction-ID hardening, rate-limit classification, undecryptable counting verified. No live tests executed. No behavioral changes. Baseline: branch `t3-matrix-mindroom-hardening`, Python 3.12.3, medre 0.1.0.
+> Tranche 3 session (2026-05-26): Source-audit verification of Matrix relation alignment (replies, reactions). Transaction-ID hardening, rate-limit classification, undecryptable counting verified. No live tests executed. No new Matrix relation type or canonical event shape was added. Transaction-ID hardening, rate-limit classification, and undecryptable counting are behavioral hardening changes. Baseline: branch `t3-matrix-mindroom-hardening`, Python 3.12.3, medre 0.1.0.
 
 This runbook describes how to run MEDRE against a real Matrix homeserver in alpha mode. Alpha mode means the MatrixAdapter connects to a real homeserver using real credentials, syncs real rooms, sends real messages, and receives real events. It does not mean the system is ready for anything beyond a single operator on a local or test homeserver.
 
@@ -626,7 +626,7 @@ docker run -d --name medre-matrix \
 
 ### Tranche 3 Hardening Notes (2026-05-26)
 
-Source-audit verification of Matrix relation alignment on branch `t3-matrix-mindroom-hardening`. No live tests executed. No behavioral changes.
+Source-audit verification of Matrix relation alignment on branch `t3-matrix-mindroom-hardening`. No live tests executed. No new Matrix relation type or canonical event shape was added in this tranche. Transaction-ID hardening, rate-limit classification, and undecryptable counting are behavioral hardening changes.
 
 **Verified by source audit (code-level, not live):**
 
@@ -634,7 +634,7 @@ Source-audit verification of Matrix relation alignment on branch `t3-matrix-mind
 - **Reaction relations** use `content["m.relates_to"]` with `rel_type="m.annotation"`, `event_id`, and `key` for both inbound extraction and outbound rendering. This is Matrix-native format.
 - **All relation content** lives in the standard `m.relates_to` subtree. No custom fields are used for Matrix-native relation extraction or rendering.
 - **Transaction-ID hardening.** Deterministic `txn_id` computed per delivery, reused across retries. Enables homeserver deduplication within the Matrix txn-ID window.
-- **Rate-limit classification.** M_LIMIT_EXCEEDED / HTTP 429 responses classified as transient with bounded retry. `retry_after_ms` value extracted and embedded in the transient error message for diagnostic observability; not yet used as a structured backoff hint by the pipeline retry worker.
+- **Rate-limit classification.** Rate-limit responses (M_LIMIT_EXCEEDED / HTTP 429) are classified as transient and surfaced immediately as `AdapterSendError(transient=True)`. The `retry_after_ms` value is embedded in the error message for diagnostics but is not yet structured or honored at the adapter level. The adapter does not retry rate-limited responses within its bounded retry loop.
 - **Undecryptable counting.** MegolmEvent counted, logged (event_id/room_id only), not forwarded to canonical pipeline.
 
 **Known limitation noted during verification:**

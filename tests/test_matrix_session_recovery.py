@@ -371,10 +371,10 @@ class TestSyncStateResilience:
         session = MatrixSession(config)
         try:
             await session.start()
-            client_before = session.client
+            client_before = session._client
             # Second start should be a no-op
             await session.start()
-            assert session.client is client_before
+            assert session._client is client_before
         finally:
             await session.stop()
 
@@ -385,7 +385,7 @@ class TestSyncStateResilience:
         await session.start()
         await session.stop()
         await session.stop()  # no raise
-        assert session.client is None
+        assert session._client is None
         assert session.closed is True
 
     async def test_start_stop_start_cycles(self, mock_nio) -> None:
@@ -398,7 +398,7 @@ class TestSyncStateResilience:
             assert session.sync_task_running is True
             await session.stop()
             assert session.connected is False
-            assert session.client is None
+            assert session._client is None
 
     async def test_stop_during_sync_then_restart(self, mock_nio) -> None:
         """Stop during sync, then restart with clean state."""
@@ -410,7 +410,7 @@ class TestSyncStateResilience:
         await session.stop()
         # Verify clean state
         assert session._sync_task is None
-        assert session.client is None
+        assert session._client is None
         assert session._stop_requested is True
         # Restart
         await session.start()
@@ -450,7 +450,7 @@ class TestSyncStateResilience:
         session = MatrixSession(config)
         with pytest.raises(MatrixConnectionError):
             await session.start()
-        assert session.client is None
+        assert session._client is None
 
 
 # ===================================================================

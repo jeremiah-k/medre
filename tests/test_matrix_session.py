@@ -47,7 +47,7 @@ class TestMatrixSessionLifecycle:
         session = MatrixSession(config)
         try:
             await session.start()
-            assert session.client is not None
+            assert session._client is not None
             assert session.connected is True
             assert session.logged_in is True
         finally:
@@ -58,7 +58,7 @@ class TestMatrixSessionLifecycle:
         session = MatrixSession(config)
         await session.start()
         await session.stop()
-        assert session.client is None
+        assert session._client is None
         assert session.connected is False
 
     async def test_session_stop_before_start(self) -> None:

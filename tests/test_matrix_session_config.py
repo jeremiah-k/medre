@@ -347,7 +347,7 @@ class TestBlocker3ClientConfigFailure:
             session = MatrixSession(config)
             with pytest.raises(MatrixConnectionError):
                 await session.start()
-            assert session.client is None
+            assert session._client is None
             assert session.crypto_enabled is False
         finally:
             compat.HAS_E2EE = original
