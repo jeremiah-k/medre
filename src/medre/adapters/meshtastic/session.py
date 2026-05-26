@@ -15,8 +15,9 @@ import inspect
 import logging
 import random
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, cast
+from typing import Any, cast
 
 from medre.adapters.meshtastic.compat import HAS_MESHTASTIC
 from medre.adapters.meshtastic.errors import (

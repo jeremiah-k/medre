@@ -435,7 +435,7 @@ class TestLiveDeliveryClaimRace:
             # Wait until the outbox item reaches in_progress status.
             item = None
 
-            async def _find_in_progress():
+            async def _find_in_progress() -> bool:
                 nonlocal item
                 matches = [
                     i

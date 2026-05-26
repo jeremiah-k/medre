@@ -134,15 +134,19 @@ class TestAiosqliteOpenReadonlyRowFactoryFailure:
 
         # Now test the aiosqlite path — mock aiosqlite.connect to return a
         # connection whose ``row_factory`` setter raises.
-        mock_conn = MagicMock()
-        mock_conn.close = AsyncMock()
+        class _ConnWithFailingRowFactory:
+            def __init__(self):
+                self.close = AsyncMock()
 
-        # Intercept ``row_factory`` assignment via a class-level property
-        # descriptor on the mock's type.
-        def _fail_row_factory(_obj: object, _value: object) -> None:
-            raise RuntimeError("simulated row_factory assignment failure")
+            @property
+            def row_factory(self):
+                return None
 
-        type(mock_conn).row_factory = property(fset=_fail_row_factory)
+            @row_factory.setter
+            def row_factory(self, _value):
+                raise RuntimeError("simulated row_factory assignment failure")
+
+        mock_conn = _ConnWithFailingRowFactory()
 
         _mock_aiosqlite_module.connect = AsyncMock(return_value=mock_conn)
 

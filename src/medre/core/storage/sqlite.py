@@ -992,11 +992,17 @@ class SQLiteStorage:
             # asyncio.to_thread.  On Python 3.14 ThreadPoolExecutor retains
             # the sqlite3.Connection reference through internal work items,
             # which causes a false ResourceWarning even after db.close()
-            # completes.  Acquiring self._lock directly is safe here because
-            # self._db has already been snapshot into *db* — new operations
-            # will see None and raise before reaching the connection.
-            with self._lock:
+            # completes.  Use non-blocking lock acquisition with
+            # asyncio.sleep(0) to avoid blocking the event loop.  This is
+            # safe because self._db has already been snapshot into *db* —
+            # new operations will see None and raise before reaching the
+            # connection.
+            while not self._lock.acquire(blocking=False):
+                await asyncio.sleep(0)
+            try:
                 db.close()
+            finally:
+                self._lock.release()
         self._db = None
 
     async def count_events(self) -> int:
