@@ -544,11 +544,11 @@ class MatrixAdapter(AdapterContract):
         # to signal non-default event types (e.g. m.reaction).  The key
         # must never leak into the homeserver content.
         raw_message_type = content.pop("_matrix_event_type", None)
-        message_type = (
-            raw_message_type
-            if isinstance(raw_message_type, str) and raw_message_type.strip()
-            else "m.room.message"
-        )
+        if isinstance(raw_message_type, str):
+            stripped = raw_message_type.strip()
+            message_type = stripped if stripped else "m.room.message"
+        else:
+            message_type = "m.room.message"
 
         # Compute a deterministic transaction ID once before the retry
         # loop so all retry attempts reuse the same txn_id.  This allows

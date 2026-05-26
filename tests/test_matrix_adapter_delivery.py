@@ -343,3 +343,26 @@ class TestMatrixEventTypeValidation:
         call_kwargs = session.room_send.call_args
         sent_content = call_kwargs.kwargs.get("content", {})
         assert "_matrix_event_type" not in sent_content
+
+    async def test_whitespace_event_type_trimmed_to_valid(self) -> None:
+        """_matrix_event_type=' m.reaction ' (leading/trailing whitespace) is trimmed."""
+        session = MagicMock()
+        session.is_room_member.return_value = True
+        session.room_send = AsyncMock(return_value=SimpleNamespace(event_id="$evt-1"))
+        adapter = _make_adapter_with_session(mock_client=session)
+
+        payload = {
+            "msgtype": "m.text",
+            "body": "hello",
+            "_matrix_event_type": " m.reaction ",
+        }
+        result = RenderingResult(
+            event_id="evt-1",
+            target_adapter="matrix-test",
+            target_channel="!room:server",
+            payload=payload,
+        )
+        await adapter.deliver(result)
+
+        call_kwargs = session.room_send.call_args
+        assert call_kwargs.kwargs.get("message_type") == "m.reaction"
