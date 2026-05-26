@@ -27,14 +27,9 @@ from medre.core.rendering.renderer import (
 )
 from medre.core.rendering.text import TextRenderer
 
-# Compatibility/readability alias for text-rendering result paths.
-# Importers can use either ``RenderingResult`` or ``TextRenderingResult``.
-TextRenderingResult = RenderingResult
-
 __all__ = [
     "Renderer",
     "RenderingPipeline",
     "RenderingResult",
     "TextRenderer",
-    "TextRenderingResult",
 ]

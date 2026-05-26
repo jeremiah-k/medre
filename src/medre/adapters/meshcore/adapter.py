@@ -349,7 +349,7 @@ class MeshCoreAdapter(AdapterContract):
         dict already rendered by
         :class:`~medre.adapters.meshcore.renderer.MeshCoreRenderer`.
 
-        For **fake mode** this is scaffolded — returns ``None``.
+        For **fake mode** this returns ``None`` (no real delivery).
 
         For **real modes** the delivery is delegated to the session's
         :meth:`~MeshCoreSession.send_text` method.
@@ -383,7 +383,7 @@ class MeshCoreAdapter(AdapterContract):
                 f"the inbound path."
             )
 
-        # Fake mode: scaffolded — no real delivery result.
+        # Fake mode: no real delivery result.
         if self._config.connection_type == "fake":
             return None
 
