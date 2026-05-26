@@ -1004,8 +1004,7 @@ def synapse_e2ee_env(
         {
             "room_alias_name": "medre-ci-e2ee",
             "name": "MEDRE CI E2EE Test Room",
-            "preset": "private_chat",
-            "visibility": "private",
+            "preset": "public_chat",
         }
     ).encode()
     room_resp = _make_request(
