@@ -508,7 +508,6 @@ class TestMeshtasticSoak:
         Validates that after stop():
         - The adapter reports started=False.
         - Session reference is None (no leaked transport).
-        - Client reference is None (no leaked connection).
         - No background tasks remain.
         - Diagnostics show a stopped state.
         - A second stop() call is idempotent (no error).
@@ -535,7 +534,6 @@ class TestMeshtasticSoak:
         # Verify clean state after stop
         assert adapter._started is False, "Adapter must report stopped"
         assert adapter._session is None, "Session must be None after stop"
-        assert adapter._client is None, "Client must be None after stop"
         assert (
             len(adapter._background_tasks) == 0
         ), f"Background tasks remain after stop: {len(adapter._background_tasks)}"

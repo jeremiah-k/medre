@@ -995,7 +995,6 @@ class TestMatrixE2EEBlockedPermanent:
 
         config = _matrix_config()
         adapter = MatrixAdapter(config)
-        adapter._client = MagicMock()
 
         mock_session = MagicMock()
         mock_session.crypto_enabled = False
