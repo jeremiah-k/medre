@@ -250,7 +250,7 @@ improved.**
 Changes in this pass:
 
 - Classifier now extracts `encrypted` field from packet dicts and assigns
-  the `drop` action with reason `"encrypted packet"` (previously unhandled)
+  the `drop` action with reason `"encrypted packet"` (hardened with decoded-level fallback for edge-case SDK versions)
 - Classifier now extracts `hopStart` and `hopLimit` from packet dicts for
   diagnostic use (previously not extracted)
 - Classifier now extracts `rxTime` from packet dicts via the

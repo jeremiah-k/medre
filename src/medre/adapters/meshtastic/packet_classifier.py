@@ -233,11 +233,15 @@ class ClassificationResult:
         :func:`~medre.adapters.meshtastic.startup_backlog.extract_meshtastic_rx_time`,
         or ``None`` when absent or invalid.
     priority:
-        ``priority`` string (protobuf ``MeshPacket.Priority`` enum name), or ``None``.
+        ``priority`` string (protobuf ``MeshPacket.Priority`` enum name OR
+        integer value coerced to string), or ``None``.
     rx_snr:
         ``rxSnr`` float (signal-to-noise ratio in dB), or ``None``.
     rx_rssi:
         ``rxRssi`` integer (received signal strength indicator in dBm), or ``None``.
+    via_mqtt:
+        ``True`` when ``viaMqtt`` is truthy in the packet dict, ``False`` otherwise.
+        Useful for diagnostic tracking of MQTT-bridged packets.
     """
 
     action: ClassificationAction
@@ -262,9 +266,10 @@ class ClassificationResult:
     hop_start: int | None = None
     hop_limit: int | None = None
     rx_time: datetime | None = None
-    priority: str | None = None
+    priority: int | str | None = None
     rx_snr: float | None = None
     rx_rssi: int | None = None
+    via_mqtt: bool = False
 
 
 class MeshtasticPacketClassifier:
@@ -334,7 +339,7 @@ class MeshtasticPacketClassifier:
             Immutable classification result with action, category, reason,
             and all metadata fields including mesh-relay diagnostics
             (``hop_start``, ``hop_limit``, ``rx_time``, ``priority``,
-            ``rx_snr``, ``rx_rssi``).
+            ``rx_snr``, ``rx_rssi``, ``via_mqtt``).
         """
         # --- Extract raw fields ---
         to_id = packet.get("toId", "")
@@ -373,9 +378,12 @@ class MeshtasticPacketClassifier:
         hop_start = packet.get("hopStart")
         hop_limit = packet.get("hopLimit")
         rx_time = extract_meshtastic_rx_time(packet)
-        priority = packet.get("priority")
+        priority = (
+            str(packet.get("priority")) if packet.get("priority") is not None else None
+        )
         rx_snr = packet.get("rxSnr")
         rx_rssi = packet.get("rxRssi")
+        via_mqtt = bool(packet.get("viaMqtt"))
 
         # --- Reply / reaction semantics from decoded.replyId and decoded.emoji ---
         reply_id: int | None = None
@@ -519,4 +527,5 @@ class MeshtasticPacketClassifier:
             priority=priority,
             rx_snr=rx_snr,
             rx_rssi=rx_rssi,
+            via_mqtt=via_mqtt,
         )

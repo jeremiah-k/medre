@@ -1234,6 +1234,14 @@ class TestPriorityExtraction:
         result = cls.classify(packet)
         assert result.priority == ""
 
+    def test_priority_numeric(self) -> None:
+        """priority=3 (integer enum value) → stored as string '3'."""
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        packet["priority"] = 3
+        result = cls.classify(packet)
+        assert result.priority == "3"
+
 
 class TestRxSnrRxRssi:
     """rx_snr / rx_rssi radio diagnostic field extraction."""
@@ -1277,6 +1285,41 @@ class TestRxSnrRxRssi:
         packet["rxSnr"] = 0.0
         result = cls.classify(packet)
         assert result.rx_snr == 0.0
+
+    def test_rx_snr_negative(self) -> None:
+        """Negative rx_snr (valid — signal below noise floor)."""
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        packet["rxSnr"] = -5.5
+        result = cls.classify(packet)
+        assert result.rx_snr == -5.5
+
+
+class TestViaMqtt:
+    """via_mqtt diagnostic field extraction."""
+
+    def test_via_mqtt_true(self) -> None:
+        """viaMqtt=True → via_mqtt is True."""
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        packet["viaMqtt"] = True
+        result = cls.classify(packet)
+        assert result.via_mqtt is True
+
+    def test_via_mqtt_false(self) -> None:
+        """viaMqtt=False → via_mqtt is False."""
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        packet["viaMqtt"] = False
+        result = cls.classify(packet)
+        assert result.via_mqtt is False
+
+    def test_via_mqtt_absent(self) -> None:
+        """No viaMqtt field → via_mqtt defaults to False."""
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        result = cls.classify(packet)
+        assert result.via_mqtt is False
 
 
 class TestEncryptedHardening:
@@ -1336,6 +1379,16 @@ class TestEncryptedHardening:
         packet = _make_text_packet()
         result = cls.classify(packet)
         assert result.is_encrypted is False
+
+    def test_encrypted_false_top_true_decoded(self) -> None:
+        """encrypted=False at top level + encrypted=True in decoded → is_encrypted is True."""
+        cls = MeshtasticPacketClassifier()
+        packet = _make_text_packet()
+        packet["encrypted"] = False
+        packet["decoded"]["encrypted"] = True
+        result = cls.classify(packet)
+        assert result.is_encrypted is True
+        assert result.action == "drop"
 
 
 class TestBroadcastNumericToInt:
@@ -1419,6 +1472,7 @@ class TestAllNewFieldsTogether:
         assert result.priority == "HIGH"
         assert result.rx_snr == 8.25
         assert result.rx_rssi == -65
+        assert result.via_mqtt is False
 
     def test_full_mtjk_packet_defaults(self) -> None:
         """Packet without any new fields — all default to None."""
@@ -1432,6 +1486,7 @@ class TestAllNewFieldsTogether:
         assert result.priority is None
         assert result.rx_snr is None
         assert result.rx_rssi is None
+        assert result.via_mqtt is False
 
     def test_result_still_frozen_with_new_fields(self) -> None:
         """ClassificationResult remains immutable with new fields."""
