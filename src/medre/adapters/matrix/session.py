@@ -18,8 +18,10 @@ events are counted and logged but not forwarded.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import importlib
 import logging
+import os
 import random
 import time
 from dataclasses import dataclass
@@ -127,6 +129,14 @@ class MatrixSessionDiagnostics:
     # Track 4 — room-state tracking counts (no room names/IDs)
     encrypted_room_count: int
     plaintext_room_count: int
+    # E2EE key management diagnostics
+    olm_loaded: bool
+    store_loaded: bool
+    device_keys_uploaded: bool
+    key_query_needed: bool
+    device_id_in_use: str | None
+    store_path_exists: bool
+    initial_sync_completed: bool
 
 
 class MatrixSession:
@@ -180,6 +190,8 @@ class MatrixSession:
         "_suppressed_rate_limited_undecryptable",
         # RoomEncryptionEvent logging dedup
         "_encryption_event_seen_rooms",
+        # E2EE key management — initial sync tracking
+        "_initial_sync_done",
     )
 
     _UNDECRYPTABLE_DEDUP_WINDOW_SECS: float = 60.0
@@ -223,6 +235,8 @@ class MatrixSession:
         self._suppressed_rate_limited_undecryptable: int = 0
         # RoomEncryptionEvent logging dedup
         self._encryption_event_seen_rooms: set[str] = set()
+        # E2EE key management — initial sync tracking
+        self._initial_sync_done: bool = False
 
     # -- Properties -----------------------------------------------------------
 
@@ -383,6 +397,8 @@ class MatrixSession:
         self._suppressed_rate_limited_undecryptable = 0
         # RoomEncryptionEvent logging dedup
         self._encryption_event_seen_rooms = set()
+        # E2EE key management — initial sync tracking
+        self._initial_sync_done = False
 
         mode = self._config.encryption_mode
         if mode == "e2ee_required":
@@ -489,8 +505,47 @@ class MatrixSession:
             )
 
         self._crypto_enabled = True
-        # Track 2 — crypto store loaded
-        self._crypto_store_loaded = True
+        # Track 2 — verify Olm and store loaded after restore_login.
+        # If Olm/store are None despite E2EE deps, the crypto subsystem
+        # is broken and we must not claim crypto is operational.
+        if self._client.olm is None:
+            olm_missing = True
+            self._logger.error(
+                "E2EE: olm is None after restore_login — "
+                "crypto subsystem not initialised"
+            )
+            self._crypto_enabled = False
+            self._crypto_store_loaded = False
+        elif self._client.store is None:
+            olm_missing = False
+            self._logger.error(
+                "E2EE: store is None after restore_login — " "crypto store not loaded"
+            )
+            self._crypto_enabled = False
+            self._crypto_store_loaded = False
+        else:
+            olm_missing = False
+            self._crypto_store_loaded = True
+
+        # Fail-closed: e2ee_required mode must not silently downgrade
+        # when the crypto subsystem is broken.  For e2ee_optional the
+        # caller (_start_e2ee_optional) catches exceptions and falls
+        # back to plaintext.
+        if not self._crypto_enabled and self._config.encryption_mode == "e2ee_required":
+            if self._client:
+                try:
+                    await self._client.close()
+                except Exception:
+                    pass
+                self._client = None
+            if olm_missing:
+                raise MatrixConnectionError(
+                    "E2EE required but Olm subsystem failed to initialise"
+                )
+            raise MatrixConnectionError(
+                "E2EE required but crypto store failed to load"
+            )
+
         await self._finalize_start()
 
     async def _start_e2ee_optional(self) -> None:
@@ -811,6 +866,12 @@ class MatrixSession:
         # Live undecryptable dedup (60-second window per room:session_id).
         session_id = getattr(event, "session_id", "?")
         key = f"{room_id}:{session_id}"
+        # Hashed session_id for logging — never log raw Megolm session IDs.
+        session_id_tag = (
+            hashlib.sha256(session_id.encode()).hexdigest()[:8]
+            if session_id != "?"
+            else "unknown"
+        )
         now = time.monotonic()
         self._prune_undecryptable_dedup(now)
         prev = self._undecryptable_dedup.get(key)
@@ -818,10 +879,10 @@ class MatrixSession:
             self._suppressed_rate_limited_undecryptable += 1
             self._logger.debug(
                 "Rate-limited undecryptable MegolmEvent %s in room %s "
-                "(dedup key %s, %.1fs since last)",
+                "(session=%s, %.1fs since last)",
                 event_id,
                 room_id,
-                key,
+                session_id_tag,
                 now - prev,
             )
             return
@@ -832,6 +893,28 @@ class MatrixSession:
             room_id,
         )
         self._undecryptable_dedup[key] = now
+
+        # Actively request the missing room key from other devices.
+        # Best-effort: don't break the sync loop on failure.
+        if self._crypto_enabled and self._client is not None:
+            try:
+                event.room_id = room_id  # nio workaround: MegolmEvents may lack room_id
+                device_id = getattr(self._client, "device_id", None)
+                user_id = getattr(self._client, "user_id", None)
+                if device_id and user_id and hasattr(event, "as_key_request"):
+                    key_request = event.as_key_request(user_id, device_id)
+                    await self._client.to_device(key_request)
+                    self._logger.debug(
+                        "Requested missing room key for session %s in %s",
+                        session_id_tag,
+                        room_id,
+                    )
+            except Exception:
+                self._logger.debug(
+                    "Key request failed for %s",
+                    event_id,
+                    exc_info=True,
+                )  # best-effort key request
 
     def _prune_undecryptable_dedup(self, now: float) -> None:
         """Evict expired entries from the live undecryptable dedup cache.
@@ -945,14 +1028,62 @@ class MatrixSession:
                 # Manual sync loop — replaces sync_forever so we can
                 # control the live boundary.
                 while not self._stop_requested:
-                    resp = await self._client.sync(
-                        timeout=self._config.sync_timeout_ms,
-                    )
+                    # B) full_state=True on initial sync so nio learns
+                    # which rooms are encrypted.
+                    if not self._initial_sync_done:
+                        sync_kwargs = dict(
+                            timeout=self._config.sync_timeout_ms,
+                            full_state=True,
+                        )
+                    else:
+                        sync_kwargs = dict(
+                            timeout=self._config.sync_timeout_ms,
+                        )
+                    resp = await self._client.sync(**sync_kwargs)
 
                     # nio returns SyncResponse on success, ErrorResponse
                     # or similar on failure.
                     if hasattr(resp, "next_batch") and resp.next_batch:
+                        # Mark initial sync done only after a
+                        # successful response so a failed first
+                        # attempt is retried with full_state=True.
+                        self._initial_sync_done = True
                         self._last_successful_sync = time.monotonic()
+
+                        # A) E2EE key management — mirrors nio
+                        # sync_forever pattern.  These four operations
+                        # must run after each successful sync so that
+                        # device keys are uploaded, other users' device
+                        # keys are queried, Olm sessions are established,
+                        # and to-device messages (including room key
+                        # shares) are sent and received.
+                        if self._crypto_enabled and self._client.olm is not None:
+                            if self._client.should_upload_keys:
+                                try:
+                                    await self._client.keys_upload()
+                                except Exception as exc:
+                                    self._logger.warning("keys_upload failed: %s", exc)
+                            if self._client.should_query_keys:
+                                try:
+                                    await self._client.keys_query()
+                                except Exception as exc:
+                                    self._logger.warning("keys_query failed: %s", exc)
+                            if self._client.should_claim_keys:
+                                try:
+                                    users = self._client.get_users_for_key_claiming()
+                                    if users:
+                                        await self._client.keys_claim(users)
+                                except Exception as exc:
+                                    self._logger.warning("keys_claim failed: %s", exc)
+                        # send_to_device_messages is unconditional — it
+                        # handles both encrypted and unencrypted to-device
+                        # messages (key requests, etc.).
+                        try:
+                            await self._client.send_to_device_messages()
+                        except Exception as exc:
+                            self._logger.debug(
+                                "send_to_device_messages failed: %s", exc
+                            )
 
                         if not self._live_sync_started:
                             self._live_sync_started = True
@@ -1104,6 +1235,42 @@ class MatrixSession:
         Never exposes secrets, access tokens, keys, or private device
         material.
         """
+        # Compute E2EE diagnostics from live client state.
+        # Only inspect nio crypto internals when crypto is enabled;
+        # in plaintext mode (or with mock clients that auto-create
+        # attributes) these would give false positives.
+        if self._crypto_enabled and self._client is not None:
+            olm_loaded = self._client.olm is not None
+            store_loaded = self._client.store is not None
+            device_keys_uploaded = (
+                not self._client.should_upload_keys
+                if hasattr(self._client, "should_upload_keys")
+                else False
+            )
+            key_query_needed = (
+                self._client.should_query_keys
+                if hasattr(self._client, "should_query_keys")
+                else False
+            )
+            device_id_in_use = (
+                str(self._client.device_id)
+                if getattr(self._client, "device_id", None)
+                else None
+            )
+        else:
+            olm_loaded = False
+            store_loaded = False
+            device_keys_uploaded = False
+            key_query_needed = False
+            device_id_in_use = (
+                str(self._client.device_id)
+                if self._client and getattr(self._client, "device_id", None)
+                else None
+            )
+        store_path_exists = (
+            os.path.isdir(self._config.store_path) if self._config.store_path else False
+        )
+
         return MatrixSessionDiagnostics(
             connected=self.connected,
             logged_in=self.logged_in,
@@ -1121,9 +1288,17 @@ class MatrixSession:
             reconnecting=self._reconnecting,
             reconnect_attempts=self._reconnect_attempts,
             last_successful_sync=self._last_successful_sync,
-            # Track 2
-            crypto_store_loaded=self._crypto_store_loaded,
+            # Track 2 — truthful crypto_store_loaded based on live state
+            crypto_store_loaded=olm_loaded and store_loaded,
             # Track 4
             encrypted_room_count=self.encrypted_room_count,
             plaintext_room_count=self.plaintext_room_count,
+            # E2EE key management diagnostics
+            olm_loaded=olm_loaded,
+            store_loaded=store_loaded,
+            device_keys_uploaded=device_keys_uploaded,
+            key_query_needed=key_query_needed,
+            device_id_in_use=device_id_in_use,
+            store_path_exists=store_path_exists,
+            initial_sync_completed=self._initial_sync_done,
         )

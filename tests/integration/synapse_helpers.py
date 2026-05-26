@@ -19,7 +19,7 @@ from medre.adapters.fakes.matrix import FakeMatrixAdapter
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.core.contracts.adapter import AdapterContext
 
-from .conftest import SynapseEnvironment
+from .conftest import E2EETestEnvironment, SynapseEnvironment
 
 logger = logging.getLogger(__name__)
 
@@ -274,3 +274,94 @@ def make_context(adapter_id: str = "synapse-bridge-bot") -> AdapterContext:
         clock=lambda: datetime.now(timezone.utc),
         shutdown_event=asyncio.Event(),
     )
+
+
+def send_encrypted_message_as_test_user(
+    e2ee_env: E2EETestEnvironment,
+    body: str,
+    txn_id: str,
+) -> str:
+    """Send a plaintext message to the encrypted room via Synapse HTTP API.
+
+    Sends an unencrypted ``m.room.message`` via the Matrix CS API.
+    The message arrives at the bot as a plaintext ``RoomMessageText``
+    (Synapse does **not** encrypt client-submitted messages server-side,
+    so this does NOT exercise the Megolm decryption path).
+
+    Use this helper to verify the adapter receives messages in an
+    encrypted room and that crypto infrastructure initialises correctly.
+    For genuine Megolm decryption validation, use
+    :func:`send_client_side_encrypted_message` with a second E2EE-capable
+    nio client.
+
+    Returns the Matrix event_id assigned by Synapse.
+    """
+    payload = json.dumps(
+        {
+            "msgtype": "m.text",
+            "body": body,
+        }
+    ).encode()
+    url = (
+        f"{e2ee_env.base_url}/_matrix/client/v3/rooms/"
+        f"{e2ee_env.encrypted_room_id}/send/m.room.message/{txn_id}"
+    )
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {e2ee_env.test_access_token}",
+        },
+        method="PUT",
+    )
+    with urllib.request.urlopen(
+        req, timeout=10
+    ) as resp:  # nosec: localhost test container
+        resp_body = json.loads(resp.read())
+    return resp_body["event_id"]
+
+
+async def send_client_side_encrypted_message(
+    e2ee_env: E2EETestEnvironment,
+    body: str,
+) -> str:
+    """Send a client-side encrypted message using the test user's nio client.
+
+    Uses the second nio ``AsyncClient`` (created via
+    ``e2ee_env.init_test_e2ee_client()``) to send an ``m.room.encrypted``
+    event.  nio performs genuine Megolm encryption client-side, so the bot
+    must decrypt the event via its own nio crypto subsystem.
+
+    Requires ``e2ee_env.test_e2ee_client`` to be initialised (not ``None``).
+
+    Returns the Matrix event_id assigned by Synapse.
+
+    Raises ``RuntimeError`` if the test E2EE client has not been initialised.
+    """
+    client = e2ee_env.test_e2ee_client
+    if client is None:
+        raise RuntimeError(
+            "Test E2EE client not initialised. "
+            "Call e2ee_env.init_test_e2ee_client() first."
+        )
+
+    content: dict[str, Any] = {
+        "msgtype": "m.text",
+        "body": body,
+    }
+
+    response = await client.room_send(
+        e2ee_env.encrypted_room_id,
+        "m.room.message",
+        content,
+        ignore_unverified_devices=True,
+    )
+
+    # nio room_send returns a RoomSendResponse with event_id on success,
+    # or an error response on failure.
+    if hasattr(response, "event_id"):
+        return response.event_id  # type: ignore[no-any-return]
+
+    # If room_send returned an error response, raise.
+    raise RuntimeError(f"nio room_send failed: {type(response).__name__}: {response}")

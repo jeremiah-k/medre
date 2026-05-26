@@ -877,6 +877,14 @@ class MatrixAdapter(AdapterContract):
                 "last_successful_sync": diag.last_successful_sync,
                 # Track 2 — crypto-store continuity
                 "crypto_store_loaded": diag.crypto_store_loaded,
+                # E2EE key management diagnostics
+                "olm_loaded": diag.olm_loaded,
+                "store_loaded": diag.store_loaded,
+                "device_keys_uploaded": diag.device_keys_uploaded,
+                "key_query_needed": diag.key_query_needed,
+                "device_id_in_use": diag.device_id_in_use,
+                "store_path_exists": diag.store_path_exists,
+                "initial_sync_completed": diag.initial_sync_completed,
                 # Track 4 — room counts (no room IDs)
                 "encrypted_room_count": diag.encrypted_room_count,
                 "plaintext_room_count": diag.plaintext_room_count,
@@ -909,6 +917,14 @@ class MatrixAdapter(AdapterContract):
             "last_successful_sync": None,
             # Track 2
             "crypto_store_loaded": False,
+            # E2EE key management diagnostics
+            "olm_loaded": False,
+            "store_loaded": False,
+            "device_keys_uploaded": False,
+            "key_query_needed": False,
+            "device_id_in_use": None,
+            "store_path_exists": False,
+            "initial_sync_completed": False,
             # Track 4
             "encrypted_room_count": 0,
             "plaintext_room_count": 0,

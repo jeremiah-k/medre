@@ -2,21 +2,24 @@
 
 > Last updated: 2026-05-25 (Tranche 6 truth-surface update)
 > Baseline: HEAD 41a07c7, Python 3.12.3, medre 0.1.0
-> Tranche 6 session: **Did NOT execute live hardware/server tests.** No Matrix
-> homeserver credentials, no second Matrix account token, no Meshtastic physical
-> radio interaction, no MeshCore BLE connection, no LXMF/Reticulum instance were
-> provided or available in this session. All live procedure sections remain as
-> previously recorded or NOT EXECUTED. This update adds evidence sub-classification
+> Tranche 6 session: **Docker Synapse E2EE harness executed 3/3 on 2026-05-25.**
+> No external homeserver credentials, no second Matrix account token for external
+> live, no Meshtastic physical radio interaction, no MeshCore BLE connection, no
+> LXMF/Reticulum instance were provided or available in this session. External live
+> procedures remain as previously recorded or NOT EXECUTED. This update adds
+> Docker E2EE evidence (§1.1c), evidence sub-classification
 > (fake / Docker SDK-boundary / external live / hardware), procedure templates,
 > dependency/version capture commands, and clarifies evidence artifact locations.
-> No statuses were promoted.
+> No statuses were promoted beyond Docker SDK-boundary.
 >
 > Status: Partially populated. Current deterministic suite: 3237 passed, 4 skipped,
 > 63 deselected (2026-05-11, §5.1). A larger run of 4596 passed was recorded 2026-05-12
 > (Contract 62 §2), but the primary evidence anchor in §5.1 remains 3237 from 2026-05-11.
 > Live evidence: Matrix historical H-tier 2026-05-10
 > (plaintext 13/13, E2EE 7/7). Matrix Docker SDK-boundary: 2026-05-22 local Docker
-> Synapse 15 passed, 1 xfailed (see §1.1b). Matrix sk.community live attempt 2026-05-12:
+> Synapse 15 passed, 1 xfailed (see §1.1b). Matrix Docker SDK-boundary E2EE:
+> 2026-05-25 Docker Synapse E2EE harness 3/3 passed, third-party inbound confirmed
+> via second nio client at Docker SDK-boundary (see §1.1c). Matrix sk.community live attempt 2026-05-12:
 > NOT EXECUTED (access token rejected `M_UNKNOWN_TOKEN`; see §1.4).
 > Matrix matrix.org live attempt 2026-05-12:
 > NOT EXECUTED (password login rejected `M_FORBIDDEN Invalid username/password`; see §1.4b).
@@ -55,13 +58,13 @@ environment, results, caveats, reconnect observations, and limitations.
 
 **Evidence sub-classification (Tranche 6 addition):**
 
-R-tier evidence should be annotated with the *environment boundary* where it was collected:
+R-tier evidence should be annotated with the _environment boundary_ where it was collected:
 
-| Sub-class             | Meaning                                                                                                      | Examples                                                                        |
-| --------------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
-| **Docker SDK-boundary** | Local Docker container running the transport server (e.g. Synapse). SDK boundary test — no external network. | Matrix: local Docker Synapse on localhost:8008 (2026-05-22, 15 passed)           |
-| **External live**     | Real external server over the network. Credentials to a third-party or self-hosted service.                  | Matrix: matrix.org or sk.community (H-tier 2026-05-10, NOT EXECUTED 2026-05-12) |
-| **Hardware**          | Physical radio hardware connected via serial/TCP/BLE. Real RF transmission or reception.                     | Meshtastic: serial CLI validation on /dev/ttyACM0 (R-tier 2026-05-12)           |
+| Sub-class               | Meaning                                                                                                      | Examples                                                                        |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
+| **Docker SDK-boundary** | Local Docker container running the transport server (e.g. Synapse). SDK boundary test — no external network. | Matrix: local Docker Synapse on localhost:8008 (2026-05-22, 15 passed)          |
+| **External live**       | Real external server over the network. Credentials to a third-party or self-hosted service.                  | Matrix: matrix.org or sk.community (H-tier 2026-05-10, NOT EXECUTED 2026-05-12) |
+| **Hardware**            | Physical radio hardware connected via serial/TCP/BLE. Real RF transmission or reception.                     | Meshtastic: serial CLI validation on /dev/ttyACM0 (R-tier 2026-05-12)           |
 
 When sub-class is not specified, treat the evidence as **UNSPECIFIED** and do not use it for boundary-specific claims until explicitly classified. **Do not treat Docker SDK-boundary evidence as equivalent to external live or hardware evidence.** Each boundary validates different properties: SDK-boundary validates SDK integration and adapter wiring; external live validates network connectivity and real server behavior; hardware validates physical radio operation.
 
@@ -117,24 +120,57 @@ When sub-class is not specified, treat the evidence as **UNSPECIFIED** and do no
 > (containerized) Synapse. It does NOT validate external network connectivity,
 > federation, or production server behavior.
 
-| Field                         | Value                                                                                                     |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------- |
-| **Test file**                 | `tests/test_matrix_live.py`                                                                               |
-| **Evidence tier**             | R (Docker SDK-boundary)                                                                                   |
-| **Last execution date**       | 2026-05-22                                                                                                |
-| **Executor**                  | Live agent (automated)                                                                                    |
-| **Homeserver**                | Local Docker Synapse (`matrix.local`, `localhost:8008`)                                                   |
-| **Gate**                      | `MATRIX_LOCAL_SYNAPSE=1`                                                                                  |
-| **Total tests run**           | 16 (15 passed, 1 xfailed)                                                                                |
-| **Duration**                  | 40.37s                                                                                                    |
-| **Start/connect**             | ✅ Adapter started, connected to local Synapse                                                            |
-| **Health check → healthy**    | ✅                                                                                                        |
-| **Outbound send → event_id**  | ✅ `room_send` returned event_id                                                                          |
-| **Synapse-specific test**     | ✅ `test_synapse_send_captures_event_id` passed                                                           |
-| **Third-party inbound**       | xfailed (expected — requires second Matrix user sending during 30s window)                                |
-| **E2EE**                      | NOT EXECUTED (no E2EE env vars configured)                                                                |
-| **Artifact location**         | Evidence recorded in `docs/runbooks/matrix-local-bringup.md` §Live Validation Evidence                    |
-| **Limitations**               | Local Docker network only. No federation, no external latency, no token expiry, no real-world rate limits |
+| Field                        | Value                                                                                                     |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------- |
+| **Test file**                | `tests/test_matrix_live.py`                                                                               |
+| **Evidence tier**            | R (Docker SDK-boundary)                                                                                   |
+| **Last execution date**      | 2026-05-22                                                                                                |
+| **Executor**                 | Live agent (automated)                                                                                    |
+| **Homeserver**               | Local Docker Synapse (`matrix.local`, `localhost:8008`)                                                   |
+| **Gate**                     | `MATRIX_LOCAL_SYNAPSE=1`                                                                                  |
+| **Total tests run**          | 16 (15 passed, 1 xfailed)                                                                                 |
+| **Duration**                 | 40.37s                                                                                                    |
+| **Start/connect**            | ✅ Adapter started, connected to local Synapse                                                            |
+| **Health check → healthy**   | ✅                                                                                                        |
+| **Outbound send → event_id** | ✅ `room_send` returned event_id                                                                          |
+| **Synapse-specific test**    | ✅ `test_synapse_send_captures_event_id` passed                                                           |
+| **Third-party inbound**      | xfailed (expected — requires second Matrix user sending during 30s window)                                |
+| **E2EE**                     | NOT EXECUTED (no E2EE env vars configured)                                                                |
+| **Artifact location**        | Evidence recorded in `docs/runbooks/matrix-local-bringup.md` §Live Validation Evidence                    |
+| **Limitations**              | Local Docker network only. No federation, no external latency, no token expiry, no real-world rate limits |
+
+### 1.1c Docker SDK-boundary E2EE Evidence (Tier: R — Docker SDK-boundary, recorded 2026-05-25)
+
+> **Sub-classification:** Docker SDK-boundary (local Docker Synapse, ephemeral crypto stores).
+> This validates E2EE SDK integration, adapter wiring, encrypted-room lifecycle, and
+> third-party inbound via a second nio client — all within Docker loopback. It does NOT
+> validate external network connectivity, federation, cross-signing/verification, or
+> real-world rate limits. Third-party inbound is confirmed at Docker SDK-boundary only;
+> external-live third-party inbound remains NOT EXECUTED.
+
+| Field                         | Value                                                                                                                                                                                                       |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Test file**                 | `tests/integration/test_synapse_e2ee_smoke.py`                                                                                                                                                              |
+| **Evidence tier**             | R (Docker SDK-boundary)                                                                                                                                                                                     |
+| **Sub-class**                 | Docker SDK-boundary                                                                                                                                                                                         |
+| **Execution date**            | 2026-05-25                                                                                                                                                                                                  |
+| **Executor**                  | Live agent (automated)                                                                                                                                                                                      |
+| **Homeserver**                | Local Docker Synapse (`localhost:8009`, Synapse v1.153.0)                                                                                                                                                   |
+| **Gate**                      | `MEDRE_SYNAPSE_PORT=8009`, pytest marker `docker`                                                                                                                                                           |
+| **Test command**              | `MEDRE_SYNAPSE_PORT=8009 pytest tests/integration/test_synapse_e2ee_smoke.py -m docker -v`                                                                                                                  |
+| **Total tests run**           | 3                                                                                                                                                                                                           |
+| **Passed / Failed / Skipped** | 3 passed / 0 failed / 0 skipped                                                                                                                                                                             |
+| **Python version**            | 3.12.3                                                                                                                                                                                                      |
+| **MEDRE commit**              | HEAD (2026-05-25, branch maint-525-3)                                                                                                                                                                       |
+| **mindroom-nio E2EE**         | ENCRYPTION_ENABLED=True (`.[matrix-e2e]` installed)                                                                                                                                                         |
+| **Synapse version**           | v1.153.0 (Docker container)                                                                                                                                                                                 |
+| **Room encryption**           | ✅ Encrypted room created by test harness, encryption confirmed                                                                                                                                             |
+| **Encryption mode**           | E2EE (Megolm via nio crypto subsystem)                                                                                                                                                                      |
+| **Outbound encrypted send**   | ✅ Adapter sends encrypted message to encrypted room                                                                                                                                                        |
+| **Third-party inbound**       | ✅ Confirmed at Docker SDK-boundary via second nio client with `encryption_enabled=True` sending as test user. External-live third-party inbound NOT confirmed.                                             |
+| **Crypto store**              | Ephemeral (test-created, not persisted)                                                                                                                                                                     |
+| **Caveats**                   | `ignore_unverified_devices=True` (required by upstream nio, no cross-signing support). Ephemeral crypto stores (no persistence across runs). No cross-signing/verification. No federation/external network. |
+| **Limitations**               | Docker loopback only. Ephemeral identity. No real device verification. No cross-signing. External-live third-party inbound remains NOT EXECUTED.                                                            |
 
 | Field                         | Value                                                                                                                     |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
@@ -246,7 +282,7 @@ When sub-class is not specified, treat the evidence as **UNSPECIFIED** and do no
 
 ### 1.6 Matrix Known Limitations (confirmed from source and live testing)
 
-- **Third-party inbound: test harness exists, live execution operator-dependent.** The live test `test_inbound_message_received` in `tests/test_matrix_live.py` validates the full third-party inbound path (nio sync → `_on_room_message` → codec decode → `publish_inbound()` → canonical event shape → diagnostics counters). It is gated by `MATRIX_INBOUND_SENDER` and a 30-second window. Deterministic unit tests cover the same logic paths without live connectivity (see §1.6). Live execution requires a second Matrix user sending a message during the test window — this has not yet been executed against a real homeserver.
+- **Third-party inbound: confirmed at Docker SDK-boundary (2026-05-25); external-live not confirmed.** The Docker Synapse E2EE harness (`tests/integration/test_synapse_e2ee_smoke.py`) confirms third-party inbound via a second nio client sending to the test room at Docker SDK-boundary. The traditional live test `test_inbound_message_received` in `tests/test_matrix_live.py` validates the full third-party inbound path (nio sync → `_on_room_message` → codec decode → `publish_inbound()` → canonical event shape → diagnostics counters). It is gated by `MATRIX_INBOUND_SENDER` and a 30-second window. Deterministic unit tests cover the same logic paths without live connectivity (see §1.6). Live execution against an external homeserver requires a second Matrix user sending a message during the test window — this has NOT been executed against an external homeserver.
 - E2EE text alpha: encrypted-room join works. Initial outbound encrypted send failed with `OlmUnverifiedDeviceError` (2 tests); root cause was nio's strict `ignore_unverified_devices=False` default blocking key sharing with unverified devices. Fix: adapter set `ignore_unverified_devices=True`. Post-fix re-test: encrypted-room full suite passed 7/7 in 3.73s (see §1.3). This is required by upstream nio (no cross-signing support, MSC1756) — every nio-based automated E2EE client must set this flag. **E2EE is Matrix client encrypted-room support only — not generic cross-transport E2EE.**
 - No E2EE reactions, edits, deletes, or attachments.
 - No cross-signing support in `mindroom-nio`. Device verification via cross-signing is not implemented.

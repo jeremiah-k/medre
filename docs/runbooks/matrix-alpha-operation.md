@@ -2,14 +2,14 @@
 
 > Last updated: 2026-05-25 (Tranche 6 truth-surface update)
 > Scope: Real Matrix Operation Alpha (Track 7)
-> Status: Alpha. Not production. Not hardened. Not complete. Plaintext is the primary alpha path. E2EE text alpha is available as an add-on for encrypted rooms (see section 13).
-> Tranche 6 session (2026-05-25): Did NOT execute live Matrix tests. No `MATRIX_*` env vars were provided. This update adds dependency/version capture commands and clarifies evidence boundaries. Baseline: HEAD 41a07c7, Python 3.12.3, medre 0.1.0.
+> Status: Alpha. Not production. Not hardened. Not complete. Plaintext is the primary alpha path. E2EE text alpha is available as an add-on for encrypted rooms (see section 15).
+> Tranche 6 session (2026-05-25): Docker Synapse E2EE harness executed 3/3 on 2026-05-25. No external-live tests executed (no `MATRIX_*` env vars for external homeserver). This update adds dependency/version capture commands and clarifies evidence boundaries. Baseline: HEAD 41a07c7, Python 3.12.3, medre 0.1.0.
 
 This runbook describes how to run MEDRE against a real Matrix homeserver in alpha mode. Alpha mode means the MatrixAdapter connects to a real homeserver using real credentials, syncs real rooms, sends real messages, and receives real events. It does not mean the system is ready for anything beyond a single operator on a local or test homeserver.
 
 Everything in this document is conservative. If something has not been tested against a real homeserver and confirmed working, this document says so. If something is known to be broken or missing, this document says that too.
 
-**Plaintext alpha** is the primary path. **E2EE text alpha** is an add-on that enables encrypted room operation for text messages only. See section 13 for E2EE setup and section 14 for troubleshooting encrypted rooms.
+**Plaintext alpha** is the primary path. **E2EE text alpha** is an add-on that enables encrypted room operation for text messages only. See section 15 for E2EE setup and section 14 for troubleshooting encrypted rooms.
 
 **mmrelay (meshtastic-matrix-relay)** should be used as a practical behavioral reference for Matrix client workflows and E2EE handling patterns. It is a working Meshtastic-to-Matrix bridge that demonstrates real-world nio usage. However, it should NOT be copied architecturally or line-for-line — MEDRE's architecture (canonical events, adapter isolation, pipeline stages) remains authoritative. See `docs/spec/modular-event-engine-spec.md` §26 for the full set of architectural lessons from mmrelay.
 
@@ -21,7 +21,7 @@ Scope boundaries:
 
 - One transport: Matrix. No other transports are in scope for this runbook.
 - One operator: a single person running against a local or test homeserver.
-- Plain text messages and replies in unencrypted rooms. E2EE text alpha adds encrypted room support for text only (see section 13).
+- Plain text messages and replies in unencrypted rooms. E2EE text alpha adds encrypted room support for text only (see section 15).
 - No production deployment, no scaling, no monitoring, no alerting.
 - No claims about reliability, durability, or correctness beyond what manual testing confirms.
 
@@ -105,7 +105,7 @@ Open Element, log in as the bot user, go to Settings, Help and About, and copy t
 
 Do not commit the token. Do not log the token. Do not paste it into chat. Set it as an environment variable and leave it there. The `MatrixConfig.__repr__` method redacts the token in log output, but you are responsible for not leaking it yourself.
 
-> **Note on E2EE.** Alpha authenticates with access tokens over plain HTTP(S). The `.[matrix]` extra installs the base `mindroom-nio` package (no crypto) — this is the recommended plaintext alpha. The `.[matrix-e2e]` extra installs `mindroom-nio[e2e]` with Olm/Megolm crypto libraries — use this for the E2EE text alpha. E2EE text alpha is now active: when installed with `.[matrix-e2e]` and `encryption_mode` is set to `e2ee_required` or `e2ee_optional`, the adapter operates in encrypted rooms (see section 13). The adapter discovers its device ID via `whoami()` and derives an internal store path automatically — no operator configuration of `device_id` or `store_path` is required. Plaintext rooms work identically in both modes.
+> **Note on E2EE.** Alpha authenticates with access tokens over plain HTTP(S). The `.[matrix]` extra installs the base `mindroom-nio` package (no crypto) — this is the recommended plaintext alpha. The `.[matrix-e2e]` extra installs `mindroom-nio[e2e]` with Olm/Megolm crypto libraries — use this for the E2EE text alpha. E2EE text alpha is now active: when installed with `.[matrix-e2e]` and `encryption_mode` is set to `e2ee_required` or `e2ee_optional`, the adapter operates in encrypted rooms (see section 15). The adapter discovers its device ID via `whoami()` and derives an internal store path automatically — no operator configuration of `device_id` or `store_path` is required. Plaintext rooms work identically in both modes.
 
 ## 5. Room Setup
 
@@ -114,7 +114,7 @@ Do not commit the token. Do not log the token. Do not paste it into chat. Set it
 3. Invite the bot user to the room.
 4. Accept the invite from the bot account (log in as the bot in a second client session or via the join API).
 5. Copy the room ID. It looks like `!opaquestring:localhost`. Room aliases (the `#name:server` form) will not work in the allowlist.
-6. Confirm the room is unencrypted for plaintext alpha. If the room has a lock icon in Element, it is encrypted — see section 13 for E2EE text alpha setup. Plaintext alpha cannot read encrypted room content. E2EE text alpha supports encrypted rooms for text messages only.
+6. Confirm the room is unencrypted for plaintext alpha. If the room has a lock icon in Element, it is encrypted — see section 15 for E2EE text alpha setup. Plaintext alpha cannot read encrypted room content. E2EE text alpha supports encrypted rooms for text messages only.
 
 ## 6. Allowlist Configuration
 
@@ -252,7 +252,7 @@ pip install -e ".[matrix-e2e]"
 
 The `.[matrix-e2e]` extra installs `mindroom-nio[e2e]`, which adds Olm/Megolm native crypto libraries (`vodozemac`), SQLite store dependencies (`peewee`), and related utilities. Without it, operating in encrypted rooms will fail — nio's `ENCRYPTION_ENABLED` will be `False` and the crypto subsystem will not initialize.
 
-### 8.3 Deferred E2EE capabilities
+### 8.2 Deferred E2EE capabilities
 
 The following E2EE-related capabilities are **deferred** and not part of the E2EE text alpha:
 
@@ -264,7 +264,7 @@ The following E2EE-related capabilities are **deferred** and not part of the E2E
 
 These will be addressed in a future E2EE implementation tranche. See `docs/contracts/25-matrix-e2ee-readiness.md` for the detailed plan.
 
-### 8.4 Live/manual E2EE test harness
+### 8.3 Live/manual E2EE test harness
 
 The E2EE text alpha includes a live harness for testing encrypted room operation against a real homeserver. See `docs/runbooks/matrix-live-smoke.md` for full instructions. The harness:
 
@@ -481,7 +481,7 @@ This is an honest list. Everything here is real.
 
 10. **Runner is in alpha.** The runner (`medre run`) works for testing but has limited error recovery. If a subsystem fails during startup, the runner exits with a traceback rather than attempting partial recovery. There is no watchdog to restart the runner if it crashes.
 
-11. **Plaintext is primary; E2EE is add-on.** Plaintext alpha is the recommended path. E2EE text alpha adds encrypted room support for text only (see section 13). Reactions, edits, media, cross-signing, key backup, and unverified device policy remain unsupported. Undecryptable event logging is now implemented (counted and logged safely, not forwarded).
+11. **Plaintext is primary; E2EE is add-on.** Plaintext alpha is the recommended path. E2EE text alpha adds encrypted room support for text only (see section 15). Reactions, edits, media, cross-signing, key backup, and unverified device policy remain unsupported. Undecryptable event logging is now implemented (counted and logged safely, not forwarded).
 
 ## 12. Operational Risks
 
@@ -626,9 +626,7 @@ docker run -d --name medre-matrix \
 
 ### Tranche 6 Status (2026-05-25)
 
-**Tranche 6 did NOT execute live Matrix tests.** No `MATRIX_*` environment variables
-were provided in this session. No Docker Synapse was started. No external homeserver
-credentials were available. The live test sections below remain as previously recorded.
+**Docker Synapse E2EE harness executed 3/3 on 2026-05-25** (`MEDRE_SYNAPSE_PORT=8009 pytest tests/integration/test_synapse_e2ee_smoke.py -m docker -v`, Python 3.12.3, nio E2EE `ENCRYPTION_ENABLED=True`, Synapse v1.153.0, Docker loopback). Third-party inbound confirmed at Docker SDK-boundary via second nio client. External-live validation was NOT executed — no `MATRIX_*` environment variables for an external homeserver were provided. The external-live credential attempts from 2026-05-12 remain unresolved (see §1.4, §1.4b in`operational-evidence.md`).
 
 ### Dependency / Version Capture
 
@@ -653,12 +651,13 @@ curl -s http://localhost:8008/_matrix/client/versions 2>/dev/null | python3 -m j
 
 ### Evidence Boundaries
 
-| Evidence type          | Date       | Result               | Boundary              |
-| ---------------------- | ---------- | -------------------- | --------------------- |
-| External live (matrix.org) | 2026-05-10 | 13 passed, 7 E2EE passed | External live (H-tier) |
-| Docker SDK-boundary    | 2026-05-22 | 15 passed, 1 xfailed | Local Docker Synapse (R-tier, SDK-boundary) |
-| External live (sk.community) | 2026-05-12 | NOT EXECUTED | Credential failure |
-| External live (matrix.org) | 2026-05-12 | NOT EXECUTED | Credential failure |
+| Evidence type                | Date       | Result                   | Boundary                                           |
+| ---------------------------- | ---------- | ------------------------ | -------------------------------------------------- |
+| External live (matrix.org)   | 2026-05-10 | 13 passed, 7 E2EE passed | External live (H-tier)                             |
+| Docker SDK-boundary          | 2026-05-22 | 15 passed, 1 xfailed     | Local Docker Synapse (R-tier, SDK-boundary)        |
+| Docker SDK-boundary E2EE     | 2026-05-25 | 3/3 passed               | Docker Synapse E2EE harness (R-tier, SDK-boundary) |
+| External live (sk.community) | 2026-05-12 | NOT EXECUTED             | Credential failure                                 |
+| External live (matrix.org)   | 2026-05-12 | NOT EXECUTED             | Credential failure                                 |
 
 ### Test Results
 
@@ -698,7 +697,7 @@ The following features are not supported in alpha mode. Do not attempt to use th
 
 | Feature                      | Status                                 | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | ---------------------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| End-to-end encryption (E2EE) | E2EE text alpha available (section 13) | Encrypted rooms are supported for text messages when installed with `.[matrix-e2e]` and `encryption_mode` is set to `e2ee_required` or `e2ee_optional`. Device ID is discovered via `whoami()` and store path is derived internally. Reactions, edits, media, cross-signing, key backup, and unverified device policy remain unsupported. Undecryptable event logging is now implemented (counted, logged, not forwarded). Plaintext rooms work identically in both modes. |
+| End-to-end encryption (E2EE) | E2EE text alpha available (section 15) | Encrypted rooms are supported for text messages when installed with `.[matrix-e2e]` and `encryption_mode` is set to `e2ee_required` or `e2ee_optional`. Device ID is discovered via `whoami()` and store path is derived internally. Reactions, edits, media, cross-signing, key backup, and unverified device policy remain unsupported. Undecryptable event logging is now implemented (counted, logged, not forwarded). Plaintext rooms work identically in both modes. |
 | Reactions                    | Not supported                          | The adapter registers callbacks for `RoomMessageText`, `RoomMessageNotice`, and `RoomMessageEmote` only. Reaction events are not processed.                                                                                                                                                                                                                                                                                                                                |
 | Edits                        | Not supported                          | Edited messages appear as new messages. The adapter does not track `m.replace` relations.                                                                                                                                                                                                                                                                                                                                                                                  |
 | Deletes / redactions         | Not supported                          | Redacted messages, if received, are not handled.                                                                                                                                                                                                                                                                                                                                                                                                                           |
@@ -764,7 +763,7 @@ Check these things, in order:
 
 1. Is the room ID in the allowlist? If `room_allowlist` is set and the room is not in it, messages are silently dropped.
 2. Is someone other than the bot sending messages? The adapter suppresses self-messages.
-3. Is the room encrypted? If running plaintext alpha (`.[matrix]`), encrypted room messages cannot be decoded. Switch to E2EE text alpha (`.[matrix-e2e]`) with `encryption_mode` set to `e2ee_required` or `e2ee_optional` (see section 13). The adapter derives device ID and store path automatically.
+3. Is the room encrypted? If running plaintext alpha (`.[matrix]`), encrypted room messages cannot be decoded. Switch to E2EE text alpha (`.[matrix-e2e]`) with `encryption_mode` set to `e2ee_required` or `e2ee_optional` (see section 15). The adapter derives device ID and store path automatically.
 4. Is the bot actually joined to the room? Check via Element or the Matrix membership API.
 5. Is the sync task still running? Call `health_check()`. If it returns `"failed"`, the sync loop crashed.
 
@@ -778,7 +777,7 @@ python -c "import nio; print(nio.__version__)"
 
 ### 14.9 High CPU usage or spinning
 
-The `sync_forever` loop should be idle most of the time (long-polling with a 30-second timeout). If you see high CPU, it might be rapidly reconnecting due to persistent transient failures. Check `health_check()` for `degraded` state and the `reconnect_attempts` counter in diagnostics. If `reconnect_attempts` is climbing, the adapter is in a reconnect loop — see section 14.19.
+The `sync_forever` loop should be idle most of the time (long-polling with a 30-second timeout). If you see high CPU, it might be rapidly reconnecting due to persistent transient failures. Check `health_check()` for `degraded` state and the `reconnect_attempts` counter in diagnostics. If `reconnect_attempts` is climbing, the adapter is in a reconnect loop — see section 14.20.
 
 ### 14.10 Messages appear in Element but `deliver()` raises `AdapterPermanentError`
 
@@ -835,8 +834,119 @@ Check these in order:
    This should print `True`. If `False`, the `[e2e]` extra is not installed. Run `pip install -e ".[matrix-e2e]"`.
 3. **Is the device verified by the sender?** MEDRE internally passes `ignore_unverified_devices=True` to nio's `room_send` when `encryption_mode` is not `"plaintext"`. This is **not a MEDRE design choice** — nio does not support cross-signing (MSC1756) and provides no API for programmatic device verification, making this flag mandatory for every nio-based automated E2EE client. This is applied automatically and is not an operator toggle.
 4. **Was the room key shared?** If the adapter joined the encrypted room before the crypto store was initialized, room keys may not have been distributed to this device. Sending a message from another client into the room after the adapter is running with E2EE should trigger key distribution.
+5. **Did the initial sync complete?** The first sync must include `full_state=True` so nio learns which rooms are encrypted. Check diagnostics: `initial_sync_completed` should be `True`. If the adapter restarted before the first sync completed, restart it again.
+6. **Are device keys uploaded?** Check diagnostics: `device_keys_uploaded` should be `True`. If `False`, the key upload step may be failing. Check logs for `keys_upload failed` warnings.
+7. **Is Olm loaded?** Check diagnostics: `olm_loaded` should be `True`. If `False`, the crypto subsystem did not initialize. Verify vodozemac is installed (`pip show vodozemac`).
+8. **Is the store loaded?** Check diagnostics: `store_loaded` should be `True`. If `False`, check that the store path directory exists and is writable. Check file permissions on the store directory.
 
-### 14.17 E2EE: `ImportError` or `ModuleNotFoundError` for `vodozemac`
+### 14.17 Encrypted Room Troubleshooting (E2EE Key Chain Debugging)
+
+When encrypted messages arrive but fail to decrypt, the E2EE key management chain has a gap somewhere. This section walks through diagnosing and fixing each link.
+
+**Background:** MEDRE's manual sync loop now performs four key management operations after each successful sync (mirroring nio's `sync_forever` pattern): `keys_upload()`, `keys_query()`, `keys_claim()`, and `send_to_device_messages()`. Without these, device keys are never uploaded, other users' device keys are never queried, Olm sessions are never established, and room key shares are never received. The initial sync also passes `full_state=True` so nio learns which rooms are encrypted. When an undecryptable live MegolmEvent arrives, MEDRE actively requests the missing room key via `as_key_request()`.
+
+#### Step 1: Verify E2EE dependencies
+
+```bash
+# All three must be installed for E2EE to work
+pip show mindroom-nio 2>/dev/null || echo "NOT INSTALLED"
+pip show vodozemac 2>/dev/null || echo "NOT INSTALLED (E2EE crypto)"
+pip show peewee 2>/dev/null || echo "NOT INSTALLED (E2EE store)"
+python -c "import nio; print('ENCRYPTION_ENABLED:', nio.crypto.ENCRYPTION_ENABLED)"
+```
+
+All three packages must be present, and `ENCRYPTION_ENABLED` must be `True`. If any are missing:
+
+```bash
+pip install -e ".[matrix-e2e]"
+```
+
+#### Step 2: Inspect the store_path directory
+
+The adapter derives its store path under `{state}/adapters/{adapter_id}/matrix/store`. Check that it exists and contains the crypto database:
+
+```bash
+# Check store path existence and contents via diagnostics
+medre diagnostics --config "$MEDRE_CONFIG" --refresh-health --json \
+  | python3 -c 'import json,sys; d=json.load(sys.stdin); m=d.get("adapters",{}).get("matrix",{}); print("store_path_exists:", m.get("store_path_exists")); print("crypto_store_loaded:", m.get("crypto_store_loaded"))'
+
+# Or inspect the directory directly
+ls -la ${MEDRE_STATE_DIR:-$HOME/.local/state/medre}/adapters/matrix-alpha/matrix/store/
+```
+
+The store directory should contain a SQLite database file. If it is empty, this is a first run — the adapter will create the store on startup. If it does not exist at all, check that the parent state directory is writable.
+
+#### Step 3: Compare user_id and device_id
+
+The adapter discovers its device_id via `whoami()` on startup. Verify the identity:
+
+```bash
+# Check device_id via diagnostics
+medre diagnostics --config "$MEDRE_CONFIG" --refresh-health --json \
+  | python3 -c 'import json,sys; d=json.load(sys.stdin); m=d.get("adapters",{}).get("matrix",{}); print("device_id_in_use:", m.get("device_id_in_use")); print("olm_loaded:", m.get("olm_loaded"))'
+```
+
+The `device_id_in_use` must match the device that has access to the room keys. If the access token was regenerated (re-login), a new device_id may be associated and old room keys are inaccessible.
+
+#### Step 4: Check diagnostics for key chain state
+
+Use the diagnostics command to inspect each link:
+
+```bash
+medre diagnostics --config "$MEDRE_CONFIG" --refresh-health --json \
+  | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+m = d.get("adapters", {}).get("matrix", {})
+keys = ["olm_loaded", "store_loaded", "device_keys_uploaded",
+        "key_query_needed", "initial_sync_completed",
+        "store_path_exists", "crypto_store_loaded"]
+for k in keys:
+    print(f"{k}: {m.get(k)}")
+'
+```
+
+Interpretation:
+
+- `olm_loaded: False`: vodozemac not installed or Olm init failed. Reinstall `.[matrix-e2e]`.
+- `store_loaded: False`: SQLite store failed to load. Check file permissions and disk space.
+- `device_keys_uploaded: False`: Device keys not yet on the server. Wait for the next sync cycle or check logs for `keys_upload failed`.
+- `key_query_needed: True`: Some users' device keys have not been fetched. This resolves on the next sync cycle.
+- `initial_sync_completed: False`: First sync has not completed yet. Wait.
+- `store_path_exists: False`: Store directory is missing. The adapter creates it on startup, so this indicates a configuration or filesystem issue.
+- `crypto_store_loaded: False`: Crypto store was not loaded. See section 14.23 for dedicated troubleshooting.
+
+#### Step 5: Rotate token/device safely
+
+If the crypto identity is corrupted or the device_id has changed:
+
+1. Stop the adapter.
+2. **Clear only the crypto store**, not the entire MEDRE state:
+   ```bash
+   # ONLY delete the crypto store, not the state directory
+   rm -rf ${MEDRE_STATE_DIR:-$HOME/.local/state/medre}/adapters/matrix-alpha/matrix/store/*
+   ```
+3. Regenerate the access token if needed (section 4.1).
+4. Restart the adapter. It will create a fresh crypto identity on the first sync.
+5. Other users in encrypted rooms must send a new message to re-share room keys with the new device.
+
+#### Step 6: Clear only the crypto store (not entire MEDRE state)
+
+The MEDRE state directory contains adapter state, routing tables, and event storage in addition to the crypto store. **Never delete the entire state directory to fix an E2EE issue.** Only clear the crypto store:
+
+```bash
+# Safe: only clears E2EE crypto identity
+rm -rf ${MEDRE_STATE_DIR:-$HOME/.local/state/medre}/adapters/matrix-alpha/matrix/store/*
+# After clearing, restart the adapter to create a fresh identity
+```
+
+#### Step 7: Rerun with Docker Synapse E2EE harness
+
+The Docker Synapse E2EE test harness provides a controlled environment for E2EE validation. When `matrix-e2e` dependencies are installed, the harness creates a second nio client with `encryption_enabled=True` for the test user, which performs genuine Megolm encryption via `room_send()`. The bot adapter must then decrypt the `m.room.encrypted` event via its own nio crypto subsystem. When `matrix-e2e` dependencies are not installed, the test `xfail`s because the second nio client cannot encrypt. If key exchange does not complete within the test timeout (deps installed but key sharing fails), the test also `xfail`s with a clear reason. See `tests/integration/test_synapse_e2ee_smoke.py` for details.
+
+**mmrelay behavioral reference:** mmrelay (meshtastic-matrix-relay) uses nio's `sync_forever()` which handles all four key management operations plus `full_state=True` internally. MEDRE's manual sync loop now mirrors this pattern explicitly. mmrelay is a conceptual reference only — do not copy its architecture or code.
+
+### 14.18 E2EE: `ImportError` or `ModuleNotFoundError` for `vodozemac`
 
 The `.[matrix-e2e]` extra was not installed or `vodozemac` failed to build. `vodozemac` is a Rust library and requires a Rust toolchain to build from source. On most systems, pre-built wheels are available via PyPI.
 
@@ -851,7 +961,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 pip install -e ".[matrix-e2e]"
 ```
 
-### 14.18 Adapter repeatedly reconnects (health oscillates between `degraded` and `healthy`)
+### 14.19 Adapter repeatedly reconnects (health oscillates between `degraded` and `healthy`)
 
 The homeserver is intermittently unavailable or the network is unstable. Check:
 
@@ -862,7 +972,7 @@ The homeserver is intermittently unavailable or the network is unstable. Check:
    ```
 3. **Reconnect budget.** Check `reconnect_attempts` in diagnostics. If it keeps resetting to 0, recovery is succeeding but the underlying problem persists.
 
-### 14.19 Adapter stuck in `degraded` state with increasing `reconnect_attempts`
+### 14.20 Adapter stuck in `degraded` state with increasing `reconnect_attempts`
 
 The reconnect budget has not been exhausted yet, but every reconnect attempt is failing. Common causes:
 
@@ -872,7 +982,7 @@ The reconnect budget has not been exhausted yet, but every reconnect attempt is 
 
 If the reconnect budget is exhausted, the adapter transitions to `failed`. A manual restart is needed after the underlying issue is resolved.
 
-### 14.20 Adapter in `failed` state after reconnect budget exhausted
+### 14.21 Adapter in `failed` state after reconnect budget exhausted
 
 The adapter tried to recover from a transient error but used all its reconnect attempts without success. To recover:
 
@@ -880,13 +990,13 @@ The adapter tried to recover from a transient error but used all its reconnect a
 2. Restart the adapter: `stop()` then `start()`, or restart the runner process.
 3. If using Docker, the `--restart on-failure` policy handles this automatically.
 
-### 14.21 Delivery retries producing duplicate messages in the room
+### 14.22 Delivery retries producing duplicate messages in the room
 
 This is a known trade-off of the delivery retry mechanism (see section 12A.4). The first send attempt may have succeeded at the homeserver, but the response was lost. The retry produces a duplicate.
 
 Mitigation: monitor rooms for duplicates during network instability. Matrix delivery now uses a stable per-delivery tx_id so homeservers deduplicate repeated retry attempts within the Matrix transaction-ID window. This reduces but does not eliminate duplicates — duplicates are still possible across process restarts, changed delivery identity, homeserver behavior outside the dedup window, or manual replay.
 
-### 14.22 `crypto_store_loaded` is `False` after restart with `.[matrix-e2e]`
+### 14.23 `crypto_store_loaded` is `False` after restart with `.[matrix-e2e]`
 
 The crypto store was not loaded on startup. Check:
 
@@ -894,11 +1004,11 @@ The crypto store was not loaded on startup. Check:
 2. **Is the store directory empty?** On first run, the store is created but `crypto_store_loaded` reflects whether an existing store was loaded. A fresh store creation is not an error.
 3. **File permissions.** The adapter needs read/write access to the store path directory.
 
-## 13. E2EE Text Alpha
+## 15. E2EE Text Alpha
 
 This section describes how to operate MEDRE in encrypted rooms. **Plaintext alpha remains the primary and recommended path.** E2EE text alpha is an add-on for operators who need encrypted rooms.
 
-### 13.1 Install E2EE dependencies
+### 15.1 Install E2EE dependencies
 
 ```bash
 pip install -e ".[matrix-e2e]"
@@ -914,7 +1024,7 @@ python -c "import nio; print('ENCRYPTION_ENABLED:', nio.crypto.ENCRYPTION_ENABLE
 
 Should print `ENCRYPTION_ENABLED: True`.
 
-### 13.2 Encrypted room setup
+### 15.2 Encrypted room setup
 
 Encrypted rooms must be created via a Matrix client (Element, etc.) or the Matrix room creation API. The adapter does not create rooms or toggle encryption.
 
@@ -924,7 +1034,7 @@ Encrypted rooms must be created via a Matrix client (Element, etc.) or the Matri
 4. Copy the room ID (format: `!opaque:server`).
 5. Add the room ID to `MATRIX_ROOM_ALLOWLIST`.
 
-### 13.3 Configuration
+### 15.3 Configuration
 
 In addition to the standard alpha environment variables, E2EE text alpha requires setting the encryption mode:
 
@@ -935,27 +1045,27 @@ export MATRIX_ROOM_ALLOWLIST="!encrypted:localhost"  # include the encrypted roo
 
 The adapter discovers its device ID via `whoami()` and derives an internal store path automatically. No operator configuration of `device_id` or `store_path` is needed.
 
-### 13.4 Device identity (automatic)
+### 15.4 Device identity (automatic)
 
 - The adapter discovers its device ID via the Matrix `whoami()` endpoint on startup.
 - The device ID is stable as long as the access token is associated with the same device.
 - No operator configuration is required. The `device_id` field on `MatrixConfig` is reserved for test harnesses and internal use.
 - If the access token is regenerated (e.g. re-login), a new device ID may be associated and the adapter will discover it automatically.
 
-### 13.5 First-run expectations
+### 15.5 First-run expectations
 
 On first run with E2EE enabled:
 
 1. The adapter discovers its device ID via `whoami()` using the access token.
 2. The adapter creates the nio client with `encryption_enabled=True` (nio's internal `ClientConfig` flag, automatic when `ENCRYPTION_ENABLED` is `True` at the nio library level). MEDRE triggers this by setting `encryption_mode` to a non-plaintext value.
 3. `restore_login` creates a new crypto store in the internal store path (no existing store found).
-4. The first `sync_forever` iteration uploads device keys (identity keys + one-time keys) to the homeserver. This registers the device.
+4. The first sync iteration uploads device keys (identity keys + one-time keys) to the homeserver. This registers the device.
 5. Subsequent sync iterations handle key query, key claim, and group session sharing automatically.
 6. The adapter's device appears as a new device on the bot's Matrix account. Other users in encrypted rooms will see an unverified device.
 
 For the sender's encrypted messages to be decryptable by the adapter, the sender's client must encrypt for the adapter's device. This typically happens automatically on the next message sent after the adapter joins.
 
-### 13.6 Restart expectations
+### 15.6 Restart expectations
 
 On subsequent runs with the same access token and state directory:
 
@@ -963,22 +1073,22 @@ On subsequent runs with the same access token and state directory:
 2. `restore_login` loads the existing crypto store from the internal store path.
 3. `logged_in=True` on success.
 4. The Olm machine and all previously received room keys are restored.
-5. `sync_forever` resumes from the last sync position.
+5. The sync loop resumes from the last sync position.
 6. Device verification state is preserved.
 
 If `store_path` is changed or the store is deleted, the adapter creates a new crypto identity. Previous room keys are lost and previously decryptable messages become undecryptable.
 
-### 13.7 What works in E2EE text alpha
+### 15.7 What works in E2EE text alpha
 
-| Capability                        | Status                                                                    |
-| --------------------------------- | ------------------------------------------------------------------------- |
-| Inbound encrypted text decryption | Working — `MegolmEvent` auto-decrypted to `RoomMessageText` during sync   |
-| Outbound encrypted text           | Working — `room_send` auto-encrypts for encrypted rooms                   |
-| Crypto store persistence          | Working — store loads on `restore_login`, saves incrementally during sync |
-| Automatic key management          | Working — upload/query/claim/share handled by `sync_forever`              |
-| Plaintext rooms                   | Working — identical behavior to plaintext alpha                           |
+| Capability                        | Status                                                                                            |
+| --------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Inbound encrypted text decryption | Working — `MegolmEvent` auto-decrypted to `RoomMessageText` during sync                           |
+| Outbound encrypted text           | Working — `room_send` auto-encrypts for encrypted rooms                                           |
+| Crypto store persistence          | Working — store loads on `restore_login`, saves incrementally during sync                         |
+| Automatic key management          | Working — upload/query/claim/share handled by manual sync loop (mirrors nio sync_forever pattern) |
+| Plaintext rooms                   | Working — identical behavior to plaintext alpha                                                   |
 
-### 13.8 What does NOT work in E2EE text alpha
+### 15.8 What does NOT work in E2EE text alpha
 
 | Feature                                    | Status                   | Notes                                                                                                                                                                                                                                            |
 | ------------------------------------------ | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
