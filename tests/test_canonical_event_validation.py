@@ -332,9 +332,9 @@ class TestSchemaMigrationBehavior:
         # We test the singleton; other tests should not have registered
         # migrations, but we check the API works.
         reg = MIGRATION_REGISTRY
-        # The registry may have migrations from other tests, but the
-        # lookup for a specific key should return None.
-        assert reg.get("message.text", 1, 2) is None
+        # Use a unique event kind to avoid ordering dependencies from
+        # other tests that may have registered migrations on well-known kinds.
+        assert reg.get("test.unique.kind", 1, 2) is None
 
     def test_migration_registry_register_and_get(self) -> None:
         """A migration can be registered and retrieved."""
