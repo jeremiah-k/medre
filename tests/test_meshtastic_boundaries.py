@@ -511,7 +511,7 @@ class TestMeshtasticAdapterLifecycleBoundaries:
         adapter = MeshtasticAdapter(config)
         ctx = make_adapter_context("mesh-1")
         await adapter.start(ctx)
-        assert adapter._client is None
+        assert adapter._session is not None and adapter._session.client is None
         await adapter.stop()
 
     async def test_real_adapter_deliver_does_not_send(self) -> None:
@@ -589,11 +589,9 @@ class TestMeshtasticAdapterLifecycleBoundaries:
         # Double stop should be safe
         await adapter.stop()
         assert adapter._started is False
-        assert adapter._client is None
+        assert adapter._session is None
 
 
-# ===================================================================
-# Callback task boundary
 # ===================================================================
 
 

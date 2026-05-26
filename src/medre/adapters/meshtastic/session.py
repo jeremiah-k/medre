@@ -663,7 +663,7 @@ class MeshtasticSession:
                 return SerialInterface(devPath=self._config.serial_port)
             elif conn == "ble":
                 from meshtastic.ble_interface import (
-                    BLEInterface,  # type: ignore[attr-defined]
+                    BLEInterface,  # no py.typed / pyi stubs
                 )
 
                 if self._config.ble_address is None:

@@ -337,6 +337,58 @@ class MatrixSession:
         """
         return self._room_states.get(room_id, "unknown")
 
+    # -- Session-boundary public query methods (per §31 §7.2) ----------------
+
+    def is_logged_in(self) -> bool:
+        """Return ``True`` if the underlying client reports ``logged_in``.
+
+        Safe to call when the client is not initialised (returns ``False``).
+        """
+        return self.logged_in
+
+    def has_access_token(self) -> bool:
+        """Return ``True`` if the underlying client has an ``access_token``.
+
+        Safe to call when the client is not initialised (returns ``False``).
+        """
+        if self._client is None:
+            return False
+        return getattr(self._client, "access_token", None) is not None
+
+    def is_room_member(self, room_id: str) -> bool:
+        """Return ``True`` if the session has joined the given room.
+
+        Checks ``self._client.rooms`` for the room ID.  Returns ``False``
+        when the client is not initialised or the room is not present.
+        """
+        if self._client is None:
+            return False
+        rooms = getattr(self._client, "rooms", None)
+        if rooms is None or not isinstance(rooms, dict):
+            return False
+        return room_id in rooms
+
+    def is_room_encrypted(self, room_id: str) -> bool:
+        """Return ``True`` if the room is known to be encrypted.
+
+        Checks the session's room-state tracking cache first, then
+        falls back to ``self._client.rooms[room_id].encrypted`` for
+        rooms not yet tracked.
+        """
+        state = self.room_state(room_id)
+        if state == "encrypted":
+            return True
+        if state == "plaintext":
+            return False
+        # "unknown" — fall back to client.rooms
+        if self._client is not None:
+            rooms = getattr(self._client, "rooms", None)
+            if rooms is not None and isinstance(rooms, dict):
+                room_obj = rooms.get(room_id)
+                if room_obj is not None and getattr(room_obj, "encrypted", False):
+                    return True
+        return False
+
     @property
     def encrypted_room_count(self) -> int:
         """Number of rooms tracked as encrypted (no room IDs exposed)."""
@@ -624,7 +676,7 @@ class MatrixSession:
         * ``source`` — from ``event.source`` (raw Matrix event JSON dict)
         * ``msgtype`` — from content or ``event.msgtype``
         * ``server_timestamp`` — from ``event.server_timestamp`` or ``origin_server_ts``
-        * ``room`` — the room object (for display-name resolution in the adapter)
+        * ``sender_display_name`` — pre-resolved display name for the sender
 
         Per §31 §7.1 the session-to-adapter boundary only carries plain
         dicts, never raw SDK objects.
@@ -635,16 +687,71 @@ class MatrixSession:
         server_timestamp = getattr(event, "server_timestamp", None) or getattr(
             event, "origin_server_ts", None
         )
+        sender = getattr(event, "sender", "")
+
+        # Pre-resolve display name from the room object so the adapter
+        # never needs to hold a reference to the raw nio Room.
+        sender_display_name = self._resolve_display_name(room, sender)
+
         return {
             "room_id": getattr(room, "room_id", ""),
-            "sender": getattr(event, "sender", ""),
+            "sender": sender,
             "body": getattr(event, "body", ""),
             "event_id": getattr(event, "event_id", ""),
             "source": source if isinstance(source, dict) else {},
             "msgtype": msgtype if isinstance(msgtype, str) else None,
             "server_timestamp": server_timestamp,
-            "room": room,
+            "sender_display_name": sender_display_name,
         }
+
+    @staticmethod
+    def _resolve_display_name(room: Any, sender: str) -> str:
+        """Resolve the display name for *sender* from a nio Room object.
+
+        Preference order:
+        1. ``room.user_name(sender)`` when callable and returns non-empty.
+        2. ``room.users[sender]`` dict fields: ``display_name``, ``displayname``, ``name``.
+        3. ``room.users[sender]`` object attributes: ``.display_name``, ``.displayname``, ``.name``.
+        4. *sender* MXID as final fallback.
+
+        ``None`` and blank / whitespace-only values are treated as missing.
+        """
+        # 1. room.user_name(sender)
+        user_name_fn = getattr(room, "user_name", None)
+        if callable(user_name_fn):
+            try:
+                val = str(user_name_fn(sender) or "").strip()
+                if val:
+                    return val
+            except Exception:
+                pass
+
+        # 2 & 3. room.users[sender] — dict fields then object attributes.
+        users = getattr(room, "users", None)
+        if users is None:
+            return sender
+        user_info = users.get(sender) if isinstance(users, dict) else None
+        if user_info is None:
+            return sender
+
+        # Dict path
+        if isinstance(user_info, dict):
+            for key in ("display_name", "displayname", "name"):
+                raw = user_info.get(key)
+                if raw is not None:
+                    val = str(raw).strip()
+                    if val:
+                        return val
+        else:
+            # Object path
+            for attr in ("display_name", "displayname", "name"):
+                raw = getattr(user_info, attr, None)
+                if raw is not None:
+                    val = str(raw).strip()
+                    if val:
+                        return val
+
+        return sender
 
     async def _on_nio_event(self, room: Any, event: Any) -> None:
         """nio callback wrapper that normalizes raw events to plain dicts.
@@ -690,38 +797,6 @@ class MatrixSession:
                 if reaction_classes:
                     self._client.add_event_callback(
                         self._on_nio_event,
-                        reaction_classes,
-                    )
-                else:
-                    self._logger.debug(
-                        "No ReactionEvent class found in nio; "
-                        "reaction callback not registered"
-                    )
-            except (AttributeError, ImportError):
-                pass
-            self._client = None
-            raise MatrixConnectionError(
-                f"failed to authenticate as {self._config.user_id} "
-                f"on {self._config.homeserver}"
-            )
-
-        if self._message_callback is not None:
-            import nio
-
-            self._client.add_event_callback(
-                self._message_callback,
-                (nio.RoomMessageText, nio.RoomMessageNotice, nio.RoomMessageEmote),
-            )
-
-            # Register reaction event callback so that Matrix reactions
-            # (m.annotation) reach the same inbound handler.  Wrapped in
-            # try/except so that older nio versions without ReactionEvent
-            # degrade gracefully.
-            try:
-                reaction_classes = _reaction_event_classes(nio)
-                if reaction_classes:
-                    self._client.add_event_callback(
-                        self._message_callback,
                         reaction_classes,
                     )
                 else:

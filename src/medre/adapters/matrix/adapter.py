@@ -198,55 +198,6 @@ def _matrix_txn_id(result: RenderingResult, room_id: str) -> str:
     return f"medre_{digest[:32]}"
 
 
-def _matrix_display_name(room: Any, sender: str) -> str:
-    """Resolve the display name for *sender* from a nio Room object.
-
-    Preference order:
-    1. ``room.user_name(sender)`` when callable and returns non-empty.
-    2. ``room.users[sender]`` dict fields: ``display_name``, ``displayname``, ``name``.
-    3. ``room.users[sender]`` object attributes: ``.display_name``, ``.displayname``, ``.name``.
-    4. *sender* MXID as final fallback.
-
-    ``None`` and blank / whitespace-only values are treated as missing.
-    """
-    # 1. room.user_name(sender)
-    user_name_fn = getattr(room, "user_name", None)
-    if callable(user_name_fn):
-        try:
-            val = str(user_name_fn(sender) or "").strip()
-            if val:
-                return val
-        except Exception:
-            pass
-
-    # 2 & 3. room.users[sender] — dict fields then object attributes.
-    users = getattr(room, "users", None)
-    if users is None:
-        return sender
-    user_info = users.get(sender) if isinstance(users, dict) else None
-    if user_info is None:
-        return sender
-
-    # Dict path
-    if isinstance(user_info, dict):
-        for key in ("display_name", "displayname", "name"):
-            raw = user_info.get(key)
-            if raw is not None:
-                val = str(raw).strip()
-                if val:
-                    return val
-    else:
-        # Object path
-        for attr in ("display_name", "displayname", "name"):
-            raw = getattr(user_info, attr, None)
-            if raw is not None:
-                val = str(raw).strip()
-                if val:
-                    return val
-
-    return sender
-
-
 class MatrixAdapter(AdapterContract):
     """Presentation adapter for Matrix chat rooms.
 
@@ -441,9 +392,9 @@ class MatrixAdapter(AdapterContract):
 
         if sync_failure is not None:
             health = "failed"
-        elif self._session is None or self._session.client is None:
+        elif self._session is None or not self._session.connected:
             health = "unknown"
-        elif getattr(self._session.client, "logged_in", False):
+        elif self._session.is_logged_in():
             health = "healthy"
         else:
             health = "failed"
@@ -459,19 +410,18 @@ class MatrixAdapter(AdapterContract):
 
     # -- Outbound delivery --------------------------------------------------
 
-    def _check_encrypted_room_safety(self, room_id: str, client: Any) -> None:
+    def _check_encrypted_room_safety(self, room_id: str) -> None:
         """Raise if the room is encrypted but crypto is not active.
 
-        Uses the session's room-state tracking cache first (Track 4),
-        then falls back to ``client.rooms[room_id].encrypted`` for
-        rooms not yet tracked.
+        Delegates room encryption detection to the session's
+        :meth:`~MatrixSession.is_room_encrypted` method, which checks
+        the session's room-state cache first and falls back to the
+        underlying client's room data for rooms not yet tracked.
 
         Parameters
         ----------
         room_id:
             The target room ID.
-        client:
-            The nio client instance.
 
         Raises
         ------
@@ -484,31 +434,12 @@ class MatrixAdapter(AdapterContract):
         if self._session.crypto_enabled:
             return
 
-        _encrypted_msg = (
-            "Matrix room is encrypted but E2EE crypto is not active; "
-            "cannot send encrypted message"
-        )
-
-        # Track 4 — use session room-state cache first
-        room_state = self._session.room_state(room_id)
-        if room_state == "encrypted":
+        if self._session.is_room_encrypted(room_id):
             raise MatrixSendError(
-                _encrypted_msg,
+                "Matrix room is encrypted but E2EE crypto is not active; "
+                "cannot send encrypted message",
                 transient=False,
             )
-        if room_state == "plaintext":
-            # Room is known plaintext — allow send
-            return
-
-        # "unknown" — fall back to client.rooms check
-        rooms = getattr(client, "rooms", None)
-        if rooms is not None and isinstance(rooms, dict):
-            room_obj = rooms.get(room_id)
-            if room_obj is not None and getattr(room_obj, "encrypted", False):
-                raise MatrixSendError(
-                    _encrypted_msg,
-                    transient=False,
-                )
 
     async def deliver(self, result: RenderingResult) -> AdapterDeliveryResult | None:
         """Send a pre-rendered payload to a Matrix room.
@@ -571,12 +502,7 @@ class MatrixAdapter(AdapterContract):
             and room_id in self._config.auto_join_rooms
             and self._session is not None
         ):
-            # Use session's client to check room membership (still session-owned).
-            client = self._session.client
-            rooms = getattr(client, "rooms", None) if client else None
-            already_joined = (
-                rooms is not None and isinstance(rooms, dict) and room_id in rooms
-            )
+            already_joined = self._session.is_room_member(room_id)
             if not already_joined:
                 joined = await self._session.ensure_joined(room_id)
                 if not joined:
@@ -585,7 +511,7 @@ class MatrixAdapter(AdapterContract):
                     )
 
         try:
-            self._check_encrypted_room_safety(room_id, self._session.client)
+            self._check_encrypted_room_safety(room_id)
         except MatrixSendError as exc:
             if exc.transient:
                 raise AdapterSendError(str(exc), transient=True) from exc
@@ -711,14 +637,14 @@ class MatrixAdapter(AdapterContract):
         event:
             Normalized plain dict with keys: ``room_id``, ``sender``,
             ``body``, ``event_id``, ``source``, ``msgtype``,
-            ``server_timestamp``, ``room``.
+            ``server_timestamp``, ``sender_display_name``.
         """
         if self.ctx is None:
             return
 
         room_id = event.get("room_id", "")
         sender = event.get("sender", "")
-        room = event.get("room")
+        sender_display_name: str = event.get("sender_display_name", sender)
 
         # Track 4 — track room as seen
         if self._session is not None and room_id:
@@ -791,7 +717,7 @@ class MatrixAdapter(AdapterContract):
                     "meshtastic_shortname"
                 )
                 if not existing_longname and not existing_shortname:
-                    display_name = _matrix_display_name(room, sender)
+                    display_name = sender_display_name
 
                     # shortname: first 5 chars of display name, or
                     # localpart of MXID if display_name is just the MXID.

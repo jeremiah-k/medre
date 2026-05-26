@@ -120,7 +120,7 @@ class MatrixCodec(AdapterCodec):
             sender = getattr(native_event, "sender", "")
             body = getattr(native_event, "body", "")
             event_id = getattr(native_event, "event_id", "")
-            msgtype = None
+            msgtype = getattr(native_event, "msgtype", None)
         if source is None:
             raise MatrixCodecError("native_event is missing .source attribute")
 

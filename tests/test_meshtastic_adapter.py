@@ -500,7 +500,6 @@ class TestMeshtasticAdapterPubsubSubscription:
             )
 
         assert adapter._started is False
-        assert adapter._client is None
         assert adapter._session is None
 
     async def test_health_check_unknown_after_subscription_failure(

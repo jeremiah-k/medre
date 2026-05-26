@@ -77,11 +77,12 @@ class LxmfCodec(AdapterCodec):
         LxmfCodecError
             If the packet is fundamentally unparseable or unsupported.
         """
-        packet = native_event
-        if not isinstance(packet, dict):
-            raise LxmfCodecError(f"packet must be a dict, got {type(packet).__name__}")
+        if not isinstance(native_event, dict):
+            raise LxmfCodecError(
+                f"packet must be a dict, got {type(native_event).__name__}"
+            )
 
-        classification = self._classifier.classify(packet)
+        classification = self._classifier.classify(native_event)
         category = classification["category"]
 
         if category != "text":
@@ -118,11 +119,11 @@ class LxmfCodec(AdapterCodec):
         relations: list[Any] = []
 
         # Build native metadata
-        dest_hash = packet.get("destination_hash")
+        dest_hash = native_event.get("destination_hash")
         if isinstance(dest_hash, bytes):
             dest_hash = dest_hash.hex()
 
-        timestamp = packet.get("timestamp")
+        timestamp = native_event.get("timestamp")
 
         native_meta_data: dict[str, object] = {
             "source_hash": sender,
@@ -130,12 +131,12 @@ class LxmfCodec(AdapterCodec):
             "message_id": pkt_id,
             "timestamp": timestamp,
             "title": title,
-            "delivery_method": packet.get("delivery_method"),
+            "delivery_method": native_event.get("delivery_method"),
             "has_fields": classification["has_fields"],
         }
 
         # Check for MEDRE envelope in fields
-        fields = packet.get("fields")
+        fields = native_event.get("fields")
         custom_meta: dict[str, object] = {}
         if fields and isinstance(fields, dict):
             envelope = LxmfFieldsHelper.extract_envelope(fields)

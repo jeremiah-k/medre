@@ -79,7 +79,7 @@ _FAKE_MATRIX_CAPABILITIES = AdapterCapabilities(
     store_and_forward=False,
     direct_messages=True,
     channels=True,
-    async_delivery=False,
+    async_delivery=True,
     topic_rooms=True,
 )
 
