@@ -1,9 +1,9 @@
 # Matrix Alpha Operation Runbook
 
-> Last updated: 2026-05-25 (Tranche 6 truth-surface update)
+> Last updated: 2026-05-26 (Tranche 3 hardening update)
 > Scope: Real Matrix Operation Alpha (Track 7)
 > Status: Alpha. Not production. Not hardened. Not complete. Plaintext is the primary alpha path. E2EE text alpha is available as an add-on for encrypted rooms (see section 15).
-> Tranche 6 session (2026-05-25): Docker Synapse E2EE harness executed 3/3 on 2026-05-25. No external-live tests executed (no `MATRIX_*` env vars for external homeserver). This update adds dependency/version capture commands and clarifies evidence boundaries. Baseline: HEAD 41a07c7, Python 3.12.3, medre 0.1.0.
+> Tranche 3 session (2026-05-26): Source-audit verification of Matrix relation alignment (replies, reactions). Transaction-ID hardening, rate-limit classification, undecryptable counting verified. No live tests executed. No behavioral changes. Baseline: branch `t3-matrix-mindroom-hardening`, Python 3.12.3, medre 0.1.0.
 
 This runbook describes how to run MEDRE against a real Matrix homeserver in alpha mode. Alpha mode means the MatrixAdapter connects to a real homeserver using real credentials, syncs real rooms, sends real messages, and receives real events. It does not mean the system is ready for anything beyond a single operator on a local or test homeserver.
 
@@ -623,6 +623,23 @@ docker run -d --name medre-matrix \
 6. **Resource limits.** The sync loop maintains a single long-polling HTTP connection. Memory usage is dominated by the nio crypto store (SQLite + in-room key cache). For alpha with a handful of rooms, 256 MB is sufficient.
 
 ## Live Validation Evidence
+
+### Tranche 3 Hardening Notes (2026-05-26)
+
+Source-audit verification of Matrix relation alignment on branch `t3-matrix-mindroom-hardening`. No live tests executed. No behavioral changes.
+
+**Verified by source audit (code-level, not live):**
+
+- **Reply relations** use `content["m.relates_to"]["m.in_reply_to"]["event_id"]` for both inbound extraction and outbound rendering. This is Matrix-native format. Reply fallback body stripping conforms to Matrix spec.
+- **Reaction relations** use `content["m.relates_to"]` with `rel_type="m.annotation"`, `event_id`, and `key` for both inbound extraction and outbound rendering. This is Matrix-native format.
+- **All relation content** lives in the standard `m.relates_to` subtree. No custom fields are used for Matrix-native relation extraction or rendering.
+- **Transaction-ID hardening.** Deterministic `txn_id` computed per delivery, reused across retries. Enables homeserver deduplication within the Matrix txn-ID window.
+- **Rate-limit classification.** M_LIMIT_EXCEEDED / HTTP 429 responses classified as transient with bounded retry. `retry_after_ms` header not yet honored.
+- **Undecryptable counting.** MegolmEvent counted, logged (event_id/room_id only), not forwarded to canonical pipeline.
+
+**Known limitation noted during verification:**
+
+mindroom-nio's `room_send` does not encrypt events with `message_type="m.reaction"` in encrypted rooms (nio library limitation, not MEDRE design choice). The MMRelay emote fallback path uses `m.room.message` which IS encrypted. This affects true Matrix reactions in encrypted rooms only.
 
 ### Tranche 6 Status (2026-05-25)
 

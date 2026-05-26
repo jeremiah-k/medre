@@ -84,19 +84,36 @@ class _NioRateLimitError(Exception):
     """Internal sentinel for nio rate-limit responses.
 
     Raised inside the retry loop when ``room_send`` returns a response
-    with ``M_LIMIT_EXCEEDED`` or HTTP 429.  Caught by the transient
-    handler and retried with backoff.  Not exposed outside this module.
+    with ``M_LIMIT_EXCEEDED`` or HTTP 429.  Caught by an explicit
+    handler that converts it to :class:`AdapterSendError(transient=True)`
+    without sleeping, preserving ``retry_after_ms`` for the pipeline's
+    retry worker.  Not exposed outside this module.
+
+    Attributes
+    ----------
+    retry_after_ms:
+        The ``retry_after_ms`` value from the nio error response, or
+        ``None`` if the homeserver did not include one.
     """
+
+    retry_after_ms: int | None
+
+    def __init__(self, message: str, *, retry_after_ms: int | None = None) -> None:
+        super().__init__(message)
+        self.retry_after_ms = retry_after_ms
 
 
 def _is_transient_error(exc: BaseException) -> bool:
     """Classify an exception as transient (retry-able) or permanent.
 
     Network-level errors from nio / aiohttp are considered transient.
-    Internal rate-limit sentinels are transient.
     ``asyncio.TimeoutError``, ``TimeoutError``, ``OSError``,
     ``ConnectionError``, and ``aiohttp.ClientError`` subclasses are
     all transient.
+
+    ``_NioRateLimitError`` is handled by an explicit ``except`` clause
+    in the retry loop and never reaches this function; the check is
+    retained as a safety net.
 
     ``MatrixSendError`` and other application-level errors are **not**
     transient and fall through to the permanent path.
@@ -549,7 +566,8 @@ class MatrixAdapter(AdapterContract):
                 if not hasattr(response, "event_id"):
                     # Rate-limit response → transient, retry
                     if _is_nio_rate_limited_response(response):
-                        raise _NioRateLimitError(str(response))
+                        retry_ms = getattr(response, "retry_after_ms", None)
+                        raise _NioRateLimitError(str(response), retry_after_ms=retry_ms)
 
                     # Permanent error response (M_FORBIDDEN, M_NOT_FOUND, etc.)
                     if _is_nio_permanent_response(response):
@@ -588,6 +606,17 @@ class MatrixAdapter(AdapterContract):
                 # Non-transient — raise immediately
                 self._permanent_delivery_failures += 1
                 raise
+            except _NioRateLimitError as exc:
+                # Rate-limit (M_LIMIT_EXCEEDED / HTTP 429) — do NOT sleep.
+                # Raise transient error immediately so the pipeline's retry
+                # worker can honour retry_after_ms and schedule backoff.
+                self._transient_delivery_failures += 1
+                retry_msg = str(exc)
+                if exc.retry_after_ms is not None:
+                    retry_msg = f"{retry_msg} (retry_after_ms={exc.retry_after_ms})"
+                raise AdapterSendError(
+                    f"Matrix rate-limited: {retry_msg}", transient=True
+                ) from exc
             except asyncio.CancelledError:
                 # CancelledError must propagate — never swallow task cancellation.
                 raise

@@ -308,6 +308,29 @@ This installs `mindroom-nio>=0.25`. The core install (`pip install medre`) does 
 - **Rationale.** `mindroom-nio` is a maintained fork of `matrix-nio`, selected because it is under active development. It is tracking the vodozemac migration path and other improvements that upstream `matrix-nio` has not shipped. This positions the adapter for future compatibility without requiring a library swap later.
 - **E2EE scope.** Selecting `mindroom-nio` for maintenance and future-compatibility reasons does not implement or expand E2EE in tranche 1. No `[e2e]` configuration, key upload/claim, device verification, SAS/QR, key backup, or encryption internals are part of this tranche. The dependency choice is about library health, not feature activation.
 
+### Tranche 3: Hardening and Alignment Verification (2026-05-26)
+
+Tranche 3 (branch `t3-matrix-mindroom-hardening`) adds targeted hardening without behavioral changes. No new features, no new relation types, no structural changes to event flow.
+
+**Relation alignment verified.** The following were verified as Matrix-native aligned by source audit (no live testing, code-level verification only):
+
+- **Replies** use `content["m.relates_to"]["m.in_reply_to"]["event_id"]` for both inbound extraction (`relations.extract_reply_target`) and outbound rendering (`renderer` produces this structure). Reply fallback body stripping conforms to the Matrix `> <sender> text` quoted-block format. The renderer does not produce `format="org.matrix.custom.html"` or `formatted_body`; it relies on `m.relates_to` alone. This is valid but minimal — Matrix clients supporting `m.relates_to` render replies correctly; older clients see the plain body.
+- **Reactions** use `content["m.relates_to"]` with `rel_type="m.annotation"`, `event_id`, and `key` for both inbound extraction (`relations.extract_reaction`) and outbound rendering (`renderer._render_reaction` produces this structure when a Matrix-native target exists and mmrelay_compat is false). The internal `_matrix_event_type="m.reaction"` key signals the adapter to use `message_type="m.reaction"` in `room_send`; it is never sent to the homeserver.
+- **Codec inbound extraction** handles three categories: true Matrix reactions (m.annotation → MESSAGE_REACTED), MMRelay emote reactions (m.emote with meshtastic_replyId → MESSAGE_REACTED), and regular messages with optional reply relations. Missing relation data is handled gracefully (returns None, skips relation building). Both dict and nio-like object inputs are supported.
+- **All relation content is in the standard `m.relates_to` subtree.** No custom fields are used for Matrix-native relation extraction or rendering.
+
+**Transaction-ID hardening.** Outbound delivery now computes a deterministic `txn_id` from the delivery identity before the retry loop, so all retry attempts reuse the same transaction ID. This enables homeserver-side deduplication of retried sends within the Matrix txn-ID window. Duplicates remain possible across process restarts or changed delivery identity.
+
+**Rate-limit classification hardening.** M_LIMIT_EXCEEDED / HTTP 429 responses from the homeserver are classified as transient errors and retried with bounded backoff. The `retry_after_ms` header is not yet honored.
+
+**E2EE secret sanitization.** Access tokens are never logged or embedded in events. `MatrixConfig.__repr__` redacts the token. No secrets appear in metadata envelopes, diagnostics, or evidence bundles. `undecryptable_event_count` and `last_crypto_error` in diagnostics contain no session IDs or key material.
+
+**Undecryptable event counting.** `MegolmEvent` callbacks count events, log warnings (event_id and room_id only), and do not forward to the canonical pipeline. `RoomEncryptionEvent` callbacks set `encrypted_room_seen` and are not forwarded.
+
+**mindroom-nio reaction encryption limitation.** mindroom-nio's `room_send` does not encrypt events when `message_type="m.reaction"` (line 1902-1906 in async_client.py: "Reactions as of yet don't support encryption"). This means MEDRE's true Matrix reaction path (`_matrix_event_type="m.reaction"`) sends reactions in cleartext even in encrypted rooms. This is a nio library limitation, not a MEDRE design choice. The MMRelay emote fallback path uses `message_type="m.room.message"` with `msgtype="m.emote"`, which IS encrypted in encrypted rooms.
+
+**mindroom-nio API compatibility.** The `room_send` signature `(room_id, message_type, content, tx_id=None, ignore_unverified_devices=False)` matches what the MEDRE adapter and session wrapper expect. Parameters are passed as kwargs. No API incompatibilities found between mindroom-nio and the adapter's usage. The adapter uses a manual sync loop (not `sync_forever`) with explicit reconnect logic.
+
 ## Non-Goals (This Tranche)
 
 These are explicitly out of scope for tranche 1:

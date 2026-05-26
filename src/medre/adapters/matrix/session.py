@@ -657,7 +657,7 @@ class MatrixSession:
                 "whoami() did not return a device_id — the access token "
                 "may not be associated with a device"
             )
-        self._logger.info(
+        self._logger.debug(
             "Discovered device_id via whoami(): %s",
             device_id,
         )

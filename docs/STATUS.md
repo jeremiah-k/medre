@@ -1,6 +1,6 @@
 # MEDRE Transport Capability Status
 
-> **Generated:** 2026-05-26 (Tranche 2 Meshtastic hardening update; no live tests executed this session)
+> **Generated:** 2026-05-26 (Tranche 3 Matrix hardening update; relation alignment verified by source audit, no live tests executed this session)
 >
 > **Baseline:** HEAD 41a07c7, Python 3.12.3, medre 0.1.0
 >
@@ -72,6 +72,8 @@ The unified delivery evidence surface (`medre inspect`, `medre evidence --event-
 Route policy enforcement is `fake-tested` across all transports. `allowed_event_types` is enforced as structural route-source matching during route expansion. `allowed_source_adapters`, `allowed_dest_adapters`, `sender_allowlist`, `room_allowlist`, and `channel_allowlist` are evaluated after route matching and before delivery side effects. A denial produces `failure_kind="policy_suppressed"` (permanent, not retryable). Policy fields are config-file-only (not settable via environment variables). The `room_allowlist` route-policy field is distinct from the Matrix adapter-level `room_allowlist` config — the adapter-level field controls which rooms the Matrix sync loop processes, while the route-policy field controls which source rooms a route accepts. Meshtastic `channel_mapping` is display labels only — it does not participate in route-policy `channel_allowlist` evaluation.
 
 Opt-in Matrix live tests use pytest convenience variables such as MATRIX_HOMESERVER, MATRIX_USER_ID, MATRIX_ACCESS_TOKEN, and MATRIX_ROOM_ID. The local Synapse test harness additionally requires `MATRIX_LOCAL_SYNAPSE=1`. Runtime adapter config overrides use instance-scoped `MEDRE_ADAPTER__<TOKEN>__<FIELD>` and `MEDRE_ROUTE__<TOKEN>__<FIELD>` variables.
+
+**Tranche 3 hardening (2026-05-26):** Source-audit verification confirmed that Matrix relations (replies via `m.in_reply_to`, reactions via `m.annotation`) are correctly aligned with Matrix-native content format in relations.py, codec.py, and renderer.py. Transaction-ID deduplication for outbound delivery is implemented (deterministic `txn_id` per delivery). Rate-limit responses (M_LIMIT_EXCEEDED / HTTP 429) are classified as transient with bounded retry. Undecryptable MegolmEvent counting is implemented. No new live validation was executed. No status changes in the capability matrix. mindroom-nio's `room_send` does not encrypt `m.reaction` events in encrypted rooms (known nio limitation — the MMRelay emote fallback path uses `m.room.message` which IS encrypted).
 
 ### Meshtastic
 
