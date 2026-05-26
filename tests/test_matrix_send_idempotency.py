@@ -359,10 +359,10 @@ class TestRateLimitTransient:
 
         result = _make_result()
         with patch("asyncio.sleep", new_callable=AsyncMock):
-            delivery = await adapter.deliver(result)
-
-        assert delivery is not None
-        assert call_count == 2
+            with pytest.raises(AdapterSendError) as exc_info:
+                await adapter.deliver(result)
+        assert exc_info.value.transient is True
+        assert call_count == 1
         assert adapter._transient_delivery_failures == 1
 
 

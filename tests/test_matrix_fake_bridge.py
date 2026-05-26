@@ -1081,7 +1081,7 @@ class TestMatrixBridgeDirectErrorBoundary:
         mock_client.room_send = AsyncMock(
             side_effect=MatrixSendError("timeout", transient=True)
         )
-        adapter._client = mock_client
+        adapter._session = mock_client
 
         result = RenderingResult(
             event_id="evt-trans-boundary",
@@ -1103,7 +1103,7 @@ class TestMatrixBridgeDirectErrorBoundary:
         mock_client.room_send = AsyncMock(
             side_effect=MatrixSendError("forbidden", transient=False)
         )
-        adapter._client = mock_client
+        adapter._session = mock_client
 
         result = RenderingResult(
             event_id="evt-perm-boundary",
@@ -1118,15 +1118,13 @@ class TestMatrixBridgeDirectErrorBoundary:
         """Client is None -> AdapterPermanentError (lifecycle state)."""
         config = _make_matrix_config()
         adapter = MatrixAdapter(config)
-        adapter._client = None
-
         result = RenderingResult(
             event_id="evt-no-client-boundary",
             target_adapter="matrix-bridge",
             target_channel="!room:example.com",
             payload={"msgtype": "m.text", "body": "test"},
         )
-        with pytest.raises(AdapterPermanentError, match="not connected"):
+        with pytest.raises(AdapterPermanentError, match="session is not initialized"):
             await adapter.deliver(result)
 
     async def test_no_room_id_is_permanent(self, mock_nio) -> None:
@@ -1134,8 +1132,7 @@ class TestMatrixBridgeDirectErrorBoundary:
         config = _make_matrix_config()
         adapter = MatrixAdapter(config)
 
-        mock_client = mock_nio.AsyncClient.return_value
-        adapter._client = mock_client
+        adapter._session = MagicMock()
 
         result = RenderingResult(
             event_id="evt-no-room-boundary",
@@ -1156,9 +1153,8 @@ class TestMatrixBridgeDirectErrorBoundary:
         response = SimpleNamespace(
             event_id="$successful-evt-001", transport_response=None
         )
-        mock_client = mock_nio.AsyncClient.return_value
-        mock_client.room_send = AsyncMock(return_value=response)
-        adapter._client = mock_client
+        adapter._session = mock_nio.AsyncClient.return_value
+        adapter._session.room_send = AsyncMock(return_value=response)
 
         result = RenderingResult(
             event_id="evt-ok-boundary",
