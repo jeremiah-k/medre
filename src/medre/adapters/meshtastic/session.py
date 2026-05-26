@@ -644,13 +644,14 @@ class MeshtasticSession:
         try:
             conn = self._config.connection_type
             if conn == "tcp":
-                from meshtastic.tcp_interface import TCPInterface
-
                 if self._config.host is None:
                     raise RuntimeError(
                         "config.host must be set for TCP connection "
                         "(validated by config)"
                     )
+
+                from meshtastic.tcp_interface import TCPInterface
+
                 return TCPInterface(
                     hostname=self._config.host,
                     portNumber=(
@@ -662,15 +663,16 @@ class MeshtasticSession:
 
                 return SerialInterface(devPath=self._config.serial_port)
             elif conn == "ble":
-                from meshtastic.ble_interface import (
-                    BLEInterface,  # no py.typed / pyi stubs
-                )
-
                 if self._config.ble_address is None:
                     raise RuntimeError(
                         "config.ble_address must be set for BLE connection "
                         "(validated by config)"
                     )
+
+                from meshtastic.ble_interface import (
+                    BLEInterface,  # no py.typed / pyi stubs
+                )
+
                 return BLEInterface(address=self._config.ble_address)
             else:
                 raise MeshtasticConnectionError(

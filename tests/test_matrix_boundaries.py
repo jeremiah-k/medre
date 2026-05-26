@@ -19,6 +19,7 @@ from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.codec import MatrixCodec
 from medre.adapters.matrix.errors import MatrixSendError
 from medre.adapters.matrix.renderer import MatrixRenderer
+from medre.adapters.matrix.session import MatrixSession
 from medre.config.adapters.matrix import MatrixConfig
 from medre.core.contracts.adapter import (
     AdapterDeliveryResult,
@@ -33,6 +34,21 @@ from tests.fixtures.matrix_packets import (
     make_room_send_response_empty_event_id,
     make_room_send_response_none_event_id,
 )
+
+
+def _wire_mock_session(
+    adapter: MatrixAdapter, config: MatrixConfig, mock_client: MagicMock
+) -> None:
+    """Wire a real MatrixSession around *mock_client* into *adapter*.
+
+    Boundary tests must not assign ``_wire_mock_session(adapter, config, mock_client)`` directly
+    because the adapter expects a MatrixSession (not a bare MagicMock).  This
+    helper creates a real MatrixSession, injects the mock client, and assigns
+    the session to the adapter — preserving the session boundary.
+    """
+    session = MatrixSession(config)
+    session._client = mock_client
+    adapter._session = session
 
 
 class TestMatrixBoundaries:
@@ -266,7 +282,7 @@ class TestMatrixDeliveryHygiene:
 
         mock_client = MagicMock()
         mock_client.room_send = AsyncMock(return_value=_FakeResponse())
-        adapter._session = mock_client
+        _wire_mock_session(adapter, config, mock_client)
 
         result = RenderingResult(
             event_id="evt-1",
@@ -299,7 +315,7 @@ class TestMatrixDeliveryHygiene:
 
         mock_client = MagicMock()
         mock_client.room_send = AsyncMock(return_value=_FakeResponse())
-        adapter._session = mock_client
+        _wire_mock_session(adapter, config, mock_client)
 
         result = RenderingResult(
             event_id="evt-2",
@@ -319,7 +335,7 @@ class TestMatrixDeliveryHygiene:
         adapter = MatrixAdapter(config)
 
         mock_client = MagicMock()
-        adapter._session = mock_client
+        _wire_mock_session(adapter, config, mock_client)
 
         result = RenderingResult(
             event_id="evt-3",
@@ -342,7 +358,7 @@ class TestMatrixDeliveryHygiene:
 
         mock_client = MagicMock()
         mock_client.room_send = AsyncMock(return_value=_FakeResponse())
-        adapter._session = mock_client
+        _wire_mock_session(adapter, config, mock_client)
 
         payload: dict[str, object] = {
             "msgtype": "m.text",
@@ -466,7 +482,7 @@ class TestMatrixDeliveryNioResponseHardening:
         mock_client.room_send = AsyncMock(
             return_value=make_room_send_response("$good-evt-001")
         )
-        adapter._session = mock_client
+        _wire_mock_session(adapter, config, mock_client)
 
         result = RenderingResult(
             event_id="evt-ok",
@@ -488,7 +504,7 @@ class TestMatrixDeliveryNioResponseHardening:
         mock_client.room_send = AsyncMock(
             return_value=make_room_send_error("M_FORBIDDEN")
         )
-        adapter._session = mock_client
+        _wire_mock_session(adapter, config, mock_client)
 
         result = RenderingResult(
             event_id="evt-err",
@@ -508,7 +524,7 @@ class TestMatrixDeliveryNioResponseHardening:
         mock_client.room_send = AsyncMock(
             return_value=make_room_send_response_none_event_id()
         )
-        adapter._session = mock_client
+        _wire_mock_session(adapter, config, mock_client)
 
         result = RenderingResult(
             event_id="evt-none",
@@ -528,7 +544,7 @@ class TestMatrixDeliveryNioResponseHardening:
         mock_client.room_send = AsyncMock(
             return_value=make_room_send_response_empty_event_id()
         )
-        adapter._session = mock_client
+        _wire_mock_session(adapter, config, mock_client)
 
         result = RenderingResult(
             event_id="evt-empty",
@@ -560,7 +576,7 @@ class TestMatrixDeliveryNioResponseHardening:
         adapter = MatrixAdapter(config)
 
         mock_client = MagicMock()
-        adapter._session = mock_client
+        _wire_mock_session(adapter, config, mock_client)
 
         result = RenderingResult(
             event_id="evt-no-room",
@@ -580,7 +596,7 @@ class TestMatrixDeliveryNioResponseHardening:
         mock_client.room_send = AsyncMock(
             return_value=make_room_send_response_none_event_id()
         )
-        adapter._session = mock_client
+        _wire_mock_session(adapter, config, mock_client)
 
         result = RenderingResult(
             event_id="evt-fail-no-ref",
@@ -606,7 +622,7 @@ class TestMatrixDeliveryIgnoreUnverifiedDevices:
 
         mock_client = MagicMock()
         mock_client.room_send = AsyncMock(return_value=_FakeResponse())
-        adapter._session = mock_client
+        _wire_mock_session(adapter, config, mock_client)
 
         result = RenderingResult(
             event_id="evt-iud-default",
@@ -631,7 +647,7 @@ class TestMatrixDeliveryIgnoreUnverifiedDevices:
 
         mock_client = MagicMock()
         mock_client.room_send = AsyncMock(return_value=_FakeResponse())
-        adapter._session = mock_client
+        _wire_mock_session(adapter, config, mock_client)
 
         result = RenderingResult(
             event_id="evt-iud-true",
@@ -655,7 +671,7 @@ class TestMatrixCancelledErrorPropagation:
 
         mock_client = MagicMock()
         mock_client.room_send = AsyncMock(side_effect=asyncio.CancelledError())
-        adapter._session = mock_client
+        _wire_mock_session(adapter, config, mock_client)
 
         result = RenderingResult(
             event_id="evt-cancel",
@@ -674,7 +690,7 @@ class TestMatrixCancelledErrorPropagation:
 
         mock_client = MagicMock()
         mock_client.room_send = AsyncMock(side_effect=asyncio.CancelledError())
-        adapter._session = mock_client
+        _wire_mock_session(adapter, config, mock_client)
 
         result = RenderingResult(
             event_id="evt-cancel-not-perm",
@@ -713,7 +729,7 @@ class TestMatrixCancelledErrorPropagation:
         mock_client.room_send = AsyncMock(
             side_effect=MatrixSendError("timeout: network", transient=True)
         )
-        adapter._session = mock_client
+        _wire_mock_session(adapter, config, mock_client)
 
         result = RenderingResult(
             event_id="evt-send-transient",
@@ -736,7 +752,7 @@ class TestMatrixCancelledErrorPropagation:
         mock_client.room_send = AsyncMock(
             side_effect=MatrixSendError("forbidden: rejected", transient=False)
         )
-        adapter._session = mock_client
+        _wire_mock_session(adapter, config, mock_client)
 
         result = RenderingResult(
             event_id="evt-send-permanent",

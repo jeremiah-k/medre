@@ -169,11 +169,6 @@ class TestCreateClientTcp:
 
     def test_tcp_with_host_none_raises_runtime_error(self, monkeypatch) -> None:
         """TCP connection with host=None raises RuntimeError."""
-        # Must set up fake module so the `from meshtastic.tcp_interface import TCPInterface`
-        # succeeds; only then does the host=None guard trigger.
-        _setup_fake_module(
-            monkeypatch, "meshtastic.tcp_interface", "TCPInterface", MagicMock()
-        )
         monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", True)
         config = MeshtasticConfig(adapter_id="mesh-1", connection_type="tcp")
         object.__setattr__(config, "host", None)
@@ -254,11 +249,6 @@ class TestCreateClientBle:
 
     def test_ble_with_address_none_raises_runtime_error(self, monkeypatch) -> None:
         """BLE connection with ble_address=None raises RuntimeError."""
-        # Must set up fake module so the `from meshtastic.ble_interface import BLEInterface`
-        # succeeds; only then does the ble_address=None guard trigger.
-        _setup_fake_module(
-            monkeypatch, "meshtastic.ble_interface", "BLEInterface", MagicMock()
-        )
         monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", True)
         config = MeshtasticConfig(adapter_id="mesh-1", connection_type="ble")
         object.__setattr__(config, "ble_address", None)

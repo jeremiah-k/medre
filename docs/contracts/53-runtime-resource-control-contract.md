@@ -196,9 +196,9 @@ Before beta, the recommended default backpressure configuration:
 | Meshtastic | 10          | Drop oldest          | No          | Slow radio, serial writes block        |
 | MeshCore   | 10          | Drop oldest          | No          | Slow radio, no flow control            |
 | Matrix     | 100         | Block (5s timeout)\* | No          | Fast async SDK, rate-limited by server |
+| LXMF       | 50          | Fail                 | No          | Fire-and-forget, fast                  |
 
 \* Block policy is aspirational; the current implementation has no per-adapter outbound queue (see §15.8). Rate-limit responses are surfaced immediately as transient errors.
-| LXMF | 50 | Fail | No | Fire-and-forget, fast |
 
 Global ceiling: 500 total in-flight deliveries across all adapters.
 

@@ -33,7 +33,6 @@ class TestStartupHistorySuppression:
         # Mock session with is_live = False
         mock_session = MagicMock(name="session")
         mock_session.is_live = False
-        mock_session._track_room = MagicMock()
         adapter._session = mock_session
 
         event = _make_fake_nio_event(sender="@alice:example.com")
@@ -53,7 +52,6 @@ class TestStartupHistorySuppression:
         # Mock session with is_live = True
         mock_session = MagicMock(name="session")
         mock_session.is_live = True
-        mock_session._track_room = MagicMock()
         mock_session.crypto_enabled = False
         mock_session.room_state = MagicMock(return_value="unknown")
         adapter._session = mock_session
@@ -74,7 +72,6 @@ class TestStartupHistorySuppression:
 
         mock_session = MagicMock(name="session")
         mock_session.is_live = False
-        mock_session._track_room = MagicMock()
         adapter._session = mock_session
 
         event = _make_fake_reaction_event(sender="@alice:example.com")
@@ -123,7 +120,6 @@ class TestStartupHistorySuppression:
 
         mock_session = MagicMock(name="session")
         mock_session.is_live = False
-        mock_session._track_room = MagicMock()
         adapter._session = mock_session
 
         event = _make_fake_nio_event(sender="@bot:example.com")
@@ -143,7 +139,6 @@ class TestStartupHistorySuppression:
 
         mock_session = MagicMock(name="session")
         mock_session.is_live = False
-        mock_session._track_room = MagicMock()
         adapter._session = mock_session
 
         # Use an event with content that would cause a MEDRE envelope
@@ -178,7 +173,6 @@ class TestStartupHistorySuppression:
 
         mock_session = MagicMock(name="session")
         mock_session.is_live = True
-        mock_session._track_room = MagicMock()
         adapter._session = mock_session
 
         event = _make_fake_nio_event(sender="@bot:example.com")
@@ -198,7 +192,6 @@ class TestStartupHistorySuppression:
 
         mock_session = MagicMock(name="session")
         mock_session.is_live = True
-        mock_session._track_room = MagicMock()
         adapter._session = mock_session
 
         event = _make_fake_nio_event(sender="@alice:example.com")

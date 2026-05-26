@@ -148,9 +148,7 @@ class TestNormalizeEvent:
         )
         result = session._normalize_event(room, event)
         assert result["source"] == {}
-        assert (
-            result["content_from_source"] if "content_from_source" in result else True
-        )
+        # No content_from_source key expected — source is not a dict
         # content is derived from source which is not a dict → empty
         # msgtype falls back to event.msgtype
         assert result["msgtype"] == "m.text"

@@ -564,7 +564,7 @@ class MatrixAdapter(AdapterContract):
 
                 # Check for nio error responses (no event_id)
                 if not hasattr(response, "event_id"):
-                    # Rate-limit response → transient, retry
+                    # Rate-limit response → transient, surface immediately
                     if _is_nio_rate_limited_response(response):
                         retry_ms = getattr(response, "retry_after_ms", None)
                         raise _NioRateLimitError(str(response), retry_after_ms=retry_ms)
