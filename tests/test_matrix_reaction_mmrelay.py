@@ -658,7 +658,7 @@ class TestMatrixAdapterEventType:
         mock_client.room_send = AsyncMock(
             return_value=type("Resp", (), {"event_id": "$evt-1"})()
         )
-        adapter._client = mock_client
+        adapter._session = mock_client
 
         result = RenderingResult(
             event_id="evt-1",
@@ -682,7 +682,7 @@ class TestMatrixAdapterEventType:
         mock_client.room_send = AsyncMock(
             return_value=type("Resp", (), {"event_id": "$evt-2"})()
         )
-        adapter._client = mock_client
+        adapter._session = mock_client
 
         result = RenderingResult(
             event_id="evt-2",

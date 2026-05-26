@@ -266,7 +266,7 @@ class TestMatrixDeliveryHygiene:
 
         mock_client = MagicMock()
         mock_client.room_send = AsyncMock(return_value=_FakeResponse())
-        adapter._client = mock_client
+        adapter._session = mock_client
 
         result = RenderingResult(
             event_id="evt-1",
@@ -299,7 +299,7 @@ class TestMatrixDeliveryHygiene:
 
         mock_client = MagicMock()
         mock_client.room_send = AsyncMock(return_value=_FakeResponse())
-        adapter._client = mock_client
+        adapter._session = mock_client
 
         result = RenderingResult(
             event_id="evt-2",
@@ -319,7 +319,7 @@ class TestMatrixDeliveryHygiene:
         adapter = MatrixAdapter(config)
 
         mock_client = MagicMock()
-        adapter._client = mock_client
+        adapter._session = mock_client
 
         result = RenderingResult(
             event_id="evt-3",
@@ -342,7 +342,7 @@ class TestMatrixDeliveryHygiene:
 
         mock_client = MagicMock()
         mock_client.room_send = AsyncMock(return_value=_FakeResponse())
-        adapter._client = mock_client
+        adapter._session = mock_client
 
         payload: dict[str, object] = {
             "msgtype": "m.text",
@@ -466,7 +466,7 @@ class TestMatrixDeliveryNioResponseHardening:
         mock_client.room_send = AsyncMock(
             return_value=make_room_send_response("$good-evt-001")
         )
-        adapter._client = mock_client
+        adapter._session = mock_client
 
         result = RenderingResult(
             event_id="evt-ok",
@@ -488,7 +488,7 @@ class TestMatrixDeliveryNioResponseHardening:
         mock_client.room_send = AsyncMock(
             return_value=make_room_send_error("M_FORBIDDEN")
         )
-        adapter._client = mock_client
+        adapter._session = mock_client
 
         result = RenderingResult(
             event_id="evt-err",
@@ -508,7 +508,7 @@ class TestMatrixDeliveryNioResponseHardening:
         mock_client.room_send = AsyncMock(
             return_value=make_room_send_response_none_event_id()
         )
-        adapter._client = mock_client
+        adapter._session = mock_client
 
         result = RenderingResult(
             event_id="evt-none",
@@ -528,7 +528,7 @@ class TestMatrixDeliveryNioResponseHardening:
         mock_client.room_send = AsyncMock(
             return_value=make_room_send_response_empty_event_id()
         )
-        adapter._client = mock_client
+        adapter._session = mock_client
 
         result = RenderingResult(
             event_id="evt-empty",
@@ -540,11 +540,10 @@ class TestMatrixDeliveryNioResponseHardening:
             await adapter.deliver(result)
 
     async def test_client_not_connected_raises(self) -> None:
-        """deliver raises AdapterPermanentError when client is None —
+        """deliver raises AdapterPermanentError when session is not initialized —
         lifecycle state missing is permanent."""
         config = _make_matrix_config()
         adapter = MatrixAdapter(config)
-        adapter._client = None
 
         result = RenderingResult(
             event_id="evt-no-client",
@@ -552,7 +551,7 @@ class TestMatrixDeliveryNioResponseHardening:
             target_channel="!room:server",
             payload={"msgtype": "m.text", "body": "hello"},
         )
-        with pytest.raises(AdapterPermanentError, match="not connected"):
+        with pytest.raises(AdapterPermanentError, match="session is not initialized"):
             await adapter.deliver(result)
 
     async def test_delivery_without_target_room_fails(self) -> None:
@@ -561,7 +560,7 @@ class TestMatrixDeliveryNioResponseHardening:
         adapter = MatrixAdapter(config)
 
         mock_client = MagicMock()
-        adapter._client = mock_client
+        adapter._session = mock_client
 
         result = RenderingResult(
             event_id="evt-no-room",
@@ -581,7 +580,7 @@ class TestMatrixDeliveryNioResponseHardening:
         mock_client.room_send = AsyncMock(
             return_value=make_room_send_response_none_event_id()
         )
-        adapter._client = mock_client
+        adapter._session = mock_client
 
         result = RenderingResult(
             event_id="evt-fail-no-ref",
@@ -607,7 +606,7 @@ class TestMatrixDeliveryIgnoreUnverifiedDevices:
 
         mock_client = MagicMock()
         mock_client.room_send = AsyncMock(return_value=_FakeResponse())
-        adapter._client = mock_client
+        adapter._session = mock_client
 
         result = RenderingResult(
             event_id="evt-iud-default",
@@ -632,7 +631,7 @@ class TestMatrixDeliveryIgnoreUnverifiedDevices:
 
         mock_client = MagicMock()
         mock_client.room_send = AsyncMock(return_value=_FakeResponse())
-        adapter._client = mock_client
+        adapter._session = mock_client
 
         result = RenderingResult(
             event_id="evt-iud-true",
@@ -656,7 +655,7 @@ class TestMatrixCancelledErrorPropagation:
 
         mock_client = MagicMock()
         mock_client.room_send = AsyncMock(side_effect=asyncio.CancelledError())
-        adapter._client = mock_client
+        adapter._session = mock_client
 
         result = RenderingResult(
             event_id="evt-cancel",
@@ -675,7 +674,7 @@ class TestMatrixCancelledErrorPropagation:
 
         mock_client = MagicMock()
         mock_client.room_send = AsyncMock(side_effect=asyncio.CancelledError())
-        adapter._client = mock_client
+        adapter._session = mock_client
 
         result = RenderingResult(
             event_id="evt-cancel-not-perm",
@@ -693,7 +692,6 @@ class TestMatrixCancelledErrorPropagation:
         """Client-not-connected raises AdapterPermanentError — lifecycle state."""
         config = _make_matrix_config()
         adapter = MatrixAdapter(config)
-        adapter._client = None
 
         result = RenderingResult(
             event_id="evt-permanent-nc",
@@ -701,7 +699,7 @@ class TestMatrixCancelledErrorPropagation:
             target_channel="!room:server",
             payload={"msgtype": "m.text", "body": "hello"},
         )
-        with pytest.raises(AdapterPermanentError, match="not connected"):
+        with pytest.raises(AdapterPermanentError, match="session is not initialized"):
             await adapter.deliver(result)
 
     async def test_matrix_send_error_transient_converted_to_adapter_send_error(
@@ -715,7 +713,7 @@ class TestMatrixCancelledErrorPropagation:
         mock_client.room_send = AsyncMock(
             side_effect=MatrixSendError("timeout: network", transient=True)
         )
-        adapter._client = mock_client
+        adapter._session = mock_client
 
         result = RenderingResult(
             event_id="evt-send-transient",
@@ -738,7 +736,7 @@ class TestMatrixCancelledErrorPropagation:
         mock_client.room_send = AsyncMock(
             side_effect=MatrixSendError("forbidden: rejected", transient=False)
         )
-        adapter._client = mock_client
+        adapter._session = mock_client
 
         result = RenderingResult(
             event_id="evt-send-permanent",

@@ -146,7 +146,7 @@ class TestEncryptedRoomSafety:
             room_id = "!encrypted_room:example.com"
             room_obj = MagicMock(name="room_obj")
             room_obj.encrypted = True
-            adapter._client.rooms = {room_id: room_obj}
+            adapter._session._client.rooms = {room_id: room_obj}
 
             result = RenderingResult(
                 event_id="evt_1",
@@ -172,7 +172,7 @@ class TestEncryptedRoomSafety:
             # Room not encrypted → should be fine
             response_mock = MagicMock()
             response_mock.event_id = "$event_123"
-            adapter._client.room_send = AsyncMock(return_value=response_mock)
+            adapter._session._client.room_send = AsyncMock(return_value=response_mock)
 
             result = RenderingResult(
                 event_id="evt_2",
@@ -201,11 +201,11 @@ class TestEncryptedRoomSafety:
             room_id = "!plain_room:example.com"
             room_obj = MagicMock(name="room_obj")
             room_obj.encrypted = False
-            adapter._client.rooms = {room_id: room_obj}
+            adapter._session._client.rooms = {room_id: room_obj}
 
             response_mock = MagicMock()
             response_mock.event_id = "$event_123"
-            adapter._client.room_send = AsyncMock(return_value=response_mock)
+            adapter._session._client.room_send = AsyncMock(return_value=response_mock)
 
             result = RenderingResult(
                 event_id="evt_3",
@@ -239,11 +239,11 @@ class TestEncryptedRoomSafety:
                 room_id = "!encrypted:example.com"
                 room_obj = MagicMock(name="room_obj")
                 room_obj.encrypted = True
-                adapter._client.rooms = {room_id: room_obj}
+                adapter._session._client.rooms = {room_id: room_obj}
 
                 response_mock = MagicMock()
                 response_mock.event_id = "$event_456"
-                adapter._client.room_send = AsyncMock(return_value=response_mock)
+                adapter._session._client.room_send = AsyncMock(return_value=response_mock)
 
                 result = RenderingResult(
                     event_id="evt_4",
@@ -270,11 +270,11 @@ class TestEncryptedRoomSafety:
             assert adapter._session.crypto_enabled is False  # type: ignore[union-attr]
 
             # Room not in client.rooms → optimistic allow
-            adapter._client.rooms = {}
+            adapter._session._client.rooms = {}
 
             response_mock = MagicMock()
             response_mock.event_id = "$event_789"
-            adapter._client.room_send = AsyncMock(return_value=response_mock)
+            adapter._session._client.room_send = AsyncMock(return_value=response_mock)
 
             result = RenderingResult(
                 event_id="evt_5",

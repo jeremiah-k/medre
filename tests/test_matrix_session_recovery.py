@@ -593,7 +593,7 @@ class TestRoomStateTracking:
 
             response_mock = MagicMock()
             response_mock.event_id = "$evt_plain"
-            adapter._client.room_send = AsyncMock(return_value=response_mock)
+            adapter._session.room_send = AsyncMock(return_value=response_mock)
 
             result = RenderingResult(
                 event_id="evt_plain",
@@ -619,7 +619,7 @@ class TestRoomStateTracking:
             room_id = "!fallback_enc:example.com"
             room_obj = MagicMock(name="room_obj")
             room_obj.encrypted = True
-            adapter._client.rooms = {room_id: room_obj}
+            adapter._session._client.rooms = {room_id: room_obj}
 
             # Session doesn't know about this room
             assert adapter._session.room_state(room_id) == "unknown"  # type: ignore[union-attr]
@@ -663,7 +663,7 @@ class TestDeliveryRetry:
         adapter = MatrixAdapter(config)
         try:
             await adapter.start(make_matrix_context())
-            adapter._client.room_send = _transient_then_ok
+            adapter._session.room_send = _transient_then_ok
 
             result = RenderingResult(
                 event_id="evt_retry",
@@ -697,7 +697,7 @@ class TestDeliveryRetry:
         adapter = MatrixAdapter(config)
         try:
             await adapter.start(make_matrix_context())
-            adapter._client.room_send = _always_transient
+            adapter._session.room_send = _always_transient
 
             result = RenderingResult(
                 event_id="evt_max_retry",
@@ -735,7 +735,7 @@ class TestDeliveryRetry:
         adapter = MatrixAdapter(config)
         try:
             await adapter.start(make_matrix_context())
-            adapter._client.room_send = _room_send_non_transient
+            adapter._session.room_send = _room_send_non_transient
 
             result = RenderingResult(
                 event_id="evt_non_transient",
@@ -776,7 +776,7 @@ class TestDeliveryRetry:
 
             response_mock = MagicMock()
             response_mock.event_id = "$diag_evt"
-            adapter._client.room_send = AsyncMock(return_value=response_mock)
+            adapter._session.room_send = AsyncMock(return_value=response_mock)
 
             result = RenderingResult(
                 event_id="evt_diag",

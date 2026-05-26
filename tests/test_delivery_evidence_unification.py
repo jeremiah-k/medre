@@ -968,9 +968,9 @@ class TestMatrixTxnIdInSuccess:
 
         config = _matrix_config()
         adapter = MatrixAdapter(config)
-        mock_client = MagicMock()
-        mock_client.room_send = AsyncMock(return_value=_mock_send_response())
-        adapter._client = mock_client
+        mock_session = MagicMock()
+        mock_session.room_send = AsyncMock(return_value=_mock_send_response())
+        adapter._session = mock_session
 
         result = _matrix_result()
         delivery = await adapter.deliver(result)
@@ -1175,9 +1175,9 @@ class TestEvidenceSecretSafety:
 
         config = _matrix_config()
         adapter = MatrixAdapter(config)
-        mock_client = MagicMock()
-        mock_client.room_send = AsyncMock(return_value=_mock_send_response())
-        adapter._client = mock_client
+        mock_session = MagicMock()
+        mock_session.room_send = AsyncMock(return_value=_mock_send_response())
+        adapter._session = mock_session
 
         result = _matrix_result()
         delivery = await adapter.deliver(result)
