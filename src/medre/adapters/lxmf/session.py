@@ -623,6 +623,11 @@ class LxmfSession:
         self._diag.reconnecting = False
         # Track 3 — reset reconnect counter so diagnostics are truthful after stop
         self._diag.reconnect_attempts = 0
+        # Clear callback and loop references so late SDK callbacks
+        # (fired on Reticulum threads after teardown) are dropped.
+        self._message_callback = None
+        self._loop = None
+
         self._started = False
         self._logger.info("LxmfSession %s stopped", self._adapter_id)
 
@@ -882,6 +887,10 @@ class LxmfSession:
         callback's own ``asyncio.create_task()`` calls execute on the
         correct loop.
         """
+        # Guard: drop late callbacks that arrive after stop().
+        if self._stop_requested or not self._started:
+            return
+
         try:
             normalised = self._normalise_inbound_message(message)
         except Exception as exc:

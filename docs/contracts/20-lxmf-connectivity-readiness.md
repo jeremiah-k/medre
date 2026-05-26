@@ -13,12 +13,12 @@
 This document consolidates all confirmed, inferred, and unknown findings
 about the LXMF and Reticulum SDKs into a single connectivity readiness
 assessment. It is the authoritative reference for what the SDK provides,
-what the MEDRE adapter scaffold currently looks like, and what remains
-genuinely unknown until someone runs code against a real Reticulum
+what the MEDRE adapter currently implements, and what remains
+genuently unknown until someone runs code against a real Reticulum
 network.
 
 **No production LXMF/Reticulum connectivity is claimed.
-The adapter supports `connection_type="reticulum"` for real Reticulum/LXMF operation via `LxmfSession` when optional dependencies are installed; fake mode remains the default.**
+The adapter defaults to `connection_type="fake"`. Real Reticulum/LXMF mode (`"reticulum"`) is available when optional dependencies are installed but has not been validated against a live network.**
 
 ## 1. Package and Import [CONFIRMED]
 
@@ -504,7 +504,8 @@ identity or must accept the limitation.
 CONFIRMED: Both Reticulum and LXMF use background daemon threads (not asyncio).
 The router's jobloop and transport processing run in threads. LXMF callback
 exceptions are caught and logged (not propagated). Integration with MEDRE's
-asyncio event loop requires bridging via `loop.create_task()` or similar.
+asyncio event loop requires bridging via `loop.call_soon_threadsafe()` —
+`asyncio.create_task()` cannot be called from Reticulum threads.
 
 ### 3.6 Auto-Discovery [INFERRED]
 
@@ -885,9 +886,7 @@ Key findings that this contract consolidates:
   (signature_validated, source_hash, timestamp, destination_hash,
   delivery_method, has_fields).
 
-- **Source changes:** Threading bridge in session.py (`call_soon_threadsafe` for Reticulum→asyncio), honest delivery_note in adapter.py. Plus test and doc hardening. The
-  adapter, session, codec, renderer, fields helper, and config modules
-  are untouched.
+- **Source changes:** Threading bridge in session.py (`call_soon_threadsafe` for Reticulum→asyncio), post-stop callback guard (clear `_message_callback`/`_loop` on stop, early return in `_on_lxmf_delivery`), honest delivery_note in adapter.py. Plus test and doc hardening.
 
 ### Readiness Assessment (Unchanged)
 

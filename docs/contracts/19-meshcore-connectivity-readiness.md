@@ -467,11 +467,12 @@ BLE supports optional PIN pairing. How this interacts with MeshCore's Ed25519 id
 
 | Component  | File                                     | Status                                                                                                                           |
 | ---------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| Adapter    | `adapters/meshcore/adapter.py`           | Scaffold. `start()` raises `MeshCoreConnectionError` for non-fake types. `deliver()` returns `None`.                             |
-| Config     | `medre/config/adapters/meshcore.py`      | Complete. Supports `fake`, `tcp`, `serial`, `ble` connection types. Has `host`, `port`, `serial_port`, `default_channel` fields. |
-| Codec      | `adapters/meshcore/codec.py`             | Scaffold. Converts MeshCore-shaped event dicts to `CanonicalEvent`.                                                              |
-| Classifier | `adapters/meshcore/packet_classifier.py` | Scaffold. Classifies by event type, detects ACKs.                                                                                |
-| Renderer   | `adapters/meshcore/renderer.py`          | Scaffold. Builds payloads for outbound.                                                                                          |
+| Adapter    | `adapters/meshcore/adapter.py`           | Fake mode functional. Real mode raises `MeshCoreConnectionError` for non-fake types without SDK. `deliver()` returns `None` in fake mode. |
+| Session    | `adapters/meshcore/session.py`           | Real session code exists: TCP/serial/BLE factory wiring, event subscription, bounded reconnect, error classification. Source-audited and mock-tested only; no hardware validation. |
+| Config     | `medre/config/adapters/meshcore.py`      | Complete. Supports `fake`, `tcp`, `serial`, `ble` connection types. Has `host`, `port`, `serial_port`, `ble_address`, `default_channel` fields. |
+| Codec      | `adapters/meshcore/codec.py`             | Functional. Converts MeshCore-shaped event dicts to `CanonicalEvent`.                                                              |
+| Classifier | `adapters/meshcore/packet_classifier.py` | Functional. Classifies by event type, detects ACKs.                                                                                |
+| Renderer   | `adapters/meshcore/renderer.py`          | Functional. UTF-8 byte-budget truncation, target-aware rendering.                                                                 |
 | Errors     | `adapters/meshcore/errors.py`            | Complete. `MeshCoreConnectionError`, `MeshCoreConfigError`.                                                                      |
 
 ### 6.2 What Is Missing
@@ -522,7 +523,7 @@ Missing config fields that would be needed:
 | Disconnect method      | N/A (stream-based)                  | `await mc.disconnect()` (NOT `close()`)               |
 | Message fetching       | Push (pubsub fires on receive)      | Pull (`MESSAGES_WAITING` → `get_msg()`)               |
 | SDK maturity           | Fork `mtjk` v2.7.8                  | `meshcore` v2.3.7 (PyPI)                              |
-| MEDRE real client code | Exists (`_create_client`), untested | None                                                  |
+| MEDRE real client code | Exists (`_create_client`), untested | Session code exists (TCP/serial/BLE), mock-tested only |
 
 These protocols are not compatible at the wire level. Bridging would require application-level message translation, not protocol-level relay.
 
@@ -545,15 +546,16 @@ MeshCore is third out of four adapters in readiness (per contract 16):
 
 1. Matrix (closest, has real client code)
 2. Meshtastic (pipeline in place, client stubbed)
-3. **MeshCore** (SDK documented, adapter scaffold ready, no real code)
+3. **MeshCore** (SDK documented, session code exists, source-audited/mock-tested only)
 4. LXMF (most work needed)
 
 ### 8.3 What This Document Does NOT Claim
 
 - MeshCore connectivity works against real hardware.
 - The SDK's send semantics have been verified with radio transmissions.
-- The adapter scaffold is ready for production deployment.
+- The adapter is ready for production deployment.
 - MeshCore is a recommended or supported transport for MEDRE.
+- ACK/delivery semantics are verified beyond source audit.
 - Any timeline for production MeshCore support.
 
 ## 9. Contract Cross-References
@@ -580,7 +582,7 @@ Contract 16 is the readiness authority. Where this document and Contract 16 conf
 
 ## 11. Tranche 4: Lifecycle Hardening (2026-05-26)
 
-Tranche 4 (`t4-meshcore-maturation`) hardens the MeshCore adapter's session lifecycle, renderer byte budget enforcement, and test coverage without changing production adapter code. No hardware validation occurred in this tranche.
+Tranche 4 (`t4-meshcore-maturation`) documents and tests existing session lifecycle hardening and renderer byte-budget enforcement. Source-audited and mock-tested only. No hardware validation occurred in this tranche. Does not add new production adapter code beyond session/renderer hardening already in place.
 
 ### 11.1 Session Lifecycle Hardening
 

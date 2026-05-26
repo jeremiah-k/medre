@@ -830,8 +830,70 @@ class TestTranche5CallbackThreadingSafety:
 
         # Should not raise — _on_lxmf_delivery absorbs callback errors.
         session._on_lxmf_delivery(FakeMsg())
+
+        # Give the event loop a turn to process the scheduled callback
+        # (which will fail) via call_soon_threadsafe.
+        await asyncio.sleep(0)
+
         assert session.connected is True
         await session.stop()
+
+
+# ===================================================================
+# Tranche 6: Post-stop callback guard
+# ===================================================================
+
+
+class TestTranche6PostStopCallbackGuard:
+    """Late SDK callbacks after stop() are silently dropped."""
+
+    async def test_callback_not_invoked_after_stop(self) -> None:
+        """After stop(), _on_lxmf_delivery drops the message and does not
+        invoke the user callback."""
+        received: list[dict[str, Any]] = []
+
+        def callback(msg: dict[str, Any]) -> None:
+            received.append(msg)
+
+        session = _make_session(connection_type="fake")
+        await session.start(message_callback=callback)
+
+        # Deliver while running — should succeed.
+        class FakeMsg:
+            source_hash = b"\x01" * 16
+            destination_hash = b"\x02" * 16
+            hash = b"\x03" * 32
+            timestamp = 1.0
+            content = "before-stop"
+            title = ""
+            fields = {}
+            signature_validated = True
+            method = None
+
+        session._on_lxmf_delivery(FakeMsg())
+        await asyncio.sleep(0)
+        assert len(received) == 1
+
+        # Stop the session.
+        await session.stop()
+
+        # Late callback after stop — must be dropped.
+        session._on_lxmf_delivery(FakeMsg())
+        await asyncio.sleep(0)
+        assert len(received) == 1, "Callback must not fire after stop()"
+
+    async def test_stop_clears_callback_and_loop(self) -> None:
+        """stop() nullifies _message_callback and _loop."""
+        session = _make_session(connection_type="fake")
+        await session.start(message_callback=lambda msg: None)
+
+        assert session._message_callback is not None
+        assert session._loop is not None
+
+        await session.stop()
+
+        assert session._message_callback is None
+        assert session._loop is None
 
 
 # ===================================================================

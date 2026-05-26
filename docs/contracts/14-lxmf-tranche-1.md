@@ -203,7 +203,7 @@ These are explicitly out of scope for tranche 1:
 ## Tranche 5: Delivery Semantics Verification and Session Boundary Hardening
 
 > **Added:** 2026-05-26
-> **Scope:** Delivery semantics hardening. Threading bridge added (session.py call_soon_threadsafe, adapter.py delivery_note), plus test coverage and doc hardening.
+> **Scope:** Delivery semantics hardening. Threading bridge added (session.py `call_soon_threadsafe` for Reticulum→asyncio, post-stop callback guard), honest delivery_note in adapter.py, plus test coverage and doc hardening. Source was changed for delivery/threading hardening.
 
 ### Delivery Semantics Verification
 
@@ -225,9 +225,9 @@ Tranche 5 adds tests verifying that the delivery semantics documented in this co
 
 7. **Unknown message hash safety.** Delivery callbacks for untracked hashes are silently ignored — no crash, no tracking corruption.
 
-### No Changes to Production Code
+### Source Changes in Tranche 5
 
-All Tranche 5 changes are in `tests/`. The adapter, session, codec, renderer, and config modules are untouched. The tests verify existing behaviour, they do not introduce new behaviour.
+Tranche 5 includes source changes to `session.py` (threading bridge via `call_soon_threadsafe`, post-stop callback guard clearing `_message_callback`/`_loop` on stop, early return in `_on_lxmf_delivery`) and `adapter.py` (honest delivery_note). The codec, renderer, and config modules are unchanged. Tests verify both pre-existing and new behaviour.
 
 ---
 

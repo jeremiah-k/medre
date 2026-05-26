@@ -1027,7 +1027,7 @@ The following features are not supported in alpha mode. Do not attempt to use th
 
 ## 19. Tranche 4 Hardening (2026-05-26)
 
-Tranche 4 (`t4-meshcore-maturation`) adds lifecycle hardening to the MeshCore adapter session and verifies renderer byte budget behavior through comprehensive tests. No production adapter code was changed.
+Tranche 4 (`t4-meshcore-maturation`) documents and tests existing session lifecycle hardening and verifies renderer byte-budget behavior. Does not add new production adapter code in this PR section. Source-audited and mock-tested only; no hardware validation occurred.
 
 ### 19.1 Session Lifecycle Hardening
 

@@ -297,7 +297,7 @@ send/receive requires Reticulum.
 ## Tranche 5: Hardening Findings
 
 > **Added:** 2026-05-26
-> **Scope:** Test coverage and documentation audit only. No source code changes.
+> **Scope:** Test coverage, documentation audit, and delivery/threading hardening.
 
 ### Findings
 
@@ -307,7 +307,7 @@ send/receive requires Reticulum.
 
 3. **Inbound normalisation is thorough.** `_normalise_inbound_message()` handles bytes, str, and missing attributes for all fields (source_hash, destination_hash, content, title, fields, timestamp, signature_validated, method). No raw SDK objects leak past the session boundary.
 
-4. **Thread→asyncio bridge is scaffolded but not tested against real threads.** The session's `inject_inbound()` and `_on_lxmf_delivery()` both schedule async callbacks via `loop.create_task()`. Tranche 5 adds tests for sync and async callback dispatch, but real Reticulum thread callbacks remain untested.
+4. **Thread→asyncio bridge uses `call_soon_threadsafe`.** `_on_lxmf_delivery()` fires on Reticulum daemon threads. The session normalises the `LXMessage` into a plain dict on the calling thread (pure CPU work, safe), then bridges onto the captured asyncio loop via `loop.call_soon_threadsafe(self._invoke_inbound_callback, normalised)`. This avoids calling `asyncio.create_task()` from a non-loop thread. Tranche 5 adds tests for sync and async callback dispatch, but real Reticulum thread callbacks remain untested.
 
 5. **Send return semantics are honest.** `send_text()` returns `(native_id, OUTBOUND)` in fake mode — never claiming delivered or sent. This is verified by Tranche 5 tests.
 
