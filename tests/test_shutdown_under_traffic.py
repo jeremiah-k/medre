@@ -591,12 +591,10 @@ class TestDrainTimeoutAbandonedEvidence:
         deliver_task = asyncio.ensure_future(
             runner.deliver_to_targets(event, deliveries)
         )
-        # Give it a moment to acquire the capacity slot and register inflight.
-        await asyncio.sleep(0.05)
-
-        # Verify inflight tracking is populated.
-        assert (
-            len(runner._inflight_deliveries) > 0
+        # Wait deterministically for inflight tracking to be populated.
+        assert await wait_until(
+            lambda: len(runner._inflight_deliveries) > 0,
+            timeout=2.0,
         ), "Expected inflight delivery tracking to be populated"
 
         # Simulate shutdown: stop accepting work and trigger drain timeout.

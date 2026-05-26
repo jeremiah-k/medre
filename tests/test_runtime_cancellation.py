@@ -18,6 +18,7 @@ Does not overlap with test_runtime_hygiene.py or test_runtime_recovery.py.
 from __future__ import annotations
 
 import asyncio
+import gc
 from contextlib import suppress
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1393,6 +1394,8 @@ class TestDrainAbandonedEvidencePersistence:
             assert r.source == "live"
         finally:
             await verify_storage.close()
+            del verify_storage
+            gc.collect()
 
     @pytest.mark.asyncio
     async def test_abandoned_receipt_failure_kind_detail(
@@ -1494,3 +1497,5 @@ class TestDrainAbandonedEvidencePersistence:
             assert report["status"] == "suppressed"
         finally:
             await verify_storage.close()
+            del verify_storage
+            gc.collect()

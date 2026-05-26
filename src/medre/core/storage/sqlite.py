@@ -985,11 +985,11 @@ class SQLiteStorage:
         db = self._db
         if db is None:
             return
-        self._db = None
         if self._use_aiosqlite:
             await db.close()
         else:
             await asyncio.to_thread(self._sync_close, db)
+        self._db = None
 
     async def count_events(self) -> int:
         """Return the total number of persisted canonical events.
