@@ -500,3 +500,52 @@ class TestMeshtasticCodecTapbackSnapshot:
         snapshot = event.metadata.native.data["decoded"]
         assert snapshot.get("replyId") == 150
         assert snapshot.get("emoji") == 1
+
+
+class TestMeshtasticCodecNodeInfo:
+    """MeshtasticCodec decode node_info longname/shortname population (lines 199-201)."""
+
+    def test_node_info_both_names_populated(self) -> None:
+        """node_info with longname and shortname → populated in event metadata."""
+        codec = MeshtasticCodec("mesh-1", _make_config())
+        packet = _make_text_packet(text="hello")
+        event = codec.decode(
+            packet,
+            node_info={"longname": "LongNode", "shortname": "LN"},
+        )
+        assert event.metadata.native is not None
+        assert event.metadata.native.data["longname"] == "LongNode"
+        assert event.metadata.native.data["shortname"] == "LN"
+
+    def test_node_info_none_empty_strings(self) -> None:
+        """node_info=None → longname and shortname are empty strings."""
+        codec = MeshtasticCodec("mesh-1", _make_config())
+        packet = _make_text_packet(text="hello")
+        event = codec.decode(packet, node_info=None)
+        assert event.metadata.native is not None
+        assert event.metadata.native.data["longname"] == ""
+        assert event.metadata.native.data["shortname"] == ""
+
+    def test_node_info_only_longname(self) -> None:
+        """node_info with only longname → shortname is empty."""
+        codec = MeshtasticCodec("mesh-1", _make_config())
+        packet = _make_text_packet(text="hello")
+        event = codec.decode(
+            packet,
+            node_info={"longname": "LongNode"},
+        )
+        assert event.metadata.native is not None
+        assert event.metadata.native.data["longname"] == "LongNode"
+        assert event.metadata.native.data["shortname"] == ""
+
+    def test_node_info_only_shortname(self) -> None:
+        """node_info with only shortname → longname is empty."""
+        codec = MeshtasticCodec("mesh-1", _make_config())
+        packet = _make_text_packet(text="hello")
+        event = codec.decode(
+            packet,
+            node_info={"shortname": "SN"},
+        )
+        assert event.metadata.native is not None
+        assert event.metadata.native.data["longname"] == ""
+        assert event.metadata.native.data["shortname"] == "SN"

@@ -1,0 +1,210 @@
+"""Tests for MatrixAdapter delivery retry, encrypted-room safety, and rate-limit paths.
+
+Covers:
+  - Lines 533-534 — encrypted room safety transient/permanent error propagation
+  - Line 555 — retry loop entry (first-attempt success)
+  - Lines 615-616 — rate-limit retry_after_ms message formatting
+
+These tests use a mock session injected directly into the adapter
+to exercise the real MatrixAdapter.deliver() method without network.
+"""
+
+from __future__ import annotations
+
+import logging
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+from medre.adapters.matrix.adapter import MatrixAdapter, _NioRateLimitError
+from medre.adapters.matrix.errors import MatrixSendError
+from medre.config.adapters.matrix import MatrixConfig
+from medre.core.contracts.adapter import (
+    AdapterContext,
+    AdapterPermanentError,
+    AdapterSendError,
+)
+from medre.core.rendering.renderer import RenderingResult
+
+
+def _make_config(**overrides) -> MatrixConfig:
+    defaults = {
+        "adapter_id": "matrix-test",
+        "homeserver": "https://matrix.example.com",
+        "user_id": "@bot:example.com",
+        "access_token": "tok",
+    }
+    defaults.update(overrides)
+    return MatrixConfig(**defaults)
+
+
+def _make_ctx() -> AdapterContext:
+    import asyncio
+    from datetime import datetime, timezone
+
+    return AdapterContext(
+        adapter_id="matrix-test",
+        event_bus=None,
+        publish_inbound=AsyncMock(),
+        logger=logging.getLogger("test.matrix-adapter-delivery"),
+        clock=lambda: datetime.now(timezone.utc),
+        shutdown_event=asyncio.Event(),
+    )
+
+
+def _make_result(
+    room_id: str = "!room:server",
+    body: str = "hello",
+) -> RenderingResult:
+    return RenderingResult(
+        event_id="evt-1",
+        target_adapter="matrix-test",
+        target_channel=room_id,
+        payload={"msgtype": "m.text", "body": body},
+        metadata={"renderer": "matrix"},
+    )
+
+
+def _make_adapter_with_session(
+    config: MatrixConfig | None = None,
+    session: MagicMock | None = None,
+) -> MatrixAdapter:
+    """Create a MatrixAdapter with a pre-injected mock session."""
+    cfg = config or _make_config()
+    adapter = MatrixAdapter(cfg)
+    adapter.ctx = _make_ctx()
+    adapter._session = session or MagicMock()
+    return adapter
+
+
+# ===================================================================
+# Encrypted room safety — lines 533-534
+# ===================================================================
+
+
+class TestEncryptedRoomSafetyErrorPropagation:
+    """Cover lines 533-534 — MatrixSendError propagation from _check_encrypted_room_safety."""
+
+    async def test_transient_send_error_raises_adapter_send_error(self) -> None:
+        session = MagicMock()
+        session.is_room_member.return_value = True
+        session.room_send = AsyncMock()
+        adapter = _make_adapter_with_session(session=session)
+
+        # Patch _check_encrypted_room_safety to raise transient MatrixSendError
+        async def _fake_deliver(result):
+            # We need to hit the try/except around _check_encrypted_room_safety
+            # directly. The simplest approach: patch the method.
+            pass
+
+        with pytest.raises(AdapterSendError) as exc_info:
+            with pytest.MonkeyPatch.context() as mp:
+                # Make _check_encrypted_room_safety raise transient MatrixSendError
+                def _raise_transient(self_inner, room_id):
+                    raise MatrixSendError("encrypted room rejected", transient=True)
+
+                mp.setattr(
+                    MatrixAdapter,
+                    "_check_encrypted_room_safety",
+                    _raise_transient,
+                )
+                await adapter.deliver(_make_result())
+
+        assert exc_info.value.transient is True
+        assert "encrypted room rejected" in str(exc_info.value)
+
+    async def test_permanent_send_error_raises_adapter_permanent_error(self) -> None:
+        session = MagicMock()
+        session.is_room_member.return_value = True
+        session.room_send = AsyncMock()
+        adapter = _make_adapter_with_session(session=session)
+
+        with pytest.raises(AdapterPermanentError) as exc_info:
+            with pytest.MonkeyPatch.context() as mp:
+
+                def _raise_permanent(self_inner, room_id):
+                    raise MatrixSendError(
+                        "encrypted room permanently blocked", transient=False
+                    )
+
+                mp.setattr(
+                    MatrixAdapter,
+                    "_check_encrypted_room_safety",
+                    _raise_permanent,
+                )
+                await adapter.deliver(_make_result())
+
+        assert "encrypted room permanently blocked" in str(exc_info.value)
+
+
+# ===================================================================
+# Retry loop first-attempt success — line 555
+# ===================================================================
+
+
+class TestDeliverRetryLoopSuccess:
+    """Cover line 555 — retry loop runs and succeeds on first attempt."""
+
+    async def test_first_attempt_success_returns_result(self) -> None:
+        session = MagicMock()
+        session.is_room_member.return_value = True
+        session.room_send = AsyncMock(return_value=SimpleNamespace(event_id="$sent-1"))
+        adapter = _make_adapter_with_session(session=session)
+
+        result = await adapter.deliver(_make_result())
+
+        assert result is not None
+        assert result.native_message_id == "$sent-1"
+        assert result.native_channel_id == "!room:server"
+        session.room_send.assert_called_once()
+
+
+# ===================================================================
+# Rate-limit retry_after_ms — line 615
+# ===================================================================
+
+
+class TestRateLimitRetryAfterMs:
+    """Cover line 615 — retry_after_ms formatting in rate-limit error."""
+
+    async def test_rate_limit_with_retry_after_ms(self) -> None:
+        session = MagicMock()
+        session.is_room_member.return_value = True
+        # First call returns a rate-limited response (no event_id)
+        SimpleNamespace()
+        # No event_id attr → triggers rate-limit check
+        # _is_nio_rate_limited_response checks for specific attributes
+        adapter = _make_adapter_with_session(session=session)
+
+        # Patch _is_nio_rate_limited_response to return True and
+        # make room_send raise _NioRateLimitError directly
+        async def _raise_rate_limit(**kwargs):
+            raise _NioRateLimitError("M_LIMIT_EXCEEDED", retry_after_ms=500)
+
+        session.room_send = AsyncMock(side_effect=_raise_rate_limit)
+
+        with pytest.raises(AdapterSendError) as exc_info:
+            await adapter.deliver(_make_result())
+
+        assert exc_info.value.transient is True
+        error_msg = str(exc_info.value)
+        assert "retry_after_ms=500" in error_msg
+        assert "rate-limited" in error_msg
+
+    async def test_rate_limit_without_retry_after_ms(self) -> None:
+        session = MagicMock()
+        session.is_room_member.return_value = True
+
+        async def _raise_rate_limit(**kwargs):
+            raise _NioRateLimitError("M_LIMIT_EXCEEDED", retry_after_ms=None)
+
+        session.room_send = AsyncMock(side_effect=_raise_rate_limit)
+        adapter = _make_adapter_with_session(session=session)
+
+        with pytest.raises(AdapterSendError) as exc_info:
+            await adapter.deliver(_make_result())
+
+        assert exc_info.value.transient is True
+        error_msg = str(exc_info.value)
+        assert "retry_after_ms" not in error_msg
