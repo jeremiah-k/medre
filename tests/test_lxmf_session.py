@@ -98,7 +98,6 @@ class TestTranche6AsyncCallbackCoroutineClose:
     async def test_async_callback_coroutine_closed_not_run(self) -> None:
         """_invoke_inbound_callback closes the coroutine when get_running_loop
         raises RuntimeError (no loop available)."""
-        closed = False
 
         async def async_cb(msg: dict[str, Any]) -> None:
             pass  # pragma: no cover

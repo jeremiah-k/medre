@@ -928,9 +928,7 @@ class LxmfSession:
         loop = self._loop
         if loop is not None and not loop.is_closed() and loop.is_running():
             try:
-                loop.call_soon_threadsafe(
-                    self._invoke_inbound_callback, normalised
-                )
+                loop.call_soon_threadsafe(self._invoke_inbound_callback, normalised)
             except RuntimeError:
                 # Loop closed between the check above and the call — drop.
                 self._logger.debug(
