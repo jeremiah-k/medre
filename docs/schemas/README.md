@@ -33,5 +33,6 @@ python -m pytest tests/test_docs_schema_examples.py -q
 
 ## Drift Detection
 
-Tests compare schema definitions against the actual `msgspec.Struct` fields.
-If a schema drifts from source, the test fails and must be updated.
+Tests compare schema required fields against example payloads and validate
+examples against schemas. If a schema drifts from its example, the test fails
+and both must be updated.

@@ -45,6 +45,7 @@ from medre.core.contracts.adapter import (
     AdapterContext,
     AdapterContract,
     AdapterInfo,
+    AdapterRole,
 )
 
 # ---------------------------------------------------------------------------
@@ -485,6 +486,12 @@ class TestHealthCheck:
             "starting",
             "stopping",
         }, f"{name}: AdapterInfo.health has invalid value: {info.health!r}"
+        assert isinstance(
+            info.role, AdapterRole
+        ), f"{name}.health_check did not return AdapterRole"
+        assert (
+            isinstance(info.version, str) and info.version
+        ), f"{name}.health_check version is empty or not a string"
 
 
 # ---------------------------------------------------------------------------
@@ -618,16 +625,22 @@ def _assert_no_credential_keys(data: Any, path: str) -> None:
         for key in data:
             key_lower = str(key).lower()
             for pattern in _CREDENTIAL_PATTERNS:
-                if pattern in key_lower and key_lower not in (
-                    "access_token",  # allowed if the value is a safe hash
-                ):
-                    # Only flag if the value looks non-empty and non-placeholder.
+                if pattern in key_lower:
                     val = data[key]
                     if val is not None and str(val).strip():
-                        # Heuristic: allow values that look like hashes or
-                        # truncated tokens in tests (e.g. "fake_tok", "tok_single").
-                        # This is a best-effort static check.
-                        pass  # Soft check — full enforcement is a runtime test.
+                        # Allow test fixtures that use obviously fake tokens.
+                        val_str = str(val)
+                        if val_str in (
+                            "fake_tok",
+                            "tok_single",
+                            "fake_token",
+                            "syt_fake",
+                        ):
+                            continue
+                        raise AssertionError(
+                            f"{path}.{key} = {val_str!r} — credential-like key "
+                            f"with non-empty value violates §3.1.5"
+                        )
             _assert_no_credential_keys(data[key], f"{path}.{key}")
     elif isinstance(data, (list, tuple)):
         for i, item in enumerate(data):

@@ -251,9 +251,11 @@ class TestDerivedEventLineage:
             # Query for any events whose parent_event_id == "derive-001".
             from medre.core.storage.backend import EventFilter
 
+            derived: list[Any] = []
             async for stored_event in temp_storage.query(EventFilter(limit=100)):
                 if getattr(stored_event, "parent_event_id", None) != "derive-001":
                     continue
+                derived.append(stored_event)
                 assert stored_event.parent_event_id == "derive-001", (
                     f"Derived event {stored_event.event_id} has "
                     f"parent_event_id={stored_event.parent_event_id!r}"
@@ -261,6 +263,11 @@ class TestDerivedEventLineage:
                 assert (
                     len(stored_event.lineage) > 0
                 ), f"Derived event {stored_event.event_id} has empty lineage"
+            assert len(derived) >= 1, (
+                "Expected at least one derived event with "
+                "parent_event_id='derive-001' but found none. "
+                "§3.2.3 requires derived events to carry lineage."
+            )
         finally:
             await runner.stop()
 
@@ -376,10 +383,27 @@ class TestDeliveryStatusFromReceipt:
     ) -> None:
         """§3.2.5: Multiple deliveries produce append-only receipts; status
         is derived from the latest."""
+        # Use a route with two targets so one ingress produces two deliveries.
+        second_target = FakeTransportAdapter(
+            adapter_id="sink",
+            channel="ch-sink",
+        )
+        multi_route = Route(
+            id="multi-route",
+            source=RouteSource(
+                adapter="src_transport",
+                event_kinds=("message.created",),
+                channel="ch-0",
+            ),
+            targets=[
+                RouteTarget(adapter="dest_presentation"),
+                RouteTarget(adapter="sink"),
+            ],
+        )
         runner = _make_runner(
             temp_storage,
-            simple_route,
-            {"dest_presentation": fake_presentation},
+            multi_route,
+            {"dest_presentation": fake_presentation, "sink": second_target},
         )
         await runner.start()
         try:
@@ -392,7 +416,17 @@ class TestDeliveryStatusFromReceipt:
             assert len(outcomes) >= 1
 
             receipts = await temp_storage.list_receipts_for_event("status-001")
-            assert len(receipts) >= 1
+            assert (
+                len(receipts) >= 2
+            ), f"Expected 2+ receipts for multi-target delivery, got {len(receipts)}"
+
+            # Verify receipts are append-only: first receipt sequence is preserved.
+            first_seq = receipts[0].sequence
+            for rcpt in receipts[1:]:
+                assert rcpt.sequence > first_seq, (
+                    "Receipts are not append-only: later receipt has sequence "
+                    f"{rcpt.sequence} <= first {first_seq} (§3.2.5)"
+                )
 
             # The latest receipt status is the current status.
             latest = receipts[-1]
@@ -462,6 +496,80 @@ class TestPolicyEvaluation:
                     o.status == "skipped" or "suppressed" in (o.error or "")
                     for o in outcomes
                 ), f"Policy did not suppress: {[o.status for o in outcomes]}"
+        finally:
+            await runner.stop()
+
+    @pytest.mark.xfail(
+        reason="Ingress/delivery policy not accessible via fake pipeline",
+        strict=False,
+    )
+    async def test_ingress_policy_suppresses_event(
+        self,
+        temp_storage: SQLiteStorage,
+        fake_presentation: FakePresentationAdapter,
+        simple_route: Route,
+    ) -> None:
+        """§3.2.6: Ingress policy should suppress events before they reach
+        routes."""
+        runner = _make_runner(
+            temp_storage,
+            simple_route,
+            {"dest_presentation": fake_presentation},
+        )
+        await runner.start()
+        try:
+            event = make_event(
+                event_id="ingress-policy-001",
+                event_kind="system.heartbeat",
+                source_adapter="src_transport",
+                payload={"text": "should be suppressed at ingress"},
+            )
+            outcomes = await runner.handle_ingress(event)
+            # Ingress-suppressed events produce no outcomes and no receipts.
+            assert (
+                len(outcomes) == 0
+            ), f"Ingress policy did not suppress: {[o.status for o in outcomes]}"
+            receipts = await temp_storage.list_receipts_for_event("ingress-policy-001")
+            assert (
+                len(receipts) == 0
+            ), "Ingress-suppressed event should not produce receipts"
+        finally:
+            await runner.stop()
+
+    @pytest.mark.xfail(
+        reason="Ingress/delivery policy not accessible via fake pipeline",
+        strict=False,
+    )
+    async def test_delivery_policy_suppresses_delivery(
+        self,
+        temp_storage: SQLiteStorage,
+        fake_presentation: FakePresentationAdapter,
+        simple_route: Route,
+    ) -> None:
+        """§3.2.6: Delivery policy should suppress delivery to specific
+        targets; suppressed deliveries produce receipts with suppressed status."""
+        runner = _make_runner(
+            temp_storage,
+            simple_route,
+            {"dest_presentation": fake_presentation},
+        )
+        await runner.start()
+        try:
+            event = make_event(
+                event_id="delivery-policy-001",
+                event_kind="message.created",
+                source_adapter="src_transport",
+                payload={"text": "delivery should be suppressed"},
+            )
+            outcomes = await runner.handle_ingress(event)
+            # Delivery-suppressed outcomes should have suppressed/skipped status.
+            if outcomes:
+                suppressed = [
+                    o for o in outcomes if o.status in ("suppressed", "skipped")
+                ]
+                assert (
+                    len(suppressed) >= 1
+                ), f"Delivery policy did not suppress: {[o.status for o in outcomes]}"
         finally:
             await runner.stop()
 
