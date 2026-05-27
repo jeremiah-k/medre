@@ -13,8 +13,7 @@ Package-level imports
 * :class:`SchemaValidationError` – schema validation failure.
 * From :mod:`~medre.core.storage.replay`:
   ``ReplayMode``, ``ReplayRequest``, ``ReplayResult``, ``ReplayEngine``,
-  ``ReplayRouteAttribution``, ``ReplaySummary``, ``collect_replay_summary``,
-  ``_build_summary``.
+  ``ReplayRouteAttribution``, ``ReplaySummary``, ``collect_replay_summary``.
 """
 
 from medre.core.storage.backend import (
@@ -35,7 +34,6 @@ from medre.core.storage.replay import (
     ReplayResult,
     ReplayRouteAttribution,
     ReplaySummary,
-    _build_summary,
     collect_replay_summary,
 )
 from medre.core.storage.sqlite import SQLiteStorage
@@ -57,6 +55,5 @@ __all__ = [
     "StorageError",
     "StorageGuarantees",
     "StorageInitializationError",
-    "_build_summary",
     "collect_replay_summary",
 ]

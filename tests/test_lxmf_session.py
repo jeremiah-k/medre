@@ -7,6 +7,8 @@ All tests use fake mode or mocks — no real Reticulum/LXMF dependency required.
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -83,6 +85,46 @@ class TestLxmfSessionFakeLifecycle:
             assert session.connected is True
             await session.stop()
             assert session.connected is False
+
+
+# ===================================================================
+# Tranche 6: Async callback coroutine close (no asyncio.run fallback)
+# ===================================================================
+
+
+class TestTranche6AsyncCallbackCoroutineClose:
+    """When no running loop is available, async callback coroutines are
+    closed (not run via asyncio.run) to avoid cross-thread loop creation."""
+
+    async def test_async_callback_coroutine_closed_not_run(self) -> None:
+        """_invoke_inbound_callback closes the coroutine when get_running_loop
+        raises RuntimeError (no loop available)."""
+
+        async def async_cb(msg: dict[str, Any]) -> None:
+            pass  # pragma: no cover
+
+        session = _make_session(connection_type="fake")
+        await session.start(message_callback=async_cb)
+
+        # Monkey-patch asyncio.get_running_loop to raise RuntimeError
+        # (simulating being called from a non-asyncio thread context).
+        import asyncio as _asyncio
+
+        original = _asyncio.get_running_loop
+        _asyncio.get_running_loop = MagicMock(side_effect=RuntimeError("no loop"))
+
+        try:
+            # This should NOT raise. The coroutine should be closed.
+            session._invoke_inbound_callback({"content": "test"})
+
+            # Give the loop a turn to process any scheduled work.
+            await asyncio.sleep(0)
+        finally:
+            _asyncio.get_running_loop = original
+
+        # Session must remain operational.
+        assert session.connected is True
+        await session.stop()
 
     async def test_connected_false_before_start(self) -> None:
         session = _make_session(connection_type="fake")
@@ -751,4 +793,598 @@ class TestFakeSendReturnsAdapterDeliveryResult:
         )
         assert native_id is not None
         assert state == LxmfDeliveryState.OUTBOUND
+        await session.stop()
+
+
+# ===================================================================
+# Tranche 5: Callback threading safety
+# ===================================================================
+
+
+class TestTranche5CallbackThreadingSafety:
+    """Thread→asyncio bridge safety for inbound callbacks.
+
+    Reticulum/LXMF fire delivery callbacks from background daemon
+    threads, not from the asyncio event loop.  The session must handle
+    this boundary safely.
+    """
+
+    async def test_inject_inbound_with_async_callback(self) -> None:
+        """inject_inbound schedules an async callback on the running loop."""
+        received: list[dict[str, Any]] = []
+
+        async def async_callback(msg: dict[str, Any]) -> None:
+            received.append(msg)
+
+        session = _make_session(connection_type="fake")
+        await session.start(message_callback=async_callback)
+
+        packet = {"content": "async-test", "source_hash": "ab" * 16}
+        session.inject_inbound(packet)
+
+        # Give the event loop a turn to process the scheduled coroutine.
+        await asyncio.sleep(0.05)
+
+        assert len(received) == 1
+        assert received[0]["content"] == "async-test"
+        await session.stop()
+
+    async def test_inject_inbound_with_sync_callback(self) -> None:
+        """inject_inbound calls sync callbacks directly."""
+        received: list[dict[str, Any]] = []
+
+        def sync_callback(msg: dict[str, Any]) -> None:
+            received.append(msg)
+
+        session = _make_session(connection_type="fake")
+        await session.start(message_callback=sync_callback)
+
+        packet = {"content": "sync-test", "source_hash": "ab" * 16}
+        session.inject_inbound(packet)
+
+        assert len(received) == 1
+        assert received[0]["content"] == "sync-test"
+        await session.stop()
+
+    async def test_callback_exception_does_not_crash_session(self) -> None:
+        """A failing callback in _on_lxmf_delivery does not leave the
+        session in a bad state (callback errors are caught and logged)."""
+
+        def bad_callback(msg: dict[str, Any]) -> None:
+            raise RuntimeError("callback explosion")
+
+        session = _make_session(connection_type="fake")
+        await session.start(message_callback=bad_callback)
+
+        # _on_lxmf_delivery wraps the callback call in try/except.
+        # Build a fake message that _normalise_inbound_message can handle.
+        class FakeMsg:
+            source_hash = b"\x01" * 16
+            destination_hash = b"\x02" * 16
+            hash = b"\x03" * 32
+            timestamp = 1.0
+            content = "boom"
+            title = ""
+            fields = {}
+            signature_validated = True
+            method = None
+
+        # Should not raise — _on_lxmf_delivery absorbs callback errors.
+        session._on_lxmf_delivery(FakeMsg())
+
+        # Give the event loop a turn to process the scheduled callback
+        # (which will fail) via call_soon_threadsafe.
+        await asyncio.sleep(0)
+
+        assert session.connected is True
+        await session.stop()
+
+
+# ===================================================================
+# Tranche 6: Post-stop callback guard
+# ===================================================================
+
+
+class TestTranche6PostStopCallbackGuard:
+    """Late SDK callbacks after stop() are silently dropped."""
+
+    async def test_callback_not_invoked_after_stop(self) -> None:
+        """After stop(), _on_lxmf_delivery drops the message and does not
+        invoke the user callback."""
+        received: list[dict[str, Any]] = []
+
+        def callback(msg: dict[str, Any]) -> None:
+            received.append(msg)
+
+        session = _make_session(connection_type="fake")
+        await session.start(message_callback=callback)
+
+        # Deliver while running — should succeed.
+        class FakeMsg:
+            source_hash = b"\x01" * 16
+            destination_hash = b"\x02" * 16
+            hash = b"\x03" * 32
+            timestamp = 1.0
+            content = "before-stop"
+            title = ""
+            fields = {}
+            signature_validated = True
+            method = None
+
+        session._on_lxmf_delivery(FakeMsg())
+        await asyncio.sleep(0)
+        assert len(received) == 1
+
+        # Stop the session.
+        await session.stop()
+
+        # Late callback after stop — must be dropped.
+        session._on_lxmf_delivery(FakeMsg())
+        await asyncio.sleep(0)
+        assert len(received) == 1, "Callback must not fire after stop()"
+
+    async def test_stop_clears_callback_and_loop(self) -> None:
+        """stop() nullifies _message_callback and _loop."""
+        session = _make_session(connection_type="fake")
+        await session.start(message_callback=lambda msg: None)
+
+        assert session._message_callback is not None
+        assert session._loop is not None
+
+        await session.stop()
+
+        assert session._message_callback is None
+        assert session._loop is None
+
+
+# ===================================================================
+# Tranche 5: Send return semantics
+# ===================================================================
+
+
+class TestTranche5SendReturnSemantics:
+    """send_text returns honest local-acceptance, NOT delivery confirmation."""
+
+    async def test_fake_send_state_is_outbound_not_delivered(self) -> None:
+        """Fake send returns OUTBOUND — the message is locally queued,
+        not confirmed delivered."""
+        session = _make_session(connection_type="fake")
+        await session.start()
+        _, state = await session.send_text("ab" * 16, "hello")
+        assert state == LxmfDeliveryState.OUTBOUND
+        assert state != LxmfDeliveryState.DELIVERED
+        assert state != LxmfDeliveryState.SENT
+        await session.stop()
+
+    async def test_fake_send_state_is_outbound_not_sending(self) -> None:
+        """Fake send never claims to be actively transmitting."""
+        session = _make_session(connection_type="fake")
+        await session.start()
+        _, state = await session.send_text("ab" * 16, "hello")
+        assert state != LxmfDeliveryState.SENDING
+        await session.stop()
+
+    async def test_concurrent_sends_produce_unique_ids(self) -> None:
+        """Concurrent send_text calls produce distinct message IDs."""
+        session = _make_session(connection_type="fake")
+        await session.start()
+
+        results = await asyncio.gather(
+            session.send_text("ab" * 16, "msg-a"),
+            session.send_text("ab" * 16, "msg-b"),
+            session.send_text("ab" * 16, "msg-c"),
+        )
+        ids = {r[0] for r in results}
+        assert len(ids) == 3, f"Expected 3 unique IDs, got {len(ids)}"
+        await session.stop()
+
+
+# ===================================================================
+# Tranche 5: Full delivery state transition chain
+# ===================================================================
+
+
+class TestTranche5DeliveryStateTransitions:
+    """Verify the full outbound→sending→sent→delivered transition chain."""
+
+    async def test_outbound_to_delivered_via_callback(self) -> None:
+        """Simulating delivery callback transitions state through to
+        DELIVERED and then untracks the terminal entry."""
+        session = _make_session(connection_type="fake")
+        await session.start()
+
+        native_id, state = await session.send_text("ab" * 16, "hello")
+        assert state == LxmfDeliveryState.OUTBOUND
+        assert native_id in session._outbound_deliveries
+
+        # Transition through intermediate states — entry stays tracked.
+        for new_state in (
+            LxmfDeliveryState.SENDING,
+            LxmfDeliveryState.SENT,
+        ):
+
+            class _Msg:
+                hash = native_id
+                state = new_state
+
+            session._on_delivery_state_update(_Msg())
+            await asyncio.sleep(0)  # yield for call_soon_threadsafe bridge
+            if new_state != LxmfDeliveryState.DELIVERED:
+                assert native_id in session._outbound_deliveries
+
+        # Final transition to DELIVERED — terminal, entry untracked.
+        class _DeliveredMsg:
+            hash = native_id
+            state = LxmfDeliveryState.DELIVERED
+
+        session._on_delivery_state_update(_DeliveredMsg())
+        await asyncio.sleep(0)  # yield for call_soon_threadsafe bridge
+        assert native_id not in session._outbound_deliveries
+        await session.stop()
+
+    async def test_outbound_to_failed_via_callback(self) -> None:
+        """FAILED is terminal — entry untracked, counter incremented."""
+        session = _make_session(connection_type="fake")
+        await session.start()
+
+        native_id, _ = await session.send_text("ab" * 16, "hello")
+        initial_failures = session.permanent_delivery_failures
+
+        class _FailedMsg:
+            hash = native_id
+            state = LxmfDeliveryState.FAILED
+
+        session._on_delivery_state_update(_FailedMsg())
+        await asyncio.sleep(0)  # yield for call_soon_threadsafe bridge
+        assert native_id not in session._outbound_deliveries
+        assert session.permanent_delivery_failures == initial_failures + 1
+        await session.stop()
+
+    async def test_outbound_to_rejected_via_callback(self) -> None:
+        """REJECTED is terminal — entry untracked, counter incremented."""
+        session = _make_session(connection_type="fake")
+        await session.start()
+
+        native_id, _ = await session.send_text("ab" * 16, "hello")
+        initial_failures = session.permanent_delivery_failures
+
+        class _RejectedMsg:
+            hash = native_id
+            state = LxmfDeliveryState.REJECTED
+
+        session._on_delivery_state_update(_RejectedMsg())
+        await asyncio.sleep(0)  # yield for call_soon_threadsafe bridge
+        assert native_id not in session._outbound_deliveries
+        assert session.permanent_delivery_failures == initial_failures + 1
+        await session.stop()
+
+    async def test_unknown_message_hash_ignored(self) -> None:
+        """Delivery callback for an untracked hash is silently ignored."""
+        session = _make_session(connection_type="fake")
+        await session.start()
+
+        class _UnknownMsg:
+            hash = "nonexistent-hash"
+            state = LxmfDeliveryState.DELIVERED
+
+        # Should not raise or affect tracking.
+        session._on_delivery_state_update(_UnknownMsg())
+        await asyncio.sleep(0)  # yield for call_soon_threadsafe bridge
+        assert sum(session.delivery_state_counts().values()) == 0
+        await session.stop()
+
+
+# ===================================================================
+# Tranche 5: Bounded outbound tracking — cleanup on completion
+# ===================================================================
+
+
+class TestTranche5BoundedOutboundCleanup:
+    """Outbound tracking entries are removed when reaching terminal state,
+    preventing unbounded growth in long-duration runs."""
+
+    async def test_terminal_states_clean_up_tracking(self) -> None:
+        """After delivery reaches a terminal state, the entry is removed."""
+        session = _make_session(connection_type="fake")
+        await session.start()
+
+        ids: list[str] = []
+        for i in range(5):
+            nid, _ = await session.send_text("ab" * 16, f"msg-{i}")
+            assert nid is not None
+            ids.append(nid)
+
+        # Simulate delivery for first 3 messages.
+        for nid in ids[:3]:
+
+            class _Msg:
+                hash = nid
+                state = LxmfDeliveryState.DELIVERED
+
+            session._on_delivery_state_update(_Msg())
+
+        # Yield for call_soon_threadsafe bridge to process all updates.
+        await asyncio.sleep(0)
+
+        # First 3 should be untracked, last 2 still tracked.
+        for nid in ids[:3]:
+            assert nid not in session._outbound_deliveries
+        for nid in ids[3:]:
+            assert nid in session._outbound_deliveries
+
+        counts = session.delivery_state_counts()
+        assert counts.get("outbound", 0) == 2
+        assert counts.get("delivered", 0) == 0  # delivered entries were untracked
+        await session.stop()
+
+
+# ===================================================================
+# Tranche 6: Failed-start callback/loop cleanup
+# ===================================================================
+
+
+class TestTranche6FailedStartCleanup:
+    """Failed LXMF start clears _message_callback, _loop, and diagnostics."""
+
+    async def test_real_start_failure_clears_callback_and_loop(self) -> None:
+        """Real-mode start failure clears _message_callback and _loop."""
+        session = _make_session(connection_type="reticulum")
+
+        def callback(msg: dict[str, Any]) -> None:
+            pass
+
+        with patch("medre.adapters.lxmf.session.HAS_LXMF", False):
+            with pytest.raises(LxmfConnectionError, match="not installed"):
+                await session.start(message_callback=callback)
+
+        assert session._started is False
+        assert session._message_callback is None
+        assert session._loop is None
+
+    async def test_real_start_failure_diagnostics_clean(self) -> None:
+        """Diagnostics after failed start report not connected/reconnecting."""
+        session = _make_session(connection_type="reticulum")
+
+        with patch("medre.adapters.lxmf.session.HAS_LXMF", False):
+            with pytest.raises(LxmfConnectionError):
+                await session.start()
+
+        assert session.connected is False
+        assert session.router_running is False
+        assert session.reconnecting is False
+
+    async def test_partial_start_teardown_clears_sdk_objects(self) -> None:
+        """When _connect_real creates SDK objects but then fails,
+        _teardown_sdk clears _reticulum, _identity, _router."""
+        session = _make_session(connection_type="reticulum")
+
+        mock_rns = MagicMock()
+        mock_lxmf = MagicMock()
+        mock_rns.Reticulum.get_instance.return_value = None
+        mock_rns.Reticulum.return_value = MagicMock()
+        mock_rns.Identity.return_value = MagicMock()
+        # LXMRouter creation fails after Reticulum + Identity succeed.
+        mock_lxmf.LXMRouter.side_effect = ValueError("storage_path invalid")
+
+        with (
+            patch("medre.adapters.lxmf.session.HAS_LXMF", True),
+            patch(
+                "medre.adapters.lxmf.session._require_lxmf",
+                return_value=(mock_rns, mock_lxmf),
+            ),
+        ):
+            with pytest.raises(LxmfConnectionError):
+                await session.start()
+
+        assert session._reticulum is None
+        assert session._identity is None
+        assert session._router is None
+        assert session._message_callback is None
+        assert session._loop is None
+        assert session.connected is False
+
+
+# ===================================================================
+# Tranche 6: Async callback exception handling
+# ===================================================================
+
+
+class TestTranche6AsyncCallbackException:
+    """Async callback exceptions are consumed/logged, not unhandled."""
+
+    async def test_async_callback_exception_consumed(self) -> None:
+        """Async callback that raises does not crash the session."""
+        received: list[dict[str, Any]] = []
+
+        async def bad_async(msg: dict[str, Any]) -> None:
+            received.append(msg)
+            raise RuntimeError("async callback explosion")
+
+        session = _make_session(connection_type="fake")
+        await session.start(message_callback=bad_async)
+
+        session.inject_inbound({"content": "trigger"})
+
+        # Give the event loop a turn to run the scheduled task.
+        await asyncio.sleep(0.05)
+
+        # Callback was invoked (received the message) and exception
+        # was consumed by the done callback — session survives.
+        assert len(received) == 1
+        assert session.connected is True
+        await session.stop()
+
+    async def test_sync_callback_exception_still_caught(self) -> None:
+        """Sync callback exception in inject_inbound is caught."""
+
+        def bad_sync(msg: dict[str, Any]) -> None:
+            raise RuntimeError("sync callback explosion")
+
+        session = _make_session(connection_type="fake")
+        await session.start(message_callback=bad_sync)
+
+        # Should not raise — exception caught in inject_inbound.
+        session.inject_inbound({"content": "trigger"})
+
+        assert session.connected is True
+        await session.stop()
+
+
+# ===================================================================
+# Tranche 6: No callback when loop is None/not running
+# ===================================================================
+
+
+class TestTranche6NoCallbackWithoutLoop:
+    """Inbound callbacks are never invoked directly on Reticulum threads
+    when no valid asyncio loop is available."""
+
+    async def test_no_callback_when_loop_none(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """_on_lxmf_delivery drops callback when _loop is None."""
+        received: list[dict[str, Any]] = []
+
+        def callback(msg: dict[str, Any]) -> None:
+            received.append(msg)
+
+        session = _make_session(connection_type="fake")
+        await session.start(message_callback=callback)
+
+        # Simulate loop being cleared (as if start failed or stop cleared it).
+        session._loop = None
+
+        class FakeMsg:
+            source_hash = b"\x01" * 16
+            destination_hash = b"\x02" * 16
+            hash = b"\x03" * 32
+            timestamp = 1.0
+            content = "dropped"
+            title = ""
+            fields = {}
+            signature_validated = True
+            method = None
+
+        with caplog.at_level(logging.WARNING):
+            session._on_lxmf_delivery(FakeMsg())
+
+        await asyncio.sleep(0)
+
+        # Callback must NOT have been invoked.
+        assert len(received) == 0
+
+        # Warning should be logged.
+        assert any("dropping inbound callback" in r.message for r in caplog.records)
+
+        await session.stop()
+
+    async def test_no_callback_when_loop_not_running(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """_on_lxmf_delivery drops callback when loop is not running."""
+        received: list[dict[str, Any]] = []
+
+        def callback(msg: dict[str, Any]) -> None:
+            received.append(msg)
+
+        session = _make_session(connection_type="fake")
+        await session.start(message_callback=callback)
+
+        # Replace loop with a non-running mock.
+        mock_loop = MagicMock()
+        mock_loop.is_running.return_value = False
+        session._loop = mock_loop
+
+        class FakeMsg:
+            source_hash = b"\x01" * 16
+            destination_hash = b"\x02" * 16
+            hash = b"\x03" * 32
+            timestamp = 1.0
+            content = "dropped"
+            title = ""
+            fields = {}
+            signature_validated = True
+            method = None
+
+        with caplog.at_level(logging.WARNING):
+            session._on_lxmf_delivery(FakeMsg())
+
+        await asyncio.sleep(0)
+
+        assert len(received) == 0
+        assert any("dropping inbound callback" in r.message for r in caplog.records)
+
+        await session.stop()
+
+
+# ===================================================================
+# Tranche 6: Delivery state thread-safe bridging
+# ===================================================================
+
+
+class TestTranche6DeliveryStateBridging:
+    """Delivery state updates are bridged onto the asyncio loop."""
+
+    async def test_state_update_works_via_bridge(self) -> None:
+        """State update via _on_delivery_state_update reaches tracking."""
+        session = _make_session(connection_type="fake")
+        await session.start()
+
+        native_id, _ = await session.send_text("ab" * 16, "hello")
+
+        class _Msg:
+            hash = native_id
+            state = LxmfDeliveryState.SENT
+
+        session._on_delivery_state_update(_Msg())
+
+        # In fake mode, the loop IS running, so call_soon_threadsafe
+        # schedules on the loop.  Give it a turn.
+        await asyncio.sleep(0)
+
+        delivery = session._outbound_deliveries.get(native_id)
+        assert delivery is not None
+        assert delivery.state == LxmfDeliveryState.SENT
+
+        await session.stop()
+
+    async def test_unknown_hash_ignored_via_bridge(self) -> None:
+        """Unknown hash delivery state update is silently ignored."""
+        session = _make_session(connection_type="fake")
+        await session.start()
+
+        class _Msg:
+            hash = "nonexistent-hash"
+            state = LxmfDeliveryState.DELIVERED
+
+        session._on_delivery_state_update(_Msg())
+        await asyncio.sleep(0)
+
+        assert sum(session.delivery_state_counts().values()) == 0
+        await session.stop()
+
+    async def test_no_thread_exception_from_bridge(self) -> None:
+        """State update with dead loop is dropped — no direct-apply."""
+        session = _make_session(connection_type="fake")
+        await session.start()
+
+        native_id, _ = await session.send_text("ab" * 16, "hello")
+
+        # Simulate a dead loop.
+        mock_loop = MagicMock()
+        mock_loop.is_running.return_value = False
+        session._loop = mock_loop
+
+        class _Msg:
+            hash = native_id
+            state = LxmfDeliveryState.FAILED
+
+        # Should not raise — update is dropped when loop is not running.
+        session._on_delivery_state_update(_Msg())
+
+        # State must NOT have changed (direct-apply was removed).
+        delivery = session._outbound_deliveries.get(native_id)
+        assert delivery is not None
+        assert delivery.state == LxmfDeliveryState.OUTBOUND
+
         await session.stop()

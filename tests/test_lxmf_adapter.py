@@ -1023,6 +1023,9 @@ class TestDeliveryCallbackMarksDelivered:
 
         session._on_delivery_state_update(MockDeliveredMessage())
 
+        # Yield to allow call_soon_threadsafe bridge to execute
+        await asyncio.sleep(0)
+
         # After delivery callback, entry should be untracked (terminal state)
         assert native_id not in session._outbound_deliveries
         await adapter.stop()
@@ -1048,6 +1051,7 @@ class TestDeliveryCallbackMarksDelivered:
 
         # Should not raise
         adapter.session._on_delivery_state_update(MockDeliveredMessage())
+        await asyncio.sleep(0)
         await adapter.stop()
 
 
@@ -1081,6 +1085,9 @@ class TestDeliveryCallbackMarksFailed:
 
         adapter.session._on_delivery_state_update(MockFailedMessage())
 
+        # Yield to allow call_soon_threadsafe bridge to execute
+        await asyncio.sleep(0)
+
         # Failed is terminal — entry should be untracked
         assert native_id not in adapter.session._outbound_deliveries
         # Failure counter should have incremented
@@ -1109,6 +1116,9 @@ class TestDeliveryCallbackMarksFailed:
             state = LxmfDeliveryState.REJECTED
 
         adapter.session._on_delivery_state_update(MockRejectedMessage())
+
+        # Yield to allow call_soon_threadsafe bridge to execute
+        await asyncio.sleep(0)
 
         assert native_id not in adapter.session._outbound_deliveries
         assert adapter.session.permanent_delivery_failures == initial_failures + 1
@@ -1342,3 +1352,41 @@ class TestFakeLxmfAdapterRepeatedStop:
         await adapter.stop()
         await adapter.stop()
         assert adapter.is_started is False
+
+
+# ===================================================================
+# Honest delivery semantics
+# ===================================================================
+
+
+class TestLxmfAdapterDeliverHonestDeliverySemantics:
+    """LxmfAdapter.deliver() returns honest delivery status and note."""
+
+    async def test_deliver_returns_sent_status_with_honest_note(
+        self, make_adapter_context
+    ) -> None:
+        """deliver() returns delivery_status='sent' (local acceptance) with
+        an honest delivery_note explaining async delivery is pending."""
+        config = _make_config(connection_type="fake")
+        adapter = LxmfAdapter(config)
+        ctx = make_adapter_context("lxmf-1")
+        await adapter.start(ctx)
+
+        result = _make_rendering_result(
+            payload={
+                "content": "hello honest delivery",
+                "title": "",
+                "fields": {},
+                "destination_hash": "ab" * 16,
+            },
+        )
+        delivery = await adapter.deliver(result)
+
+        assert delivery is not None
+        assert delivery.delivery_status == "sent"
+        assert delivery.delivery_note != ""
+        assert "accepted" in delivery.delivery_note.lower()
+        assert "async" in delivery.delivery_note.lower()
+        assert delivery.metadata["lxmf"]["delivery_state"] == "outbound"
+
+        await adapter.stop()

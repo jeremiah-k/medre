@@ -3,7 +3,7 @@
 > **Status:** Superseded
 > **Classification:** Superseded
 > **Authority:** Superseded by `22-delivery-semantics-matrix.md` (delivery behavior) and `23-identity-and-addressing.md` (identity)
-> **Last reviewed:** 2026-05-24
+> **Last reviewed:** 2026-05-26
 
 ## Overview
 
@@ -165,3 +165,16 @@ These aren't problems today. They're documented as pressure points that will nee
 With Matrix (presentation), Meshtastic (constrained transport), and MeshCore (constrained transport) all implemented, the architecture has enough diversity to validate its protocol-neutral claims. The abstractions that are genuinely protocol-neutral hold across all three. The abstractions that leak (relation semantics, single-scalar native_message_id) are now identified and documented.
 
 Adding a fourth transport (LXMF, MQTT, AX.25) would stress-test the same seams but wouldn't reveal new categories of problems. The three-transport coverage is enough to be confident in the architecture's neutrality bounds.
+
+## Tranche 4 Update: MeshCore Maturation (2026-05-26)
+
+Tranche 4 (`t4-meshcore-maturation`) hardened the MeshCore session lifecycle without changing the comparison table's structural findings. The comparison dimensions remain accurate. Key changes:
+
+| Dimension                | Pre-T4                  | Post-T4                                                                                                                                                        |
+| ------------------------ | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Startup backlog suppress | Deferred (no backlog)   | **Confirmed intentionally absent** — MeshCore has no store-and-forward; suppressing live events would risk dropping fresh traffic. Tested and documented.      |
+| Send retry               | None at adapter level   | **Session-level bounded retry** — `send_text()` retries transient failures up to 3 times; SDK ERROR responses classified as permanent. No adapter-level queue. |
+| Reconnect                | None at adapter level   | **Session-level bounded exponential backoff** — 1s→30s cap, ±25% jitter, max 10 attempts. SDK-level auto-reconnect also available.                             |
+| Renderer byte budget     | Implemented, not tested | **Full test coverage** — UTF-8 byte-budget truncation verified for ASCII, multi-byte (2/3/4-byte codepoints), mixed, and edge cases.                           |
+
+No comparison table columns changed. The MeshCore column remains accurate as documented. The "accidentally Meshtastic-shaped" findings (relation semantics, single-scalar native_message_id) are unchanged and documented in `23-identity-and-addressing.md`.

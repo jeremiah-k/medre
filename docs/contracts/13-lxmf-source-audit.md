@@ -294,6 +294,33 @@ send/receive requires Reticulum.
 
 ---
 
+## Tranche 5: Hardening Findings
+
+> **Added:** 2026-05-26
+> **Scope:** Test coverage, documentation audit, and delivery/threading hardening.
+
+### Findings
+
+1. **Delivery state model is well-tested.** The `LxmfDeliveryState` enum maps all nine LXMF states (generating, outbound, sending, sent, delivered, failed, rejected, cancelled, unknown). The `_map_delivery_state()` helper correctly handles `int`, `str`, `None`, and unknown inputs. Terminal states (delivered, failed, rejected, cancelled) now have explicit untracking tests.
+
+2. **Bounded outbound tracking is verified.** `_MAX_OUTBOUND_DELIVERIES` (1000) is enforced with FIFO eviction. Tests confirm oldest entries are evicted first and `delivery_state_counts()` reflects only tracked entries. Terminal-state cleanup prevents unbounded growth.
+
+3. **Inbound normalisation is thorough.** `_normalise_inbound_message()` handles bytes, str, and missing attributes for all fields (source_hash, destination_hash, content, title, fields, timestamp, signature_validated, method). No raw SDK objects leak past the session boundary.
+
+4. **Thread→asyncio bridge uses `call_soon_threadsafe`.** `_on_lxmf_delivery()` fires on Reticulum daemon threads. The session normalises the `LXMessage` into a plain dict on the calling thread (pure CPU work, safe), then bridges onto the captured asyncio loop via `loop.call_soon_threadsafe(self._invoke_inbound_callback, normalised)`. This avoids calling `asyncio.create_task()` from a non-loop thread. Tranche 5 adds tests for sync and async callback dispatch, but real Reticulum thread callbacks remain untested.
+
+5. **Send return semantics are honest.** `send_text()` returns `(native_id, OUTBOUND)` in fake mode — never claiming delivered or sent. This is verified by Tranche 5 tests.
+
+### Remaining Gaps
+
+| Gap                                                       | Risk   | Mitigation                                                 |
+| --------------------------------------------------------- | ------ | ---------------------------------------------------------- |
+| No real Reticulum thread callback testing                 | Medium | Live harness (`test_lxmf_live.py`) when hardware available |
+| `delivery_method` mapping relies on string match fallback | Low    | Works for known values; unknown → `None` is safe           |
+| No stress test for concurrent send + delivery callbacks   | Low    | Bounded tracking cap prevents unbounded growth             |
+
+---
+
 _This document was produced by auditing available reference sources. It does
 not replace live transport testing. All findings are based on source code
 analysis, not running Reticulum network captures._

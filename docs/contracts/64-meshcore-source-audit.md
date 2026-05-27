@@ -3,10 +3,10 @@
 > **Status:** Historical
 > **Classification:** Audit
 > **Authority:** Point-in-time audit of MeshCore SDK; not current authority for adapter behaviour
-> **Last reviewed:** 2026-05-24
+> **Last reviewed:** 2026-05-26
 >
-> Contract version: 1
-> Last updated: 2026-05-08
+> Contract version: 2
+> Last updated: 2026-05-26
 
 This document records findings from auditing MEDRE's MeshCore adapter
 assumptions against the MeshCore Python library
@@ -325,7 +325,11 @@ Optional, configurable `max_attempts`. Not enabled by default.
 
 ---
 
-## 11. MEDRE Assumptions Still Scaffold
+## 11. MEDRE Assumptions Initially Scaffold (Historical Baseline)
+
+> **Warning:** Do not read this table as current state; current state is in §12.
+
+> **Note:** Several items in this table were resolved in Tranche 4 (see §12.1) and Tranche 6 (see §12.4). This table is preserved as the historical baseline. See §12.2 for remaining scaffold items.
 
 | MEDRE Assumption                      | Status                                           | Action Required                                      |
 | ------------------------------------- | ------------------------------------------------ | ---------------------------------------------------- |
@@ -338,6 +342,57 @@ Optional, configurable `max_attempts`. Not enabled by default.
 | `txt_type` field handling             | **Scaffold**. Values not documented.             | Map txt_type to MEDRE text categories when known.    |
 | Payload size limits                   | **Scaffold**. 255-byte frame limit not enforced. | Enforce in renderer/adapter.                         |
 | Reconnection behavior                 | **Scaffold**. Auto-reconnect not wired.          | Configure `max_attempts` in connection setup.        |
+
+---
+
+## 12. Tranche 4 Resolution (2026-05-26)
+
+Tranche 4 (`t4-meshcore-maturation`) resolved several scaffold items from section 11 through lifecycle hardening in `MeshCoreSession` and renderer byte budget verification. Production session code was hardened (reconnect, error classification, callback normalization); no new adapter features were added.
+
+### 12.1 Gaps Closed
+
+| MEDRE Assumption                      | Pre-T4 Status                                | Post-T4 Status                    | Resolution                                                                                                              |
+| ------------------------------------- | -------------------------------------------- | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Connection lifecycle (TCP/serial/BLE) | Scaffold — no real connection code           | **Verified via mocked SDK tests** | `MeshCoreSession` wires `create_tcp`, `create_serial`, `create_ble` factory calls; mocked tests verify constructor args |
+| Event subscription wiring             | Scaffold — no subscription logic             | **Verified via mocked SDK tests** | Session subscribes to CONTACT_MSG_RECV, CHANNEL_MSG_RECV, DISCONNECTED; mocked tests verify 3 subscriptions registered  |
+| Outbound send with retry              | Scaffold — no retry                          | **Implemented in session**        | `send_text()` retries transient failures up to 3 times; SDK ERROR classified as permanent; counters tracked             |
+| Reconnection behavior                 | Scaffold — auto-reconnect not wired          | **Implemented in session**        | Bounded exponential backoff (1s → 30s cap, ±25% jitter, max 10 attempts) in `_reconnect_loop()`                         |
+| Inbound callback normalization        | Scaffold — no normalization                  | **Implemented in session**        | `_on_sdk_event()` extracts dict from SDK Event, normalizes non-dict payloads to `{}`, catches callback exceptions       |
+| Payload size limits (renderer)        | Scaffold — 255-byte frame limit not enforced | **Verified via tests**            | `_truncate_utf8_bytes()` enforces configurable `max_text_bytes` (default 512); multi-byte codepoints never split        |
+
+### 12.2 Gaps Still Scaffold
+
+| MEDRE Assumption                              | Status                                       | Action Required                                      |
+| --------------------------------------------- | -------------------------------------------- | ---------------------------------------------------- |
+| Contact-based sender resolution               | **Scaffold**. No contact list lookup.        | Map `pubkey_prefix` to contact for sender identity.  |
+| Channel message routing with attribute filter | **Scaffold**. No attribute-based filtering.  | Subscribe to CHANNEL_MSG_RECV with attribute filter. |
+| Flood message handling                        | **Scaffold**. No flood send/receive support. | Future tranche.                                      |
+| `txt_type` field handling                     | **Scaffold**. Values not documented.         | Map txt_type to MEDRE text categories when known.    |
+| ACK / delivery confirmation tracking          | **Scaffold**. `expected_ack` not correlated. | Implement ACK watcher for delivery receipts.         |
+
+### 12.3 Remaining Unverified (Hardware Required)
+
+All items from section 9 remain unverified. Tranche 4 added no hardware validation. Mocked SDK tests verify API wiring but not real radio behavior.
+
+### 12.4 Tranche 6 Resolution (2026-05-26)
+
+Tranche 6 (`t6-evidence-diagnostics`) added session hardening: failed-start cleanup via `_cleanup_failed_start()`, sync+async callback docstring accuracy, and corresponding tests. Production session code was modified to fix edge cases in startup cleanup.
+
+#### Gaps Closed
+
+| MEDRE Assumption                  | Pre-T6 Status                                | Post-T6 Status         | Resolution                                                                                                      |
+| --------------------------------- | -------------------------------------------- | ---------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Sync callback handling            | Not tested — sync callbacks caused TypeError | **Verified via tests** | `_on_sdk_event()` checks `asyncio.iscoroutine()` before awaiting; sync callbacks no longer produce false errors |
+| Failed-start cleanup              | Not tested — failed start left stale state   | **Verified via tests** | `start()` wraps `_connect_real()` in try/except; on failure clears `_message_callback`                          |
+| Inbound callback exception safety | Partial — callback exceptions untested       | **Verified via tests** | Fire-and-forget tasks have `_log_task_exception()` done callback; exceptions logged, not swallowed              |
+
+#### Gaps Still Scaffold
+
+Same as §12.2. Tranche 6 did not close any additional scaffold items beyond session edge-case hardening.
+
+#### Remaining Unverified
+
+Same as §12.3. Tranche 6 added no hardware validation.
 
 ---
 

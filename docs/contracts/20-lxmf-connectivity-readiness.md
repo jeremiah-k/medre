@@ -6,19 +6,19 @@
 > **Last reviewed:** 2026-05-24
 >
 > Contract version: 2
-> Last updated: 2026-05-12
+> Last updated: 2026-05-26
 > Track: 1 (Contract)
 > Supersedes: Nothing. Supplements contracts 13, 14, 16, 18.
 
 This document consolidates all confirmed, inferred, and unknown findings
 about the LXMF and Reticulum SDKs into a single connectivity readiness
 assessment. It is the authoritative reference for what the SDK provides,
-what the MEDRE adapter scaffold currently looks like, and what remains
+what the MEDRE adapter currently implements, and what remains
 genuinely unknown until someone runs code against a real Reticulum
 network.
 
 **No production LXMF/Reticulum connectivity is claimed.
-The adapter supports `connection_type="reticulum"` for real Reticulum/LXMF operation via `LxmfSession` when optional dependencies are installed; fake mode remains the default.**
+The adapter defaults to `connection_type="fake"`. Real Reticulum/LXMF mode (`"reticulum"`) is available when optional dependencies are installed but has not been validated against a live network.**
 
 ## 1. Package and Import [CONFIRMED]
 
@@ -504,7 +504,8 @@ identity or must accept the limitation.
 CONFIRMED: Both Reticulum and LXMF use background daemon threads (not asyncio).
 The router's jobloop and transport processing run in threads. LXMF callback
 exceptions are caught and logged (not propagated). Integration with MEDRE's
-asyncio event loop requires bridging via `loop.create_task()` or similar.
+asyncio event loop requires bridging via `loop.call_soon_threadsafe()` —
+`asyncio.create_task()` cannot be called from Reticulum threads.
 
 ### 3.6 Auto-Discovery [INFERRED]
 
@@ -843,33 +844,57 @@ Key findings that this contract consolidates:
 
 ## 11. Implementation Readiness Summary
 
-| Task                         | SDK API Available                                 | Adapter Code Exists | Blocked By                                        |
-| ---------------------------- | ------------------------------------------------- | ------------------- | ------------------------------------------------- |
-| Identity load/create         | `RNS.Identity.from_file()`, `RNS.Identity()`      | No                  | `identity_path` wiring                            |
-| Reticulum init               | `RNS.Reticulum(configdir)`                        | No                  | `reticulum_configdir` config field                |
-| Router creation              | `LXMF.LXMRouter(storagepath)`                     | No                  | `storage_path` config field                       |
-| Register delivery identity   | `router.register_delivery_identity()`             | No                  | Identity + router creation                        |
-| Register delivery callback   | `router.register_delivery_callback()`             | No                  | Router creation                                   |
-| Announce presence            | `router.announce()`                               | No                  | Delivery identity registration                    |
-| Send message                 | `router.handle_outbound()`                        | No                  | Router + destination resolution                   |
-| LXMessage to dict conversion | N/A (application code)                            | No                  | Need to decide: modify codec or add adapter layer |
-| Clean shutdown               | `router.exit_handler()`, `RNS.exit()`             | No                  | Router creation                                   |
-| Propagation node sync        | `router.request_messages_from_propagation_node()` | No                  | Propagation node config                           |
+| Task                         | SDK API Available                                 | Adapter Code Exists         | Blocked By                                        |
+| ---------------------------- | ------------------------------------------------- | --------------------------- | ------------------------------------------------- |
+| Identity load/create         | `RNS.Identity.from_file()`, `RNS.Identity()`      | Source exists / mock-tested | `identity_path` wiring                            |
+| Reticulum init               | `RNS.Reticulum(configdir)`                        | Source exists / mock-tested | `reticulum_configdir` config field                |
+| Router creation              | `LXMF.LXMRouter(storagepath)`                     | Source exists / mock-tested | `storage_path` config field                       |
+| Register delivery identity   | `router.register_delivery_identity()`             | Source exists / mock-tested | Identity + router creation                        |
+| Register delivery callback   | `router.register_delivery_callback()`             | Source exists / mock-tested | Router creation                                   |
+| Announce presence            | `router.announce()`                               | Not live-validated          | Delivery identity registration                    |
+| Send message                 | `router.handle_outbound()`                        | Source exists / mock-tested | Router + destination resolution                   |
+| LXMessage to dict conversion | N/A (application code)                            | Source exists / mock-tested | Need to decide: modify codec or add adapter layer |
+| Clean shutdown               | `router.exit_handler()`, `RNS.exit()`             | Source exists / mock-tested | Router creation                                   |
+| Propagation node sync        | `router.request_messages_from_propagation_node()` | Not live-validated          | Propagation node config                           |
 
 ## 12. Explicit Non-Claims
 
-- **No production LXMF/Reticulum connectivity exists.**
-- **No live testing has been performed.** All findings are from source
-  code analysis.
+- **Real-mode source exists behind optional deps.** Reticulum init/reuse, identity load/create, router creation, delivery callback, LXMessage→dict normalization, outbound send via `handle_outbound`, delivery-state tracking, `call_soon_threadsafe` bridge, stop/teardown. Source-audited/mock-tested only. No live Reticulum validation.
+- **No live testing has been performed.** All findings are from source code analysis.
 - **No compatibility with any specific Reticulum network is claimed.**
-- **No real identity management is implemented.** The `identity_path`
-  config field is a placeholder.
-- **No reconnection, retry, or error recovery logic is implemented.**
-- **No async/sync bridge between Reticulum threads and MEDRE's asyncio
-  event loop is implemented.**
 - **Field key 0xFD for MEDRE metadata has not been validated against
   real LXMF traffic.** It is a MEDRE convention that other clients may
   or may not respect.
+
+## 13. Tranche 5 Status Update
+
+> **Added:** 2026-05-26
+
+### What Changed
+
+- **Test coverage expanded.** Tranche 5 adds tests for delivery state
+  transition chains (outbound→sending→sent→delivered, failed, rejected),
+  callback threading safety (sync + async dispatch), send return
+  semantics (honest OUTBOUND, not DELIVERED), bounded outbound cleanup
+  on terminal states, and codec handling of missing/optional fields
+  (signature_validated, source_hash, timestamp, destination_hash,
+  delivery_method, has_fields).
+
+- **Source changes:** Threading bridge in session.py (`call_soon_threadsafe` for Reticulum→asyncio), post-stop callback guard (clear `_message_callback`/`_loop` on stop, early return in `_on_lxmf_delivery`), honest delivery_note in adapter.py. Plus test and doc hardening.
+
+### Readiness Assessment (Unchanged)
+
+The connectivity readiness assessment from sections 1–11 is unchanged.
+No new SDK APIs were discovered, no live testing was performed, and no
+real Reticulum connectivity was established. The adapter remains in
+fake-only mode for all non-live test execution.
+
+| Area                      | Tranche 5 Status                                                               |
+| ------------------------- | ------------------------------------------------------------------------------ |
+| SDK API knowledge         | Unchanged. Sections 2.1–2.13 remain accurate.                                  |
+| Real connectivity         | Not tested. No live evidence gathered.                                         |
+| Test coverage (fake mode) | Expanded. Delivery transitions, callback safety, field edge cases now covered. |
+| Implementation readiness  | Unchanged. All scaffold items in §6.2 remain scaffold.                         |
 
 ---
 

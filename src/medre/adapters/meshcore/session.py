@@ -239,10 +239,11 @@ class MeshCoreSession:
         Parameters
         ----------
         message_callback:
-            Async callable invoked with a plain dict for each inbound
-            message.  The dict contains native MeshCore payload fields
-            (``text``, ``pubkey_prefix``, ``sender_timestamp``, ``type``,
-            ``channel_idx``, etc.) — **not** the SDK ``Event`` object.
+            Sync or async callable invoked with a plain dict for each
+            inbound message.  The dict contains native MeshCore payload
+            fields (``text``, ``pubkey_prefix``, ``sender_timestamp``,
+            ``type``, ``channel_idx``, etc.) — **not** the SDK ``Event``
+            object.
 
         Raises
         ------
@@ -260,7 +261,13 @@ class MeshCoreSession:
             # Fake mode: no real SDK client needed.
             self._diag.connected = True
         else:
-            await self._connect_real()
+            try:
+                await self._connect_real()
+            except Exception:
+                # Connect failed — full cleanup so diagnostics and
+                # late SDK events don't reference stale state.
+                await self._cleanup_failed_start()
+                raise
 
         self._started = True
         self._logger.info(
@@ -383,6 +390,24 @@ class MeshCoreSession:
     # Private — real connection
     # ==================================================================
 
+    async def _cleanup_failed_start(self) -> None:
+        """Full cleanup after a failed start().
+
+        Clears all partial state so diagnostics and late SDK events
+        cannot reference stale SDK objects or flags.  Preserves
+        ``last_error`` for diagnostics.
+        """
+        self._message_callback = None
+        self._diag.connected = False
+        self._diag.reconnecting = False
+        self._subscriptions.clear()
+        if self._meshcore is not None:
+            try:
+                await self._meshcore.disconnect()
+            except Exception:
+                pass
+            self._meshcore = None
+
     async def _connect_real(self) -> None:
         """Create a real SDK client, connect, and subscribe to events."""
         if not HAS_MESHCORE:
@@ -448,11 +473,27 @@ class MeshCoreSession:
                 f"Failed to connect ({self._config.connection_type}): {exc}"
             ) from exc
 
-        self._diag.connected = True
+        # Connection succeeded — now subscribe to events.
+        # If subscription fails, clean up the client before propagating.
         self._diag.reconnect_attempts = 0
+        try:
+            self._subscribe_events(mc)
+        except Exception as exc:
+            # Subscription failure after successful client creation.
+            self._diag.last_error = str(exc)
+            if self._meshcore is not None:
+                try:
+                    await self._meshcore.disconnect()
+                except Exception:
+                    pass
+                self._meshcore = None
+            self._subscriptions.clear()
+            raise MeshCoreConnectionError(
+                f"Failed to subscribe to events: {exc}"
+            ) from exc
 
-        # Subscribe to inbound events.
-        self._subscribe_events(mc)
+        # Only mark connected AFTER subscriptions succeed.
+        self._diag.connected = True
 
     def _subscribe_events(self, mc: Any) -> None:
         """Subscribe to SDK event types for inbound messages + disconnects."""
@@ -515,10 +556,31 @@ class MeshCoreSession:
                 payload = {}
 
             self._diag.last_message_time = datetime.now(timezone.utc)
-            await self._message_callback(payload)
+            result = self._message_callback(payload)
+            if asyncio.iscoroutine(result):
+                task = asyncio.ensure_future(result)
+                task.add_done_callback(self._log_task_exception)
+                # Yield once so short callbacks can complete within this
+                # turn.  Long-running callbacks continue in the background
+                # after the first internal await point.
+                await asyncio.sleep(0)
         except Exception as exc:
             self._logger.exception(
                 "MeshCoreSession %s: error processing inbound event: %s",
+                self._adapter_id,
+                exc,
+            )
+
+    def _log_task_exception(self, task: asyncio.Task) -> None:
+        """Done callback for fire-and-forget tasks — logs exceptions
+        to prevent 'Task exception was never retrieved'."""
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            pass
+        except Exception as exc:
+            self._logger.warning(
+                "MeshCoreSession %s: unhandled exception in inbound callback task: %s",
                 self._adapter_id,
                 exc,
             )
@@ -651,15 +713,22 @@ class MeshCoreSession:
                     )
 
                 # Extract native message ID if available.
+                # SDK responses may carry message_id in payload OR
+                # attributes depending on the event type.  When the
+                # result is an Event object, check payload first then
+                # fall back to attributes.
                 native_id: str | None = None
                 if isinstance(result, dict):
                     native_id = result.get("message_id")
-                elif hasattr(result, "payload") and isinstance(result.payload, dict):
-                    native_id = result.payload.get("message_id")
-                elif hasattr(result, "attributes") and isinstance(
-                    result.attributes, dict
-                ):
-                    native_id = result.attributes.get("message_id")
+                else:
+                    if hasattr(result, "payload") and isinstance(result.payload, dict):
+                        native_id = result.payload.get("message_id")
+                    if (
+                        native_id is None
+                        and hasattr(result, "attributes")
+                        and isinstance(result.attributes, dict)
+                    ):
+                        native_id = result.attributes.get("message_id")
 
                 return str(native_id) if native_id is not None else None
 

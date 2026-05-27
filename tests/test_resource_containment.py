@@ -384,6 +384,8 @@ class TestLxmfSessionResourceContainment:
             destination_hash="dest-1",
         )
         session._on_delivery_state_update(msg)
+        # Yield to allow call_soon_threadsafe bridge to execute
+        await asyncio.sleep(0)
         # Terminal delivery should have been removed.
         assert len(session._outbound_deliveries) == 0
 
@@ -537,6 +539,9 @@ class TestLxmfDeliveryStateCounters:
         before_transient = session.transient_delivery_failures
         session._on_delivery_state_update(msg)
 
+        # Yield to allow call_soon_threadsafe bridge to execute
+        await asyncio.sleep(0)
+
         assert session.permanent_delivery_failures == before_permanent + 1
         assert session.transient_delivery_failures == before_transient
 
@@ -559,6 +564,8 @@ class TestLxmfDeliveryStateCounters:
 
         before = session.permanent_delivery_failures
         session._on_delivery_state_update(msg)
+        # Yield to allow call_soon_threadsafe bridge to execute
+        await asyncio.sleep(0)
         assert session.permanent_delivery_failures == before + 1
 
         await session.stop()

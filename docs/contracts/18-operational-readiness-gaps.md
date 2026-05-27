@@ -4,6 +4,8 @@
 > Last updated: 2026-05-10
 > Track: 7 (Operational Runtime Hardening)
 
+> **Note:** This is a point-in-time assessment. MeshCore and LXMF now have real session code (source-audited, mock-tested). See contracts 19/20 and runbooks for current readiness status.
+
 This document audits the current operational readiness of the MEDRE runtime and its four adapters. It is an honest assessment for operators and maintainers. Nothing here should be read as a feature proposal, deployment guide, or production readiness claim. Contract 16 (`16-production-connectivity-readiness.md`) remains the authoritative readiness assessment per adapter.
 
 All four adapters are in alpha. Fake mode is the default development path for all four. All four now have optional live smoke harnesses (excluded from default CI). No adapter has been tested against real hardware or services in default CI. The current cross-transport assessment is consolidated in contract 28 (`28-alpha-readiness-report.md`).
@@ -46,32 +48,29 @@ All four adapters are in alpha. Fake mode is the default development path for al
 
 **What works now (fake/deterministic).** The decode/classify/deliver pipeline works with fake event payloads. `MeshCoreCodec` and `MeshCorePacketClassifier` follow the Meshtastic structural pattern.
 
-**Real connectivity status.** None. `start()` raises `MeshCoreConnectionError` for any non-fake connection type. There is no real client code. No real SDK has been integrated. No real MeshCore event payloads have been verified.
+**Real connectivity status.** Session code exists for TCP/serial/BLE factory wiring, event subscriptions, bounded reconnect, bounded transient retry, and error classification (source-audited, mock-tested). No live hardware validation has been performed.
 
 **Gaps.**
 
-- No SDK selected or integrated. No known stable PyPI package.
-- No real connection code at all.
-- No outbound delivery. `deliver()` returns `None`.
+- ACK correlation and delivery confirmation are not implemented.
+- Contact-list resolution for display names is not implemented.
 - Packet format assumptions are based on source code review, not live observation. The real format may differ.
-- This is the most speculative adapter. It is structurally ready but substantively empty.
+- This is the most speculative adapter. It has session code but is not live-validated.
 
 ### 1.4 LXMF
 
 **What works now (fake/deterministic).** The decode/classify/deliver pipeline works with fake message payloads. `LxmfCodec` converts LXMF-shaped dicts into `CanonicalEvent` instances. `LxmfFieldsHelper` embeds and extracts MEDRE metadata under field key `0xFD`. `LxmfRenderer` builds payloads with `content`, `title`, `fields`, and `destination_hash`.
 
-**Real connectivity status.** None. `start()` raises `LxmfConnectionError` for non-fake types. No `rns` or `lxmf` imports exist. No real identity loading, message send/receive, or delivery method selection.
+**Real connectivity status.** Session code exists for Reticulum/LXMRouter lifecycle, identity load/create, delivery callback registration, LXMessage→dict normalization, outbound send, delivery-state tracking, and `call_soon_threadsafe` callback bridge (source-audited, mock-tested). No live Reticulum network validation has been performed. `register_delivery_identity` is not yet called (required for inbound reception).
 
 **Gaps.**
 
-- No Reticulum or LXMF library integration.
-- No real identity loading. `identity_path` is a placeholder.
-- No real message send/receive.
+- `register_delivery_identity` is not yet called (required for inbound reception — without it, the router has no delivery destination).
+- Delivery-state model is unvalidated (8-state progression implemented but real-world callback timing untested).
 - Relation reconstruction from fields envelope is explicitly deferred.
-- Delivery method selection (`direct`, `opportunistic`, `propagated`, `paper`) is a config hint only.
-- Field key `0xFD` for the metadata envelope is an assumption that has not been validated against real LXMF field usage.
-- Reticulum's networking stack may conflict with asyncio's event loop. The async/sync boundary needs design work.
-- Identity management (creation, storage, rotation) is entirely unscoped.
+- Field key `0xFD` for the metadata envelope has not been validated against real LXMF field usage.
+- Identity management (creation, storage, rotation) is unscoped.
+- No live Reticulum network validation has been performed.
 
 ## 2. Health Reporting Gaps
 
@@ -230,7 +229,7 @@ Contract 05 defines a complete plugin API: `Plugin` protocol, `PluginContext`, `
 - **No retry budget.** No per-adapter or per-plan retry rate limiting. An adapter with persistent failures could accumulate unlimited dead-letter receipts.
 - **No receipt deduplication.** Replaying events with existing successful receipts duplicates them.
 - **No adapter-level error customization.** Error classification uses Python exception types. Adapters cannot declare custom retryable/permanent error codes.
-- **No reconnection logic.** No adapter handles reconnection or connection loss. The lifecycle is start/stop with no automatic recovery. If the Matrix homeserver drops the connection, the sync task fails silently and `health_check()` reports `"failed"`, but no reconnect attempt is made.
+- **MeshCore has bounded reconnect on DISCONNECTED events; other adapters per current source.** All source-audited/mock-tested only. No adapter has live-validated reconnection. If the Matrix homeserver drops the connection, the sync task fails silently and `health_check()` reports `"failed"`, but no reconnect attempt is made.
 
 ## 9. Runbook Gaps
 

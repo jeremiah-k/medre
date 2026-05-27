@@ -3,14 +3,14 @@
 > **Status:** Assessment
 > **Classification:** Assessment
 > **Authority:** Readiness assessment from source extraction; does not claim production connectivity
-> **Last reviewed:** 2026-05-24
+> **Last reviewed:** 2026-05-26
 >
-> Contract version: 2
-> Last updated: 2026-05-12
+> Contract version: 3
+> Last updated: 2026-05-26
 > Supersedes: None (complements 11, 16, 18)
 > Audit source: PyPI package `meshcore` v2.3.7 wheel, source-extracted inspection
 
-This document audits MeshCore's connectivity readiness for MEDRE: what the SDK provides, what the current adapter scaffold implements, what send semantics look like, and what remains unknown. It does not claim production connectivity. Nothing here should be read as "MeshCore works against real hardware" without explicit verification.
+This document audits MeshCore's connectivity readiness for MEDRE: what the SDK provides, what the current adapter implements (source-audited and mock-tested only), what send semantics look like, and what remains unknown. It does not claim production connectivity. Nothing here should be read as "MeshCore works against real hardware" without explicit verification.
 
 **Tranche status**: Readiness documentation only. No production connection, no hardware testing, no default dependency.
 
@@ -255,9 +255,9 @@ The SDK does NOT define custom exception classes. CONFIRMED (no `exceptions.py`,
 - Command timeout: `asyncio.TimeoutError` from `wait_for_event()`. CONFIRMED.
 - Serial write failure: `OSError` caught, triggers disconnect callback. CONFIRMED.
 
-### 2.11 Zero MeshCore Materials in MEDRE
+### 2.11 MeshCore Session Code in MEDRE
 
-No `meshcore` imports exist anywhere in the MEDRE codebase. The adapter uses fake delivery only. Contract 64 confirmed this; it remains true. CONFIRMED (`pip show meshcore` → NOT_INSTALLED).
+No `meshcore` SDK import exists in the MEDRE codebase at install time. The adapter's `compat.py` conditionally imports `meshcore` guarded by `HAS_MESHCORE`. The `MeshCoreSession` class contains full real-mode session code: TCP/serial/BLE factory wiring, event subscription, bounded exponential backoff reconnect, transient/permanent error classification, and inbound callback normalization. This code is source-audited and mock-tested only; no hardware validation has occurred. Contract 64 confirmed the zero-import baseline; the session code extends it without requiring the SDK at import time. CONFIRMED (`pip show meshcore` → NOT_INSTALLED).
 
 ## 3. Send Semantics
 
@@ -461,29 +461,28 @@ The SDK README shows port 4000 in examples. Is this a firmware default? Is it co
 
 BLE supports optional PIN pairing. How this interacts with MeshCore's Ed25519 identity model, whether PIN is required or optional per device, and platform-specific behavior (macOS vs. Linux vs. Windows) are not documented beyond the SDK README.
 
-## 6. Current MEDRE Adapter Scaffold Status
+## 6. Current MEDRE Adapter Status
 
 ### 6.1 What Exists
 
-| Component  | File                                     | Status                                                                                                                           |
-| ---------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| Adapter    | `adapters/meshcore/adapter.py`           | Scaffold. `start()` raises `MeshCoreConnectionError` for non-fake types. `deliver()` returns `None`.                             |
-| Config     | `medre/config/adapters/meshcore.py`      | Complete. Supports `fake`, `tcp`, `serial`, `ble` connection types. Has `host`, `port`, `serial_port`, `default_channel` fields. |
-| Codec      | `adapters/meshcore/codec.py`             | Scaffold. Converts MeshCore-shaped event dicts to `CanonicalEvent`.                                                              |
-| Classifier | `adapters/meshcore/packet_classifier.py` | Scaffold. Classifies by event type, detects ACKs.                                                                                |
-| Renderer   | `adapters/meshcore/renderer.py`          | Scaffold. Builds payloads for outbound.                                                                                          |
-| Errors     | `adapters/meshcore/errors.py`            | Complete. `MeshCoreConnectionError`, `MeshCoreConfigError`.                                                                      |
+| Component  | File                                     | Status                                                                                                                                                                                                                                                                              |
+| ---------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Adapter    | `adapters/meshcore/adapter.py`           | Fake mode functional. Real mode delegates to `MeshCoreSession` which wires factory constructors, event subscription, and bounded reconnect. Source-audited and mock-tested only; no hardware validation.                                                                            |
+| Session    | `adapters/meshcore/session.py`           | Real session code exists: TCP/serial/BLE factory wiring, event subscription, bounded exponential backoff reconnect, transient/permanent error classification, sync+async callback normalization, failed-start cleanup. Source-audited and mock-tested only; no hardware validation. |
+| Config     | `medre/config/adapters/meshcore.py`      | Complete. Supports `fake`, `tcp`, `serial`, `ble` connection types. Has `host`, `port`, `serial_port`, `ble_address`, `default_channel` fields.                                                                                                                                     |
+| Codec      | `adapters/meshcore/codec.py`             | Functional. Converts MeshCore-shaped event dicts to `CanonicalEvent`.                                                                                                                                                                                                               |
+| Classifier | `adapters/meshcore/packet_classifier.py` | Functional. Classifies by event type, detects ACKs.                                                                                                                                                                                                                                 |
+| Renderer   | `adapters/meshcore/renderer.py`          | Functional. UTF-8 byte-budget truncation, target-aware rendering.                                                                                                                                                                                                                   |
+| Errors     | `adapters/meshcore/errors.py`            | Complete. `MeshCoreConnectionError`, `MeshCoreConfigError`.                                                                                                                                                                                                                         |
 
-### 6.2 What Is Missing
+### 6.2 What Is Missing (Hardware Validation Required)
 
-- No `meshcore` SDK import anywhere in the codebase.
-- No real client creation code in `start()`.
-- No real send code in `deliver()`.
-- No event subscription wiring (no `subscribe()` call for `CONTACT_MSG_RECV` or `CHANNEL_MSG_RECV`).
-- No ACK watching or correlation.
-- No contact list fetching.
-- No message fetching (`get_msg()` or auto-fetch).
-- No connection lifecycle management (reconnect, health probing).
+- No hardware-validated packet shapes against real MeshCore radio output.
+- No ACK watching or delivery confirmation correlation against real hardware.
+- No contact list fetching against real hardware.
+- No message fetching (`get_msg()` or auto-fetch) against real hardware.
+- No live health probing or reconnection verified against real hardware.
+- All session lifecycle code is source-audited and mock-tested only; none has been exercised against a live MeshCore node.
 
 ### 6.3 Config Readiness
 
@@ -499,44 +498,43 @@ default_channel: int = 0
 
 Missing config fields that would be needed:
 
-- `ble_address` and `ble_pin` for BLE connections.
-- `auto_reconnect` and `max_reconnect_attempts`.
+- `auto_reconnect` and `max_reconnect_attempts` (not configurable; hardcoded in session).
 - `default_timeout` for command timeouts (SDK default: 15.0 seconds).
 - `cx_dly` for serial connection delay (SDK default: 0.1 in create_serial).
 - `debug` and `only_error` for logging control.
 
 ## 7. Protocol Comparison with Meshtastic
 
-| Aspect                 | Meshtastic                          | MeshCore                                              |
-| ---------------------- | ----------------------------------- | ----------------------------------------------------- |
-| Wire format            | Protobuf `MeshPacket`               | Custom binary (no protobuf)                           |
-| Identity               | NodeNum (int) + fromId (str)        | Ed25519 public key (hex)                              |
-| Addressing             | Broadcast + DM by NodeNum           | Contact-based by pubkey                               |
-| Send return            | `MeshPacket` with incrementing `id` | `Event` with `expected_ack` CRC + `suggested_timeout` |
-| Channel send           | `sendText(channelIndex=...)`        | `send_chan_msg(chan, msg)` returns `OK`/`ERROR`       |
-| ACK                    | `ROUTING_APP` protobuf              | Separate `ACK` event with code attribute              |
-| Reply threading        | `replyId` (int) field               | No native mechanism                                   |
-| Reactions              | `emoji` (int) field                 | No native mechanism                                   |
-| Encryption             | Optional per-packet                 | Always-on E2EE                                        |
-| Callback model         | Sync pubsub (`meshtastic.pub`)      | Async EventDispatcher with queue + attribute filters  |
-| Disconnect method      | N/A (stream-based)                  | `await mc.disconnect()` (NOT `close()`)               |
-| Message fetching       | Push (pubsub fires on receive)      | Pull (`MESSAGES_WAITING` → `get_msg()`)               |
-| SDK maturity           | Fork `mtjk` v2.7.8                  | `meshcore` v2.3.7 (PyPI)                              |
-| MEDRE real client code | Exists (`_create_client`), untested | None                                                  |
+| Aspect                 | Meshtastic                          | MeshCore                                               |
+| ---------------------- | ----------------------------------- | ------------------------------------------------------ |
+| Wire format            | Protobuf `MeshPacket`               | Custom binary (no protobuf)                            |
+| Identity               | NodeNum (int) + fromId (str)        | Ed25519 public key (hex)                               |
+| Addressing             | Broadcast + DM by NodeNum           | Contact-based by pubkey                                |
+| Send return            | `MeshPacket` with incrementing `id` | `Event` with `expected_ack` CRC + `suggested_timeout`  |
+| Channel send           | `sendText(channelIndex=...)`        | `send_chan_msg(chan, msg)` returns `OK`/`ERROR`        |
+| ACK                    | `ROUTING_APP` protobuf              | Separate `ACK` event with code attribute               |
+| Reply threading        | `replyId` (int) field               | No native mechanism                                    |
+| Reactions              | `emoji` (int) field                 | No native mechanism                                    |
+| Encryption             | Optional per-packet                 | Always-on E2EE                                         |
+| Callback model         | Sync pubsub (`meshtastic.pub`)      | Async EventDispatcher with queue + attribute filters   |
+| Disconnect method      | N/A (stream-based)                  | `await mc.disconnect()` (NOT `close()`)                |
+| Message fetching       | Push (pubsub fires on receive)      | Pull (`MESSAGES_WAITING` → `get_msg()`)                |
+| SDK maturity           | Fork `mtjk` v2.7.8                  | `meshcore` v2.3.7 (PyPI)                               |
+| MEDRE real client code | Exists (`_create_client`), untested | Session code exists (TCP/serial/BLE), mock-tested only |
 
 These protocols are not compatible at the wire level. Bridging would require application-level message translation, not protocol-level relay.
 
 ## 8. Production Connectivity Readiness Assessment
 
-### 8.1 What Would Be Needed
+### 8.1 What Would Be Needed for Production Connectivity
 
 1. Add `meshcore` as an optional dependency (extras group, not default).
-2. Implement real client creation in `start()` using `MeshCore.create_tcp()` / `create_serial()` / `create_ble()`.
-3. Wire event subscriptions for `CONTACT_MSG_RECV` and `CHANNEL_MSG_RECV`.
-4. Wire `deliver()` to `send_msg()` or `send_chan_msg()`.
+2. ~~Implement real client creation in `start()` using `MeshCore.create_tcp()` / `create_serial()` / `create_ble()`.~~ Done in `MeshCoreSession` (source-audited, mock-tested).
+3. ~~Wire event subscriptions for `CONTACT_MSG_RECV` and `CHANNEL_MSG_RECV`.~~ Done in `MeshCoreSession` (source-audited, mock-tested).
+4. ~~Wire `deliver()` to `send_msg()` or `send_chan_msg()`.~~ Done in `MeshCoreSession` (source-audited, mock-tested).
 5. Extract `expected_ack` as `native_message_id` from `send_msg` results.
 6. Implement ACK watching for delivery confirmation.
-7. Add `ble_address`, `ble_pin`, `auto_reconnect`, `default_timeout` to config.
+7. Add `ble_pin`, `auto_reconnect`, `default_timeout` to config (`ble_address` already present).
 8. Verify packet shapes against real hardware output.
 
 ### 8.2 Readiness Ranking
@@ -545,15 +543,16 @@ MeshCore is third out of four adapters in readiness (per contract 16):
 
 1. Matrix (closest, has real client code)
 2. Meshtastic (pipeline in place, client stubbed)
-3. **MeshCore** (SDK documented, adapter scaffold ready, no real code)
+3. **MeshCore** (SDK documented, session code exists, source-audited/mock-tested only)
 4. LXMF (most work needed)
 
 ### 8.3 What This Document Does NOT Claim
 
 - MeshCore connectivity works against real hardware.
 - The SDK's send semantics have been verified with radio transmissions.
-- The adapter scaffold is ready for production deployment.
+- The adapter is ready for production deployment.
 - MeshCore is a recommended or supported transport for MEDRE.
+- ACK/delivery semantics are verified beyond source audit.
 - Any timeline for production MeshCore support.
 
 ## 9. Contract Cross-References
@@ -571,11 +570,78 @@ Contract 16 is the readiness authority. Where this document and Contract 16 conf
 
 ## 10. Explicit Out-of-Scope
 
-- No production connectivity implementation.
-- No production connection, live hardware testing, or real SDK integration.
+- No live hardware testing or real SDK integration against physical MeshCore nodes.
 - No default dependency on `meshcore`.
 - No hardware procurement or firmware flashing instructions.
 - No bridge design between MeshCore and Meshtastic.
 - No timeline or priority for MeshCore production support.
 
-_This document records readiness state. It does not advance it._
+## 11. Tranche 4: Lifecycle Hardening (2026-05-26)
+
+Tranche 4 (`t4-meshcore-maturation`) documents and tests existing session lifecycle hardening and renderer byte-budget enforcement. Source-audited and mock-tested only. No hardware validation occurred in this tranche. Does not add new production adapter code beyond session/renderer hardening already in place.
+
+### 11.1 Session Lifecycle Hardening
+
+`MeshCoreSession` (`src/medre/adapters/meshcore/session.py`) now implements:
+
+- **Bounded exponential backoff reconnect**: Base delays double (1 s → 2 s → 4 s → …) capped at 30 s, ±25 % jitter, max 10 consecutive attempts. On `stop()`, a `_stop_requested` guard prevents further reconnects.
+- **Transient vs permanent error classification**: `send_text()` retries transient failures (OSError, transport errors) up to 3 times. SDK-level ERROR responses are classified as permanent immediately. Counters track `transient_delivery_failures` and `permanent_delivery_failures` independently.
+- **Inbound callback normalization**: `_on_sdk_event()` extracts `payload` from SDK `Event` objects, normalizing non-dict payloads to `{}`. SDK objects never leak past the session boundary.
+- **Idempotent start/stop**: Both `start()` and `stop()` are idempotent. Repeated calls are no-ops. Start/stop cycles reset state cleanly.
+- **Connection type support**: TCP (`create_tcp`), serial (`create_serial`), BLE (`create_ble`) factory paths all wired at the session layer.
+
+### 11.2 Renderer Byte Budget Verification
+
+`MeshCoreRenderer` (`src/medre/adapters/meshcore/renderer.py`) enforces:
+
+- **UTF-8 byte-budget truncation** via `_truncate_utf8_bytes()`: operates on byte count, not character count. Multi-byte UTF-8 codepoints are never split (uses `decode("utf-8", errors="ignore")`).
+- **Configurable `max_text_bytes`**: default 512, configurable per adapter. Zero budget produces empty string.
+- **Target-aware rendering**: config resolved per target adapter, supporting multi-node setups with different byte budgets.
+- **Truncation metadata**: `original_text_bytes`, `rendered_text_bytes`, `truncated` flag, `max_text_bytes` all reported in `RenderingResult.metadata`.
+
+### 11.3 Test Coverage Added (Tranche 4)
+
+New test classes in `tests/test_meshcore_session.py`:
+
+| Test class                           | What it verifies                                               |
+| ------------------------------------ | -------------------------------------------------------------- |
+| `TestMockedSDKBLEStartup`            | BLE factory wiring, subscription registration                  |
+| `TestMockedSDKSendMsgWithId`         | `message_id` extraction from payload and attributes            |
+| `TestMockedSDKReconnectBackoff`      | Bounded backoff, max attempts, mid-loop recovery               |
+| `TestMockedSDKErrorClassification`   | Transient vs permanent counters, recovery after retry          |
+| `TestMockedSDKCallbackNormalization` | Non-dict/None payloads, callback exceptions, timestamp updates |
+
+New test classes in `tests/test_meshcore_renderer.py`:
+
+| Test class                                  | What it verifies                                                          |
+| ------------------------------------------- | ------------------------------------------------------------------------- |
+| (added to `TestMeshCoreRendererTruncation`) | Mixed multi-byte, all-multibyte, exact fit, ASCII prefix, large text      |
+| `TestMeshCoreRendererPrefixFormatting`      | meshnet_name, channel_index, payload key structure, zero-budget multibyte |
+
+### 11.4 SDK API Findings Confirmed by Tests
+
+Mocked SDK tests confirm these API shapes against meshcore 2.3.7:
+
+- `MeshCore.create_tcp(host, port)` — positional args. CONFIRMED by test.
+- `MeshCore.create_serial(port, baudrate)` — positional args, default baudrate 115200. CONFIRMED by test.
+- `MeshCore.create_ble(address=)` — keyword arg. CONFIRMED by test.
+- `mc.subscribe(EventType, callback)` — called 3 times (CONTACT_MSG_RECV, CHANNEL_MSG_RECV, DISCONNECTED). CONFIRMED by test.
+- `mc.commands.send_msg(dst, msg)` — returns Event with `type`, `payload`, `attributes`. CONFIRMED by test.
+- `mc.commands.send_chan_msg(chan, msg)` — returns Event with OK/ERROR type. CONFIRMED by test.
+- `Event.is_error()` — returns True when type is ERROR. CONFIRMED by test.
+- `mc.disconnect()` — called once on stop, idempotent. CONFIRMED by test.
+
+### 11.5 Startup Backlog Suppression — Intentionally Absent
+
+MeshCore has no message history, store-and-forward, or initial sync. When the adapter connects, events arrive live from the SDK's event dispatcher; there is no backlog to suppress. The `sender_timestamp` field is sender-side and unverified. Suppressing live packets would risk dropping fresh traffic. This remains unchanged from the Tranche 3 assessment.
+
+### 11.6 Readiness Status Update
+
+No readiness status change. MeshCore remains third out of four adapters in readiness (per contract 16). The session lifecycle is hardened with tests, but no real hardware validation has occurred. All lifecycle hardening is tested via mocked SDK only.
+
+| Aspect               | Pre-Tranche 4              | Post-Tranche 4                                    |
+| -------------------- | -------------------------- | ------------------------------------------------- |
+| Session lifecycle    | Scaffold, no reconnect     | Hardened: bounded reconnect, error classification |
+| Renderer byte budget | Implemented, partial tests | Full test coverage for multi-byte edge cases      |
+| SDK API confidence   | Source-audit only          | Source-audit + mocked SDK test verification       |
+| Real connectivity    | Not tested                 | Not tested (unchanged)                            |

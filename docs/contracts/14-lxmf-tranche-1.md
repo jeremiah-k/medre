@@ -70,18 +70,18 @@ This is an honest declaration. The adapter does what it says and nothing more. `
 
 `LxmfConfig` is a frozen dataclass with a `validate()` method that checks field constraints. Invalid configuration raises `LxmfConfigError` before the adapter starts.
 
-| Field                     | Type                                                        | Required | Description                                                                                                                                   |
-| ------------------------- | ----------------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `adapter_id`              | `str`                                                       | Yes      | Unique adapter instance ID. Must be non-empty.                                                                                                |
-| `connection_type`         | `Literal["fake"]`                                           | No       | Connection mode. Only `"fake"` is supported in tranche 1. Defaults to `"fake"`.                                                               |
-| `default_delivery_method` | `Literal["direct", "opportunistic", "propagated", "paper"]` | No       | Default LXMF delivery method. Defaults to `"direct"`. This is a configuration hint for future real connectivity; the fake adapter ignores it. |
-| `display_name`            | `str`                                                       | No       | Optional display name for LXMF announces. Defaults to `""`.                                                                                   |
-| `stamp_cost`              | `int`                                                       | No       | Default stamp cost (0 = no stamp required). Defaults to `8`.                                                                                  |
-| `meshnet_name`            | `str`                                                       | No       | Human-readable meshnet name. Informational. Defaults to `""`.                                                                                 |
-| `default_channel`         | `int`                                                       | No       | Default radio channel index for outbound messages. Defaults to `0`.                                                                           |
-| `message_delay_seconds`   | `float`                                                     | No       | Minimum delay between outbound messages (pacing). Defaults to `0.5`.                                                                          |
-| `metadata_embedding`      | `bool`                                                      | No       | Whether to embed MEDRE metadata envelopes in LXMF fields. Defaults to `True`.                                                                 |
-| `identity_path`           | `str \| None`                                               | No       | Path to identity file. Placeholder for future use. Defaults to `None`.                                                                        |
+| Field                     | Type                                                        | Required | Description                                                                                                                                                                                                                      |
+| ------------------------- | ----------------------------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `adapter_id`              | `str`                                                       | Yes      | Unique adapter instance ID. Must be non-empty.                                                                                                                                                                                   |
+| `connection_type`         | `Literal["fake", "reticulum"]`                              | No       | Connection mode. `"fake"` is the default. `"reticulum"` is accepted at config level but requires optional dependencies; `start()` raises `LxmfConnectionError` for non-fake modes when SDK is unavailable. Defaults to `"fake"`. |
+| `default_delivery_method` | `Literal["direct", "opportunistic", "propagated", "paper"]` | No       | Default LXMF delivery method. Defaults to `"direct"`. This is a configuration hint for future real connectivity; the fake adapter ignores it.                                                                                    |
+| `display_name`            | `str`                                                       | No       | Optional display name for LXMF announces. Defaults to `""`.                                                                                                                                                                      |
+| `stamp_cost`              | `int`                                                       | No       | Default stamp cost (0 = no stamp required). Defaults to `8`.                                                                                                                                                                     |
+| `meshnet_name`            | `str`                                                       | No       | Human-readable meshnet name. Informational. Defaults to `""`.                                                                                                                                                                    |
+| `default_channel`         | `int`                                                       | No       | Default radio channel index for outbound messages. Defaults to `0`.                                                                                                                                                              |
+| `message_delay_seconds`   | `float`                                                     | No       | Minimum delay between outbound messages (pacing). Defaults to `0.5`.                                                                                                                                                             |
+| `metadata_embedding`      | `bool`                                                      | No       | Whether to embed MEDRE metadata envelopes in LXMF fields. Defaults to `True`.                                                                                                                                                    |
+| `identity_path`           | `str \| None`                                               | No       | Path to identity file. Placeholder for future use. Defaults to `None`.                                                                                                                                                           |
 
 ## Fields Envelope Convention
 
@@ -197,6 +197,37 @@ These are explicitly out of scope for tranche 1:
 - **Matrix changes.** No modifications to the Matrix adapter, renderer, or configuration. The LXMF adapter is a separate TRANSPORT adapter that interacts with the pipeline, not with the Matrix adapter directly.
 - **Webhooks, admin APIs.** No HTTP endpoints, webhook handlers, or administrative interfaces.
 - **Renderer truncation enforcement.** The renderer notes LXMF payload size limits but does not truncate in tranche 1.
+
+---
+
+## Tranche 5: Delivery Semantics Verification and Session Boundary Hardening
+
+> **Added:** 2026-05-26
+> **Scope:** Delivery semantics hardening. Threading bridge added (session.py `call_soon_threadsafe` for Reticulum→asyncio, post-stop callback guard), honest delivery_note in adapter.py, plus test coverage and doc hardening. Source was changed for delivery/threading hardening.
+
+### Delivery Semantics Verification
+
+Tranche 5 adds tests verifying that the delivery semantics documented in this contract are actually enforced:
+
+1. **Honest OUTBOUND return.** `send_text()` in fake mode returns `LxmfDeliveryState.OUTBOUND` — never `DELIVERED`, `SENT`, or `SENDING`. Tests assert the state is exactly `OUTBOUND`.
+
+2. **Terminal-state untracking.** When a delivery callback transitions a tracked message to a terminal state (`DELIVERED`, `FAILED`, `REJECTED`, `CANCELLED`), the entry is removed from `_outbound_deliveries`. Tests verify each terminal state triggers cleanup.
+
+3. **Failure counter accuracy.** `permanent_delivery_failures` increments exactly once per `FAILED` or `REJECTED` callback. Tests verify the count before and after each transition.
+
+4. **Full transition chain.** Tests simulate the complete `OUTBOUND → SENDING → SENT → DELIVERED` progression via sequential delivery callbacks, verifying the entry stays tracked through intermediate states and is untracked on terminal state.
+
+### Session Boundary Hardening
+
+1. **Callback dispatch safety.** Tests verify both sync and async message callbacks work correctly through `inject_inbound()`. Async callbacks are scheduled on the running event loop; sync callbacks are called directly. Callback exceptions do not crash the session.
+
+2. **Concurrent send isolation.** Concurrent `send_text()` calls produce distinct message IDs with no tracking corruption.
+
+3. **Unknown message hash safety.** Delivery callbacks for untracked hashes are silently ignored — no crash, no tracking corruption.
+
+### Source Changes in Tranche 5
+
+Tranche 5 includes source changes to `session.py` (threading bridge via `call_soon_threadsafe`, post-stop callback guard clearing `_message_callback`/`_loop` on stop, early return in `_on_lxmf_delivery`) and `adapter.py` (honest delivery_note). The codec, renderer, and config modules are unchanged. Tests verify both pre-existing and new behaviour.
 
 ---
 

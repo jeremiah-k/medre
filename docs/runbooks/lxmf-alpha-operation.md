@@ -1,6 +1,6 @@
 # LXMF Alpha Operation Runbook
 
-> Last updated: 2026-05-12
+> Last updated: 2026-05-26
 > Scope: Real LXMF/Reticulum Operation Alpha (Track 8) + LXMF Operational Clarification (Track 3)
 > Status: **Alpha. Not production. Not hardened. Not complete.** Fake mode is the default development path. Real Reticulum/LXMF mode is implemented and available when optional dependencies (`pip install lxmf`) and valid configuration are present. It requires a live Reticulum transport to route actual messages.
 
@@ -202,7 +202,7 @@ Reticulum and LXMF use background daemon threads, not asyncio:
 - Reticulum transport processing runs in threads.
 - MEDRE's asyncio event loop runs in the main thread.
 
-The `LxmfSession` bridges this boundary. When the SDK delivery callback fires in a Reticulum thread, the session normalises the `LXMessage` into a plain dict (no SDK objects leak), then invokes the adapter's `_on_packet` callback. If the callback is async, the session schedules it on the running event loop via `loop.create_task()`. This is the same pattern used by the Meshtastic adapter.
+The `LxmfSession` bridges this boundary. When the SDK delivery callback fires in a Reticulum thread, the session normalises the `LXMessage` into a plain dict (no SDK objects leak), then schedules the adapter's `_on_packet` callback onto the captured asyncio loop via `loop.call_soon_threadsafe()`. Callbacks originate on Reticulum/LXMF threads; the session normalises to plain dicts and bridges onto the captured asyncio loop. This is the same pattern used by the Meshtastic adapter.
 
 ### 6.2 Callback Timing
 
@@ -218,7 +218,7 @@ Per-message callbacks update the `LxmfSession`'s outbound tracking dict:
 
 - `_on_delivery_state_update` tracks state transitions for each tracked message.
 - Terminal states (`DELIVERED`, `FAILED`, `REJECTED`, `CANCELLED`) are recorded.
-- `FAILED` increments `transient_delivery_failures`. `REJECTED`/`CANCELLED` increment `permanent_delivery_failures`.
+- Terminal delivery-state callbacks (`FAILED`, `REJECTED`, `CANCELLED`) increment `permanent_delivery_failures`. Transient send-attempt exceptions are counted separately during bounded retry before exhaustion.
 
 MEDRE's `deliver()` returns an `AdapterDeliveryResult` with the message hash and delivery state metadata. The state is honest: typically `"outbound"` at return time. The pipeline does not wait for delivery confirmation.
 
@@ -612,14 +612,14 @@ This section documents honest constraints that operators and developers should e
 
 ### 13.3 Operational Constraints
 
-| Constraint        | Reality                                                                                                                                               |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Process model     | One `RNS.Reticulum` per process (singleton). One delivery identity per `LXMRouter`. Multiple identities require multiple processes.                   |
-| Identity security | 64-byte raw private key file. No encryption. No passphrase. Anyone with the file can impersonate the identity and decrypt all messages.               |
-| Threading         | Reticulum and LXMF use daemon threads, not asyncio. MEDRE bridges via `loop.create_task()`. Potential GIL/contention issues under load.               |
-| Storage           | `LXMRouter` requires a writable `storagepath`. Message store grows over time. No automatic cleanup.                                                   |
-| License           | Reticulum uses a custom license that restricts AI training data usage and certain applications. Not OSI-approved. Review for downstream distribution. |
-| Daemon dependency | Reticulum is designed for long-running processes. Short-lived scripts may not establish stable connectivity before exiting.                           |
+| Constraint        | Reality                                                                                                                                                                                                                                                                                                                               |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Process model     | One `RNS.Reticulum` per process (singleton). One delivery identity per `LXMRouter`. Multiple identities require multiple processes.                                                                                                                                                                                                   |
+| Identity security | 64-byte raw private key file. No encryption. No passphrase. Anyone with the file can impersonate the identity and decrypt all messages.                                                                                                                                                                                               |
+| Threading         | Reticulum and LXMF use daemon threads, not asyncio. MEDRE bridges via `call_soon_threadsafe()`. Callbacks originate on Reticulum/LXMF threads; the session normalises to plain dicts and schedules onto the captured asyncio loop. Source- and mock-tested, not live Reticulum validated. Potential GIL/contention issues under load. |
+| Storage           | `LXMRouter` requires a writable `storagepath`. Message store grows over time. No automatic cleanup.                                                                                                                                                                                                                                   |
+| License           | Reticulum uses a custom license that restricts AI training data usage and certain applications. Not OSI-approved. Review for downstream distribution.                                                                                                                                                                                 |
+| Daemon dependency | Reticulum is designed for long-running processes. Short-lived scripts may not establish stable connectivity before exiting.                                                                                                                                                                                                           |
 
 ### 13.4 What MEDRE Does NOT Provide
 
@@ -1008,7 +1008,67 @@ rnsd &
 - **No LXST (LXMF Streaming Transport) support.**
 - **No attachment, image, audio, or media transfer support.**
 
-## 20. Cross-References
+## 20. Tranche 5: Hardening Summary
+
+> **Added:** 2026-05-26
+> **Scope:** Delivery semantics hardening (threading bridge in session.py, honest delivery_note in adapter.py), plus test coverage and doc hardening. Source was changed for delivery/threading hardening.
+
+### Test Coverage Added
+
+Tranche 5 adds test classes covering areas previously only implied by existing tests:
+
+| Test Class                             | Area Covered                                                        |
+| -------------------------------------- | ------------------------------------------------------------------- |
+| `TestTranche5CallbackThreadingSafety`  | Sync and async callback dispatch, exception tolerance               |
+| `TestTranche5SendReturnSemantics`      | Honest OUTBOUND return, not DELIVERED/SENT/SENDING; unique IDs      |
+| `TestTranche5DeliveryStateTransitions` | Full OUTBOUND→SENDING→SENT→DELIVERED chain; FAILED/REJECTED cleanup |
+| `TestTranche5BoundedOutboundCleanup`   | Terminal-state untracking, partial delivery counts                  |
+| `TestTranche5SignatureValidated`       | Codec handles signature_validated true/false/missing                |
+| `TestTranche5MissingOptionalFields`    | Codec handles missing source_hash, timestamp, fields, etc.          |
+| `TestTranche5DeliveryMethodMetadata`   | delivery_method and has_fields in native metadata                   |
+
+### Source Changes in Tranche 5
+
+Tranche 5 includes source changes to `session.py` (threading bridge via `call_soon_threadsafe`, post-stop callback guard clearing `_message_callback`/`_loop` on stop, early return in `_on_lxmf_delivery`) and `adapter.py` (honest delivery_note). The codec, renderer, and config modules are unchanged.
+
+### What Was Not Done
+
+- No live Reticulum testing performed.
+- No new SDK APIs discovered or documented.
+
+### Operational Impact
+
+Source changes affect runtime behaviour: the threading bridge now uses `call_soon_threadsafe` for delivery-state updates from Reticulum threads, and the session clears callback state on failed start. Existing tests were updated with `await asyncio.sleep(0)` to accommodate the bridge timing. No status changes in the capability matrix.
+
+## 21. Tranche 6: Session Edge-Case Hardening
+
+> **Added:** 2026-05-26
+> **Scope:** Session edge-case fixes (failed-start cleanup, no-callback-without-loop guard, delivery-state thread bridging, async callback exception handling), plus test coverage and doc cleanup.
+
+### Source Changes in Tranche 6
+
+`LxmfSession` (`src/medre/adapters/lxmf/session.py`):
+
+- **Failed-start cleanup**: `start()` wraps `_connect_real()` in try/except; on failure clears `_message_callback`, `_loop`, and diagnostics flags.
+- **No callback without loop**: `_on_lxmf_delivery()` logs warning and returns without invoking callback when `loop` is `None` or not running. Removes unsafe direct-callback fallback.
+- **Delivery-state thread bridging**: `_on_delivery_state_update()` bridges via `call_soon_threadsafe` to `_apply_delivery_state_update()`. Drops the update when loop is not running (no direct-apply fallback).
+- **Async callback exception handling**: `_log_task_exception()` done callback added to fire-and-forget tasks. `inject_inbound()` sync callback wrapped in try/except.
+
+### Test Coverage Added (Tranche 6)
+
+| Test Class                           | What it verifies                                                     |
+| ------------------------------------ | -------------------------------------------------------------------- |
+| `TestTranche6FailedStartCleanup`     | Failed start clears callback/loop, diagnostics clean                 |
+| `TestTranche6AsyncCallbackException` | Async callback exception consumed, sync callback exception caught    |
+| `TestTranche6NoCallbackWithoutLoop`  | No callback when loop=None or not running, warning logged            |
+| `TestTranche6DeliveryStateBridging`  | State update via bridge works, unknown hash ignored, no thread error |
+
+### Tranche 6: What Was Not Done
+
+- No live Reticulum testing performed.
+- No status changes in the capability matrix.
+
+## 22. Cross-References
 
 | Topic                                                               | Document                                                 |
 | ------------------------------------------------------------------- | -------------------------------------------------------- |

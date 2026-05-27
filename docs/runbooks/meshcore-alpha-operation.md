@@ -1,6 +1,6 @@
 # MeshCore Alpha Operation Runbook
 
-> Last updated: 2026-05-12
+> Last updated: 2026-05-26
 > Scope: Real MeshCore Operation Alpha
 > Status: Alpha. Not production. Not hardened. Not complete. Fake mode is the primary development and testing path. Real connectivity (TCP/serial/BLE) is implemented via `MeshCoreSession`; BLE is implemented at session layer, hardware validation pending.
 > SDK version audited: `meshcore` 2.3.7 (PyPI, source-extracted inspection)
@@ -528,14 +528,15 @@ MeshCore uses Ed25519 keypair identity. There is no numeric node ID. Addressing 
 
 In fake mode, `deliver()` returns `None` — no real send occurs.
 
-### 9.2 Retry semantics (current: none at adapter level)
+### 9.2 Retry semantics (session-level bounded retry)
 
-**The adapter does not implement outbound retry logic.** When a send fails:
+The `MeshCoreSession` implements bounded retry for transient failures:
 
-- The failed item is **permanently dropped**.
-- The exception is re-raised to the caller.
+- **Transient failures** (OSError, transport errors): retried up to 3 times within `send_text()`.
+- **Permanent failures** (SDK ERROR responses): classified immediately, not retried.
+- **Counters**: `transient_delivery_failures` and `permanent_delivery_failures` tracked independently and reported in `diagnostics()`.
 
-This is an explicit scaffold design choice.
+This is source-audited and mock-tested only; no hardware validation has occurred.
 
 ### 9.3 SDK built-in retry (for reference)
 
@@ -563,7 +564,7 @@ Behavior:
 
 ### 9.4 Duplicate-send risk
 
-Because the adapter has no outbound retry, there is **no duplicate-send risk from the adapter itself** in the current scaffold. Each delivery attempt is made once; if it fails, the adapter does not retry. This is a scaffold property (no retry loop), not a delivery guarantee.
+Because the session retries transient failures, there is a **duplicate-send risk from retries**. If a transient failure occurs but the message was actually accepted by the node, the retry delivers a duplicate. This is a bounded-retry property, not a delivery guarantee.
 
 However, if `send_msg_with_retry()` is used in the future:
 
@@ -696,14 +697,17 @@ The MeshCore adapter does not currently persist state. There is no database, no 
 
 ## 12. Reconnect Behavior
 
-### 12.1 Current state: no automatic reconnect at adapter level
+### 12.1 Session-level bounded exponential backoff
 
-**The MeshCore adapter does not implement its own reconnection logic.** If the connection to the node is lost:
+The `MeshCoreSession` implements bounded exponential backoff reconnection:
 
-- The adapter does not detect the disconnection automatically (in the current scaffold).
-- No reconnect attempts are made at the adapter level.
-- `health_check()` will continue to report `"healthy"` because `_started` is still `True`.
-- Manual intervention is required: call `stop()` then `start()` to re-establish the connection.
+- Base delays double on each attempt (1 s → 2 s → 4 s → 8 s → …) capped at 30 s.
+- ±25 % jitter applied to avoid thundering-herd synchronisation.
+- Maximum 10 consecutive attempts. After exhaustion, the session reports `last_error` and sets `reconnecting = False`.
+- On `stop()`, a `_stop_requested` guard prevents further reconnect attempts. Any in-flight reconnect task is cancelled.
+- A successful reconnect resets the attempt counter.
+
+This is source-audited and mock-tested only; no hardware validation has occurred.
 
 ### 12.2 SDK-level auto-reconnect
 
@@ -728,9 +732,9 @@ SDK reconnect behavior (from source analysis):
 
 ### 12.3 What this means for operation
 
-- For short-lived testing sessions, manual `stop()` + `start()` is acceptable.
-- For long-running operation, you need an external watchdog (e.g., Docker restart policy, systemd service, supervisor process) to detect failures and restart the process.
-- When SDK auto-reconnect is enabled, the SDK handles transport-level recovery internally, but the adapter does not currently expose reconnect state in `health_check()`.
+- For short-lived testing sessions, manual `stop()` + `start()` remains acceptable.
+- For long-running operation, the session's bounded reconnect handles transient disconnections automatically. An external watchdog (e.g., Docker restart policy, systemd service) is still recommended for process-level failure recovery.
+- When SDK auto-reconnect is enabled, the SDK handles transport-level recovery internally, and the session observes reconnection via `CONNECTED` events. The session's own reconnect loop handles the case where the entire SDK client needs to be recreated.
 
 ### 12.4 How to verify connection health
 
@@ -749,14 +753,13 @@ if adapter._client is not None:
 When the adapter process restarts (whether via manual stop/start, Docker restart, or process manager):
 
 1. A fresh SDK client is created from scratch.
-2. `appstart()` is sent, triggering a new `SELF_INFO` event.
-3. Event subscriptions are re-established.
-4. The contact list is re-fetched from the node.
-5. Any messages that arrived during the downtime are **lost** — the adapter does not persist or replay missed events. MeshCore uses a pull model (`MESSAGES_WAITING` → `get_msg()`), but the adapter does not currently implement backlog fetching on restart.
+2. Event subscriptions are re-established (`CONTACT_MSG_RECV`, `CHANNEL_MSG_RECV`, `DISCONNECTED`).
+3. No backlog fetch or contact refresh is performed.
+4. Any messages that arrived during the downtime are **lost** — the adapter does not persist or replay missed events. MeshCore uses a pull model (`MESSAGES_WAITING` → `get_msg()`), but the adapter does not currently implement backlog fetching on restart.
 
 ### 12.6 Planned improvements
 
-Automatic reconnection with exponential backoff and health state transitions (`healthy` / `degraded` / `failed`) is planned but not implemented. See `docs/contracts/19-meshcore-connectivity-readiness.md` for the readiness assessment.
+Bounded reconnect on SDK `DISCONNECTED` events is implemented (exponential backoff, source-audited/mock-tested). Future improvements include health state transitions (`healthy` / `degraded` / `failed`) and backlog fetching. See `docs/contracts/19-meshcore-connectivity-readiness.md` for the readiness assessment.
 
 ## 13. Known Limitations
 
@@ -764,9 +767,9 @@ This is an honest list. Everything here is real.
 
 1. **BLE mode implemented at session layer, hardware validation pending.** TCP and serial real connections work via `MeshCoreSession`. BLE connectivity is wired in the session (`MeshCore.create_ble()`), but has not been validated against real BLE hardware. Mock-based tests pass. See section 6.
 
-2. **No automatic reconnection at adapter level.** If the connection to the node is lost, the session attempts bounded reconnect with exponential backoff (up to 10 attempts). See section 12.
+2. **Bounded reconnect on SDK DISCONNECTED events.** The session attempts exponential backoff reconnect (up to 10 attempts, capped at 30 s base delay). See section 12.
 
-3. **No outbound retry.** Failed sends are permanently dropped, not requeued. See section 9.2.
+3. **Bounded transient retry; no durable queue.** Failed sends are retried up to 3 times within `send_text()` (transient failures only). After exhaustion, the send is permanently dropped — no durable queue, no ACK correlation, and duplicate-send risk from retries. See section 9.2.
 
 4. **No inbound persistence.** Inbound events are published directly via `ctx.publish_inbound()`. If the callback is slow or fails, the event is gone. There is no retry, no dead letter queue, no redelivery.
 
@@ -774,7 +777,7 @@ This is an honest list. Everything here is real.
 
 6. **Text packets only.** The adapter classifies all inbound events but only processes `text` category events. ACK events are silently dropped.
 
-7. **Startup backlog suppression is deferred.** There is a `startup_backlog_suppress_seconds` config field (default 5.0s) but it is not wired to filtering logic and **should not be wired** in the current adapter. MeshCore has no message history, no store-and-forward, and no initial sync. When the adapter connects, there is no backlog to suppress; events arrive live from the SDK's event dispatcher. The `sender_timestamp` field in MeshCore events is sender-side and unverified. Attempting timestamp-based suppression on live events risks dropping fresh packets, not stale ones. If MeshCore later gains store-and-forward or an initial backlog sync mechanism, this decision should be revisited. This is not cryptographic replay prevention, not durable, not exactly-once.
+7. **Startup backlog suppression is intentionally absent.** The `startup_backlog_suppress_seconds` config field was removed from `MeshCoreConfig` in Tranche 4. MeshCore has no message history, no store-and-forward, and no initial sync. When the adapter connects, there is no backlog to suppress; events arrive live from the SDK's event dispatcher. The `sender_timestamp` field in MeshCore events is sender-side and unverified. Attempting timestamp-based suppression on live events risks dropping fresh packets, not stale ones. If MeshCore later gains store-and-forward or an initial backlog sync mechanism, this decision should be revisited. This is not cryptographic replay prevention, not durable, not exactly-once.
 
 8. **No dedicated runner.** There is no MeshCore-specific runner. Adapter wiring is manual (see section 5.2).
 
@@ -796,9 +799,9 @@ This is an honest list. Everything here is real.
 
 The adapter sends real radio packets when using real connectivity modes. Ensure the configured channel is not used for critical or emergency communications during testing. MeshCore operates on LoRa radio bands. Ensure your node is configured for your regional regulations.
 
-### 14.2 Connection loss is silent
+### 14.2 Connection loss triggers reconnect
 
-If the TCP connection drops, the serial cable is disconnected, or the BLE link is lost, the adapter does not detect this automatically in the current scaffold. It will continue to report `"healthy"` until the next send attempt fails (or until you call `stop()` + `start()`).
+If the TCP connection drops, the serial cable is disconnected, or the BLE link is lost, the session's bounded exponential backoff reconnect loop attempts to re-establish connectivity (up to 10 attempts, capped at 30 s base delay). If all attempts fail, `reconnecting` becomes `False` and `last_error` is set. `health_check()` will continue to report `"healthy"` because `_started` is still `True` — this is a known limitation. Manual `stop()` + `start()` may be needed after exhaustion.
 
 ### 14.3 Message loss is expected
 
@@ -832,11 +835,15 @@ Or switch to fake mode:
 config = MeshCoreConfig(adapter_id="meshcore-alpha", connection_type="fake")
 ```
 
-### 15.2 `MeshCoreConnectionError: Real MeshCore connections not yet implemented`
+### 15.2 `MeshCoreConnectionError: Failed to create tcp/serial/ble client: ...`
 
-You are trying to use a real connection type (TCP/serial/BLE) but the adapter's real client code has not been implemented yet. This is the current scaffold behavior.
+Real connection failed during `MeshCoreSession._connect_real()`. The session wraps the factory call in try/except and clears `_message_callback` on failure. Check:
 
-Use fake mode for now:
+1. Is the `meshcore` SDK installed? `pip install meshcore`.
+2. Is the node reachable? (See connection-specific checks below.)
+3. After a failed start, the session state is cleaned up — a subsequent `start()` attempt starts fresh.
+
+Switch to fake mode if real connectivity is not available:
 
 ```python
 config = MeshCoreConfig(adapter_id="meshcore-alpha", connection_type="fake")
@@ -976,7 +983,7 @@ A successful return from `deliver()` means the adapter called the SDK send metho
 
 Channel messages return `OK`/`ERROR` with no `expected_ack`. There is no per-recipient delivery confirmation for channel messages. Direct messages carry `expected_ack` for ACK correlation, but ACKs are not guaranteed and the adapter does not track them.
 
-The adapter has no outbound queue. Sends go directly through the session to the SDK client. There is no retry, no requeue, no backlog, no at-least-once enforcement at the adapter level.
+The adapter has no outbound queue. Sends go directly through the session to the SDK client. Session-level transient retry exists (up to 3 attempts in `send_text()`). No durable queue, no requeue, no backlog, no at-least-once enforcement at the adapter level.
 
 ## 17. Target-Aware Rendering and Classifier Diagnostics
 
@@ -1003,9 +1010,9 @@ The following features are not supported in alpha mode. Do not attempt to use th
 
 | Feature                              | Status                                                    | Notes                                                                                                                                                                                            |
 | ------------------------------------ | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Real client connections              | Scaffolded                                                | `start()` raises `MeshCoreConnectionError` for non-fake types                                                                                                                                    |
-| Automatic reconnection               | Not implemented at adapter level                          | SDK supports `auto_reconnect` param, not wired                                                                                                                                                   |
-| Outbound retry                       | Not implemented                                           | Failed sends are permanently dropped                                                                                                                                                             |
+| Real client connections              | Source-audited / mock-tested                              | `MeshCoreSession` wires TCP/serial/BLE via guarded SDK import; not live-validated                                                                                                                |
+| Automatic reconnection               | Implemented in session (bounded exponential backoff)      | SDK `auto_reconnect` param also available; session adds its own backoff loop                                                                                                                     |
+| Outbound retry                       | Bounded transient retry (up to 3 attempts)                | No durable queue; no ACK correlation; duplicate-send risk from retries                                                                                                                           |
 | ACK / delivery confirmation tracking | Not implemented                                           | `expected_ack` is not tracked or correlated                                                                                                                                                      |
 | Direct message routing               | Not supported                                             | DMs classified but processed identically to channel messages                                                                                                                                     |
 | Reply threading                      | Not supported                                             | MeshCore protocol has no native reply mechanism                                                                                                                                                  |
@@ -1024,3 +1031,73 @@ The following features are not supported in alpha mode. Do not attempt to use th
 | Cross-transport orchestration        | Not in scope                                              | No bridge between MeshCore and other transports                                                                                                                                                  |
 | Bridge-policy redesign               | Not in scope                                              | No policy changes for MeshCore integration                                                                                                                                                       |
 | Non-MeshCore transports              | Not in scope                                              | This runbook covers MeshCore only                                                                                                                                                                |
+
+## 19. Tranche 4 Hardening (2026-05-26)
+
+Tranche 4 (`t4-meshcore-maturation`) documents and tests existing session lifecycle hardening and verifies renderer byte-budget behavior. Does not add new production adapter code in this PR section. Source-audited and mock-tested only; no hardware validation occurred.
+
+### 19.1 Session Lifecycle Hardening
+
+`MeshCoreSession` now implements bounded reconnect with exponential backoff:
+
+- **Reconnect policy**: Base delay doubles on each attempt (1 s → 2 s → 4 s → 8 s → …) capped at 30 s. ±25 % jitter applied to avoid thundering-herd synchronisation. Maximum 10 consecutive attempts. After exhaustion, the session reports `last_error` and sets `reconnecting = False`.
+- **Stop guard**: `stop()` sets `_stop_requested`, which prevents the reconnect loop from scheduling further attempts. Any in-flight reconnect task is cancelled.
+- **Transient vs permanent error classification**: `send_text()` retries transient failures (OSError, transport errors) up to 3 times. SDK ERROR responses are permanent and not retried. `transient_delivery_failures` and `permanent_delivery_failures` counters are tracked independently and reported in `diagnostics()`.
+- **Recovery**: A transient failure followed by a successful retry increments `transient_delivery_failures` but not `permanent_delivery_failures`.
+
+### 19.2 Renderer Byte Budget Verification
+
+`MeshCoreRenderer` enforces UTF-8 byte-budget truncation via `_truncate_utf8_bytes()`:
+
+- Operates on byte count, not character count.
+- Multi-byte UTF-8 codepoints are never split. Uses `decode("utf-8", errors="ignore")` on the byte slice.
+- `max_text_bytes=0` produces empty string with `truncated=True` (unless input is also empty).
+- Configurable per adapter (default 512 bytes).
+- Truncation metadata (`original_text_bytes`, `rendered_text_bytes`, `truncated`, `max_text_bytes`) reported in `RenderingResult.metadata`.
+
+Tests added:
+
+- Mixed ASCII + 2-byte + 3-byte + 4-byte codepoint truncation
+- All-multibyte string with budget too small for any character
+- Single multibyte character fitting exactly
+- Large text (1000 chars) truncated to small budget (50 bytes)
+- Zero-budget with multibyte input
+
+### 19.3 Operational Caveats (Unchanged)
+
+- **No real hardware validation occurred in Tranche 4.** All lifecycle hardening is tested via mocked SDK only.
+- **Startup backlog suppression remains intentionally absent.** MeshCore has no store-and-forward; `sender_timestamp` is sender-side and unverified.
+- **No outbound queue.** Sends go directly through the session. A successful send means local node acceptance, not mesh delivery.
+- **BLE hardware validation pending.** BLE is wired at the session layer but has not been tested against real BLE hardware.
+- **512-byte text limit.** The renderer enforces `max_text_bytes=512` by default. The MeshCore wire protocol has a 255-byte frame payload maximum. Messages exceeding the wire limit may be truncated or rejected by the firmware.
+
+### 19.4 Test Coverage Summary
+
+| Test file                         | New classes                                   | Tests added                                                                                        |
+| --------------------------------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `tests/test_meshcore_session.py`  | 6 new classes                                 | BLE startup, send with message_id, reconnect backoff, error classification, callback normalization |
+| `tests/test_meshcore_renderer.py` | 1 new class + 6 new methods in existing class | Mixed multi-byte, prefix formatting, zero-budget multibyte, large text truncation                  |
+
+## 20. Tranche 6 Session Hardening (2026-05-26)
+
+Tranche 6 (`t6-evidence-diagnostics`) adds session edge-case hardening and doc cleanup. Source-audited and mock-tested only; no hardware validation occurred.
+
+### 20.1 Session Edge-Case Fixes
+
+`MeshCoreSession` (`src/medre/adapters/meshcore/session.py`) now handles:
+
+- **Sync callback safety**: `_on_sdk_event()` checks `asyncio.iscoroutine()` before awaiting. Sync callbacks no longer produce false `TypeError`.
+- **Failed-start cleanup**: `start()` wraps `_connect_real()` in try/except. On failure, clears `_message_callback = None`. Subsequent `start()` attempts begin from clean state.
+
+### 20.2 Test Coverage Added (Tranche 6)
+
+| Test class                       | What it verifies                                                                                                   |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `TestTranche6SyncCallback`       | Sync callback receives payload, no TypeError logged, async still works, callback exception caught/session survives |
+| `TestTranche6FailedStartCleanup` | Failed start clears callback, diagnostics not connected                                                            |
+
+### 20.3 Operational Caveats (Unchanged)
+
+- No hardware validation occurred in Tranche 6.
+- No status changes in the capability matrix.
+- BLE hardware validation still pending.

@@ -259,3 +259,157 @@ class TestLxmfCodecErrors:
         packet = {"foo": "bar"}
         with pytest.raises(LxmfCodecError, match="unsupported"):
             codec.decode(packet)
+
+
+# ===================================================================
+# Tranche 5: signature_validated flag propagation
+# ===================================================================
+
+
+class TestTranche5SignatureValidated:
+    """signature_validated does not leak into native metadata.
+
+    The codec accepts signature_validated=True/False/missing without
+    error.  The value is NOT stored in ``metadata.native.data`` — it
+    exists only in the session's normalised inbound dict.
+    """
+
+    def test_decode_signature_validated_true(self) -> None:
+        codec = LxmfCodec("lxmf-1", _make_config())
+        packet = _make_text_packet()
+        packet["signature_validated"] = True
+        event = codec.decode(packet)
+        assert isinstance(event, CanonicalEvent)
+        assert "signature_validated" not in event.metadata.native.data
+
+    def test_decode_signature_validated_false(self) -> None:
+        codec = LxmfCodec("lxmf-1", _make_config())
+        packet = _make_text_packet()
+        packet["signature_validated"] = False
+        event = codec.decode(packet)
+        assert isinstance(event, CanonicalEvent)
+        assert "signature_validated" not in event.metadata.native.data
+
+    def test_decode_missing_signature_validated(self) -> None:
+        """Packet without signature_validated still decodes."""
+        codec = LxmfCodec("lxmf-1", _make_config())
+        packet = _make_text_packet()
+        del packet["signature_validated"]
+        event = codec.decode(packet)
+        assert isinstance(event, CanonicalEvent)
+        assert event.metadata.native is not None
+        assert "signature_validated" not in event.metadata.native.data
+
+
+# ===================================================================
+# Tranche 5: Missing/optional field handling
+# ===================================================================
+
+
+class TestTranche5MissingOptionalFields:
+    """Codec handles packets with missing or empty optional fields."""
+
+    def test_decode_missing_source_hash(self) -> None:
+        """Packet without source_hash decodes with empty sender."""
+        codec = LxmfCodec("lxmf-1", _make_config())
+        packet = _make_text_packet()
+        del packet["source_hash"]
+        event = codec.decode(packet)
+        # Classifier returns None for missing sender; codec falls back to "".
+        assert isinstance(event, CanonicalEvent)
+        assert event.source_transport_id == ""
+        assert event.metadata.native is not None
+        assert event.metadata.native.data["source_hash"] == ""
+
+    def test_decode_missing_timestamp(self) -> None:
+        """Packet without timestamp still decodes."""
+        codec = LxmfCodec("lxmf-1", _make_config())
+        packet = _make_text_packet()
+        del packet["timestamp"]
+        event = codec.decode(packet)
+        assert isinstance(event, CanonicalEvent)
+        assert event.metadata.native is not None
+        assert event.metadata.native.data["timestamp"] is None
+
+    def test_decode_missing_fields_key(self) -> None:
+        """Packet without fields key decodes (no envelope extracted)."""
+        codec = LxmfCodec("lxmf-1", _make_config())
+        packet = _make_text_packet()
+        del packet["fields"]
+        event = codec.decode(packet)
+        assert isinstance(event, CanonicalEvent)
+        assert "medre_envelope" not in event.metadata.custom
+
+    def test_decode_empty_content_raises(self) -> None:
+        """Packet with empty content string is classified as 'unknown'
+        and raises LxmfCodecError — the classifier requires non-empty
+        content to identify a text message."""
+        codec = LxmfCodec("lxmf-1", _make_config())
+        packet = _make_text_packet(content="")
+        with pytest.raises(LxmfCodecError, match="unsupported"):
+            codec.decode(packet)
+
+    def test_decode_missing_destination_hash(self) -> None:
+        """Packet without destination_hash decodes with None."""
+        codec = LxmfCodec("lxmf-1", _make_config())
+        packet = _make_text_packet()
+        del packet["destination_hash"]
+        event = codec.decode(packet)
+        assert isinstance(event, CanonicalEvent)
+        assert event.metadata.native is not None
+        assert event.metadata.native.data["destination_hash"] is None
+
+    def test_decode_missing_has_fields(self) -> None:
+        """Packet without has_fields decodes successfully; codec computes
+        has_fields from the fields dict (empty → False)."""
+        codec = LxmfCodec("lxmf-1", _make_config())
+        packet = _make_text_packet()
+        del packet["has_fields"]
+        event = codec.decode(packet)
+        assert isinstance(event, CanonicalEvent)
+        assert event.metadata.native is not None
+        assert event.metadata.native.data["has_fields"] is False
+
+
+# ===================================================================
+# Tranche 5: delivery_method in native metadata
+# ===================================================================
+
+
+class TestTranche5DeliveryMethodMetadata:
+    """delivery_method and has_fields are preserved in native metadata.
+
+    Tests cover both the delivery_method field (direct, opportunistic,
+    propagated, or None) and the has_fields boolean indicator for the
+    presence of LXMF fields on the inbound message.
+    """
+
+    def test_decode_delivery_method_direct(self) -> None:
+        codec = LxmfCodec("lxmf-1", _make_config())
+        packet = _make_text_packet()
+        packet["delivery_method"] = "direct"
+        event = codec.decode(packet)
+        assert event.metadata.native is not None
+        assert event.metadata.native.data["delivery_method"] == "direct"
+
+    def test_decode_delivery_method_none(self) -> None:
+        codec = LxmfCodec("lxmf-1", _make_config())
+        packet = _make_text_packet()
+        # No delivery_method key
+        event = codec.decode(packet)
+        assert event.metadata.native is not None
+        assert event.metadata.native.data["delivery_method"] is None
+
+    def test_decode_has_fields_in_metadata(self) -> None:
+        codec = LxmfCodec("lxmf-1", _make_config())
+        packet = _make_text_packet(fields={0x01: "data"})
+        event = codec.decode(packet)
+        assert event.metadata.native is not None
+        assert event.metadata.native.data["has_fields"] is True
+
+    def test_decode_no_fields_has_fields_false(self) -> None:
+        codec = LxmfCodec("lxmf-1", _make_config())
+        packet = _make_text_packet(fields={})
+        event = codec.decode(packet)
+        assert event.metadata.native is not None
+        assert event.metadata.native.data["has_fields"] is False
