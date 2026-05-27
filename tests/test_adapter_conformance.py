@@ -16,9 +16,12 @@ conformance requirements defined in ``docs/spec/conformance.md``.
 7. Reports health via ``health_check()``.
 8. Respects payload limits when embedding envelopes on constrained transports.
 
-Tests 1, 2, and 7 can be validated statically (no running adapter needed).
-Tests 3, 4, 5, 6, and 8 require a runtime adapter instance and are marked
-``pytest.mark.xfail`` until integration harnesses are available.
+Tests 1 and 2 can be validated statically (no running adapter needed).
+Tests 3, 4, 5, 6, and 8 run for adapters that can be instantiated in the
+test environment (primarily fake adapters).  Real adapters that require
+config/runtime are explicitly xfailed or skipped.  Native-ingress
+conformance (§3.1.3–§3.1.6) is not yet enforced by this file; current
+tests validate AdapterContext.publish_inbound wiring only.
 """
 
 from __future__ import annotations
@@ -374,8 +377,13 @@ class TestNoCredentialsInEvents:
 
 
 class TestPublishInbound:
-    """§3.1.6: Publishes inbound events via ``ctx.publish_inbound()``, not
-    by calling other adapters.
+    """§3.1.6: Publication hook forwarding — validates that
+    ``adapter.publish_inbound()`` forwards synthetic canonical events
+    through ``AdapterContext.publish_inbound``.
+
+    This test validates the publication/callback wiring, NOT native SDK
+    ingress.  Native-ingress conformance (§3.1.6) requires a dedicated
+    per-adapter fixture harness and is not yet enforced here.
     """
 
     @pytest.mark.parametrize(

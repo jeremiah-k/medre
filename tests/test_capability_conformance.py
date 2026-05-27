@@ -3,11 +3,10 @@ JSON files match the actual AdapterCapabilities declared in adapter source code.
 
 Reads each ``*-capabilities.json`` alongside the transport profile markdown and
 compares every documented capability against the corresponding adapter class.
-Also reports *undocumented* capabilities — fields present in the code but not
-in the JSON file.
 
-Gaps are expected and reported as findings; value mismatches cause hard
-failures.
+Missing fields and value mismatches cause hard failures.  The suite also
+verifies that every AdapterCapabilities field is present in each JSON file
+and that every JSON key corresponds to a valid capability field.
 """
 
 from __future__ import annotations
@@ -26,6 +25,8 @@ from medre.core.contracts.adapter import AdapterCapabilities
 # ---------------------------------------------------------------------------
 
 TRANSPORTS = ("matrix", "meshtastic", "meshcore", "lxmf")
+
+_SENTINEL = object()
 
 PROFILES_DIR = (
     Path(__file__).resolve().parent.parent / "docs" / "spec" / "transport-profiles"
@@ -161,7 +162,6 @@ def test_markdown_references_capability_json(transport: str) -> None:
         f"{transport}.md does not reference {json_filename}. "
         f"Add a link to the machine-readable capability declaration."
     )
-
-
-# Sentinel for missing attributes (distinct from any real value including None).
-_SENTINEL = object()
+# ---------------------------------------------------------------------------
+# Parameterised conformance test
+# ---------------------------------------------------------------------------

@@ -31,16 +31,10 @@ _SCAN_GLOBS = [
     "docs/schemas/**/*.yml",
 ]
 
-# Lines where ``syt_`` is intentional security/redaction guidance.
-# Keys are repo-root-relative paths; values are 1-based line numbers.
-_ALLOWLIST_LINES: dict[str, set[int]] = {
-    "docs/ops/operator-workflows.md": {424},  # "search for `syt_`" redaction checklist
-    "docs/ops/configuration.md": {680},  # repr redaction documentation
-}
-
-# Prose keywords that indicate the line is describing syt_ for
+# Prose keywords that indicate the line is describing ``syt_`` for
 # security/redaction guidance rather than using it as a config value.
-_PROSE_KEYWORDS = ("search", "redact", "redaction", "preview", "short 3-character")
+# These are applied per-line; a match on any keyword allows the occurrence.
+_ALLOW_KEYWORDS = ("search", "redact", "redaction", "preview", "3-character")
 
 
 def _collect_files() -> list[Path]:
@@ -51,16 +45,10 @@ def _collect_files() -> list[Path]:
     return sorted(set(files))
 
 
-def _is_allowed(rel_path: str, lineno: int, line: str) -> bool:
-    """Return True if this ``syt_`` occurrence is intentionally allowed."""
-    # Explicit line-number allowlist
-    if rel_path in _ALLOWLIST_LINES and lineno in _ALLOWLIST_LINES[rel_path]:
-        return True
-    # Prose context: if the line describes searching/redacting/previewing syt_
+def _is_allowed(line: str) -> bool:
+    """Return True if this ``syt_`` occurrence is in security/redaction prose."""
     lower = line.lower()
-    if any(kw in lower for kw in _PROSE_KEYWORDS):
-        return True
-    return False
+    return any(kw in lower for kw in _ALLOW_KEYWORDS)
 
 
 # ===========================================================================
@@ -88,7 +76,7 @@ class TestNoTokenShapedSecretsInExamples:
         for lineno, line in enumerate(text.splitlines(), start=1):
             if "syt_" not in line:
                 continue
-            if _is_allowed(rel, lineno, line):
+            if _is_allowed(line):
                 continue
             violations.append(f"  {rel}:{lineno}: {line.strip()}")
 

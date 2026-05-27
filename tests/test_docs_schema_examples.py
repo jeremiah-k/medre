@@ -281,6 +281,10 @@ class TestSourceDriftDetection:
         assert (
             not missing
         ), f"CanonicalEvent fields missing from schema: {sorted(missing)}"
+        extra = schema_props - source_fields
+        assert (
+            not extra
+        ), f"Schema properties absent from CanonicalEvent: {sorted(extra)}"
 
     def test_delivery_receipt_schema_matches_source(self) -> None:
         """delivery-receipt.schema.json properties must match DeliveryReceipt fields."""
@@ -293,6 +297,10 @@ class TestSourceDriftDetection:
         assert (
             not missing
         ), f"DeliveryReceipt fields missing from schema: {sorted(missing)}"
+        extra = schema_props - source_fields
+        assert (
+            not extra
+        ), f"Schema properties absent from DeliveryReceipt: {sorted(extra)}"
 
     def test_delivery_result_schema_matches_source(self) -> None:
         """delivery-result.schema.json properties must match AdapterDeliveryResult fields."""
@@ -307,3 +315,7 @@ class TestSourceDriftDetection:
         assert (
             not missing
         ), f"AdapterDeliveryResult fields missing from schema: {sorted(missing)}"
+        extra = schema_props - source_fields
+        assert (
+            not extra
+        ), f"Schema properties absent from AdapterDeliveryResult: {sorted(extra)}"
