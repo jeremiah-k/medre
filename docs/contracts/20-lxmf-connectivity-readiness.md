@@ -14,7 +14,7 @@ This document consolidates all confirmed, inferred, and unknown findings
 about the LXMF and Reticulum SDKs into a single connectivity readiness
 assessment. It is the authoritative reference for what the SDK provides,
 what the MEDRE adapter currently implements, and what remains
-genuently unknown until someone runs code against a real Reticulum
+genuinely unknown until someone runs code against a real Reticulum
 network.
 
 **No production LXMF/Reticulum connectivity is claimed.

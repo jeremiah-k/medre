@@ -528,14 +528,15 @@ MeshCore uses Ed25519 keypair identity. There is no numeric node ID. Addressing 
 
 In fake mode, `deliver()` returns `None` — no real send occurs.
 
-### 9.2 Retry semantics (current: none at adapter level)
+### 9.2 Retry semantics (session-level bounded retry)
 
-**The adapter does not implement outbound retry logic.** When a send fails:
+The `MeshCoreSession` implements bounded retry for transient failures:
 
-- The failed item is **permanently dropped**.
-- The exception is re-raised to the caller.
+- **Transient failures** (OSError, transport errors): retried up to 3 times within `send_text()`.
+- **Permanent failures** (SDK ERROR responses): classified immediately, not retried.
+- **Counters**: `transient_delivery_failures` and `permanent_delivery_failures` tracked independently and reported in `diagnostics()`.
 
-This is an explicit scaffold design choice.
+This is source-audited and mock-tested only; no hardware validation has occurred.
 
 ### 9.3 SDK built-in retry (for reference)
 
@@ -563,7 +564,7 @@ Behavior:
 
 ### 9.4 Duplicate-send risk
 
-Because the adapter has no outbound retry, there is **no duplicate-send risk from the adapter itself** in the current scaffold. Each delivery attempt is made once; if it fails, the adapter does not retry. This is a scaffold property (no retry loop), not a delivery guarantee.
+Because the session retries transient failures, there is a **duplicate-send risk from retries**. If a transient failure occurs but the message was actually accepted by the node, the retry delivers a duplicate. This is a bounded-retry property, not a delivery guarantee.
 
 However, if `send_msg_with_retry()` is used in the future:
 
@@ -696,14 +697,17 @@ The MeshCore adapter does not currently persist state. There is no database, no 
 
 ## 12. Reconnect Behavior
 
-### 12.1 Current state: no automatic reconnect at adapter level
+### 12.1 Session-level bounded exponential backoff
 
-**The MeshCore adapter does not implement its own reconnection logic.** If the connection to the node is lost:
+The `MeshCoreSession` implements bounded exponential backoff reconnection:
 
-- The adapter does not detect the disconnection automatically (in the current scaffold).
-- No reconnect attempts are made at the adapter level.
-- `health_check()` will continue to report `"healthy"` because `_started` is still `True`.
-- Manual intervention is required: call `stop()` then `start()` to re-establish the connection.
+- Base delays double on each attempt (1 s → 2 s → 4 s → 8 s → …) capped at 30 s.
+- ±25 % jitter applied to avoid thundering-herd synchronisation.
+- Maximum 10 consecutive attempts. After exhaustion, the session reports `last_error` and sets `reconnecting = False`.
+- On `stop()`, a `_stop_requested` guard prevents further reconnect attempts. Any in-flight reconnect task is cancelled.
+- A successful reconnect resets the attempt counter.
+
+This is source-audited and mock-tested only; no hardware validation has occurred.
 
 ### 12.2 SDK-level auto-reconnect
 
@@ -728,9 +732,9 @@ SDK reconnect behavior (from source analysis):
 
 ### 12.3 What this means for operation
 
-- For short-lived testing sessions, manual `stop()` + `start()` is acceptable.
-- For long-running operation, you need an external watchdog (e.g., Docker restart policy, systemd service, supervisor process) to detect failures and restart the process.
-- When SDK auto-reconnect is enabled, the SDK handles transport-level recovery internally, but the adapter does not currently expose reconnect state in `health_check()`.
+- For short-lived testing sessions, manual `stop()` + `start()` remains acceptable.
+- For long-running operation, the session's bounded reconnect handles transient disconnections automatically. An external watchdog (e.g., Docker restart policy, systemd service) is still recommended for process-level failure recovery.
+- When SDK auto-reconnect is enabled, the SDK handles transport-level recovery internally, and the session observes reconnection via `CONNECTED` events. The session's own reconnect loop handles the case where the entire SDK client needs to be recreated.
 
 ### 12.4 How to verify connection health
 
@@ -796,9 +800,9 @@ This is an honest list. Everything here is real.
 
 The adapter sends real radio packets when using real connectivity modes. Ensure the configured channel is not used for critical or emergency communications during testing. MeshCore operates on LoRa radio bands. Ensure your node is configured for your regional regulations.
 
-### 14.2 Connection loss is silent
+### 14.2 Connection loss triggers reconnect
 
-If the TCP connection drops, the serial cable is disconnected, or the BLE link is lost, the adapter does not detect this automatically in the current scaffold. It will continue to report `"healthy"` until the next send attempt fails (or until you call `stop()` + `start()`).
+If the TCP connection drops, the serial cable is disconnected, or the BLE link is lost, the session's bounded exponential backoff reconnect loop attempts to re-establish connectivity (up to 10 attempts, capped at 30 s base delay). If all attempts fail, `reconnecting` becomes `False` and `last_error` is set. `health_check()` will continue to report `"healthy"` because `_started` is still `True` — this is a known limitation. Manual `stop()` + `start()` may be needed after exhaustion.
 
 ### 14.3 Message loss is expected
 
@@ -832,11 +836,15 @@ Or switch to fake mode:
 config = MeshCoreConfig(adapter_id="meshcore-alpha", connection_type="fake")
 ```
 
-### 15.2 `MeshCoreConnectionError: Real MeshCore connections not yet implemented`
+### 15.2 `MeshCoreConnectionError: Failed to create tcp/serial/ble client: ...`
 
-You are trying to use a real connection type (TCP/serial/BLE) but the adapter's real client code has not been implemented yet. This is the current scaffold behavior.
+Real connection failed during `MeshCoreSession._connect_real()`. The session wraps the factory call in try/except and clears `_message_callback` on failure. Check:
 
-Use fake mode for now:
+1. Is the `meshcore` SDK installed? `pip install meshcore`.
+2. Is the node reachable? (See connection-specific checks below.)
+3. After a failed start, the session state is cleaned up — a subsequent `start()` attempt starts fresh.
+
+Switch to fake mode if real connectivity is not available:
 
 ```python
 config = MeshCoreConfig(adapter_id="meshcore-alpha", connection_type="fake")
@@ -1003,8 +1011,8 @@ The following features are not supported in alpha mode. Do not attempt to use th
 
 | Feature                              | Status                                                    | Notes                                                                                                                                                                                            |
 | ------------------------------------ | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Real client connections              | Scaffolded                                                | `start()` raises `MeshCoreConnectionError` for non-fake types                                                                                                                                    |
-| Automatic reconnection               | Not implemented at adapter level                          | SDK supports `auto_reconnect` param, not wired                                                                                                                                                   |
+| Real client connections              | Source-audited / mock-tested                              | `MeshCoreSession` wires TCP/serial/BLE via guarded SDK import; not live-validated                                                                                                                |
+| Automatic reconnection               | Implemented in session (bounded exponential backoff)      | SDK `auto_reconnect` param also available; session adds its own backoff loop                                                                                                                     |
 | Outbound retry                       | Not implemented                                           | Failed sends are permanently dropped                                                                                                                                                             |
 | ACK / delivery confirmation tracking | Not implemented                                           | `expected_ack` is not tracked or correlated                                                                                                                                                      |
 | Direct message routing               | Not supported                                             | DMs classified but processed identically to channel messages                                                                                                                                     |
@@ -1070,3 +1078,27 @@ Tests added:
 | --------------------------------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | `tests/test_meshcore_session.py`  | 6 new classes                                 | BLE startup, send with message_id, reconnect backoff, error classification, callback normalization |
 | `tests/test_meshcore_renderer.py` | 1 new class + 6 new methods in existing class | Mixed multi-byte, prefix formatting, zero-budget multibyte, large text truncation                  |
+
+## 20. Tranche 6 Session Hardening (2026-05-26)
+
+Tranche 6 (`t6-evidence-diagnostics`) adds session edge-case hardening and doc cleanup. Source-audited and mock-tested only; no hardware validation occurred.
+
+### 20.1 Session Edge-Case Fixes
+
+`MeshCoreSession` (`src/medre/adapters/meshcore/session.py`) now handles:
+
+- **Sync callback safety**: `_on_sdk_event()` checks `asyncio.iscoroutine()` before awaiting. Sync callbacks no longer produce false `TypeError`.
+- **Failed-start cleanup**: `start()` wraps `_connect_real()` in try/except. On failure, clears `_message_callback = None`. Subsequent `start()` attempts begin from clean state.
+
+### 20.2 Test Coverage Added (Tranche 6)
+
+| Test class                       | What it verifies                                                                                                   |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `TestTranche6SyncCallback`       | Sync callback receives payload, no TypeError logged, async still works, callback exception caught/session survives |
+| `TestTranche6FailedStartCleanup` | Failed start clears callback, diagnostics not connected                                                            |
+
+### 20.3 Operational Caveats (Unchanged)
+
+- No hardware validation occurred in Tranche 6.
+- No status changes in the capability matrix.
+- BLE hardware validation still pending.

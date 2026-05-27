@@ -260,7 +260,13 @@ class MeshCoreSession:
             # Fake mode: no real SDK client needed.
             self._diag.connected = True
         else:
-            await self._connect_real()
+            try:
+                await self._connect_real()
+            except Exception:
+                # Connect failed — clear callback so diagnostics and
+                # late SDK events don't reference stale state.
+                self._message_callback = None
+                raise
 
         self._started = True
         self._logger.info(
@@ -515,7 +521,9 @@ class MeshCoreSession:
                 payload = {}
 
             self._diag.last_message_time = datetime.now(timezone.utc)
-            await self._message_callback(payload)
+            result = self._message_callback(payload)
+            if asyncio.iscoroutine(result):
+                await result
         except Exception as exc:
             self._logger.exception(
                 "MeshCoreSession %s: error processing inbound event: %s",

@@ -87,9 +87,9 @@ Tranche 2 (branch `t2-meshtastic-reference-alignment`) added diagnostic-only cla
 
 ### MeshCore
 
-MeshCore has an alpha operation runbook based on SDK source extraction (version 2.3.7, audited from PyPI). The adapter design follows the same pattern as Matrix and Meshtastic. Real connectivity (TCP, serial, BLE) is specified but implementation status is at the `designed` or `fake-tested` level for most capabilities.
+MeshCore has an alpha operation runbook based on SDK source extraction (version 2.3.7, audited from PyPI). The adapter design follows the same pattern as Matrix and Meshtastic. `MeshCoreSession` contains full real-mode session code: TCP/serial/BLE factory wiring, event subscription, bounded exponential backoff reconnect, transient/permanent error classification, and inbound callback normalization. This code is source-audited and mock-tested only; no hardware validation has occurred. Implementation status is at the `fake-tested` level for most capabilities, with session lifecycle code source-audited and mock-tested.
 
-MeshCore sends directly through the session without an intermediary outbound queue. A successful send means local node acceptance, not mesh delivery, ACK receipt, RF confirmation, or remote-node reception. The `message_delay_seconds` config field is accepted but not currently enforced; it is reserved for future pacing. Target-aware UTF-8 byte-budget rendering and a classifier action taxonomy (`relay`/`ignore`/`drop`/`deferred`) with aggregate in-memory diagnostics counters are implementation in progress for this tranche. These counters explain aggregate inbound skips; they do not constitute live validation, per-packet persistence, or exactly-once accounting.
+MeshCore sends directly through the session without an intermediary outbound queue. A successful send means local node acceptance, not mesh delivery, ACK receipt, RF confirmation, or remote-node reception. The `message_delay_seconds` config field is accepted but not currently enforced; it is reserved for future pacing. Target-aware UTF-8 byte-budget rendering and a classifier action taxonomy (`relay`/`ignore`/`drop`/`deferred`) with aggregate in-memory diagnostics counters are source-audited and mock-tested. These counters explain aggregate inbound skips; they do not constitute live validation, per-packet persistence, or exactly-once accounting.
 
 Startup backlog suppression is explicitly deferred for MeshCore. MeshCore has no message history, no store-and-forward, and no initial sync. When the adapter connects, events arrive live; there is no backlog to suppress. The `sender_timestamp` field is sender-side and unverified, so timestamp-based suppression would risk dropping live packets. If MeshCore gains store-and-forward semantics, this decision should be revisited.
 
@@ -97,7 +97,7 @@ See `docs/runbooks/meshcore-alpha-operation.md` and `docs/contracts/19-meshcore-
 
 ### LXMF
 
-LXMF has an alpha operation runbook covering the Reticulum/LXMF stack. The adapter delegates to an owned `LxmfSession` which manages the `RNS.Reticulum`, `RNS.Identity`, and `LXMF.LXMRouter` lifecycle. Fake mode is the default.
+LXMF has an alpha operation runbook covering the Reticulum/LXMF stack. The adapter delegates to an owned `LxmfSession` which manages the `RNS.Reticulum`, `RNS.Identity`, and `LXMF.LXMRouter` lifecycle. Fake mode is the default. The session includes bounded exponential backoff reconnect, delivery state tracking (`OUTBOUND → SENDING → SENT → DELIVERED`), threading bridge (`call_soon_threadsafe` for Reticulum→asyncio), and failed-start cleanup. Source-audited and mock-tested only; no live Reticulum validation has occurred.
 
 See `docs/runbooks/lxmf-alpha-operation.md`. As of this writing, most capabilities beyond config load and fake lifecycle are at `fake-tested` status.
 

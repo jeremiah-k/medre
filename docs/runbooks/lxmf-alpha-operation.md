@@ -1008,10 +1008,10 @@ rnsd &
 - **No LXST (LXMF Streaming Transport) support.**
 - **No attachment, image, audio, or media transfer support.**
 
-## 19.5 Tranche 5: Hardening Summary
+## 20. Tranche 5: Hardening Summary
 
 > **Added:** 2026-05-26
-> **Scope:** Delivery semantics hardening (threading bridge in session.py, honest delivery_note in adapter.py), plus test coverage and doc hardening.
+> **Scope:** Delivery semantics hardening (threading bridge in session.py, honest delivery_note in adapter.py), plus test coverage and doc hardening. Source was changed for delivery/threading hardening.
 
 ### Test Coverage Added
 
@@ -1027,17 +1027,48 @@ Tranche 5 adds test classes covering areas previously only implied by existing t
 | `TestTranche5MissingOptionalFields`    | Codec handles missing source_hash, timestamp, fields, etc.          |
 | `TestTranche5DeliveryMethodMetadata`   | delivery_method and has_fields in native metadata                   |
 
+### Source Changes in Tranche 5
+
+Tranche 5 includes source changes to `session.py` (threading bridge via `call_soon_threadsafe`, post-stop callback guard clearing `_message_callback`/`_loop` on stop, early return in `_on_lxmf_delivery`) and `adapter.py` (honest delivery_note). The codec, renderer, and config modules are unchanged.
+
 ### What Was Not Done
 
-- Added `call_soon_threadsafe` threading bridge in session.py for Reticulum→asyncio, and honest delivery_note in adapter.py
 - No live Reticulum testing performed.
 - No new SDK APIs discovered or documented.
 
 ### Operational Impact
 
-None. Tranche 5 is purely tests and docs. The runtime behaviour of the adapter is unchanged.
+Source changes affect runtime behaviour: the threading bridge now uses `call_soon_threadsafe` for delivery-state updates from Reticulum threads, and the session clears callback state on failed start. Existing tests were updated with `await asyncio.sleep(0)` to accommodate the bridge timing. No status changes in the capability matrix.
 
-## 20. Cross-References
+## 21. Tranche 6: Session Edge-Case Hardening
+
+> **Added:** 2026-05-26
+> **Scope:** Session edge-case fixes (failed-start cleanup, no-callback-without-loop guard, delivery-state thread bridging, async callback exception handling), plus test coverage and doc cleanup.
+
+### Source Changes in Tranche 6
+
+`LxmfSession` (`src/medre/adapters/lxmf/session.py`):
+
+- **Failed-start cleanup**: `start()` wraps `_connect_real()` in try/except; on failure clears `_message_callback`, `_loop`, and diagnostics flags.
+- **No callback without loop**: `_on_lxmf_delivery()` logs warning and returns without invoking callback when `loop` is `None` or not running. Removes unsafe direct-callback fallback.
+- **Delivery-state thread bridging**: `_on_delivery_state_update()` bridges via `call_soon_threadsafe` to `_apply_delivery_state_update()`. Falls back to direct apply only when loop is not running.
+- **Async callback exception handling**: `_log_task_exception()` done callback added to fire-and-forget tasks. `inject_inbound()` sync callback wrapped in try/except.
+
+### Test Coverage Added (Tranche 6)
+
+| Test Class                           | What it verifies                                                     |
+| ------------------------------------ | -------------------------------------------------------------------- |
+| `TestTranche6FailedStartCleanup`     | Failed start clears callback/loop, diagnostics clean                 |
+| `TestTranche6AsyncCallbackException` | Async callback exception consumed, sync callback exception caught    |
+| `TestTranche6NoCallbackWithoutLoop`  | No callback when loop=None or not running, warning logged            |
+| `TestTranche6DeliveryStateBridging`  | State update via bridge works, unknown hash ignored, no thread error |
+
+### What Was Not Done
+
+- No live Reticulum testing performed.
+- No status changes in the capability matrix.
+
+## 22. Cross-References
 
 | Topic                                                               | Document                                                 |
 | ------------------------------------------------------------------- | -------------------------------------------------------- |

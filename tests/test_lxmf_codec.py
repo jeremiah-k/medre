@@ -297,6 +297,8 @@ class TestTranche5SignatureValidated:
         del packet["signature_validated"]
         event = codec.decode(packet)
         assert isinstance(event, CanonicalEvent)
+        assert event.metadata.native is not None
+        assert "signature_validated" not in event.metadata.native.data
 
 
 # ===================================================================
@@ -375,7 +377,12 @@ class TestTranche5MissingOptionalFields:
 
 
 class TestTranche5DeliveryMethodMetadata:
-    """delivery_method is preserved in native metadata."""
+    """delivery_method and has_fields are preserved in native metadata.
+
+    Tests cover both the delivery_method field (direct, opportunistic,
+    propagated, or None) and the has_fields boolean indicator for the
+    presence of LXMF fields on the inbound message.
+    """
 
     def test_decode_delivery_method_direct(self) -> None:
         codec = LxmfCodec("lxmf-1", _make_config())

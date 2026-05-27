@@ -1023,6 +1023,9 @@ class TestDeliveryCallbackMarksDelivered:
 
         session._on_delivery_state_update(MockDeliveredMessage())
 
+        # Yield to allow call_soon_threadsafe bridge to execute
+        await asyncio.sleep(0)
+
         # After delivery callback, entry should be untracked (terminal state)
         assert native_id not in session._outbound_deliveries
         await adapter.stop()
@@ -1048,6 +1051,7 @@ class TestDeliveryCallbackMarksDelivered:
 
         # Should not raise
         adapter.session._on_delivery_state_update(MockDeliveredMessage())
+        await asyncio.sleep(0)
         await adapter.stop()
 
 
@@ -1081,6 +1085,9 @@ class TestDeliveryCallbackMarksFailed:
 
         adapter.session._on_delivery_state_update(MockFailedMessage())
 
+        # Yield to allow call_soon_threadsafe bridge to execute
+        await asyncio.sleep(0)
+
         # Failed is terminal — entry should be untracked
         assert native_id not in adapter.session._outbound_deliveries
         # Failure counter should have incremented
@@ -1109,6 +1116,9 @@ class TestDeliveryCallbackMarksFailed:
             state = LxmfDeliveryState.REJECTED
 
         adapter.session._on_delivery_state_update(MockRejectedMessage())
+
+        # Yield to allow call_soon_threadsafe bridge to execute
+        await asyncio.sleep(0)
 
         assert native_id not in adapter.session._outbound_deliveries
         assert adapter.session.permanent_delivery_failures == initial_failures + 1

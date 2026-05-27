@@ -7,6 +7,7 @@ module that matches the PyPI meshcore 2.3.7 API surface.
 
 from __future__ import annotations
 
+import logging
 import sys
 from enum import Enum
 from typing import Any
@@ -1260,3 +1261,166 @@ class TestMockedSDKCallbackNormalization:
         assert t2 >= t1
 
         await session.stop()
+
+
+# ===================================================================
+# Tranche 6: Sync callback support (no false TypeError)
+# ===================================================================
+
+
+class TestTranche6SyncCallback:
+    """Sync inbound callbacks work without false TypeError logging."""
+
+    async def test_sync_callback_receives_payload(self) -> None:
+        """Sync callback receives payload dict without TypeError."""
+        mock_mc, mock_inst = _build_mock_meshcore_module()
+
+        config = _make_config(connection_type="tcp", host="localhost")
+        session = MeshCoreSession(config, "sync-cb-test")
+        received: list[dict] = []
+
+        def sync_callback(pkt: dict) -> None:
+            received.append(pkt)
+
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(sync_callback)
+
+        event = _MockEvent(
+            type=_MockEventType.CONTACT_MSG_RECV,
+            payload={"text": "sync hello", "type": "PRIV"},
+        )
+        await session._on_sdk_event(event)
+
+        assert len(received) == 1
+        assert received[0]["text"] == "sync hello"
+        assert session.last_message_time is not None
+
+        await session.stop()
+
+    async def test_sync_callback_no_typeerror_logged(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Sync callback does NOT produce TypeError in logs."""
+        mock_mc, mock_inst = _build_mock_meshcore_module()
+
+        config = _make_config(connection_type="tcp", host="localhost")
+        session = MeshCoreSession(config, "sync-cb-log-test")
+
+        def sync_callback(pkt: dict) -> None:
+            pass  # returns None — would previously cause await None
+
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(sync_callback)
+
+        with caplog.at_level(logging.ERROR):
+            event = _MockEvent(
+                type=_MockEventType.CONTACT_MSG_RECV,
+                payload={"text": "test", "type": "PRIV"},
+            )
+            await session._on_sdk_event(event)
+
+        type_errors = [r for r in caplog.records if "TypeError" in r.message]
+        assert (
+            len(type_errors) == 0
+        ), f"Unexpected TypeError in logs: {[r.message for r in type_errors]}"
+
+        await session.stop()
+
+    async def test_async_callback_still_works(self) -> None:
+        """Async callbacks still receive payloads after sync fix."""
+        mock_mc, mock_inst = _build_mock_meshcore_module()
+
+        config = _make_config(connection_type="tcp", host="localhost")
+        session = MeshCoreSession(config, "async-cb-test")
+        received: list[dict] = []
+
+        async def async_callback(pkt: dict) -> None:
+            received.append(pkt)
+
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(async_callback)
+
+        event = _MockEvent(
+            type=_MockEventType.CONTACT_MSG_RECV,
+            payload={"text": "async hello", "type": "PRIV"},
+        )
+        await session._on_sdk_event(event)
+
+        assert len(received) == 1
+        assert received[0]["text"] == "async hello"
+
+        await session.stop()
+
+    async def test_callback_exception_caught_session_survives(self) -> None:
+        """Callback exception is caught; session remains connected."""
+        mock_mc, mock_inst = _build_mock_meshcore_module()
+
+        config = _make_config(connection_type="tcp", host="localhost")
+        session = MeshCoreSession(config, "cb-exc-sync-test")
+
+        def bad_sync(pkt: dict) -> None:
+            raise RuntimeError("sync callback explosion")
+
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(bad_sync)
+
+        event = _MockEvent(
+            type=_MockEventType.CONTACT_MSG_RECV,
+            payload={"text": "trigger", "type": "PRIV"},
+        )
+        await session._on_sdk_event(event)
+
+        assert session.connected is True
+
+        await session.stop()
+
+
+# ===================================================================
+# Tranche 6: Failed-start state cleanup
+# ===================================================================
+
+
+class TestTranche6FailedStartCleanup:
+    """Failed MeshCore start does not retain callbacks or report
+    connected/reconnecting in diagnostics."""
+
+    async def test_non_fake_start_clears_callback(self) -> None:
+        """Non-fake start that fails clears _message_callback."""
+        config = _make_config(connection_type="tcp", host="1.2.3.4")
+        session = MeshCoreSession(config, "fail-cleanup-test")
+
+        async def noop(pkt: dict) -> None:
+            pass
+
+        with pytest.raises(MeshCoreConnectionError):
+            await session.start(noop)
+
+        assert session._started is False
+        assert session._message_callback is None
+
+    async def test_failed_start_diagnostics_not_connected(self) -> None:
+        """Diagnostics after failed start do not report connected/reconnecting."""
+        config = _make_config(connection_type="tcp", host="1.2.3.4")
+        session = MeshCoreSession(config, "diag-fail-test")
+
+        async def noop(pkt: dict) -> None:
+            pass
+
+        with pytest.raises(MeshCoreConnectionError):
+            await session.start(noop)
+
+        diag = session.diagnostics()
+        assert diag["connected"] is False
+        assert diag["reconnecting"] is False

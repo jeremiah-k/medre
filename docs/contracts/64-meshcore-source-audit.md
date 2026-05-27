@@ -325,7 +325,9 @@ Optional, configurable `max_attempts`. Not enabled by default.
 
 ---
 
-## 11. MEDRE Assumptions Still Scaffold
+## 11. MEDRE Assumptions Initially Scaffold (Historical Baseline)
+
+> **Note:** Several items in this table were resolved in Tranche 4 (see §12.1) and Tranche 6 (see §12.4). This table is preserved as the historical baseline. See §12.2 for remaining scaffold items.
 
 | MEDRE Assumption                      | Status                                           | Action Required                                      |
 | ------------------------------------- | ------------------------------------------------ | ---------------------------------------------------- |
@@ -369,6 +371,26 @@ Tranche 4 (`t4-meshcore-maturation`) resolved several scaffold items from sectio
 ### 12.3 Remaining Unverified (Hardware Required)
 
 All items from section 9 remain unverified. Tranche 4 added no hardware validation. Mocked SDK tests verify API wiring but not real radio behavior.
+
+### 12.4 Tranche 6 Resolution (2026-05-26)
+
+Tranche 6 (`t6-evidence-diagnostics`) added session hardening tests and doc cleanup. No production adapter code was changed beyond session edge-case fixes.
+
+#### Gaps Closed
+
+| MEDRE Assumption                  | Pre-T6 Status                                | Post-T6 Status         | Resolution                                                                                                      |
+| --------------------------------- | -------------------------------------------- | ---------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Sync callback handling            | Not tested — sync callbacks caused TypeError | **Verified via tests** | `_on_sdk_event()` checks `asyncio.iscoroutine()` before awaiting; sync callbacks no longer produce false errors |
+| Failed-start cleanup              | Not tested — failed start left stale state   | **Verified via tests** | `start()` wraps `_connect_real()` in try/except; on failure clears `_message_callback`                          |
+| Inbound callback exception safety | Partial — callback exceptions untested       | **Verified via tests** | Fire-and-forget tasks have `_log_task_exception()` done callback; exceptions logged, not swallowed              |
+
+#### Gaps Still Scaffold
+
+Same as §12.2. Tranche 6 did not close any additional scaffold items beyond session edge-case hardening.
+
+#### Remaining Unverified
+
+Same as §12.3. Tranche 6 added no hardware validation.
 
 ---
 

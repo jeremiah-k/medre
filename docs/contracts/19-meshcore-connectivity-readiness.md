@@ -10,7 +10,7 @@
 > Supersedes: None (complements 11, 16, 18)
 > Audit source: PyPI package `meshcore` v2.3.7 wheel, source-extracted inspection
 
-This document audits MeshCore's connectivity readiness for MEDRE: what the SDK provides, what the current adapter scaffold implements, what send semantics look like, and what remains unknown. It does not claim production connectivity. Nothing here should be read as "MeshCore works against real hardware" without explicit verification.
+This document audits MeshCore's connectivity readiness for MEDRE: what the SDK provides, what the current adapter implements (source-audited and mock-tested only), what send semantics look like, and what remains unknown. It does not claim production connectivity. Nothing here should be read as "MeshCore works against real hardware" without explicit verification.
 
 **Tranche status**: Readiness documentation only. No production connection, no hardware testing, no default dependency.
 
@@ -255,9 +255,9 @@ The SDK does NOT define custom exception classes. CONFIRMED (no `exceptions.py`,
 - Command timeout: `asyncio.TimeoutError` from `wait_for_event()`. CONFIRMED.
 - Serial write failure: `OSError` caught, triggers disconnect callback. CONFIRMED.
 
-### 2.11 Zero MeshCore Materials in MEDRE
+### 2.11 MeshCore Session Code in MEDRE
 
-No `meshcore` imports exist anywhere in the MEDRE codebase. The adapter uses fake delivery only. Contract 64 confirmed this; it remains true. CONFIRMED (`pip show meshcore` → NOT_INSTALLED).
+No `meshcore` SDK import exists in the MEDRE codebase at install time. The adapter's `compat.py` conditionally imports `meshcore` guarded by `HAS_MESHCORE`. The `MeshCoreSession` class contains full real-mode session code: TCP/serial/BLE factory wiring, event subscription, bounded exponential backoff reconnect, transient/permanent error classification, and inbound callback normalization. This code is source-audited and mock-tested only; no hardware validation has occurred. Contract 64 confirmed the zero-import baseline; the session code extends it without requiring the SDK at import time. CONFIRMED (`pip show meshcore` → NOT_INSTALLED).
 
 ## 3. Send Semantics
 
@@ -461,30 +461,28 @@ The SDK README shows port 4000 in examples. Is this a firmware default? Is it co
 
 BLE supports optional PIN pairing. How this interacts with MeshCore's Ed25519 identity model, whether PIN is required or optional per device, and platform-specific behavior (macOS vs. Linux vs. Windows) are not documented beyond the SDK README.
 
-## 6. Current MEDRE Adapter Scaffold Status
+## 6. Current MEDRE Adapter Status
 
 ### 6.1 What Exists
 
-| Component  | File                                     | Status                                                                                                                                                                             |
-| ---------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Adapter    | `adapters/meshcore/adapter.py`           | Fake mode functional. Real mode raises `MeshCoreConnectionError` for non-fake types without SDK. `deliver()` returns `None` in fake mode.                                          |
-| Session    | `adapters/meshcore/session.py`           | Real session code exists: TCP/serial/BLE factory wiring, event subscription, bounded reconnect, error classification. Source-audited and mock-tested only; no hardware validation. |
-| Config     | `medre/config/adapters/meshcore.py`      | Complete. Supports `fake`, `tcp`, `serial`, `ble` connection types. Has `host`, `port`, `serial_port`, `ble_address`, `default_channel` fields.                                    |
-| Codec      | `adapters/meshcore/codec.py`             | Functional. Converts MeshCore-shaped event dicts to `CanonicalEvent`.                                                                                                              |
-| Classifier | `adapters/meshcore/packet_classifier.py` | Functional. Classifies by event type, detects ACKs.                                                                                                                                |
-| Renderer   | `adapters/meshcore/renderer.py`          | Functional. UTF-8 byte-budget truncation, target-aware rendering.                                                                                                                  |
-| Errors     | `adapters/meshcore/errors.py`            | Complete. `MeshCoreConnectionError`, `MeshCoreConfigError`.                                                                                                                        |
+| Component  | File                                     | Status                                                                                                                                                                                                                                                                              |
+| ---------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Adapter    | `adapters/meshcore/adapter.py`           | Fake mode functional. Real mode delegates to `MeshCoreSession` which wires factory constructors, event subscription, and bounded reconnect. Source-audited and mock-tested only; no hardware validation.                                                                            |
+| Session    | `adapters/meshcore/session.py`           | Real session code exists: TCP/serial/BLE factory wiring, event subscription, bounded exponential backoff reconnect, transient/permanent error classification, sync+async callback normalization, failed-start cleanup. Source-audited and mock-tested only; no hardware validation. |
+| Config     | `medre/config/adapters/meshcore.py`      | Complete. Supports `fake`, `tcp`, `serial`, `ble` connection types. Has `host`, `port`, `serial_port`, `ble_address`, `default_channel` fields.                                                                                                                                     |
+| Codec      | `adapters/meshcore/codec.py`             | Functional. Converts MeshCore-shaped event dicts to `CanonicalEvent`.                                                                                                                                                                                                               |
+| Classifier | `adapters/meshcore/packet_classifier.py` | Functional. Classifies by event type, detects ACKs.                                                                                                                                                                                                                                 |
+| Renderer   | `adapters/meshcore/renderer.py`          | Functional. UTF-8 byte-budget truncation, target-aware rendering.                                                                                                                                                                                                                   |
+| Errors     | `adapters/meshcore/errors.py`            | Complete. `MeshCoreConnectionError`, `MeshCoreConfigError`.                                                                                                                                                                                                                         |
 
-### 6.2 What Is Missing
+### 6.2 What Is Missing (Hardware Validation Required)
 
-- No `meshcore` SDK import anywhere in the codebase.
-- No real client creation code in `start()`.
-- No real send code in `deliver()`.
-- No event subscription wiring (no `subscribe()` call for `CONTACT_MSG_RECV` or `CHANNEL_MSG_RECV`).
-- No ACK watching or correlation.
-- No contact list fetching.
-- No message fetching (`get_msg()` or auto-fetch).
-- No connection lifecycle management (reconnect, health probing).
+- No hardware-validated packet shapes against real MeshCore radio output.
+- No ACK watching or delivery confirmation correlation against real hardware.
+- No contact list fetching against real hardware.
+- No message fetching (`get_msg()` or auto-fetch) against real hardware.
+- No live health probing or reconnection verified against real hardware.
+- All session lifecycle code is source-audited and mock-tested only; none has been exercised against a live MeshCore node.
 
 ### 6.3 Config Readiness
 
@@ -529,12 +527,12 @@ These protocols are not compatible at the wire level. Bridging would require app
 
 ## 8. Production Connectivity Readiness Assessment
 
-### 8.1 What Would Be Needed
+### 8.1 What Would Be Needed for Production Connectivity
 
 1. Add `meshcore` as an optional dependency (extras group, not default).
-2. Implement real client creation in `start()` using `MeshCore.create_tcp()` / `create_serial()` / `create_ble()`.
-3. Wire event subscriptions for `CONTACT_MSG_RECV` and `CHANNEL_MSG_RECV`.
-4. Wire `deliver()` to `send_msg()` or `send_chan_msg()`.
+2. ~~Implement real client creation in `start()` using `MeshCore.create_tcp()` / `create_serial()` / `create_ble()`.~~ Done in `MeshCoreSession` (source-audited, mock-tested).
+3. ~~Wire event subscriptions for `CONTACT_MSG_RECV` and `CHANNEL_MSG_RECV`.~~ Done in `MeshCoreSession` (source-audited, mock-tested).
+4. ~~Wire `deliver()` to `send_msg()` or `send_chan_msg()`.~~ Done in `MeshCoreSession` (source-audited, mock-tested).
 5. Extract `expected_ack` as `native_message_id` from `send_msg` results.
 6. Implement ACK watching for delivery confirmation.
 7. Add `ble_address`, `ble_pin`, `auto_reconnect`, `default_timeout` to config.
@@ -573,8 +571,7 @@ Contract 16 is the readiness authority. Where this document and Contract 16 conf
 
 ## 10. Explicit Out-of-Scope
 
-- No production connectivity implementation.
-- No production connection, live hardware testing, or real SDK integration.
+- No live hardware testing or real SDK integration against physical MeshCore nodes.
 - No default dependency on `meshcore`.
 - No hardware procurement or firmware flashing instructions.
 - No bridge design between MeshCore and Meshtastic.

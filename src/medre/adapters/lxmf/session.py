@@ -564,7 +564,17 @@ class LxmfSession:
             self._diag.connected = True
             self._diag.router_running = True
         else:
-            await self._connect_real()
+            try:
+                await self._connect_real()
+            except Exception:
+                # Connect failed — clear captured state so diagnostics
+                # and late SDK callbacks don't reference stale values.
+                self._message_callback = None
+                self._loop = None
+                self._diag.connected = False
+                self._diag.router_running = False
+                self._diag.reconnecting = False
+                raise
 
         self._started = True
         self._logger.info(
@@ -722,12 +732,21 @@ class LxmfSession:
         if self._message_callback is None:
             return
         self._diag.last_message_time = datetime.now(timezone.utc)
-        result = self._message_callback(message_dict)
+        try:
+            result = self._message_callback(message_dict)
+        except Exception as exc:
+            self._logger.warning(
+                "LxmfSession %s: inject_inbound callback error: %s",
+                self._adapter_id,
+                exc,
+            )
+            return
         # Support async callbacks
         if asyncio.iscoroutine(result):
             try:
                 loop = asyncio.get_running_loop()
-                loop.create_task(result)
+                task = loop.create_task(result)
+                task.add_done_callback(self._log_task_exception)
             except RuntimeError:
                 # No running loop; run synchronously
                 asyncio.run(result)
@@ -911,14 +930,12 @@ class LxmfSession:
         if loop is not None and loop.is_running():
             loop.call_soon_threadsafe(self._invoke_inbound_callback, normalised)
         else:
-            # Fallback: no captured loop (shouldn't happen in production
-            # after start()).  Invoke directly but warn.
+            # No valid running loop — drop the callback to avoid
+            # executing asyncio code on the Reticulum thread.
             self._logger.warning(
-                "LxmfSession %s: no event loop captured; invoking "
-                "inbound callback on Reticulum thread (unsafe)",
+                "LxmfSession %s: dropping inbound callback; " "no running event loop",
                 self._adapter_id,
             )
-            self._invoke_inbound_callback(normalised)
 
     def _invoke_inbound_callback(self, normalised: dict[str, Any]) -> None:
         """Invoke the inbound message callback on the event-loop thread.
@@ -936,12 +953,25 @@ class LxmfSession:
             if asyncio.iscoroutine(result):
                 try:
                     loop = asyncio.get_running_loop()
-                    loop.create_task(result)
+                    task = loop.create_task(result)
+                    task.add_done_callback(self._log_task_exception)
                 except RuntimeError:
                     asyncio.run(result)
         except Exception as exc:
             self._logger.warning(
                 "LxmfSession %s: message callback error: %s",
+                self._adapter_id,
+                exc,
+            )
+
+    def _log_task_exception(self, task: asyncio.Task) -> None:
+        """Done callback for fire-and-forget tasks — logs exceptions
+        to prevent 'Task exception was never retrieved'."""
+        try:
+            task.result()
+        except Exception as exc:
+            self._logger.warning(
+                "LxmfSession %s: async callback error: %s",
                 self._adapter_id,
                 exc,
             )
@@ -961,11 +991,31 @@ class LxmfSession:
         """Handle delivery state updates for outbound messages.
 
         **Thread-safety**: LXMRouter invokes this callback on a
-        Reticulum I/O thread.  All work here is synchronous dict
-        mutation (no asyncio calls), so no thread-bridging is needed.
+        Reticulum I/O thread.  State mutation is bridged onto the
+        captured asyncio loop via ``call_soon_threadsafe`` to avoid
+        concurrent mutation from the Reticulum and asyncio threads.
+        """
+        try:
+            loop = self._loop
+            if loop is not None and loop.is_running():
+                loop.call_soon_threadsafe(self._apply_delivery_state_update, message)
+            else:
+                # No running loop — apply directly only if we're
+                # already on the loop thread (e.g. during testing
+                # with fake mode).
+                self._apply_delivery_state_update(message)
+        except Exception as exc:
+            self._logger.debug(
+                "LxmfSession %s: error scheduling delivery state update: %s",
+                self._adapter_id,
+                exc,
+            )
 
-        Tracks state transitions in the outbound delivery tracking
-        dict without exposing raw objects.
+    def _apply_delivery_state_update(self, message: Any) -> None:
+        """Apply a delivery state update to outbound tracking.
+
+        Runs on the asyncio loop thread (bridged via
+        ``call_soon_threadsafe`` from ``_on_delivery_state_update``).
         """
         try:
             msg_hash = self._extract_message_hash(message)
