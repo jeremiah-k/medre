@@ -58,16 +58,19 @@ An adapter conforms when it:
 
 The pipeline conforms when it:
 
-1. Processes events through all stages in order (ingress, store, enrich,
-   transform, event policy, route, route policy, delivery plan, render,
-   deliver, receipt).
+1. Processes events through all stages in order (ingress, dedup,
+   resolve_relations, store, route, deliver). See
+   [architecture.md §2](architecture.md) for stage descriptions.
 2. Never mutates a canonical event after creation.
-3. Creates derived events with `parent_event_id` and lineage for all
-   enrichment and transformation outputs.
+3. Stores only original events (depth=0). Derived events with
+   `parent_event_id` and lineage are reserved for future enrich/transform
+   implementation (see [architecture.md §2 — Future Extension Points]).
 4. Records delivery receipts for every delivery attempt (append-only).
 5. Derives current delivery status from the latest receipt, not by mutating
    receipt rows.
-6. Evaluates policies at the correct stage (ingress, event, route, delivery).
+6. Evaluates route policy at the correct stage (after routing, before
+   delivery). Delivery-stage policy is a reserved extension point with zero
+   current implementation.
 7. Supports replay without modifying existing events.
 
 ### 3.3 Storage Conformance

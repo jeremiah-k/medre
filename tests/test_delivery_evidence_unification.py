@@ -75,10 +75,8 @@ def _make_receipt(
     from medre.core.events.canonical import DeliveryReceipt
 
     valid_statuses = (
-        "accepted",
         "queued",
         "sent",
-        "confirmed",
         "failed",
         "dead_lettered",
         "suppressed",

@@ -228,14 +228,12 @@ class DeliveryReceipt(msgspec.Struct, frozen=True):
     target_channel: str | None = None
     route_id: str = ""
     status: Literal[
-        "accepted",
         "queued",
         "sent",
-        "confirmed",
         "failed",
         "dead_lettered",
         "suppressed",
-    ] = "accepted"
+    ] = "queued"
     error: str | None = None
     failure_kind: str | None = None
     adapter_message_id: str | None = None

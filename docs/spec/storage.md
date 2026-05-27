@@ -205,16 +205,6 @@ class StorageBackend(Protocol):
         """Count transient-failure receipts due for retry."""
         ...
 
-    async def update_retry_due(
-        self, receipt_id: str, next_retry_at: datetime,
-    ) -> None:
-        """Update next_retry_at on a receipt (capacity rejection backoff).
-
-        This is the only mutation allowed on existing receipt rows -- all
-        other receipt updates are append-only.
-        """
-        ...
-
     # -- Outbox -------------------------------------------------------------
 
     async def create_outbox_item(self, item: OutboxItem) -> OutboxItem:
@@ -420,7 +410,7 @@ CREATE TABLE delivery_receipts (
 
 `retry_max_attempts`, `retry_backoff_base`, `retry_max_delay`, and `retry_jitter` are snapshots of the `RetryPolicy` parameters at the time of the first failure receipt. They are `NULL` on receipts with no retry policy. Once set on the first failure receipt, subsequent retry receipts in the same lineage inherit the same values. Retry policy is frozen at first failure.
 
-**Append-only guarantee:** Every delivery attempt produces a new row. Existing rows **MUST NOT** be updated or deleted (except `next_retry_at` via `update_retry_due`). Current delivery status is a projection (Section 4.5).
+**Append-only guarantee:** Every delivery attempt produces a new row. Existing rows **MUST NOT** be updated or deleted. Capacity rejection produces a new receipt with `failure_kind = 'capacity_rejection'` linked via `parent_receipt_id`. Current delivery status is a projection (Section 4.5).
 
 **Indexes:**
 
@@ -619,7 +609,7 @@ No row in `canonical_events` **MUST** ever be updated or deleted. The `append` m
 
 ### 5.2 Delivery Receipts
 
-Every delivery attempt produces a new row in `delivery_receipts`. Existing rows **MUST NOT** be updated or deleted, with one exception: `update_retry_due` **MAY** modify `next_retry_at` on an existing receipt row for capacity rejection backoff. This is the sole permitted mutation.
+Every delivery attempt produces a new row in `delivery_receipts`. Existing rows **MUST NOT** be updated or deleted. Capacity rejection creates a new receipt with `failure_kind = 'capacity_rejection'` and `parent_receipt_id` set to the original receipt, rather than mutating the existing row.
 
 The current status of a delivery is a projection from the `delivery_status` view (latest receipt by `MAX(sequence)`). No code path **SHALL** write to the view directly.
 
@@ -727,13 +717,7 @@ SQLite transactions are atomic. An event write either completes fully or not at 
 - Returns count of transient-failure receipts due for retry.
 - Same filter as `list_due_retry_receipts`.
 
-### 8.15 update_retry_due(receipt_id, next_retry_at)
-
-- Updates `next_retry_at` on an existing receipt row.
-- This is the **only** mutation allowed on an existing receipt row.
-- Capacity rejection does not advance `attempt_number` or count toward retry exhaustion.
-
-### 8.16 Outbox Methods
+### 8.15 Outbox Methods
 
 - `create_outbox_item`: Creates or reclaims an outbox item (Section 9.3).
 - `get_outbox_item`: Retrieves an item by `outbox_id`.
@@ -917,7 +901,7 @@ class StorageConfig:
 | Atomic writes          | Events, native refs, and receipts **MUST** be written atomically. Partial writes **MUST NOT** leave the database inconsistent. |
 | Idempotent correlation | Duplicate `(adapter, native_channel_id, native_message_id)` tuples **MUST NOT** create duplicate rows.                         |
 | Ordered append         | `canonical_events` ordered by `timestamp ASC`. `delivery_receipts` ordered by `sequence` (monotonic).                          |
-| Receipt immutability   | Receipt rows are append-only. No `UPDATE` or `DELETE` on `delivery_receipts` (except `next_retry_at` via `update_retry_due`).  |
+| Receipt immutability   | Receipt rows are append-only. No `UPDATE` or `DELETE` on `delivery_receipts`. Capacity rejection creates a new receipt row.    |
 | Concurrent reads       | WAL mode **MUST** be enabled for concurrent reads during writes.                                                               |
 | Replay support         | Event log **MUST** support querying by time range, event kind, source adapter, and other filter criteria.                      |
 | Schema validation      | `initialize()` **MUST** validate schema version and column shape.                                                              |

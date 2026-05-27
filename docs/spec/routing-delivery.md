@@ -385,7 +385,7 @@ class DeliveryReceipt:
     target_adapter: str = ""               # Name of the target adapter
     target_channel: str | None = None      # Target channel/room from RouteTarget
     route_id: str = ""                     # Route that produced this delivery
-    status: Literal["accepted", "queued", "sent", "confirmed", "suppressed", "failed", "dead_lettered"] = "accepted"
+    status: Literal["queued", "sent", "suppressed", "failed", "dead_lettered"] = "queued"
     error: str | None = None               # Error message if delivery failed
     failure_kind: str | None = None        # DeliveryFailureKind value
     adapter_message_id: str | None = None  # Platform-specific message ID

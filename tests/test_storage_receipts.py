@@ -52,7 +52,7 @@ class TestReceipts:
         event = make_storage_event(event_id="evt-multi-rcpt")
         await temp_storage.append(event)
 
-        for i, st in enumerate(["queued", "sent", "confirmed"]):
+        for i, st in enumerate(["queued", "sent", "suppressed"]):
             receipt = DeliveryReceipt(
                 receipt_id=f"rcpt-{i}",
                 event_id="evt-multi-rcpt",
@@ -64,7 +64,7 @@ class TestReceipts:
 
         status = await temp_storage.delivery_status("plan-2", "fake_presentation")
         assert status is not None
-        assert status.status == "confirmed"
+        assert status.status == "suppressed"
         assert status.receipt_id == "rcpt-2"
 
     async def test_delivery_status_returns_none_for_unknown(
@@ -89,7 +89,7 @@ class TestAppendOnlyReceipts:
         event = make_storage_event(event_id="evt-rcpt-row")
         await temp_storage.append(event)
 
-        for i, st in enumerate(["queued", "sent", "confirmed"]):
+        for i, st in enumerate(["queued", "sent", "suppressed"]):
             receipt = DeliveryReceipt(
                 receipt_id=f"rcpt-row-{i}",
                 event_id="evt-rcpt-row",
@@ -106,7 +106,7 @@ class TestAppendOnlyReceipts:
         assert len(rows) == 3
         assert rows[0]["status"] == "queued"
         assert rows[1]["status"] == "sent"
-        assert rows[2]["status"] == "confirmed"
+        assert rows[2]["status"] == "suppressed"
 
     async def test_delivery_status_is_projection_not_mutable(
         self, temp_storage: SQLiteStorage
@@ -115,7 +115,7 @@ class TestAppendOnlyReceipts:
         event = make_storage_event(event_id="evt-proj")
         await temp_storage.append(event)
 
-        for i, st in enumerate(["queued", "sent", "confirmed"]):
+        for i, st in enumerate(["queued", "sent", "suppressed"]):
             receipt = DeliveryReceipt(
                 receipt_id=f"rcpt-proj-{i}",
                 event_id="evt-proj",
@@ -127,7 +127,7 @@ class TestAppendOnlyReceipts:
 
         status = await temp_storage.delivery_status("plan-proj", "adapter_y")
         assert status is not None
-        assert status.status == "confirmed"
+        assert status.status == "suppressed"
         assert status.receipt_id == "rcpt-proj-2"
 
     async def test_receipts_never_updated_or_deleted(
@@ -572,7 +572,7 @@ class TestReceiptQueryHelpers:
         event = make_storage_event(event_id="evt-idx-verify")
         await temp_storage.append(event)
 
-        for i, st in enumerate(["queued", "sent", "confirmed"]):
+        for i, st in enumerate(["queued", "sent", "suppressed"]):
             await temp_storage.append_receipt(
                 self._make_receipt(
                     f"rcpt-idx-{i}",
@@ -586,7 +586,7 @@ class TestReceiptQueryHelpers:
 
         status = await temp_storage.delivery_status("plan-idx", "adapter_idx")
         assert status is not None
-        assert status.status == "confirmed"
+        assert status.status == "suppressed"
         assert status.attempt_number == 3
 
 
@@ -697,7 +697,7 @@ class TestDeliveryStatusByChannel:
         event = make_storage_event(event_id="evt-ch-prog")
         await temp_storage.append(event)
 
-        for i, st in enumerate(["queued", "sent", "confirmed"]):
+        for i, st in enumerate(["queued", "sent", "suppressed"]):
             await temp_storage.append_receipt(
                 self._make_channel_receipt(
                     f"rcpt-prog-{i}",
@@ -714,7 +714,7 @@ class TestDeliveryStatusByChannel:
             "plan-prog", "adapter_prog", "channel-prog"
         )
         assert status is not None
-        assert status.status == "confirmed"
+        assert status.status == "suppressed"
         assert status.attempt_number == 3
 
     async def test_null_channel_receipt_queryable_with_none(
