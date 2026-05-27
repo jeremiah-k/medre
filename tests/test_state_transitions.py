@@ -100,7 +100,8 @@ class TestReceiptStatusValues:
         actual = set(status_args)
 
         # The expected set as currently defined in canonical.py.
-        # accepted and confirmed have been removed.
+        # The current closed receipt vocabulary is intentionally limited
+        # to these five statuses.
         expected = {"queued", "sent", "failed", "dead_lettered", "suppressed"}
         assert actual == expected, (
             f"DeliveryReceipt.status Literal mismatch.\n"

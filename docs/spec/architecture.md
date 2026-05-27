@@ -42,7 +42,7 @@ responsibility and produces traceable output.
 3. **Resolve Relations**: The stored event is never mutated. If relations change, a new immutable event is created via `msgspec.structs.replace`.
 4. **Store**: Events are appended immutably. No `UPDATE` or `DELETE` is issued on event rows.
 5. **Route**: An event that matches zero routes produces no deliveries and no receipts. The pipeline returns an empty outcome list.
-6. **Deliver**: Each target is independent — one target's failure does not prevent sibling deliveries. Every delivery attempt produces an append-only `DeliveryReceipt`.
+6. **Deliver**: Each target is independent — one target's failure does not prevent sibling deliveries. Every delivery attempt produces an append-only `DeliveryReceipt`. Receipt and outbox state machines are defined in [state-machines.md](state-machines.md).
 
 ### Future Extension Points
 

@@ -328,6 +328,21 @@ class PipelineRunner:
 
     # -- Lifecycle ----------------------------------------------------------
 
+    def phase_snapshot(self) -> dict[str, int | str | None]:
+        """Return a stable diagnostic snapshot of phase instrumentation.
+
+        Returns a dict with:
+        - ``current_phase``: the phase currently being executed, or ``None``.
+        - ``counts``: per-phase invocation counts keyed by phase string value.
+
+        The snapshot is intended for diagnostics and tests — it does not
+        drive pipeline behavior.
+        """
+        return {
+            "current_phase": self._current_phase.value if self._current_phase else None,
+            "counts": {phase.value: self._phase_counts[phase] for phase in PipelinePhase},
+        }
+
     @property
     def running(self) -> bool:
         """Whether the pipeline has been started and not yet stopped."""

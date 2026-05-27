@@ -59,7 +59,7 @@
     "adapter_message_id": {
       "type": ["string", "null"],
       "default": null,
-      "description": "Native message ID assigned by the target adapter, once accepted."
+      "description": "Native message ID assigned by the target adapter after adapter-reported handoff, when available."
     },
     "next_retry_at": {
       "type": ["string", "null"],

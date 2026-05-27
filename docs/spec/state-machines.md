@@ -17,7 +17,7 @@ The receipt state machine has five terminal and non-terminal statuses:
 | Status          | Terminal | Meaning                                                                    |
 | --------------- | -------- | -------------------------------------------------------------------------- |
 | `queued`        | No       | Adapter accepted the event into a local send queue.                        |
-| `sent`          | Yes      | Adapter confirmed delivery to the transport.                               |
+| `sent`          | Yes      | Adapter reported successful handoff to the transport layer.                |
 | `failed`        | No       | Delivery attempt failed. May be followed by retry or dead letter.          |
 | `dead_lettered` | Yes      | All retry attempts exhausted or terminal failure.                          |
 | `suppressed`    | Yes      | Delivery was suppressed by loop prevention, policy, or capacity rejection. |
@@ -55,8 +55,11 @@ The receipt state machine has five terminal and non-terminal statuses:
 ```
 
 Each delivery attempt produces a new receipt row. Receipts are never updated
-or deleted — the latest receipt for a given `(event_id, target_adapter)` pair
-determines the current delivery status.
+or deleted — the latest receipt for a given **delivery chain** determines the
+current delivery status of that chain. A delivery chain is identified by
+`delivery_plan_id`, `target_adapter`, and `target_channel`; retry lineage
+is linked by `parent_receipt_id`. Event-level status is an aggregate
+reporting view, not the primitive current-status key.
 
 ### 1.3 Legal Transitions
 
@@ -67,7 +70,7 @@ supersedes receipt N for the same delivery chain.
 | From (prev receipt status) | To (next receipt status) | Condition                                     |
 | -------------------------- | ------------------------ | --------------------------------------------- |
 | —                          | `queued`                 | Queue-based adapter accepts event             |
-| —                          | `sent`                   | Synchronous adapter confirms delivery         |
+| —                          | `sent`                   | Synchronous adapter reports successful handoff  |
 | —                          | `failed`                 | Adapter raises transient or permanent error   |
 | —                          | `suppressed`             | Loop/policy/capacity suppression              |
 | `queued`                   | `sent`                   | Queue-based adapter reports native message ID |
@@ -85,21 +88,19 @@ receipts in a retry chain set `parent_receipt_id` to the previous receipt's
 > (immutable at the Python level). Current delivery status is derived by
 > reading the latest receipt for a given delivery chain, not by mutation.
 
-### 1.5 Historical Note: `update_retry_due()` Removal
+### 1.5 Retry Scheduling
 
-Prior to this specification, `update_retry_due()` mutated the `next_retry_at`
-field on existing receipt rows. This was removed. Capacity rejection now
-creates a new receipt row with `status="suppressed"` instead of mutating the
-original receipt. The `next_retry_at` field is populated only at receipt
-creation time and is never modified.
+Receipt rows are append-only. The storage API exposes no method that mutates
+existing delivery-receipt rows. Retry scheduling is represented by fields
+(`next_retry_at`, `retry_max_attempts`, `retry_backoff_base`) set when a
+receipt row is appended — these fields are never modified after creation.
 
-### 1.6 Removed Statuses
+### 1.6 Status Vocabulary
 
-The receipt statuses `"accepted"` and `"confirmed"` were removed from the
-`DeliveryReceipt.status` Literal during runtime core stabilization (2026-05-27).
-Neither status was ever created by any pipeline code path, and `"confirmed"`
-was never emitted by any adapter. Their removal simplifies the state machine
-without removing any implemented behavior.
+The receipt status vocabulary is closed: `queued`, `sent`, `failed`,
+`dead_lettered`, `suppressed`. No other status labels are valid in current
+MEDRE receipt semantics. Status values are enforced by the `DeliveryReceipt`
+type at construction time.
 
 ---
 
@@ -114,7 +115,7 @@ The outbox state machine has eight statuses:
 | `pending`       | No       | Work exists but has not started.                             |
 | `in_progress`   | No       | Claimed by a worker for active delivery processing.          |
 | `queued`        | No       | Handed to adapter-local queue (e.g., Meshtastic send queue). |
-| `sent`          | Yes      | Adapter confirmed delivery to the transport.                 |
+| `sent`          | Yes      | Operational work item completed after adapter-reported handoff. |
 | `retry_wait`    | No       | Transient failure; awaiting next scheduled retry attempt.    |
 | `dead_lettered` | Yes      | Retries exhausted or terminal failure.                       |
 | `cancelled`     | Yes      | Operator or shutdown cancelled the delivery.                 |
@@ -142,7 +143,7 @@ The outbox state machine has eight statuses:
   ┌────────────┐  cancel/abandon │ │ │ │
   │  queued    │ ◄──────────────┘ │ │ │
   └────┬───────┘                  │ │ │
-       │  adapter confirms        │ │ │
+       │  adapter reports handoff │ │ │
        ▼                          │ │ │
   ┌────────────┐                  │ │ │
   │    sent    │ ◄────────────────┘ │ │

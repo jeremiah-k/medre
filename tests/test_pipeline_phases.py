@@ -103,12 +103,15 @@ class TestPhaseVisitOrder:
         try:
             await runner.handle_ingress(event)
 
-            counts = runner._phase_counts
+            snapshot = runner.phase_snapshot()
+            counts = snapshot["counts"]
 
             # Every phase must have been visited at least once.
             for phase in PipelinePhase:
-                assert counts[phase] >= 1, (
-                    f"Phase {phase.value!r} was not visited " f"(count={counts[phase]})"
+                phase_key = phase.value
+                assert counts[phase_key] >= 1, (
+                    f"Phase {phase_key!r} was not visited "
+                    f"(count={counts[phase_key]})"
                 )
         finally:
             await runner.stop()
@@ -119,11 +122,8 @@ class TestPhaseVisitOrder:
         router: Router,
         fake_presentation: FakePresentationAdapter,
     ) -> None:
-        """The _current_phase should end on DELIVER after successful run,
-        and the counts should show INGRESS was visited before ROUTE, etc.
-
-        We verify ordering by checking that the final phase is DELIVER
-        and all phases accumulated exactly 1 count in a single-event run."""
+        """After a successful single-event run, the snapshot should show
+        DELIVER as the current phase and all phases visited exactly once."""
         config = make_pipeline_config_for_pipeline(
             storage=temp_storage,
             router=router,
@@ -137,23 +137,21 @@ class TestPhaseVisitOrder:
         try:
             await runner.handle_ingress(event)
 
+            snapshot = runner.phase_snapshot()
+            counts = snapshot["counts"]
+
             # After a successful run, the last phase visited is DELIVER.
-            assert runner._current_phase == PipelinePhase.DELIVER
+            assert snapshot["current_phase"] == "deliver"
 
             # Each phase should have been visited exactly once for a
             # single-event run.
-            expected_order = [
-                PipelinePhase.INGRESS,
-                PipelinePhase.DEDUP,
-                PipelinePhase.RESOLVE_RELATIONS,
-                PipelinePhase.STORE,
-                PipelinePhase.ROUTE,
-                PipelinePhase.DELIVER,
-            ]
-            for phase in expected_order:
-                assert runner._phase_counts[phase] == 1, (
-                    f"Expected phase {phase.value!r} count=1, "
-                    f"got {runner._phase_counts[phase]}"
+            for phase_name in (
+                "ingress", "dedup", "resolve_relations",
+                "store", "route", "deliver",
+            ):
+                assert counts[phase_name] == 1, (
+                    f"Expected phase {phase_name!r} count=1, "
+                    f"got {counts[phase_name]}"
                 )
         finally:
             await runner.stop()
@@ -206,12 +204,13 @@ class TestDedupPhaseSkipsRemainder:
         try:
             await runner.handle_ingress(event1)
 
-            # All phases should be visited for the first event.
-            for phase in PipelinePhase:
-                assert runner._phase_counts[phase] >= 1
-
             # Snapshot counts after first event.
-            counts_after_first = dict(runner._phase_counts)
+            snapshot1 = runner.phase_snapshot()
+            counts_after_first = snapshot1["counts"]
+
+            # All phases should be visited for the first event.
+            for phase_name in counts_after_first:
+                assert counts_after_first[phase_name] >= 1
 
             # Second event with the SAME native_ref — should be deduped.
             event2 = CanonicalEvent(
@@ -239,26 +238,18 @@ class TestDedupPhaseSkipsRemainder:
             )
 
             # Only INGRESS and DEDUP should have incremented for the second event.
-            # INGRESS increments by 1, DEDUP increments by 1.
-            assert (
-                runner._phase_counts[PipelinePhase.INGRESS]
-                == counts_after_first[PipelinePhase.INGRESS] + 1
-            )
-            assert (
-                runner._phase_counts[PipelinePhase.DEDUP]
-                == counts_after_first[PipelinePhase.DEDUP] + 1
-            )
+            snapshot2 = runner.phase_snapshot()
+            counts2 = snapshot2["counts"]
+
+            assert counts2["ingress"] == counts_after_first["ingress"] + 1
+            assert counts2["dedup"] == counts_after_first["dedup"] + 1
 
             # STORE, ROUTE, DELIVER should NOT have incremented.
-            for phase in (
-                PipelinePhase.STORE,
-                PipelinePhase.ROUTE,
-                PipelinePhase.DELIVER,
-            ):
-                assert runner._phase_counts[phase] == counts_after_first[phase], (
-                    f"Phase {phase.value!r} should not have been visited "
+            for phase_name in ("store", "route", "deliver"):
+                assert counts2[phase_name] == counts_after_first[phase_name], (
+                    f"Phase {phase_name!r} should not have been visited "
                     f"for the deduped event, but count incremented from "
-                    f"{counts_after_first[phase]} to {runner._phase_counts[phase]}"
+                    f"{counts_after_first[phase_name]} to {counts2[phase_name]}"
                 )
         finally:
             await runner.stop()
@@ -301,16 +292,70 @@ class TestNoRoutesMatchedSkipsDeliver:
         try:
             await runner.handle_ingress(event)
 
+            snapshot = runner.phase_snapshot()
+            counts = snapshot["counts"]
+
             # ROUTE phase must be visited.
-            assert runner._phase_counts[PipelinePhase.ROUTE] >= 1, (
+            assert counts["route"] >= 1, (
                 f"ROUTE phase was not visited "
-                f"(count={runner._phase_counts[PipelinePhase.ROUTE]})"
+                f"(count={counts['route']})"
             )
 
             # DELIVER phase must NOT be visited (no routes matched).
-            assert runner._phase_counts[PipelinePhase.DELIVER] == 0, (
+            assert counts["deliver"] == 0, (
                 f"DELIVER phase should not have been visited when no routes "
-                f"matched (count={runner._phase_counts[PipelinePhase.DELIVER]})"
+                f"matched (count={counts['deliver']})"
             )
         finally:
             await runner.stop()
+
+
+class TestValidationFailureRecordsIngressOnly:
+    """When event construction validation fails, the pipeline is never entered."""
+
+    def test_invalid_event_kind_rejected_at_construction(self) -> None:
+        """An event with an empty event_kind must raise ValueError at
+        construction time — the pipeline is never reached."""
+        with pytest.raises(ValueError, match="event_kind"):
+            CanonicalEvent(
+                event_id="evt-bad-kind-001",
+                event_kind="",
+                schema_version=1,
+                timestamp=datetime.now(timezone.utc),
+                source_adapter="fake_transport",
+                source_transport_id="node-1",
+                source_channel_id="ch-0",
+                parent_event_id=None,
+                lineage=(),
+                relations=(),
+                payload={"text": "bad"},
+                metadata=EventMetadata(),
+            )
+
+    async def test_pipeline_validates_event_construction_before_ingress(
+        self,
+        temp_storage: SQLiteStorage,
+        router: Router,
+        fake_presentation: FakePresentationAdapter,
+    ) -> None:
+        """A valid event passes construction and reaches the pipeline
+        successfully. This confirms the validation gate works end-to-end."""
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router,
+            adapters={"fake_presentation": fake_presentation},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = make_event(event_id="evt-valid-001")
+        try:
+            await runner.handle_ingress(event)
+        finally:
+            await runner.stop()
+
+        snapshot = runner.phase_snapshot()
+        counts = snapshot["counts"]
+
+        assert counts["ingress"] >= 1
+        assert counts["deliver"] >= 1, "Valid event should reach DELIVER"

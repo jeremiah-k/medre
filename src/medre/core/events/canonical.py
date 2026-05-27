@@ -200,7 +200,8 @@ class DeliveryReceipt(msgspec.Struct, frozen=True):
     error:
         Error message if the delivery failed.
     adapter_message_id:
-        Native message ID assigned by the target adapter, once accepted.
+        Native message ID assigned by the target adapter after
+        adapter-reported handoff, when available.
     next_retry_at:
         Scheduled time for the next retry attempt, if applicable.
     attempt_number:
