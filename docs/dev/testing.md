@@ -7,8 +7,8 @@ each test tier proves, and how to run the suite.
 The test suite has 3,200+ tests, all passing with zero network or hardware
 dependencies. Every transport has a fake adapter that exercises the full
 pipeline. See the [README](../../README.md) for project context and the
-[Fake Bridge Smoke Runbook](../ops/fake-bridge-smoke-runbook.md) for
-bridge-specific test commands.
+[Operator Workflows](../ops/operator-workflows.md) for bridge-specific test
+commands.
 
 ## File Size Limits
 
@@ -527,3 +527,9 @@ These files have been split by behavioral domain following the procedure above.
 `test_cli.py` has been split into domain files (all under 1,500 lines). The
 monolith has been deleted. `test_cli` is listed in `DELETED_MONOLITHS` in
 `test_test_suite_structure.py`.
+
+## See also
+
+- [Adapter authoring guide](adapter-authoring.md) -- writing a new transport adapter and its fake
+- [Source audits](source-audits.md) -- audit evidence for transport SDK assumptions
+- [Operator workflows](../ops/operator-workflows.md) -- operator commands for bridge testing

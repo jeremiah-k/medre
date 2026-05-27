@@ -312,3 +312,19 @@ Key observations:
 MEDRE uses minimum-version floor pins (`>=`) for transport dependencies.
 The core dependency (`msgspec`) is exact-pinned. No lockfile is committed.
 No upper-bound caps are used.
+
+## Known Documentation Gaps
+
+A gap analysis is maintained at `/tmp/medre-spec-impl-gaps.md`. Notable items:
+
+1. **TOML key inconsistency** -- some runbook examples use `type = "fake"` for
+   adapters and `source`/`target` keys for routes, but the actual config schema
+   uses `adapter_kind` and `source_adapters`/`dest_adapters` (arrays).
+2. **Truncation enforcement status** -- some runbooks claim truncation is not
+   enforced, but `MeshtasticConfig.max_text_bytes = 227` exists and the
+   renderer applies it.
+3. **failure_kind casing** -- some docs use UPPERCASE (`"RENDERER_FAILURE"`)
+   while others use lowercase snake_case (`renderer_failure`). The lowercase
+   form is correct.
+4. **Container evidence references** -- some runbooks still reference
+   `docs/contracts/` paths instead of `docs/spec/`.
