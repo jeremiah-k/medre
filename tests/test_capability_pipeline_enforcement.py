@@ -1,0 +1,510 @@
+"""Integration tests that verify the full pipeline enforces capability
+decisions end-to-end.
+
+Proves that capability suppression fires through PipelineRunner._deliver_one()
+and ReplayEngine._stage_deliver(), not just the pure capability-check helpers
+in ``medre.core.engine.pipeline._capability_unsupported``.  These tests
+exercise the real pipeline with fake adapters and storage, verifying:
+
+* Unsupported event kinds produce status="skipped" with
+  failure_kind=CAPABILITY_SUPPRESSED.
+* Suppressed receipt is persisted with route_id, delivery_plan_id,
+  target_adapter, target_channel.
+* Renderer and adapter delivery path are NOT invoked on capability
+  suppression.
+* Adapter capabilities (``max_text_chars``) are enforced by the renderer.
+* ReplayEngine skips unsupported event kinds in BEST_EFFORT mode.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from medre.adapters.fakes.presentation import FakePresentationAdapter
+from medre.core.contracts.adapter import AdapterCapabilities
+from medre.core.engine.pipeline import PipelineRunner
+from medre.core.planning.delivery_plan import DeliveryFailureKind
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
+from medre.core.storage import SQLiteStorage
+from medre.core.storage.replay import (
+    ReplayEngine,
+    ReplayMode,
+    ReplayRequest,
+    collect_replay_summary,
+)
+from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
+
+# ===================================================================
+# TestCapabilitySuppressionReceipt
+# ===================================================================
+
+
+class TestCapabilitySuppressionReceipt:
+    """Verify the pipeline produces CAPABILITY_SUPPRESSED receipts."""
+
+    @pytest.mark.asyncio
+    async def test_unsupported_reaction_produces_capability_suppressed(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Adapter with reactions='unsupported' suppresses message.reacted."""
+        adapter = FakePresentationAdapter(adapter_id="dest")
+        # Override capabilities: reactions unsupported.
+        adapter._capabilities = AdapterCapabilities(
+            text=True,
+            reactions="unsupported",
+            replies="native",
+            edits="native",
+            deletes="native",
+            attachments=False,
+            delivery_receipts=True,
+        )
+
+        route = Route(
+            id="cap-reaction-route",
+            source=RouteSource(
+                adapter="src",
+                event_kinds=("message.reacted",),
+                channel=None,
+            ),
+            targets=[RouteTarget(adapter="dest")],
+        )
+        router = Router(routes=[route])
+
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router,
+            adapters={"dest": adapter},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = make_event(
+            event_id="cap-react-001",
+            event_kind="message.reacted",
+            source_adapter="src",
+            source_channel_id="ch-0",
+            payload={"emoji": "\U0001f44d"},
+        )
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+
+            assert len(outcomes) == 1
+            outcome = outcomes[0]
+            assert outcome.status == "skipped"
+            assert outcome.failure_kind is DeliveryFailureKind.CAPABILITY_SUPPRESSED
+            assert outcome.target_adapter == "dest"
+            assert outcome.route_id == "cap-reaction-route"
+            assert outcome.event_id == "cap-react-001"
+            assert outcome.error is not None
+            assert "capability_suppressed" in outcome.error
+            assert "reactions unsupported" in outcome.error
+
+            # Adapter never called.
+            assert len(adapter.delivered_payloads) == 0
+
+            # Receipt persisted.
+            receipt = outcome.receipt
+            assert receipt is not None
+            assert receipt.status == "suppressed"
+            assert receipt.failure_kind == "capability_suppressed"
+
+            stored = await temp_storage.list_receipts_for_event("cap-react-001")
+            assert len(stored) == 1
+            assert stored[0].status == "suppressed"
+            assert stored[0].failure_kind == "capability_suppressed"
+            assert stored[0].target_adapter == "dest"
+        finally:
+            await runner.stop()
+
+    @pytest.mark.asyncio
+    async def test_unsupported_attachment_produces_capability_suppressed(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Adapter with attachments=False suppresses message.file."""
+        adapter = FakePresentationAdapter(adapter_id="dest")
+        # Default AdapterCapabilities already has attachments=False,
+        # but be explicit for clarity.
+        adapter._capabilities = AdapterCapabilities(
+            text=True,
+            reactions="native",
+            attachments=False,
+        )
+
+        route = Route(
+            id="cap-file-route",
+            source=RouteSource(
+                adapter="src",
+                event_kinds=("message.file",),
+                channel=None,
+            ),
+            targets=[RouteTarget(adapter="dest")],
+        )
+        router = Router(routes=[route])
+
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router,
+            adapters={"dest": adapter},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = make_event(
+            event_id="cap-file-001",
+            event_kind="message.file",
+            source_adapter="src",
+            source_channel_id="ch-0",
+            payload={"filename": "photo.jpg", "url": "https://example.com/photo.jpg"},
+        )
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+
+            assert len(outcomes) == 1
+            outcome = outcomes[0]
+            assert outcome.status == "skipped"
+            assert outcome.failure_kind is DeliveryFailureKind.CAPABILITY_SUPPRESSED
+            assert outcome.target_adapter == "dest"
+            assert outcome.error is not None
+            assert "capability_suppressed" in outcome.error
+            assert "attachments unsupported" in outcome.error
+
+            # Adapter never called.
+            assert len(adapter.delivered_payloads) == 0
+        finally:
+            await runner.stop()
+
+    @pytest.mark.asyncio
+    async def test_supported_kind_produces_normal_delivery(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Control: adapter with reactions='native' delivers message.reacted normally."""
+        adapter = FakePresentationAdapter(adapter_id="dest")
+        # Explicit: reactions are natively supported.
+        adapter._capabilities = AdapterCapabilities(
+            text=True,
+            reactions="native",
+            replies="native",
+            edits="native",
+            deletes="native",
+            attachments=False,
+            delivery_receipts=True,
+        )
+
+        route = Route(
+            id="cap-ok-route",
+            source=RouteSource(
+                adapter="src",
+                event_kinds=("message.reacted",),
+                channel=None,
+            ),
+            targets=[RouteTarget(adapter="dest")],
+        )
+        router = Router(routes=[route])
+
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router,
+            adapters={"dest": adapter},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = make_event(
+            event_id="cap-ok-001",
+            event_kind="message.reacted",
+            source_adapter="src",
+            source_channel_id="ch-0",
+            payload={"emoji": "\U0001f44d"},
+        )
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+
+            assert len(outcomes) == 1
+            outcome = outcomes[0]
+            assert outcome.status == "success"
+            assert outcome.failure_kind is None
+            assert outcome.target_adapter == "dest"
+
+            # Adapter was called.
+            assert len(adapter.delivered_payloads) == 1
+        finally:
+            await runner.stop()
+
+
+# ===================================================================
+# TestCapabilityRenderingConstraint
+# ===================================================================
+
+
+class TestCapabilityRenderingConstraint:
+    """Verify max_text_chars is enforced by the renderer."""
+
+    @pytest.mark.asyncio
+    async def test_text_truncated_when_exceeds_max_text_chars(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Adapter with max_text_chars=10 truncates long text to 10 chars."""
+        adapter = FakePresentationAdapter(adapter_id="dest")
+        adapter._capabilities = AdapterCapabilities(
+            text=True,
+            reactions="native",
+            max_text_chars=10,
+        )
+
+        route = Route(
+            id="truncate-route",
+            source=RouteSource(
+                adapter="src",
+                event_kinds=("message.created",),
+                channel=None,
+            ),
+            targets=[RouteTarget(adapter="dest")],
+        )
+        router = Router(routes=[route])
+
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router,
+            adapters={"dest": adapter},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        long_text = "A" * 50
+        event = make_event(
+            event_id="truncate-001",
+            event_kind="message.created",
+            source_adapter="src",
+            source_channel_id="ch-0",
+            payload={"text": long_text},
+        )
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+
+            assert len(outcomes) == 1
+            assert outcomes[0].status == "success"
+
+            # Adapter received the rendered payload.
+            assert len(adapter.delivered_payloads) == 1
+            rendered = adapter.delivered_payloads[0]
+            rendered_text = rendered.payload.get("text", "")
+
+            # Text is truncated to max_text_chars.
+            assert len(rendered_text) == 10
+            assert rendered_text == "A" * 10
+            # Truncation flag set.
+            assert rendered.truncated is True
+        finally:
+            await runner.stop()
+
+    @pytest.mark.asyncio
+    async def test_text_not_truncated_when_within_limit(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Text within max_text_chars is not truncated."""
+        adapter = FakePresentationAdapter(adapter_id="dest")
+        adapter._capabilities = AdapterCapabilities(
+            text=True,
+            reactions="native",
+            max_text_chars=100,
+        )
+
+        route = Route(
+            id="no-trunc-route",
+            source=RouteSource(
+                adapter="src",
+                event_kinds=("message.created",),
+                channel=None,
+            ),
+            targets=[RouteTarget(adapter="dest")],
+        )
+        router = Router(routes=[route])
+
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router,
+            adapters={"dest": adapter},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        short_text = "hello"
+        event = make_event(
+            event_id="no-trunc-001",
+            event_kind="message.created",
+            source_adapter="src",
+            source_channel_id="ch-0",
+            payload={"text": short_text},
+        )
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+
+            assert len(outcomes) == 1
+            assert outcomes[0].status == "success"
+
+            assert len(adapter.delivered_payloads) == 1
+            rendered = adapter.delivered_payloads[0]
+            rendered_text = rendered.payload.get("text", "")
+
+            assert rendered_text == short_text
+            assert len(rendered_text) == len(short_text)
+            assert rendered.truncated is False
+        finally:
+            await runner.stop()
+
+    @pytest.mark.asyncio
+    async def test_no_truncation_when_max_text_chars_is_none(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """max_text_chars=None falls back to the default 500-char limit."""
+        adapter = FakePresentationAdapter(adapter_id="dest")
+        adapter._capabilities = AdapterCapabilities(
+            text=True,
+            reactions="native",
+            max_text_chars=None,
+        )
+
+        route = Route(
+            id="none-trunc-route",
+            source=RouteSource(
+                adapter="src",
+                event_kinds=("message.created",),
+                channel=None,
+            ),
+            targets=[RouteTarget(adapter="dest")],
+        )
+        router = Router(routes=[route])
+
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router,
+            adapters={"dest": adapter},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        # 200 chars — under the default 500-char limit.
+        medium_text = "B" * 200
+        event = make_event(
+            event_id="none-trunc-001",
+            event_kind="message.created",
+            source_adapter="src",
+            source_channel_id="ch-0",
+            payload={"text": medium_text},
+        )
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+
+            assert len(outcomes) == 1
+            assert outcomes[0].status == "success"
+
+            assert len(adapter.delivered_payloads) == 1
+            rendered = adapter.delivered_payloads[0]
+            rendered_text = rendered.payload.get("text", "")
+
+            # Text is NOT truncated — full 200 chars preserved.
+            assert rendered_text == medium_text
+            assert len(rendered_text) == 200
+            assert rendered.truncated is False
+        finally:
+            await runner.stop()
+
+
+# ===================================================================
+# TestReplayCapabilityAwareness
+# ===================================================================
+
+
+class TestReplayCapabilityAwareness:
+    """Verify ReplayEngine skips unsupported event kinds."""
+
+    @pytest.mark.asyncio
+    async def test_best_effort_replay_skips_unsupported_kind(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """BEST_EFFORT replay skips message.file when adapter has
+        attachments=False."""
+        adapter = FakePresentationAdapter(adapter_id="dest")
+        adapter._capabilities = AdapterCapabilities(
+            text=True,
+            reactions="native",
+            attachments=False,
+        )
+
+        route = Route(
+            id="replay-cap-route",
+            source=RouteSource(
+                adapter="src",
+                event_kinds=("message.file",),
+                channel=None,
+            ),
+            targets=[RouteTarget(adapter="dest")],
+        )
+        router = Router(routes=[route])
+
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router,
+            adapters={"dest": adapter},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        # Seed the file event directly into storage (orphan).
+        file_event = make_event(
+            event_id="replay-cap-001",
+            event_kind="message.file",
+            source_adapter="src",
+            source_channel_id="ch-0",
+            payload={"filename": "doc.pdf", "url": "https://example.com/doc.pdf"},
+        )
+        await temp_storage.append(file_event)
+
+        try:
+            # Run BEST_EFFORT replay targeting the seeded event.
+            replay = ReplayEngine(
+                storage=temp_storage,
+                pipeline=runner,
+            )
+            request = ReplayRequest(
+                mode=ReplayMode.BEST_EFFORT,
+                run_id="run-replay-cap-001",
+                correlation_ids=["replay-cap-001"],
+            )
+            summary = await collect_replay_summary(replay.replay(request))
+
+            # Event was replayed (at least store stage).
+            assert summary.events_replayed >= 1
+
+            # The deliver stage should be skipped due to capability
+            # suppression — all plans filtered out.
+            # Collect results to inspect.
+            results: list = []
+            async for r in replay.replay(request):
+                results.append(r)
+
+            deliver_results = [r for r in results if r.stage == "deliver"]
+            assert len(deliver_results) >= 1
+
+            deliver_result = deliver_results[0]
+            assert deliver_result.status == "skipped"
+            assert deliver_result.error is not None
+            assert "capability_suppressed" in deliver_result.error
+
+            # Adapter never called.
+            assert len(adapter.delivered_payloads) == 0
+        finally:
+            await runner.stop()

@@ -520,9 +520,11 @@ def capture_route_topology(
         # -- Capability mismatch warnings ---------------------------------
         capability_warnings: list[str] = []
         if capabilities is not None:
-            source_event_kinds = list(
-                getattr(source, "event_kinds", ()) or ()
-            ) if source is not None else []
+            source_event_kinds = (
+                list(getattr(source, "event_kinds", ()) or ())
+                if source is not None
+                else []
+            )
             for ta in target_adapters:
                 if ta is None:
                     continue

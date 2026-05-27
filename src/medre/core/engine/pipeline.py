@@ -345,7 +345,9 @@ class PipelineRunner:
         """
         return {
             "current_phase": self._current_phase.value if self._current_phase else None,
-            "counts": {phase.value: self._phase_counts[phase] for phase in PipelinePhase},
+            "counts": {
+                phase.value: self._phase_counts[phase] for phase in PipelinePhase
+            },
         }
 
     @property
@@ -1608,9 +1610,7 @@ class PipelineRunner:
                 if self._runtime_accounting is not None:
                     self._runtime_accounting.record_policy_suppressed()
                 elapsed = (time.monotonic() - t0) * 1000.0
-                cap_error = (
-                    f"capability_suppressed: {_unsupported}"
-                )
+                cap_error = f"capability_suppressed: {_unsupported}"
                 cap_receipt = await self._persist_suppression_receipt(
                     event_id=event.event_id,
                     delivery_plan_id=route_plan.plan_id,

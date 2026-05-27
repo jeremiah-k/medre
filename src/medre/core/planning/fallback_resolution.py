@@ -35,7 +35,6 @@ from medre.core.planning.delivery_plan import (
 )
 from medre.core.routing.models import RouteTarget
 
-
 # ---------------------------------------------------------------------------
 # Fallback resolver
 # ---------------------------------------------------------------------------
