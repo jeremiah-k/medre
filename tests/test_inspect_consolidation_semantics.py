@@ -1048,6 +1048,6 @@ class TestAlphaWalkthroughUsesInspect:
         if inspect_pos < 0 or trace_pos < 0:
             pytest.skip("Both inspect and trace must be mentioned")
         assert inspect_pos < trace_pos, (
-            "alpha-walkthrough.md should present inspect before trace "
+            "operator-workflows.md should present inspect before trace "
             "(inspect is the primary investigation surface)."
         )

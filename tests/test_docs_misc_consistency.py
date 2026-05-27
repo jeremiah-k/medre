@@ -151,9 +151,9 @@ class TestRetrySemantics:
 class TestNoStaleTraceEventConfigInOperatorDocs:
     """Read-only trace/inspect commands in operator docs should prefer
     ``--storage-path`` over ``--config``.  The pattern ``medre trace event
-    ... --config`` is stale in operator-facing runbooks.
+    ... --config`` is stale in operator-facing documentation.
 
-    Specialized reference docs (event-tracing.md command reference sections
+    Specialized reference docs (operator-workflows.md command reference sections
     1.1 and 1.3) may still show ``--config`` since the trace command supports
     both.  But operator workflow sections, investigation examples, and
     quick-reference tables should use ``--storage-path`` for read-only DB

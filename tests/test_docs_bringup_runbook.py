@@ -44,7 +44,7 @@ class TestBringupRunbookAuthFirst:
             pytest.skip("bringup runbook not found")
         text = _read(_BRINGUP)
         assert "medre adapter matrix auth login" in text, (
-            "live-matrix-meshtastic-bringup.md must mention "
+            "transport-setup/matrix.md must mention "
             "'medre adapter matrix auth login' in the auth-first workflow."
         )
 
@@ -95,7 +95,7 @@ class TestBringupRunbookNoStalePythonpath:
                 continue
             violations.append(f"line {lineno}: {line.strip()}")
         assert not violations, (
-            "live-matrix-meshtastic-bringup.md contains PYTHONPATH=src "
+            "transport-setup/matrix.md contains PYTHONPATH=src "
             "without source/checkout context. Bring-up operators should "
             "not need developer PYTHONPATH. Violations:\n"
             + "\n".join(f"  {v}" for v in violations)
@@ -129,7 +129,7 @@ class TestBringupRunbookSnapshotRequiresPath:
             if not next_token or next_token.startswith("-"):
                 violations.append(f"line {lineno}: {line.strip()}")
         assert not violations, (
-            "live-matrix-meshtastic-bringup.md has --snapshot-on-shutdown "
+            "transport-setup/matrix.md has --snapshot-on-shutdown "
             "without a following path argument. Every usage must specify the "
             "snapshot output path (e.g. /tmp/medre-live-snapshot.json). "
             "Violations:\n" + "\n".join(f"  {v}" for v in violations)
@@ -155,12 +155,12 @@ class TestBringupRunbookDiagnosticsDescription:
         lower = text.lower()
         # Must mention --refresh-health
         assert "--refresh-health" in text, (
-            "live-matrix-meshtastic-bringup.md must mention "
+            "transport-setup/matrix.md must mention "
             "--refresh-health in the diagnostics section."
         )
         # Must say it starts a short-lived runtime
         assert "short-lived" in lower, (
-            "live-matrix-meshtastic-bringup.md must describe "
+            "transport-setup/matrix.md must describe "
             "diagnostics --refresh-health as starting a 'short-lived' "
             "runtime, not requiring an already-running runtime."
         )
@@ -168,7 +168,7 @@ class TestBringupRunbookDiagnosticsDescription:
         # Strip markdown bold markers for matching.
         cleaned = lower.replace("**", "")
         assert "does not require" in cleaned or "not require" in cleaned, (
-            "live-matrix-meshtastic-bringup.md must explicitly state that "
+            "transport-setup/matrix.md must explicitly state that "
             "diagnostics --refresh-health does not require an already-running "
             "runtime."
         )
@@ -194,7 +194,7 @@ class TestBringupRunbookTargetingFields:
             pytest.skip("bringup runbook not found")
         text = _read(_BRINGUP)
         assert field in text, (
-            f"live-matrix-meshtastic-bringup.md must mention '{field}' "
+            f"transport-setup/matrix.md must mention '{field}' "
             f"in the route targeting fields section."
         )
 
@@ -205,62 +205,62 @@ class TestBringupRunbookTargetingFields:
 
 
 class TestSecureCredentialsBearerToken:
-    """secure-credentials.md must provide complete guidance for bearer-token
+    """configuration.md must provide complete guidance for bearer-token
     handling: file permissions, anti-leakage, rotation, dedicated accounts,
     and the auth command."""
 
     def test_mentions_chmod_600(self) -> None:
-        """secure-credentials.md must mention chmod 600 for config files."""
+        """configuration.md must mention chmod 600 for config files."""
         if not _SECURE_CREDS.exists():
-            pytest.skip("secure-credentials.md not found")
+            pytest.skip("configuration.md not found")
         text = _read(_SECURE_CREDS)
         assert "chmod 600" in text, (
-            "secure-credentials.md must mention 'chmod 600' for protecting "
+            "configuration.md must mention 'chmod 600' for protecting "
             "config files containing bearer tokens."
         )
 
     def test_mentions_never_paste_or_commit(self) -> None:
-        """secure-credentials.md must warn against pasting or committing
+        """configuration.md must warn against pasting or committing
         tokens."""
         if not _SECURE_CREDS.exists():
-            pytest.skip("secure-credentials.md not found")
+            pytest.skip("configuration.md not found")
         text = _read(_SECURE_CREDS)
         lower = text.lower()
         assert "never" in lower and ("paste" in lower or "commit" in lower), (
-            "secure-credentials.md must warn against pasting or committing "
+            "configuration.md must warn against pasting or committing "
             "tokens (e.g. 'never paste', 'never commit')."
         )
 
     def test_mentions_rotate_or_rotation(self) -> None:
-        """secure-credentials.md must mention token rotation."""
+        """configuration.md must mention token rotation."""
         if not _SECURE_CREDS.exists():
-            pytest.skip("secure-credentials.md not found")
+            pytest.skip("configuration.md not found")
         text = _read(_SECURE_CREDS)
         lower = text.lower()
         assert "rotate" in lower or "rotation" in lower, (
-            "secure-credentials.md must mention token rotation "
+            "configuration.md must mention token rotation "
             "(e.g. 'rotate', 'rotation')."
         )
 
     def test_mentions_dedicated_bot(self) -> None:
-        """secure-credentials.md must recommend using a dedicated bot
+        """configuration.md must recommend using a dedicated bot
         account."""
         if not _SECURE_CREDS.exists():
-            pytest.skip("secure-credentials.md not found")
+            pytest.skip("configuration.md not found")
         text = _read(_SECURE_CREDS)
         lower = text.lower()
         assert "dedicated" in lower and "bot" in lower, (
-            "secure-credentials.md must recommend using a dedicated bot "
+            "configuration.md must recommend using a dedicated bot "
             "account for MEDRE."
         )
 
     def test_mentions_auth_command(self) -> None:
-        """secure-credentials.md must reference the auth CLI command."""
+        """configuration.md must reference the auth CLI command."""
         if not _SECURE_CREDS.exists():
-            pytest.skip("secure-credentials.md not found")
+            pytest.skip("configuration.md not found")
         text = _read(_SECURE_CREDS)
         assert "medre adapter matrix auth login" in text, (
-            "secure-credentials.md must mention 'medre adapter matrix auth login' "
+            "configuration.md must mention 'medre adapter matrix auth login' "
             "as the recommended way to populate tokens."
         )
 

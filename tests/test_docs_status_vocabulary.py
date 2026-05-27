@@ -156,7 +156,7 @@ class TestEvidenceStatusValueConsistency:
             assert result != "ok", f"_compute_overall_status({statuses}) returned 'ok'"
 
     def test_alpha_walkthrough_evidence_status_not_ok(self) -> None:
-        """alpha-walkthrough.md evidence example must not say 'status: ok'."""
+        """operator-workflows.md evidence example must not say 'status: ok'."""
         text = _read(OPS_DIR / "operator-workflows.md")
         for lineno, line in enumerate(text.splitlines(), start=1):
             if (

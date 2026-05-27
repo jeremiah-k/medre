@@ -113,14 +113,14 @@ class TestStoragePathReadOnlyConsistency:
         )
 
     def test_replay_operation_states_config_requirement(self) -> None:
-        """replay-operation.md must state that replay requires config."""
+        """recovery-and-replay.md must state that replay requires config."""
         text = _read(OPS_DIR / "recovery-and-replay.md")
         assert (
             "--config" in text
         ), "recovery-and-replay.md must mention --config requirement."
 
     def test_alpha_walkthrough_storage_path_for_inspect(self) -> None:
-        """alpha-walkthrough.md inspect section should show --storage-path."""
+        """operator-workflows.md inspect section should show --storage-path."""
         text = _read(OPS_DIR / "operator-workflows.md")
         # The inspect section should mention --storage-path
         assert "--storage-path" in text, (
@@ -135,7 +135,7 @@ class TestStoragePathReadOnlyConsistency:
 
 
 class TestReplayConfigRequirement:
-    """Both replay-operation.md and alpha-walkthrough.md must state that
+    """Both recovery-and-replay.md and operator-workflows.md must state that
     replay requires --config and does not support --storage-path."""
 
     @pytest.mark.parametrize(
@@ -145,7 +145,7 @@ class TestReplayConfigRequirement:
     )
     def test_replay_config_requirement_mentioned(self, doc_path: Path) -> None:
         text = _read(doc_path)
-        # replay-operation.md has its own section; alpha-walkthrough mentions
+        # recovery-and-replay.md has its own section; alpha-walkthrough mentions
         # replay in the table / notes.
         # Both should mention that replay requires config.
         if doc_path.name == "recovery-and-replay.md":

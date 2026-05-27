@@ -443,8 +443,8 @@ class TestRuntimeBuilderWithFakeMultiAdapter:
 # 7. Docs contract consistency — extras match pyproject
 # ===================================================================
 
-# This section validates that the packaging contract document and pyproject
-# extras are consistent. The contract doc at docs/contracts/58 references
+# This section validates that the packaging spec document and pyproject
+# extras are consistent. The spec doc at docs/spec references
 # the same extras listed here.
 
 

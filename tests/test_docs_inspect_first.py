@@ -60,10 +60,10 @@ class TestAlphaWalkthroughInspectSurface:
     investigation surface, with trace/evidence available as deeper tools."""
 
     def test_walkthrough_mentions_inspect(self) -> None:
-        """alpha-walkthrough.md must reference 'medre inspect'."""
+        """operator-workflows.md must reference 'medre inspect'."""
         text = _read(OPS_DIR / "operator-workflows.md")
         assert "medre inspect" in text, (
-            "alpha-walkthrough.md must reference 'medre inspect' as the "
+            "operator-workflows.md must reference 'medre inspect' as the "
             "primary investigation command."
         )
 
@@ -75,7 +75,7 @@ class TestAlphaWalkthroughInspectSurface:
         if inspect_pos < 0 or trace_pos < 0:
             pytest.skip("Both inspect and trace must be in walkthrough")
         assert inspect_pos < trace_pos, (
-            "alpha-walkthrough.md should present inspect before trace "
+            "operator-workflows.md should present inspect before trace "
             "(inspect is the primary investigation surface)."
         )
 
@@ -94,7 +94,7 @@ class TestAlphaWalkthroughInspectSurface:
         for line in inspect_lines:
             if line.strip().startswith("medre inspect") and "config" in line.lower():
                 pytest.fail(
-                    f"alpha-walkthrough.md has inspect command using --config "
+                    f"operator-workflows.md has inspect command using --config "
                     f"instead of --storage-path: {line.strip()}"
                 )
 
@@ -258,7 +258,7 @@ class TestTraceNotFirstStepInPrimaryWorkflows:
     investigation step.  ``medre inspect event`` is the primary path."""
 
     def test_alpha_walkthrough_phase2_inspect_first(self) -> None:
-        """Phase 2 in alpha-walkthrough.md must start with inspect, not trace."""
+        """Phase 2 in operator-workflows.md must start with inspect, not trace."""
         path = OPS_DIR / "operator-workflows.md"
         if not path.exists():
             pytest.skip("operator-workflows.md not found")

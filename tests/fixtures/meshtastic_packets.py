@@ -41,7 +41,7 @@ portnum strings (e.g. "text_message", "telemetry", "admin") and the real
 symbolic meshtastic-python / mtjk strings used by callback dictionaries
 (e.g. "TEXT_MESSAGE_APP", "TELEMETRY_APP", "ADMIN_APP").  The MEDRE
 ``_NUMERIC_PORTNUM_MAP`` is **fixture scaffold only** — see
-``docs/contracts/10-meshtastic-source-audit.md`` for the authoritative
+``docs/spec/transport-profiles/meshtastic.md`` for the authoritative
 protobuf PortNum table.
 """
 
@@ -487,7 +487,7 @@ def make_numeric_portnum_packet(
     Provenance: unverified.  The numeric-to-string portnum mapping in
     MEDRE's classifier is scaffold-only and does not match the real
     protobuf enum for most values.  See
-    ``docs/contracts/10-meshtastic-source-audit.md`` Section 3.2.
+    ``docs/spec/transport-profiles/meshtastic.md`` Section 3.2.
     """
     return {
         "from": _node_num(sender),
