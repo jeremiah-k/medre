@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://medre.dev/schemas/delivery-result.schema.json",
+  "title": "AdapterDeliveryResult",
+  "description": "Immutable result returned by adapters after successful delivery. Adapters populate this with platform-native IDs obtained from the external system. Derived from dataclass(frozen=True).",
+  "type": "object",
+  "properties": {
+    "native_message_id": {
+      "type": ["string", "null"],
+      "default": null,
+      "description": "Platform-native message ID (e.g. a Matrix event_id). None when not yet available."
+    },
+    "native_channel_id": {
+      "type": ["string", "null"],
+      "default": null,
+      "description": "Platform-native channel/room/conversation ID."
+    },
+    "native_thread_id": {
+      "type": ["string", "null"],
+      "default": null,
+      "description": "Platform-native thread or parent message ID. Reserved — always None at runtime."
+    },
+    "native_relation_id": {
+      "type": ["string", "null"],
+      "default": null,
+      "description": "Platform-native ID of the related entity. Reserved — always None at runtime."
+    },
+    "delivery_note": {
+      "type": "string",
+      "default": "",
+      "description": "Human-readable context about the delivery. Informational only — not for control-flow."
+    },
+    "delivery_status": {
+      "type": "string",
+      "default": "sent",
+      "description": "Adapter-level lifecycle state: 'sent' (synchronous) or 'enqueued' (queue-based)."
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true,
+      "default": {},
+      "description": "Adapter-specific immutable metadata about the delivery."
+    }
+  },
+  "additionalProperties": false
+}

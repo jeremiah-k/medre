@@ -1,0 +1,60 @@
+{
+  "event_id": "0191a2b3-c4d5-7e6f-8a9b-0c1d2e3f4a5b",
+  "event_kind": "message.text",
+  "schema_version": 1,
+  "timestamp": "2026-05-27T12:00:00Z",
+  "source_adapter": "matrix-bot1",
+  "source_transport_id": "@alice:example.com",
+  "source_channel_id": "!roomid:example.com",
+  "parent_event_id": null,
+  "lineage": ["0191a2b3-c4d5-7e6f-8a9b-0c1d2e3f4a5b"],
+  "relations": [
+    {
+      "relation_type": "reply",
+      "target_event_id": "0191a2b3-c4d5-7e6f-8a9b-0c1d2e3f4a5c",
+      "target_native_ref": null,
+      "key": null,
+      "fallback_text": "Original message text",
+      "metadata": {}
+    }
+  ],
+  "payload": {
+    "body": "Hello from Matrix!",
+    "format": "org.matrix.custom.html",
+    "formatted_body": "<b>Hello from Matrix!</b>"
+  },
+  "metadata": {
+    "transport": {
+      "protocol": "matrix",
+      "substrate": null,
+      "gateway_id": null,
+      "delivery_method": "direct",
+      "delivery_confirmed": true,
+      "transport_encrypted": false,
+      "signature_valid": null,
+      "propagation_state": null
+    },
+    "routing": {
+      "matched_routes": ["matrix_to_radio"],
+      "fanout_group": null,
+      "route_trace": ["matrix_to_radio"]
+    },
+    "radio": null,
+    "telemetry": null,
+    "native": {
+      "data": {
+        "mx_event_type": "m.room.message",
+        "mx_msgtype": "m.text"
+      }
+    },
+    "custom": {}
+  },
+  "source_native_ref": {
+    "adapter": "matrix-bot1",
+    "native_channel_id": "!roomid:example.com",
+    "native_message_id": "$event_id_from_homeserver",
+    "native_thread_id": null
+  },
+  "depth": 0,
+  "trace_id": "trace-abc123"
+}

@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://medre.dev/schemas/delivery-receipt.schema.json",
+  "title": "DeliveryReceipt",
+  "description": "Per-adapter delivery status record for an outbound event. Tracks the lifecycle of an event as it travels through the delivery pipeline toward a target adapter. Derived from msgspec.Struct with frozen=True.",
+  "type": "object",
+  "properties": {
+    "sequence": {
+      "type": "integer",
+      "default": 0,
+      "description": "Monotonically increasing sequence number within the delivery plan."
+    },
+    "receipt_id": {
+      "type": "string",
+      "default": "",
+      "description": "Unique identifier for this receipt record."
+    },
+    "event_id": {
+      "type": "string",
+      "default": "",
+      "description": "The canonical event being delivered."
+    },
+    "delivery_plan_id": {
+      "type": "string",
+      "default": "",
+      "description": "Identifier of the delivery plan this receipt belongs to."
+    },
+    "target_adapter": {
+      "type": "string",
+      "default": "",
+      "description": "Name of the adapter the event is being delivered to."
+    },
+    "target_channel": {
+      "type": ["string", "null"],
+      "default": null,
+      "description": "Target channel/conversation ID at the destination adapter."
+    },
+    "route_id": {
+      "type": "string",
+      "default": "",
+      "description": "Identifier of the route that triggered this delivery."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["accepted", "queued", "sent", "confirmed", "failed", "dead_lettered", "suppressed"],
+      "default": "accepted",
+      "description": "Current delivery status."
+    },
+    "error": {
+      "type": ["string", "null"],
+      "default": null,
+      "description": "Error message if the delivery failed."
+    },
+    "failure_kind": {
+      "type": ["string", "null"],
+      "default": null,
+      "description": "Classification of the failure (e.g. 'adapter_permanent', 'adapter_transient')."
+    },
+    "adapter_message_id": {
+      "type": ["string", "null"],
+      "default": null,
+      "description": "Native message ID assigned by the target adapter, once accepted."
+    },
+    "next_retry_at": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "default": null,
+      "description": "Scheduled time for the next retry attempt, if applicable."
+    },
+    "attempt_number": {
+      "type": "integer",
+      "default": 1,
+      "description": "1-indexed attempt number for this receipt. The first delivery attempt is 1."
+    },
+    "parent_receipt_id": {
+      "type": ["string", "null"],
+      "default": null,
+      "description": "Receipt ID of the preceding attempt in this delivery chain. None for the first attempt."
+    },
+    "source": {
+      "type": "string",
+      "default": "live",
+      "description": "Origin of this receipt: 'live', 'retry', or 'replay'."
+    },
+    "replay_run_id": {
+      "type": ["string", "null"],
+      "default": null,
+      "description": "When source='replay', the run_id of the replay execution. None for live/retry."
+    },
+    "retry_max_attempts": {
+      "type": ["integer", "null"],
+      "default": null,
+      "description": "Maximum total delivery attempts from the route retry policy, if applicable."
+    },
+    "retry_backoff_base": {
+      "type": ["number", "null"],
+      "default": null,
+      "description": "Backoff base in seconds from the route retry policy, if applicable."
+    },
+    "retry_max_delay": {
+      "type": ["number", "null"],
+      "default": null,
+      "description": "Maximum backoff delay in seconds from the route retry policy, if applicable."
+    },
+    "retry_jitter": {
+      "type": ["boolean", "null"],
+      "default": null,
+      "description": "Whether jitter is enabled from the route retry policy, if applicable."
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Timestamp when this receipt was created (UTC, ISO-8601)."
+    }
+  },
+  "additionalProperties": false
+}

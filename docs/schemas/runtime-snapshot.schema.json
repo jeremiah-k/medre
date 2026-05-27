@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://medre.dev/schemas/runtime-snapshot.schema.json",
+  "title": "RuntimeSnapshot",
+  "description": "Immutable, JSON-safe diagnostic snapshot of the runtime. Use capture_runtime_snapshot() to construct. Derived from dataclass(frozen=True).",
+  "type": "object",
+  "properties": {
+    "adapters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "description": "Sorted list of normalised adapter health dicts."
+    },
+    "renderer_registry": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Status summary from the rendering pipeline."
+    },
+    "event_bus_status": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Status summary from the event bus."
+    },
+    "storage_backend_status": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Placeholder or summary for the storage backend."
+    },
+    "replay_backend_status": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Placeholder or summary for the replay backend."
+    },
+    "route_topology": {
+      "type": "object",
+      "additionalProperties": true,
+      "default": {"status": "unavailable"},
+      "description": "Topology-aware route diagnostics from the Router."
+    },
+    "queue_status": {
+      "type": "object",
+      "additionalProperties": {"type": "string"},
+      "default": {"status": "unavailable"},
+      "description": "Queue status dict."
+    },
+    "backpressure_status": {
+      "type": "object",
+      "additionalProperties": {"type": "string"},
+      "default": {"status": "unavailable"},
+      "description": "Backpressure status dict."
+    },
+    "task_status": {
+      "type": "object",
+      "additionalProperties": {"type": "string"},
+      "default": {"status": "unavailable"},
+      "description": "Task status dict."
+    }
+  },
+  "required": [
+    "adapters",
+    "renderer_registry",
+    "event_bus_status",
+    "storage_backend_status",
+    "replay_backend_status"
+  ],
+  "additionalProperties": false
+}

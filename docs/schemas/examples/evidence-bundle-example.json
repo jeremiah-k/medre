@@ -1,0 +1,65 @@
+{
+  "collected_at": "2026-05-27T12:00:00Z",
+  "command": "evidence",
+  "config_source": "file",
+  "errors": [],
+  "generated_at": "2026-05-27T12:00:02Z",
+  "limitations": [
+    "Evidence is a point-in-time snapshot, not continuous monitoring",
+    "Diagnostics snapshot reflects build-time state unless --include-refresh-health is used",
+    "Storage section requires an existing initialised database",
+    "Fake adapters report synthetic health, not real transport connectivity",
+    "No sustained throughput, reconnection resilience, or load evidence"
+  ],
+  "medre_version": "0.1.0",
+  "runtime_started": false,
+  "schema_version": 1,
+  "sections": {
+    "config_summary": {
+      "status": "passed",
+      "error": null,
+      "data": {
+        "adapter_count": 2,
+        "route_count": 1
+      }
+    },
+    "route_validation": {
+      "status": "passed",
+      "error": null,
+      "data": {
+        "valid": true,
+        "route_count": 1
+      }
+    },
+    "diagnostics_snapshot": {
+      "status": "passed",
+      "error": null,
+      "data": {
+        "adapters": [],
+        "renderer_registry": {"status": "unavailable"},
+        "event_bus_status": {"status": "unavailable"},
+        "storage_backend_status": {"status": "unavailable"},
+        "replay_backend_status": {"status": "unavailable"},
+        "route_topology": {"status": "unavailable"},
+        "queue_status": {"status": "unavailable"},
+        "backpressure_status": {"status": "unavailable"},
+        "task_status": {"status": "unavailable"}
+      }
+    },
+    "live_health": {
+      "status": "skipped",
+      "error": null,
+      "data": null,
+      "note": "Use --include-refresh-health to populate this section"
+    },
+    "storage": {
+      "status": "passed",
+      "error": null,
+      "data": {
+        "event_count": 0,
+        "receipt_count": 0
+      }
+    }
+  },
+  "status": "passed"
+}

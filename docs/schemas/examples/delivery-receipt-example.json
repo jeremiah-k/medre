@@ -1,0 +1,23 @@
+{
+  "sequence": 1,
+  "receipt_id": "rcpt-0191a2b3-c4d5-7e6f-8a9b-0c1d2e3f4a5b",
+  "event_id": "0191a2b3-c4d5-7e6f-8a9b-0c1d2e3f4a5b",
+  "delivery_plan_id": "plan-001",
+  "target_adapter": "longfast",
+  "target_channel": "0",
+  "route_id": "matrix_to_radio",
+  "status": "sent",
+  "error": null,
+  "failure_kind": null,
+  "adapter_message_id": "42",
+  "next_retry_at": null,
+  "attempt_number": 1,
+  "parent_receipt_id": null,
+  "source": "live",
+  "replay_run_id": null,
+  "retry_max_attempts": 3,
+  "retry_backoff_base": 2.0,
+  "retry_max_delay": 60.0,
+  "retry_jitter": false,
+  "created_at": "2026-05-27T12:00:01Z"
+}
