@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://medre.dev/schemas/diagnostics.schema.json",
+  "title": "DiagnosticsOutput",
+  "description": "Shape of the diagnostics snapshot returned by capture_runtime_snapshot().to_dict(). Contains deterministic, sorted JSON-safe output.",
+  "type": "object",
+  "properties": {
+    "adapters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "description": "Sorted list of normalised adapter health dicts, each sorted by key."
+    },
+    "renderer_registry": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Sorted status summary from the rendering pipeline. {'status': 'unavailable'} when absent."
+    },
+    "event_bus_status": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Sorted status summary from the event bus. {'status': 'unavailable'} when absent."
+    },
+    "storage_backend_status": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Sorted status summary for the storage backend."
+    },
+    "replay_backend_status": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Sorted status summary for the replay backend."
+    },
+    "route_topology": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Sorted topology-aware route diagnostics. Contains 'routes', 'route_health_summary', 'adapter_route_map'."
+    },
+    "queue_status": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Queue status dict."
+    },
+    "backpressure_status": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Backpressure status dict."
+    },
+    "task_status": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Task status dict."
+    }
+  },
+  "required": [
+    "adapters",
+    "renderer_registry",
+    "event_bus_status",
+    "storage_backend_status",
+    "replay_backend_status",
+    "route_topology",
+    "queue_status",
+    "backpressure_status",
+    "task_status"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "RouteTopologyEntry": {
+      "title": "RouteTopologyEntry",
+      "description": "Per-route entry in the route topology snapshot.",
+      "type": "object",
+      "properties": {
+        "route_id": {
+          "type": "string",
+          "description": "Route identifier."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether the route is enabled."
+        },
+        "ownership": {
+          "type": "string",
+          "description": "Route ownership (e.g. 'shared')."
+        },
+        "fanout_strategy": {
+          "type": "string",
+          "description": "Fanout strategy (e.g. 'broadcast')."
+        },
+        "source": {
+          "type": "object",
+          "properties": {
+            "adapter": { "type": ["string", "null"] },
+            "event_kinds": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "channel": { "type": ["string", "null"] }
+          }
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "adapter": { "type": ["string", "null"] },
+              "channel": { "type": ["string", "null"] },
+              "destination": {
+                "type": "object",
+                "properties": {
+                  "kind": { "type": ["string", "null"] },
+                  "destination_hash": { "type": ["string", "null"] },
+                  "destination_name": { "type": ["string", "null"] }
+                }
+              }
+            }
+          }
+        },
+        "target_count": { "type": "integer" },
+        "target_adapters": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "delivered": { "type": "integer" },
+        "failed": { "type": "integer" },
+        "skipped": { "type": "integer" },
+        "loop_prevented": { "type": "integer" },
+        "policy_suppressed": { "type": "integer" },
+        "error_count": { "type": "integer" },
+        "event_count": { "type": "integer" },
+        "last_error": { "type": "string" }
+      }
+    },
+    "RouteHealthSummary": {
+      "title": "RouteHealthSummary",
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "integer" },
+        "disabled": { "type": "integer" },
+        "total": { "type": "integer" }
+      },
+      "required": ["enabled", "disabled", "total"]
+    }
+  }
+}

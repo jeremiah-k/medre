@@ -1,0 +1,344 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://medre.dev/schemas/canonical-event.schema.json",
+  "title": "CanonicalEvent",
+  "description": "The universal, immutable event envelope for the MEDRE pipeline. Every event is represented as a CanonicalEvent. Derived from msgspec.Struct with frozen=True.",
+  "type": "object",
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Globally unique event identifier (UUIDv7 or similar time-sortable identifier)."
+    },
+    "event_kind": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Event kind string from the kinds registry (e.g. 'message.text', 'telemetry.received')."
+    },
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Schema version number for the payload structure. Must be >= 1."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "The moment the event occurred (UTC, timezone-aware ISO-8601)."
+    },
+    "source_adapter": {
+      "type": "string",
+      "description": "Name of the adapter that produced the event."
+    },
+    "source_transport_id": {
+      "type": "string",
+      "description": "Identifier of the transport that carried the event (native actor/source identity)."
+    },
+    "source_channel_id": {
+      "type": ["string", "null"],
+      "description": "Channel/conversation ID at the source, if applicable."
+    },
+    "parent_event_id": {
+      "type": ["string", "null"],
+      "description": "ID of the parent event in a derivation chain, if this event was derived from another."
+    },
+    "lineage": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Ordered list of event IDs forming the derivation ancestry."
+    },
+    "relations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/EventRelation"
+      },
+      "description": "Typed links to other events (replies, reactions, edits, etc.)."
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "The event-specific data payload (validated per event_kind)."
+    },
+    "metadata": {
+      "$ref": "#/$defs/EventMetadata"
+    },
+    "source_native_ref": {
+      "oneOf": [{ "$ref": "#/$defs/NativeRef" }, { "type": "null" }],
+      "description": "Inbound native message reference carried from codec. None for outbound/internal events."
+    },
+    "depth": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "Depth in the derivation tree (0 for source events)."
+    },
+    "trace_id": {
+      "type": ["string", "null"],
+      "default": null,
+      "description": "Distributed tracing correlation ID."
+    }
+  },
+  "required": [
+    "event_id",
+    "event_kind",
+    "schema_version",
+    "timestamp",
+    "source_adapter",
+    "source_transport_id",
+    "source_channel_id",
+    "parent_event_id",
+    "lineage",
+    "relations",
+    "payload",
+    "metadata"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "NativeRef": {
+      "title": "NativeRef",
+      "description": "Reference to a message in an adapter's native ID space.",
+      "type": "object",
+      "properties": {
+        "adapter": {
+          "type": "string",
+          "description": "Name of the adapter that owns the native namespace."
+        },
+        "native_channel_id": {
+          "type": ["string", "null"],
+          "description": "Channel/conversation ID in the adapter's native format."
+        },
+        "native_message_id": {
+          "type": "string",
+          "description": "Message ID in the adapter's native format."
+        },
+        "native_thread_id": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Thread/parent message ID in the adapter's native format. Reserved — always None at runtime."
+        }
+      },
+      "required": ["adapter", "native_channel_id", "native_message_id"],
+      "additionalProperties": false
+    },
+    "EventRelation": {
+      "title": "EventRelation",
+      "description": "A typed link from one event to another (reply, reaction, edit, delete, thread).",
+      "type": "object",
+      "properties": {
+        "relation_type": {
+          "type": "string",
+          "enum": ["reply", "reaction", "edit", "delete", "thread"],
+          "description": "The kind of relationship."
+        },
+        "target_event_id": {
+          "type": ["string", "null"],
+          "description": "The canonical event ID of the target event, if known."
+        },
+        "target_native_ref": {
+          "oneOf": [{ "$ref": "#/$defs/NativeRef" }, { "type": "null" }],
+          "description": "A native-space reference to the target, used when the canonical ID has not been resolved."
+        },
+        "key": {
+          "type": ["string", "null"],
+          "description": "Optional discriminator (e.g. the emoji for a reaction relation)."
+        },
+        "fallback_text": {
+          "type": ["string", "null"],
+          "description": "Human-readable fallback text for the target when the event body is not available."
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": true,
+          "default": {},
+          "description": "Arbitrary key-value metadata attached to this relation."
+        }
+      },
+      "required": [
+        "relation_type",
+        "target_event_id",
+        "target_native_ref",
+        "key",
+        "fallback_text"
+      ],
+      "additionalProperties": false
+    },
+    "EventMetadata": {
+      "title": "EventMetadata",
+      "description": "Top-level metadata container carried by every canonical event.",
+      "type": "object",
+      "properties": {
+        "transport": {
+          "oneOf": [
+            { "$ref": "#/$defs/TransportMetadata" },
+            { "type": "null" }
+          ],
+          "default": null,
+          "description": "Transport-layer metadata."
+        },
+        "routing": {
+          "oneOf": [{ "$ref": "#/$defs/RoutingMetadata" }, { "type": "null" }],
+          "default": null,
+          "description": "Routing-layer metadata."
+        },
+        "radio": {
+          "oneOf": [{ "$ref": "#/$defs/RadioMetadata" }, { "type": "null" }],
+          "default": null,
+          "description": "RF-layer metadata."
+        },
+        "telemetry": {
+          "oneOf": [
+            { "$ref": "#/$defs/TelemetryMetadata" },
+            { "type": "null" }
+          ],
+          "default": null,
+          "description": "Telemetry metrics namespace."
+        },
+        "native": {
+          "oneOf": [{ "$ref": "#/$defs/NativeMetadata" }, { "type": "null" }],
+          "default": null,
+          "description": "Opaque adapter-specific data."
+        },
+        "custom": {
+          "type": "object",
+          "additionalProperties": true,
+          "default": {},
+          "description": "Free-form dictionary for extensions and plugins."
+        }
+      },
+      "additionalProperties": false
+    },
+    "TransportMetadata": {
+      "title": "TransportMetadata",
+      "description": "Metadata describing the transport layer that carried the event.",
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Transport protocol name (e.g. 'mqtt', 'tcp', 'http')."
+        },
+        "substrate": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Physical/link-layer substrate (e.g. 'lorawan', 'wifi')."
+        },
+        "gateway_id": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Identifier of the gateway node that relayed the event."
+        },
+        "delivery_method": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "How the message was delivered (e.g. 'direct', 'store_forward')."
+        },
+        "delivery_confirmed": {
+          "type": ["boolean", "null"],
+          "default": null,
+          "description": "Whether the transport confirmed successful delivery."
+        },
+        "transport_encrypted": {
+          "type": ["boolean", "null"],
+          "default": null,
+          "description": "Whether the transport layer provided encryption."
+        },
+        "signature_valid": {
+          "type": ["boolean", "null"],
+          "default": null,
+          "description": "Whether a digital signature was verified."
+        },
+        "propagation_state": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Current propagation state as a transport-specific string."
+        }
+      },
+      "additionalProperties": false
+    },
+    "RoutingMetadata": {
+      "title": "RoutingMetadata",
+      "description": "Metadata produced by the routing subsystem.",
+      "type": "object",
+      "properties": {
+        "matched_routes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "List of route identifiers that matched this event."
+        },
+        "fanout_group": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Name of the fanout group, if the event was broadcast."
+        },
+        "route_trace": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Ordered list of route IDs recorded per event delivery."
+        }
+      },
+      "additionalProperties": false
+    },
+    "RadioMetadata": {
+      "title": "RadioMetadata",
+      "description": "RF-layer metadata for radio-transport events (e.g. Meshtastic).",
+      "type": "object",
+      "properties": {
+        "snr": {
+          "type": ["number", "null"],
+          "default": null,
+          "description": "Signal-to-noise ratio in dB."
+        },
+        "rssi": {
+          "type": ["number", "null"],
+          "default": null,
+          "description": "Received signal strength indicator in dBm."
+        },
+        "channel_index": {
+          "type": ["integer", "null"],
+          "default": null,
+          "description": "Radio channel index used for transmission."
+        },
+        "frequency": {
+          "type": ["number", "null"],
+          "default": null,
+          "description": "Operating frequency in MHz."
+        }
+      },
+      "additionalProperties": false
+    },
+    "TelemetryMetadata": {
+      "title": "TelemetryMetadata",
+      "description": "Arbitrary metrics from telemetry-producing events.",
+      "type": "object",
+      "properties": {
+        "metrics": {
+          "type": "object",
+          "additionalProperties": {
+            "type": ["number", "string", "boolean"]
+          },
+          "default": {},
+          "description": "Flat dictionary of metric names to numeric, string, or boolean values."
+        }
+      },
+      "additionalProperties": false
+    },
+    "NativeMetadata": {
+      "title": "NativeMetadata",
+      "description": "Opaque adapter-specific data that does not map to standard fields.",
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "object",
+          "additionalProperties": true,
+          "default": {},
+          "description": "Arbitrary key-value data produced by the source adapter."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

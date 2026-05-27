@@ -804,10 +804,10 @@ class TestDocumentationTrackHeaders:
     _REPO_ROOT = Path(__file__).parent.parent
 
     _TRACKED_DOCS = [
-        ("docs/runbooks/live-operational-evidence.md", ["Track"]),
-        ("docs/runbooks/deployment-validation.md", ["Track"]),
-        ("docs/runbooks/container-operation.md", ["Track"]),
-        ("docs/runbooks/longrun-validation.md", ["Track"]),
+        ("docs/ops/live-operational-evidence.md", ["Track"]),
+        ("docs/ops/deployment-validation.md", ["Track"]),
+        ("docs/ops/container-operation.md", ["Track"]),
+        ("docs/ops/longrun-validation.md", ["Track"]),
     ]
 
     @pytest.mark.parametrize(
@@ -872,9 +872,9 @@ class TestContractTrackHeaders:
     _REPO_ROOT = Path(__file__).parent.parent
 
     _CONTRACT_DOCS = [
-        ("docs/contracts/59-runtime-durability-contract.md", ["Track"]),
-        ("docs/contracts/60-runtime-cancellation-contract.md", ["Track"]),
-        ("docs/contracts/61-operational-evidence-contract.md", ["Track"]),
+        ("docs/spec/59-runtime-durability-contract.md", ["Track"]),
+        ("docs/spec/60-runtime-cancellation-contract.md", ["Track"]),
+        ("docs/spec/61-operational-evidence-contract.md", ["Track"]),
     ]
 
     @pytest.mark.parametrize(

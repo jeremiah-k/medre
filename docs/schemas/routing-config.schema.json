@@ -1,0 +1,254 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://medre.dev/schemas/routing-config.schema.json",
+  "title": "RoutingConfig",
+  "description": "Route configuration shapes: RouteConfig, BridgePolicy, RouteRetryConfig, and RouteConfigSet. Derived from frozen dataclasses in config/routes.py.",
+  "oneOf": [
+    {
+      "title": "RouteConfig",
+      "description": "A single named route definition.",
+      "type": "object",
+      "properties": {
+        "route_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "description": "Unique identifier for this route (alphanumeric, underscores, hyphens)."
+        },
+        "source_adapters": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Tuple of source adapter IDs."
+        },
+        "dest_adapters": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Tuple of destination adapter IDs."
+        },
+        "directionality": {
+          "type": "string",
+          "enum": ["source_to_dest", "dest_to_source", "bidirectional"],
+          "default": "source_to_dest",
+          "description": "Direction of event flow."
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether this route is enabled at startup."
+        },
+        "filter_hooks": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Optional tuple of static filter hook names. Reserved — must be empty."
+        },
+        "source_channel": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Optional source channel/conversation ID."
+        },
+        "dest_channel": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Optional destination channel/conversation ID."
+        },
+        "source_room": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Optional source room ID (alias for source_channel)."
+        },
+        "dest_room": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Optional destination room ID (alias for dest_channel)."
+        },
+        "policy": {
+          "oneOf": [{ "$ref": "#/$defs/BridgePolicy" }, { "type": "null" }],
+          "default": null,
+          "description": "Optional static bridge policy. Null means no restrictions."
+        },
+        "retry": {
+          "oneOf": [{ "$ref": "#/$defs/RouteRetryConfig" }, { "type": "null" }],
+          "default": null,
+          "description": "Optional per-route retry policy. Null means no retry scheduling."
+        },
+        "channel_room_map": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": { "type": "string" }
+            },
+            { "type": "null" }
+          ],
+          "default": null,
+          "description": "Mapping of Meshtastic channel strings ('0'–'7') to Matrix room IDs."
+        }
+      },
+      "required": ["route_id", "source_adapters", "dest_adapters"],
+      "additionalProperties": false
+    },
+    {
+      "title": "RouteConfigSet",
+      "description": "Ordered, validated collection of RouteConfig instances.",
+      "type": "object",
+      "properties": {
+        "routes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/RouteConfigRef" },
+          "default": [],
+          "description": "Ordered tuple of route configurations."
+        }
+      },
+      "additionalProperties": false
+    }
+  ],
+  "$defs": {
+    "RouteConfigRef": {
+      "title": "RouteConfig",
+      "type": "object",
+      "properties": {
+        "route_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "source_adapters": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "dest_adapters": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "directionality": {
+          "type": "string",
+          "enum": ["source_to_dest", "dest_to_source", "bidirectional"],
+          "default": "source_to_dest"
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "filter_hooks": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        },
+        "source_channel": {
+          "type": ["string", "null"],
+          "default": null
+        },
+        "dest_channel": {
+          "type": ["string", "null"],
+          "default": null
+        },
+        "source_room": {
+          "type": ["string", "null"],
+          "default": null
+        },
+        "dest_room": {
+          "type": ["string", "null"],
+          "default": null
+        },
+        "policy": {
+          "oneOf": [{ "$ref": "#/$defs/BridgePolicy" }, { "type": "null" }],
+          "default": null
+        },
+        "retry": {
+          "oneOf": [{ "$ref": "#/$defs/RouteRetryConfig" }, { "type": "null" }],
+          "default": null
+        },
+        "channel_room_map": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": { "type": "string" }
+            },
+            { "type": "null" }
+          ],
+          "default": null
+        }
+      },
+      "required": ["route_id", "source_adapters", "dest_adapters"],
+      "additionalProperties": false
+    },
+    "BridgePolicy": {
+      "title": "BridgePolicy",
+      "description": "Static allowlist policy attached to a route. Empty tuples mean 'allow all'.",
+      "type": "object",
+      "properties": {
+        "allowed_event_types": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Event kinds this policy permits."
+        },
+        "allowed_source_adapters": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Source adapter IDs this policy permits."
+        },
+        "allowed_dest_adapters": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Destination adapter IDs this policy permits."
+        },
+        "room_allowlist": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Room IDs the policy permits."
+        },
+        "channel_allowlist": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Channel identifiers the policy permits."
+        },
+        "sender_allowlist": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Sender identifiers the policy permits."
+        }
+      },
+      "additionalProperties": false
+    },
+    "RouteRetryConfig": {
+      "title": "RouteRetryConfig",
+      "description": "Per-route retry policy for transient delivery failures.",
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether retry scheduling is active for this route."
+        },
+        "max_attempts": {
+          "type": "integer",
+          "default": 3,
+          "minimum": 1,
+          "description": "Maximum total delivery attempts (including the initial)."
+        },
+        "backoff_base": {
+          "type": "number",
+          "default": 2.0,
+          "minimum": 0,
+          "description": "Base delay in seconds for exponential backoff."
+        },
+        "max_delay_seconds": {
+          "type": "number",
+          "default": 60.0,
+          "minimum": 0,
+          "description": "Upper bound for the computed backoff delay."
+        },
+        "jitter": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether to add jitter to the backoff delay."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

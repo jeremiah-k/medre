@@ -1,0 +1,348 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://medre.dev/schemas/adapter-config.schema.json",
+  "title": "AdapterConfig",
+  "description": "Adapter configuration shapes for all supported transports. Each adapter has its own frozen config dataclass.",
+  "oneOf": [
+    {
+      "title": "MatrixConfig",
+      "description": "Immutable configuration for the Matrix adapter.",
+      "type": "object",
+      "properties": {
+        "adapter_id": {
+          "type": "string",
+          "description": "Unique identifier for this adapter instance."
+        },
+        "homeserver": {
+          "type": "string",
+          "description": "Matrix homeserver URL (must start with 'http://' or 'https://')."
+        },
+        "user_id": {
+          "type": "string",
+          "description": "Fully-qualified Matrix user ID (must start with '@')."
+        },
+        "device_id": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Device ID. Internal — discovered via whoami() on login."
+        },
+        "access_token": {
+          "type": "string",
+          "default": "",
+          "description": "Access token for authentication."
+        },
+        "room_allowlist": {
+          "type": ["array", "null"],
+          "items": { "type": "string" },
+          "default": null,
+          "description": "Optional set of room IDs to accept messages from. Null means all rooms."
+        },
+        "metadata_embedding_mode": {
+          "type": "string",
+          "default": "safe",
+          "description": "How metadata is embedded in messages.",
+          "enum": ["off", "minimal", "safe", "full"]
+        },
+        "store_path": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "E2EE store path. Internal — derived by runtime."
+        },
+        "sync_timeout_ms": {
+          "type": "integer",
+          "default": 30000,
+          "description": "Timeout in milliseconds for long-polling sync requests."
+        },
+        "encryption_mode": {
+          "type": "string",
+          "default": "plaintext",
+          "enum": ["plaintext", "e2ee_required", "e2ee_optional"],
+          "description": "Encryption policy."
+        },
+        "require_encrypted_rooms": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether to only operate in encrypted rooms."
+        },
+        "auto_join_rooms": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Canonical Matrix room IDs ('!localpart:server') to auto-join on startup."
+        }
+      },
+      "required": ["adapter_id", "homeserver", "user_id"],
+      "additionalProperties": false
+    },
+    {
+      "title": "MeshtasticConfig",
+      "description": "Immutable configuration for the Meshtastic adapter.",
+      "type": "object",
+      "properties": {
+        "adapter_id": {
+          "type": "string",
+          "description": "Unique identifier for this adapter instance."
+        },
+        "connection_type": {
+          "type": "string",
+          "enum": ["fake", "tcp", "serial", "ble"],
+          "default": "fake",
+          "description": "Connection mode."
+        },
+        "host": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Hostname or IP for TCP connections."
+        },
+        "port": {
+          "type": ["integer", "null"],
+          "default": null,
+          "description": "Port number for TCP connections."
+        },
+        "serial_port": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Serial device path for serial connections."
+        },
+        "ble_address": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "BLE MAC address for BLE connections."
+        },
+        "meshnet_name": {
+          "type": "string",
+          "default": "",
+          "description": "Human-readable meshnet name (informational)."
+        },
+        "default_channel": {
+          "type": "integer",
+          "default": 0,
+          "minimum": 0,
+          "description": "Default radio channel index for outbound messages."
+        },
+        "channel_mapping": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "default": {},
+          "description": "Mapping of channel index to human-readable channel name (display labels only)."
+        },
+        "message_delay_seconds": {
+          "type": "number",
+          "default": 0.5,
+          "minimum": 0,
+          "description": "Minimum delay between outbound messages (pacing)."
+        },
+        "startup_backlog_suppress_seconds": {
+          "type": "number",
+          "default": 5.0,
+          "minimum": 0,
+          "description": "Seconds after start to suppress stale backlog packets."
+        },
+        "sync_timeout_ms": {
+          "type": "integer",
+          "default": 30000,
+          "description": "Timeout in milliseconds for sync operations."
+        },
+        "matrix_relay_prefix": {
+          "type": "string",
+          "default": "[{longname}/{meshnet_name}]: ",
+          "description": "Template prepended to messages relayed from Meshtastic to Matrix."
+        },
+        "radio_relay_prefix": {
+          "type": "string",
+          "default": "{shortname5}[M]: ",
+          "description": "Template prepended to messages relayed from Matrix to Meshtastic radio."
+        },
+        "mmrelay_compatibility": {
+          "type": "boolean",
+          "default": false,
+          "description": "Embed mmrelay-compatible Meshtastic metadata in Matrix event content."
+        },
+        "max_text_bytes": {
+          "type": "integer",
+          "default": 227,
+          "minimum": 0,
+          "description": "Maximum UTF-8 byte budget for final radio text after rendering."
+        },
+        "queue_send_max_attempts": {
+          "type": "integer",
+          "default": 3,
+          "minimum": 1,
+          "description": "Maximum send attempts per queued item (first attempt + retries)."
+        },
+        "outbound_mode": {
+          "type": "string",
+          "enum": ["enabled", "listen_only"],
+          "default": "enabled",
+          "description": "Controls whether outbound radio sends are enabled."
+        }
+      },
+      "required": ["adapter_id"],
+      "additionalProperties": false
+    },
+    {
+      "title": "MeshCoreConfig",
+      "description": "Immutable configuration for the MeshCore adapter.",
+      "type": "object",
+      "properties": {
+        "adapter_id": {
+          "type": "string",
+          "description": "Unique identifier for this adapter instance."
+        },
+        "connection_type": {
+          "type": "string",
+          "enum": ["fake", "tcp", "serial", "ble"],
+          "default": "fake",
+          "description": "Connection mode."
+        },
+        "host": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Hostname or IP for TCP connections."
+        },
+        "port": {
+          "type": ["integer", "null"],
+          "default": null,
+          "description": "Port number for TCP connections."
+        },
+        "serial_port": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Serial device path for serial connections."
+        },
+        "serial_baudrate": {
+          "type": "integer",
+          "default": 115200,
+          "description": "Baud rate for serial connections."
+        },
+        "ble_address": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "BLE MAC address for BLE connections (future)."
+        },
+        "meshnet_name": {
+          "type": "string",
+          "default": "",
+          "description": "Human-readable meshnet name (informational)."
+        },
+        "default_channel": {
+          "type": "integer",
+          "default": 0,
+          "minimum": 0,
+          "description": "Default radio channel index for outbound messages."
+        },
+        "channel_mapping": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "default": {},
+          "description": "Mapping of channel index to human-readable channel name."
+        },
+        "message_delay_seconds": {
+          "type": "number",
+          "default": 0.5,
+          "minimum": 0,
+          "description": "Minimum delay between outbound messages (pacing)."
+        },
+        "sync_timeout_ms": {
+          "type": "integer",
+          "default": 30000,
+          "minimum": 1,
+          "description": "Timeout in milliseconds for sync operations."
+        },
+        "identity": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Optional MeshCore node identity string."
+        },
+        "pubkey": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-fA-F]+$",
+          "default": null,
+          "description": "Optional MeshCore public key as a hex string."
+        },
+        "node_config": {
+          "type": "object",
+          "additionalProperties": true,
+          "default": {},
+          "description": "Opaque dict for future node-specific settings. Must not contain secret keys."
+        },
+        "max_text_bytes": {
+          "type": "integer",
+          "default": 512,
+          "minimum": 0,
+          "description": "Maximum UTF-8 byte budget for final radio text after rendering."
+        }
+      },
+      "required": ["adapter_id"],
+      "additionalProperties": false
+    },
+    {
+      "title": "LxmfConfig",
+      "description": "Immutable configuration for the LXMF adapter.",
+      "type": "object",
+      "properties": {
+        "adapter_id": {
+          "type": "string",
+          "description": "Unique identifier for this adapter instance."
+        },
+        "connection_type": {
+          "type": "string",
+          "enum": ["fake", "reticulum"],
+          "default": "fake",
+          "description": "Connection mode. 'fake' for testing, 'reticulum' for real LXMF."
+        },
+        "display_name": {
+          "type": "string",
+          "default": "",
+          "description": "Optional display name for LXMF announces."
+        },
+        "stamp_cost": {
+          "type": "integer",
+          "default": 8,
+          "minimum": 0,
+          "description": "Default stamp cost. 0 means no stamp required."
+        },
+        "default_delivery_method": {
+          "type": "string",
+          "enum": ["direct", "opportunistic", "propagated", "paper"],
+          "default": "direct",
+          "description": "Default LXMF delivery method."
+        },
+        "meshnet_name": {
+          "type": "string",
+          "default": "",
+          "description": "Human-readable meshnet name (informational)."
+        },
+        "default_channel": {
+          "type": "integer",
+          "default": 0,
+          "minimum": 0,
+          "description": "Default radio channel index for outbound messages."
+        },
+        "message_delay_seconds": {
+          "type": "number",
+          "default": 0.5,
+          "minimum": 0,
+          "description": "Minimum delay between outbound messages (pacing)."
+        },
+        "metadata_embedding": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether to embed MEDRE metadata envelopes in LXMF fields."
+        },
+        "identity_path": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Path to a Reticulum identity file."
+        },
+        "storage_path": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Path for LXMF LXMRouter persistent storage. Required for 'reticulum' mode."
+        }
+      },
+      "required": ["adapter_id"],
+      "additionalProperties": false
+    }
+  ]
+}

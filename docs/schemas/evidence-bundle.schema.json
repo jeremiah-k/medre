@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://medre.dev/schemas/evidence-bundle.schema.json",
+  "title": "EvidenceBundle",
+  "description": "JSON-safe evidence bundle returned by collect_evidence_bundle(). Contains schema_version, status, sections, errors, and limitations.",
+  "type": "object",
+  "properties": {
+    "collected_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 UTC timestamp when collection started."
+    },
+    "command": {
+      "type": "string",
+      "enum": ["evidence"],
+      "description": "Command that produced this bundle. Always 'evidence'."
+    },
+    "config_source": {
+      "type": ["string", "null"],
+      "description": "Config source identifier (e.g. 'file', 'env', 'default', 'none')."
+    },
+    "errors": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "List of error messages from sections that encountered errors."
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 UTC timestamp when generation completed."
+    },
+    "limitations": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Known limitations of the evidence collection process."
+    },
+    "medre_version": {
+      "type": "string",
+      "description": "MEDRE package version string (e.g. '0.1.0')."
+    },
+    "runtime_started": {
+      "type": "boolean",
+      "description": "Whether the runtime was started to collect live health data."
+    },
+    "schema_version": {
+      "type": "integer",
+      "description": "Evidence bundle schema version. Currently 1.",
+      "const": 1
+    },
+    "sections": {
+      "type": "object",
+      "description": "Collected evidence sections.",
+      "properties": {
+        "config_summary": {
+          "$ref": "#/$defs/EvidenceSection"
+        },
+        "route_validation": {
+          "$ref": "#/$defs/EvidenceSection"
+        },
+        "diagnostics_snapshot": {
+          "$ref": "#/$defs/EvidenceSection"
+        },
+        "live_health": {
+          "$ref": "#/$defs/EvidenceSection"
+        },
+        "storage": {
+          "$ref": "#/$defs/EvidenceSection"
+        }
+      },
+      "additionalProperties": false
+    },
+    "status": {
+      "type": "string",
+      "enum": ["passed", "partial", "error"],
+      "description": "Overall evidence collection status."
+    }
+  },
+  "required": [
+    "collected_at",
+    "command",
+    "config_source",
+    "errors",
+    "generated_at",
+    "limitations",
+    "medre_version",
+    "runtime_started",
+    "schema_version",
+    "sections",
+    "status"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "EvidenceSection": {
+      "title": "EvidenceSection",
+      "description": "A single evidence section with status, optional error, and optional data.",
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["passed", "partial", "error", "skipped"],
+          "description": "Section collection status."
+        },
+        "error": {
+          "type": ["string", "null"],
+          "description": "Error message if the section encountered an error."
+        },
+        "data": {
+          "description": "Section payload data. Null when unavailable or skipped."
+        },
+        "note": {
+          "type": ["string", "null"],
+          "description": "Explanatory note (e.g. skip reason)."
+        }
+      },
+      "required": ["status", "error", "data"]
+    }
+  }
+}

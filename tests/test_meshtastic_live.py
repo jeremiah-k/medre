@@ -658,7 +658,7 @@ class TestMeshtasticLiveSmoke:
         Both ``sendText()`` and ``sendData()`` return a ``MeshPacket``
         protobuf with the ``id`` field populated by the interface's
         packet ID generator.  This is confirmed from mtjk source code
-        analysis (see ``docs/contracts/10-meshtastic-source-audit.md``
+        analysis (see ``docs/spec/transport-profiles/meshtastic.md``
         Section 5.1) and verified by the ``test_send_text_via_raw_interface``
         and ``test_send_data_via_raw_interface`` tests above.
 

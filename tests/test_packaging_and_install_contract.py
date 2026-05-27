@@ -443,8 +443,8 @@ class TestRuntimeBuilderWithFakeMultiAdapter:
 # 7. Docs contract consistency — extras match pyproject
 # ===================================================================
 
-# This section validates that the packaging contract document and pyproject
-# extras are consistent. The contract doc at docs/contracts/58 references
+# This section validates that the packaging spec document and pyproject
+# extras are consistent. The spec doc at docs/spec references
 # the same extras listed here.
 
 
@@ -456,17 +456,13 @@ class TestDocsContractConsistency:
         self._opt = _load_pyproject()["project"].get("optional-dependencies", {})
 
     def test_contract_doc_exists(self) -> None:
-        contract_path = (
-            _REPO_ROOT / "docs" / "contracts" / "58-packaging-and-install-contract.md"
-        )
+        contract_path = _REPO_ROOT / "docs" / "ops" / "install.md"
         assert (
             contract_path.is_file()
         ), f"Packaging contract doc missing: {contract_path}"
 
     def test_contract_doc_mentions_all_extras(self) -> None:
-        contract_path = (
-            _REPO_ROOT / "docs" / "contracts" / "58-packaging-and-install-contract.md"
-        )
+        contract_path = _REPO_ROOT / "docs" / "ops" / "install.md"
         content = contract_path.read_text()
         for extra_name in _REQUIRED_EXTRAS:
             assert (
@@ -868,20 +864,16 @@ class TestContractMetadataAlignment:
     """Contract 58 metadata must match pyproject.toml."""
 
     def test_contract_license_matches_pyproject(self) -> None:
-        contract_path = (
-            _REPO_ROOT / "docs" / "contracts" / "58-packaging-and-install-contract.md"
-        )
+        contract_path = _REPO_ROOT / "docs" / "ops" / "install.md"
         content = contract_path.read_text()
         project = _load_pyproject()["project"]
         license_val = project.get("license", "")
         assert (
             license_val in content
-        ), f"pyproject license {license_val!r} not mentioned in contract 58"
+        ), f"pyproject license {license_val!r} not mentioned in spec"
 
     def test_contract_classifier_matches_pyproject(self) -> None:
-        contract_path = (
-            _REPO_ROOT / "docs" / "contracts" / "58-packaging-and-install-contract.md"
-        )
+        contract_path = _REPO_ROOT / "docs" / "ops" / "install.md"
         content = contract_path.read_text()
         classifiers = _load_pyproject()["project"].get("classifiers", [])
         # Find the Development Status classifier.
@@ -889,16 +881,14 @@ class TestContractMetadataAlignment:
         assert status_clf, "no Development Status classifier in pyproject"
         assert (
             status_clf[0] in content
-        ), f"classifier {status_clf[0]!r} not mentioned in contract 58"
+        ), f"classifier {status_clf[0]!r} not mentioned in spec"
 
     def test_console_script_in_contract(self) -> None:
-        contract_path = (
-            _REPO_ROOT / "docs" / "contracts" / "58-packaging-and-install-contract.md"
-        )
+        contract_path = _REPO_ROOT / "docs" / "ops" / "install.md"
         content = contract_path.read_text()
         assert (
             "medre.cli:main" in content
-        ), "contract 58 must mention the canonical entry point medre.cli:main"
+        ), "spec must mention the canonical entry point medre.cli:main"
 
 
 # ===================================================================
