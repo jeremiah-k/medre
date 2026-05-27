@@ -844,30 +844,25 @@ Key findings that this contract consolidates:
 
 ## 11. Implementation Readiness Summary
 
-| Task                         | SDK API Available                                 | Adapter Code Exists | Blocked By                                        |
-| ---------------------------- | ------------------------------------------------- | ------------------- | ------------------------------------------------- |
-| Identity load/create         | `RNS.Identity.from_file()`, `RNS.Identity()`      | No                  | `identity_path` wiring                            |
-| Reticulum init               | `RNS.Reticulum(configdir)`                        | No                  | `reticulum_configdir` config field                |
-| Router creation              | `LXMF.LXMRouter(storagepath)`                     | No                  | `storage_path` config field                       |
-| Register delivery identity   | `router.register_delivery_identity()`             | No                  | Identity + router creation                        |
-| Register delivery callback   | `router.register_delivery_callback()`             | No                  | Router creation                                   |
-| Announce presence            | `router.announce()`                               | No                  | Delivery identity registration                    |
-| Send message                 | `router.handle_outbound()`                        | No                  | Router + destination resolution                   |
-| LXMessage to dict conversion | N/A (application code)                            | No                  | Need to decide: modify codec or add adapter layer |
-| Clean shutdown               | `router.exit_handler()`, `RNS.exit()`             | No                  | Router creation                                   |
-| Propagation node sync        | `router.request_messages_from_propagation_node()` | No                  | Propagation node config                           |
+| Task                         | SDK API Available                                 | Adapter Code Exists         | Blocked By                                        |
+| ---------------------------- | ------------------------------------------------- | --------------------------- | ------------------------------------------------- |
+| Identity load/create         | `RNS.Identity.from_file()`, `RNS.Identity()`      | Source exists / mock-tested | `identity_path` wiring                            |
+| Reticulum init               | `RNS.Reticulum(configdir)`                        | Source exists / mock-tested | `reticulum_configdir` config field                |
+| Router creation              | `LXMF.LXMRouter(storagepath)`                     | Source exists / mock-tested | `storage_path` config field                       |
+| Register delivery identity   | `router.register_delivery_identity()`             | Source exists / mock-tested | Identity + router creation                        |
+| Register delivery callback   | `router.register_delivery_callback()`             | Source exists / mock-tested | Router creation                                   |
+| Announce presence            | `router.announce()`                               | Not live-validated          | Delivery identity registration                    |
+| Send message                 | `router.handle_outbound()`                        | Source exists / mock-tested | Router + destination resolution                   |
+| LXMessage to dict conversion | N/A (application code)                            | Source exists / mock-tested | Need to decide: modify codec or add adapter layer |
+| Clean shutdown               | `router.exit_handler()`, `RNS.exit()`             | Source exists / mock-tested | Router creation                                   |
+| Propagation node sync        | `router.request_messages_from_propagation_node()` | Not live-validated          | Propagation node config                           |
 
 ## 12. Explicit Non-Claims
 
-- **No production LXMF/Reticulum connectivity exists.**
-- **No live testing has been performed.** All findings are from source
-  code analysis.
+- **Real-mode source exists behind optional deps.** Reticulum init/reuse, identity load/create, router creation, delivery callback, LXMessage→dict normalization, outbound send via `handle_outbound`, delivery-state tracking, `call_soon_threadsafe` bridge, stop/teardown. Source-audited/mock-tested only. No live Reticulum validation.
+- **No live testing has been performed.** All findings are from source code analysis.
 - **No compatibility with any specific Reticulum network is claimed.**
-- **No real identity management is implemented.** The `identity_path`
-  config field is a placeholder.
-- **No reconnection, retry, or error recovery logic is implemented.**
-- **No async/sync bridge between Reticulum threads and MEDRE's asyncio
-  event loop is implemented.**
+- **Source-audited/mock-tested only. No live Reticulum validation.** Real-mode code paths exist but have not been exercised against a running Reticulum instance.
 - **Field key 0xFD for MEDRE metadata has not been validated against
   real LXMF traffic.** It is a MEDRE convention that other clients may
   or may not respect.

@@ -753,14 +753,13 @@ if adapter._client is not None:
 When the adapter process restarts (whether via manual stop/start, Docker restart, or process manager):
 
 1. A fresh SDK client is created from scratch.
-2. `appstart()` is sent, triggering a new `SELF_INFO` event.
-3. Event subscriptions are re-established.
-4. The contact list is re-fetched from the node.
-5. Any messages that arrived during the downtime are **lost** — the adapter does not persist or replay missed events. MeshCore uses a pull model (`MESSAGES_WAITING` → `get_msg()`), but the adapter does not currently implement backlog fetching on restart.
+2. Event subscriptions are re-established (`CONTACT_MSG_RECV`, `CHANNEL_MSG_RECV`, `DISCONNECTED`).
+3. No backlog fetch or contact refresh is performed.
+4. Any messages that arrived during the downtime are **lost** — the adapter does not persist or replay missed events. MeshCore uses a pull model (`MESSAGES_WAITING` → `get_msg()`), but the adapter does not currently implement backlog fetching on restart.
 
 ### 12.6 Planned improvements
 
-Automatic reconnection with exponential backoff and health state transitions (`healthy` / `degraded` / `failed`) is planned but not implemented. See `docs/contracts/19-meshcore-connectivity-readiness.md` for the readiness assessment.
+Bounded reconnect on SDK `DISCONNECTED` events is implemented (exponential backoff, source-audited/mock-tested). Future improvements include health state transitions (`healthy` / `degraded` / `failed`) and backlog fetching. See `docs/contracts/19-meshcore-connectivity-readiness.md` for the readiness assessment.
 
 ## 13. Known Limitations
 
@@ -768,9 +767,9 @@ This is an honest list. Everything here is real.
 
 1. **BLE mode implemented at session layer, hardware validation pending.** TCP and serial real connections work via `MeshCoreSession`. BLE connectivity is wired in the session (`MeshCore.create_ble()`), but has not been validated against real BLE hardware. Mock-based tests pass. See section 6.
 
-2. **No automatic reconnection at adapter level.** If the connection to the node is lost, the session attempts bounded reconnect with exponential backoff (up to 10 attempts). See section 12.
+2. **Bounded reconnect on SDK DISCONNECTED events.** The session attempts exponential backoff reconnect (up to 10 attempts, capped at 30 s base delay). See section 12.
 
-3. **No outbound retry.** Failed sends are permanently dropped, not requeued. See section 9.2.
+3. **Bounded transient retry; no durable queue.** Failed sends are retried up to 3 times within `send_text()` (transient failures only). After exhaustion, the send is permanently dropped — no durable queue, no ACK correlation, and duplicate-send risk from retries. See section 9.2.
 
 4. **No inbound persistence.** Inbound events are published directly via `ctx.publish_inbound()`. If the callback is slow or fails, the event is gone. There is no retry, no dead letter queue, no redelivery.
 
@@ -1013,7 +1012,7 @@ The following features are not supported in alpha mode. Do not attempt to use th
 | ------------------------------------ | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Real client connections              | Source-audited / mock-tested                              | `MeshCoreSession` wires TCP/serial/BLE via guarded SDK import; not live-validated                                                                                                                |
 | Automatic reconnection               | Implemented in session (bounded exponential backoff)      | SDK `auto_reconnect` param also available; session adds its own backoff loop                                                                                                                     |
-| Outbound retry                       | Not implemented                                           | Failed sends are permanently dropped                                                                                                                                                             |
+| Outbound retry                       | Bounded transient retry (up to 3 attempts)                | No durable queue; no ACK correlation; duplicate-send risk from retries                                                                                                                           |
 | ACK / delivery confirmation tracking | Not implemented                                           | `expected_ack` is not tracked or correlated                                                                                                                                                      |
 | Direct message routing               | Not supported                                             | DMs classified but processed identically to channel messages                                                                                                                                     |
 | Reply threading                      | Not supported                                             | MeshCore protocol has no native reply mechanism                                                                                                                                                  |

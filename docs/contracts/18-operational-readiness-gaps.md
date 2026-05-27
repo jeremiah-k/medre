@@ -229,7 +229,7 @@ Contract 05 defines a complete plugin API: `Plugin` protocol, `PluginContext`, `
 - **No retry budget.** No per-adapter or per-plan retry rate limiting. An adapter with persistent failures could accumulate unlimited dead-letter receipts.
 - **No receipt deduplication.** Replaying events with existing successful receipts duplicates them.
 - **No adapter-level error customization.** Error classification uses Python exception types. Adapters cannot declare custom retryable/permanent error codes.
-- **No reconnection logic.** No adapter handles reconnection or connection loss. The lifecycle is start/stop with no automatic recovery. If the Matrix homeserver drops the connection, the sync task fails silently and `health_check()` reports `"failed"`, but no reconnect attempt is made.
+- **MeshCore has bounded reconnect on DISCONNECTED events; other adapters per current source.** All source-audited/mock-tested only. No adapter has live-validated reconnection. If the Matrix homeserver drops the connection, the sync task fails silently and `health_check()` reports `"failed"`, but no reconnect attempt is made.
 
 ## 9. Runbook Gaps
 

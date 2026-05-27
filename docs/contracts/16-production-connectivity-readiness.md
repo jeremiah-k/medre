@@ -217,7 +217,7 @@ Integrate the `rns` and `lxmf` packages. Create a minimal Reticulum identity. Co
 
 2. **Meshtastic** has the pipeline in place but the real connection code is stubbed (`self._client = None` even for non-fake types). Needs real `mtjk` callback and send verification.
 
-3. **MeshCore** needs production SDK verification first. The adapter follows the right structural pattern but has no real connectivity code and no verified SDK.
+3. **MeshCore** needs production SDK verification first. The adapter follows the right structural pattern and has session code (source-audited, mock-tested) but no live hardware validation.
 
 4. **LXMF** needs the most work. Reticulum/LXMF integration is a significant undertaking involving identity management, a custom networking stack, and a different message model.
 
@@ -225,9 +225,9 @@ Integrate the `rns` and `lxmf` packages. Create a minimal Reticulum identity. Co
 
 - **Webhooks remain future work.** No adapter has webhook integration.
 - **Admin APIs remain future work.** No adapter exposes admin operations (channel management, user management, etc.).
-- **All adapters currently use fake delivery only.** No adapter has verified real message delivery against its target platform.
+- **Default tests use fake/mocked delivery; real-mode source exists for some adapters but production delivery is not validated without live evidence.** No adapter has verified real message delivery against its target platform in default CI.
 - **No adapter has been tested with real hardware or real network services.** Everything is unit-tested against fake clients and test data.
-- **No adapter handles reconnection or connection loss.** The lifecycle is start/stop with no automatic recovery.
+- **MeshCore has bounded reconnect on DISCONNECTED events (source-audited/mock-tested); other adapters per current source.** The lifecycle is start/stop with no automatic recovery for Matrix, Meshtastic, or LXMF.
 
 ### What "production connectivity" means in this context
 

@@ -752,7 +752,9 @@ class TestMockedSDKStartupFailureCleanup:
             patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
             patch.dict(sys.modules, {"meshcore": mock_mc}),
         ):
-            with pytest.raises(RuntimeError, match="subscription failed"):
+            with pytest.raises(
+                MeshCoreConnectionError, match="Failed to subscribe to events"
+            ):
                 await session.start(lambda pkt: None)
 
         # Full cleanup: meshcore client released, callback cleared,
@@ -764,6 +766,7 @@ class TestMockedSDKStartupFailureCleanup:
         assert len(session._subscriptions) == 0
         assert session.last_error is not None
         assert "subscription failed" in str(session.last_error)
+        mock_inst.disconnect.assert_awaited_once()
 
     async def test_connect_failure_clears_callback(self) -> None:
         """Failed connection clears _message_callback via _cleanup_failed_start."""

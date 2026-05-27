@@ -266,7 +266,7 @@ class MeshCoreSession:
             except Exception:
                 # Connect failed — full cleanup so diagnostics and
                 # late SDK events don't reference stale state.
-                self._cleanup_failed_start()
+                await self._cleanup_failed_start()
                 raise
 
         self._started = True
@@ -390,7 +390,7 @@ class MeshCoreSession:
     # Private — real connection
     # ==================================================================
 
-    def _cleanup_failed_start(self) -> None:
+    async def _cleanup_failed_start(self) -> None:
         """Full cleanup after a failed start().
 
         Clears all partial state so diagnostics and late SDK events
@@ -403,18 +403,7 @@ class MeshCoreSession:
         self._subscriptions.clear()
         if self._meshcore is not None:
             try:
-                # Best-effort async disconnect — if we're in an except
-                # block the meshcore may still be valid.  Schedule but
-                # don't await since we may not have a running loop.
-
-                loop = asyncio.get_running_loop()
-                task = loop.create_task(self._meshcore.disconnect())
-                task.add_done_callback(
-                    lambda t: self._logger.debug(
-                        "MeshCoreSession %s: cleanup disconnect finished",
-                        self._adapter_id,
-                    ) if not t.cancelled() and t.exception() is None else None
-                )
+                await self._meshcore.disconnect()
             except Exception:
                 pass
             self._meshcore = None

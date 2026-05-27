@@ -218,7 +218,7 @@ Per-message callbacks update the `LxmfSession`'s outbound tracking dict:
 
 - `_on_delivery_state_update` tracks state transitions for each tracked message.
 - Terminal states (`DELIVERED`, `FAILED`, `REJECTED`, `CANCELLED`) are recorded.
-- `FAILED` increments `transient_delivery_failures`. `REJECTED`/`CANCELLED` increment `permanent_delivery_failures`.
+- Terminal delivery-state callbacks (`FAILED`, `REJECTED`, `CANCELLED`) increment `permanent_delivery_failures`. Transient send-attempt exceptions are counted separately during bounded retry before exhaustion.
 
 MEDRE's `deliver()` returns an `AdapterDeliveryResult` with the message hash and delivery state metadata. The state is honest: typically `"outbound"` at return time. The pipeline does not wait for delivery confirmation.
 

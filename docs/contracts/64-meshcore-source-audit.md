@@ -325,7 +325,7 @@ Optional, configurable `max_attempts`. Not enabled by default.
 
 ---
 
-## 11. MEDRE Assumptions Initially Scaffold (Historical Baseline)
+## 11. MEDRE Assumptions Initially Scaffold (Historical Baseline) — Do not read as current state; current state is in §12.
 
 > **Note:** Several items in this table were resolved in Tranche 4 (see §12.1) and Tranche 6 (see §12.4). This table is preserved as the historical baseline. See §12.2 for remaining scaffold items.
 
