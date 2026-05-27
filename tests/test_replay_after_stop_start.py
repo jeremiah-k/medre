@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import cast
+from typing import AsyncIterator, cast
 
 import pytest
 
@@ -113,6 +113,26 @@ def _make_event_with_native_ref(
         metadata=EventMetadata(),
         source_native_ref=native_ref,
     )
+
+
+async def _aiter_from_list(items: list) -> AsyncIterator:
+    """Yield items from a list as an async iterator."""
+    for item in items:
+        yield item
+
+
+async def _seed_orphan_event(
+    storage: StorageBackend,
+    event_id: str = "orphan-001",
+) -> CanonicalEvent:
+    """Seed an event directly into storage with no delivery receipt."""
+    event = make_event(
+        event_id=event_id,
+        source_adapter="fake_transport",
+        source_channel_id="ch-0",
+    )
+    await storage.append(event)
+    return event
 
 
 # ===================================================================
@@ -212,22 +232,14 @@ async def test_replay_after_restart(tmp_path: Path) -> None:
     ), f"Expected 4 receipts (3 live + 1 replay), got {total_receipts}"
 
     # Replay receipt has source='replay' and run_id.
-    replay_rows = await storage_b._read_all(
-        "SELECT * FROM delivery_receipts WHERE event_id = ? AND source = 'replay'",
-        (event_ids[0],),
-    )
-    assert len(replay_rows) >= 1
-    assert replay_rows[0]["replay_run_id"] == "run-restart-001"
+    replay_receipts = await storage_b.list_receipts_for_event(event_ids[0])
+    replay_from_run = [r for r in replay_receipts if r.source == "replay"]
+    assert len(replay_from_run) >= 1
+    assert replay_from_run[0].replay_run_id == "run-restart-001"
 
     # Live receipts remain source='live' (unmodified).
-    live_rows = await storage_b._read_all(
-        "SELECT * FROM delivery_receipts WHERE source = 'live'",
-        (),
-    )
-    assert len(live_rows) == 3
-    for row in live_rows:
-        assert row["source"] == "live"
-        assert row["replay_run_id"] is None
+    live_count = await storage_b.count_receipts_by_source("live")
+    assert live_count == 3
 
     # Runtime B accounting: replay_processed incremented, inbound stays 0
     # (replay does not go through handle_ingress).
@@ -324,13 +336,15 @@ async def test_duplicate_native_ref_suppression_across_replay(
     # Replay should produce results — it reads from storage and processes
     # through pipeline stages, not through handle_ingress dedup.
     # With no routes, the route stage will fail but store stage passes.
-    summary = await collect_replay_summary(replay.replay(request))
-    assert summary.events_replayed >= 1
-
-    # Verify store stage passed (event exists in storage).
     results: list = []
     async for r in replay.replay(request):
         results.append(r)
+    summary = await collect_replay_summary(
+        _aiter_from_list(results),
+        mode=ReplayMode.BEST_EFFORT,
+        run_id="run-dedup-replay",
+    )
+    assert summary.events_replayed >= 1
 
     store_results = [r for r in results if r.stage == "store" and r.status == "passed"]
     assert len(store_results) >= 1, "Store stage should pass for existing event"
@@ -386,6 +400,7 @@ class TestOrphanEventReplay:
         Seed an event directly into storage (no receipt), then replay it
         in BEST_EFFORT mode.  Assert:
         * Replay finds the event (events_replayed >= 1)
+        * At least one deliver-stage result has status "passed"
         * A receipt with source='replay' and replay_run_id is created
         * The original event fields are unchanged
         """
@@ -393,7 +408,6 @@ class TestOrphanEventReplay:
         route = _make_bridge_route()
         router = Router(routes=[route])
 
-        # Seed an orphan event: store it directly, bypassing the pipeline.
         storage = await _open_storage(db_path)
         accounting = RuntimeAccounting()
         pres = FakePresentationAdapter(adapter_id="fake_presentation")
@@ -405,49 +419,51 @@ class TestOrphanEventReplay:
         )
         await runner.start()
 
-        orphan_event = make_event(
-            event_id="orphan-001",
-            source_adapter="fake_transport",
-            source_channel_id="ch-0",
-        )
-        original_snapshot = _snapshot_event_fields(orphan_event)
-        await storage.append(orphan_event)
+        try:
+            orphan_event = await _seed_orphan_event(storage, event_id="orphan-001")
+            original_snapshot = _snapshot_event_fields(orphan_event)
 
-        # Verify it's an orphan: event in storage, no receipts.
-        assert await storage.count_events() == 1
-        assert await storage.count_receipts() == 0
+            # Verify it's an orphan: event in storage, no receipts.
+            assert await storage.count_events() == 1
+            assert await storage.count_receipts() == 0
 
-        # Replay the orphan in BEST_EFFORT mode.
-        replay = ReplayEngine(
-            storage=storage,
-            pipeline=runner,
-            accounting=accounting,
-        )
-        request = ReplayRequest(
-            mode=ReplayMode.BEST_EFFORT,
-            run_id="run-orphan-001",
-            correlation_ids=["orphan-001"],
-        )
-        summary = await collect_replay_summary(replay.replay(request))
-        assert summary.events_replayed >= 1
+            # Replay the orphan in BEST_EFFORT mode.
+            replay = ReplayEngine(
+                storage=storage,
+                pipeline=runner,
+                accounting=accounting,
+            )
+            request = ReplayRequest(
+                mode=ReplayMode.BEST_EFFORT,
+                run_id="run-orphan-001",
+                correlation_ids=["orphan-001"],
+            )
+            results = [r async for r in replay.replay(request)]
+            assert len(results) >= 1
 
-        # Receipt created with source='replay' and replay_run_id.
-        assert await storage.count_receipts() == 1
-        replay_receipts = await storage._read_all(
-            "SELECT * FROM delivery_receipts WHERE event_id = ? AND source = 'replay'",
-            ("orphan-001",),
-        )
-        assert len(replay_receipts) == 1
-        assert replay_receipts[0]["replay_run_id"] == "run-orphan-001"
+            # At least one deliver-stage result with status "passed".
+            deliver_passed = [
+                r for r in results if r.stage == "deliver" and r.status == "passed"
+            ]
+            assert (
+                len(deliver_passed) >= 1
+            ), "BEST_EFFORT should produce at least one passed deliver-stage result"
 
-        # Original event fields unchanged.
-        stored_event = await storage.get("orphan-001")
-        assert stored_event is not None
-        stored_snapshot = _snapshot_event_fields(stored_event)
-        assert stored_snapshot == original_snapshot
+            # Receipt created with source='replay' and replay_run_id.
+            assert await storage.count_receipts() == 1
+            receipts = await storage.list_receipts_for_event("orphan-001")
+            replay_from_run = [r for r in receipts if r.source == "replay"]
+            assert len(replay_from_run) == 1
+            assert replay_from_run[0].replay_run_id == "run-orphan-001"
 
-        await runner.stop()
-        await storage.close()
+            # Original event fields unchanged.
+            stored_event = await storage.get("orphan-001")
+            assert stored_event is not None
+            stored_snapshot = _snapshot_event_fields(stored_event)
+            assert stored_snapshot == original_snapshot
+        finally:
+            await runner.stop()
+            await storage.close()
 
     @pytest.mark.asyncio
     async def test_dry_run_does_not_deliver_orphan(self, tmp_path: Path) -> None:
@@ -455,6 +471,7 @@ class TestOrphanEventReplay:
 
         Seed an orphan event, replay in DRY_RUN mode.  Assert:
         * Replay finds the event
+        * Deliver-stage result exists with status "skipped"
         * No receipts are created (delivery suppressed)
         * The original event fields are unchanged
         """
@@ -462,7 +479,6 @@ class TestOrphanEventReplay:
         route = _make_bridge_route()
         router = Router(routes=[route])
 
-        # Seed an orphan event.
         storage = await _open_storage(db_path)
         accounting = RuntimeAccounting()
         pres = FakePresentationAdapter(adapter_id="fake_presentation")
@@ -474,40 +490,47 @@ class TestOrphanEventReplay:
         )
         await runner.start()
 
-        orphan_event = make_event(
-            event_id="orphan-dry-001",
-            source_adapter="fake_transport",
-            source_channel_id="ch-0",
-        )
-        original_snapshot = _snapshot_event_fields(orphan_event)
-        await storage.append(orphan_event)
+        try:
+            orphan_event = await _seed_orphan_event(storage, event_id="orphan-dry-001")
+            original_snapshot = _snapshot_event_fields(orphan_event)
 
-        # Verify orphan state.
-        assert await storage.count_events() == 1
-        assert await storage.count_receipts() == 0
+            # Verify orphan state.
+            assert await storage.count_events() == 1
+            assert await storage.count_receipts() == 0
 
-        # Replay in DRY_RUN mode.
-        replay = ReplayEngine(
-            storage=storage,
-            pipeline=runner,
-            accounting=accounting,
-        )
-        request = ReplayRequest(
-            mode=ReplayMode.DRY_RUN,
-            run_id="run-orphan-dry",
-            correlation_ids=["orphan-dry-001"],
-        )
-        summary = await collect_replay_summary(replay.replay(request))
-        assert summary.events_replayed >= 1
+            # Replay in DRY_RUN mode.
+            replay = ReplayEngine(
+                storage=storage,
+                pipeline=runner,
+                accounting=accounting,
+            )
+            request = ReplayRequest(
+                mode=ReplayMode.DRY_RUN,
+                run_id="run-orphan-dry",
+                correlation_ids=["orphan-dry-001"],
+            )
+            results = [r async for r in replay.replay(request)]
+            assert len(results) >= 1
 
-        # No receipts created — delivery was suppressed.
-        assert await storage.count_receipts() == 0
+            # Deliver-stage result exists with status "skipped".
+            deliver_results = [r for r in results if r.stage == "deliver"]
+            assert (
+                len(deliver_results) >= 1
+            ), "DRY_RUN should produce a deliver-stage result"
+            assert deliver_results[0].status == "skipped"
+            assert deliver_results[0].error is not None
+            assert "dry_run" in deliver_results[0].error.lower() or (
+                "delivery suppressed" in deliver_results[0].error.lower()
+            )
 
-        # Original event fields unchanged.
-        stored_event = await storage.get("orphan-dry-001")
-        assert stored_event is not None
-        stored_snapshot = _snapshot_event_fields(stored_event)
-        assert stored_snapshot == original_snapshot
+            # No receipts created — delivery was suppressed.
+            assert await storage.count_receipts() == 0
 
-        await runner.stop()
-        await storage.close()
+            # Original event fields unchanged.
+            stored_event = await storage.get("orphan-dry-001")
+            assert stored_event is not None
+            stored_snapshot = _snapshot_event_fields(stored_event)
+            assert stored_snapshot == original_snapshot
+        finally:
+            await runner.stop()
+            await storage.close()

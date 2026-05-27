@@ -829,6 +829,10 @@ plus any mode-specific stages.
 | `BEST_EFFORT` | store, route, plan, render, deliver | Full pipeline re-execution; produces real deliveries and receipts |
 | `DRY_RUN`     | store, route, plan, render, deliver | Full pipeline re-execution; delivery stage returns skipped        |
 
+DRY_RUN executes full planning/render/deliver pipeline stages. The deliver
+stage runs in skipped/no-op mode — no external delivery side effects occur
+and no delivery receipts or native refs are created.
+
 ### 13.3 Replay Receipt Traceability
 
 Replay receipts carry `source='replay'` and a `replay_run_id` for run-level grouping. These fields support post-incident investigation and manual mitigation only; they do not prevent or detect duplicate sends at delivery time.
@@ -837,8 +841,15 @@ Native message refs created during replay are not tagged with `source` or `repla
 
 ### 13.4 Replay Constraints
 
-- Replay **MUST NOT** modify existing events. It creates new derived events and new receipts.
+- Replay **MUST NOT** modify existing canonical events. Replay reads historical
+  events from storage. BEST_EFFORT may create new delivery receipts and native
+  refs through adapter delivery. Non-BEST_EFFORT modes are read-only. Derived
+  canonical event creation is not part of current replay semantics.
 - Replay **MAY** target specific stages (e.g., re-run transforms only, skip policy).
+  When `target_stages` is explicitly provided in a ReplayRequest, replay runs
+  the intersection of the requested stages and the mode-allowed stages. The
+  default behaviour uses all mode-allowed stages. Operators **SHOULD** include
+  `store` when they want integrity verification.
 - Traceability is not deduplication. Replaying an event that was previously delivered **WILL** produce a second delivery attempt.
 
 ### 13.5 Crash Recovery
