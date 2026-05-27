@@ -569,12 +569,17 @@ FROM delivery_receipts
 WHERE source = 'replay' AND next_retry_at IS NOT NULL;
 ```
 
-If you see replay-created retry receipts and duplicate delivery is unacceptable, clear them:
+If replay-created retry receipts appear and duplicate delivery is a concern,
+use query-time filtering or narrow the replay scope rather than mutating
+receipt rows:
 
-```sql
-UPDATE delivery_receipts SET next_retry_at = NULL
-WHERE source = 'replay' AND next_retry_at IS NOT NULL;
-```
+- Filter replay-origin rows at query time:
+  ```sql
+  SELECT * FROM delivery_receipts
+  WHERE source <> 'replay' OR source IS NULL;
+  ```
+- Narrow replay scope before running replay (use `--route-ids`, `--target-adapters`, or `--limit`).
+- Leave `next_retry_at` values intact — `delivery_receipts` rows are append-only evidence.
 
 ## Recovery Commands Quick Reference
 

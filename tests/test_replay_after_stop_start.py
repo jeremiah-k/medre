@@ -30,7 +30,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import AsyncIterator, cast
+from collections.abc import AsyncIterator
+from typing import cast
 
 import pytest
 
