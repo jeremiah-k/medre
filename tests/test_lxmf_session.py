@@ -83,7 +83,8 @@ class TestLxmfSessionFakeLifecycle:
         for _ in range(5):
             await session.start()
             assert session.connected is True
-        await session.stop()
+            await session.stop()
+            assert session.connected is False
 
 
 # ===================================================================

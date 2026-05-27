@@ -151,18 +151,16 @@ Connect to a real Meshtastic node via TCP. Receive text packets, decode them, se
 
 ### MeshCore: What is still fake/scaffolded
 
-- **No real MeshCore SDK or connectivity.** `start()` raises `MeshCoreConnectionError` for any non-fake connection type. There is no real client code at all.
+- **Session code exists but is not live-validated.** TCP/serial/BLE factory wiring, event subscriptions, bounded reconnect, and bounded transient retry exist (source-audited, mock-tested). No live hardware validation has been performed.
+- **No ACK correlation or delivery confirmation.** The SDK provides ACK events and `expected_ack` fields, but the adapter does not track or correlate them.
 - **No real MeshCore packet format verification.** The packet shape used in tests is based on the source audit (Contract 64) but has not been validated against real MeshCore event payloads.
-- **No outbound delivery.** `deliver()` returns `None` in tranche 1.
-- **No real dependency.** MeshCore doesn't have a known stable PyPI package yet.
 
 ### MeshCore: What must be done before real operation
 
-1. **Identify and integrate the MeshCore Python SDK.** The source audit (Contract 64) documented the available interfaces, but no SDK has been selected or integrated.
-2. **Verify real packet format against real MeshCore events.** The current packet shape is based on documentation and source review, not live observation.
-3. **Implement real connection code.** TCP, serial, or BLE connection in `start()`.
-4. **Implement real send.** Wire `deliver()` to the actual MeshCore send API.
-5. **Verify event payload schema** with real hardware or simulator output.
+1. **Verify real packet format against real MeshCore events.** The current packet shape is based on documentation and source review, not live observation.
+2. **Implement ACK watching for delivery confirmation.** The SDK provides ACK events; correlate `expected_ack` from sends with inbound ACK events.
+3. **Implement contact-list resolution** for human-readable sender display names.
+4. **Verify event payload schema** with real hardware or simulator output.
 
 ### MeshCore: Likely first production-connectivity tranche focus
 
@@ -173,7 +171,7 @@ Obtain real MeshCore event samples. Validate that the codec and classifier handl
 - MeshCore's SDK availability and stability are uncertain. The project may not have a mature Python client library.
 - Packet format assumptions are based on source code review, not live testing. The real format may differ.
 - MeshCore's event model (channels, direct messages, ACKs) may not map cleanly to the current classifier's assumptions.
-- The adapter is structurally ready (following the Meshtastic template) but substantively empty. This is the most speculative of the four adapters.
+- The adapter has session code (following the Meshtastic template) but is not live-validated. This is the most speculative of the four adapters.
 
 ## LXMF
 
@@ -188,21 +186,16 @@ Obtain real MeshCore event samples. Validate that the codec and classifier handl
 
 ### LXMF: What is still fake/scaffolded
 
-- **No real Reticulum or LXMF library integration.** `start()` raises `LxmfConnectionError` for non-fake types. No `rns` or `lxmf` imports exist.
-- **No real identity loading.** The `identity_path` config field is a placeholder.
-- **No real message send/receive.** `deliver()` returns `None`.
+- **Session code exists but is not live-validated.** Reticulum/LXMRouter lifecycle, identity load/create, delivery callback registration, LXMessage→dict normalization, outbound send via `handle_outbound`, delivery-state tracking, and `call_soon_threadsafe` callback bridge exist (source-audited, mock-tested). No live Reticulum network validation has been performed.
+- **Delivery-state model is unvalidated.** The 8-state progression (GENERATING→OUTBOUND→SENDING→SENT→DELIVERED/FAILED/REJECTED/CANCELLED) is implemented but real-world timing, callback ordering, and cross-thread delivery-state events are untested against a live Reticulum daemon.
 - **Relation reconstruction from fields envelope is explicitly deferred.** The codec stores the raw envelope dict in metadata but does not create `EventRelation` objects from it.
-- **Delivery method selection** (`direct`, `opportunistic`, `propagated`, `paper`) is a config hint only. No actual LXMF delivery method logic exists.
 
 ### LXMF: What must be done before real operation
 
-1. **Integrate `rns` (Reticulum) and `lxmf` Python packages.** These are the real dependencies for LXMF messaging.
-2. **Implement real identity loading.** Load or create a Reticulum identity from `identity_path`.
-3. **Implement real LXMF router connection.** Connect to an LXMF router, announce, and start receiving messages.
-4. **Implement real message sending.** Wire `deliver()` to actual `LXMF.Message.send()` or equivalent.
-5. **Implement delivery method selection.** Map `default_delivery_method` config to real LXMF delivery parameters.
-6. **Implement relation reconstruction.** Decode the envelope's relation data back into `EventRelation` objects on inbound.
-7. **Verify field key `0xFD` doesn't conflict** with real LXMF field usage.
+1. **Validate delivery-state model against a live Reticulum daemon.** Confirm real-world callback timing, ordering, and cross-thread behavior match expectations.
+2. **Implement `register_delivery_identity`.** Required for real-mode inbound message reception (without it, the router has no delivery destination).
+3. **Implement relation reconstruction.** Decode the envelope's relation data back into `EventRelation` objects on inbound.
+4. **Verify field key `0xFD` doesn't conflict** with real LXMF field usage.
 
 ### LXMF: Likely first production-connectivity tranche focus
 

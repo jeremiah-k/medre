@@ -153,7 +153,7 @@ No transport in MEDRE currently qualifies as production-ready.
 3. **Identity file security.** 64-byte raw private key. No encryption. No header. Anyone with the file can impersonate the identity.
 4. **Reticulum daemon dependency.** Reticulum is designed for long-running daemons. Short-lived processes may not establish stable mesh connectivity.
 5. **Non-standard license.** Reticulum License is not OSI-approved. Review for downstream distribution.
-6. **Largest session.** At 1,260 LOC, `LxmfSession` is the most complex session in MEDRE. Complexity correlates with risk.
+6. **Largest session.** At 1,457 LOC, `LxmfSession` is the most complex session in MEDRE. Complexity correlates with risk.
 
 ## 8. Classification Summary
 

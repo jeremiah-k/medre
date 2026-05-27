@@ -48,21 +48,20 @@ All four adapters are in alpha. Fake mode is the default development path for al
 
 **What works now (fake/deterministic).** The decode/classify/deliver pipeline works with fake event payloads. `MeshCoreCodec` and `MeshCorePacketClassifier` follow the Meshtastic structural pattern.
 
-**Real connectivity status.** None. `start()` raises `MeshCoreConnectionError` for any non-fake connection type. There is no real client code. No real SDK has been integrated. No real MeshCore event payloads have been verified.
+**Real connectivity status.** Session code exists for TCP/serial/BLE factory wiring, event subscriptions, bounded reconnect, bounded transient retry, and error classification (source-audited, mock-tested). No live hardware validation has been performed.
 
 **Gaps.**
 
-- No SDK selected or integrated. No known stable PyPI package.
-- No real connection code at all.
-- No outbound delivery. `deliver()` returns `None`.
+- ACK correlation and delivery confirmation are not implemented.
+- Contact-list resolution for display names is not implemented.
 - Packet format assumptions are based on source code review, not live observation. The real format may differ.
-- This is the most speculative adapter. It is structurally ready but substantively empty.
+- This is the most speculative adapter. It has session code but is not live-validated.
 
 ### 1.4 LXMF
 
 **What works now (fake/deterministic).** The decode/classify/deliver pipeline works with fake message payloads. `LxmfCodec` converts LXMF-shaped dicts into `CanonicalEvent` instances. `LxmfFieldsHelper` embeds and extracts MEDRE metadata under field key `0xFD`. `LxmfRenderer` builds payloads with `content`, `title`, `fields`, and `destination_hash`.
 
-**Real connectivity status.** None. `start()` raises `LxmfConnectionError` for non-fake types. No `rns` or `lxmf` imports exist. No real identity loading, message send/receive, or delivery method selection.
+**Real connectivity status.** Session code exists for Reticulum/LXMRouter lifecycle, identity load/create, delivery callback registration, LXMessage→dict normalization, outbound send, delivery-state tracking, and `call_soon_threadsafe` callback bridge (source-audited, mock-tested). No live Reticulum network validation has been performed. `register_delivery_identity` is not yet called (required for inbound reception).
 
 **Gaps.**
 
