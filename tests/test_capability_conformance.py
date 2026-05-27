@@ -31,13 +31,6 @@ PROFILES_DIR = (
     Path(__file__).resolve().parent.parent / "docs" / "spec" / "transport-profiles"
 )
 
-_ADAPTER_CAPS_GETTERS: dict[str, str] = {
-    "matrix": "medre.adapters.matrix.adapter._MATRIX_CAPABILITIES",
-    "meshtastic": "__constructed__",  # per-instance from config
-    "meshcore": "__constructed__",  # per-instance from config via _MESHCORE_CAPS_BASE
-    "lxmf": "medre.adapters.lxmf.adapter._LXMF_CAPABILITIES",
-}
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -57,28 +50,42 @@ def _load_capabilities_json(transport: str) -> dict[str, Any]:
 
 
 def _get_adapter_capabilities(transport: str) -> AdapterCapabilities:
-    """Import the adapter module and return its declared AdapterCapabilities."""
-    if transport == "matrix":
-        from medre.adapters.matrix.adapter import _MATRIX_CAPABILITIES
+    """Import the adapter module and return its declared AdapterCapabilities.
 
+    Raises ``pytest.skip`` when optional SDKs are not installed, so the
+    suite runs cleanly in reduced-dependency environments.
+    """
+    if transport == "matrix":
+        try:
+            from medre.adapters.matrix.adapter import _MATRIX_CAPABILITIES
+        except ImportError as exc:
+            pytest.skip(f"Matrix SDK not available: {exc}")
         return _MATRIX_CAPABILITIES
 
     if transport == "lxmf":
-        from medre.adapters.lxmf.adapter import _LXMF_CAPABILITIES
-
+        try:
+            from medre.adapters.lxmf.adapter import _LXMF_CAPABILITIES
+        except ImportError as exc:
+            pytest.skip(f"LXMF SDK not available: {exc}")
         return _LXMF_CAPABILITIES
 
     if transport == "meshtastic":
-        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
-        from medre.config.adapters.meshtastic import MeshtasticConfig
+        try:
+            from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+            from medre.config.adapters.meshtastic import MeshtasticConfig
+        except ImportError as exc:
+            pytest.skip(f"Meshtastic SDK not available: {exc}")
 
         config = MeshtasticConfig(adapter_id="test_conformance")
         adapter = MeshtasticAdapter(config)
         return adapter._capabilities
 
     if transport == "meshcore":
-        from medre.adapters.meshcore.adapter import MeshCoreAdapter
-        from medre.config.adapters.meshcore import MeshCoreConfig
+        try:
+            from medre.adapters.meshcore.adapter import MeshCoreAdapter
+            from medre.config.adapters.meshcore import MeshCoreConfig
+        except ImportError as exc:
+            pytest.skip(f"MeshCore SDK not available: {exc}")
 
         config = MeshCoreConfig(adapter_id="test_conformance")
         adapter = MeshCoreAdapter(config)

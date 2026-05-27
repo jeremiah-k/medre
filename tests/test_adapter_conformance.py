@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import asyncio
 import importlib
-import importlib.util
 import inspect
 from datetime import datetime, timezone
 from typing import Any
@@ -80,11 +79,6 @@ _REAL_ADAPTER_SPECS: list[tuple[str, str, str, str]] = [
     ),
     ("LxmfAdapter", "medre.adapters.lxmf.adapter", "LxmfAdapter", "RNS"),
 ]
-
-
-def _sdk_available(sdk_name: str) -> bool:
-    """Return True if the SDK package is importable."""
-    return importlib.util.find_spec(sdk_name) is not None
 
 
 def _try_import_real_adapter(

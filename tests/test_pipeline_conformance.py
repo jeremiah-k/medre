@@ -42,12 +42,6 @@ from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
 
 
 @pytest.fixture
-def fake_transport() -> FakeTransportAdapter:
-    """An unstarted FakeTransportAdapter."""
-    return FakeTransportAdapter(adapter_id="src_transport", channel="ch-0")
-
-
-@pytest.fixture
 def fake_presentation() -> FakePresentationAdapter:
     """A FakePresentationAdapter target."""
     return FakePresentationAdapter(adapter_id="dest_presentation")
@@ -99,7 +93,6 @@ class TestPipelineStageOrder:
     async def test_event_passes_through_all_stages(
         self,
         temp_storage: SQLiteStorage,
-        fake_transport: FakeTransportAdapter,
         fake_presentation: FakePresentationAdapter,
         simple_route: Route,
     ) -> None:
