@@ -341,7 +341,7 @@ Pass `--storage-path <path>` to persist evidence to a SQLite database instead. W
 
 `medre inspect` subcommands require persistent storage. Running `medre inspect` against a config with `[storage] backend = "memory"` produces:
 
-```
+```text
 Error: storage backend is 'memory' — no persistent data to inspect.
 ```
 

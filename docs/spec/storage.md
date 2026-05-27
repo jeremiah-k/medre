@@ -57,7 +57,7 @@ Every adapter receives a state root at `{state}/adapters/{adapter_id}/`. Transpo
 
 ### 2.6 Summary
 
-```
+```text
 {state}/medre.sqlite                                   — Global database (single backend)
 {log_dir}/medre.log                                    — Global log file
 {state}/adapters/{adapter_id}/                         — Per-adapter state root

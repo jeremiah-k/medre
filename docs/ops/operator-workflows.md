@@ -490,13 +490,13 @@ Routes reference resolved adapter IDs (`radio-a`, `matrix-fake`), not env tokens
 
 If you have environment variables set for a Matrix adapter, you can validate MEDRE against a real homeserver.
 
-### Prerequisites
+### Prerequisites (Matrix Live)
 
 - A Matrix homeserver (Synapse or Conduit) running and reachable.
 - A bot account on that homeserver.
 - The `matrix` extra installed: `pip install -e ".[matrix]"`.
 
-### Procedure
+### Procedure (Matrix Live)
 
 1. Set environment variables:
 
@@ -529,7 +529,7 @@ You should see startup log lines confirming config loaded, pipeline started, and
 
 Startup logs confirming config loaded, pipeline started, and adapter connected. Delivery receipts with genuine Synapse `event_id` values.
 
-### Failure Modes
+### Failure Modes (Matrix Live)
 
 - Connection refused / timeout: homeserver unreachable, credentials invalid, or room does not exist. Verify the `MEDRE_ADAPTER__*` values.
 - 401/403: access token expired or wrong user. Regenerate the token.
@@ -539,13 +539,13 @@ Startup logs confirming config loaded, pipeline started, and adapter connected. 
 
 If you have a Meshtastic radio node accessible via TCP or serial, you can validate the Meshtastic adapter.
 
-### Prerequisites
+### Prerequisites (Meshtastic Live)
 
 - A Meshtastic radio node powered on and accessible via TCP (port 4403) or serial.
 - The `meshtastic` extra installed: `pip install -e ".[meshtastic]"`.
 - The node on a non-critical channel (do not use emergency or default channel 0 for testing).
 
-### Procedure
+### Procedure (Meshtastic Live)
 
 1. Configure connection (TCP recommended):
 
@@ -587,7 +587,7 @@ medre evidence --config /path/to/meshtastic-bridge.toml --include-refresh-health
 - Encryption or key management beyond firmware handling.
 - Reliable delivery at the mesh layer.
 
-### Failure Modes
+### Failure Modes (Meshtastic Live)
 
 - Connection refused: node not reachable. Check network/serial connection.
 - SDK import error: install the meshtastic extra.

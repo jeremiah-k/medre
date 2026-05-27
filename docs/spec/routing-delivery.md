@@ -720,9 +720,7 @@ No outbound queue. `deliver()` calls `room_send` directly.
 | Megolm session not received                        | Transient                | Wait for session key from other device     |
 | `encryption_mode="e2ee_required"` + plaintext room | Permanent                | Adapter raises `AdapterPermanentError`     |
 
-### 14.2 Meshtastic
-
-#### Connection Failures
+#### Connection Failures (Meshtastic)
 
 | Failure                 | Transient/Permanent                         | Reconnectable         |
 | ----------------------- | ------------------------------------------- | --------------------- |
@@ -731,7 +729,7 @@ No outbound queue. `deliver()` calls `room_send` directly.
 | BLE pairing failure     | Transient                                   | Yes                   |
 | Radio firmware crash    | Transient                                   | Yes (if node reboots) |
 
-#### Send Failures
+#### Send Failures (Meshtastic)
 
 | Failure                          | Transient/Permanent | Duplicate-Send Risk |
 | -------------------------------- | ------------------- | ------------------- |
@@ -740,11 +738,11 @@ No outbound queue. `deliver()` calls `room_send` directly.
 | Channel busy                     | Transient           | Medium              |
 | Packet too large                 | Permanent           | None                |
 
-#### Queue-Drain Semantics
+#### Queue-Drain Semantics (Meshtastic)
 
 Bounded-retry outbound queue (`MeshtasticOutboundQueue`). Transient send failures are retried up to `queue_send_max_attempts`. Exhausted retries and permanent failures are dropped. No persistence; queue contents are lost on adapter shutdown.
 
-#### Delivery Uncertainty Window
+#### Delivery Uncertainty Window (Meshtastic)
 
 Unbounded. No end-to-end delivery confirmation exists in the Meshtastic protocol for text messages.
 
@@ -758,7 +756,7 @@ The Meshtastic adapter-local outbound queue is in-memory and non-durable. Items 
 
 ### 14.3 MeshCore
 
-#### Connection Failures
+#### Connection Failures (MeshCore)
 
 | Failure                 | Transient/Permanent   | Reconnectable   |
 | ----------------------- | --------------------- | --------------- |
@@ -767,7 +765,7 @@ The Meshtastic adapter-local outbound queue is in-memory and non-durable. Items 
 | BLE pairing failure     | Transient             | Yes             |
 | SDK connect timeout     | Transient             | Yes             |
 
-#### Send Failures
+#### Send Failures (MeshCore)
 
 | Failure                           | Transient/Permanent | Duplicate-Send Risk |
 | --------------------------------- | ------------------- | ------------------- |
@@ -775,17 +773,17 @@ The Meshtastic adapter-local outbound queue is in-memory and non-durable. Items 
 | `send_text` exception (permanent) | Permanent           | None                |
 | Channel index invalid             | Permanent           | None                |
 
-#### Queue-Drain Semantics
+#### Queue-Drain Semantics (MeshCore)
 
 No outbound queue. `send_text()` is called directly on the session.
 
-#### Delivery Uncertainty Window
+#### Delivery Uncertainty Window (MeshCore)
 
 Unbounded. No end-to-end delivery confirmation.
 
 ### 14.4 LXMF / Reticulum
 
-#### Connection Failures
+#### Connection Failures (LXMF)
 
 | Failure                       | Transient/Permanent | Reconnectable      |
 | ----------------------------- | ------------------- | ------------------ |
@@ -794,7 +792,7 @@ Unbounded. No end-to-end delivery confirmation.
 | LXMRouter init failure        | Permanent           | No                 |
 | Transport interface down      | Transient           | Yes                |
 
-#### Send Failures
+#### Send Failures (LXMF)
 
 | Failure                       | Transient/Permanent                        | Duplicate-Send Risk |
 | ----------------------------- | ------------------------------------------ | ------------------- |
@@ -803,11 +801,11 @@ Unbounded. No end-to-end delivery confirmation.
 | Message rejected by recipient | Permanent                                  | None                |
 | Propagation node unavailable  | Transient                                  | Low                 |
 
-#### Queue-Drain Semantics
+#### Queue-Drain Semantics (LXMF)
 
 No outbound queue in MEDRE. `send()` calls `handle_outbound` directly on the LXMRouter. The router manages its own internal delivery queue.
 
-#### Delivery Uncertainty Window
+#### Delivery Uncertainty Window (LXMF)
 
 Effectively unbounded for propagated delivery. Multi-hop Reticulum transport can introduce seconds to hours of delivery latency.
 

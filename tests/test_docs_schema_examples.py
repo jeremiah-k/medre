@@ -34,6 +34,7 @@ _EXAMPLES_DIR = _SCHEMAS_DIR / "examples"
 try:
     import jsonschema as _jsonschema
 
+    del _jsonschema
     _HAS_JSONSCHEMA = True
 except ImportError:
     _HAS_JSONSCHEMA = False

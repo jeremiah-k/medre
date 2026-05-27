@@ -22,7 +22,7 @@ document conflicts with the spec, the spec takes precedence.
 
 ## Meshtastic
 
-### What was verified
+### What was verified (Meshtastic)
 
 The Meshtastic audit verified MEDRE's adapter assumptions against the
 `mtjk` (meshtastic-python fork) SDK and the MMRelay reference codebase.
@@ -54,7 +54,7 @@ for all included entries.
 `id` field. The returned packet ID is usable as `native_message_id` for
 delivery correlation.
 
-### What remains unverified
+### What remains unverified (Meshtastic)
 
 | Area                                      | Risk   |
 | ----------------------------------------- | ------ |
@@ -64,7 +64,7 @@ delivery correlation.
 | Telemetry/position payload shapes         | Low    |
 | Node database / name cache behavior       | Medium |
 
-### Gaps closed in hardening
+### Gaps closed in hardening (Meshtastic)
 
 Several gaps identified in the initial audit were closed in subsequent
 hardening:
@@ -94,7 +94,7 @@ of MMRelay's 3-action model (`RELAY`, `PLUGIN_ONLY`, `DROP`). Key differences:
 
 ## LXMF
 
-### What was verified
+### What was verified (LXMF)
 
 The LXMF audit verified assumptions against the LXMF Python library (v0.9.6)
 and Reticulum network stack.
@@ -125,7 +125,7 @@ and Reticulum network stack.
 | PROPAGATED    | Store-and-forward via propagation node           |
 | PAPER         | Offline transfer via QR code or URI              |
 
-### What remains unverified
+### What remains unverified (LXMF)
 
 | Area                                | Risk   |
 | ----------------------------------- | ------ |
@@ -147,7 +147,7 @@ The LXMF session underwent specific hardening:
 
 ## MeshCore
 
-### What was verified
+### What was verified (MeshCore)
 
 The MeshCore audit verified assumptions against the MeshCore Python library
 (v2.2.5) and firmware source.
@@ -176,7 +176,7 @@ The MeshCore audit verified assumptions against the MeshCore Python library
 - ACK events arrive separately via `EventType.ACK`
 - Always-on E2EE (AES-128 + HMAC, no toggle)
 
-### What remains unverified
+### What remains unverified (MeshCore)
 
 | Area                                      | Risk   |
 | ----------------------------------------- | ------ |
@@ -186,7 +186,7 @@ The MeshCore audit verified assumptions against the MeshCore Python library
 | Contact-based sender resolution           | Low    |
 | Flood message handling                    | Low    |
 
-### Gaps closed in hardening
+### Gaps closed in hardening (MeshCore)
 
 - Connection lifecycle: session wires `create_tcp`, `create_serial`,
   `create_ble` factory calls

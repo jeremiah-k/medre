@@ -574,7 +574,7 @@ The `relations` tuple on a `CanonicalEvent` is NOT duplicated inside the
 
 The event model lives in:
 
-```
+```text
 core/events/
     __init__.py
     canonical.py     # CanonicalEvent, EventRelation, NativeRef, NativeMessageRef, DeliveryReceipt, EventRecordKind

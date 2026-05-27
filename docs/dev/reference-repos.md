@@ -18,7 +18,7 @@ event arrives on one transport, gets classified, formatted, and sent to
 the other transport.
 
 **Message flow and prefix formatting.** MMRelay formats a prefix with sender
-display name and mesh name (`{display5}[M]: ` using first 5 chars of the
+display name and mesh name (`{display5}[M]:` using first 5 chars of the
 display name). MEDRE's renderers follow a similar conceptual approach but
 with different formatting conventions.
 
