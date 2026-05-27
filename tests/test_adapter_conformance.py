@@ -369,6 +369,8 @@ class TestNoCredentialsInEvents:
         events = await _produce_inbound_events(adapter, name)
         for event in events:
             _assert_no_credential_keys(event.payload, f"{name} payload")
+            if hasattr(event, "metadata") and event.metadata is not None:
+                _assert_no_credential_keys(event.metadata, f"{name} metadata")
 
 
 # ---------------------------------------------------------------------------

@@ -476,6 +476,7 @@ class TestPolicyEvaluation:
                 payload={"text": "should be suppressed"},
             )
             outcomes = await runner.handle_ingress(event)
+            assert outcomes, "No outcomes returned for route-policy test"
             # The outcome should show a skipped/suppressed status.
             if outcomes:
                 assert any(

@@ -113,7 +113,7 @@ export MATRIX_ROOM_ALLOWLIST="!abc123:localhost,!def456:localhost"
 ```bash
 export MEDRE_ADAPTER__BRIDGE__HOMESERVER=http://localhost:8008
 export MEDRE_ADAPTER__BRIDGE__USER_ID=@bot:localhost
-export MEDRE_ADAPTER__BRIDGE__ACCESS_TOKEN=<matrix-access-token>
+export MEDRE_ADAPTER__BRIDGE__ACCESS_TOKEN="<matrix-access-token>"
 export MEDRE_ADAPTER__BRIDGE__ROOM_ALLOWLIST='["!abc123:localhost"]'
 
 medre run

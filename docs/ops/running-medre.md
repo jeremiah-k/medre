@@ -505,7 +505,7 @@ docker run -d \
   -e MEDRE_HOME=/opt/medre \
   -e MEDRE_ADAPTER__MAIN__HOMESERVER=https://matrix.example.com \
   -e MEDRE_ADAPTER__MAIN__USER_ID=@bot:example.com \
-  -e MEDRE_ADAPTER__MAIN__ACCESS_TOKEN=<matrix-access-token> \
+  -e MEDRE_ADAPTER__MAIN__ACCESS_TOKEN="<matrix-access-token>" \
   -e MEDRE_ADAPTER__MAIN__ENABLED=true \
   -v medre-state:/opt/medre \
   medre run

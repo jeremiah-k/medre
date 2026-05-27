@@ -558,9 +558,9 @@ Migration example:
 
 ```bash
 # Old (rejected):
-export MEDRE_MATRIX_ACCESS_TOKEN=<matrix-access-token>
+export MEDRE_MATRIX_ACCESS_TOKEN="<matrix-access-token>"
 # New:
-export MEDRE_ADAPTER__MAIN__ACCESS_TOKEN=<matrix-access-token>
+export MEDRE_ADAPTER__MAIN__ACCESS_TOKEN="<matrix-access-token>"
 ```
 
 ### Env-First Adapter Creation
@@ -572,7 +572,7 @@ You can create entirely new adapters from environment variables when the token d
 MEDRE_ADAPTER__MATRIX_PRIMARY__TRANSPORT=matrix
 MEDRE_ADAPTER__MATRIX_PRIMARY__HOMESERVER=https://matrix.example.com
 MEDRE_ADAPTER__MATRIX_PRIMARY__USER_ID=@bot:example.com
-MEDRE_ADAPTER__MATRIX_PRIMARY__ACCESS_TOKEN=<matrix-access-token>
+MEDRE_ADAPTER__MATRIX_PRIMARY__ACCESS_TOKEN="<matrix-access-token>"
 
 # Meshtastic adapter — created from env
 MEDRE_ADAPTER__RADIO_A__TRANSPORT=meshtastic
@@ -849,7 +849,7 @@ docker run -d \
   -e MEDRE_HOME=/opt/medre \
   -e MEDRE_ADAPTER__MAIN__HOMESERVER=https://matrix.example.com \
   -e MEDRE_ADAPTER__MAIN__USER_ID=@bot:example.com \
-  -e MEDRE_ADAPTER__MAIN__ACCESS_TOKEN=<matrix-access-token> \
+  -e MEDRE_ADAPTER__MAIN__ACCESS_TOKEN="<matrix-access-token>" \
   -e MEDRE_ADAPTER__MAIN__ENABLED=true \
   -v medre-state:/opt/medre \
   medre run

@@ -23,12 +23,10 @@ _DOCS_DIR = _ROOT / "docs"
 
 # Patterns to scan
 _SCAN_GLOBS = [
-    "docs/spec/**/*.md",
-    "docs/ops/**/*.md",
-    "docs/dev/**/*.md",
-    "docs/schemas/**/*.json",
-    "docs/schemas/**/*.yaml",
-    "docs/schemas/**/*.yml",
+    "docs/**/*.md",
+    "docs/**/*.json",
+    "docs/**/*.yaml",
+    "docs/**/*.yml",
 ]
 
 # Prose keywords that indicate the line is describing ``syt_`` for

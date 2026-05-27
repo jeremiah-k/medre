@@ -162,6 +162,3 @@ def test_markdown_references_capability_json(transport: str) -> None:
         f"{transport}.md does not reference {json_filename}. "
         f"Add a link to the machine-readable capability declaration."
     )
-# ---------------------------------------------------------------------------
-# Parameterised conformance test
-# ---------------------------------------------------------------------------
