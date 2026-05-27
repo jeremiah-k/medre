@@ -129,7 +129,7 @@ No transport in MEDRE currently qualifies as production-ready.
 3. **Fire-and-forget delivery.** Same inherent limitation as Meshtastic (contract 36).
 4. **Hardware dependency.** Validation requires physical MeshCore radio hardware. TCP mode requires a networked node.
 5. **BLE untested.** Same as Meshtastic.
-6. **Lowest session test count.** 18 test functions for session vs. 102 (Matrix), 41 (LXMF). Session edge cases may be under-tested.
+6. **Lowest session test count.** 51 test functions across 22 classes for session vs. 102 (Matrix), 65 (LXMF). Session edge cases may be under-tested.
 
 ## 7. LXMF Transport
 
@@ -171,7 +171,7 @@ No transport in MEDRE currently qualifies as production-ready.
 ### 9.1 MeshCore → Beta-candidate (Tier 3)
 
 1. Run live harness against real radio hardware. Record results.
-2. Increase session test count (currently 18, target 40+).
+2. Increase session test count (currently 51, target 60+ for parity).
 3. Document BLE mode status (tested or unsupported).
 
 ### 9.2 LXMF → Beta-candidate (Tier 3)

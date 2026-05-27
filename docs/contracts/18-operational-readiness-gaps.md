@@ -65,14 +65,12 @@ All four adapters are in alpha. Fake mode is the default development path for al
 
 **Gaps.**
 
-- No Reticulum or LXMF library integration.
-- No real identity loading. `identity_path` is a placeholder.
-- No real message send/receive.
+- `register_delivery_identity` is not yet called (required for inbound reception — without it, the router has no delivery destination).
+- Delivery-state model is unvalidated (8-state progression implemented but real-world callback timing untested).
 - Relation reconstruction from fields envelope is explicitly deferred.
-- Delivery method selection (`direct`, `opportunistic`, `propagated`, `paper`) is a config hint only.
-- Field key `0xFD` for the metadata envelope is an assumption that has not been validated against real LXMF field usage.
-- Reticulum's networking stack may conflict with asyncio's event loop. The async/sync boundary needs design work.
-- Identity management (creation, storage, rotation) is entirely unscoped.
+- Field key `0xFD` for the metadata envelope has not been validated against real LXMF field usage.
+- Identity management (creation, storage, rotation) is unscoped.
+- No live Reticulum network validation has been performed.
 
 ## 2. Health Reporting Gaps
 

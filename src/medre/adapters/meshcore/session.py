@@ -408,7 +408,13 @@ class MeshCoreSession:
                 # don't await since we may not have a running loop.
 
                 loop = asyncio.get_running_loop()
-                loop.create_task(self._meshcore.disconnect())
+                task = loop.create_task(self._meshcore.disconnect())
+                task.add_done_callback(
+                    lambda t: self._logger.debug(
+                        "MeshCoreSession %s: cleanup disconnect finished",
+                        self._adapter_id,
+                    ) if not t.cancelled() and t.exception() is None else None
+                )
             except Exception:
                 pass
             self._meshcore = None
@@ -493,7 +499,9 @@ class MeshCoreSession:
                     pass
                 self._meshcore = None
             self._subscriptions.clear()
-            raise
+            raise MeshCoreConnectionError(
+                f"Failed to subscribe to events: {exc}"
+            ) from exc
 
         # Only mark connected AFTER subscriptions succeed.
         self._diag.connected = True
