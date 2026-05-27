@@ -115,9 +115,8 @@ class TestReceiptTerminalStates:
     """Verify that terminal receipt statuses have no code paths that
     modify them in the pipeline."""
 
-    @pytest.mark.parametrize("terminal_status", ["sent", "dead_lettered", "suppressed"])
     def test_receipt_terminal_states_have_no_outgoing_transitions(
-        self, terminal_status: str
+        self,
     ) -> None:
         """Terminal receipt statuses must never appear as the *source*
         status in a code path that creates a subsequent receipt with a
