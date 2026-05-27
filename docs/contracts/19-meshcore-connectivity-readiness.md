@@ -534,7 +534,7 @@ These protocols are not compatible at the wire level. Bridging would require app
 4. ~~Wire `deliver()` to `send_msg()` or `send_chan_msg()`.~~ Done in `MeshCoreSession` (source-audited, mock-tested).
 5. Extract `expected_ack` as `native_message_id` from `send_msg` results.
 6. Implement ACK watching for delivery confirmation.
-7. Add `ble_pin`, `auto_reconnect`, `default_timeout` to config (``ble_address`` already present).
+7. Add `ble_pin`, `auto_reconnect`, `default_timeout` to config (`ble_address` already present).
 8. Verify packet shapes against real hardware output.
 
 ### 8.2 Readiness Ranking

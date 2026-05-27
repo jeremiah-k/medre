@@ -126,7 +126,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Callable
+from typing import Any, Callable, Coroutine
 
 from medre.adapters.lxmf.compat import HAS_LXMF, _require_lxmf
 from medre.adapters.lxmf.errors import (
@@ -742,13 +742,7 @@ class LxmfSession:
             return
         # Support async callbacks
         if asyncio.iscoroutine(result):
-            try:
-                loop = asyncio.get_running_loop()
-                task = loop.create_task(result)
-                task.add_done_callback(self._log_task_exception)
-            except RuntimeError:
-                # No running loop; run synchronously
-                asyncio.run(result)
+            self._schedule_async_callback(result)
 
     # ------------------------------------------------------------------
     # Diagnostics
@@ -962,17 +956,7 @@ class LxmfSession:
             # rather than falling back to asyncio.run() which would
             # create a *new* loop on a thread that shouldn't have one.
             if asyncio.iscoroutine(result):
-                try:
-                    loop = asyncio.get_running_loop()
-                    task = loop.create_task(result)
-                    task.add_done_callback(self._log_task_exception)
-                except RuntimeError:
-                    self._logger.warning(
-                        "LxmfSession %s: no running loop for async callback; "
-                        "closing coroutine to avoid 'never awaited' warning",
-                        self._adapter_id,
-                    )
-                    result.close()
+                self._schedule_async_callback(result)
         except Exception as exc:
             self._logger.warning(
                 "LxmfSession %s: message callback error: %s",
@@ -993,6 +977,27 @@ class LxmfSession:
                 self._adapter_id,
                 exc,
             )
+
+    def _schedule_async_callback(self, result: Coroutine[Any, Any, Any]) -> None:
+        """Schedule an async callback result as a background task.
+
+        If a running event loop exists, the coroutine is scheduled as a
+        task with an exception-logging done-callback.  If no loop is
+        available, the coroutine is closed and a warning is logged — it
+        is **never** run via ``asyncio.run()`` to avoid creating a new
+        loop on a thread that shouldn't have one.
+        """
+        try:
+            loop = asyncio.get_running_loop()
+            task = loop.create_task(result)
+            task.add_done_callback(self._log_task_exception)
+        except RuntimeError:
+            self._logger.warning(
+                "LxmfSession %s: no running loop for async callback; "
+                "closing coroutine to avoid 'never awaited' warning",
+                self._adapter_id,
+            )
+            result.close()
 
     def _on_lxmf_announce(self, *args: Any, **kwargs: Any) -> None:
         """Handle LXMF announce events.

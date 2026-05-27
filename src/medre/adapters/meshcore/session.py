@@ -483,8 +483,9 @@ class MeshCoreSession:
         self._diag.reconnect_attempts = 0
         try:
             self._subscribe_events(mc)
-        except Exception:
+        except Exception as exc:
             # Subscription failure after successful client creation.
+            self._diag.last_error = str(exc)
             if self._meshcore is not None:
                 try:
                     await self._meshcore.disconnect()
@@ -560,10 +561,29 @@ class MeshCoreSession:
             self._diag.last_message_time = datetime.now(timezone.utc)
             result = self._message_callback(payload)
             if asyncio.iscoroutine(result):
-                await result
+                task = asyncio.ensure_future(result)
+                task.add_done_callback(self._log_task_exception)
+                # Yield once so short callbacks can complete within this
+                # turn.  Long-running callbacks continue in the background
+                # after the first internal await point.
+                await asyncio.sleep(0)
         except Exception as exc:
             self._logger.exception(
                 "MeshCoreSession %s: error processing inbound event: %s",
+                self._adapter_id,
+                exc,
+            )
+
+    def _log_task_exception(self, task: asyncio.Task) -> None:
+        """Done callback for fire-and-forget tasks — logs exceptions
+        to prevent 'Task exception was never retrieved'."""
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            pass
+        except Exception as exc:
+            self._logger.warning(
+                "MeshCoreSession %s: unhandled exception in inbound callback task: %s",
                 self._adapter_id,
                 exc,
             )

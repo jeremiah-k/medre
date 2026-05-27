@@ -762,6 +762,8 @@ class TestMockedSDKStartupFailureCleanup:
         assert session.connected is False
         assert session.reconnecting is False
         assert len(session._subscriptions) == 0
+        assert session.last_error is not None
+        assert "subscription failed" in str(session.last_error)
 
     async def test_connect_failure_clears_callback(self) -> None:
         """Failed connection clears _message_callback via _cleanup_failed_start."""

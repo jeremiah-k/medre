@@ -1352,3 +1352,41 @@ class TestFakeLxmfAdapterRepeatedStop:
         await adapter.stop()
         await adapter.stop()
         assert adapter.is_started is False
+
+
+# ===================================================================
+# Honest delivery semantics
+# ===================================================================
+
+
+class TestLxmfAdapterDeliverHonestDeliverySemantics:
+    """LxmfAdapter.deliver() returns honest delivery status and note."""
+
+    async def test_deliver_returns_sent_status_with_honest_note(
+        self, make_adapter_context
+    ) -> None:
+        """deliver() returns delivery_status='sent' (local acceptance) with
+        an honest delivery_note explaining async delivery is pending."""
+        config = _make_config(connection_type="fake")
+        adapter = LxmfAdapter(config)
+        ctx = make_adapter_context("lxmf-1")
+        await adapter.start(ctx)
+
+        result = _make_rendering_result(
+            payload={
+                "content": "hello honest delivery",
+                "title": "",
+                "fields": {},
+                "destination_hash": "ab" * 16,
+            },
+        )
+        delivery = await adapter.deliver(result)
+
+        assert delivery is not None
+        assert delivery.delivery_status == "sent"
+        assert delivery.delivery_note != ""
+        assert "accepted" in delivery.delivery_note.lower()
+        assert "async" in delivery.delivery_note.lower()
+        assert delivery.metadata["lxmf"]["delivery_state"] == "outbound"
+
+        await adapter.stop()
