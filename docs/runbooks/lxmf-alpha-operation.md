@@ -1051,7 +1051,7 @@ Source changes affect runtime behaviour: the threading bridge now uses `call_soo
 
 - **Failed-start cleanup**: `start()` wraps `_connect_real()` in try/except; on failure clears `_message_callback`, `_loop`, and diagnostics flags.
 - **No callback without loop**: `_on_lxmf_delivery()` logs warning and returns without invoking callback when `loop` is `None` or not running. Removes unsafe direct-callback fallback.
-- **Delivery-state thread bridging**: `_on_delivery_state_update()` bridges via `call_soon_threadsafe` to `_apply_delivery_state_update()`. Falls back to direct apply only when loop is not running.
+- **Delivery-state thread bridging**: `_on_delivery_state_update()` bridges via `call_soon_threadsafe` to `_apply_delivery_state_update()`. Drops the update when loop is not running (no direct-apply fallback).
 - **Async callback exception handling**: `_log_task_exception()` done callback added to fire-and-forget tasks. `inject_inbound()` sync callback wrapped in try/except.
 
 ### Test Coverage Added (Tranche 6)
