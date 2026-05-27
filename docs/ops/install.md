@@ -9,6 +9,12 @@
 | git         | For source checkout only                                                                 |
 | Docker      | Optional — for integration test configs referencing containerized Synapse or meshtasticd |
 
+## Project Metadata
+
+- **License:** GPL-3.0-or-later
+- **Status:** Pre-release — Development Status :: 3 - Alpha
+- **Entry point:** `medre.cli:main` (console script: `medre`)
+
 ## Install Paths
 
 ### Source Checkout (Developers)
@@ -19,10 +25,11 @@ git clone <repo-url> && cd medre
 python3 -m venv .venv
 source .venv/bin/activate
 
+pip install -e .
 pip install -e ".[dev]"
 ```
 
-This gives you the `medre` command with fake adapters only, plus `pytest`. The only core dependency is `msgspec`. Example configs are in `examples/configs/`.
+`pip install -e .` gives you the `medre` command with fake adapters only (no test tooling). `pip install -e ".[dev]"` adds `pytest` and dev dependencies. The only core dependency is `msgspec`. Example configs are in `examples/configs/`.
 
 ### Installed Package (Operators)
 

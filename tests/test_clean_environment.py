@@ -46,7 +46,7 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 _PYPROJECT_PATH = _REPO_ROOT / "pyproject.toml"
 _SRC_DIR = _REPO_ROOT / "src"
 _DOCS_DIR = _REPO_ROOT / "docs"
-_DEV_ENV_DOC = _DOCS_DIR / "runbooks" / "developer-environment.md"
+_DEV_ENV_DOC = _DOCS_DIR / "ops" / "install.md"
 
 
 def _load_pyproject() -> dict[str, Any]:
