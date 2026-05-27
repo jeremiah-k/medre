@@ -1585,6 +1585,56 @@ class PipelineRunner:
                         duration_ms=elapsed,
                     )
 
+            # ── Phase 2.5: Capability check (no state mutation) ──────
+
+            # Capability suppression: skip delivery when the target
+            # adapter does not support the event kind or required
+            # delivery features.  Runs after route-policy checks but
+            # BEFORE capacity acquisition so that capability-unsupported
+            # targets never consume capacity or increment counters.
+            _caps = self._get_adapter_capabilities(target)
+            _unsupported = _capability_unsupported(event, _caps)
+            if _unsupported is not None:
+                self._log.info(
+                    "capability_suppressed: route_id=%s event_id=%s "
+                    "target_adapter=%s reason=%s",
+                    route.id,
+                    event.event_id,
+                    adapter_id,
+                    _unsupported,
+                )
+                if self._route_stats is not None:
+                    self._route_stats.record_policy_suppressed(route.id)
+                if self._runtime_accounting is not None:
+                    self._runtime_accounting.record_policy_suppressed()
+                elapsed = (time.monotonic() - t0) * 1000.0
+                cap_error = (
+                    f"capability_suppressed: {_unsupported}"
+                )
+                cap_receipt = await self._persist_suppression_receipt(
+                    event_id=event.event_id,
+                    delivery_plan_id=route_plan.plan_id,
+                    target_adapter=adapter_id,
+                    target_channel=target.channel,
+                    route_id=route.id,
+                    failure_kind=DeliveryFailureKind.CAPABILITY_SUPPRESSED,
+                    error=cap_error,
+                    source=source,
+                    replay_run_id=replay_run_id,
+                )
+                return DeliveryOutcome(
+                    event_id=event.event_id,
+                    target_adapter=adapter_id,
+                    target_channel=target.channel,
+                    route_id=route.id,
+                    delivery_plan_id=route_plan.plan_id,
+                    status="skipped",
+                    failure_kind=DeliveryFailureKind.CAPABILITY_SUPPRESSED,
+                    receipt=cap_receipt,
+                    error=cap_error,
+                    duration_ms=elapsed,
+                )
+
             # ── Phase 3: Capacity acquisition ────────────────────────
 
             # Per-target capacity guard: acquire a slot before any work.
@@ -2207,12 +2257,16 @@ class PipelineRunner:
             platform_param: str | None = target_platform
         else:
             platform_param = None
+        # Resolve adapter capabilities to pass max_text_chars to renderers.
+        _caps = self._get_adapter_capabilities(target)
+        _max_text_chars = _caps.max_text_chars
         try:
             rendering_result = await self._rendering_pipeline.render(
                 render_event,
                 adapter_id or "",
                 target.channel,
                 target_platform=platform_param,
+                max_text_chars=_max_text_chars,
             )
         except Exception as exc:
             rendering_error = f"Rendering failed: {type(exc).__name__}: {exc}"
@@ -2493,42 +2547,70 @@ class PipelineRunner:
 
         return list(await asyncio.gather(*[_safe_deliver(r, p) for r, p in deliveries]))
 
-    def _get_adapter_capabilities(self, target: RouteTarget) -> dict:
-        """Retrieve the capabilities dict for a target adapter.
+    def _get_adapter_capabilities(self, target: RouteTarget) -> AdapterCapabilities:
+        """Retrieve the :class:`AdapterCapabilities` for a target adapter.
 
-        Returns an empty dict if the adapter is not found or does not
-        report capabilities.
+        Returns a default (conservative) :class:`AdapterCapabilities`
+        instance if the adapter is not found or does not report
+        capabilities.
         """
         adapter_id = target.adapter
         if adapter_id is None:
-            return {}
+            return AdapterCapabilities()
 
         adapter = self._config.adapters.get(adapter_id)
         if adapter is None:
-            return {}
+            return AdapterCapabilities()
 
-        # Try to get capabilities from health_check result; fall back to
-        # looking for a capabilities attribute directly.
         if hasattr(adapter, "_capabilities"):
             caps = adapter._capabilities  # type: ignore[attr-defined]
             if isinstance(caps, AdapterCapabilities):
-                return self._caps_to_dict(caps)
+                return caps
+        return AdapterCapabilities()
 
-        return {}
 
-    @staticmethod
-    def _caps_to_dict(caps: AdapterCapabilities) -> dict:
-        """Convert an :class:`AdapterCapabilities` to a plain dict.
+# ---------------------------------------------------------------------------
+# Capability-to-event-kind mapping
+# ---------------------------------------------------------------------------
 
-        Maps capability fields to the keys expected by
-        :class:`FallbackResolver`.
-        """
-        return {
-            "supports_reactions": caps.reactions != "unsupported",
-            "supports_edits": caps.edits != "unsupported",
-            "supports_deletes": caps.deletes != "unsupported",
-            "text": caps.text,
-            "replies": caps.replies,
-            "reactions": caps.reactions,
-            "edits": caps.edits,
-        }
+
+def _capability_unsupported(
+    event: CanonicalEvent,
+    caps: AdapterCapabilities,
+) -> str | None:
+    """Return a human-readable reason if *event* is unsupported by *caps*.
+
+    Returns ``None`` when the event kind is supported (or unknown, which
+    is treated as a passthrough to avoid breaking future event kinds).
+    """
+    kind = event.event_kind
+
+    if kind == EventKind.MESSAGE_REACTED and caps.reactions == "unsupported":
+        return f"reactions unsupported by adapter (event_kind={kind})"
+
+    if kind == EventKind.MESSAGE_EDITED and caps.edits == "unsupported":
+        return f"edits unsupported by adapter (event_kind={kind})"
+
+    if kind == EventKind.MESSAGE_DELETED and caps.deletes == "unsupported":
+        return f"deletes unsupported by adapter (event_kind={kind})"
+
+    if kind == EventKind.MESSAGE_FILE and not caps.attachments:
+        return f"attachments unsupported by adapter (event_kind={kind})"
+
+    if kind in (EventKind.MESSAGE_CREATED, EventKind.MESSAGE_TEXT) and not caps.text:
+        return f"text unsupported by adapter (event_kind={kind})"
+
+    if kind == EventKind.PRESENCE_CHANGED and not caps.presence:
+        return f"presence unsupported by adapter (event_kind={kind})"
+
+    if kind in (EventKind.TELEMETRY_RECEIVED, EventKind.TELEMETRY_POSITION):
+        if not caps.metadata_fields:
+            return f"metadata_fields unsupported by adapter (event_kind={kind})"
+
+    # Reply-carrying events require reply support.
+    if event.relations:
+        for rel in event.relations:
+            if rel.relation_type == "reply" and caps.replies == "unsupported":
+                return "replies unsupported by adapter (event has reply relation)"
+
+    return None

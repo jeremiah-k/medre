@@ -35,6 +35,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Sequence
 
+from medre.core.contracts.adapter import AdapterCapabilities
 from medre.core.supervision.health import normalize_adapter_health
 
 # Forward-reference type alias for Router; imported lazily inside
@@ -185,6 +186,7 @@ def capture_runtime_snapshot(
     replay_status: dict[str, Any] | None = None,
     router: _RouterLike | None = None,
     route_stats: Any | None = None,
+    capabilities: dict[str, AdapterCapabilities] | None = None,
     queue_status: dict[str, Any] | None = None,
     backpressure_status: dict[str, Any] | None = None,
     task_status: dict[str, Any] | None = None,
@@ -221,6 +223,12 @@ def capture_runtime_snapshot(
         Optional :class:`~medre.core.routing.stats.RouteStats`.  When
         provided alongside *router*, live per-route counters are
          included in the route topology snapshot.
+    capabilities:
+        Optional mapping of adapter IDs to their declared
+        :class:`~medre.core.contracts.adapter.AdapterCapabilities`.
+        When provided alongside *router*, each route entry is enriched
+        with ``capability_warnings`` for event kinds the target adapter
+        does not support.
     queue_status:
         Optional dict summarising queue state.  Defaults to
         ``{"status": "unavailable"}`` when not provided.
@@ -271,7 +279,11 @@ def capture_runtime_snapshot(
 
     # -- Route topology -----------------------------------------------------
     if router is not None:
-        route_topology_dict = capture_route_topology(router, route_stats=route_stats)
+        route_topology_dict = capture_route_topology(
+            router,
+            route_stats=route_stats,
+            capabilities=capabilities,
+        )
     else:
         route_topology_dict = dict(_UNAVAILABLE_SENTINEL)
 
@@ -331,9 +343,63 @@ def _route_target_to_dict(target: Any) -> dict[str, Any]:
     return result
 
 
+def _check_capability_warning(
+    event_kind: str,
+    caps: AdapterCapabilities,
+    adapter_id: str,
+) -> str | None:
+    """Return a warning string if *event_kind* is unsupported by *caps*.
+
+    Mirrors the capability checks in
+    :meth:`~medre.core.planning.fallback_resolution.FallbackResolver._resolve_strategy`
+    but returns a human-readable warning instead of a delivery strategy.
+    Returns ``None`` when the event kind is supported.
+    """
+    # -- Message lifecycle ------------------------------------------------
+    if event_kind == "message.reacted":
+        if caps.reactions == "unsupported":
+            return f"event_kind 'message.reacted' not supported by target adapter '{adapter_id}'"
+        return None
+
+    if event_kind == "message.edited":
+        if caps.edits == "unsupported":
+            return f"event_kind 'message.edited' not supported by target adapter '{adapter_id}'"
+        return None
+
+    if event_kind == "message.deleted":
+        if caps.deletes == "unsupported":
+            return f"event_kind 'message.deleted' not supported by target adapter '{adapter_id}'"
+        return None
+
+    if event_kind == "message.file":
+        if not caps.attachments:
+            return f"event_kind 'message.file' not supported by target adapter '{adapter_id}'"
+        return None
+
+    if event_kind in ("message.created", "message.text"):
+        if not caps.text:
+            return f"event_kind '{event_kind}' not supported by target adapter '{adapter_id}'"
+        return None
+
+    # -- Presence / telemetry ---------------------------------------------
+    if event_kind == "presence.changed":
+        if not caps.presence:
+            return f"event_kind 'presence.changed' not supported by target adapter '{adapter_id}'"
+        return None
+
+    if event_kind in ("telemetry.received", "telemetry.position"):
+        if not caps.metadata_fields:
+            return f"event_kind '{event_kind}' not supported by target adapter '{adapter_id}'"
+        return None
+
+    # Everything else (identity, delivery, system, plugin) → passthrough
+    return None
+
+
 def capture_route_topology(
     router: _RouterLike,
     route_stats: Any | None = None,
+    capabilities: dict[str, AdapterCapabilities] | None = None,
 ) -> dict[str, Any]:
     """Build a deterministic, JSON-safe route topology snapshot.
 
@@ -367,6 +433,12 @@ def capture_route_topology(
     route_stats:
         Optional :class:`~medre.core.routing.stats.RouteStats` instance.
         When provided, live counter values replace the zeroed defaults.
+    capabilities:
+        Optional mapping of adapter IDs to their declared
+        :class:`~medre.core.contracts.adapter.AdapterCapabilities`.
+        When provided, each route entry is enriched with a
+        ``capability_warnings`` list identifying event kinds that the
+        target adapter does not support.
 
     Returns
     -------
@@ -444,6 +516,25 @@ def capture_route_topology(
         }
         if last_error is not None:
             route_entry["last_error"] = last_error
+
+        # -- Capability mismatch warnings ---------------------------------
+        capability_warnings: list[str] = []
+        if capabilities is not None:
+            source_event_kinds = list(
+                getattr(source, "event_kinds", ()) or ()
+            ) if source is not None else []
+            for ta in target_adapters:
+                if ta is None:
+                    continue
+                caps = capabilities.get(ta)
+                if caps is None:
+                    continue
+                for ek in source_event_kinds:
+                    warning = _check_capability_warning(ek, caps, ta)
+                    if warning is not None:
+                        capability_warnings.append(warning)
+        route_entry["capability_warnings"] = sorted(capability_warnings)
+
         per_route.append(route_entry)
 
         # Build adapter-route relationships

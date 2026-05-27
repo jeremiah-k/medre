@@ -92,6 +92,8 @@ class LxmfRenderer:
         event: CanonicalEvent,
         target_adapter: str,
         target_channel: str | None = None,
+        *,
+        max_text_chars: int | None = None,
     ) -> RenderingResult:
         """Render a canonical event into an LXMF content payload.
 

@@ -172,6 +172,10 @@ class DeliveryFailureKind(Enum):
     POLICY_SUPPRESSED:
         Delivery was suppressed by a route-policy denial
         (e.g. target blocked by policy configuration).  Not retryable.
+    CAPABILITY_SUPPRESSED:
+        Target adapter does not support the event kind or required
+        delivery features (e.g. reactions unsupported, no attachment
+        capability).  Not retryable.
     """
 
     PLANNER_FAILURE = "planner_failure"
@@ -184,6 +188,7 @@ class DeliveryFailureKind(Enum):
     SHUTDOWN_REJECTION = "shutdown_rejection"
     LOOP_SUPPRESSED = "loop_suppressed"
     POLICY_SUPPRESSED = "policy_suppressed"
+    CAPABILITY_SUPPRESSED = "capability_suppressed"
 
     @property
     def is_retryable(self) -> bool:

@@ -79,6 +79,8 @@ class TextRenderer:
         event: CanonicalEvent,
         target_adapter: str,
         target_channel: str | None = None,
+        *,
+        max_text_chars: int | None = None,
     ) -> RenderingResult:
         """Render a canonical event as plain text.
 
@@ -116,7 +118,7 @@ class TextRenderer:
             The rendered text payload wrapped in a standard result.
         """
         raw_text = self._extract_text(event)
-        text, truncated = self._truncate(raw_text)
+        text, truncated = self._truncate(raw_text, max_text_chars=max_text_chars)
 
         metadata: dict[str, object] = {
             "renderer": self.name,
@@ -205,14 +207,27 @@ class TextRenderer:
         return str(event.payload.get("text", event.payload.get("body", "")))
 
     @staticmethod
-    def _truncate(text: str) -> tuple[str, bool]:
-        """Cap *text* at :data:`_MAX_TEXT_LENGTH` characters.
+    def _truncate(
+        text: str,
+        *,
+        max_text_chars: int | None = None,
+    ) -> tuple[str, bool]:
+        """Cap *text* at the configured character limit.
+
+        Parameters
+        ----------
+        text:
+            The text to potentially truncate.
+        max_text_chars:
+            Maximum characters to allow.  When ``None``, falls back to
+            the module-level default :data:`_MAX_TEXT_LENGTH` (500).
 
         Returns
         -------
         tuple[str, bool]
             The (possibly truncated) text and whether truncation occurred.
         """
-        if len(text) <= _MAX_TEXT_LENGTH:
+        limit = max_text_chars if max_text_chars is not None else _MAX_TEXT_LENGTH
+        if len(text) <= limit:
             return text, False
-        return text[:_MAX_TEXT_LENGTH], True
+        return text[:limit], True

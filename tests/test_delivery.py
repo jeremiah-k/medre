@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from medre.core.contracts.adapter import AdapterCapabilities
 from medre.core.events import (
     CanonicalEvent,
     EventMetadata,
@@ -131,14 +132,14 @@ class TestFallbackResolver:
         event = _make_event(event_kind="message.created")
         resolver = FallbackResolver()
         target = RouteTarget(adapter="fake_presentation")
-        plan = resolver.resolve_fallback(event, target, {})
+        plan = resolver.resolve_fallback(event, target, AdapterCapabilities())
         assert plan.primary_strategy.method == "direct"
 
     def test_reaction_downgrades_when_not_supported(self) -> None:
         event = _make_event(event_kind="message.reacted")
         resolver = FallbackResolver()
         target = RouteTarget(adapter="target")
-        caps = {"supports_reactions": False}
+        caps = AdapterCapabilities(reactions="unsupported")
         plan = resolver.resolve_fallback(event, target, caps)
         assert plan.primary_strategy.method == "direct"
 
@@ -146,7 +147,7 @@ class TestFallbackResolver:
         event = _make_event(event_kind="message.reacted")
         resolver = FallbackResolver()
         target = RouteTarget(adapter="target")
-        caps = {"supports_reactions": True}
+        caps = AdapterCapabilities(reactions="native")
         plan = resolver.resolve_fallback(event, target, caps)
         assert plan.primary_strategy.method == "direct"
 
@@ -154,7 +155,7 @@ class TestFallbackResolver:
         event = _make_event(event_kind="message.edited")
         resolver = FallbackResolver()
         target = RouteTarget(adapter="target")
-        caps = {"supports_edits": False}
+        caps = AdapterCapabilities(edits="unsupported")
         plan = resolver.resolve_fallback(event, target, caps)
         assert plan.primary_strategy.method == "direct"
 
@@ -162,7 +163,7 @@ class TestFallbackResolver:
         event = _make_event(event_kind="message.deleted")
         resolver = FallbackResolver()
         target = RouteTarget(adapter="target")
-        caps = {"supports_deletes": False}
+        caps = AdapterCapabilities(deletes="unsupported")
         plan = resolver.resolve_fallback(event, target, caps)
         assert plan.primary_strategy.method == "direct"
 
@@ -170,14 +171,14 @@ class TestFallbackResolver:
         event = _make_event(event_kind="message.created", event_id="evt-x")
         resolver = FallbackResolver()
         target = RouteTarget(adapter="target")
-        plan = resolver.resolve_fallback(event, target, {})
+        plan = resolver.resolve_fallback(event, target, AdapterCapabilities())
         assert plan.event_id == "evt-x"
 
     def test_plan_target_matches_input(self) -> None:
         event = _make_event()
         resolver = FallbackResolver()
         target = RouteTarget(adapter="my_target", channel="ch-1")
-        plan = resolver.resolve_fallback(event, target, {})
+        plan = resolver.resolve_fallback(event, target, AdapterCapabilities())
         assert plan.target is target
 
 
@@ -523,6 +524,7 @@ class TestDeliveryFailureKind:
             "CAPACITY_REJECTION",
             "LOOP_SUPPRESSED",
             "POLICY_SUPPRESSED",
+            "CAPABILITY_SUPPRESSED",
         }
         actual = {m.name for m in DeliveryFailureKind}
         assert actual == expected
@@ -541,6 +543,7 @@ class TestDeliveryFailureKind:
             DeliveryFailureKind.SHUTDOWN_REJECTION,
             DeliveryFailureKind.LOOP_SUPPRESSED,
             DeliveryFailureKind.POLICY_SUPPRESSED,
+            DeliveryFailureKind.CAPABILITY_SUPPRESSED,
         ]
         for kind in non_retryable:
             assert kind.is_retryable is False, f"{kind.name} should not be retryable"

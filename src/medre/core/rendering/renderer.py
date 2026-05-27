@@ -122,6 +122,8 @@ class Renderer(Protocol):
         event: CanonicalEvent,
         target_adapter: str,
         target_channel: str | None = None,
+        *,
+        max_text_chars: int | None = None,
     ) -> RenderingResult:
         """Render *event* for delivery.  Must not mutate the original event."""
         ...
@@ -240,6 +242,7 @@ class RenderingPipeline:
         target_channel: str | None = None,
         *,
         target_platform: str | None = None,
+        max_text_chars: int | None = None,
     ) -> RenderingResult:
         """Try renderers in priority order until one can render.
 
@@ -256,6 +259,10 @@ class RenderingPipeline:
             provided the pipeline looks up the adapter's platform from
             its internal registry; if still unknown, ``None`` is passed
             to renderers.
+        max_text_chars:
+            Optional maximum text length from the target adapter's
+            capabilities.  Passed through to renderers that support
+            truncation (e.g. :class:`~medre.core.rendering.text.TextRenderer`).
 
         Returns
         -------
@@ -276,7 +283,12 @@ class RenderingPipeline:
 
         for _pri, _seq, renderer in self._renderers:
             if renderer.can_render(event, target_adapter, platform):
-                return await renderer.render(event, target_adapter, target_channel)
+                return await renderer.render(
+                    event,
+                    target_adapter,
+                    target_channel,
+                    max_text_chars=max_text_chars,
+                )
 
         raise ValueError(
             f"No renderer registered for event_kind={event.event_kind!r} "

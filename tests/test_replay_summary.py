@@ -12,6 +12,7 @@ from typing import Any, Literal
 
 import pytest
 
+from medre.core.contracts.adapter import AdapterCapabilities
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.storage.backend import StorageBackend
 from medre.core.storage.replay import (
@@ -585,7 +586,9 @@ class TestReplaySummaryIntegration:
                 plans = []
                 for _r, targets in routes:
                     for t in targets:
-                        plans.append(resolver.resolve_fallback(event, t, {}))
+                        plans.append(
+                            resolver.resolve_fallback(event, t, AdapterCapabilities())
+                        )
                 return plans
 
             async def deliver(self, event, plans):

@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from medre.config.model import RuntimeLimits
+from medre.core.contracts.adapter import AdapterCapabilities
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.planning import FallbackResolver
 from medre.core.rendering import RenderingPipeline
@@ -109,7 +110,9 @@ class _StubPipeline:
         plans: list[Any] = []
         for _route, targets in routes:
             for target in targets:
-                plan = self._fallback_resolver.resolve_fallback(event, target, {})
+                plan = self._fallback_resolver.resolve_fallback(
+                    event, target, AdapterCapabilities()
+                )
                 plans.append(plan)
         return plans
 
