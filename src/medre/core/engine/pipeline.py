@@ -1606,9 +1606,9 @@ class PipelineRunner:
                     _unsupported,
                 )
                 if self._route_stats is not None:
-                    self._route_stats.record_policy_suppressed(route.id)
+                    self._route_stats.record_capability_suppressed(route.id)
                 if self._runtime_accounting is not None:
-                    self._runtime_accounting.record_policy_suppressed()
+                    self._runtime_accounting.record_capability_suppressed()
                 elapsed = (time.monotonic() - t0) * 1000.0
                 cap_error = f"capability_suppressed: {_unsupported}"
                 cap_receipt = await self._persist_suppression_receipt(

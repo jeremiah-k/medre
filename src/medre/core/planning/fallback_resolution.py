@@ -10,8 +10,8 @@ Fallback rules (Phase 1):
   does not support reactions.
 * ``message.edited`` → deliver as a new ``message.text`` when the
   target does not support edits.
-* ``message.deleted`` → silently skip delivery when the target does
-  not support deletions.
+* ``message.deleted`` → deliver as ``message.text`` fallback when the
+  target does not support deletions.
 * ``message.file`` → skip delivery when the target does not support
   attachments.
 * ``message.created`` / ``message.text`` → skip when the adapter

@@ -37,6 +37,8 @@ class RouteCounters:
         Number of deliveries prevented by the self-loop guard.
     policy_suppressed:
         Number of deliveries suppressed by route policy.
+    capability_suppressed:
+        Number of deliveries suppressed by capability checks.
     """
 
     delivered: int = 0
@@ -44,6 +46,7 @@ class RouteCounters:
     skipped: int = 0
     loop_prevented: int = 0
     policy_suppressed: int = 0
+    capability_suppressed: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -68,6 +71,8 @@ class RouteStats:
         Increment the loop_prevented counter.
     record_policy_suppressed(route_id):
         Increment the policy_suppressed counter.
+    record_capability_suppressed(route_id):
+        Increment the capability_suppressed counter.
     snapshot():
         Return a deterministic ordered dict of counters and errors.
     """
@@ -87,6 +92,7 @@ class RouteStats:
             skipped=c.skipped,
             loop_prevented=c.loop_prevented,
             policy_suppressed=c.policy_suppressed,
+            capability_suppressed=c.capability_suppressed,
         )
 
     def record_failed(self, route_id: str, error: str) -> None:
@@ -98,6 +104,7 @@ class RouteStats:
             skipped=c.skipped,
             loop_prevented=c.loop_prevented,
             policy_suppressed=c.policy_suppressed,
+            capability_suppressed=c.capability_suppressed,
         )
         self._last_errors[route_id] = sanitize_error(error)
 
@@ -110,6 +117,7 @@ class RouteStats:
             skipped=c.skipped + 1,
             loop_prevented=c.loop_prevented,
             policy_suppressed=c.policy_suppressed,
+            capability_suppressed=c.capability_suppressed,
         )
 
     def record_loop_prevented(self, route_id: str) -> None:
@@ -121,6 +129,7 @@ class RouteStats:
             skipped=c.skipped,
             loop_prevented=c.loop_prevented + 1,
             policy_suppressed=c.policy_suppressed,
+            capability_suppressed=c.capability_suppressed,
         )
 
     def record_policy_suppressed(self, route_id: str) -> None:
@@ -132,6 +141,19 @@ class RouteStats:
             skipped=c.skipped,
             loop_prevented=c.loop_prevented,
             policy_suppressed=c.policy_suppressed + 1,
+            capability_suppressed=c.capability_suppressed,
+        )
+
+    def record_capability_suppressed(self, route_id: str) -> None:
+        """Record a capability-suppressed delivery for *route_id*."""
+        c = self._counters.get(route_id, RouteCounters())
+        self._counters[route_id] = RouteCounters(
+            delivered=c.delivered,
+            failed=c.failed,
+            skipped=c.skipped,
+            loop_prevented=c.loop_prevented,
+            policy_suppressed=c.policy_suppressed,
+            capability_suppressed=c.capability_suppressed + 1,
         )
 
     # -- Snapshot ----------------------------------------------------------
@@ -144,7 +166,8 @@ class RouteStats:
         dict
             Keys are route IDs sorted alphabetically.  Each value is a
             dict with ``delivered``, ``failed``, ``skipped``,
-            ``loop_prevented``, ``policy_suppressed``, and optional
+            ``loop_prevented``, ``policy_suppressed``,
+            ``capability_suppressed``, and optional
             ``last_error``.
         """
         result: dict[str, dict] = {}
@@ -156,6 +179,7 @@ class RouteStats:
                 "skipped": c.skipped,
                 "loop_prevented": c.loop_prevented,
                 "policy_suppressed": c.policy_suppressed,
+                "capability_suppressed": c.capability_suppressed,
             }
             if route_id in self._last_errors:
                 entry["last_error"] = self._last_errors[route_id]
