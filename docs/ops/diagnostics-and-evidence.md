@@ -114,7 +114,9 @@ medre inspect event <event_id> --config my-bridge.toml
 medre inspect receipts --event <event_id> --config my-bridge.toml
 ```
 
-`inspect event`, `inspect receipts`, `inspect native-ref`, and `inspect receipts --replay-run` all support `--storage-path` for direct read-only access to a SQLite database. `replay` and `recover` require `--config`. Use `inspect` as your first investigation step.
+All `inspect` subcommands (`event`, `receipts`, `native-ref`, and `receipts --replay-run`) support `--storage-path` for direct read-only access to a SQLite database.
+
+The `replay` and `recover` commands require `--config`. Use `inspect` as your first investigation step.
 
 ## Command Reference
 

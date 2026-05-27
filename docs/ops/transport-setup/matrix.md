@@ -261,5 +261,6 @@ While the test waits (30 s window), send a message from the second account. If n
 ## See Also
 
 - [live-validation/matrix.md](../live-validation/matrix.md) — live smoke test procedures
+- [live-validation/matrix-meshtastic.md](../live-validation/matrix-meshtastic.md) — Matrix ↔ Meshtastic cross-transport bring-up
 - [diagnostics-and-evidence.md](../diagnostics-and-evidence.md) — evidence provenance and bundle collection
 - [recovery-and-replay.md](../recovery-and-replay.md) — crash recovery and replay

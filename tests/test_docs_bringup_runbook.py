@@ -1,9 +1,9 @@
 """Bring-up runbook tests (classes 21-27).
 
-Asserts that the live-matrix-meshtastic bring-up runbook follows
-auth-first workflow, has no stale PYTHONPATH, documents snapshot
-path arguments, diagnostics description, targeting fields, secure
-credentials, and operator answerability.
+Asserts that the cross-transport Matrix ↔ Meshtastic bring-up runbook
+(live-validation/matrix-meshtastic.md) follows auth-first workflow, has no
+stale PYTHONPATH, documents snapshot path arguments, diagnostics description,
+targeting fields, secure credentials, and operator answerability.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ import pytest
 _ROOT = Path(__file__).resolve().parent.parent
 OPS_DIR = _ROOT / "docs" / "ops"
 
-_BRINGUP = OPS_DIR / "transport-setup" / "matrix.md"
+_BRINGUP = OPS_DIR / "live-validation" / "matrix-meshtastic.md"
 _SECURE_CREDS = OPS_DIR / "configuration.md"
 
 
@@ -44,7 +44,7 @@ class TestBringupRunbookAuthFirst:
             pytest.skip("bringup runbook not found")
         text = _read(_BRINGUP)
         assert "medre adapter matrix auth login" in text, (
-            "transport-setup/matrix.md must mention "
+            "live-validation/matrix-meshtastic.md must mention "
             "'medre adapter matrix auth login' in the auth-first workflow."
         )
 
@@ -95,7 +95,7 @@ class TestBringupRunbookNoStalePythonpath:
                 continue
             violations.append(f"line {lineno}: {line.strip()}")
         assert not violations, (
-            "transport-setup/matrix.md contains PYTHONPATH=src "
+            "live-validation/matrix-meshtastic.md contains PYTHONPATH=src "
             "without source/checkout context. Bring-up operators should "
             "not need developer PYTHONPATH. Violations:\n"
             + "\n".join(f"  {v}" for v in violations)
@@ -129,7 +129,7 @@ class TestBringupRunbookSnapshotRequiresPath:
             if not next_token or next_token.startswith("-"):
                 violations.append(f"line {lineno}: {line.strip()}")
         assert not violations, (
-            "transport-setup/matrix.md has --snapshot-on-shutdown "
+            "live-validation/matrix-meshtastic.md has --snapshot-on-shutdown "
             "without a following path argument. Every usage must specify the "
             "snapshot output path (e.g. /tmp/medre-live-snapshot.json). "
             "Violations:\n" + "\n".join(f"  {v}" for v in violations)
@@ -155,12 +155,12 @@ class TestBringupRunbookDiagnosticsDescription:
         lower = text.lower()
         # Must mention --refresh-health
         assert "--refresh-health" in text, (
-            "transport-setup/matrix.md must mention "
+            "live-validation/matrix-meshtastic.md must mention "
             "--refresh-health in the diagnostics section."
         )
         # Must say it starts a short-lived runtime
         assert "short-lived" in lower, (
-            "transport-setup/matrix.md must describe "
+            "live-validation/matrix-meshtastic.md must describe "
             "diagnostics --refresh-health as starting a 'short-lived' "
             "runtime, not requiring an already-running runtime."
         )
@@ -168,7 +168,7 @@ class TestBringupRunbookDiagnosticsDescription:
         # Strip markdown bold markers for matching.
         cleaned = lower.replace("**", "")
         assert "does not require" in cleaned or "not require" in cleaned, (
-            "transport-setup/matrix.md must explicitly state that "
+            "live-validation/matrix-meshtastic.md must explicitly state that "
             "diagnostics --refresh-health does not require an already-running "
             "runtime."
         )
@@ -194,7 +194,7 @@ class TestBringupRunbookTargetingFields:
             pytest.skip("bringup runbook not found")
         text = _read(_BRINGUP)
         assert field in text, (
-            f"transport-setup/matrix.md must mention '{field}' "
+            f"live-validation/matrix-meshtastic.md must mention '{field}' "
             f"in the route targeting fields section."
         )
 

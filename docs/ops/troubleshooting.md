@@ -183,7 +183,7 @@ PYTHONPATH=src pytest tests/test_fake_bridge_smoke.py::TestRenderingContract -v
 
 Expected: runtime stays running. `DeliveryReceipt`: `status == "failed"`, `failure_kind == "RENDERER_FAILURE"`. No retry.
 
-Inspect: `medre inspect receipts --event <event_id> --config my-bridge.toml`
+Inspect: `medre inspect receipts --event <event_id> --storage-path /path/to/medre.db`
 
 **Caveat:** Renderer failures are permanent. Fix the event kind or add a renderer that handles it.
 
@@ -250,7 +250,7 @@ In-flight deliveries when shutdown begins are rejected, not drained.
 
 Expected: `DeliveryOutcome`: `error == "delivery_rejected_shutdown"`. `outbound_failed` counter incremented.
 
-Fix: if these deliveries are important, replay the corresponding events after restart.
+Fix: if these deliveries are important, replay the corresponding events after restart. Replay is manual and one-shot — each invocation processes stored events once and exits.
 
 ### Replay Rejected During Shutdown
 
@@ -425,6 +425,8 @@ Route attribution is internal to MEDRE. It does not appear in radio packets, Mat
 
 ## Inspect Follow-Up Quick Reference
 
+Read-only inspection commands accept `--storage-path` for direct SQLite access.
+
 | After this failure...          | Run this to inspect                                                   |
 | ------------------------------ | --------------------------------------------------------------------- |
 | Config error (exit 2)          | `medre config check --config <path>`                                  |
@@ -432,13 +434,13 @@ Route attribution is internal to MEDRE. It does not appear in radio packets, Mat
 | Build failure (exit 3)         | `medre diagnostics --config <path>` → `startup.build_failures`        |
 | Total startup failure (exit 4) | `medre diagnostics --config <path>` → `startup.boot_summary`          |
 | Degraded startup               | `medre diagnostics --refresh-health` → `health.live_health`           |
-| Renderer failure               | `medre inspect receipts --event <id> --config <path>`                 |
+| Renderer failure               | `medre inspect receipts --event <id> --storage-path <db>`             |
 | Adapter permanent              | `medre inspect receipts --event <id>` + adapter `diagnostics()`       |
 | Adapter transient              | Full receipt chain via `parent_receipt_id`                            |
 | Capacity exceeded              | `capacity_rejections` counter in logs; tune `max_inflight_deliveries` |
 | Deadline exceeded              | Delivery plan timestamps vs. actual adapter latency                   |
 | Shutdown rejection             | `outbound_failed` counter; replay orphaned events after restart       |
-| Replay duplicate               | `medre inspect receipts --replay-run <id> --config <path>`            |
+| Replay duplicate               | `medre inspect receipts --replay-run <id> --storage-path <db>`        |
 | Live health degraded           | `medre diagnostics --refresh-health` → per-adapter `.error`           |
 | Loop prevented                 | `RouteStats` → `loop_prevented`; `accounting.snapshot()`              |
 

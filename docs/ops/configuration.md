@@ -758,9 +758,19 @@ medre smoke [--config PATH] [--storage-path PATH] [--drill NAME] [--run-session]
     Run fake bridge smoke test. Uses in-memory storage by default.
     Pass --storage-path to persist to SQLite.
 
-medre inspect (event|receipts|native-ref|replay) [--storage-path PATH]
-    Read-only storage inspection. All subcommands support --storage-path.
-    --timeline, --evidence, and --recovery flags augment inspect event.
+medre inspect event [--storage-path PATH]
+    Read-only event inspection. Supports --timeline, --evidence, --recovery flags.
+
+medre inspect receipts [--storage-path PATH]
+    Read-only receipt inspection. Filter with --event or --replay-run.
+
+medre inspect native-ref [--storage-path PATH]
+    Read-only native transport reference inspection.
+
+medre inspect replay [--storage-path PATH]
+    Read-only replay run inspection. Shows replay run metadata and receipt summaries.
+
+    All inspect subcommands support --storage-path for direct SQLite access.
 
 medre trace (event|replay) [--storage-path PATH] [--json]
     Specialized chronological timeline assembly. Prefer
@@ -771,7 +781,9 @@ medre evidence [--config PATH] [--storage-path PATH] [--event ID] [--replay-run 
     inspect event --evidence for per-event bundles.
 
 medre replay --mode MODE --config PATH [--event ID] [--json]
-    Execute a replay operation. Modes: strict, re_render, re_route, dry_run, best_effort.
+    Execute a one-shot replay operation. Each invocation processes stored
+    events once and exits — replay does not continuously tail the event log.
+    Modes: strict, re_render, re_route, dry_run, best_effort.
     Requires --config. Duplicate-risky for best_effort.
 
 medre recover --config PATH [--event ID] [--failed-only] [--dry-run] [--json]

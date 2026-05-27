@@ -12,6 +12,8 @@ The recommended operator loop:
 4. **Deeper investigation**: `--timeline`, `--evidence`, `--recovery` flags on inspect
 5. **Replay only when needed**: `DRY_RUN` first, then `BEST_EFFORT`
 
+> Replay is operator-initiated and one-shot. It does not continuously tail the event log. Each replay invocation processes stored events once and exits. Replay requires `--config`, not `--storage-path`.
+
 ## Smoke Test
 
 The fastest way to confirm MEDRE works on your machine. No network, no credentials.
