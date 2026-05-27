@@ -312,13 +312,13 @@ medre run --config config.toml
 
 ## Replay Modes
 
-| Mode          | Routes? | Delivers?          | Side effects          | Use case                                                                                                   |
-| ------------- | ------- | ------------------ | --------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `strict`      | No      | No (validate only) | None                  | Validate events against current schema. No routing or delivery.                                            |
-| `re_render`   | No      | No (re-render)     | None                  | Re-run rendering for existing events. No delivery.                                                         |
-| `re_route`    | Yes     | No (read-only)     | None                  | Re-evaluate route matching after a config change. No delivery.                                             |
-| `dry_run`     | Yes     | Skip (no delivery) | None                  | Preview what replay would do. First step before any `best_effort`.                                         |
-| `best_effort` | Yes     | Yes                | Real adapter delivery | Re-deliver historical events. Sends real messages. Produces fresh storage receipts with `source='replay'`. |
+| Mode          | Stages                              | Delivers?          | Side effects          | Use case                                                                                                   |
+| ------------- | ----------------------------------- | ------------------ | --------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `strict`      | store                               | No (validate only) | None                  | Validate events against current schema. No routing or delivery.                                            |
+| `re_render`   | store, render                       | No (re-render)     | None                  | Re-run rendering for existing events. No delivery.                                                         |
+| `re_route`    | store, route, plan                  | No (read-only)     | None                  | Re-evaluate route matching after a config change. No delivery.                                             |
+| `dry_run`     | store, route, plan, render, deliver | Skip (no delivery) | None                  | Preview what replay would do. First step before any `best_effort`.                                         |
+| `best_effort` | store, route, plan, render, deliver | Yes                | Real adapter delivery | Re-deliver historical events. Sends real messages. Produces fresh storage receipts with `source='replay'`. |
 
 Always run `dry_run` or `re_route` first. Only use `best_effort` when you have verified the route matching preview and accept the duplicate delivery risk.
 
@@ -334,15 +334,18 @@ medre replay --mode <mode> [--event <event_id>] --config my-bridge.toml
 | `--event`  | No       | Specific event ID to replay. If omitted, replays all events in storage. |
 | `--config` | Yes      | Path to TOML config (must use SQLite storage)                           |
 
+Replay requires `--config` for route resolution and pipeline construction.
+`--storage-path` is not supported for replay — it is reserved for read-only
+inspection commands (`inspect`, `trace`, `evidence`).
+
 Additional flags:
 
-| Flag                              | Description                                         |
-| --------------------------------- | --------------------------------------------------- |
-| `--target-adapters ADAPTER [...]` | Only replay events targeting these adapter(s)       |
-| `--route-ids ROUTE [...]`         | Only replay events that matched these route ID(s)   |
-| `--limit INT`                     | Maximum events to replay (default 100)              |
-| `--storage-path PATH`             | Path to SQLite database (alternative to `--config`) |
-| `--json`                          | Output as JSON                                      |
+| Flag                              | Description                                       |
+| --------------------------------- | ------------------------------------------------- |
+| `--target-adapters ADAPTER [...]` | Only replay events targeting these adapter(s)     |
+| `--route-ids ROUTE [...]`         | Only replay events that matched these route ID(s) |
+| `--limit INT`                     | Maximum number of events to replay (default 100)  |
+| `--json`                          | Output as JSON                                    |
 
 ### Exit Codes
 
@@ -353,48 +356,62 @@ Additional flags:
 
 ## Replay Result Interpretation
 
+`events_replayed` counts replay result rows (one per `(event, stage)` pair),
+not distinct event IDs. `events_scanned` is the distinct event count.
+
 ### dry_run Result
 
 ```json
 {
   "mode": "dry_run",
-  "replay_run_id": "replay_preview_001",
-  "events_processed": 10,
-  "deliveries_attempted": 0,
-  "deliveries_skipped": 10,
-  "route_attributions": [
-    {
-      "event_id": "evt_abc123",
-      "route_ids": ["bot-to-radio"],
-      "target_adapters": ["radio"]
-    }
-  ]
+  "run_id": "replay_preview_001",
+  "events_scanned": 10,
+  "events_replayed": 50,
+  "skipped_count": 10,
+  "failure_count": 0,
+  "route_resolution_count": 8,
+  "by_status": { "error": 0, "failed": 0, "passed": 40, "skipped": 10 },
+  "by_stage": {
+    "store": 10,
+    "route": 10,
+    "plan": 10,
+    "render": 10,
+    "deliver": 10
+  },
+  "by_route": {},
+  "errors": [],
+  "elapsed_ms": 12.3
 }
 ```
 
-Review `route_attributions` to verify which routes match each event and which target adapters would receive delivery before proceeding to `best_effort`.
+Review `by_route` to verify which routes match each event and which target adapters would receive delivery before proceeding to `best_effort`.
 
 ### re_route Result
 
-Compare `route_attributions` against previous delivery receipts to see what changed after a route config update. Events that previously matched one route but now match two will have fan-out delivery if replayed with `best_effort`.
+Compare `by_route` against previous delivery receipts to see what changed after a route config update. Events that previously matched one route but now match two will have fan-out delivery if replayed with `best_effort`.
 
 ### best_effort Result
 
 ```json
 {
   "mode": "best_effort",
-  "replay_run_id": "replay_xyz789",
-  "events_processed": 10,
-  "deliveries_attempted": 8,
-  "deliveries_sent": 7,
-  "deliveries_failed": 1,
-  "deliveries_skipped": 1,
-  "errors": [
-    {
-      "event_id": "evt_def456",
-      "error": "replay_capacity_exceeded"
-    }
-  ]
+  "run_id": "replay_xyz789",
+  "events_scanned": 10,
+  "events_replayed": 50,
+  "skipped_count": 0,
+  "failure_count": 1,
+  "route_resolution_count": 8,
+  "by_status": { "error": 1, "failed": 0, "passed": 44, "skipped": 5 },
+  "by_stage": {
+    "store": 10,
+    "route": 10,
+    "plan": 10,
+    "render": 10,
+    "deliver": 10
+  },
+  "by_route": { "bot-to-radio": { "events": 10, "succeeded": 9, "failed": 1 } },
+  "errors": ["replay_capacity_exceeded for event evt_def456"],
+  "elapsed_ms": 45.6
 }
 ```
 
@@ -552,12 +569,17 @@ FROM delivery_receipts
 WHERE source = 'replay' AND next_retry_at IS NOT NULL;
 ```
 
-If you see replay-created retry receipts and duplicate delivery is unacceptable, clear them:
+If replay-created retry receipts appear and duplicate delivery is a concern,
+use query-time filtering or narrow the replay scope rather than mutating
+receipt rows:
 
-```sql
-UPDATE delivery_receipts SET next_retry_at = NULL
-WHERE source = 'replay' AND next_retry_at IS NOT NULL;
-```
+- Filter replay-origin rows at query time:
+  ```sql
+  SELECT * FROM delivery_receipts
+  WHERE source <> 'replay' OR source IS NULL;
+  ```
+- Narrow replay scope before running replay (use `--route-ids`, `--target-adapters`, or `--limit`).
+- Leave `next_retry_at` values intact — `delivery_receipts` rows are append-only evidence.
 
 ## Recovery Commands Quick Reference
 

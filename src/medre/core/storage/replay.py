@@ -18,10 +18,13 @@ BEST_EFFORT delivery semantics
 .. important::
 
    BEST_EFFORT replay incurs the **same duplicate-send risk as all adapter
-   transports**.  Every BEST_EFFORT delivery creates *new* ``DeliveryReceipt``
-   and ``NativeMessageRef`` records in storage.  **Traceability is not
-   deduplication** — replay may produce duplicate sends, and no storage-level
-   deduplication prevents this.
+   transports**.  BEST_EFFORT delivery creates new ``DeliveryReceipt``
+   records for adapter delivery attempts.  It **may** create
+   ``NativeMessageRef`` records when adapter delivery returns native
+   identifiers.  Native refs are not directly source-tagged; correlate
+   via delivery receipts.  **Traceability is not deduplication** — replay
+   may produce duplicate sends, and no storage-level deduplication
+   prevents this.
 
    ``DeliveryReceipt`` records produced by BEST_EFFORT replay **are
    distinguishable** from live (non-replay) records: each receipt carries
@@ -38,23 +41,23 @@ BEST_EFFORT delivery semantics
 
 Mode guarantees
 ---------------
-+------------+----------+--------+---------+---------+-------------------+
-| Mode       | Store    | Route  | Render  | Deliver | Side effects      |
-+============+==========+========+=========+=========+===================+
-| STRICT     | verify   | --     | --      | --      | None (read-only)  |
-+------------+----------+--------+---------+---------+-------------------+
-| RE_RENDER  | verify   | --     | capture | --      | None (read-only)  |
-+------------+----------+--------+---------+---------+-------------------+
-| RE_ROUTE   | verify   | route  | --      | --      | None (read-only)  |
-+------------+----------+--------+---------+---------+-------------------+
-| BEST_EFFORT| verify   | route  | render  | deliver | Adapter delivery  |
-+------------+----------+--------+---------+---------+-------------------+
++------------+----------+--------+------+---------+---------+-------------------+
+| Mode       | Store    | Route  | Plan | Render  | Deliver | Side effects      |
++============+==========+========+======+=========+=========+===================+
+| STRICT     | verify   | --     | --   | --      | --      | None (read-only)  |
++------------+----------+--------+------+---------+---------+-------------------+
+| RE_RENDER  | verify   | --     | --   | capture | --      | None (read-only)  |
++------------+----------+--------+------+---------+---------+-------------------+
+| RE_ROUTE   | verify   | route  | plan | --      | --      | None (read-only)  |
++------------+----------+--------+------+---------+---------+-------------------+
+| BEST_EFFORT| verify   | route  | plan | render  | deliver | Adapter delivery  |
++------------+----------+--------+------+---------+---------+-------------------+
 |            | Receipts carry ``source="replay"`` + ``replay_run_id``.       |
 |            | Native refs correlate via receipt ``event_id`` linkage.       |
 |            | Traceability ≠ dedupe; duplicate-send risk applies.          |
-+------------+----------+--------+---------+---------+-------------------+
-| DRY_RUN    | verify   | route  | capture | skip    | None (read-only)  |
-+------------+----------+--------+---------+---------+-------------------+
++------------+----------+--------+------+---------+---------+-------------------+
+| DRY_RUN    | verify   | route  | plan | capture | skip    | None (read-only)  |
++------------+----------+--------+------+---------+---------+-------------------+
 
 Public symbols
 --------------
@@ -1010,8 +1013,7 @@ class ReplayEngine:
             async for event_id, event in self._iter_by_ids(request):
                 if self._cancel_event.is_set():
                     _logger.info(
-                        "Replay cancelled — skipping remaining %d event(s)",
-                        len(request.correlation_ids) - sum(1 for _ in []),
+                        "Replay cancelled — stopping correlation-id iteration",
                     )
                     return
                 if event is None:
