@@ -345,7 +345,7 @@ Optional, configurable `max_attempts`. Not enabled by default.
 
 ## 12. Tranche 4 Resolution (2026-05-26)
 
-Tranche 4 (`t4-meshcore-maturation`) resolved several scaffold items from section 11 through lifecycle hardening in `MeshCoreSession` and renderer byte budget verification. No production adapter code was changed; only tests and docs were updated.
+Tranche 4 (`t4-meshcore-maturation`) resolved several scaffold items from section 11 through lifecycle hardening in `MeshCoreSession` and renderer byte budget verification. Production session code was hardened (reconnect, error classification, callback normalization); no new adapter features were added.
 
 ### 12.1 Gaps Closed
 
@@ -374,7 +374,7 @@ All items from section 9 remain unverified. Tranche 4 added no hardware validati
 
 ### 12.4 Tranche 6 Resolution (2026-05-26)
 
-Tranche 6 (`t6-evidence-diagnostics`) added session hardening tests and doc cleanup. No production adapter code was changed beyond session edge-case fixes.
+Tranche 6 (`t6-evidence-diagnostics`) added session hardening: failed-start cleanup via `_cleanup_failed_start()`, sync+async callback docstring accuracy, and corresponding tests. Production session code was modified to fix edge cases in startup cleanup.
 
 #### Gaps Closed
 

@@ -1,6 +1,6 @@
 # LXMF Alpha Operation Runbook
 
-> Last updated: 2026-05-12
+> Last updated: 2026-05-26
 > Scope: Real LXMF/Reticulum Operation Alpha (Track 8) + LXMF Operational Clarification (Track 3)
 > Status: **Alpha. Not production. Not hardened. Not complete.** Fake mode is the default development path. Real Reticulum/LXMF mode is implemented and available when optional dependencies (`pip install lxmf`) and valid configuration are present. It requires a live Reticulum transport to route actual messages.
 

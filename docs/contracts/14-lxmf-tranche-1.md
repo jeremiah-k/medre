@@ -219,11 +219,11 @@ Tranche 5 adds tests verifying that the delivery semantics documented in this co
 
 ### Session Boundary Hardening
 
-5. **Callback dispatch safety.** Tests verify both sync and async message callbacks work correctly through `inject_inbound()`. Async callbacks are scheduled on the running event loop; sync callbacks are called directly. Callback exceptions do not crash the session.
+1. **Callback dispatch safety.** Tests verify both sync and async message callbacks work correctly through `inject_inbound()`. Async callbacks are scheduled on the running event loop; sync callbacks are called directly. Callback exceptions do not crash the session.
 
-6. **Concurrent send isolation.** Concurrent `send_text()` calls produce distinct message IDs with no tracking corruption.
+2. **Concurrent send isolation.** Concurrent `send_text()` calls produce distinct message IDs with no tracking corruption.
 
-7. **Unknown message hash safety.** Delivery callbacks for untracked hashes are silently ignored — no crash, no tracking corruption.
+3. **Unknown message hash safety.** Delivery callbacks for untracked hashes are silently ignored — no crash, no tracking corruption.
 
 ### Source Changes in Tranche 5
 

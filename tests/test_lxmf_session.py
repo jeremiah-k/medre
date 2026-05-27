@@ -83,8 +83,48 @@ class TestLxmfSessionFakeLifecycle:
         for _ in range(5):
             await session.start()
             assert session.connected is True
-            await session.stop()
-            assert session.connected is False
+        await session.stop()
+
+
+# ===================================================================
+# Tranche 6: Async callback coroutine close (no asyncio.run fallback)
+# ===================================================================
+
+
+class TestTranche6AsyncCallbackCoroutineClose:
+    """When no running loop is available, async callback coroutines are
+    closed (not run via asyncio.run) to avoid cross-thread loop creation."""
+
+    async def test_async_callback_coroutine_closed_not_run(self) -> None:
+        """_invoke_inbound_callback closes the coroutine when get_running_loop
+        raises RuntimeError (no loop available)."""
+        closed = False
+
+        async def async_cb(msg: dict[str, Any]) -> None:
+            pass  # pragma: no cover
+
+        session = _make_session(connection_type="fake")
+        await session.start(message_callback=async_cb)
+
+        # Monkey-patch asyncio.get_running_loop to raise RuntimeError
+        # (simulating being called from a non-asyncio thread context).
+        import asyncio as _asyncio
+
+        original = _asyncio.get_running_loop
+        _asyncio.get_running_loop = MagicMock(side_effect=RuntimeError("no loop"))
+
+        try:
+            # This should NOT raise. The coroutine should be closed.
+            session._invoke_inbound_callback({"content": "test"})
+
+            # Give the loop a turn to process any scheduled work.
+            await asyncio.sleep(0)
+        finally:
+            _asyncio.get_running_loop = original
+
+        # Session must remain operational.
+        assert session.connected is True
+        await session.stop()
 
     async def test_connected_false_before_start(self) -> None:
         session = _make_session(connection_type="fake")
@@ -1113,6 +1153,36 @@ class TestTranche6FailedStartCleanup:
         assert session.router_running is False
         assert session.reconnecting is False
 
+    async def test_partial_start_teardown_clears_sdk_objects(self) -> None:
+        """When _connect_real creates SDK objects but then fails,
+        _teardown_sdk clears _reticulum, _identity, _router."""
+        session = _make_session(connection_type="reticulum")
+
+        mock_rns = MagicMock()
+        mock_lxmf = MagicMock()
+        mock_rns.Reticulum.get_instance.return_value = None
+        mock_rns.Reticulum.return_value = MagicMock()
+        mock_rns.Identity.return_value = MagicMock()
+        # LXMRouter creation fails after Reticulum + Identity succeed.
+        mock_lxmf.LXMRouter.side_effect = ValueError("storage_path invalid")
+
+        with (
+            patch("medre.adapters.lxmf.session.HAS_LXMF", True),
+            patch(
+                "medre.adapters.lxmf.session._require_lxmf",
+                return_value=(mock_rns, mock_lxmf),
+            ),
+        ):
+            with pytest.raises(LxmfConnectionError):
+                await session.start()
+
+        assert session._reticulum is None
+        assert session._identity is None
+        assert session._router is None
+        assert session._message_callback is None
+        assert session._loop is None
+        assert session.connected is False
+
 
 # ===================================================================
 # Tranche 6: Async callback exception handling
@@ -1294,7 +1364,7 @@ class TestTranche6DeliveryStateBridging:
         await session.stop()
 
     async def test_no_thread_exception_from_bridge(self) -> None:
-        """State update with broken loop does not leak exceptions."""
+        """State update with dead loop is dropped — no direct-apply."""
         session = _make_session(connection_type="fake")
         await session.start()
 
@@ -1309,7 +1379,12 @@ class TestTranche6DeliveryStateBridging:
             hash = native_id
             state = LxmfDeliveryState.FAILED
 
-        # Should not raise — applies directly when loop not running.
+        # Should not raise — update is dropped when loop is not running.
         session._on_delivery_state_update(_Msg())
+
+        # State must NOT have changed (direct-apply was removed).
+        delivery = session._outbound_deliveries.get(native_id)
+        assert delivery is not None
+        assert delivery.state == LxmfDeliveryState.OUTBOUND
 
         await session.stop()

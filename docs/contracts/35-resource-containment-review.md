@@ -6,7 +6,7 @@
 > **Last reviewed:** 2026-05-24
 >
 > Contract version: 1
-> Last updated: 2026-05-10
+> Last updated: 2026-05-26
 > Track: 9 (Transport Capability Contracts)
 > Supplements: Contracts 31 (session boundary), 33 (failure taxonomy).
 > Status: Review. Documents resource containment risks and mitigations per session.

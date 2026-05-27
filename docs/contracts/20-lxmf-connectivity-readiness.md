@@ -6,7 +6,7 @@
 > **Last reviewed:** 2026-05-24
 >
 > Contract version: 2
-> Last updated: 2026-05-12
+> Last updated: 2026-05-26
 > Track: 1 (Contract)
 > Supersedes: Nothing. Supplements contracts 13, 14, 16, 18.
 

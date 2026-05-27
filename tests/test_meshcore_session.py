@@ -731,6 +731,56 @@ class TestMockedSDKStartupFailureCleanup:
         assert session._meshcore is None
         assert session.connected is False
 
+    async def test_subscription_failure_cleans_up(self) -> None:
+        """When subscribe raises after connection succeeds, full cleanup occurs.
+
+        The client is created successfully but event subscription fails.
+        _cleanup_failed_start must clear _meshcore, _message_callback,
+        subscriptions, and connected flag.
+        """
+        mock_mc, mock_inst = _build_mock_meshcore_module()
+        # Make subscribe raise after connection succeeds.
+        mock_inst.subscribe.side_effect = RuntimeError("subscription failed")
+
+        config = _make_config(
+            connection_type="tcp",
+            host="localhost",
+        )
+        session = MeshCoreSession(config, "sub-fail-test")
+
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            with pytest.raises(RuntimeError, match="subscription failed"):
+                await session.start(lambda pkt: None)
+
+        # Full cleanup: meshcore client released, callback cleared,
+        # connected flag false, subscriptions empty.
+        assert session._meshcore is None
+        assert session._message_callback is None
+        assert session.connected is False
+        assert session.reconnecting is False
+        assert len(session._subscriptions) == 0
+
+    async def test_connect_failure_clears_callback(self) -> None:
+        """Failed connection clears _message_callback via _cleanup_failed_start."""
+        mock_mc, mock_inst = _build_mock_meshcore_module()
+        mock_mc.MeshCore.create_tcp.side_effect = OSError("connection refused")
+
+        config = _make_config(connection_type="tcp", host="unreachable")
+        session = MeshCoreSession(config, "cb-fail-test")
+
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            with pytest.raises(MeshCoreConnectionError):
+                await session.start(lambda pkt: None)
+
+        assert session._message_callback is None
+        assert session._started is False
+
 
 class TestMockedSDKDisconnectIdempotent:
     """Verify stop()/disconnect is idempotent with mocked SDK."""
@@ -808,13 +858,13 @@ class TestMockedSDKBLEStartup:
 
         assert mock_inst.subscribe.call_count == 3
 
-        # Verify exact event types subscribed.
+        # Verify exact event types subscribed (order-insensitive).
         subscribed_types = [call.args[0] for call in mock_inst.subscribe.call_args_list]
-        assert subscribed_types == [
+        assert set(subscribed_types) == {
             _MockEventType.CONTACT_MSG_RECV,
             _MockEventType.CHANNEL_MSG_RECV,
             _MockEventType.DISCONNECTED,
-        ]
+        }
 
         await session.stop()
 

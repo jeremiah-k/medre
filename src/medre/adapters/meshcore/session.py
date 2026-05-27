@@ -239,10 +239,11 @@ class MeshCoreSession:
         Parameters
         ----------
         message_callback:
-            Async callable invoked with a plain dict for each inbound
-            message.  The dict contains native MeshCore payload fields
-            (``text``, ``pubkey_prefix``, ``sender_timestamp``, ``type``,
-            ``channel_idx``, etc.) — **not** the SDK ``Event`` object.
+            Sync or async callable invoked with a plain dict for each
+            inbound message.  The dict contains native MeshCore payload
+            fields (``text``, ``pubkey_prefix``, ``sender_timestamp``,
+            ``type``, ``channel_idx``, etc.) — **not** the SDK ``Event``
+            object.
 
         Raises
         ------
@@ -263,9 +264,9 @@ class MeshCoreSession:
             try:
                 await self._connect_real()
             except Exception:
-                # Connect failed — clear callback so diagnostics and
+                # Connect failed — full cleanup so diagnostics and
                 # late SDK events don't reference stale state.
-                self._message_callback = None
+                self._cleanup_failed_start()
                 raise
 
         self._started = True
@@ -389,6 +390,30 @@ class MeshCoreSession:
     # Private — real connection
     # ==================================================================
 
+    def _cleanup_failed_start(self) -> None:
+        """Full cleanup after a failed start().
+
+        Clears all partial state so diagnostics and late SDK events
+        cannot reference stale SDK objects or flags.  Preserves
+        ``last_error`` for diagnostics.
+        """
+        self._message_callback = None
+        self._diag.connected = False
+        self._diag.reconnecting = False
+        self._subscriptions.clear()
+        if self._meshcore is not None:
+            try:
+                # Best-effort async disconnect — if we're in an except
+                # block the meshcore may still be valid.  Schedule but
+                # don't await since we may not have a running loop.
+                import asyncio
+
+                loop = asyncio.get_running_loop()
+                loop.create_task(self._meshcore.disconnect())
+            except Exception:
+                pass
+            self._meshcore = None
+
     async def _connect_real(self) -> None:
         """Create a real SDK client, connect, and subscribe to events."""
         if not HAS_MESHCORE:
@@ -454,11 +479,24 @@ class MeshCoreSession:
                 f"Failed to connect ({self._config.connection_type}): {exc}"
             ) from exc
 
-        self._diag.connected = True
+        # Connection succeeded — now subscribe to events.
+        # If subscription fails, clean up the client before propagating.
         self._diag.reconnect_attempts = 0
+        try:
+            self._subscribe_events(mc)
+        except Exception:
+            # Subscription failure after successful client creation.
+            if self._meshcore is not None:
+                try:
+                    await self._meshcore.disconnect()
+                except Exception:
+                    pass
+                self._meshcore = None
+            self._subscriptions.clear()
+            raise
 
-        # Subscribe to inbound events.
-        self._subscribe_events(mc)
+        # Only mark connected AFTER subscriptions succeed.
+        self._diag.connected = True
 
     def _subscribe_events(self, mc: Any) -> None:
         """Subscribe to SDK event types for inbound messages + disconnects."""
