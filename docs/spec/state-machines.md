@@ -172,7 +172,7 @@ The outbox state machine has eight statuses:
 | —             | `in_progress`   | `create_outbox_item()`        | Pipeline claims delivery slot          |
 | `in_progress` | `queued`        | `mark_outbox_queued()`        | Adapter-local queue acceptance         |
 | `in_progress` | `pending`       | `release_outbox_claim()`      | Worker releases claim without delivery |
-| `in_progress` | `sent`          | `mark_outbox_sent()`          | Adapter confirms delivery              |
+| `in_progress` | `sent`          | `mark_outbox_sent()`          | Adapter reports successful handoff      |
 | `queued`      | `sent`          | `mark_outbox_sent()`          | Queue-based adapter confirms send      |
 | `in_progress` | `retry_wait`    | `mark_outbox_retry_wait()`    | Transient failure, retry scheduled     |
 | `in_progress` | `dead_lettered` | `mark_outbox_dead_lettered()` | Terminal failure or no retry policy    |
@@ -186,6 +186,7 @@ The outbox state machine has eight statuses:
 | `retry_wait`  | `abandoned`     | `mark_outbox_abandoned()`     | Drain timeout or ambiguous loss        |
 | `queued`      | `abandoned`     | `mark_outbox_abandoned()`     | Drain timeout or ambiguous loss        |
 | `retry_wait`  | `in_progress`   | `claim_due_outbox_items()`    | Retry worker reclaims the item         |
+| `pending`     | `in_progress`   | `claim_due_outbox_items()`    | Worker claims pending outbox item      |
 
 Terminal statuses (`sent`, `dead_lettered`, `cancelled`, `abandoned`) have no
 outgoing transitions. The storage layer enforces `allowed_from` guards on

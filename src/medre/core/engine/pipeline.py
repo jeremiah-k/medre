@@ -10,14 +10,12 @@ the framework's subsystems into a coherent processing pipeline:
 
 Pipeline stages
 ---------------
-1. **Ingress** – validate and accept an inbound event.
-2. **Store** – persist the event via the storage backend.
-3. **Route** – match the event against registered routes.
-4. **Plan** – create a :class:`DeliveryPlan` for each route target,
-   resolving capability fallbacks.
-5. **Deliver** – hand the event to the target adapter.
-6. **Receipt** – record a :class:`DeliveryReceipt` and store the native
-   message mapping.
+1. **Ingress** – validate required fields on inbound events.
+2. **Dedup** – suppress duplicate native-message refs.
+3. **Resolve Relations** – cross-adapter relation resolution.
+4. **Store** – persist the event and inbound native ref.
+5. **Route** – match against routes, create delivery plans.
+6. **Deliver** – per-target render, send, receipt, outbox update.
 """
 
 from __future__ import annotations

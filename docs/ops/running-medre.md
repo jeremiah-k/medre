@@ -204,8 +204,7 @@ queued → sent
 | `sent`          | Adapter reported successful handoff to transport. See per-transport table for what this means. |
 | `failed`        | Adapter reported delivery failure. Classified by `failure_kind`.                               |
 | `dead_lettered` | Exhausted all retries. Permanently failed.                                                     |
-| `suppressed`    | Terminal — delivery denied by policy (loop prevention, route policy, capacity rejection).      |
-| `suppressed`    | Delivery denied by policy (loop prevention, capacity, or shutdown).                            |
+| `suppressed`    | Terminal — delivery denied by policy (loop prevention, route policy, capacity, shutdown).     |
 
 Each receipt carries `attempt_number` and `parent_receipt_id` forming a retry lineage. The `source` column distinguishes origin: `"live"`, `"retry"`, or `"replay"`.
 
