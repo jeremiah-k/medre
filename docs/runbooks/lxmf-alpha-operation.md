@@ -1063,7 +1063,7 @@ Source changes affect runtime behaviour: the threading bridge now uses `call_soo
 | `TestTranche6NoCallbackWithoutLoop`  | No callback when loop=None or not running, warning logged            |
 | `TestTranche6DeliveryStateBridging`  | State update via bridge works, unknown hash ignored, no thread error |
 
-### What Was Not Done
+### Tranche 6: What Was Not Done
 
 - No live Reticulum testing performed.
 - No status changes in the capability matrix.
