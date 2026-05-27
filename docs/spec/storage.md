@@ -392,9 +392,9 @@ CREATE TABLE delivery_receipts (
 
 `sequence` provides a strictly monotonic append order. It is used by the `delivery_status` view to deterministically find the latest receipt, avoiding timestamp collisions.
 
-**Status values:** `accepted`, `queued`, `sent`, `confirmed`, `suppressed`, `failed`, `dead_lettered`.
+**Status values:** `queued`, `sent`, `suppressed`, `failed`, `dead_lettered`.
 
-`confirmed` (not `acknowledged`) is the status for transport-level acknowledgement. `suppressed` covers loop/capacity/shutdown rejection receipts.
+`suppressed` covers loop/capacity/shutdown rejection receipts.
 
 `target_channel` carries the target channel/room/topic from the `RouteTarget`. `NULL` if the route target does not specify a channel.
 

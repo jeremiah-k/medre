@@ -566,9 +566,10 @@ class TestReplayImmutability:
 
     @pytest.mark.xfail(
         reason=(
-            "Requires ReplayEngine integration. The pipeline-level replay "
-            "approximation is tested separately in "
-            "test_replay_pipeline_integration.py."
+            "Second handle_ingress() with the same event_id raises "
+            "DuplicateEventError. Replay semantics require a separate "
+            "replay path that re-uses existing events. See "
+            "test_replay_pipeline_integration.py for the real replay path."
         ),
         strict=False,
     )

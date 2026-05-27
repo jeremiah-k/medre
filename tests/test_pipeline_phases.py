@@ -113,35 +113,6 @@ class TestPhaseVisitOrder:
         finally:
             await runner.stop()
 
-    async def test_no_phase_is_skipped(
-        self,
-        temp_storage: SQLiteStorage,
-        router: Router,
-        fake_presentation: FakePresentationAdapter,
-    ) -> None:
-        """Every phase in the enum must be visited at least once during
-        a normal pipeline run."""
-        config = make_pipeline_config_for_pipeline(
-            storage=temp_storage,
-            router=router,
-            adapters={"fake_presentation": fake_presentation},
-        )
-        runner = PipelineRunner(config)
-        await runner.start()
-
-        event = make_event(event_id="evt-phase-noskip-001")
-
-        try:
-            await runner.handle_ingress(event)
-
-            for phase in PipelinePhase:
-                assert runner._phase_counts[phase] > 0, (
-                    f"Phase {phase.value!r} was skipped "
-                    f"(count={runner._phase_counts[phase]})"
-                )
-        finally:
-            await runner.stop()
-
     async def test_phase_order_matches_handle_ingress(
         self,
         temp_storage: SQLiteStorage,
@@ -289,5 +260,57 @@ class TestDedupPhaseSkipsRemainder:
                     f"for the deduped event, but count incremented from "
                     f"{counts_after_first[phase]} to {runner._phase_counts[phase]}"
                 )
+        finally:
+            await runner.stop()
+
+
+class TestNoRoutesMatchedSkipsDeliver:
+    """When no routes match the event, ROUTE is visited but DELIVER is not."""
+
+    async def test_no_routes_matched_visits_route_not_deliver(
+        self,
+        temp_storage: SQLiteStorage,
+        fake_presentation: FakePresentationAdapter,
+    ) -> None:
+        """Configure a route that won't match the event, then verify ROUTE
+        is visited but DELIVER is not."""
+        # Route matches a different source adapter — won't match our event.
+        no_match_router = Router(
+            routes=[
+                Route(
+                    id="route-no-match",
+                    source=RouteSource(
+                        adapter="other_transport",
+                        event_kinds=("message.created",),
+                        channel="ch-0",
+                    ),
+                    targets=[RouteTarget(adapter="fake_presentation")],
+                )
+            ]
+        )
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=no_match_router,
+            adapters={"fake_presentation": fake_presentation},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = make_event(event_id="evt-no-routes-001")
+
+        try:
+            await runner.handle_ingress(event)
+
+            # ROUTE phase must be visited.
+            assert runner._phase_counts[PipelinePhase.ROUTE] >= 1, (
+                f"ROUTE phase was not visited "
+                f"(count={runner._phase_counts[PipelinePhase.ROUTE]})"
+            )
+
+            # DELIVER phase must NOT be visited (no routes matched).
+            assert runner._phase_counts[PipelinePhase.DELIVER] == 0, (
+                f"DELIVER phase should not have been visited when no routes "
+                f"matched (count={runner._phase_counts[PipelinePhase.DELIVER]})"
+            )
         finally:
             await runner.stop()

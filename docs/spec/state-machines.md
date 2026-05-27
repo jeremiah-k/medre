@@ -93,12 +93,13 @@ creates a new receipt row with `status="suppressed"` instead of mutating the
 original receipt. The `next_retry_at` field is populated only at receipt
 creation time and is never modified.
 
-### 1.6 Receipt Statuses Not in Active Use
+### 1.6 Removed Statuses
 
-The `DeliveryReceipt` type definition includes `"accepted"` and `"confirmed"`
-in its status literal. These statuses are reserved for future use and are not
-produced by any current code path. They MUST NOT be treated as valid current
-statuses for conformance or diagnostic purposes.
+The receipt statuses `"accepted"` and `"confirmed"` were removed from the
+`DeliveryReceipt.status` Literal during runtime core stabilization (2026-05-27).
+Neither status was ever created by any pipeline code path, and `"confirmed"`
+was never emitted by any adapter. Their removal simplifies the state machine
+without removing any implemented behavior.
 
 ---
 
@@ -165,24 +166,25 @@ The outbox state machine has eight statuses:
 
 ### 2.3 Legal Transitions
 
-| From          | To              | Method                        | Condition                           |
-| ------------- | --------------- | ----------------------------- | ----------------------------------- |
-| —             | `in_progress`   | `create_outbox_item()`        | Pipeline claims delivery slot       |
-| `in_progress` | `queued`        | `mark_outbox_queued()`        | Adapter-local queue acceptance      |
-| `in_progress` | `sent`          | `mark_outbox_sent()`          | Adapter confirms delivery           |
-| `queued`      | `sent`          | `mark_outbox_sent()`          | Queue-based adapter confirms send   |
-| `in_progress` | `retry_wait`    | `mark_outbox_retry_wait()`    | Transient failure, retry scheduled  |
-| `in_progress` | `dead_lettered` | `mark_outbox_dead_lettered()` | Terminal failure or no retry policy |
-| `retry_wait`  | `dead_lettered` | `mark_outbox_dead_lettered()` | Terminal failure after retry        |
-| `pending`     | `cancelled`     | `mark_outbox_cancelled()`     | Operator or shutdown cancellation   |
-| `in_progress` | `cancelled`     | `mark_outbox_cancelled()`     | Operator or shutdown cancellation   |
-| `retry_wait`  | `cancelled`     | `mark_outbox_cancelled()`     | Operator or shutdown cancellation   |
-| `queued`      | `cancelled`     | `mark_outbox_cancelled()`     | Operator or shutdown cancellation   |
-| `pending`     | `abandoned`     | `mark_outbox_abandoned()`     | Drain timeout or ambiguous loss     |
-| `in_progress` | `abandoned`     | `mark_outbox_abandoned()`     | Drain timeout or ambiguous loss     |
-| `retry_wait`  | `abandoned`     | `mark_outbox_abandoned()`     | Drain timeout or ambiguous loss     |
-| `queued`      | `abandoned`     | `mark_outbox_abandoned()`     | Drain timeout or ambiguous loss     |
-| `retry_wait`  | `in_progress`   | `claim_due_outbox_items()`    | Retry worker reclaims the item      |
+| From          | To              | Method                        | Condition                              |
+| ------------- | --------------- | ----------------------------- | -------------------------------------- |
+| —             | `in_progress`   | `create_outbox_item()`        | Pipeline claims delivery slot          |
+| `in_progress` | `queued`        | `mark_outbox_queued()`        | Adapter-local queue acceptance         |
+| `in_progress` | `pending`       | `release_outbox_claim()`      | Worker releases claim without delivery |
+| `in_progress` | `sent`          | `mark_outbox_sent()`          | Adapter confirms delivery              |
+| `queued`      | `sent`          | `mark_outbox_sent()`          | Queue-based adapter confirms send      |
+| `in_progress` | `retry_wait`    | `mark_outbox_retry_wait()`    | Transient failure, retry scheduled     |
+| `in_progress` | `dead_lettered` | `mark_outbox_dead_lettered()` | Terminal failure or no retry policy    |
+| `retry_wait`  | `dead_lettered` | `mark_outbox_dead_lettered()` | Terminal failure after retry           |
+| `pending`     | `cancelled`     | `mark_outbox_cancelled()`     | Operator or shutdown cancellation      |
+| `in_progress` | `cancelled`     | `mark_outbox_cancelled()`     | Operator or shutdown cancellation      |
+| `retry_wait`  | `cancelled`     | `mark_outbox_cancelled()`     | Operator or shutdown cancellation      |
+| `queued`      | `cancelled`     | `mark_outbox_cancelled()`     | Operator or shutdown cancellation      |
+| `pending`     | `abandoned`     | `mark_outbox_abandoned()`     | Drain timeout or ambiguous loss        |
+| `in_progress` | `abandoned`     | `mark_outbox_abandoned()`     | Drain timeout or ambiguous loss        |
+| `retry_wait`  | `abandoned`     | `mark_outbox_abandoned()`     | Drain timeout or ambiguous loss        |
+| `queued`      | `abandoned`     | `mark_outbox_abandoned()`     | Drain timeout or ambiguous loss        |
+| `retry_wait`  | `in_progress`   | `claim_due_outbox_items()`    | Retry worker reclaims the item         |
 
 Terminal statuses (`sent`, `dead_lettered`, `cancelled`, `abandoned`) have no
 outgoing transitions. The storage layer enforces `allowed_from` guards on
