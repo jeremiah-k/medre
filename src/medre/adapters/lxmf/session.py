@@ -1017,7 +1017,7 @@ class LxmfSession:
             return
 
         loop = self._loop
-        if loop is None or not loop.is_running():
+        if loop is None or loop.is_closed() or not loop.is_running():
             # Loop not captured or already closed — drop the update.
             # Direct mutation from a Reticulum thread is forbidden.
             self._logger.debug(

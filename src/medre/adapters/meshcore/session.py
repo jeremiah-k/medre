@@ -406,7 +406,6 @@ class MeshCoreSession:
                 # Best-effort async disconnect — if we're in an except
                 # block the meshcore may still be valid.  Schedule but
                 # don't await since we may not have a running loop.
-                import asyncio
 
                 loop = asyncio.get_running_loop()
                 loop.create_task(self._meshcore.disconnect())

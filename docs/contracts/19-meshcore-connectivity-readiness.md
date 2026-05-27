@@ -498,8 +498,7 @@ default_channel: int = 0
 
 Missing config fields that would be needed:
 
-- `ble_address` and `ble_pin` for BLE connections.
-- `auto_reconnect` and `max_reconnect_attempts`.
+- `auto_reconnect` and `max_reconnect_attempts` (not configurable; hardcoded in session).
 - `default_timeout` for command timeouts (SDK default: 15.0 seconds).
 - `cx_dly` for serial connection delay (SDK default: 0.1 in create_serial).
 - `debug` and `only_error` for logging control.
@@ -535,7 +534,7 @@ These protocols are not compatible at the wire level. Bridging would require app
 4. ~~Wire `deliver()` to `send_msg()` or `send_chan_msg()`.~~ Done in `MeshCoreSession` (source-audited, mock-tested).
 5. Extract `expected_ack` as `native_message_id` from `send_msg` results.
 6. Implement ACK watching for delivery confirmation.
-7. Add `ble_address`, `ble_pin`, `auto_reconnect`, `default_timeout` to config.
+7. Add `ble_pin`, `auto_reconnect`, `default_timeout` to config (``ble_address`` already present).
 8. Verify packet shapes against real hardware output.
 
 ### 8.2 Readiness Ranking
