@@ -818,15 +818,16 @@ The canonical event log supports replaying events through the pipeline. Replay i
 ### 13.2 Replay Modes
 
 All modes always include the **store** stage (event integrity verification). The
-listed target stages are the mode-specific stages beyond the baseline.
+listed target_stages are the complete stage sets including the store baseline
+plus any mode-specific stages.
 
-| Mode          | target_stages                          | Description                                                    |
-| ------------- | -------------------------------------- | -------------------------------------------------------------- |
-| `STRICT`      | store                                  | Verify event integrity only; no routing, rendering, or delivery |
-| `RE_RENDER`   | store, render                          | Re-run rendering for existing events; no routing or delivery    |
-| `RE_ROUTE`    | store, route, plan                     | Re-evaluate routing against current routes; no delivery         |
-| `BEST_EFFORT` | store, route, plan, render, deliver    | Full pipeline re-execution; produces real deliveries and receipts |
-| `DRY_RUN`     | store, route, plan, render, deliver    | Full pipeline re-execution; delivery stage returns skipped      |
+| Mode          | target_stages                       | Description                                                       |
+| ------------- | ----------------------------------- | ----------------------------------------------------------------- |
+| `STRICT`      | store                               | Verify event integrity only; no routing, rendering, or delivery   |
+| `RE_RENDER`   | store, render                       | Re-run rendering for existing events; no routing or delivery      |
+| `RE_ROUTE`    | store, route, plan                  | Re-evaluate routing against current routes; no delivery           |
+| `BEST_EFFORT` | store, route, plan, render, deliver | Full pipeline re-execution; produces real deliveries and receipts |
+| `DRY_RUN`     | store, route, plan, render, deliver | Full pipeline re-execution; delivery stage returns skipped        |
 
 ### 13.3 Replay Receipt Traceability
 

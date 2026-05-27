@@ -380,9 +380,7 @@ class TestOrphanEventReplay:
     """
 
     @pytest.mark.asyncio
-    async def test_best_effort_delivers_orphan_event(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_best_effort_delivers_orphan_event(self, tmp_path: Path) -> None:
         """BEST_EFFORT replay delivers an orphan event and creates a receipt.
 
         Seed an event directly into storage (no receipt), then replay it
@@ -452,9 +450,7 @@ class TestOrphanEventReplay:
         await storage.close()
 
     @pytest.mark.asyncio
-    async def test_dry_run_does_not_deliver_orphan(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_dry_run_does_not_deliver_orphan(self, tmp_path: Path) -> None:
         """DRY_RUN replay finds the orphan but suppresses delivery.
 
         Seed an orphan event, replay in DRY_RUN mode.  Assert:

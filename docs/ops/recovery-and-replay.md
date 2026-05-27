@@ -340,12 +340,12 @@ inspection commands (`inspect`, `trace`, `evidence`).
 
 Additional flags:
 
-| Flag                              | Description                                         |
-| --------------------------------- | --------------------------------------------------- |
-| `--target-adapters ADAPTER [...]` | Only replay events targeting these adapter(s)       |
-| `--route-ids ROUTE [...]`         | Only replay events that matched these route ID(s)   |
-| `--limit INT`                     | Maximum events to replay (default 100)              |
-| `--json`                          | Output as JSON                                      |
+| Flag                              | Description                                       |
+| --------------------------------- | ------------------------------------------------- |
+| `--target-adapters ADAPTER [...]` | Only replay events targeting these adapter(s)     |
+| `--route-ids ROUTE [...]`         | Only replay events that matched these route ID(s) |
+| `--limit INT`                     | Maximum events to replay (default 100)            |
+| `--json`                          | Output as JSON                                    |
 
 ### Exit Codes
 
