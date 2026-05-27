@@ -334,6 +334,10 @@ medre replay --mode <mode> [--event <event_id>] --config my-bridge.toml
 | `--event`  | No       | Specific event ID to replay. If omitted, replays all events in storage. |
 | `--config` | Yes      | Path to TOML config (must use SQLite storage)                           |
 
+Replay requires `--config` for route resolution and pipeline construction.
+`--storage-path` is not supported for replay — it is reserved for read-only
+inspection commands (`inspect`, `trace`, `evidence`).
+
 Additional flags:
 
 | Flag                              | Description                                         |
@@ -341,7 +345,6 @@ Additional flags:
 | `--target-adapters ADAPTER [...]` | Only replay events targeting these adapter(s)       |
 | `--route-ids ROUTE [...]`         | Only replay events that matched these route ID(s)   |
 | `--limit INT`                     | Maximum events to replay (default 100)              |
-| `--storage-path PATH`             | Path to SQLite database (alternative to `--config`) |
 | `--json`                          | Output as JSON                                      |
 
 ### Exit Codes
