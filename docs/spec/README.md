@@ -22,7 +22,6 @@ in a document under this tree.
 4. **Adapter Runtime** (`spec/adapter-runtime.md`) — adapter protocol and lifecycle
 5. **Routing & Delivery** (`spec/routing-delivery.md`) — route matching, fanout, receipts
 6. **Storage** (`spec/storage.md`) — SQLite schema, append-only guarantees, replay
-6. **Storage** (`spec/storage.md`) — SQLite schema, append-only guarantees, replay
 7. **State Machines** (`spec/state-machines.md`) — receipt and outbox transition graphs
 8. **Diagnostics & Evidence** (`spec/diagnostics-evidence.md`) — observability, snapshots
 9. **Transport Profiles** (`spec/transport-profiles/`) — per-adapter current-state reference

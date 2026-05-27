@@ -254,6 +254,18 @@ class TestDerivedEventLineage:
                     f"§3.2.3 requires that stored events be original (depth=0) "
                     f"until derived-event stages are implemented."
                 )
+                assert stored_event.lineage == (), (
+                    f"Stored event {stored_event.event_id} has "
+                    f"lineage={stored_event.lineage!r}, "
+                    f"but the pipeline does not produce derived events. "
+                    f"§3.2.3 requires empty lineage for original events."
+                )
+                assert stored_event.depth == 0, (
+                    f"Stored event {stored_event.event_id} has "
+                    f"depth={stored_event.depth}, "
+                    f"but the pipeline only stores originals (depth=0). "
+                    f"§3.2.3 requires depth=0 for all stored events."
+                )
         finally:
             await runner.stop()
 

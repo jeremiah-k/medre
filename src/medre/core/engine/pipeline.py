@@ -28,7 +28,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Literal, cast
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Literal, TypedDict, cast
 
 import msgspec
 
@@ -275,6 +275,13 @@ def _native_metadata_for_ref(event: CanonicalEvent) -> dict[str, object]:
 # ---------------------------------------------------------------------------
 
 
+class PhaseSnapshot(TypedDict):
+    """Stable diagnostic snapshot of pipeline phase instrumentation."""
+
+    current_phase: str | None
+    counts: dict[str, int]
+
+
 class PipelineRunner:
     """Orchestrates the full event pipeline:
 
@@ -328,7 +335,7 @@ class PipelineRunner:
 
     # -- Lifecycle ----------------------------------------------------------
 
-    def phase_snapshot(self) -> dict[str, int | str | None]:
+    def phase_snapshot(self) -> PhaseSnapshot:
         """Return a stable diagnostic snapshot of phase instrumentation.
 
         Returns a dict with:

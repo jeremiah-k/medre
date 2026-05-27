@@ -392,7 +392,7 @@ CREATE TABLE delivery_receipts (
 
 `sequence` provides a strictly monotonic append order. It is used by the `delivery_status` view to deterministically find the latest receipt, avoiding timestamp collisions.
 
-**Status values:** `queued`, `sent`, `suppressed`, `failed`, `dead_lettered`.
+**Status values:** `queued`, `sent`, `failed`, `dead_lettered`, `suppressed`.
 
 `suppressed` covers loop/capacity/shutdown rejection receipts.
 

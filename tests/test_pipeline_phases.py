@@ -58,15 +58,7 @@ class TestPipelinePhaseEnum:
     """Validate the PipelinePhase enum structure."""
 
     def test_phase_enum_matches_implementation(self) -> None:
-        """The PipelinePhase enum must have exactly 6 values."""
-        members = list(PipelinePhase)
-        assert len(members) == 6, (
-            f"PipelinePhase should have exactly 6 members, got {len(members)}: "
-            f"{[m.value for m in members]}"
-        )
-
-    def test_phase_values(self) -> None:
-        """Phase values must match expected names."""
+        """The PipelinePhase enum must have exactly these six values."""
         expected = {
             "ingress",
             "dedup",
@@ -76,7 +68,17 @@ class TestPipelinePhaseEnum:
             "deliver",
         }
         actual = {phase.value for phase in PipelinePhase}
-        assert actual == expected
+        assert actual == expected, (
+            f"PipelinePhase values mismatch.\n"
+            f"  Expected: {sorted(expected)}\n"
+            f"  Actual:   {sorted(actual)}\n"
+            f"  Missing:  {sorted(expected - actual)}\n"
+            f"  Extra:    {sorted(actual - expected)}"
+        )
+        assert len(list(PipelinePhase)) == 6, (
+            f"PipelinePhase should have exactly 6 members, "
+            f"got {len(list(PipelinePhase))}"
+        )
 
 
 class TestPhaseVisitOrder:
@@ -141,17 +143,14 @@ class TestPhaseVisitOrder:
             counts = snapshot["counts"]
 
             # After a successful run, the last phase visited is DELIVER.
-            assert snapshot["current_phase"] == "deliver"
+            assert snapshot["current_phase"] == PipelinePhase.DELIVER.value
 
             # Each phase should have been visited exactly once for a
             # single-event run.
-            for phase_name in (
-                "ingress", "dedup", "resolve_relations",
-                "store", "route", "deliver",
-            ):
-                assert counts[phase_name] == 1, (
-                    f"Expected phase {phase_name!r} count=1, "
-                    f"got {counts[phase_name]}"
+            for phase in PipelinePhase:
+                assert counts[phase.value] == 1, (
+                    f"Expected phase {phase.value!r} count=1, "
+                    f"got {counts[phase.value]}"
                 )
         finally:
             await runner.stop()
@@ -241,15 +240,20 @@ class TestDedupPhaseSkipsRemainder:
             snapshot2 = runner.phase_snapshot()
             counts2 = snapshot2["counts"]
 
-            assert counts2["ingress"] == counts_after_first["ingress"] + 1
-            assert counts2["dedup"] == counts_after_first["dedup"] + 1
+            assert counts2[PipelinePhase.INGRESS.value] == counts_after_first[PipelinePhase.INGRESS.value] + 1
+            assert counts2[PipelinePhase.DEDUP.value] == counts_after_first[PipelinePhase.DEDUP.value] + 1
 
-            # STORE, ROUTE, DELIVER should NOT have incremented.
-            for phase_name in ("store", "route", "deliver"):
-                assert counts2[phase_name] == counts_after_first[phase_name], (
-                    f"Phase {phase_name!r} should not have been visited "
+            # RESOLVE_RELATIONS, STORE, ROUTE, DELIVER should NOT have incremented.
+            for phase in (
+                PipelinePhase.RESOLVE_RELATIONS,
+                PipelinePhase.STORE,
+                PipelinePhase.ROUTE,
+                PipelinePhase.DELIVER,
+            ):
+                assert counts2[phase.value] == counts_after_first[phase.value], (
+                    f"Phase {phase.value!r} should not have been visited "
                     f"for the deduped event, but count incremented from "
-                    f"{counts_after_first[phase_name]} to {counts2[phase_name]}"
+                    f"{counts_after_first[phase.value]} to {counts2[phase.value]}"
                 )
         finally:
             await runner.stop()
@@ -296,15 +300,15 @@ class TestNoRoutesMatchedSkipsDeliver:
             counts = snapshot["counts"]
 
             # ROUTE phase must be visited.
-            assert counts["route"] >= 1, (
+            assert counts[PipelinePhase.ROUTE.value] >= 1, (
                 f"ROUTE phase was not visited "
-                f"(count={counts['route']})"
+                f"(count={counts[PipelinePhase.ROUTE.value]})"
             )
 
             # DELIVER phase must NOT be visited (no routes matched).
-            assert counts["deliver"] == 0, (
+            assert counts[PipelinePhase.DELIVER.value] == 0, (
                 f"DELIVER phase should not have been visited when no routes "
-                f"matched (count={counts['deliver']})"
+                f"matched (count={counts[PipelinePhase.DELIVER.value]})"
             )
         finally:
             await runner.stop()
@@ -357,5 +361,5 @@ class TestValidationFailureRecordsIngressOnly:
         snapshot = runner.phase_snapshot()
         counts = snapshot["counts"]
 
-        assert counts["ingress"] >= 1
-        assert counts["deliver"] >= 1, "Valid event should reach DELIVER"
+        assert counts[PipelinePhase.INGRESS.value] >= 1
+        assert counts[PipelinePhase.DELIVER.value] >= 1, "Valid event should reach DELIVER"
