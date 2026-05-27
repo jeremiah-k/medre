@@ -31,6 +31,8 @@ The adapter delegates all client lifecycle (creation, login, sync, teardown) to 
 
 ## Capabilities
 
+> Capability levels map to the CapabilityLevel enum (adapter-runtime.md §6.2): `"native"` = `TRUE`, `"unsupported"` = `FALSE`.
+
 | Capability        | Value           |
 | ----------------- | --------------- |
 | text              | `True`          |

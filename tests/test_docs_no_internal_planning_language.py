@@ -31,6 +31,8 @@ _SCANNED_DIRS: list[Path] = [
 #: Internal planning terms that must not appear.
 _FORBIDDEN_TERMS: list[re.Pattern[str]] = [
     re.compile(r"\btranche\b", re.IGNORECASE),
+    re.compile(r"\bboulder\b", re.IGNORECASE),
+    re.compile(r"\bsprint\b", re.IGNORECASE),
 ]
 
 

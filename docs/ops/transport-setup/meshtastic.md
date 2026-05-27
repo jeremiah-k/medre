@@ -181,7 +181,7 @@ import logging
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.contracts.adapter import AdapterContext
-from medre.core.events.event_bus import EventBus
+from medre.core.events.bus import EventBus
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mesh-alpha")

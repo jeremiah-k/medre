@@ -32,7 +32,7 @@ Do not treat Docker SDK-boundary evidence as equivalent to external live or hard
 | MeshCore   |    proven     |      proven      |        no Docker setup         |          not claimed          |    not claimed     |
 | LXMF       |    proven     |      proven      |        no Docker setup         |          not claimed          |    not claimed     |
 
-The authoritative per-transport, per-tier evidence matrix with test file cross-references lives in `docs/architecture/transport-validation-matrix.md`.
+The table above is the authoritative per-transport, per-tier evidence matrix.
 
 ## Quick Bundle Collection
 
@@ -326,10 +326,9 @@ PYTHONPATH=src medre smoke --config examples/configs/fake-bridge-smoke.toml
 # Custom message text
 PYTHONPATH=src medre smoke --message "operator check $(date -Iseconds)"
 
-# List available scenarios
-PYTHONPATH=src medre smoke --scenario list
-
-# Run a specific scenario
+# Run a specific scenario (choices: happy_path, renderer_failure,
+# adapter_permanent_failure, adapter_transient_failure, capacity_rejection,
+# degraded_live_health)
 PYTHONPATH=src medre smoke --scenario <name> --json
 ```
 

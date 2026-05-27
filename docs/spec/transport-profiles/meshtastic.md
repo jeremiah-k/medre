@@ -37,6 +37,8 @@ The adapter delegates raw transport lifecycle to `MeshtasticSession`. The sessio
 
 ## Capabilities
 
+> Capability levels map to the CapabilityLevel enum (adapter-runtime.md §6.2): `"native"` = `TRUE`, `"unsupported"` = `FALSE`.
+
 | Capability        | Value                      |
 | ----------------- | -------------------------- |
 | text              | `True`                     |
@@ -183,7 +185,7 @@ The Meshtastic renderer (`MeshtasticRenderer`) produces:
 
 ## Duplicate-Send Risk Level
 
-**Medium.** Queue-based retry with front-requeue can produce duplicates when the first attempt succeeded at the radio level but the response was lost. The SDK does not provide idempotent send IDs. The paced queue (`message_delay_seconds`) does not deduplicate.
+**High.** Queue-based retry with front-requeue can produce duplicates when the first attempt succeeded at the radio level but the response was lost. The SDK does not provide idempotent send IDs. The paced queue (`message_delay_seconds`) does not deduplicate. Consumers must be tolerant of duplicates.
 
 ---
 

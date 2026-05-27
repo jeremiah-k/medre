@@ -111,13 +111,18 @@ export MATRIX_ROOM_ALLOWLIST="!abc123:localhost,!def456:localhost"
 ### Via medre run
 
 ```bash
-export MATRIX_HOMESERVER=http://localhost:8008
-export MATRIX_USER_ID=@bot:localhost
-export MATRIX_ACCESS_TOKEN=syt_xxxxxxxxxxxxx
-export MATRIX_ROOM_ALLOWLIST=!abc123:localhost
+export MEDRE_ADAPTER__BRIDGE__HOMESERVER=http://localhost:8008
+export MEDRE_ADAPTER__BRIDGE__USER_ID=@bot:localhost
+export MEDRE_ADAPTER__BRIDGE__ACCESS_TOKEN=syt_xxxxxxxxxxxxx
+export MEDRE_ADAPTER__BRIDGE__ROOM_ALLOWLIST='["!abc123:localhost"]'
 
 medre run
 ```
+
+The `MEDRE_ADAPTER__<TOKEN>__<FIELD>` variables follow the runtime
+configuration convention. `<TOKEN>` matches the adapter instance name under
+`[adapters.matrix.<token>]` in TOML. The `MATRIX_*` variables are used only by
+pytest fixtures and direct adapter instantiation (see the table above).
 
 The runner:
 

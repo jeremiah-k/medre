@@ -17,9 +17,10 @@ import pytest
 
 _ROOT = Path(__file__).resolve().parent.parent
 OPS_DIR = _ROOT / "docs" / "ops"
-_OPERATOR_COMMAND_SURFACE = (
-    _ROOT / "docs" / "architecture" / "operator-command-surface.md"
-)
+# TODO: operator-command-surface.md needs a home in the new docs tree
+# _OPERATOR_COMMAND_SURFACE = (
+#     _ROOT / "docs" / "architecture" / "operator-command-surface.md"
+# )
 
 
 def _read(path: Path) -> str:
@@ -95,105 +96,109 @@ class TestConfigurationCliSurface:
 
 # ===========================================================================
 # 15. Alpha command surface freeze section present
+# DISABLED: operator-command-surface.md was deleted during docs consolidation.
+# TODO: operator-command-surface.md needs a home in the new docs tree.
 # ===========================================================================
 
 
-class TestAlphaCommandSurfaceFreeze:
-    """operator-command-surface.md must include the alpha command surface
-    freeze section documenting the frozen command categories."""
-
-    def test_freeze_section_present(self) -> None:
-        """operator-command-surface.md must have an 'Alpha command surface
-        freeze' section."""
-        path = _OPERATOR_COMMAND_SURFACE
-        if not path.exists():
-            pytest.skip("operator-command-surface.md not found")
-        text = _read(path)
-        assert "Alpha command surface freeze" in text, (
-            "operator-command-surface.md must include an 'Alpha command "
-            "surface freeze' section."
-        )
-
-    def test_freeze_section_lists_categories(self) -> None:
-        """The freeze section must list Product, Validation, and Specialized
-        categories."""
-        path = _OPERATOR_COMMAND_SURFACE
-        if not path.exists():
-            pytest.skip("operator-command-surface.md not found")
-        text = _read(path)
-        freeze_start = text.find("Alpha command surface freeze")
-        if freeze_start < 0:
-            pytest.fail("Alpha command surface freeze section not found")
-        freeze_end = text.find("\n## ", freeze_start + 1)
-        if freeze_end < 0:
-            freeze_end = len(text)
-        section = text[freeze_start:freeze_end]
-        for category in (
-            "Product surface",
-            "Validation surface",
-            "Specialized surface",
-        ):
-            assert (
-                category in section
-            ), f"Freeze section must list '{category}' category."
-
-    def test_freeze_section_states_inspect_preferred(self) -> None:
-        """The freeze section must state that inspect is the preferred
-        investigation path."""
-        path = _OPERATOR_COMMAND_SURFACE
-        if not path.exists():
-            pytest.skip("operator-command-surface.md not found")
-        text = _read(path)
-        freeze_start = text.find("Alpha command surface freeze")
-        if freeze_start < 0:
-            pytest.fail("Alpha command surface freeze section not found")
-        freeze_end = text.find("\n## ", freeze_start + 1)
-        if freeze_end < 0:
-            freeze_end = len(text)
-        section = text[freeze_start:freeze_end]
-        assert "preferred investigation path" in section.lower(), (
-            "Freeze section must state that inspect is the preferred "
-            "investigation path."
-        )
+# class TestAlphaCommandSurfaceFreeze:
+#     """operator-command-surface.md must include the alpha command surface
+#     freeze section documenting the frozen command categories."""
+#
+#     def test_freeze_section_present(self) -> None:
+#         """operator-command-surface.md must have an 'Alpha command surface
+#         freeze' section."""
+#         path = _OPERATOR_COMMAND_SURFACE
+#         if not path.exists():
+#             pytest.skip("operator-command-surface.md not found")
+#         text = _read(path)
+#         assert "Alpha command surface freeze" in text, (
+#             "operator-command-surface.md must include an 'Alpha command "
+#             "surface freeze' section."
+#         )
+#
+#     def test_freeze_section_lists_categories(self) -> None:
+#         """The freeze section must list Product, Validation, and Specialized
+#         categories."""
+#         path = _OPERATOR_COMMAND_SURFACE
+#         if not path.exists():
+#             pytest.skip("operator-command-surface.md not found")
+#         text = _read(path)
+#         freeze_start = text.find("Alpha command surface freeze")
+#         if freeze_start < 0:
+#             pytest.fail("Alpha command surface freeze section not found")
+#         freeze_end = text.find("\n## ", freeze_start + 1)
+#         if freeze_end < 0:
+#             freeze_end = len(text)
+#         section = text[freeze_start:freeze_end]
+#         for category in (
+#             "Product surface",
+#             "Validation surface",
+#             "Specialized surface",
+#         ):
+#             assert (
+#                 category in section
+#             ), f"Freeze section must list '{category}' category."
+#
+#     def test_freeze_section_states_inspect_preferred(self) -> None:
+#         """The freeze section must state that inspect is the preferred
+#         investigation path."""
+#         path = _OPERATOR_COMMAND_SURFACE
+#         if not path.exists():
+#             pytest.skip("operator-command-surface.md not found")
+#         text = _read(path)
+#         freeze_start = text.find("Alpha command surface freeze")
+#         if freeze_start < 0:
+#             pytest.fail("Alpha command surface freeze section not found")
+#         freeze_end = text.find("\n## ", freeze_start + 1)
+#         if freeze_end < 0:
+#             freeze_end = len(text)
+#         section = text[freeze_start:freeze_end]
+#         assert "preferred investigation path" in section.lower(), (
+#             "Freeze section must state that inspect is the preferred "
+#             "investigation path."
+#         )
 
 
 # ===========================================================================
 # 28. Adapter auth command in operator command surface
+# DISABLED: operator-command-surface.md was deleted during docs consolidation.
+# TODO: operator-command-surface.md needs a home in the new docs tree.
 # ===========================================================================
 
 
-class TestAdapterAuthCommandInOperatorSurface:
-    """operator-command-surface.md must list ``medre adapter matrix auth login``
-    in both the command inventory and the operational properties decision table."""
-
-    def test_auth_matrix_login_in_command_inventory(self) -> None:
-        """The command inventory must include ``adapter matrix auth login``."""
-        if not _OPERATOR_COMMAND_SURFACE.exists():
-            pytest.skip("operator-command-surface.md not found")
-        text = _read(_OPERATOR_COMMAND_SURFACE)
-        assert "adapter matrix auth login" in text.lower(), (
-            "operator-command-surface.md must include 'adapter matrix auth login' "
-            "in the command inventory."
-        )
-
-    def test_auth_in_decision_table(self) -> None:
-        """The operational properties decision table must include
-        ``adapter matrix auth login`` as a row."""
-        if not _OPERATOR_COMMAND_SURFACE.exists():
-            pytest.skip("operator-command-surface.md not found")
-        text = _read(_OPERATOR_COMMAND_SURFACE)
-        # Locate the decision table section.
-        dt_start = text.find("## Operational properties decision table")
-        if dt_start < 0:
-            pytest.fail(
-                "operator-command-surface.md is missing the "
-                "'Operational properties decision table' section."
-            )
-        dt_end = text.find("\n## ", dt_start + 1)
-        if dt_end < 0:
-            dt_end = len(text)
-        section = text[dt_start:dt_end]
-        assert "adapter matrix auth login" in section.lower(), (
-            "The decision table section must include an "
-            "'adapter matrix auth login' row."
-        )
+# class TestAdapterAuthCommandInOperatorSurface:
+#     """operator-command-surface.md must list ``medre adapter matrix auth login``
+#     in both the command inventory and the operational properties decision table."""
+#
+#     def test_auth_matrix_login_in_command_inventory(self) -> None:
+#         """The command inventory must include ``adapter matrix auth login``."""
+#         if not _OPERATOR_COMMAND_SURFACE.exists():
+#             pytest.skip("operator-command-surface.md not found")
+#         text = _read(_OPERATOR_COMMAND_SURFACE)
+#         assert "adapter matrix auth login" in text.lower(), (
+#             "operator-command-surface.md must include 'adapter matrix auth login' "
+#             "in the command inventory."
+#         )
+#
+#     def test_auth_in_decision_table(self) -> None:
+#         """The operational properties decision table must include
+#         ``adapter matrix auth login`` as a row."""
+#         if not _OPERATOR_COMMAND_SURFACE.exists():
+#             pytest.skip("operator-command-surface.md not found")
+#         text = _read(_OPERATOR_COMMAND_SURFACE)
+#         # Locate the decision table section.
+#         dt_start = text.find("## Operational properties decision table")
+#         if dt_start < 0:
+#             pytest.fail(
+#                 "operator-command-surface.md is missing the "
+#                 "'Operational properties decision table' section."
+#             )
+#         dt_end = text.find("\n## ", dt_start + 1)
+#         if dt_end < 0:
+#             dt_end = len(text)
+#         section = text[dt_start:dt_end]
+#         assert "adapter matrix auth login" in section.lower(), (
+#             "The decision table section must include an "
+#             "'adapter matrix auth login' row."
+#         )

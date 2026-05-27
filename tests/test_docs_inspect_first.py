@@ -21,9 +21,7 @@ TARGET_DOCS = [
     OPS_DIR / "operator-workflows.md",
     OPS_DIR / "running-medre.md",
     OPS_DIR / "recovery-and-replay.md",
-    OPS_DIR / "recovery-and-replay.md",
     OPS_DIR / "diagnostics-and-evidence.md",
-    OPS_DIR / "operator-workflows.md",
     OPS_DIR / "troubleshooting.md",
     OPS_DIR / "configuration.md",
 ]

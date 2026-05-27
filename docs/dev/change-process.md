@@ -5,7 +5,7 @@ This document describes how changes to MEDRE documentation are managed.
 ## Spec Changes
 
 Changes that affect runtime semantics (data models, adapter contracts, routing
-rules, storage guarantees) MUST:
+rules, storage guarantees) require all of the following:
 
 1. Update the relevant `docs/spec/` page.
 2. Update the corresponding JSON Schema files in `docs/schemas/`.

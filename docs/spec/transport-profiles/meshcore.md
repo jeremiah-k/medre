@@ -37,6 +37,8 @@ The adapter delegates SDK client lifecycle to `MeshCoreSession`. The session own
 
 ## Capabilities
 
+> Capability levels map to the CapabilityLevel enum (adapter-runtime.md §6.2): `"unsupported"` = `FALSE`.
+
 | Capability        | Value                                    |
 | ----------------- | ---------------------------------------- |
 | text              | `True`                                   |

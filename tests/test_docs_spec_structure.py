@@ -197,6 +197,9 @@ class TestDevFiles:
         "adapter-authoring.md",
         "documentation-style.md",
         "change-process.md",
+        "live-test-harness.md",
+        "source-audits.md",
+        "reference-repos.md",
         "README.md",
     ]
 
@@ -287,3 +290,60 @@ class TestChangesStructure:
         assert (
             unreleased.is_dir()
         ), f"Required directory missing: {unreleased.relative_to(_ROOT)}"
+
+
+# ===========================================================================
+# 8. Ops subdirectory files
+# ===========================================================================
+
+
+class TestOpsSubdirectories:
+    """Required files in ops/ subdirectories must exist."""
+
+    TRANSPORT_SETUP_FILES = [
+        "matrix.md",
+        "meshtastic.md",
+        "meshcore.md",
+        "lxmf.md",
+    ]
+
+    LIVE_VALIDATION_FILES = [
+        "matrix.md",
+        "meshtastic.md",
+        "meshcore.md",
+        "lxmf.md",
+    ]
+
+    @pytest.mark.parametrize(
+        "filename",
+        TRANSPORT_SETUP_FILES,
+        ids=lambda f: f,
+    )
+    def test_transport_setup_file_exists(self, filename: str) -> None:
+        """Transport setup file must exist at docs/ops/transport-setup/<name>."""
+        path = OPS_DIR / "transport-setup" / filename
+        _check_exists(path, f"transport-setup file '{filename}'")
+
+    def test_transport_setup_directory_exists(self) -> None:
+        """docs/ops/transport-setup/ directory must exist."""
+        ts_dir = OPS_DIR / "transport-setup"
+        assert (
+            ts_dir.is_dir()
+        ), f"Required directory missing: {ts_dir.relative_to(_ROOT)}"
+
+    @pytest.mark.parametrize(
+        "filename",
+        LIVE_VALIDATION_FILES,
+        ids=lambda f: f,
+    )
+    def test_live_validation_file_exists(self, filename: str) -> None:
+        """Live validation file must exist at docs/ops/live-validation/<name>."""
+        path = OPS_DIR / "live-validation" / filename
+        _check_exists(path, f"live-validation file '{filename}'")
+
+    def test_live_validation_directory_exists(self) -> None:
+        """docs/ops/live-validation/ directory must exist."""
+        lv_dir = OPS_DIR / "live-validation"
+        assert (
+            lv_dir.is_dir()
+        ), f"Required directory missing: {lv_dir.relative_to(_ROOT)}"

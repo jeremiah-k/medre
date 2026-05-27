@@ -146,6 +146,8 @@ display_name = "MEDRE"
 # --- Routes ---
 
 [[routes]]
+# Note: the TOML key `from_adapter` maps to `source_adapters` as a
+# single-element array in the internal RouteConfig model.
 id = "mesh-to-matrix"
 from_adapter = "meshcore-radio-1"
 to_adapter = "matrix-home"

@@ -74,12 +74,13 @@ class CanonicalEvent(msgspec.Struct, frozen=True):
 
 `source_channel_id` identifies the native channel:
 
-| Transport          | `source_channel_id`        | Example              |
-| ------------------ | -------------------------- | -------------------- |
-| Matrix             | Room ID                    | `!abc123:server.org` |
-| MeshCore           | Channel slot index         | `0`                  |
-| LXMF               | Destination hash (inbound) | `e5f6a7b8c9d0e1f2`   |
-| No channel concept | `None`                     | —                    |
+| Transport          | `source_channel_id` | Example              |
+| ------------------ | ------------------- | -------------------- |
+| Matrix             | Room ID             | `!abc123:server.org` |
+| Meshtastic         | Channel index       | `0`                  |
+| MeshCore           | Channel slot index  | `0`                  |
+| LXMF               | `None`              | —                    |
+| No channel concept | `None`              | —                    |
 
 ### 1.4 Constructor Invariants
 

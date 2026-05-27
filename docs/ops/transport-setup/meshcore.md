@@ -190,7 +190,7 @@ import logging
 from medre.adapters.meshcore.adapter import MeshCoreAdapter
 from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.core.contracts.adapter import AdapterContext
-from medre.core.events.event_bus import EventBus
+from medre.core.events.bus import EventBus
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("meshcore-alpha")

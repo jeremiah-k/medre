@@ -5,15 +5,16 @@ schemas are derived from the `msgspec.Struct` types in the source code.
 
 ## Schema Files
 
-| Schema                         | Source Type             | Description                                    |
-| ------------------------------ | ----------------------- | ---------------------------------------------- |
-| `canonical-event.schema.json`  | `CanonicalEvent`        | Core event record flowing through the pipeline |
-| `delivery-receipt.schema.json` | `DeliveryReceipt`       | Append-only delivery status record             |
-| `delivery-result.schema.json`  | `AdapterDeliveryResult` | Per-adapter delivery outcome                   |
-| `runtime-snapshot.schema.json` | `RuntimeSnapshot`       | Point-in-time runtime state snapshot           |
-| `diagnostics.schema.json`      | Dict shape              | Diagnostics collector output                   |
-| `evidence-bundle.schema.json`  | Dict shape              | `medre evidence` bundle structure              |
-| `adapter-config.schema.json`   | Per-transport configs   | Adapter configuration shapes                   |
+| Schema                         | Source Type                   | Description                                    |
+| ------------------------------ | ----------------------------- | ---------------------------------------------- |
+| `canonical-event.schema.json`  | `CanonicalEvent`              | Core event record flowing through the pipeline |
+| `delivery-receipt.schema.json` | `DeliveryReceipt`             | Append-only delivery status record             |
+| `delivery-result.schema.json`  | `AdapterDeliveryResult`       | Per-adapter delivery outcome                   |
+| `runtime-snapshot.schema.json` | `RuntimeSnapshot`             | Point-in-time runtime state snapshot           |
+| `diagnostics.schema.json`      | Dict shape                    | Diagnostics collector output                   |
+| `evidence-bundle.schema.json`  | Dict shape                    | `medre evidence` bundle structure              |
+| `adapter-config.schema.json`   | Per-transport configs         | Adapter configuration shapes                   |
+| `routing-config.schema.json`   | `RouteConfig`, `BridgePolicy` | Route matching configuration shapes            |
 
 ## Examples
 

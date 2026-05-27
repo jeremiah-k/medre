@@ -8,6 +8,7 @@ $id: https://medre.dev/schemas/canonical-event.schema.json
 title: CanonicalEvent
 description: >-
   The universal, immutable event envelope for the MEDRE pipeline.
+  Every event is represented as a CanonicalEvent.
   Derived from msgspec.Struct with frozen=True.
 type: object
 properties:

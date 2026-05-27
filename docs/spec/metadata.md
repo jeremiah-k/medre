@@ -25,14 +25,14 @@ class EventMetadata:
 
 ## 2. Namespace Definitions
 
-| Namespace            | Purpose                    | Example Fields                                                                               |
-| -------------------- | -------------------------- | -------------------------------------------------------------------------------------------- |
-| `metadata.transport` | Transport layer details    | `protocol`, `gateway_id`, `received_at`, `encoding`, `delivery_method`, `delivery_confirmed` |
-| `metadata.routing`   | Routing context            | `matched_routes`, `fanout_group`, `bridge_id`                                                |
-| `metadata.radio`     | Radio-specific data        | `frequency`, `modulation`, `snr`, `rssi`, `hop_limit`, `channel_index`                       |
-| `metadata.telemetry` | Device state at event time | `battery_percent`, `voltage_mv`, `uptime_seconds`, `air_util_tx`                             |
-| `metadata.native`    | Unnormalized native fields | Adapter-specific raw fields that haven't been mapped to canonical fields yet                 |
-| `metadata.custom`    | Plugin/extension data      | Key-value pairs from plugins, using reverse-DNS namespacing                                  |
+| Namespace            | Purpose                    | Example Fields                                                                                                                                |
+| -------------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `metadata.transport` | Transport layer details    | `protocol`, `substrate`, `gateway_id`, `delivery_method`, `delivery_confirmed`, `transport_encrypted`, `signature_valid`, `propagation_state` |
+| `metadata.routing`   | Routing context            | `matched_routes` (tuple), `fanout_group`, `route_trace` (tuple)                                                                               |
+| `metadata.radio`     | Radio-specific data        | `frequency`, `snr`, `rssi`, `channel_index`                                                                                                   |
+| `metadata.telemetry` | Device state at event time | `metrics` dict (frozen)                                                                                                                       |
+| `metadata.native`    | Unnormalized native fields | `data` dict (frozen)                                                                                                                          |
+| `metadata.custom`    | Plugin/extension data      | Key-value pairs from plugins, using reverse-DNS namespacing                                                                                   |
 
 The `metadata.native` namespace is a temporary holding area for fields that
 haven't been categorized yet. The enrichment stage normalizes `metadata.native`

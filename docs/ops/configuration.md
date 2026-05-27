@@ -338,7 +338,7 @@ Controls concurrency and drain behaviour for the pipeline and replay engine. If 
 [runtime.limits]
 max_inflight_deliveries = 100            # max concurrent delivery coroutines (default: 100)
 max_inflight_replay_events = 100         # max concurrent replay event deliveries (default: 100)
-shutdown_drain_timeout_seconds = 10.0    # seconds to drain in-flight deliveries on shutdown (default: 10)
+shutdown_drain_timeout_seconds = 10      # seconds to drain in-flight deliveries on shutdown (default: 10)
 delivery_acquire_timeout_seconds = 1.0   # seconds to wait for a delivery slot (default: 1.0)
 ```
 
@@ -346,7 +346,7 @@ delivery_acquire_timeout_seconds = 1.0   # seconds to wait for a delivery slot (
 | ---------------------------------- | ----- | ------- | --------------------------------------------------------------------------------------- |
 | `max_inflight_deliveries`          | int   | `100`   | Maximum concurrent adapter `deliver()` calls. Capacity is acquired per delivery target. |
 | `max_inflight_replay_events`       | int   | `100`   | Maximum concurrent replay event deliveries.                                             |
-| `shutdown_drain_timeout_seconds`   | float | `10.0`  | Seconds to wait for in-flight work to complete during shutdown.                         |
+| `shutdown_drain_timeout_seconds`   | int   | `10`    | Seconds to wait for in-flight work to complete during shutdown.                         |
 | `delivery_acquire_timeout_seconds` | float | `1.0`   | Seconds to wait for a delivery semaphore slot before rejecting.                         |
 
 When capacity is exhausted, new deliveries are permanently rejected with `error="delivery_capacity_exceeded"` — no retry.
@@ -771,7 +771,7 @@ medre evidence [--config PATH] [--storage-path PATH] [--event ID] [--replay-run 
     inspect event --evidence for per-event bundles.
 
 medre replay --mode MODE --config PATH [--event ID] [--json]
-    Execute a replay operation. Modes: dry_run, re_route, best_effort.
+    Execute a replay operation. Modes: strict, re_render, re_route, dry_run, best_effort.
     Requires --config. Duplicate-risky for best_effort.
 
 medre recover --config PATH [--event ID] [--failed-only] [--dry-run] [--json]

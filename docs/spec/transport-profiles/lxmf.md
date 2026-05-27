@@ -30,6 +30,8 @@ The adapter delegates all SDK interaction to `LxmfSession`. The session is the *
 
 ## Capabilities
 
+> Capability levels map to the CapabilityLevel enum (adapter-runtime.md §6.2): `"unsupported"` = `FALSE`.
+
 | Capability          | Value                               |
 | ------------------- | ----------------------------------- |
 | text                | `True`                              |

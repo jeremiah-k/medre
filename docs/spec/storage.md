@@ -370,7 +370,7 @@ Transport-specific examples:
 | Matrix     | Room ID (e.g., `!abc:server.org`) | Matrix event ID (e.g., `$abc123`) |
 | Meshtastic | Channel index                     | Packet ID                         |
 | MeshCore   | Channel slot index                | MeshCore message reference        |
-| LXMF       | Source hash (16-byte hex)         | LXMF message ID                   |
+| LXMF       | `NULL`                            | LXMF message ID                   |
 
 ### 4.4 delivery_receipts
 

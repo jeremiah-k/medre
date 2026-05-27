@@ -99,7 +99,7 @@ implications.
 
 ## 6. LXMF Failure Detail
 
-- Session does not retry outbound sends automatically.
+- Session retries transient outbound failures up to 3 attempts with linear backoff (0.1 s × attempt).
 - Duplicate-send risk: **Low**. Each LXMF message has a unique hash.
 - No outbound queue. The LXMRouter manages its own internal delivery queue.
 - Delivery confirmation is asynchronous via state callbacks.

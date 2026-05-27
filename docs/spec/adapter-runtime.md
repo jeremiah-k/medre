@@ -73,7 +73,7 @@ The runtime calls `start()` once during initialization. The adapter **MUST**:
 4. Call `self._mark_started(ctx)` to record the adapter's start time for stale-event filtering.
 5. Return only after the adapter is ready to accept delivery work or after the connection attempt has progressed far enough to report a definitive health state.
 
-The runtime does not time out `start()`. The adapter **MUST** handle its own connection timeouts internally and report `"unhealthy"` if the transport cannot be reached.
+The runtime does not time out `start()`. The adapter **MUST** handle its own connection timeouts internally and report `"failed"` if the transport cannot be reached.
 
 ### 3.3 `stop(timeout)`
 
@@ -409,15 +409,15 @@ This is an immutable, frozen dataclass. The pipeline uses it to store `NativeMes
 
 ### 9.2 Field Semantics
 
-| Field                | Semantics                                                                                                                                                                                        |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `native_message_id`  | Platform-native message ID assigned by the external system. **MUST** be platform-provided; adapters **MUST NOT** fabricate, synthesize, or locally-generate this value. `None` when unavailable. |
-| `native_channel_id`  | Platform-native channel/room/conversation ID. Always platform-provided. `None` when the platform did not return one. The pipeline **MUST NOT** backfill from route configuration.                |
-| `native_thread_id`   | Platform-native thread or parent message ID. Reserved; currently always `None` at runtime.                                                                                                       |
-| `native_relation_id` | Platform-native ID of the related entity (e.g., the message being replied to). Reserved; currently always `None` at runtime.                                                                     |
-| `delivery_note`      | Human-readable context about the delivery outcome. Informational only; consumers **MUST NOT** parse it for control-flow decisions.                                                               |
-| `delivery_status`    | Adapter-level lifecycle state: `"sent"` (default, synchronous adapters) or `"enqueued"` (queue-based adapters that accepted locally but have not yet sent to the platform).                      |
-| `metadata`           | Immutable, namespaced delivery metadata. Transport-specific data **MUST** live under `metadata[<transport>]`. No loose ad-hoc fields.                                                            |
+| Field                | Semantics                                                                                                                                                                                                                                                                 |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `native_message_id`  | Platform-native message ID assigned by the external system. **MUST** be platform-provided; adapters **MUST NOT** fabricate, synthesize, or locally-generate this value. `None` when unavailable.                                                                          |
+| `native_channel_id`  | Platform-native channel/room/conversation ID. Always platform-provided. `None` when the platform did not return one. The pipeline **MUST NOT** backfill from route configuration.                                                                                         |
+| `native_thread_id`   | Platform-native thread or parent message ID. Reserved; currently always `None` at runtime.                                                                                                                                                                                |
+| `native_relation_id` | Platform-native ID of the related entity (e.g., the message being replied to). Reserved; currently always `None` at runtime.                                                                                                                                              |
+| `delivery_note`      | Human-readable context about the delivery outcome. Informational only; consumers **MUST NOT** parse it for control-flow decisions.                                                                                                                                        |
+| `delivery_status`    | Adapter-level lifecycle state: `"sent"` (default, synchronous adapters), `"enqueued"` (queue-based adapters that accepted locally but have not yet sent to the platform), or `"local_accepted"` (transport-specific, accepted by local SDK without network confirmation). |
+| `metadata`           | Immutable, namespaced delivery metadata. Transport-specific data **MUST** live under `metadata[<transport>]`. No loose ad-hoc fields.                                                                                                                                     |
 
 ### 9.3 Delivery State Semantics
 
@@ -626,16 +626,16 @@ The adapter owns its health state machine. The runtime observes it through `heal
 ```text
 unknown -> healthy
 unknown -> degraded
-unknown -> unhealthy
+unknown -> failed
 healthy -> degraded
-healthy -> unhealthy
+healthy -> failed
 healthy -> unknown   (on stop)
 degraded -> healthy
-degraded -> unhealthy
+degraded -> failed
 degraded -> unknown  (on stop)
-unhealthy -> healthy  (on reconnect)
-unhealthy -> degraded
-unhealthy -> unknown  (on stop)
+failed -> healthy  (on reconnect)
+failed -> degraded
+failed -> unknown  (on stop)
 ```
 
 ### 16.2 Failure Reporting

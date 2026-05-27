@@ -49,6 +49,8 @@ These eight keys are contractual for the current version. They SHALL NOT be remo
 
 Adapter-specific keys convey transport-unique state beyond the common set. Shape and keys vary by adapter transport. New transport-specific diagnostic keys MAY be added. Existing keys SHALL NOT be removed or have their types changed without a version bump.
 
+> **Note:** Transport profiles define the complete per-adapter diagnostic key set. The tables below show the minimum contractual keys present in all adapter implementations. Key counts may differ from transport profiles, which define additional transport-specific keys.
+
 ### 3.1 Matrix (21 keys)
 
 | Key                         | Type            | Semantics                                                   |

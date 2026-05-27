@@ -25,7 +25,7 @@ structure conventions — not by adding a standalone contract.
 
 ## No Internal Planning-Cycle Vocabulary
 
-The following terms are internal development vocabulary and MUST NOT appear in
+The following terms are internal development vocabulary and must not appear in
 permanent documentation (`docs/spec/`, `docs/ops/`, `docs/dev/`):
 
 - "tranche" (use "release scope", "work package", or "implementation phase")
@@ -44,9 +44,10 @@ false generated headers.
 
 ## RFC 2119 Keywords
 
-The words **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, and **MAY** are
-reserved for normative specification files under `docs/spec/`. They MUST NOT
-appear in operator or developer documentation. Use plain language instead:
+The terms **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, and **MAY**
+(RFC 2119) are reserved for normative specification files under `docs/spec/`.
+They must not appear in operator or developer documentation. Use plain language
+instead:
 
 - Instead of "You MUST run `medre smoke` before bridging", write
   "Run `medre smoke` to validate your configuration before bridging."

@@ -20,10 +20,10 @@ medre inspect receipts --event <event_id> --storage-path /tmp/medre-incident.db
 medre inspect event <event_id> --timeline --evidence --recovery --storage-path /tmp/medre-incident.db
 
 # 5. Preview replay (no side effects)
-medre replay --mode DRY_RUN --config my-bridge.toml
+medre replay --mode dry_run --config my-bridge.toml
 
 # 6. Re-deliver orphaned events (sends real messages)
-medre replay --mode BEST_EFFORT --config my-bridge.toml
+medre replay --mode best_effort --config my-bridge.toml
 ```
 
 ## Recovery Decision Tree
@@ -251,10 +251,10 @@ Not all events without receipts are truly orphaned:
 ```bash
 # 1. Count and review orphans (see SQL above)
 
-# 2. Preview replay with DRY_RUN
-medre replay --mode DRY_RUN --config my-bridge.toml
+# 2. Preview replay with dry_run
+medre replay --mode dry_run --config my-bridge.toml
 
-# 3. Review route attributions in DRY_RUN output
+# 3. Review route attributions in dry_run output
 
 # 4. Assess duplicate risk
 sqlite3 {state}/medre.sqlite "
@@ -267,7 +267,7 @@ sqlite3 {state}/medre.sqlite "
 "
 
 # 5. Execute replay
-medre replay --mode BEST_EFFORT --config my-bridge.toml
+medre replay --mode best_effort --config my-bridge.toml
 
 # 6. Verify replay results
 medre inspect receipts --replay-run <replay_run_id> --storage-path /path/to/medre.sqlite
@@ -314,11 +314,13 @@ medre run --config config.toml
 
 | Mode          | Routes? | Delivers?          | Side effects          | Use case                                                                                                   |
 | ------------- | ------- | ------------------ | --------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `DRY_RUN`     | Yes     | Skip (no delivery) | None                  | Preview what replay would do. First step before any BEST_EFFORT.                                           |
-| `RE_ROUTE`    | Yes     | No (read-only)     | None                  | Re-evaluate route matching after a config change. No delivery.                                             |
-| `BEST_EFFORT` | Yes     | Yes                | Real adapter delivery | Re-deliver historical events. Sends real messages. Produces fresh storage receipts with `source='replay'`. |
+| `strict`      | No      | No (validate only) | None                  | Validate events against current schema. No routing or delivery.                                            |
+| `re_render`   | No      | No (re-render)     | None                  | Re-run rendering for existing events. No delivery.                                                         |
+| `re_route`    | Yes     | No (read-only)     | None                  | Re-evaluate route matching after a config change. No delivery.                                             |
+| `dry_run`     | Yes     | Skip (no delivery) | None                  | Preview what replay would do. First step before any `best_effort`.                                         |
+| `best_effort` | Yes     | Yes                | Real adapter delivery | Re-deliver historical events. Sends real messages. Produces fresh storage receipts with `source='replay'`. |
 
-Always run `DRY_RUN` or `RE_ROUTE` first. Only use `BEST_EFFORT` when you have verified the route matching preview and accept the duplicate delivery risk.
+Always run `dry_run` or `re_route` first. Only use `best_effort` when you have verified the route matching preview and accept the duplicate delivery risk.
 
 ## Replay Command Shape
 
@@ -328,17 +330,19 @@ medre replay --mode <mode> [--event <event_id>] --config my-bridge.toml
 
 | Flag       | Required | Description                                                             |
 | ---------- | -------- | ----------------------------------------------------------------------- |
-| `--mode`   | Yes      | One of: `DRY_RUN`, `RE_ROUTE`, `BEST_EFFORT`                            |
+| `--mode`   | Yes      | One of: `strict`, `re_render`, `re_route`, `dry_run`, `best_effort`     |
 | `--event`  | No       | Specific event ID to replay. If omitted, replays all events in storage. |
 | `--config` | Yes      | Path to TOML config (must use SQLite storage)                           |
 
 Additional flags:
 
-| Flag                 | Description                                          |
-| -------------------- | ---------------------------------------------------- |
-| `--from <timestamp>` | Replay events created after this ISO-8601 timestamp  |
-| `--to <timestamp>`   | Replay events created before this ISO-8601 timestamp |
-| `--route <route_id>` | Only replay events that match this route             |
+| Flag                              | Description                                         |
+| --------------------------------- | --------------------------------------------------- |
+| `--target-adapters ADAPTER [...]` | Only replay events targeting these adapter(s)       |
+| `--route-ids ROUTE [...]`         | Only replay events that matched these route ID(s)   |
+| `--limit INT`                     | Maximum events to replay (default 100)              |
+| `--storage-path PATH`             | Path to SQLite database (alternative to `--config`) |
+| `--json`                          | Output as JSON                                      |
 
 ### Exit Codes
 
@@ -349,11 +353,11 @@ Additional flags:
 
 ## Replay Result Interpretation
 
-### DRY_RUN Result
+### dry_run Result
 
 ```json
 {
-  "mode": "DRY_RUN",
+  "mode": "dry_run",
   "replay_run_id": "replay_preview_001",
   "events_processed": 10,
   "deliveries_attempted": 0,
@@ -368,17 +372,17 @@ Additional flags:
 }
 ```
 
-Review `route_attributions` to verify which routes match each event and which target adapters would receive delivery before proceeding to BEST_EFFORT.
+Review `route_attributions` to verify which routes match each event and which target adapters would receive delivery before proceeding to `best_effort`.
 
-### RE_ROUTE Result
+### re_route Result
 
-Compare `route_attributions` against previous delivery receipts to see what changed after a route config update. Events that previously matched one route but now match two will have fan-out delivery if replayed with BEST_EFFORT.
+Compare `route_attributions` against previous delivery receipts to see what changed after a route config update. Events that previously matched one route but now match two will have fan-out delivery if replayed with `best_effort`.
 
-### BEST_EFFORT Result
+### best_effort Result
 
 ```json
 {
-  "mode": "BEST_EFFORT",
+  "mode": "best_effort",
   "replay_run_id": "replay_xyz789",
   "events_processed": 10,
   "deliveries_attempted": 8,
@@ -394,7 +398,7 @@ Compare `route_attributions` against previous delivery receipts to see what chan
 }
 ```
 
-After BEST_EFFORT, inspect storage receipts:
+After `best_effort`, inspect storage receipts:
 
 ```bash
 medre inspect receipts --replay-run replay_xyz789 --storage-path /path/to/medre.sqlite
@@ -402,7 +406,7 @@ medre inspect receipts --replay-run replay_xyz789 --storage-path /path/to/medre.
 
 ## Replay Receipts
 
-BEST_EFFORT replay produces `DeliveryReceipt` records with these distinguishing fields:
+`best_effort` replay produces `DeliveryReceipt` records with these distinguishing fields:
 
 ```json
 {
@@ -427,7 +431,7 @@ BEST_EFFORT replay produces `DeliveryReceipt` records with these distinguishing 
 Key distinctions:
 
 1. Replay receipts are distinguishable from live receipts via `source='replay'` and `replay_run_id`.
-2. Replay is not dedupe — each BEST_EFFORT run produces fresh receipts regardless of existing live or replay receipts for the same event.
+2. Replay is not dedupe — each `best_effort` run produces fresh receipts regardless of existing live or replay receipts for the same event.
 3. Native refs created during replay are not directly source-tagged. Correlate through the associated `DeliveryReceipt`'s `event_id` linkage.
 
 ### Querying Replay Receipts
@@ -466,7 +470,7 @@ ORDER BY replay_run_id;
 
 ## Duplicate Risk Assessment
 
-Replay does not deduplicate. Every BEST_EFFORT replay produces new outbound messages on all matched targets.
+Replay does not deduplicate. Every `best_effort` replay produces new outbound messages on all matched targets.
 
 ### When Duplicates Occur
 
@@ -475,7 +479,7 @@ Replay does not deduplicate. Every BEST_EFFORT replay produces new outbound mess
 | Replaying events that were never delivered          | Low        | No prior delivery exists                                |
 | Replaying events that were delivered before a crash | Medium     | Some events may have been delivered but have no receipt |
 | Replaying events that have existing `sent` receipts | High       | Events will be delivered again                          |
-| Multiple BEST_EFFORT replays of the same events     | High       | Each run produces new deliveries                        |
+| Multiple `best_effort` replays of the same events   | High       | Each run produces new deliveries                        |
 
 ### Assessing Risk Before Replay
 
@@ -496,9 +500,9 @@ ORDER BY e.created_at DESC;
 
 ### Mitigation Strategies
 
-1. **Always DRY_RUN first.** Review route attributions before BEST_EFFORT.
+1. **Always `dry_run` first.** Review route attributions before `best_effort`.
 2. **Query existing receipts.** Use the SQL above to assess how many events already have `sent` receipts.
-3. **Scope replay narrowly.** Use `--event <id>` or `--from`/`--to` to replay only the events that need it.
+3. **Scope replay narrowly.** Use `--event <id>` or `--limit` to replay only the events that need it.
 4. **Accept duplicates for radio transports.** Meshtastic and MeshCore treat duplicate sends as normal operational practice.
 5. **Warn for Matrix.** Matrix duplicates are rarer and more visible to users.
 
@@ -534,13 +538,13 @@ ORDER BY e.created_at DESC;
 
 ### Replay and Route-Level Retry Interaction
 
-When BEST_EFFORT replay delivers to a route that has retry enabled, transient failures create due retry receipts in storage. The `medre replay` command never starts the RetryWorker (it builds but never calls `app.start()`). This means:
+When `best_effort` replay delivers to a route that has retry enabled, transient failures create due retry receipts in storage. The `medre replay` command never starts the RetryWorker (it builds but never calls `app.start()`). This means:
 
 - Due retry receipts created during replay sit in storage unprocessed.
 - If the operator later starts the runtime normally (`medre run`) with retry enabled, the RetryWorker will discover and process those receipts.
 - This creates a cross-source retry chain: `source="replay"` to `source="retry"`, linked by `parent_receipt_id`.
 
-After BEST_EFFORT replay, check for replay-created retry receipts:
+After `best_effort` replay, check for replay-created retry receipts:
 
 ```sql
 SELECT receipt_id, event_id, status, next_retry_at, source, replay_run_id
@@ -569,17 +573,17 @@ WHERE source = 'replay' AND next_retry_at IS NOT NULL;
 | Inspect delivery receipts | `medre inspect receipts --event <event_id> --storage-path <db>`                                                                   |
 | Inspect replay receipts   | `medre inspect receipts --replay-run <run_id> --storage-path <db>`                                                                |
 | Count orphaned events     | SQL: `SELECT COUNT(*) FROM canonical_events e LEFT JOIN delivery_receipts r ON e.event_id = r.event_id WHERE r.event_id IS NULL;` |
-| Preview replay            | `medre replay --mode DRY_RUN --config my-bridge.toml`                                                                             |
-| Execute replay            | `medre replay --mode BEST_EFFORT --config my-bridge.toml`                                                                         |
+| Preview replay            | `medre replay --mode dry_run --config my-bridge.toml`                                                                             |
+| Execute replay            | `medre replay --mode best_effort --config my-bridge.toml`                                                                         |
 | Check recent errors       | `grep ERROR {state}/logs/medre.log \| tail -20`                                                                                   |
 | Verify startup            | `grep "Assembly complete" {state}/logs/medre.log \| tail -1`                                                                      |
 
 ## Caveats
 
-1. **No deduplication.** Each BEST_EFFORT replay produces new outbound messages.
+1. **No deduplication.** Each `best_effort` replay produces new outbound messages.
 2. **No automatic retry scheduling.** Replay is a one-shot operator action, not a durable job.
 3. **No active supervision.** There is no background health monitor or watchdog beyond the RetryWorker.
-4. **ReplaySummary is in-memory only.** Only BEST_EFFORT mode produces storage receipts. DRY_RUN and RE_ROUTE results exist only in CLI output.
+4. **ReplaySummary is in-memory only.** Only `best_effort` mode produces storage receipts. `dry_run` and `re_route` results exist only in CLI output.
 5. **Counters reset on restart.** Process-local counters reset on every startup. Verify via SQLite queries, not counters.
 6. **Single-machine only.** Replay operates on the local SQLite database. No distributed replay.
 7. **No delivery order guarantee.** Replay processes events in storage order but delivery concurrency means outbound messages may arrive out of order.

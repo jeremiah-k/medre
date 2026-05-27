@@ -133,13 +133,13 @@ Shutdown complete — 2 adapter(s) stopped in 70ms, 0 error(s)
 
 Signal handlers are reset at the start of each `medre run` invocation.
 
-### Shutdown Snapshot (`--snapshot-on-shutdown`)
+### Shutdown Snapshot (`--snapshot-on-shutdown PATH`)
 
 ```bash
-medre run --config config.toml --snapshot-on-shutdown
+medre run --config config.toml --snapshot-on-shutdown snapshot.json
 ```
 
-Writes a runtime snapshot JSON to `{state_dir}/shutdown-snapshot.json` after graceful shutdown. Contains:
+Writes a runtime snapshot JSON to the specified PATH after graceful shutdown. Contains:
 
 | Section                      | Content                                         |
 | ---------------------------- | ----------------------------------------------- |
@@ -337,7 +337,7 @@ Startup order: `matrix.bridge` first (alphabetical by transport), then `meshtast
 [runtime.limits]
 max_inflight_deliveries = 100
 max_inflight_replay_events = 100
-shutdown_drain_timeout_seconds = 10.0
+shutdown_drain_timeout_seconds = 10
 delivery_acquire_timeout_seconds = 1.0
 ```
 
@@ -362,7 +362,7 @@ The pipeline uses semaphores to bound concurrent delivery and replay. When capac
 max_inflight_deliveries = 8
 max_inflight_replay_events = 4
 delivery_acquire_timeout_seconds = 10.0
-shutdown_drain_timeout_seconds = 3.0
+shutdown_drain_timeout_seconds = 3
 ```
 
 **High-throughput (server):**
@@ -372,7 +372,7 @@ shutdown_drain_timeout_seconds = 3.0
 max_inflight_deliveries = 128
 max_inflight_replay_events = 64
 delivery_acquire_timeout_seconds = 60.0
-shutdown_drain_timeout_seconds = 10.0
+shutdown_drain_timeout_seconds = 10
 ```
 
 ## Retry
@@ -388,22 +388,24 @@ See [configuration.md](configuration.md) for retry configuration fields.
 
 ## Replay
 
-Replay re-processes historical events through pipeline stages. Three modes:
+Replay re-processes historical events through pipeline stages. Five modes:
 
 | Mode          | Delivers? | Side effects          | Use case                                       |
 | ------------- | --------- | --------------------- | ---------------------------------------------- |
-| `DRY_RUN`     | No        | None                  | Preview what replay would do                   |
-| `RE_ROUTE`    | No        | None                  | Re-evaluate route matching after config change |
-| `BEST_EFFORT` | Yes       | Real adapter delivery | Re-deliver historical events                   |
+| `strict`      | No        | None                  | Validate events against current schema only    |
+| `re_render`   | No        | None                  | Re-run rendering for existing events           |
+| `re_route`    | No        | None                  | Re-evaluate route matching after config change |
+| `dry_run`     | No        | None                  | Preview what replay would do                   |
+| `best_effort` | Yes       | Real adapter delivery | Re-deliver historical events                   |
 
-Always run `DRY_RUN` first. `BEST_EFFORT` produces real outbound messages without deduplication.
+Always run `dry_run` first. `best_effort` produces real outbound messages without deduplication.
 
 ```bash
 # Preview
-medre replay --mode DRY_RUN --config bridge.toml --json
+medre replay --mode dry_run --config bridge.toml --json
 
 # Re-deliver
-medre replay --mode BEST_EFFORT --config bridge.toml --json
+medre replay --mode best_effort --config bridge.toml --json
 ```
 
 Replay receipts carry `source="replay"` and `replay_run_id` for audit.
@@ -437,15 +439,15 @@ What loop prevention does not cover:
 
 ### What Is Lost on Process Termination
 
-| State                                                      | Nature                                            |
-| ---------------------------------------------------------- | ------------------------------------------------- |
-| In-flight deliveries (no outbox row)                       | Fully lost — no receipt                           |
-| In-flight deliveries (with expired in_progress outbox row) | Reclaimable by RetryWorker                        |
-| Active replay runs                                         | Must re-initiate manually                         |
-| Runtime counters                                           | Reset to zero on startup                          |
-| RouteStats per-route counters                              | Reset to zero                                     |
-| CapacityController gauges                                  | Reset to zero                                     |
-| Runtime events buffer                                      | Lost unless captured via `--snapshot-on-shutdown` |
+| State                                                      | Nature                                                 |
+| ---------------------------------------------------------- | ------------------------------------------------------ |
+| In-flight deliveries (no outbox row)                       | Fully lost — no receipt                                |
+| In-flight deliveries (with expired in_progress outbox row) | Reclaimable by RetryWorker                             |
+| Active replay runs                                         | Must re-initiate manually                              |
+| Runtime counters                                           | Reset to zero on startup                               |
+| RouteStats per-route counters                              | Reset to zero                                          |
+| CapacityController gauges                                  | Reset to zero                                          |
+| Runtime events buffer                                      | Lost unless captured via `--snapshot-on-shutdown PATH` |
 
 ### Crash Recovery Procedure
 
@@ -462,7 +464,7 @@ WHERE r.event_id IS NULL
 ORDER BY e.created_at DESC;
 ```
 
-5. Decide whether to replay orphaned events. Use `DRY_RUN` first.
+5. Decide whether to replay orphaned events. Use `dry_run` first.
 
 ### Persistence Is Single-Machine
 
@@ -695,7 +697,7 @@ Other adapters (Matrix, LXMF, MeshCore) rely on the `CapacityController` semapho
 
 ### Monitoring Queue Pressure
 
-Capacity counters are available in the `capacity` section of the runtime snapshot. The `medre diagnostics` command produces a build-time snapshot where these counters are zero — it does not start adapters. To inspect live capacity, use `--snapshot-on-shutdown` or the runtime snapshot from a running instance.
+Capacity counters are available in the `capacity` section of the runtime snapshot. The `medre diagnostics` command produces a build-time snapshot where these counters are zero — it does not start adapters. To inspect live capacity, use `--snapshot-on-shutdown PATH` or the runtime snapshot from a running instance.
 
 | Counter               | What it tells you                          |
 | --------------------- | ------------------------------------------ |
