@@ -1,0 +1,17 @@
+{
+  "adapter_id": "matrix-bot1",
+  "homeserver": "https://matrix.example.org",
+  "user_id": "@medre:matrix.example.org",
+  "device_id": "ABCDEFGH",
+  "access_token": "syt_bWVkcmU_xxxxx_yyyyyyyyyyyyyyyyyyyyyyyy",
+  "room_allowlist": [
+    "!roomkey:matrix.example.org",
+    "!opschannel:matrix.example.org"
+  ],
+  "metadata_embedding_mode": "safe",
+  "store_path": null,
+  "sync_timeout_ms": 30000,
+  "encryption_mode": "e2ee_optional",
+  "require_encrypted_rooms": false,
+  "auto_join_rooms": ["!roomkey:matrix.example.org"]
+}

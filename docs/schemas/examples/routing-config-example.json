@@ -1,0 +1,30 @@
+{
+  "route_id": "matrix_to_radio",
+  "source_adapters": ["matrix-bot1"],
+  "dest_adapters": ["longfast"],
+  "directionality": "source_to_dest",
+  "enabled": true,
+  "filter_hooks": [],
+  "source_channel": "!roomkey:matrix.example.org",
+  "dest_channel": "0",
+  "source_room": null,
+  "dest_room": null,
+  "policy": {
+    "allowed_event_types": ["message.text"],
+    "allowed_source_adapters": [],
+    "allowed_dest_adapters": [],
+    "room_allowlist": [],
+    "channel_allowlist": [],
+    "sender_allowlist": []
+  },
+  "retry": {
+    "enabled": true,
+    "max_attempts": 3,
+    "backoff_base": 2.0,
+    "max_delay_seconds": 60.0,
+    "jitter": false
+  },
+  "channel_room_map": {
+    "0": "!roomkey:matrix.example.org"
+  }
+}

@@ -1,0 +1,100 @@
+{
+  "adapters": [
+    {
+      "adapter_id": "matrix-bot1",
+      "connected": true,
+      "healthy": true,
+      "last_event_at": "2026-05-27T12:00:00Z",
+      "transport": "matrix",
+      "uptime_seconds": 43200
+    },
+    {
+      "adapter_id": "longfast",
+      "connected": true,
+      "healthy": true,
+      "last_event_at": "2026-05-27T11:59:45Z",
+      "transport": "meshtastic",
+      "uptime_seconds": 43185
+    }
+  ],
+  "renderer_registry": {
+    "default_renderer": "plaintext",
+    "registered_renderers": 3,
+    "status": "healthy"
+  },
+  "event_bus_status": {
+    "events_processed": 1247,
+    "status": "running",
+    "subscribers": 5
+  },
+  "storage_backend_status": {
+    "backend": "sqlite",
+    "event_count": 8942,
+    "receipt_count": 9103,
+    "status": "healthy"
+  },
+  "replay_backend_status": {
+    "reason": "not configured",
+    "status": "unavailable"
+  },
+  "route_topology": {
+    "adapter_route_map": {
+      "longfast": ["matrix_to_radio"],
+      "matrix-bot1": ["matrix_to_radio"]
+    },
+    "route_health_summary": {
+      "disabled": 0,
+      "enabled": 1,
+      "total": 1
+    },
+    "routes": [
+      {
+        "delivered": 312,
+        "enabled": true,
+        "error_count": 2,
+        "event_count": 319,
+        "failed": 2,
+        "fanout_strategy": "broadcast",
+        "last_error": "",
+        "loop_prevented": 5,
+        "ownership": "shared",
+        "policy_suppressed": 0,
+        "route_id": "matrix_to_radio",
+        "skipped": 0,
+        "source": {
+          "adapter": "matrix-bot1",
+          "channel": "!roomkey:matrix.example.org",
+          "event_kinds": ["message.text"]
+        },
+        "target_adapters": ["longfast"],
+        "target_count": 1,
+        "targets": [
+          {
+            "adapter": "longfast",
+            "channel": "0",
+            "destination": {
+              "destination_hash": null,
+              "destination_name": "LongFast",
+              "kind": "channel"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "queue_status": {
+    "in_flight": 1,
+    "pending": 0,
+    "status": "healthy"
+  },
+  "backpressure_status": {
+    "current_level": "0.12",
+    "high_watermark": "0.80",
+    "status": "nominal"
+  },
+  "task_status": {
+    "active_tasks": 3,
+    "pending_tasks": 0,
+    "status": "running"
+  }
+}
