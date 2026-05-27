@@ -33,9 +33,12 @@ Public symbols
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Sequence
 
 from medre.core.contracts.adapter import AdapterCapabilities
+from medre.core.events import CanonicalEvent, EventMetadata
+from medre.core.planning.capabilities import capability_unsupported
 from medre.core.supervision.health import normalize_adapter_health
 
 # Forward-reference type alias for Router; imported lazily inside
@@ -350,50 +353,29 @@ def _check_capability_warning(
 ) -> str | None:
     """Return a warning string if *event_kind* is unsupported by *caps*.
 
-    Mirrors the capability checks in
-    :meth:`~medre.core.planning.fallback_resolution.FallbackResolver._resolve_strategy`
-    but returns a human-readable warning instead of a delivery strategy.
-    Returns ``None`` when the event kind is supported.
+    Delegates to the shared :func:`capability_unsupported` and formats
+    the result with adapter identity for diagnostics.
     """
-    # -- Message lifecycle ------------------------------------------------
-    if event_kind == "message.reacted":
-        if caps.reactions == "unsupported":
-            return f"event_kind 'message.reacted' not supported by target adapter '{adapter_id}'"
+    # Construct a minimal event for the shared check (only event_kind and
+    # relations matter for capability checking).
+    event = CanonicalEvent(
+        event_id="diag-00000000-0000-0000-0000-000000000000",
+        event_kind=event_kind,
+        schema_version=1,
+        timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        source_adapter="diag",
+        source_transport_id="diag",
+        source_channel_id=None,
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload={},
+        metadata=EventMetadata(),
+    )
+    reason = capability_unsupported(event, caps)
+    if reason is None:
         return None
-
-    if event_kind == "message.edited":
-        if caps.edits == "unsupported":
-            return f"event_kind 'message.edited' not supported by target adapter '{adapter_id}'"
-        return None
-
-    if event_kind == "message.deleted":
-        if caps.deletes == "unsupported":
-            return f"event_kind 'message.deleted' not supported by target adapter '{adapter_id}'"
-        return None
-
-    if event_kind == "message.file":
-        if not caps.attachments:
-            return f"event_kind 'message.file' not supported by target adapter '{adapter_id}'"
-        return None
-
-    if event_kind in ("message.created", "message.text"):
-        if not caps.text:
-            return f"event_kind '{event_kind}' not supported by target adapter '{adapter_id}'"
-        return None
-
-    # -- Presence / telemetry ---------------------------------------------
-    if event_kind == "presence.changed":
-        if not caps.presence:
-            return f"event_kind 'presence.changed' not supported by target adapter '{adapter_id}'"
-        return None
-
-    if event_kind in ("telemetry.received", "telemetry.position"):
-        if not caps.metadata_fields:
-            return f"event_kind '{event_kind}' not supported by target adapter '{adapter_id}'"
-        return None
-
-    # Everything else (identity, delivery, system, plugin) → passthrough
-    return None
+    return f"event_kind '{event_kind}' not supported by target adapter '{adapter_id}': {reason}"
 
 
 def capture_route_topology(

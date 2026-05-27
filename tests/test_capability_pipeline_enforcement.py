@@ -239,6 +239,172 @@ class TestCapabilitySuppressionReceipt:
         finally:
             await runner.stop()
 
+    @pytest.mark.asyncio
+    async def test_fallback_reaction_not_suppressed(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Adapter with reactions='fallback' receives message.reacted normally."""
+        adapter = FakePresentationAdapter(adapter_id="dest")
+        adapter._capabilities = AdapterCapabilities(
+            text=True,
+            reactions="fallback",
+            replies="native",
+            edits="native",
+            deletes="native",
+            attachments=False,
+            delivery_receipts=True,
+        )
+
+        route = Route(
+            id="cap-fallback-route",
+            source=RouteSource(
+                adapter="src",
+                event_kinds=("message.reacted",),
+                channel=None,
+            ),
+            targets=[RouteTarget(adapter="dest")],
+        )
+        router = Router(routes=[route])
+
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router,
+            adapters={"dest": adapter},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = make_event(
+            event_id="cap-fallback-001",
+            event_kind="message.reacted",
+            source_adapter="src",
+            source_channel_id="ch-0",
+            payload={"emoji": "\U0001f44d"},
+        )
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+
+            assert len(outcomes) == 1
+            outcome = outcomes[0]
+            assert outcome.status == "success"
+            assert outcome.failure_kind is None
+            assert outcome.target_adapter == "dest"
+
+            # Adapter received the event.
+            assert len(adapter.delivered_payloads) == 1
+
+            # No CAPABILITY_SUPPRESSED receipt.
+            receipt = outcome.receipt
+            assert receipt is not None
+            assert receipt.status != "suppressed"
+        finally:
+            await runner.stop()
+
+    @pytest.mark.asyncio
+    async def test_mixed_capability_targets(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Route with two targets: one native, one unsupported.
+
+        Verifies that the native target receives the event normally while
+        the unsupported target gets CAPABILITY_SUPPRESSED.
+        """
+        native_adapter = FakePresentationAdapter(adapter_id="dest_native")
+        native_adapter._capabilities = AdapterCapabilities(
+            text=True,
+            reactions="native",
+            replies="native",
+            edits="native",
+            deletes="native",
+            attachments=False,
+            delivery_receipts=True,
+        )
+
+        unsupported_adapter = FakePresentationAdapter(adapter_id="dest_unsupported")
+        unsupported_adapter._capabilities = AdapterCapabilities(
+            text=True,
+            reactions="unsupported",
+            replies="native",
+            edits="native",
+            deletes="native",
+            attachments=False,
+            delivery_receipts=True,
+        )
+
+        route = Route(
+            id="cap-mixed-route",
+            source=RouteSource(
+                adapter="src",
+                event_kinds=("message.reacted",),
+                channel=None,
+            ),
+            targets=[
+                RouteTarget(adapter="dest_native"),
+                RouteTarget(adapter="dest_unsupported"),
+            ],
+        )
+        router = Router(routes=[route])
+
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router,
+            adapters={
+                "dest_native": native_adapter,
+                "dest_unsupported": unsupported_adapter,
+            },
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = make_event(
+            event_id="cap-mixed-001",
+            event_kind="message.reacted",
+            source_adapter="src",
+            source_channel_id="ch-0",
+            payload={"emoji": "\U0001f44d"},
+        )
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+
+            assert len(outcomes) == 2
+
+            # Separate outcomes by adapter.
+            native_outcome = next(
+                o for o in outcomes if o.target_adapter == "dest_native"
+            )
+            suppressed_outcome = next(
+                o for o in outcomes if o.target_adapter == "dest_unsupported"
+            )
+
+            # dest_native: success
+            assert native_outcome.status == "success"
+            assert native_outcome.failure_kind is None
+            assert len(native_adapter.delivered_payloads) == 1
+
+            # dest_unsupported: CAPABILITY_SUPPRESSED
+            assert suppressed_outcome.status == "skipped"
+            assert (
+                suppressed_outcome.failure_kind
+                is DeliveryFailureKind.CAPABILITY_SUPPRESSED
+            )
+            assert len(unsupported_adapter.delivered_payloads) == 0
+
+            # Receipts: one suppressed, one successful.
+            assert native_outcome.receipt is not None
+            assert native_outcome.receipt.status != "suppressed"
+
+            assert suppressed_outcome.receipt is not None
+            assert suppressed_outcome.receipt.status == "suppressed"
+            assert (
+                suppressed_outcome.receipt.failure_kind == "capability_suppressed"
+            )
+        finally:
+            await runner.stop()
+
 
 # ===================================================================
 # TestCapabilityRenderingConstraint
