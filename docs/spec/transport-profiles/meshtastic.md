@@ -37,6 +37,8 @@ The adapter delegates raw transport lifecycle to `MeshtasticSession`. The sessio
 
 ## Capabilities
 
+Machine-readable capability declaration: [`meshtastic-capabilities.json`](meshtastic-capabilities.json)
+
 > Capability levels map to the CapabilityLevel enum (adapter-runtime.md §6.2): `"native"` = `TRUE`, `"unsupported"` = `FALSE`.
 
 | Capability        | Value                      |

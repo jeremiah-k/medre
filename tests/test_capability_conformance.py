@@ -123,55 +123,19 @@ def test_capability_values_match_code(transport: str) -> None:
 
 
 @pytest.mark.parametrize("transport", TRANSPORTS)
-def test_no_undocumented_nondefault_capabilities(transport: str) -> None:
-    """Report capabilities declared in code but missing from the JSON file.
-
-    This is a *gap analysis* — it surfaces AdapterCapabilities fields that
-    the transport profile markdown does not document.  Gaps where the code
-    value differs from the AdapterCapabilities default are especially notable
-    because they represent unacknowledged behaviour.
-    """
+def test_no_undocumented_capabilities(transport: str) -> None:
+    """Every AdapterCapabilities field must appear in the JSON."""
     json_caps = _load_capabilities_json(transport)
-    code_caps = _get_adapter_capabilities(transport)
+    _get_adapter_capabilities(transport)
 
-    all_field_names = {f.name for f in dataclass_fields(AdapterCapabilities)}
-    documented = set(json_caps.keys())
-    undocumented = all_field_names - documented
+    missing = []
+    for field in dataclass_fields(AdapterCapabilities):
+        if field.name not in json_caps:
+            missing.append(field.name)
 
-    # Separate into default-valued (informational) and non-default (notable gaps).
-    default_caps = AdapterCapabilities()
-    default_gaps: list[str] = []
-    notable_gaps: list[str] = []
-
-    for field_name in sorted(undocumented):
-        code_val = getattr(code_caps, field_name)
-        default_val = getattr(default_caps, field_name)
-        entry = f"  {field_name}={code_val!r} (default: {default_val!r})"
-        if code_val != default_val:
-            notable_gaps.append(entry)
-        else:
-            default_gaps.append(entry)
-
-    # Non-default undocumented capabilities are hard failures — they represent
-    # behaviour that the transport profile does not acknowledge.
-    if notable_gaps:
-        msg_lines = [
-            f"Undocumented non-default capabilities for {transport}:",
-            *notable_gaps,
-            "",
-            "These capabilities have non-default values in the adapter code but"
-            " are not listed in the transport profile's capabilities table.",
-            "Add them to the corresponding *-capabilities.json file.",
-        ]
-        pytest.fail("\n".join(msg_lines))
-
-    # Default-valued gaps are informational — print them for awareness.
-    if default_gaps:
-        print(
-            f"\n[INFO] {transport}: {len(default_gaps)} undocumented default-valued capabilities:"
-        )
-        for g in default_gaps:
-            print(f"  {g}")
+    assert (
+        not missing
+    ), f"{transport}: undocumented AdapterCapabilities fields: {missing}"
 
 
 @pytest.mark.parametrize("transport", TRANSPORTS)
@@ -184,6 +148,18 @@ def test_json_keys_are_valid_capability_fields(transport: str) -> None:
     assert not invalid, (
         f"Unknown capability keys in {transport}-capabilities.json: {invalid}\n"
         f"Valid fields: {sorted(valid_fields)}"
+    )
+
+
+@pytest.mark.parametrize("transport", TRANSPORTS)
+def test_markdown_references_capability_json(transport: str) -> None:
+    """Each transport profile markdown must reference its capability JSON file."""
+    md_path = PROFILES_DIR / f"{transport}.md"
+    json_filename = f"{transport}-capabilities.json"
+    content = md_path.read_text()
+    assert json_filename in content, (
+        f"{transport}.md does not reference {json_filename}. "
+        f"Add a link to the machine-readable capability declaration."
     )
 
 

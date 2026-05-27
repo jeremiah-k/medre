@@ -13,9 +13,13 @@
     "store_and_forward": true,
     "direct_messages": true,
     "channels": false,
+    "ack_tracking": false,
     "async_delivery": true,
     "identity_encryption": true,
+    "presence": false,
+    "topic_rooms": false,
     "mesh_routing": true,
+    "priority_delivery": false,
     "max_text_bytes": null,
     "max_text_chars": 16384
   }

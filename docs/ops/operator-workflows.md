@@ -506,7 +506,7 @@ If you have environment variables set for a Matrix adapter, you can validate MED
 export MEDRE_ADAPTER__MATRIX_PRIMARY__TRANSPORT=matrix
 export MEDRE_ADAPTER__MATRIX_PRIMARY__HOMESERVER=http://localhost:8008
 export MEDRE_ADAPTER__MATRIX_PRIMARY__USER_ID=@bot:localhost
-export MEDRE_ADAPTER__MATRIX_PRIMARY__ACCESS_TOKEN=syt_xxxxxxxxxxxxx
+export MEDRE_ADAPTER__MATRIX_PRIMARY__ACCESS_TOKEN=<matrix-access-token>
 export MEDRE_ADAPTER__MATRIX_PRIMARY__ROOM_ALLOWLIST="!abc123:localhost"
 ```
 

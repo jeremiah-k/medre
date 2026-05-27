@@ -84,8 +84,8 @@
   },
   "queue_status": {
     "status": "healthy",
-    "pending": "0",
-    "in_flight": "1"
+    "pending": 0,
+    "in_flight": 1
   },
   "backpressure_status": {
     "status": "nominal",
@@ -94,7 +94,7 @@
   },
   "task_status": {
     "status": "running",
-    "active_tasks": "3",
-    "pending_tasks": "0"
+    "active_tasks": 3,
+    "pending_tasks": 0
   }
 }

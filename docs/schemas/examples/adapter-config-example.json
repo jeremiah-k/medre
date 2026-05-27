@@ -3,7 +3,7 @@
   "homeserver": "https://matrix.example.org",
   "user_id": "@medre:matrix.example.org",
   "device_id": "ABCDEFGH",
-  "access_token": "syt_bWVkcmU_xxxxx_yyyyyyyyyyyyyyyyyyyyyyyy",
+  "access_token": "<matrix-access-token>",
   "room_allowlist": [
     "!roomkey:matrix.example.org",
     "!opschannel:matrix.example.org"

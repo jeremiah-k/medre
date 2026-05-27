@@ -86,10 +86,6 @@ class TestPipelineStageOrder:
     render, deliver, receipt).
     """
 
-    @pytest.mark.xfail(
-        reason="Full stage-order tracing requires pipeline instrumentation",
-        strict=False,
-    )
     async def test_event_passes_through_all_stages(
         self,
         temp_storage: SQLiteStorage,
@@ -305,7 +301,6 @@ class TestDeliveryReceipts:
     async def test_receipt_created_on_failed_delivery(
         self,
         temp_storage: SQLiteStorage,
-        simple_route: Route,
     ) -> None:
         """§3.2.4: A failed delivery (missing adapter) must also produce a
         receipt."""
@@ -372,7 +367,6 @@ class TestDeliveryStatusFromReceipt:
         self,
         temp_storage: SQLiteStorage,
         fake_presentation: FakePresentationAdapter,
-        simple_route: Route,
     ) -> None:
         """§3.2.5: Multiple deliveries produce append-only receipts; status
         is derived from the latest."""
@@ -413,16 +407,19 @@ class TestDeliveryStatusFromReceipt:
                 len(receipts) >= 2
             ), f"Expected 2+ receipts for multi-target delivery, got {len(receipts)}"
 
+            # Sort by sequence — storage return order is not guaranteed.
+            ordered_receipts = sorted(receipts, key=lambda r: r.sequence)
+
             # Verify receipts are append-only: first receipt sequence is preserved.
-            first_seq = receipts[0].sequence
-            for rcpt in receipts[1:]:
+            first_seq = ordered_receipts[0].sequence
+            for rcpt in ordered_receipts[1:]:
                 assert rcpt.sequence > first_seq, (
                     "Receipts are not append-only: later receipt has sequence "
                     f"{rcpt.sequence} <= first {first_seq} (§3.2.5)"
                 )
 
             # The latest receipt status is the current status.
-            latest = receipts[-1]
+            latest = ordered_receipts[-1]
             assert latest.status in {
                 "sent",
                 "queued",
@@ -442,10 +439,6 @@ class TestPolicyEvaluation:
     """§3.2.6: Evaluates policies at the correct stage (ingress, event,
     route, delivery)."""
 
-    @pytest.mark.xfail(
-        reason="Route policy evaluation requires policy-configured routes",
-        strict=False,
-    )
     async def test_route_policy_suppresses_delivery(
         self,
         temp_storage: SQLiteStorage,
@@ -492,10 +485,6 @@ class TestPolicyEvaluation:
         finally:
             await runner.stop()
 
-    @pytest.mark.xfail(
-        reason="Ingress/delivery policy not accessible via fake pipeline",
-        strict=False,
-    )
     async def test_ingress_policy_suppresses_event(
         self,
         temp_storage: SQLiteStorage,

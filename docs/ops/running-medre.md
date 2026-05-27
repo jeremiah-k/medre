@@ -229,7 +229,7 @@ enabled = true
 adapter_kind = "real"
 homeserver = "https://matrix.example.com"
 user_id = "@bot:example.com"
-access_token = "syt_..."
+access_token = "<matrix-access-token>"
 room_allowlist = ["!room:example.com"]
 encryption_mode = "plaintext"
 ```
@@ -253,7 +253,7 @@ enabled = true
 adapter_kind = "real"
 homeserver = "https://matrix.example.com"
 user_id = "@securebot:example.com"
-access_token = "syt_..."
+access_token = "<matrix-access-token>"
 room_allowlist = ["!secretroom:example.com"]
 encryption_mode = "e2ee_required"
 ```
@@ -315,7 +315,7 @@ enabled = true
 adapter_kind = "real"
 homeserver = "https://matrix.example.com"
 user_id = "@bridge:example.com"
-access_token = "syt_..."
+access_token = "<matrix-access-token>"
 room_allowlist = ["!bridge-room:example.com"]
 encryption_mode = "plaintext"
 
@@ -505,7 +505,7 @@ docker run -d \
   -e MEDRE_HOME=/opt/medre \
   -e MEDRE_ADAPTER__MAIN__HOMESERVER=https://matrix.example.com \
   -e MEDRE_ADAPTER__MAIN__USER_ID=@bot:example.com \
-  -e MEDRE_ADAPTER__MAIN__ACCESS_TOKEN=syt_... \
+  -e MEDRE_ADAPTER__MAIN__ACCESS_TOKEN=<matrix-access-token> \
   -e MEDRE_ADAPTER__MAIN__ENABLED=true \
   -v medre-state:/opt/medre \
   medre run

@@ -84,12 +84,16 @@ _REAL_ADAPTER_SPECS: list[tuple[str, str, str, str]] = [
 def _try_import_real_adapter(
     module_path: str, class_name: str
 ) -> type[AdapterContract] | None:
-    """Attempt to import a real adapter class; return None on failure."""
+    """Attempt to import a real adapter class; return None when the adapter
+    module or its optional SDK dependencies are unavailable."""
     try:
         mod = importlib.import_module(module_path)
         return getattr(mod, class_name, None)
-    except Exception:
+    except ModuleNotFoundError:
         return None
+    except ImportError:
+        return None
+    # SyntaxError, AttributeError, TypeError etc. re-raise as real failures.
 
 
 # Build the combined parameterization list at module level.
@@ -257,10 +261,6 @@ class TestSourceTransportId:
         _ADAPTER_PARAMS,
         ids=[p[0] for p in _ADAPTER_PARAMS],
     )
-    @pytest.mark.xfail(
-        reason="Requires runtime adapter instance with inbound event",
-        strict=False,
-    )
     async def test_source_transport_id_is_string(
         self,
         name: str,
@@ -298,10 +298,6 @@ class TestSourceChannelId:
         "name,cls,_runtime,sdk",
         _ADAPTER_PARAMS,
         ids=[p[0] for p in _ADAPTER_PARAMS],
-    )
-    @pytest.mark.xfail(
-        reason="Requires runtime adapter instance with inbound event",
-        strict=False,
     )
     async def test_source_channel_id_is_string_or_none(
         self,
@@ -353,10 +349,6 @@ class TestNoCredentialsInEvents:
         _ADAPTER_PARAMS,
         ids=[p[0] for p in _ADAPTER_PARAMS],
     )
-    @pytest.mark.xfail(
-        reason="Requires runtime adapter instance with inbound event",
-        strict=False,
-    )
     async def test_no_credential_patterns_in_payload(
         self,
         name: str,
@@ -390,10 +382,6 @@ class TestPublishInbound:
         "name,cls,_runtime,sdk",
         _ADAPTER_PARAMS,
         ids=[p[0] for p in _ADAPTER_PARAMS],
-    )
-    @pytest.mark.xfail(
-        reason="Requires runtime adapter instance to observe publish_inbound call",
-        strict=False,
     )
     async def test_uses_publish_inbound(
         self,
@@ -502,10 +490,6 @@ class TestPayloadLimits:
         "name,cls,_runtime,sdk",
         _ADAPTER_PARAMS,
         ids=[p[0] for p in _ADAPTER_PARAMS],
-    )
-    @pytest.mark.xfail(
-        reason="Requires runtime adapter delivery with oversized payload",
-        strict=False,
     )
     async def test_respects_max_text_bytes(
         self,

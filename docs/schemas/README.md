@@ -33,6 +33,11 @@ python -m pytest tests/test_docs_schema_examples.py -q
 
 ## Drift Detection
 
-Tests compare schema required fields against example payloads and validate
-examples against schemas. If a schema drifts from its example, the test fails
-and both must be updated.
+Tests validate examples against their schemas and check that schema required
+fields align with example payloads. When example payloads or schemas change,
+update both in the same commit.
+
+For stable source models (`CanonicalEvent`, `DeliveryReceipt`,
+`AdapterDeliveryResult`, `AdapterCapabilities`), tests also compare top-level
+schema properties against source dataclass fields. If a source model adds or
+renames a field without updating the schema, the test fails.
