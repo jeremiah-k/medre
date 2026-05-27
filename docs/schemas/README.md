@@ -38,6 +38,10 @@ fields align with example payloads. When example payloads or schemas change,
 update both in the same commit.
 
 For stable source models (`CanonicalEvent`, `DeliveryReceipt`,
-`AdapterDeliveryResult`, `AdapterCapabilities`), tests also compare top-level
-schema properties against source dataclass fields. If a source model adds or
-renames a field without updating the schema, the test fails.
+`AdapterDeliveryResult`), tests also compare top-level schema properties
+against source dataclass fields. If a source model adds or renames a field
+without updating the schema, the test fails.
+
+`AdapterCapabilities` are checked separately by
+`tests/test_capability_conformance.py` against
+`docs/spec/transport-profiles/*-capabilities.json`.

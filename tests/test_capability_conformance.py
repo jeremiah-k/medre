@@ -127,7 +127,7 @@ def test_capability_values_match_code(transport: str) -> None:
 def test_no_undocumented_capabilities(transport: str) -> None:
     """Every AdapterCapabilities field must appear in the JSON."""
     json_caps = _load_capabilities_json(transport)
-    _get_adapter_capabilities(transport)
+    _ = _get_adapter_capabilities(transport)  # triggers pytest.skip if SDK unavailable
 
     missing = []
     for field in dataclass_fields(AdapterCapabilities):

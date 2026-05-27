@@ -398,8 +398,8 @@ class TestPublishInbound:
         _runtime: bool,
         sdk: str | None,
     ) -> None:
-        """§3.1.6: Adapter must publish inbound events through
-        ``ctx.publish_inbound()``."""
+        """§3.1.6: Synthetic publication helper forwards events through
+        ``AdapterContext.publish_inbound``."""
         if cls is None:
             pytest.skip(f"{name} not importable")
         adapter = cls() if _can_instantiate(cls) else None
