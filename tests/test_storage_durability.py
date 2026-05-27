@@ -70,10 +70,8 @@ def _make_receipt(
     delivery_plan_id: str = "plan-1",
     target_adapter: str = "adapter_x",
     status: Literal[
-        "accepted",
         "queued",
         "sent",
-        "confirmed",
         "suppressed",
         "failed",
         "dead_lettered",
@@ -169,7 +167,7 @@ class TestRepeatedOpenCloseLifecycle:
             _make_receipt(
                 receipt_id="rcpt-2",
                 event_id="evt-rcpt-1",
-                status="confirmed",
+                status="sent",
                 attempt_number=2,
                 delivery_plan_id="plan-1",
             )

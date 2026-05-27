@@ -385,7 +385,7 @@ class DeliveryReceipt:
     target_adapter: str = ""               # Name of the target adapter
     target_channel: str | None = None      # Target channel/room from RouteTarget
     route_id: str = ""                     # Route that produced this delivery
-    status: Literal["accepted", "queued", "sent", "confirmed", "suppressed", "failed", "dead_lettered"] = "accepted"
+    status: Literal["queued", "sent", "suppressed", "failed", "dead_lettered"] = "queued"
     error: str | None = None               # Error message if delivery failed
     failure_kind: str | None = None        # DeliveryFailureKind value
     adapter_message_id: str | None = None  # Platform-specific message ID
@@ -397,17 +397,15 @@ class DeliveryReceipt:
     created_at: datetime = ...             # Timestamp when this receipt was created
 ```
 
-Receipt status is a string literal constrained to seven values:
+Receipt status is a string literal constrained to five values:
 
-| Status          | Meaning                                                   |
-| --------------- | --------------------------------------------------------- |
-| `accepted`      | Delivery plan created, not yet executed                   |
-| `queued`        | Delivery enqueued for adapter execution                   |
-| `sent`          | Adapter reported successful handoff                       |
-| `confirmed`     | Adapter reported confirmed delivery (transport-dependent) |
-| `suppressed`    | Delivery denied by policy evaluation                      |
-| `failed`        | Delivery attempt failed                                   |
-| `dead_lettered` | All retries exhausted; final terminal state               |
+| Status          | Meaning                                     |
+| --------------- | ------------------------------------------- |
+| `queued`        | Delivery enqueued for adapter execution     |
+| `sent`          | Adapter reported successful handoff         |
+| `suppressed`    | Delivery denied by policy evaluation        |
+| `failed`        | Delivery attempt failed                     |
+| `dead_lettered` | All retries exhausted; final terminal state |
 
 ### 8.2 Append-Only Semantics
 
@@ -632,22 +630,21 @@ derived event
 
 The routing layer does not alter the delivery semantics of any transport. Each adapter's `deliver()` method returns an `AdapterDeliveryResult`, and the pipeline records what the adapter reported — honestly and without upgrade.
 
-| Transport  | Adapter reports              | Routing layer records                           | Does routing upgrade?                    |
-| ---------- | ---------------------------- | ----------------------------------------------- | ---------------------------------------- |
-| Matrix     | `event_id` from homeserver   | `sent` or `confirmed` with `adapter_message_id` | No.                                      |
-| Meshtastic | Local node acceptance only   | `sent` without confirmation                     | No. Radio best-effort stays best-effort. |
-| MeshCore   | Local node acceptance only   | `sent` without confirmation                     | No. Radio best-effort stays best-effort. |
-| LXMF       | Local `LXMRouter` acceptance | `sent` without confirmation                     | No. Store-and-forward stays eventual.    |
+| Transport  | Adapter reports              | Routing layer records            | Does routing upgrade?                    |
+| ---------- | ---------------------------- | -------------------------------- | ---------------------------------------- |
+| Matrix     | `event_id` from homeserver   | `sent` with `adapter_message_id` | No.                                      |
+| Meshtastic | Local node acceptance only   | `sent` without confirmation      | No. Radio best-effort stays best-effort. |
+| MeshCore   | Local node acceptance only   | `sent` without confirmation      | No. Radio best-effort stays best-effort. |
+| LXMF       | Local `LXMRouter` acceptance | `sent` without confirmation      | No. Store-and-forward stays eventual.    |
 
 ### 13.2 Status Semantics Are Transport-Relative
 
-| Status      | Matrix meaning              | Radio meaning            | LXMF meaning             |
-| ----------- | --------------------------- | ------------------------ | ------------------------ |
-| `sent`      | Homeserver accepted         | Local node queued        | Local router accepted    |
-| `confirmed` | Server-verified persistence | **Never reached**        | **Never reached**        |
-| `failed`    | Adapter-reported failure    | Adapter-reported failure | Adapter-reported failure |
+| Status   | Matrix meaning           | Radio meaning            | LXMF meaning             |
+| -------- | ------------------------ | ------------------------ | ------------------------ |
+| `sent`   | Homeserver accepted      | Local node queued        | Local router accepted    |
+| `failed` | Adapter-reported failure | Adapter-reported failure | Adapter-reported failure |
 
-A `sent` receipt for Meshtastic is recorded as `sent`, not upgraded to `confirmed`.
+All adapters report `sent` on successful handoff; there is no separate `confirmed` status.
 
 ### 13.3 Receipt Honesty
 

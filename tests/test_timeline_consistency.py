@@ -50,10 +50,8 @@ def _make_receipt(
     target_adapter: str,
     *,
     status: Literal[
-        "accepted",
         "queued",
         "sent",
-        "confirmed",
         "suppressed",
         "failed",
         "dead_lettered",

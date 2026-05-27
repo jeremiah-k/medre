@@ -315,10 +315,8 @@ The registry is extensible by plugins via `plugin.custom`.
 | `telemetry.position` | Geographic-position telemetry report          | telemetry |
 | `presence.changed`   | A node or user's presence state changed       | presence  |
 | `identity.updated`   | Identity material (keys, profile) was updated | identity  |
-| `delivery.accepted`  | Delivery plan accepted by target adapter      | delivery  |
 | `delivery.queued`    | Message enqueued for delivery                 | delivery  |
 | `delivery.sent`      | Message handed off to transport layer         | delivery  |
-| `delivery.confirmed` | Transport-level acknowledgement received      | delivery  |
 | `delivery.failed`    | Delivery attempt failed                       | delivery  |
 | `system.audit`       | Audit-log entry produced by the framework     | system    |
 | `system.lifecycle`   | Lifecycle event (start, stop, reload)         | system    |
@@ -355,8 +353,8 @@ KNOWN_KINDS: frozenset[str] = frozenset([
     "telemetry.received", "telemetry.position",
     "presence.changed",
     "identity.updated",
-    "delivery.accepted", "delivery.queued", "delivery.sent",
-    "delivery.confirmed", "delivery.failed",
+    "delivery.queued", "delivery.sent",
+    "delivery.failed",
     "system.audit", "system.lifecycle",
     "plugin.custom",
 ])

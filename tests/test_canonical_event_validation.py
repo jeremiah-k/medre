@@ -438,8 +438,8 @@ class TestEventTaxonomyAudit:
         assert "plugin" in domains
 
     def test_event_kind_count(self) -> None:
-        """The number of known kinds is stable at 18."""
-        assert len(KNOWN_KINDS) == 18
+        """The number of known kinds is stable at 16."""
+        assert len(KNOWN_KINDS) == 16
 
     def test_relation_types_match_constant(self) -> None:
         """EventRelation Literal types match VALID_RELATION_TYPES."""

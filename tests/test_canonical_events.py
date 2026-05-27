@@ -349,10 +349,10 @@ class TestDeliveryReceipt:
         receipt = DeliveryReceipt()
         assert receipt.sequence == 0
 
-    def test_default_status_is_accepted(self) -> None:
-        """Status defaults to 'accepted'."""
+    def test_default_status_is_queued(self) -> None:
+        """Status defaults to 'queued'."""
         receipt = DeliveryReceipt()
-        assert receipt.status == "accepted"
+        assert receipt.status == "queued"
 
     def test_all_fields(self) -> None:
         """Every field can be set explicitly."""
@@ -363,14 +363,14 @@ class TestDeliveryReceipt:
             event_id="evt-1",
             delivery_plan_id="plan-1",
             target_adapter="target-1",
-            status="confirmed",
+            status="sent",
             error=None,
             adapter_message_id="native-1",
             next_retry_at=None,
             created_at=now,
         )
         assert receipt.sequence == 3
-        assert receipt.status == "confirmed"
+        assert receipt.status == "sent"
         assert receipt.adapter_message_id == "native-1"
 
 
@@ -454,10 +454,8 @@ class TestEventKind:
             "telemetry.position",
             "presence.changed",
             "identity.updated",
-            "delivery.accepted",
             "delivery.queued",
             "delivery.sent",
-            "delivery.confirmed",
             "delivery.failed",
             "system.audit",
             "system.lifecycle",

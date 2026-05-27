@@ -464,18 +464,6 @@ class StorageBackend(Protocol):
         """Count transient-failure receipts due for retry."""
         ...
 
-    async def update_retry_due(
-        self,
-        receipt_id: str,
-        next_retry_at: datetime,
-    ) -> None:
-        """Update next_retry_at on a receipt (for capacity rejection backoff).
-
-        This is the only mutation allowed on existing receipt rows — all
-        other receipt updates are append-only.
-        """
-        ...
-
     # -- Outbox -------------------------------------------------------------
 
     async def create_outbox_item(self, item: DeliveryOutboxItem) -> DeliveryOutboxItem:

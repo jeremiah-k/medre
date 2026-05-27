@@ -270,7 +270,6 @@ Always review the JSON output before sharing. Look for any field containing your
 
 | Status          | Meaning                                                                |
 | --------------- | ---------------------------------------------------------------------- |
-| `accepted`      | Delivery plan accepted                                                 |
 | `queued`        | Enqueued for async delivery                                            |
 | `sent`          | Adapter confirmed delivery                                             |
 | `failed`        | Delivery failed — check `failure_kind`                                 |

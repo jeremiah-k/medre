@@ -65,6 +65,7 @@ class TestCoreSpecFiles:
         "configuration.md",
         "security-privacy.md",
         "conformance.md",
+        "state-machines.md",
         "index.md",
     ]
 

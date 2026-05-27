@@ -64,17 +64,11 @@ class EventKind:
 
     # -- Delivery ---------------------------------------------------------
 
-    DELIVERY_ACCEPTED: str = "delivery.accepted"
-    """Delivery plan accepted by the target adapter."""
-
     DELIVERY_QUEUED: str = "delivery.queued"
     """Message enqueued for delivery."""
 
     DELIVERY_SENT: str = "delivery.sent"
     """Message handed off to the transport layer."""
-
-    DELIVERY_CONFIRMED: str = "delivery.confirmed"
-    """Transport-level acknowledgement received."""
 
     DELIVERY_FAILED: str = "delivery.failed"
     """Delivery attempt failed (recoverable or permanent)."""
@@ -107,10 +101,8 @@ KNOWN_KINDS: frozenset[str] = frozenset(
         EventKind.TELEMETRY_POSITION,
         EventKind.PRESENCE_CHANGED,
         EventKind.IDENTITY_UPDATED,
-        EventKind.DELIVERY_ACCEPTED,
         EventKind.DELIVERY_QUEUED,
         EventKind.DELIVERY_SENT,
-        EventKind.DELIVERY_CONFIRMED,
         EventKind.DELIVERY_FAILED,
         EventKind.SYSTEM_AUDIT,
         EventKind.SYSTEM_LIFECYCLE,

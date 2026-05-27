@@ -193,18 +193,18 @@ Same discipline as Meshtastic — radio best-effort, no confirmation, duplicates
 Receipts progress through these states:
 
 ```text
-accepted → queued → sent → confirmed
-                  ↘ failed → dead_lettered
+queued → sent
+       ↘ failed → dead_lettered
+       ↘ suppressed
 ```
 
 | Status          | Meaning                                                                                        |
 | --------------- | ---------------------------------------------------------------------------------------------- |
-| `accepted`      | Pipeline accepted event for delivery. No transport contact yet.                                |
 | `queued`        | Delivery plan created, waiting for adapter execution.                                          |
 | `sent`          | Adapter reported successful handoff to transport. See per-transport table for what this means. |
-| `confirmed`     | Positive confirmation from external system. Only Matrix currently reaches this.                |
 | `failed`        | Adapter reported delivery failure. Classified by `failure_kind`.                               |
 | `dead_lettered` | Exhausted all retries. Permanently failed.                                                     |
+| `suppressed`    | Terminal — delivery denied by policy (loop prevention, route policy, capacity, shutdown).     |
 
 Each receipt carries `attempt_number` and `parent_receipt_id` forming a retry lineage. The `source` column distinguishes origin: `"live"`, `"retry"`, or `"replay"`.
 

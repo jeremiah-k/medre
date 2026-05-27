@@ -15,40 +15,51 @@ Events flow through a fixed sequence of stages. Each stage has a defined
 responsibility and produces traceable output.
 
 ```text
-[Adapters] --> ingress policy --> store source event --> enrichment
-                                    |
-                              semantic transforms
-                                    |
-                              event policy
-                                    |
-                                  routing
-                                    |
-                              route policy
-                                    |
-                            delivery planning
-                                    |
-                      delivery policy / rendering
-                                    |
-                          adapter execution
-                                    |
-                      receipts / correlation
+[Adapters] --> ingress --> dedup --> resolve_relations --> store
+                                                             |
+                                                        route
+                                                             |
+                                                       deliver
+                                                             |
+                                              receipt (append-only)
 ```
 
 ## 2. Stage Descriptions
 
-| Stage                           | Responsibility                                                                                                                                               |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Ingress Policy**              | Validate and filter raw inbound data before it enters the pipeline. Reject malformed, unauthorized, or rate-limited ingress at the boundary.                 |
-| **Store Source Event**          | Persist the source event to storage with a unique ID, timestamp, and schema version. This is the immutable record.                                           |
-| **Enrichment**                  | Attach supplementary data: identity resolution, geo lookups, radio metadata normalization. Produces a derived event.                                         |
-| **Semantic Transforms**         | Convert derived events into target event kinds (e.g., telemetry to message, telemetry to metrics). Each transform declares input/output kinds.               |
-| **Event Policy**                | Rate limiting, content filtering, permission checks, and user-configurable rules on transformed events. Events may be dropped, flagged, or rate-limited.     |
-| **Routing**                     | Determine which adapters should receive the event. Evaluate structured source/target criteria, channel mapping, and bridge group resolution.                 |
-| **Route Policy**                | Per-route rules after routing but before delivery planning. Per-route rate limits, quiet hours, and permission checks on the route+adapter pair.             |
-| **Delivery Planning**           | Construct delivery plans: primary method, fallback chain, retry strategy, ordering constraints, deduplication scope, and cross-adapter threading resolution. |
-| **Delivery Policy / Rendering** | Adapter-specific content filtering, size limits, capability downgrade. Produce the final rendered payload for each adapter.                                  |
-| **Adapter Execution**           | Dequeue and execute delivery plans respecting adapter rate limits, connection state, and priority.                                                           |
-| **Receipts / Correlation**      | Record delivery results and correlate back to the originating event. Failed deliveries trigger fallback plans or dead-letter processing.                     |
+| Stage                 | Responsibility                                                                                                                                                                                             | Ends With                                             |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| **Ingress**           | Validate required fields (`event_id`, `event_kind`, `source_adapter`) on inbound canonical events. Reject malformed events at the boundary.                                                                | Validated event in memory.                            |
+| **Dedup**             | Check the inbound native-message ref (`source_native_ref`) against persisted refs. Suppress duplicate native refs before storage to prevent echo loops.                                                    | Duplicate suppressed (returns `[]`); or unique event. |
+| **Resolve Relations** | Resolve event-level relations by looking up `target_native_ref` → `target_event_id` mappings via `RelationResolver`. Preserve unresolved refs unchanged.                                                   | Event with resolved relation IDs (may be same event). |
+| **Store**             | Persist the canonical event to the storage backend via `StorageBackend.append`. Also persist the inbound `NativeMessageRef`. This is the immutable record.                                                 | Event durably stored; native ref recorded.            |
+| **Route**             | Match the stored event against registered routes via `Router.match`. Create a `DeliveryPlan` per target using `FallbackResolver`. Attach route-level retry policies.                                       | Ordered list of `(Route, DeliveryPlan)` pairs.        |
+| **Deliver**           | For each target: evaluate route policy, acquire capacity, create outbox item, enrich target-specific relations, render, call adapter `deliver()`, persist a `DeliveryReceipt`, and update the outbox item. | `DeliveryOutcome` per target; receipt in storage.     |
+
+### Stage Invariants
+
+1. **Ingress**: Events missing `event_id`, `event_kind`, or `source_adapter` raise `ValueError`.
+2. **Dedup**: Suppressed duplicates produce no `DeliveryReceipt`. Evidence is recorded via `RuntimeAccounting` counters only.
+3. **Resolve Relations**: The stored event is never mutated. If relations change, a new immutable event is created via `msgspec.structs.replace`.
+4. **Store**: Events are appended immutably. No `UPDATE` or `DELETE` is issued on event rows.
+5. **Route**: An event that matches zero routes produces no deliveries and no receipts. The pipeline returns an empty outcome list.
+6. **Deliver**: Each target is independent — one target's failure does not prevent sibling deliveries. Every delivery attempt produces an append-only `DeliveryReceipt`. Receipt and outbox state machines are defined in [state-machines.md](state-machines.md).
+
+### Future Extension Points
+
+The following stages are reserved for future implementation and have no current
+code path: **enrich**, **transform**, **event policy**.
+
+These stages are described below for planning purposes only. They MUST NOT be
+referenced as implemented behavior.
+
+| Reserved Stage   | Intended Responsibility                                                                      | Insertion Point                    |
+| ---------------- | -------------------------------------------------------------------------------------------- | ---------------------------------- |
+| **Enrich**       | Attach supplementary data (identity resolution, geo lookups, radio metadata normalization).  | After **store**, before **route**  |
+| **Transform**    | Convert enriched events into target event kinds. Each transform declares input/output kinds. | After **enrich**, before **route** |
+| **Event Policy** | Rate limiting, content filtering, permission checks on transformed events.                   | After **transform**, before route  |
+
+When implemented, each extension stage MUST produce derived events with
+`parent_event_id` and lineage, and MUST NOT mutate the original stored event.
 
 ## 3. Data Flow Constraints
 

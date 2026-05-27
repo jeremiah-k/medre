@@ -24,6 +24,7 @@ def make_event(
     source_adapter: str = "fake_transport",
     source_channel_id: str | None = "ch-0",
     payload: dict | None = None,
+    source_native_ref: NativeRef | None = None,
 ) -> CanonicalEvent:
     """Create a minimal CanonicalEvent for pipeline tests."""
     return CanonicalEvent(
@@ -39,6 +40,7 @@ def make_event(
         relations=(),
         payload=payload or {"text": "hello"},
         metadata=EventMetadata(),
+        source_native_ref=source_native_ref,
     )
 
 

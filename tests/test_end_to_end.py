@@ -296,7 +296,7 @@ class TestFullPipeline:
             await storage.append(event)
 
             # Append receipts in sequence.
-            for status in ("queued", "sent", "confirmed"):
+            for status in ("queued", "sent", "suppressed"):
                 receipt = DeliveryReceipt(
                     receipt_id=f"rcpt-{status}",
                     event_id="receipt-evt",
@@ -308,7 +308,7 @@ class TestFullPipeline:
 
             latest = await storage.delivery_status("plan-receipt", "fake_presentation")
             assert latest is not None
-            assert latest.status == "confirmed"
+            assert latest.status == "suppressed"
 
             await storage.close()
         finally:

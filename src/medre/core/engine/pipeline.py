@@ -10,14 +10,12 @@ the framework's subsystems into a coherent processing pipeline:
 
 Pipeline stages
 ---------------
-1. **Ingress** – validate and accept an inbound event.
-2. **Store** – persist the event via the storage backend.
-3. **Route** – match the event against registered routes.
-4. **Plan** – create a :class:`DeliveryPlan` for each route target,
-   resolving capability fallbacks.
-5. **Deliver** – hand the event to the target adapter.
-6. **Receipt** – record a :class:`DeliveryReceipt` and store the native
-   message mapping.
+1. **Ingress** – validate required fields on inbound events.
+2. **Dedup** – suppress duplicate native-message refs.
+3. **Resolve Relations** – cross-adapter relation resolution.
+4. **Store** – persist the event and inbound native ref.
+5. **Route** – match against routes, create delivery plans.
+6. **Deliver** – per-target render, send, receipt, outbox update.
 """
 
 from __future__ import annotations
@@ -28,7 +26,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Literal, cast
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Literal, TypedDict, cast
 
 import msgspec
 
@@ -38,6 +36,7 @@ from medre.core.contracts.adapter import (
     AdapterDeliveryResult,
     OutboundNativeRefRecord,
 )
+from medre.core.engine.phases import PipelinePhase
 from medre.core.events.bus import EventBus
 from medre.core.events.canonical import (
     CanonicalEvent,
@@ -274,6 +273,13 @@ def _native_metadata_for_ref(event: CanonicalEvent) -> dict[str, object]:
 # ---------------------------------------------------------------------------
 
 
+class PhaseSnapshot(TypedDict):
+    """Stable diagnostic snapshot of pipeline phase instrumentation."""
+
+    current_phase: str | None
+    counts: dict[str, int]
+
+
 class PipelineRunner:
     """Orchestrates the full event pipeline:
 
@@ -319,7 +325,28 @@ class PipelineRunner:
         self._inflight_deliveries: dict[str, InflightDelivery] = {}
         self._running: bool = False
 
+        # -- Phase instrumentation ------------------------------------------
+        self._current_phase: PipelinePhase | None = None
+        self._phase_counts: dict[PipelinePhase, int] = {
+            phase: 0 for phase in PipelinePhase
+        }
+
     # -- Lifecycle ----------------------------------------------------------
+
+    def phase_snapshot(self) -> PhaseSnapshot:
+        """Return a stable diagnostic snapshot of phase instrumentation.
+
+        Returns a dict with:
+        - ``current_phase``: the phase currently being executed, or ``None``.
+        - ``counts``: per-phase invocation counts keyed by phase string value.
+
+        The snapshot is intended for diagnostics and tests — it does not
+        drive pipeline behavior.
+        """
+        return {
+            "current_phase": self._current_phase.value if self._current_phase else None,
+            "counts": {phase.value: self._phase_counts[phase] for phase in PipelinePhase},
+        }
 
     @property
     def running(self) -> bool:
@@ -457,8 +484,16 @@ class PipelineRunner:
             event.source_adapter,
         )
 
+        # ── Phase: INGRESS ──────────────────────────────────────────────
+        self._current_phase = PipelinePhase.INGRESS
+        self._phase_counts[PipelinePhase.INGRESS] += 1
+
         # Stage 1 – validate
         self._validate_event(event)
+
+        # ── Phase: DEDUP ────────────────────────────────────────────────
+        self._current_phase = PipelinePhase.DEDUP
+        self._phase_counts[PipelinePhase.DEDUP] += 1
 
         # Stage 1.5 – duplicate native ref check.  If this event carries
         # a source_native_ref that already resolves to an existing
@@ -497,8 +532,16 @@ class PipelineRunner:
         if self._runtime_accounting is not None:
             self._runtime_accounting.record_inbound_accepted()
 
+        # ── Phase: RESOLVE_RELATIONS ────────────────────────────────────
+        self._current_phase = PipelinePhase.RESOLVE_RELATIONS
+        self._phase_counts[PipelinePhase.RESOLVE_RELATIONS] += 1
+
         # Stage 2 – resolve relations (pipeline-owned, not adapter/codec).
         event = await self._resolve_relations(event)
+
+        # ── Phase: STORE ────────────────────────────────────────────────
+        self._current_phase = PipelinePhase.STORE
+        self._phase_counts[PipelinePhase.STORE] += 1
 
         # Stage 3 – store
         await self.store_event(event)
@@ -515,6 +558,10 @@ class PipelineRunner:
             return []
 
         # Stages 5-6 – route, plan, deliver
+        # ── Phase: ROUTE ────────────────────────────────────────────────
+        self._current_phase = PipelinePhase.ROUTE
+        self._phase_counts[PipelinePhase.ROUTE] += 1
+
         try:
             event, deliveries = await self.route_event(event)
         except Exception as exc:
@@ -546,6 +593,10 @@ class PipelineRunner:
             return []
 
         # Deliver to all targets independently with error isolation.
+        # ── Phase: DELIVER ──────────────────────────────────────────────
+        self._current_phase = PipelinePhase.DELIVER
+        self._phase_counts[PipelinePhase.DELIVER] += 1
+
         outcomes = await self.deliver_to_targets(event, deliveries)
 
         accepted = sum(1 for o in outcomes if o.status in {"success", "queued"})

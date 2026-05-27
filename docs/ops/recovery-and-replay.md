@@ -520,11 +520,11 @@ ORDER BY e.created_at DESC;
 
 ### Retry States
 
-| State            | `status`              | `next_retry_at`   | `failure_kind`      | Meaning                                                  |
-| ---------------- | --------------------- | ----------------- | ------------------- | -------------------------------------------------------- |
-| Pending retry    | `failed`              | Set (future time) | `adapter_transient` | RetryWorker will re-attempt                              |
-| Exhausted        | `dead_lettered`       | `NULL`            | `adapter_transient` | Max retries exceeded; manual intervention needed         |
-| Successful retry | `sent` or `confirmed` | `NULL`            | `NULL`              | Retry succeeded; check `parent_receipt_id` to trace back |
+| State            | `status`        | `next_retry_at`   | `failure_kind`      | Meaning                                                  |
+| ---------------- | --------------- | ----------------- | ------------------- | -------------------------------------------------------- |
+| Pending retry    | `failed`        | Set (future time) | `adapter_transient` | RetryWorker will re-attempt                              |
+| Exhausted        | `dead_lettered` | `NULL`            | `adapter_transient` | Max retries exceeded; manual intervention needed         |
+| Successful retry | `sent`          | `NULL`            | `NULL`              | Retry succeeded; check `parent_receipt_id` to trace back |
 
 ### When to Use Which
 
