@@ -9,6 +9,8 @@
 > Last updated: 2026-05-09
 > Track: 8 (Production Connectivity Readiness)
 
+> **Note:** This is a point-in-time assessment. MeshCore and LXMF now have real session code (source-audited, mock-tested). See contracts 19/20 and runbooks for current readiness status.
+
 This document assesses each adapter's readiness for real network operation. It is deliberately conservative. Nothing claimed here should be interpreted as "works against real hardware/services" until it has been explicitly verified against the actual SDK, transport, or service.
 
 All four adapters are in tranche 1. Fake mode is the default development path for all four. All four adapters now have **optional** live smoke harnesses that can verify real connectivity when explicitly enabled via environment variables. No adapter has been tested against a real production endpoint in default CI.

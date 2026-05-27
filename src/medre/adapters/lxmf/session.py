@@ -995,14 +995,18 @@ class LxmfSession:
         captured asyncio loop via ``call_soon_threadsafe`` to avoid
         concurrent mutation from the Reticulum and asyncio threads.
         """
+        if self._stop_requested or not self._started:
+            return
+
         try:
             loop = self._loop
             if loop is not None and loop.is_running():
                 loop.call_soon_threadsafe(self._apply_delivery_state_update, message)
             else:
-                # No running loop — apply directly only if we're
-                # already on the loop thread (e.g. during testing
-                # with fake mode).
+                # Direct apply is safe here — _apply_delivery_state_update
+                # only does synchronous dict mutations (no asyncio calls),
+                # unlike _invoke_inbound_callback which may run user async
+                # code.
                 self._apply_delivery_state_update(message)
         except Exception as exc:
             self._logger.debug(
