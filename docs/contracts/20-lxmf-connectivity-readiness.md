@@ -862,7 +862,6 @@ Key findings that this contract consolidates:
 - **Real-mode source exists behind optional deps.** Reticulum init/reuse, identity load/create, router creation, delivery callback, LXMessage→dict normalization, outbound send via `handle_outbound`, delivery-state tracking, `call_soon_threadsafe` bridge, stop/teardown. Source-audited/mock-tested only. No live Reticulum validation.
 - **No live testing has been performed.** All findings are from source code analysis.
 - **No compatibility with any specific Reticulum network is claimed.**
-- **Source-audited/mock-tested only. No live Reticulum validation.** Real-mode code paths exist but have not been exercised against a running Reticulum instance.
 - **Field key 0xFD for MEDRE metadata has not been validated against
   real LXMF traffic.** It is a MEDRE convention that other clients may
   or may not respect.

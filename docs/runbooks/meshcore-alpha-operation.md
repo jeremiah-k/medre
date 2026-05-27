@@ -983,7 +983,7 @@ A successful return from `deliver()` means the adapter called the SDK send metho
 
 Channel messages return `OK`/`ERROR` with no `expected_ack`. There is no per-recipient delivery confirmation for channel messages. Direct messages carry `expected_ack` for ACK correlation, but ACKs are not guaranteed and the adapter does not track them.
 
-The adapter has no outbound queue. Sends go directly through the session to the SDK client. There is no retry, no requeue, no backlog, no at-least-once enforcement at the adapter level.
+The adapter has no outbound queue. Sends go directly through the session to the SDK client. Session-level transient retry exists (up to 3 attempts in `send_text()`). No durable queue, no requeue, no backlog, no at-least-once enforcement at the adapter level.
 
 ## 17. Target-Aware Rendering and Classifier Diagnostics
 
