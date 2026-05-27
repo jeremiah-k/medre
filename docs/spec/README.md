@@ -25,6 +25,9 @@ in a document under this tree.
 7. **Diagnostics & Evidence** (`spec/diagnostics-evidence.md`) — observability, snapshots
 8. **Transport Profiles** (`spec/transport-profiles/`) — per-adapter current-state reference
 
+Transport profiles include machine-readable capability declarations
+(`*-capabilities.json`) validated by `tests/test_capability_conformance.py`.
+
 ## Authority Rules
 
 - If a document under `spec/` conflicts with any other documentation, `spec/`

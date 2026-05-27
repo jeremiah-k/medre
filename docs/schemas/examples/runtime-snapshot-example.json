@@ -1,0 +1,100 @@
+{
+  "adapters": [
+    {
+      "adapter_id": "matrix-bot1",
+      "transport": "matrix",
+      "healthy": true,
+      "connected": true,
+      "last_event_at": "2026-05-27T12:00:00Z",
+      "uptime_seconds": 43200
+    },
+    {
+      "adapter_id": "longfast",
+      "transport": "meshtastic",
+      "healthy": true,
+      "connected": true,
+      "last_event_at": "2026-05-27T11:59:45Z",
+      "uptime_seconds": 43185
+    }
+  ],
+  "renderer_registry": {
+    "status": "healthy",
+    "registered_renderers": 3,
+    "default_renderer": "plaintext"
+  },
+  "event_bus_status": {
+    "status": "running",
+    "subscribers": 5,
+    "events_processed": 1247
+  },
+  "storage_backend_status": {
+    "status": "healthy",
+    "backend": "sqlite",
+    "event_count": 8942,
+    "receipt_count": 9103
+  },
+  "replay_backend_status": {
+    "status": "unavailable",
+    "reason": "not configured"
+  },
+  "route_topology": {
+    "routes": [
+      {
+        "route_id": "matrix_to_radio",
+        "enabled": true,
+        "ownership": "shared",
+        "fanout_strategy": "broadcast",
+        "source": {
+          "adapter": "matrix-bot1",
+          "event_kinds": ["message.text"],
+          "channel": "!roomkey:matrix.example.org"
+        },
+        "targets": [
+          {
+            "adapter": "longfast",
+            "channel": "0",
+            "destination": {
+              "kind": "channel",
+              "destination_hash": null,
+              "destination_name": "LongFast"
+            }
+          }
+        ],
+        "target_count": 1,
+        "target_adapters": ["longfast"],
+        "delivered": 312,
+        "failed": 2,
+        "skipped": 0,
+        "loop_prevented": 5,
+        "policy_suppressed": 0,
+        "error_count": 2,
+        "event_count": 319,
+        "last_error": ""
+      }
+    ],
+    "route_health_summary": {
+      "enabled": 1,
+      "disabled": 0,
+      "total": 1
+    },
+    "adapter_route_map": {
+      "matrix-bot1": ["matrix_to_radio"],
+      "longfast": ["matrix_to_radio"]
+    }
+  },
+  "queue_status": {
+    "status": "healthy",
+    "pending": 0,
+    "in_flight": 1
+  },
+  "backpressure_status": {
+    "status": "nominal",
+    "high_watermark": "0.80",
+    "current_level": "0.12"
+  },
+  "task_status": {
+    "status": "running",
+    "active_tasks": 3,
+    "pending_tasks": 0
+  }
+}

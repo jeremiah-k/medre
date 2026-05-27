@@ -1,0 +1,13 @@
+{
+  "native_message_id": "$abc123def456:matrix.example.org",
+  "native_channel_id": "!roomkey:matrix.example.org",
+  "native_thread_id": null,
+  "native_relation_id": null,
+  "delivery_note": "Message delivered to Matrix room via long-poll sync",
+  "delivery_status": "sent",
+  "metadata": {
+    "homeserver": "matrix.example.org",
+    "retry_count": 0,
+    "latency_ms": 142
+  }
+}

@@ -103,7 +103,7 @@ export MATRIX_ROOM_ALLOWLIST="!abc123:localhost,!def456:localhost"
 | ------------------------ | -------- | -------------- | ------------------------------- | ------------------------------ |
 | `MATRIX_HOMESERVER`      | Yes      |                | `http://localhost:8008`         | Full URL, no trailing slash    |
 | `MATRIX_USER_ID`         | Yes      |                | `@bot:localhost`                | Starts with `@`                |
-| `MATRIX_ACCESS_TOKEN`    | Yes      |                | `syt_xxxxxxxxxxxxx`             | Keep it secret                 |
+| `MATRIX_ACCESS_TOKEN`    | Yes      |                | `<matrix-access-token>`         | Keep it secret                 |
 | `MATRIX_ROOM_ALLOWLIST`  | No       | (all rooms)    | `!abc:localhost,!def:localhost` | Comma-separated room IDs       |
 | `MATRIX_ADAPTER_ID`      | No       | `matrix-alpha` | `my-adapter`                    | Adapter identifier for logging |
 | `MATRIX_SYNC_TIMEOUT_MS` | No       | `30000`        | `60000`                         | Sync long-poll timeout in ms   |
@@ -113,7 +113,7 @@ export MATRIX_ROOM_ALLOWLIST="!abc123:localhost,!def456:localhost"
 ```bash
 export MEDRE_ADAPTER__BRIDGE__HOMESERVER=http://localhost:8008
 export MEDRE_ADAPTER__BRIDGE__USER_ID=@bot:localhost
-export MEDRE_ADAPTER__BRIDGE__ACCESS_TOKEN=syt_xxxxxxxxxxxxx
+export MEDRE_ADAPTER__BRIDGE__ACCESS_TOKEN="<matrix-access-token>"
 export MEDRE_ADAPTER__BRIDGE__ROOM_ALLOWLIST='["!abc123:localhost"]'
 
 medre run
@@ -211,7 +211,7 @@ When the adapter starts with a non-plaintext `encryption_mode`, it calls `whoami
 ```bash
 export MATRIX_HOMESERVER="http://localhost:8008"
 export MATRIX_USER_ID="@bot:localhost"
-export MATRIX_ACCESS_TOKEN="syt_..."
+export MATRIX_ACCESS_TOKEN="<matrix-access-token>"
 export MATRIX_ROOM_ID="!test:localhost"
 export MATRIX_INBOUND_SENDER="@alice:localhost"  # second account
 

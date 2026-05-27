@@ -37,6 +37,8 @@ The adapter delegates SDK client lifecycle to `MeshCoreSession`. The session own
 
 ## Capabilities
 
+Machine-readable capability declaration: [`meshcore-capabilities.json`](meshcore-capabilities.json)
+
 > Capability levels map to the CapabilityLevel enum (adapter-runtime.md §6.2): `"unsupported"` = `FALSE`.
 
 | Capability        | Value                                    |
@@ -55,6 +57,12 @@ The adapter delegates SDK client lifecycle to `MeshCoreSession`. The session own
 | async_delivery    | `True`                                   |
 | mesh_routing      | `True`                                   |
 | max_text_bytes    | Configurable (default 512)               |
+
+`max_text_bytes` is the adapter's advertised end-to-end text budget, not a
+single MeshCore packet payload cap. MeshCore per-packet payload constraints are
+lower (approximately 184 bytes depending on SDK framing). MEDRE does not
+implement fragmentation or reassembly — outbound text exceeding the budget is
+truncated by the renderer before delivery.
 
 ---
 

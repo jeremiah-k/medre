@@ -9,6 +9,8 @@ Asserts that:
      correct types.
   4. Schemas have not drifted from source (basic required-field
      name check against example payloads).
+  5. For stable source models, schema top-level properties match
+     the source dataclass / msgspec.Struct fields.
 """
 
 from __future__ import annotations
@@ -251,3 +253,69 @@ class TestSchemaExampleFieldDrift:
             f"{schema_path.name}: {sorted(extra)}. "
             f"Either update the schema or remove the extra fields."
         )
+
+
+# ===========================================================================
+# 4. Source drift detection for stable models
+# ===========================================================================
+
+
+class TestSourceDriftDetection:
+    """Verify schema top-level properties match source dataclass/struct fields
+    for stable models where the mapping is 1:1.
+
+    If a source model adds or renames a field without updating the schema,
+    the test fails.  Only models backed by concrete dataclasses or
+    msgspec.Struct types with a clear 1:1 mapping are checked; dict-shaped
+    schemas and oneOf schemas are excluded.
+    """
+
+    def test_canonical_event_schema_matches_source(self) -> None:
+        """canonical-event.schema.json properties must match CanonicalEvent fields."""
+        from medre.core.events.canonical import CanonicalEvent
+
+        schema = _load_json(_SCHEMAS_DIR / "canonical-event.schema.json")
+        schema_props = set(schema.get("properties", {}).keys())
+        source_fields = set(CanonicalEvent.__struct_fields__)
+        missing = source_fields - schema_props
+        assert (
+            not missing
+        ), f"CanonicalEvent fields missing from schema: {sorted(missing)}"
+        extra = schema_props - source_fields
+        assert (
+            not extra
+        ), f"Schema properties absent from CanonicalEvent: {sorted(extra)}"
+
+    def test_delivery_receipt_schema_matches_source(self) -> None:
+        """delivery-receipt.schema.json properties must match DeliveryReceipt fields."""
+        from medre.core.events.canonical import DeliveryReceipt
+
+        schema = _load_json(_SCHEMAS_DIR / "delivery-receipt.schema.json")
+        schema_props = set(schema.get("properties", {}).keys())
+        source_fields = set(DeliveryReceipt.__struct_fields__)
+        missing = source_fields - schema_props
+        assert (
+            not missing
+        ), f"DeliveryReceipt fields missing from schema: {sorted(missing)}"
+        extra = schema_props - source_fields
+        assert (
+            not extra
+        ), f"Schema properties absent from DeliveryReceipt: {sorted(extra)}"
+
+    def test_delivery_result_schema_matches_source(self) -> None:
+        """delivery-result.schema.json properties must match AdapterDeliveryResult fields."""
+        from dataclasses import fields as dc_fields
+
+        from medre.core.contracts.adapter import AdapterDeliveryResult
+
+        schema = _load_json(_SCHEMAS_DIR / "delivery-result.schema.json")
+        schema_props = set(schema.get("properties", {}).keys())
+        source_fields = {f.name for f in dc_fields(AdapterDeliveryResult)}
+        missing = source_fields - schema_props
+        assert (
+            not missing
+        ), f"AdapterDeliveryResult fields missing from schema: {sorted(missing)}"
+        extra = schema_props - source_fields
+        assert (
+            not extra
+        ), f"Schema properties absent from AdapterDeliveryResult: {sorted(extra)}"

@@ -41,19 +41,19 @@
     },
     "queue_status": {
       "type": "object",
-      "additionalProperties": { "type": "string" },
+      "additionalProperties": true,
       "default": { "status": "unavailable" },
       "description": "Queue status dict."
     },
     "backpressure_status": {
       "type": "object",
-      "additionalProperties": { "type": "string" },
+      "additionalProperties": true,
       "default": { "status": "unavailable" },
       "description": "Backpressure status dict."
     },
     "task_status": {
       "type": "object",
-      "additionalProperties": { "type": "string" },
+      "additionalProperties": true,
       "default": { "status": "unavailable" },
       "description": "Task status dict."
     }

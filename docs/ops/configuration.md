@@ -104,7 +104,7 @@ adapter_kind = "real"
 adapter_id = "main"
 homeserver = "https://matrix.example.com"
 user_id = "@bot:example.com"
-access_token = "syt_secret_token_here"
+access_token = "<matrix-access-token>"
 room_allowlist = ["!room:example.com"]
 sync_timeout_ms = 30000
 encryption_mode = "plaintext"
@@ -506,7 +506,7 @@ Token collisions are detected at startup and raise `ConfigValidationError`.
 | `enabled`         | `MEDRE_ADAPTER__MAIN__ENABLED=true`                                |
 | `homeserver`      | `MEDRE_ADAPTER__MAIN__HOMESERVER=https://matrix.example.com`       |
 | `user_id`         | `MEDRE_ADAPTER__MAIN__USER_ID=@bot:example.com`                    |
-| `access_token`    | `MEDRE_ADAPTER__MAIN__ACCESS_TOKEN=syt_...`                        |
+| `access_token`    | `MEDRE_ADAPTER__MAIN__ACCESS_TOKEN=<matrix-access-token>`          |
 | `room_allowlist`  | `MEDRE_ADAPTER__MAIN__ROOM_ALLOWLIST=!room:example.com,!other:...` |
 | `encryption_mode` | `MEDRE_ADAPTER__MAIN__ENCRYPTION_MODE=plaintext`                   |
 | `sync_timeout_ms` | `MEDRE_ADAPTER__MAIN__SYNC_TIMEOUT_MS=30000`                       |
@@ -558,9 +558,9 @@ Migration example:
 
 ```bash
 # Old (rejected):
-export MEDRE_MATRIX_ACCESS_TOKEN=syt_...
+export MEDRE_MATRIX_ACCESS_TOKEN="<matrix-access-token>"
 # New:
-export MEDRE_ADAPTER__MAIN__ACCESS_TOKEN=syt_...
+export MEDRE_ADAPTER__MAIN__ACCESS_TOKEN="<matrix-access-token>"
 ```
 
 ### Env-First Adapter Creation
@@ -572,7 +572,7 @@ You can create entirely new adapters from environment variables when the token d
 MEDRE_ADAPTER__MATRIX_PRIMARY__TRANSPORT=matrix
 MEDRE_ADAPTER__MATRIX_PRIMARY__HOMESERVER=https://matrix.example.com
 MEDRE_ADAPTER__MATRIX_PRIMARY__USER_ID=@bot:example.com
-MEDRE_ADAPTER__MATRIX_PRIMARY__ACCESS_TOKEN=syt_...
+MEDRE_ADAPTER__MATRIX_PRIMARY__ACCESS_TOKEN="<matrix-access-token>"
 
 # Meshtastic adapter — created from env
 MEDRE_ADAPTER__RADIO_A__TRANSPORT=meshtastic
@@ -803,7 +803,7 @@ MEDRE_HOME=/opt/medre
 MEDRE_LOG_LEVEL=DEBUG
 MEDRE_ADAPTER__MAIN__HOMESERVER=https://matrix.example.com
 MEDRE_ADAPTER__MAIN__USER_ID=@bot:example.com
-MEDRE_ADAPTER__MAIN__ACCESS_TOKEN=syt_...
+MEDRE_ADAPTER__MAIN__ACCESS_TOKEN=<matrix-access-token>
 MEDRE_ADAPTER__MAIN__ENABLED=true
 ```
 
@@ -849,7 +849,7 @@ docker run -d \
   -e MEDRE_HOME=/opt/medre \
   -e MEDRE_ADAPTER__MAIN__HOMESERVER=https://matrix.example.com \
   -e MEDRE_ADAPTER__MAIN__USER_ID=@bot:example.com \
-  -e MEDRE_ADAPTER__MAIN__ACCESS_TOKEN=syt_... \
+  -e MEDRE_ADAPTER__MAIN__ACCESS_TOKEN="<matrix-access-token>" \
   -e MEDRE_ADAPTER__MAIN__ENABLED=true \
   -v medre-state:/opt/medre \
   medre run
@@ -888,7 +888,7 @@ config = MatrixConfig(
     adapter_id="my-bot",
     homeserver="https://matrix.example.com",
     user_id="@bot:example.com",
-    access_token="syt_...",
+    access_token="<matrix-access-token>",
     room_allowlist={"!room:example.com"},
 )
 adapter = MatrixAdapter(config)

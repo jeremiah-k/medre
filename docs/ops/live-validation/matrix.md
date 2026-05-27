@@ -9,7 +9,7 @@ pip install -e ".[matrix]"
 
 export MATRIX_HOMESERVER=http://localhost:8008
 export MATRIX_USER_ID=@bot:localhost
-export MATRIX_ACCESS_TOKEN=syt_xxxxxxxxxxxxx
+export MATRIX_ACCESS_TOKEN="<matrix-access-token>"
 export MATRIX_ROOM_ID="!abc123:localhost"
 
 pytest tests/test_matrix_live.py -m live -v
