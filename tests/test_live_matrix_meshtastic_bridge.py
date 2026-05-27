@@ -381,7 +381,7 @@ class TestMeshtasticToMatrix:
     reliable enough for CI.  Manual testing via the operator runbook
     is recommended.
 
-    See ``docs/runbooks/operational-evidence.md`` for manual test
+    See ``docs/ops/diagnostics-and-evidence.md`` for manual test
     procedures.
     """
 

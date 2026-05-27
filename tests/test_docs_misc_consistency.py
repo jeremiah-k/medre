@@ -18,17 +18,17 @@ import pytest
 # ---------------------------------------------------------------------------
 
 _ROOT = Path(__file__).resolve().parent.parent
-RUNBOOKS_DIR = _ROOT / "docs" / "runbooks"
+OPS_DIR = _ROOT / "docs" / "ops"
 
 TARGET_DOCS = [
-    RUNBOOKS_DIR / "alpha-walkthrough.md",
-    RUNBOOKS_DIR / "bridge-operation.md",
-    RUNBOOKS_DIR / "bridge-recovery.md",
-    RUNBOOKS_DIR / "replay-operation.md",
-    RUNBOOKS_DIR / "bridge-evidence-bundle.md",
-    RUNBOOKS_DIR / "event-tracing.md",
-    RUNBOOKS_DIR / "bridge-failure-drills.md",
-    RUNBOOKS_DIR / "configuration.md",
+    OPS_DIR / "operator-workflows.md",
+    OPS_DIR / "running-medre.md",
+    OPS_DIR / "recovery-and-replay.md",
+    OPS_DIR / "recovery-and-replay.md",
+    OPS_DIR / "diagnostics-and-evidence.md",
+    OPS_DIR / "operator-workflows.md",
+    OPS_DIR / "troubleshooting.md",
+    OPS_DIR / "configuration.md",
 ]
 
 _OPERATOR_COMMAND_SURFACE = (
@@ -114,18 +114,18 @@ class TestRetrySemantics:
     not as absent or always-on."""
 
     def test_bridge_operation_describes_retry_opt_in(self) -> None:
-        text = _read(RUNBOOKS_DIR / "bridge-operation.md")
+        text = _read(OPS_DIR / "running-medre.md")
         # Must mention opt-in nature of retry
         assert (
             "opt-in" in text.lower() or "disabled by default" in text.lower()
-        ), "bridge-operation.md must describe retry as opt-in/disabled by default."
+        ), "running-medre.md must describe retry as opt-in/disabled by default."
 
     def test_alpha_walkthrough_describes_retry_levels(self) -> None:
-        text = _read(RUNBOOKS_DIR / "alpha-walkthrough.md")
+        text = _read(OPS_DIR / "operator-workflows.md")
         # Must mention both route-level and worker-level retry
         if "retry" in text.lower():
             assert "route" in text.lower() and "worker" in text.lower(), (
-                "alpha-walkthrough.md must describe both route-level and "
+                "operator-workflows.md must describe both route-level and "
                 "worker-level retry when mentioning retry."
             )
 
@@ -162,9 +162,9 @@ class TestNoStaleTraceEventConfigInOperatorDocs:
 
     # Docs where operator workflow examples appear.
     _OPERATOR_WORKFLOW_DOCS = [
-        RUNBOOKS_DIR / "bridge-recovery.md",
-        RUNBOOKS_DIR / "replay-operation.md",
-        RUNBOOKS_DIR / "bridge-operation.md",
+        OPS_DIR / "recovery-and-replay.md",
+        OPS_DIR / "recovery-and-replay.md",
+        OPS_DIR / "running-medre.md",
     ]
 
     @pytest.mark.parametrize(
@@ -226,10 +226,10 @@ class TestConfigCheckExitCode:
     def test_config_check_exit_code_is_2(self) -> None:
         """configuration.md must say ``Exits with code 2`` for config check
         errors, not code 1."""
-        text = _read(RUNBOOKS_DIR / "configuration.md")
+        text = _read(OPS_DIR / "configuration.md")
         # Find the config check description area
         assert "code 2" in text, (
-            "configuration.md must document exit code 2 for config check "
+        "configuration.md must document exit code 2 for config check "
             "errors (EXIT_CONFIG = 2 in exit_codes.py)."
         )
         # Ensure we don't have the old incorrect value in that context
@@ -293,7 +293,7 @@ class TestSourceTreeExamplesWording:
 
     @pytest.mark.parametrize(
         "doc_path",
-        [RUNBOOKS_DIR / "alpha-walkthrough.md", RUNBOOKS_DIR / "alpha-installation.md"],
+        [OPS_DIR / "operator-workflows.md", OPS_DIR / "operator-workflows.md"],
         ids=lambda p: p.name,
     )
     def test_examples_path_mentioned_with_source_tree_note(

@@ -1,20 +1,13 @@
 # Live Test Harness Guide
 
-> Last updated: 2026-05-25 (Tranche 6 truth-surface update)
 > Scope: Writing and maintaining opt-in live tests for MEDRE transport adapters
 > Status: **Alpha. Patterns are evolving.** This guide describes current conventions, not final API contracts.
-> Tranche 6 note: Earlier this session, truth-surface updates added not_executed_result,
-> get_live_artifact_dir, and matrix_second_user_env_set helpers with hardware marker
-> discipline — no live tests were executed at that point. Later, the Matrix E2EE
-> tranche ran Docker Synapse E2EE smoke tests (3/3 passed, Docker SDK-boundary).
-> No external-live or hardware validation was executed unless separately recorded.
-> Baseline: HEAD 41a07c7, Python 3.12.3, medre 0.1.0.
 
 This guide covers how live tests work in MEDRE: how they are gated, how to write one for a new transport, and what rules they must follow. It is written for test developers contributing to the MEDRE test suite.
 
 Live tests exercise real adapters against real endpoints (Matrix homeservers, Meshtastic radios, etc.). They are opt-in, excluded from default runs, and require environment variables to execute. They never run in CI without explicit credentials.
 
-For operator workflows (running smoke tests, collecting evidence, diagnosing failures), see `docs/runbooks/operator-workflows.md`.
+For operator workflows (running smoke tests, collecting evidence, diagnosing failures), see `docs/ops/operator-workflows.md`.
 
 ## 1. Live Tests Are Opt-In
 
@@ -136,7 +129,7 @@ The default path includes an ISO-8601 timestamp to separate runs. The directory 
 
 Live test adapters are configured using MEDRE's instance-scoped env var format. Every adapter override follows `MEDRE_ADAPTER__<TOKEN>__<FIELD>`, where `<TOKEN>` is the uppercased, normalised adapter ID.
 
-> **Runtime config vs. test convenience vars.** This section describes environment variables used by the live test harness. MEDRE's runtime config system uses `MEDRE_ADAPTER__<TOKEN>__<FIELD>` as its only adapter override surface (see `docs/runbooks/configuration.md`). Some test modules may also read convenience variables like `MATRIX_HOMESERVER` or `MESHTASTIC_CONNECTION_TYPE` (without the `MEDRE_` prefix) for constructing test fixtures. These convenience vars are **test-only**. They are consumed by pytest test code, not by MEDRE's runtime config loader. If you need to override adapter config at runtime (in production or in a Docker container), always use `MEDRE_ADAPTER__<TOKEN>__<FIELD>`.
+> **Runtime config vs. test convenience vars.** This section describes environment variables used by the live test harness. MEDRE's runtime config system uses `MEDRE_ADAPTER__<TOKEN>__<FIELD>` as its only adapter override surface (see `docs/ops/configuration.md`). Some test modules may also read convenience variables like `MATRIX_HOMESERVER` or `MESHTASTIC_CONNECTION_TYPE` (without the `MEDRE_` prefix) for constructing test fixtures. These convenience vars are **test-only**. They are consumed by pytest test code, not by MEDRE's runtime config loader. If you need to override adapter config at runtime (in production or in a Docker container), always use `MEDRE_ADAPTER__<TOKEN>__<FIELD>`.
 
 | Transport  | Token example    | Example variables                                                                                                                             |
 | ---------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -145,7 +138,7 @@ Live test adapters are configured using MEDRE's instance-scoped env var format. 
 | MeshCore   | `MESHCORE_RADIO` | `MEDRE_ADAPTER__MESHCORE_RADIO__HOST`, `MEDRE_ADAPTER__MESHCORE_RADIO__CONNECTION_TYPE`                                                       |
 | LXMF       | `LOCAL`          | `MEDRE_ADAPTER__LOCAL__CONNECTION_TYPE`, `MEDRE_ADAPTER__LOCAL__IDENTITY_PATH`                                                                |
 
-The token is derived from the adapter's `adapter_id` by stripping non-alphanumeric characters (replaced with `_`), collapsing consecutive underscores, and uppercasing. See `docs/runbooks/configuration.md` for the full normalisation table.
+The token is derived from the adapter's `adapter_id` by stripping non-alphanumeric characters (replaced with `_`), collapsing consecutive underscores, and uppercasing. See `docs/ops/configuration.md` for the full normalisation table.
 
 When adding a new transport, define its adapter ID and document the required `MEDRE_ADAPTER__<TOKEN>__<FIELD>` variables in the test module's docstring and in the skipif reason string.
 
@@ -425,6 +418,6 @@ When porting the live-test harness into a transport-specific adapter branch, fol
 | Document                                  | What it covers                                                |
 | ----------------------------------------- | ------------------------------------------------------------- |
 | `docs/dev/TESTING_GUIDE.md`               | General testing guide (tiers, style, async mocking, fixtures) |
-| `docs/runbooks/operator-workflows.md`     | Operator guide (smoke tests, evidence, tracing, diagnosis)    |
-| `docs/runbooks/matrix-alpha-operation.md` | Full Matrix alpha setup and operation                         |
-| `docs/runbooks/matrix-live-smoke.md`      | Matrix live smoke test instructions                           |
+| `docs/ops/operator-workflows.md`       | Operator guide (smoke tests, evidence, tracing, diagnosis)    |
+| `docs/ops/transport-setup/matrix.md`   | Full Matrix setup and operation                               |
+| `docs/ops/live-validation/matrix.md`   | Matrix live smoke test instructions                           |

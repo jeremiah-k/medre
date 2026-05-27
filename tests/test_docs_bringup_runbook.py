@@ -18,10 +18,10 @@ import pytest
 # ---------------------------------------------------------------------------
 
 _ROOT = Path(__file__).resolve().parent.parent
-RUNBOOKS_DIR = _ROOT / "docs" / "runbooks"
+OPS_DIR = _ROOT / "docs" / "ops"
 
-_BRINGUP = RUNBOOKS_DIR / "live-matrix-meshtastic-bringup.md"
-_SECURE_CREDS = RUNBOOKS_DIR / "secure-credentials.md"
+_BRINGUP = OPS_DIR / "transport-setup" / "matrix.md"
+_SECURE_CREDS = OPS_DIR / "configuration.md"
 
 
 def _read(path: Path) -> str:

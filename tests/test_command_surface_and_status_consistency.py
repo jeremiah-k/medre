@@ -26,17 +26,17 @@ import pytest
 # ---------------------------------------------------------------------------
 
 _ROOT = Path(__file__).resolve().parent.parent
-RUNBOOKS_DIR = _ROOT / "docs" / "runbooks"
-CONFIG_DOC = RUNBOOKS_DIR / "configuration.md"
-ALPHA_WALKTHROUGH = RUNBOOKS_DIR / "alpha-walkthrough.md"
-BRIDGE_EVIDENCE = RUNBOOKS_DIR / "bridge-evidence-bundle.md"
+OPS_DIR = _ROOT / "docs" / "ops"
+CONFIG_DOC = OPS_DIR / "configuration.md"
+ALPHA_WALKTHROUGH = OPS_DIR / "operator-workflows.md"
+BRIDGE_EVIDENCE = OPS_DIR / "diagnostics-and-evidence.md"
 
 TARGET_DOCS = [
     ALPHA_WALKTHROUGH,
     BRIDGE_EVIDENCE,
-    RUNBOOKS_DIR / "bridge-operation.md",
-    RUNBOOKS_DIR / "replay-operation.md",
-    RUNBOOKS_DIR / "bridge-recovery.md",
+    OPS_DIR / "running-medre.md",
+    OPS_DIR / "recovery-and-replay.md",
+    OPS_DIR / "recovery-and-replay.md",
     CONFIG_DOC,
 ]
 
@@ -843,9 +843,9 @@ class TestCommandSurfaceUtilityCategory:
         """Operator workflow runbooks must not show 'medre trace event ... --config'.
         Read-only trace commands should use --storage-path."""
         operator_docs = [
-            RUNBOOKS_DIR / "bridge-recovery.md",
-            RUNBOOKS_DIR / "replay-operation.md",
-            RUNBOOKS_DIR / "bridge-operation.md",
+            OPS_DIR / "recovery-and-replay.md",
+            OPS_DIR / "recovery-and-replay.md",
+            OPS_DIR / "running-medre.md",
         ]
         for doc_path in operator_docs:
             if not doc_path.exists():

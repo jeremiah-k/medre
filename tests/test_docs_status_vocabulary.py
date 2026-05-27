@@ -16,17 +16,17 @@ import pytest
 # ---------------------------------------------------------------------------
 
 _ROOT = Path(__file__).resolve().parent.parent
-RUNBOOKS_DIR = _ROOT / "docs" / "runbooks"
+OPS_DIR = _ROOT / "docs" / "ops"
 
 TARGET_DOCS = [
-    RUNBOOKS_DIR / "alpha-walkthrough.md",
-    RUNBOOKS_DIR / "bridge-operation.md",
-    RUNBOOKS_DIR / "bridge-recovery.md",
-    RUNBOOKS_DIR / "replay-operation.md",
-    RUNBOOKS_DIR / "bridge-evidence-bundle.md",
-    RUNBOOKS_DIR / "event-tracing.md",
-    RUNBOOKS_DIR / "bridge-failure-drills.md",
-    RUNBOOKS_DIR / "configuration.md",
+    OPS_DIR / "operator-workflows.md",
+    OPS_DIR / "running-medre.md",
+    OPS_DIR / "recovery-and-replay.md",
+    OPS_DIR / "recovery-and-replay.md",
+    OPS_DIR / "diagnostics-and-evidence.md",
+    OPS_DIR / "operator-workflows.md",
+    OPS_DIR / "troubleshooting.md",
+    OPS_DIR / "configuration.md",
 ]
 
 
@@ -56,7 +56,7 @@ class TestNoStaleSmokeStatusOk:
         [
             p
             for p in TARGET_DOCS
-            if p.name in ("alpha-walkthrough.md", "bridge-evidence-bundle.md")
+            if p.name in ("operator-workflows.md", "diagnostics-and-evidence.md")
         ],
         ids=lambda p: p.name,
     )
@@ -78,7 +78,7 @@ class TestNoStaleSmokeStatusOk:
         [
             p
             for p in TARGET_DOCS
-            if p.name in ("alpha-walkthrough.md", "bridge-evidence-bundle.md")
+            if p.name in ("operator-workflows.md", "diagnostics-and-evidence.md")
         ],
         ids=lambda p: p.name,
     )
@@ -157,7 +157,7 @@ class TestEvidenceStatusValueConsistency:
 
     def test_alpha_walkthrough_evidence_status_not_ok(self) -> None:
         """alpha-walkthrough.md evidence example must not say 'status: ok'."""
-        text = _read(RUNBOOKS_DIR / "alpha-walkthrough.md")
+        text = _read(OPS_DIR / "operator-workflows.md")
         for lineno, line in enumerate(text.splitlines(), start=1):
             if (
                 '"status": "ok"' in line
@@ -165,7 +165,7 @@ class TestEvidenceStatusValueConsistency:
                 in text[max(0, text.find(line) - 500) : text.find(line) + 500].lower()
             ):
                 pytest.fail(
-                    f"alpha-walkthrough.md:{lineno}: evidence example uses "
+                    f"operator-workflows.md:{lineno}: evidence example uses "
                     f'stale "status": "ok" (code returns "passed" or "partial").\n'
                     f"  {line.strip()}"
                 )
@@ -189,7 +189,7 @@ class TestBareStatusVocabularyDrift:
         [
             p
             for p in TARGET_DOCS
-            if p.name in ("bridge-evidence-bundle.md", "alpha-walkthrough.md")
+            if p.name in ("diagnostics-and-evidence.md", "operator-workflows.md")
         ],
         ids=lambda p: p.name,
     )

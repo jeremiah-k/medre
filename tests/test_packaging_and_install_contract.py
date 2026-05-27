@@ -457,7 +457,7 @@ class TestDocsContractConsistency:
 
     def test_contract_doc_exists(self) -> None:
         contract_path = (
-            _REPO_ROOT / "docs" / "contracts" / "58-packaging-and-install-contract.md"
+            _REPO_ROOT / "docs" / "spec" / "configuration.md"
         )
         assert (
             contract_path.is_file()
@@ -465,7 +465,7 @@ class TestDocsContractConsistency:
 
     def test_contract_doc_mentions_all_extras(self) -> None:
         contract_path = (
-            _REPO_ROOT / "docs" / "contracts" / "58-packaging-and-install-contract.md"
+            _REPO_ROOT / "docs" / "spec" / "configuration.md"
         )
         content = contract_path.read_text()
         for extra_name in _REQUIRED_EXTRAS:
@@ -869,18 +869,18 @@ class TestContractMetadataAlignment:
 
     def test_contract_license_matches_pyproject(self) -> None:
         contract_path = (
-            _REPO_ROOT / "docs" / "contracts" / "58-packaging-and-install-contract.md"
+            _REPO_ROOT / "docs" / "spec" / "configuration.md"
         )
         content = contract_path.read_text()
         project = _load_pyproject()["project"]
         license_val = project.get("license", "")
         assert (
             license_val in content
-        ), f"pyproject license {license_val!r} not mentioned in contract 58"
+        ), f"pyproject license {license_val!r} not mentioned in spec"
 
     def test_contract_classifier_matches_pyproject(self) -> None:
         contract_path = (
-            _REPO_ROOT / "docs" / "contracts" / "58-packaging-and-install-contract.md"
+            _REPO_ROOT / "docs" / "spec" / "configuration.md"
         )
         content = contract_path.read_text()
         classifiers = _load_pyproject()["project"].get("classifiers", [])
@@ -889,16 +889,16 @@ class TestContractMetadataAlignment:
         assert status_clf, "no Development Status classifier in pyproject"
         assert (
             status_clf[0] in content
-        ), f"classifier {status_clf[0]!r} not mentioned in contract 58"
+        ), f"classifier {status_clf[0]!r} not mentioned in spec"
 
     def test_console_script_in_contract(self) -> None:
         contract_path = (
-            _REPO_ROOT / "docs" / "contracts" / "58-packaging-and-install-contract.md"
+            _REPO_ROOT / "docs" / "spec" / "configuration.md"
         )
         content = contract_path.read_text()
         assert (
             "medre.cli:main" in content
-        ), "contract 58 must mention the canonical entry point medre.cli:main"
+        ), "spec must mention the canonical entry point medre.cli:main"
 
 
 # ===================================================================

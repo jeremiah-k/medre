@@ -326,5 +326,5 @@ A gap analysis is maintained at `/tmp/medre-spec-impl-gaps.md`. Notable items:
 3. **failure_kind casing** -- some docs use UPPERCASE (`"RENDERER_FAILURE"`)
    while others use lowercase snake_case (`renderer_failure`). The lowercase
    form is correct.
-4. **Container evidence references** -- some runbooks still reference
-   `docs/contracts/` paths instead of `docs/spec/`.
+ 4. **Container evidence references** -- earlier runbooks referenced
+    legacy contract paths; these have been consolidated into `docs/spec/`.

@@ -467,7 +467,7 @@ class TestProtocolNeutralReadiness:
     changes.
 
     These tests exercise the usage patterns documented in
-    docs/contracts/phase-1-limitations.md Section 2.2.
+    docs/spec/event-model.md Section 2.2.
     """
 
     # -- Correlation via trace_id --

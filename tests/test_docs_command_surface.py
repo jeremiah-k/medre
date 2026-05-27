@@ -16,7 +16,7 @@ import pytest
 # ---------------------------------------------------------------------------
 
 _ROOT = Path(__file__).resolve().parent.parent
-RUNBOOKS_DIR = _ROOT / "docs" / "runbooks"
+OPS_DIR = _ROOT / "docs" / "ops"
 _OPERATOR_COMMAND_SURFACE = (
     _ROOT / "docs" / "architecture" / "operator-command-surface.md"
 )
@@ -49,7 +49,7 @@ class TestConfigurationCliSurface:
 
     @pytest.mark.parametrize("command", REQUIRED_COMMANDS)
     def test_cli_command_documented(self, command: str) -> None:
-        text = _read(RUNBOOKS_DIR / "configuration.md")
+        text = _read(OPS_DIR / "configuration.md")
         # Check for the command as a subcommand header (e.g. "medre smoke")
         assert f"medre {command}" in text, (
             f"configuration.md CLI Commands section must document "
@@ -59,7 +59,7 @@ class TestConfigurationCliSurface:
     def test_storage_path_bypass_note_present(self) -> None:
         """configuration.md must note that --storage-path bypasses config
         for read-only commands."""
-        text = _read(RUNBOOKS_DIR / "configuration.md")
+        text = _read(OPS_DIR / "configuration.md")
         assert "--storage-path" in text, (
             "configuration.md must mention --storage-path for read-only "
             "commands (inspect, trace event, evidence)."
@@ -67,7 +67,7 @@ class TestConfigurationCliSurface:
 
     def test_replay_rejects_storage_path_noted(self) -> None:
         """configuration.md must note that replay rejects --storage-path."""
-        text = _read(RUNBOOKS_DIR / "configuration.md")
+        text = _read(OPS_DIR / "configuration.md")
         # Find the replay section and check it mentions the rejection
         assert "reject" in text.lower() or "requires --config" in text.lower(), (
             "configuration.md must note that replay requires --config "
@@ -76,7 +76,7 @@ class TestConfigurationCliSurface:
 
     def test_inspect_replay_documented(self) -> None:
         """configuration.md must document 'inspect replay' subcommand."""
-        text = _read(RUNBOOKS_DIR / "configuration.md")
+        text = _read(OPS_DIR / "configuration.md")
         assert "inspect replay" in text, (
             "configuration.md must document 'medre inspect replay' "
             "as a read-only storage inspection subcommand."
@@ -85,7 +85,7 @@ class TestConfigurationCliSurface:
     def test_inspect_event_flags_documented(self) -> None:
         """configuration.md must document --timeline, --evidence, --recovery
         flags for inspect event."""
-        text = _read(RUNBOOKS_DIR / "configuration.md")
+        text = _read(OPS_DIR / "configuration.md")
         for flag in ("--timeline", "--evidence", "--recovery"):
             assert flag in text, (
                 f"configuration.md must document '{flag}' flag for "

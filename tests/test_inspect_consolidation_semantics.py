@@ -1025,12 +1025,12 @@ class TestAlphaWalkthroughUsesInspect:
         from pathlib import Path
 
         root = Path(__file__).resolve().parent.parent
-        walkthrough = root / "docs" / "runbooks" / "alpha-walkthrough.md"
+        walkthrough = root / "docs" / "ops" / "operator-workflows.md"
         if not walkthrough.exists():
-            pytest.skip("alpha-walkthrough.md not found")
+            pytest.skip("operator-workflows.md not found")
         text = walkthrough.read_text()
         assert "medre inspect" in text, (
-            "alpha-walkthrough.md must reference 'medre inspect' as "
+            "operator-workflows.md must reference 'medre inspect' as "
             "the primary investigation command."
         )
 
@@ -1039,9 +1039,9 @@ class TestAlphaWalkthroughUsesInspect:
         from pathlib import Path
 
         root = Path(__file__).resolve().parent.parent
-        walkthrough = root / "docs" / "runbooks" / "alpha-walkthrough.md"
+        walkthrough = root / "docs" / "ops" / "operator-workflows.md"
         if not walkthrough.exists():
-            pytest.skip("alpha-walkthrough.md not found")
+            pytest.skip("operator-workflows.md not found")
         text = walkthrough.read_text()
         inspect_pos = text.find("medre inspect")
         trace_pos = text.find("medre trace")
