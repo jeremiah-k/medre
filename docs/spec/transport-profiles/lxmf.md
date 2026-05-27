@@ -12,43 +12,43 @@ The adapter delegates all SDK interaction to `LxmfSession`. The session is the *
 
 ## Configuration Fields
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `adapter_id` | `str` | *(required)* | Unique adapter instance identifier |
-| `connection_type` | `Literal["fake","reticulum"]` | `"fake"` | Connection mode |
-| `display_name` | `str` | `""` | Display name for LXMF announces |
-| `stamp_cost` | `int` | `8` | Default stamp cost (0 = no stamp; non-zero must be positive int) |
-| `default_delivery_method` | `Literal["direct","opportunistic","propagated","paper"]` | `"direct"` | Default LXMF delivery method |
-| `meshnet_name` | `str` | `""` | Human-readable meshnet name (informational) |
-| `default_channel` | `int` | `0` | Default channel index (informational; LXMF has no channel concept) |
-| `message_delay_seconds` | `float` | `0.5` | Minimum delay between outbound messages (pacing) |
-| `metadata_embedding` | `bool` | `True` | Embed MEDRE metadata envelopes in LXMF fields |
-| `identity_path` | `str \| None` | `None` | Path to Reticulum identity file; auto-generated if `None` |
-| `storage_path` | `str \| None` | `None` | **Required** when `connection_type="reticulum"` — LXMF 0.9.7 `LXMRouter` raises `ValueError` without it |
+| Field                     | Type                                                     | Default      | Description                                                                                             |
+| ------------------------- | -------------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------- |
+| `adapter_id`              | `str`                                                    | _(required)_ | Unique adapter instance identifier                                                                      |
+| `connection_type`         | `Literal["fake","reticulum"]`                            | `"fake"`     | Connection mode                                                                                         |
+| `display_name`            | `str`                                                    | `""`         | Display name for LXMF announces                                                                         |
+| `stamp_cost`              | `int`                                                    | `8`          | Default stamp cost (0 = no stamp; non-zero must be positive int)                                        |
+| `default_delivery_method` | `Literal["direct","opportunistic","propagated","paper"]` | `"direct"`   | Default LXMF delivery method                                                                            |
+| `meshnet_name`            | `str`                                                    | `""`         | Human-readable meshnet name (informational)                                                             |
+| `default_channel`         | `int`                                                    | `0`          | Default channel index (informational; LXMF has no channel concept)                                      |
+| `message_delay_seconds`   | `float`                                                  | `0.5`        | Minimum delay between outbound messages (pacing)                                                        |
+| `metadata_embedding`      | `bool`                                                   | `True`       | Embed MEDRE metadata envelopes in LXMF fields                                                           |
+| `identity_path`           | `str \| None`                                            | `None`       | Path to Reticulum identity file; auto-generated if `None`                                               |
+| `storage_path`            | `str \| None`                                            | `None`       | **Required** when `connection_type="reticulum"` — LXMF 0.9.7 `LXMRouter` raises `ValueError` without it |
 
 ---
 
 ## Capabilities
 
-| Capability | Value |
-|---|---|
-| text | `True` |
-| title | `True` |
-| replies | `"unsupported"` |
-| reactions | `"unsupported"` |
-| edits | `"unsupported"` |
-| deletes | `"unsupported"` |
-| attachments | `False` |
-| metadata_fields | `True` |
-| delivery_receipts | `False` |
-| store_and_forward | `True` |
-| direct_messages | `True` |
-| channels | `False` |
-| async_delivery | `True` |
-| identity_encryption | `True` |
-| mesh_routing | `True` |
-| max_text_bytes | `None` (unbounded at adapter level) |
-| max_text_chars | `16384` |
+| Capability          | Value                               |
+| ------------------- | ----------------------------------- |
+| text                | `True`                              |
+| title               | `True`                              |
+| replies             | `"unsupported"`                     |
+| reactions           | `"unsupported"`                     |
+| edits               | `"unsupported"`                     |
+| deletes             | `"unsupported"`                     |
+| attachments         | `False`                             |
+| metadata_fields     | `True`                              |
+| delivery_receipts   | `False`                             |
+| store_and_forward   | `True`                              |
+| direct_messages     | `True`                              |
+| channels            | `False`                             |
+| async_delivery      | `True`                              |
+| identity_encryption | `True`                              |
+| mesh_routing        | `True`                              |
+| max_text_bytes      | `None` (unbounded at adapter level) |
+| max_text_chars      | `16384`                             |
 
 ---
 
@@ -56,15 +56,16 @@ The adapter delegates all SDK interaction to `LxmfSession`. The session is the *
 
 The packet classifier (`LxmfPacketClassifier`) applies a content-based policy:
 
-| Condition | Category | Notes |
-|---|---|---|
-| `content` field present (str, bytes, or bytearray, non-empty) | `"text"` | Relay candidate |
-| No `content` but `fields` dict present and non-empty | `"unsupported"` | Attachment-only; not relayed |
-| Neither content nor recognisable structure | `"unknown"` | Not relayed |
+| Condition                                                     | Category        | Notes                        |
+| ------------------------------------------------------------- | --------------- | ---------------------------- |
+| `content` field present (str, bytes, or bytearray, non-empty) | `"text"`        | Relay candidate              |
+| No `content` but `fields` dict present and non-empty          | `"unsupported"` | Attachment-only; not relayed |
+| Neither content nor recognisable structure                    | `"unknown"`     | Not relayed                  |
 
 The adapter further gates on `is_ack` (always `False` from the classifier) and `category == "text"` before passing to the codec.
 
 Relayed packets are decoded by `LxmfCodec` into:
+
 - **`MESSAGE_CREATED`** — all text-shaped packets.
 
 No reply or reaction event kinds are produced (capabilities declare both `"unsupported"`).
@@ -100,6 +101,7 @@ No reply or reaction rendering — capabilities declare both `"unsupported"`.
 **Honest asynchronous delivery.** LXMF delivery is inherently multi-hop and asynchronous. The adapter does **not** pretend real-time delivery success.
 
 **Outbound flow:**
+
 1. `deliver()` extracts `content`, `title`, `destination_hash`, `delivery_method`, and `fields` from the rendered payload.
 2. `session.send_text()` constructs an `LXMF.LXMessage`, registers a delivery state callback, and calls `router.handle_outbound(lxm)`.
 3. Returns `(native_message_id, initial_state)` where `initial_state` is typically `OUTBOUND` or `GENERATING`.
@@ -107,17 +109,17 @@ No reply or reaction rendering — capabilities declare both `"unsupported"`.
 
 **Delivery state model (tracked per outbound message):**
 
-| State | Meaning |
-|---|---|
-| `generating` | Message being constructed |
-| `outbound` | Queued for delivery |
-| `sending` | Actively transmitting |
-| `sent` | Sent to network (not yet confirmed) |
-| `delivered` | Confirmed delivered to recipient |
-| `failed` | Permanent delivery failure |
-| `rejected` | Rejected by recipient |
-| `cancelled` | Cancelled by sender |
-| `unknown` | Unrecognised state |
+| State        | Meaning                             |
+| ------------ | ----------------------------------- |
+| `generating` | Message being constructed           |
+| `outbound`   | Queued for delivery                 |
+| `sending`    | Actively transmitting               |
+| `sent`       | Sent to network (not yet confirmed) |
+| `delivered`  | Confirmed delivered to recipient    |
+| `failed`     | Permanent delivery failure          |
+| `rejected`   | Rejected by recipient               |
+| `cancelled`  | Cancelled by sender                 |
+| `unknown`    | Unrecognised state                  |
 
 State transitions are tracked via `_on_delivery_state_update` callbacks from `LXMRouter`. Terminal states (`delivered`, `failed`, `rejected`, `cancelled`) remove the message from tracking.
 
@@ -154,20 +156,20 @@ State transitions are tracked via `_on_delivery_state_update` callbacks from `LX
 
 `adapter.diagnostics()` returns (no secrets, no identity material, no raw RNS/LXMF objects):
 
-| Key | Type | Description |
-|---|---|---|
-| `adapter_id` | `str` | Adapter identifier |
-| `platform` | `str` | `"lxmf"` |
-| `started` | `bool` | Adapter started flag |
-| `mode` | `str` | Config connection type |
-| `session.connected` | `bool` | Session connected |
-| `session.router_running` | `bool` | LXMRouter operational |
-| `session.reconnecting` | `bool` | Reconnect in progress |
-| `session.reconnect_attempts` | `int` | Consecutive reconnect attempts |
-| `session.transient_delivery_failures` | `int` | Transient send errors |
-| `session.permanent_delivery_failures` | `int` | Permanent send errors |
-| `session.last_error` | `str \| None` | Last error description |
-| `session.mode` | `str` | Config connection type (mirrored) |
+| Key                                   | Type          | Description                       |
+| ------------------------------------- | ------------- | --------------------------------- |
+| `adapter_id`                          | `str`         | Adapter identifier                |
+| `platform`                            | `str`         | `"lxmf"`                          |
+| `started`                             | `bool`        | Adapter started flag              |
+| `mode`                                | `str`         | Config connection type            |
+| `session.connected`                   | `bool`        | Session connected                 |
+| `session.router_running`              | `bool`        | LXMRouter operational             |
+| `session.reconnecting`                | `bool`        | Reconnect in progress             |
+| `session.reconnect_attempts`          | `int`         | Consecutive reconnect attempts    |
+| `session.transient_delivery_failures` | `int`         | Transient send errors             |
+| `session.permanent_delivery_failures` | `int`         | Permanent send errors             |
+| `session.last_error`                  | `str \| None` | Last error description            |
+| `session.mode`                        | `str`         | Config connection type (mirrored) |
 
 Session also exposes `diagnostics()` and `delivery_state_counts()` with additional fields: `last_message_time`, `known_path_count`, `propagation_enabled`, `pending_delivery_count`.
 
@@ -205,7 +207,7 @@ Session also exposes `diagnostics()` and `delivery_state_counts()` with addition
 
 ## Reference Libraries
 
-| Library | Purpose | Optional |
-|---|---|---|
-| `lxmf` | LXMF Python package (`LXMRouter`, `LXMessage`, delivery constants) | Yes (`medre[lxmf]`) |
-| `RNS` | Reticulum network stack (`Reticulum`, `Identity`, `Destination`) | Yes (via `lxmf` dependency) |
+| Library | Purpose                                                            | Optional                    |
+| ------- | ------------------------------------------------------------------ | --------------------------- |
+| `lxmf`  | LXMF Python package (`LXMRouter`, `LXMessage`, delivery constants) | Yes (`medre[lxmf]`)         |
+| `RNS`   | Reticulum network stack (`Reticulum`, `Identity`, `Destination`)   | Yes (via `lxmf` dependency) |

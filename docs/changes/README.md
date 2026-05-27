@@ -5,7 +5,7 @@ specification.
 
 ## Structure
 
-```
+```text
 changes/
   README.md          ← This file
   unreleased/        ← Active change fragments

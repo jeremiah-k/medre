@@ -63,10 +63,7 @@ def _all_md_files() -> list[Path]:
     Excludes legacy directories (contracts/, runbooks/, architecture/, releases/)."""
     if not _DOCS_DIR.is_dir():
         return []
-    return sorted(
-        f for f in _DOCS_DIR.rglob("*.md")
-        if not _is_legacy(f)
-    )
+    return sorted(f for f in _DOCS_DIR.rglob("*.md") if not _is_legacy(f))
 
 
 def _is_under_spec(path: Path) -> bool:
@@ -98,9 +95,7 @@ class TestNoSingleSourceOfTruth:
         [f for f in _all_md_files() if not _is_under_spec(f)],
         ids=lambda p: str(p.relative_to(_ROOT)),
     )
-    def test_no_single_source_of_truth_outside_spec(
-        self, md_file: Path
-    ) -> None:
+    def test_no_single_source_of_truth_outside_spec(self, md_file: Path) -> None:
         """No .md file outside docs/spec/ may contain
         'single source of truth' or 'SSOT'."""
         text = _read(md_file)

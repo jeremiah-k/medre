@@ -9,12 +9,12 @@ Evidence provenance tiers for classifying test and validation results.
 All operational evidence is classified into one of four tiers. The tier
 determines what claims can be derived from the evidence.
 
-| Tier | Label               | Meaning                                                                                                     | Allowed Claims                                                                |
-| ---- | ------------------- | ----------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| **H** | Historical          | Recorded during a prior development phase. Not re-confirmed against the current codebase. May be stale.    | "On date D, behavior X was observed." No claim about current behavior.        |
-| **C** | Current             | Recorded against the current codebase at the current commit. Reproducible by re-running the same command.  | "At commit H, behavior X is confirmed."                                       |
-| **S** | Simulated / Fake    | Recorded using `FakeAdapter`, mock objects, or simulated transport. No real network or hardware involved.  | "The adapter's internal logic produces X when given input Y." No claim about real endpoint behavior. |
-| **R** | Real-live           | Recorded against a real transport endpoint with real network/hardware.                                      | "Against real endpoint E, behavior X was observed under conditions Y."        |
+| Tier  | Label            | Meaning                                                                                                   | Allowed Claims                                                                                       |
+| ----- | ---------------- | --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| **H** | Historical       | Recorded during a prior development phase. Not re-confirmed against the current codebase. May be stale.   | "On date D, behavior X was observed." No claim about current behavior.                               |
+| **C** | Current          | Recorded against the current codebase at the current commit. Reproducible by re-running the same command. | "At commit H, behavior X is confirmed."                                                              |
+| **S** | Simulated / Fake | Recorded using `FakeAdapter`, mock objects, or simulated transport. No real network or hardware involved. | "The adapter's internal logic produces X when given input Y." No claim about real endpoint behavior. |
+| **R** | Real-live        | Recorded against a real transport endpoint with real network/hardware.                                    | "Against real endpoint E, behavior X was observed under conditions Y."                               |
 
 ## 2. Classification Rules
 
@@ -33,29 +33,29 @@ determines what claims can be derived from the evidence.
 
 Real-live evidence (`R`) has sub-classifications for different testing environments:
 
-| Sub-classification    | Meaning                                                                                                  |
-| --------------------- | ---------------------------------------------------------------------------------------------------------|
-| **Docker SDK-boundary**| Tested against a local Docker container (e.g., Docker Synapse). Validates SDK integration and adapter wiring but not external network behavior, federation, or real-world rate limits. |
-| **External live**     | Tested against a real external service (e.g., a real Matrix homeserver on the internet).                  |
-| **Hardware**          | Tested against real physical hardware (e.g., a Meshtastic radio, a MeshCore node).                       |
+| Sub-classification      | Meaning                                                                                                                                                                                |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Docker SDK-boundary** | Tested against a local Docker container (e.g., Docker Synapse). Validates SDK integration and adapter wiring but not external network behavior, federation, or real-world rate limits. |
+| **External live**       | Tested against a real external service (e.g., a real Matrix homeserver on the internet).                                                                                               |
+| **Hardware**            | Tested against real physical hardware (e.g., a Meshtastic radio, a MeshCore node).                                                                                                     |
 
 ## 5. Required Evidence Fields
 
 ### Universal Fields (all transports, all evidence types)
 
-| Field                           | Required    | Description                                         |
-| ------------------------------- | ----------- | --------------------------------------------------- |
-| `tier`                          | Yes         | Evidence tier: H, C, S, or R                        |
-| `test_file`                     | Yes         | Path to the test file that produced this evidence    |
-| `execution_date`                | Yes         | ISO date of execution, or `NOT EXECUTED`             |
-| `executor`                      | Yes         | Who/what ran the test                                |
-| `medre_commit`                  | Yes         | Git commit hash of the MEDRE codebase under test     |
-| `python_version`                | Yes         | Python version used                                  |
-| `environment`                   | Yes         | Description of execution environment                 |
-| `total_tests`                   | Yes         | Number of tests run                                  |
-| `passed` / `failed` / `skipped` | Yes         | Test result counts                                   |
-| `duration`                      | Yes         | Wall-clock duration of the test run                  |
-| `caveats_observed`              | Yes         | Any unexpected behavior observed                     |
+| Field                           | Required | Description                                       |
+| ------------------------------- | -------- | ------------------------------------------------- |
+| `tier`                          | Yes      | Evidence tier: H, C, S, or R                      |
+| `test_file`                     | Yes      | Path to the test file that produced this evidence |
+| `execution_date`                | Yes      | ISO date of execution, or `NOT EXECUTED`          |
+| `executor`                      | Yes      | Who/what ran the test                             |
+| `medre_commit`                  | Yes      | Git commit hash of the MEDRE codebase under test  |
+| `python_version`                | Yes      | Python version used                               |
+| `environment`                   | Yes      | Description of execution environment              |
+| `total_tests`                   | Yes      | Number of tests run                               |
+| `passed` / `failed` / `skipped` | Yes      | Test result counts                                |
+| `duration`                      | Yes      | Wall-clock duration of the test run               |
+| `caveats_observed`              | Yes      | Any unexpected behavior observed                  |
 
 ## 6. Capability Status Definitions
 
@@ -64,7 +64,7 @@ Real-live evidence (`R`) has sub-classifications for different testing environme
 | `not started`             | No implementation exists. No tests. No code.                                                                          |
 | `designed`                | There is a spec, contract, or design document. No working code yet.                                                   |
 | `fake-tested`             | Works with fake/mock adapters. Unit tests pass. No real network traffic. Proves pipeline wiring, not SDK integration. |
-| `opt-in live test exists` | A test harness exists, gated by environment variables. Not yet run against a real transport with recorded results.     |
+| `opt-in live test exists` | A test harness exists, gated by environment variables. Not yet run against a real transport with recorded results.    |
 | `live-validated`          | Tested against a real transport with results recorded in the repository.                                              |
 | `blocked`                 | A known blocker prevents progress.                                                                                    |
 

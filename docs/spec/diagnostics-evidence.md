@@ -26,16 +26,16 @@ This specification governs:
 
 Every adapter exposes `health_check()` returning `AdapterInfo` and `diagnostics()` returning a plain dict. The following eight keys SHALL appear in the `diagnostics()` output of all four adapter families:
 
-| Key                           | Type          | Semantics                                                                                       |
-| ----------------------------- | ------------- | ----------------------------------------------------------------------------------------------- |
-| `connected`                   | `bool`        | Transport connection state. MAY appear directly or nested in a session sub-dict.                |
-| `health`                      | `str`         | One of the six health vocabulary strings (see § 5).                                             |
-| `mode`                        | `str`         | Transport mode: `"fake"`, `"tcp"`, `"serial"`, `"ble"`, or `"reticulum"` as applicable.        |
-| `reconnecting`                | `bool`        | `true` when an active reconnect loop is in progress.                                            |
-| `reconnect_attempts`          | `int`         | Current reconnect attempt count, bounded to a maximum of 10.                                    |
-| `last_error`                  | `str or None` | `str()` of the last exception encountered. `None` when no error has occurred.                   |
-| `transient_delivery_failures` | `int`         | Cumulative count of transient delivery failures since adapter start.                            |
-| `permanent_delivery_failures` | `int`         | Cumulative count of permanent delivery failures since adapter start.                            |
+| Key                           | Type          | Semantics                                                                               |
+| ----------------------------- | ------------- | --------------------------------------------------------------------------------------- |
+| `connected`                   | `bool`        | Transport connection state. MAY appear directly or nested in a session sub-dict.        |
+| `health`                      | `str`         | One of the six health vocabulary strings (see § 5).                                     |
+| `mode`                        | `str`         | Transport mode: `"fake"`, `"tcp"`, `"serial"`, `"ble"`, or `"reticulum"` as applicable. |
+| `reconnecting`                | `bool`        | `true` when an active reconnect loop is in progress.                                    |
+| `reconnect_attempts`          | `int`         | Current reconnect attempt count, bounded to a maximum of 10.                            |
+| `last_error`                  | `str or None` | `str()` of the last exception encountered. `None` when no error has occurred.           |
+| `transient_delivery_failures` | `int`         | Cumulative count of transient delivery failures since adapter start.                    |
+| `permanent_delivery_failures` | `int`         | Cumulative count of permanent delivery failures since adapter start.                    |
 
 **Matrix note:** `last_error` appears as `last_sync_error` within the session diagnostics dataclass.
 
@@ -51,72 +51,72 @@ Adapter-specific keys convey transport-unique state beyond the common set. Shape
 
 ### 3.1 Matrix (21 keys)
 
-| Key                         | Type            | Semantics                                                                                                   |
-| --------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------- |
-| `logged_in`                 | `bool`          | nio login restoration state                                                                                 |
-| `sync_task_running`         | `bool`          | Background sync loop alive                                                                                  |
-| `store_path_configured`     | `bool`          | E2EE crypto store path present                                                                              |
-| `device_id_configured`      | `bool`          | E2EE device ID present                                                                                      |
-| `encryption_mode`           | `str`           | One of: `"plaintext"`, `"e2ee_optional"`, `"e2ee_required"`                                                 |
-| `crypto_enabled`            | `bool`          | vodozemac loaded and crypto active                                                                          |
-| `last_crypto_error`         | `str or None`   | Last E2EE failure reason                                                                                    |
-| `encrypted_room_seen`       | `bool`          | At least one encrypted room encountered                                                                     |
-| `undecryptable_event_count` | `int`           | Messages that failed decryption                                                                             |
-| `sync_running`              | `bool`          | Sync loop state                                                                                             |
-| `last_successful_sync`      | `float or None` | Epoch timestamp of last successful sync                                                                     |
-| `crypto_store_loaded`       | `bool`          | Crypto database loaded (olm and store both present)                                                         |
-| `encrypted_room_count`      | `int`           | Count only. No room IDs exposed.                                                                            |
-| `plaintext_room_count`      | `int`           | Count only. No room IDs exposed.                                                                            |
-| `olm_loaded`                | `bool`          | nio Olm machine is initialized                                                                              |
-| `store_loaded`              | `bool`          | nio SQLite crypto store is loaded                                                                           |
-| `device_keys_uploaded`      | `bool`          | `should_upload_keys` is False (keys present on server)                                                       |
-| `key_query_needed`          | `bool`          | Outstanding device key queries pending                                                                      |
-| `device_id_in_use`          | `str or None`   | Actual device_id in use (for identity verification)                                                         |
-| `store_path_exists`         | `bool`          | Store directory exists on disk                                                                              |
-| `initial_sync_completed`    | `bool`          | First successful full_state sync completed                                                                  |
+| Key                         | Type            | Semantics                                                   |
+| --------------------------- | --------------- | ----------------------------------------------------------- |
+| `logged_in`                 | `bool`          | nio login restoration state                                 |
+| `sync_task_running`         | `bool`          | Background sync loop alive                                  |
+| `store_path_configured`     | `bool`          | E2EE crypto store path present                              |
+| `device_id_configured`      | `bool`          | E2EE device ID present                                      |
+| `encryption_mode`           | `str`           | One of: `"plaintext"`, `"e2ee_optional"`, `"e2ee_required"` |
+| `crypto_enabled`            | `bool`          | vodozemac loaded and crypto active                          |
+| `last_crypto_error`         | `str or None`   | Last E2EE failure reason                                    |
+| `encrypted_room_seen`       | `bool`          | At least one encrypted room encountered                     |
+| `undecryptable_event_count` | `int`           | Messages that failed decryption                             |
+| `sync_running`              | `bool`          | Sync loop state                                             |
+| `last_successful_sync`      | `float or None` | Epoch timestamp of last successful sync                     |
+| `crypto_store_loaded`       | `bool`          | Crypto database loaded (olm and store both present)         |
+| `encrypted_room_count`      | `int`           | Count only. No room IDs exposed.                            |
+| `plaintext_room_count`      | `int`           | Count only. No room IDs exposed.                            |
+| `olm_loaded`                | `bool`          | nio Olm machine is initialized                              |
+| `store_loaded`              | `bool`          | nio SQLite crypto store is loaded                           |
+| `device_keys_uploaded`      | `bool`          | `should_upload_keys` is False (keys present on server)      |
+| `key_query_needed`          | `bool`          | Outstanding device key queries pending                      |
+| `device_id_in_use`          | `str or None`   | Actual device_id in use (for identity verification)         |
+| `store_path_exists`         | `bool`          | Store directory exists on disk                              |
+| `initial_sync_completed`    | `bool`          | First successful full_state sync completed                  |
 
 ### 3.2 Meshtastic (adapter-level: 7 keys; session sub-dict: 3 keys)
 
 Adapter-level keys:
 
-| Key                  | Type  | Semantics                                  |
-| -------------------- | ----- | ------------------------------------------ |
-| `adapter_id`         | `str` | Adapter identifier                         |
-| `platform`           | `str` | Always `"meshtastic"`                      |
-| `connection_type`    | `str` | `"fake"`, `"tcp"`, `"serial"`, or `"ble"`  |
-| `queue_pending`      | `int` | Current outbound queue depth               |
-| `queue_total_sent`   | `int` | Lifetime successful sends via queue        |
-| `queue_total_failed` | `int` | Lifetime failures via queue                |
-| `background_tasks`   | `int` | Tracked asyncio tasks                      |
+| Key                  | Type  | Semantics                                 |
+| -------------------- | ----- | ----------------------------------------- |
+| `adapter_id`         | `str` | Adapter identifier                        |
+| `platform`           | `str` | Always `"meshtastic"`                     |
+| `connection_type`    | `str` | `"fake"`, `"tcp"`, `"serial"`, or `"ble"` |
+| `queue_pending`      | `int` | Current outbound queue depth              |
+| `queue_total_sent`   | `int` | Lifetime successful sends via queue       |
+| `queue_total_failed` | `int` | Lifetime failures via queue               |
+| `background_tasks`   | `int` | Tracked asyncio tasks                     |
 
 Session sub-dict keys (`session.*`):
 
-| Key                        | Type            | Semantics                         |
-| -------------------------- | --------------- | --------------------------------- |
-| `session.node_id`          | `str or None`   | Local node number                 |
-| `session.channel_count`    | `int`           | Configured channels               |
-| `session.last_packet_time` | `float or None` | Epoch of last received packet     |
+| Key                        | Type            | Semantics                     |
+| -------------------------- | --------------- | ----------------------------- |
+| `session.node_id`          | `str or None`   | Local node number             |
+| `session.channel_count`    | `int`           | Configured channels           |
+| `session.last_packet_time` | `float or None` | Epoch of last received packet |
 
 ### 3.3 MeshCore (5 keys)
 
-| Key                 | Type          | Semantics                                  |
-| ------------------- | ------------- | ------------------------------------------ |
-| `adapter_id`        | `str`         | Adapter identifier                         |
-| `platform`          | `str`         | Always `"meshcore"`                        |
-| `mode`              | `str`         | `"fake"`, `"tcp"`, `"serial"`, or `"ble"`  |
-| `last_message_time` | `str or None` | ISO 8601 timestamp                         |
-| `peer_count`        | `int or None` | Known mesh peers                           |
+| Key                 | Type          | Semantics                                 |
+| ------------------- | ------------- | ----------------------------------------- |
+| `adapter_id`        | `str`         | Adapter identifier                        |
+| `platform`          | `str`         | Always `"meshcore"`                       |
+| `mode`              | `str`         | `"fake"`, `"tcp"`, `"serial"`, or `"ble"` |
+| `last_message_time` | `str or None` | ISO 8601 timestamp                        |
+| `peer_count`        | `int or None` | Known mesh peers                          |
 
 ### 3.4 LXMF (6 keys)
 
-| Key                      | Type           | Semantics                                |
-| ------------------------ | -------------- | ---------------------------------------- |
-| `router_running`         | `bool`         | LXMRouter is active                      |
-| `last_message_time`      | `str or None`  | ISO 8601 timestamp                       |
-| `known_path_count`       | `int or None`  | Reticulum path table entries             |
-| `propagation_enabled`    | `bool or None` | LXMF propagation node state              |
-| `pending_delivery_count` | `int or None`  | Outbound deliveries not yet terminal     |
-| `mode`                   | `str`          | `"fake"` or `"reticulum"`               |
+| Key                      | Type           | Semantics                            |
+| ------------------------ | -------------- | ------------------------------------ |
+| `router_running`         | `bool`         | LXMRouter is active                  |
+| `last_message_time`      | `str or None`  | ISO 8601 timestamp                   |
+| `known_path_count`       | `int or None`  | Reticulum path table entries         |
+| `propagation_enabled`    | `bool or None` | LXMF propagation node state          |
+| `pending_delivery_count` | `int or None`  | Outbound deliveries not yet terminal |
+| `mode`                   | `str`          | `"fake"` or `"reticulum"`            |
 
 ## 4. RuntimeSnapshot Dataclass
 
@@ -124,17 +124,17 @@ The `RuntimeSnapshot` frozen dataclass aggregates runtime state into an immutabl
 
 ### 4.1 Fields (9)
 
-| Field                     | Type                         | Default                              | Semantics                                                    |
-| ------------------------- | ---------------------------- | ------------------------------------ | ------------------------------------------------------------ |
-| `adapters`                | `tuple[dict[str, Any], ...]` | —                                    | Sorted list of normalized adapter health dicts               |
-| `renderer_registry`       | `dict[str, Any]`             | —                                    | Status summary from the rendering pipeline                   |
-| `event_bus_status`        | `dict[str, Any]`             | —                                    | Status summary from the event bus                            |
-| `storage_backend_status`  | `dict[str, Any]`             | —                                    | Storage backend status or unavailable sentinel               |
-| `replay_backend_status`   | `dict[str, Any]`             | —                                    | Replay backend status or unavailable sentinel                |
-| `route_topology`          | `dict[str, Any]`             | `{"status": "unavailable"}`          | Topology-aware route diagnostics from the Router             |
-| `queue_status`            | `dict[str, str]`             | `{"status": "unavailable"}`          | Queue subsystem status                                       |
-| `backpressure_status`     | `dict[str, str]`             | `{"status": "unavailable"}`          | Backpressure subsystem status                                |
-| `task_status`             | `dict[str, str]`             | `{"status": "unavailable"}`          | Task subsystem status                                        |
+| Field                    | Type                         | Default                     | Semantics                                        |
+| ------------------------ | ---------------------------- | --------------------------- | ------------------------------------------------ |
+| `adapters`               | `tuple[dict[str, Any], ...]` | —                           | Sorted list of normalized adapter health dicts   |
+| `renderer_registry`      | `dict[str, Any]`             | —                           | Status summary from the rendering pipeline       |
+| `event_bus_status`       | `dict[str, Any]`             | —                           | Status summary from the event bus                |
+| `storage_backend_status` | `dict[str, Any]`             | —                           | Storage backend status or unavailable sentinel   |
+| `replay_backend_status`  | `dict[str, Any]`             | —                           | Replay backend status or unavailable sentinel    |
+| `route_topology`         | `dict[str, Any]`             | `{"status": "unavailable"}` | Topology-aware route diagnostics from the Router |
+| `queue_status`           | `dict[str, str]`             | `{"status": "unavailable"}` | Queue subsystem status                           |
+| `backpressure_status`    | `dict[str, str]`             | `{"status": "unavailable"}` | Backpressure subsystem status                    |
+| `task_status`            | `dict[str, str]`             | `{"status": "unavailable"}` | Task subsystem status                            |
 
 ### 4.2 Construction Contract
 
@@ -151,23 +151,23 @@ Adapter entries are sorted by `adapter_id` before inclusion. Subsystems that are
 
 The `build_runtime_snapshot()` function in the runtime snapshot builder extends the diagnostics snapshot into a comprehensive 17-section shape. The top-level `snapshot_scope` field indicates capture context:
 
-| Value     | Meaning                                                                                       |
-| --------- | --------------------------------------------------------------------------------------------- |
-| `"build"` | Build-time snapshot. Runtime was built and possibly started for diagnostics, then stopped.    |
-| `"live"`  | Live-started runtime. `refresh_live_health()` was called to poll current adapter state.       |
+| Value     | Meaning                                                                                    |
+| --------- | ------------------------------------------------------------------------------------------ |
+| `"build"` | Build-time snapshot. Runtime was built and possibly started for diagnostics, then stopped. |
+| `"live"`  | Live-started runtime. `refresh_live_health()` was called to poll current adapter state.    |
 
 ## 5. Health Normalization Vocabulary
 
 `normalize_adapter_health()` projects `AdapterInfo` and optional `AdapterState` into a JSON-safe dict. The `health` field is constrained to exactly six strings:
 
-| Value        | Semantics                                                                |
-| ------------ | ------------------------------------------------------------------------ |
-| `healthy`    | Adapter is connected and operating normally.                             |
-| `degraded`   | Adapter is connected but experiencing transient errors.                  |
-| `failed`     | Adapter is in a non-recoverable failure state. Not connected.            |
-| `unknown`    | Health state has not been determined.                                    |
-| `starting`   | Adapter is in the process of starting up.                                |
-| `stopping`   | Adapter is in the process of shutting down.                              |
+| Value      | Semantics                                                     |
+| ---------- | ------------------------------------------------------------- |
+| `healthy`  | Adapter is connected and operating normally.                  |
+| `degraded` | Adapter is connected but experiencing transient errors.       |
+| `failed`   | Adapter is in a non-recoverable failure state. Not connected. |
+| `unknown`  | Health state has not been determined.                         |
+| `starting` | Adapter is in the process of starting up.                     |
+| `stopping` | Adapter is in the process of shutting down.                   |
 
 This is a read-only projection. The normalization layer SHALL NOT add health polling, circuit breakers, or auto-degrade logic.
 
@@ -193,14 +193,14 @@ Every value in the snapshot and evidence output MUST be one of: `dict`, `list`, 
 
 Collections in the snapshot are capped:
 
-| Collection           | Cap   |
-| -------------------- | ----- |
-| Adapter entries      | 256   |
-| Route entries        | 1024  |
-| Build failures       | 64    |
+| Collection           | Cap            |
+| -------------------- | -------------- |
+| Adapter entries      | 256            |
+| Route entries        | 1024           |
+| Build failures       | 64             |
 | Error strings        | 512 characters |
 | Event detail strings | 256 characters |
-| Runtime events       | 256 entries   |
+| Runtime events       | 256 entries    |
 
 When a collection exceeds its cap, entries beyond the cap (sorted for adapters/routes, FIFO for events) are silently excluded.
 
@@ -208,31 +208,31 @@ When a collection exceeds its cap, entries beyond the cap (sorted for adapters/r
 
 The `collect_evidence_bundle()` function assembles a comprehensive evidence bundle with the following top-level shape:
 
-| Key               | Type            | Semantics                                                                  |
-| ----------------- | --------------- | -------------------------------------------------------------------------- |
-| `schema_version`  | `int`           | Currently `1`. Frozen during pre-release.                                  |
-| `status`          | `str`           | Overall status: `"passed"`, `"partial"`, or `"error"`.                     |
-| `sections`        | `dict`          | Per-section evidence data (see § 7.1).                                     |
-| `errors`          | `list[str]`     | Accumulated error strings from section collection.                         |
-| `limitations`     | `list[str]`     | Fixed list of evidence limitations (see § 7.2).                            |
-| `collected_at`    | `str`           | ISO 8601 timestamp of collection.                                          |
-| `generated_at`    | `str`           | ISO 8601 timestamp of bundle generation.                                   |
-| `command`         | `str`           | Always `"evidence"`.                                                       |
-| `config_source`   | `str or None`   | Config discovery source. `None` when config loading fails.                 |
-| `medre_version`   | `str`           | MEDRE package version string.                                              |
-| `runtime_started` | `bool`          | Whether the runtime was started during evidence collection.                |
+| Key               | Type          | Semantics                                                   |
+| ----------------- | ------------- | ----------------------------------------------------------- |
+| `schema_version`  | `int`         | Currently `1`. Frozen during pre-release.                   |
+| `status`          | `str`         | Overall status: `"passed"`, `"partial"`, or `"error"`.      |
+| `sections`        | `dict`        | Per-section evidence data (see § 7.1).                      |
+| `errors`          | `list[str]`   | Accumulated error strings from section collection.          |
+| `limitations`     | `list[str]`   | Fixed list of evidence limitations (see § 7.2).             |
+| `collected_at`    | `str`         | ISO 8601 timestamp of collection.                           |
+| `generated_at`    | `str`         | ISO 8601 timestamp of bundle generation.                    |
+| `command`         | `str`         | Always `"evidence"`.                                        |
+| `config_source`   | `str or None` | Config discovery source. `None` when config loading fails.  |
+| `medre_version`   | `str`         | MEDRE package version string.                               |
+| `runtime_started` | `bool`        | Whether the runtime was started during evidence collection. |
 
 ### 7.1 Sections
 
 Each section follows the pattern `{"status": str, "error": str or None, "data": Any or None}`.
 
-| Section                | Statuses                          | Semantics                                                                    |
-| ---------------------- | --------------------------------- | ---------------------------------------------------------------------------- |
-| `config_summary`       | `"passed"`, `"error"`             | Loaded config metadata, adapter counts, route counts.                        |
-| `route_validation`     | `"passed"`, `"partial"`, `"error"` | Route eligibility validation results.                                        |
-| `diagnostics_snapshot` | `"passed"`, `"error"`             | Build-time diagnostics snapshot (no runtime start).                          |
+| Section                | Statuses                             | Semantics                                                                    |
+| ---------------------- | ------------------------------------ | ---------------------------------------------------------------------------- |
+| `config_summary`       | `"passed"`, `"error"`                | Loaded config metadata, adapter counts, route counts.                        |
+| `route_validation`     | `"passed"`, `"partial"`, `"error"`   | Route eligibility validation results.                                        |
+| `diagnostics_snapshot` | `"passed"`, `"error"`                | Build-time diagnostics snapshot (no runtime start).                          |
 | `live_health`          | `"passed"`, `"partial"`, `"skipped"` | Live adapter health after `refresh_live_health()`. Skipped unless requested. |
-| `storage`              | `"passed"`, `"partial"`, `"error"` | Storage backend evidence: receipts, incident summaries, outbox state.        |
+| `storage`              | `"passed"`, `"partial"`, `"error"`   | Storage backend evidence: receipts, incident summaries, outbox state.        |
 
 Status computation:
 
@@ -255,12 +255,12 @@ All operational evidence MUST be classified into exactly one of four tiers. The 
 
 ### 8.1 Tier Definitions
 
-| Tier  | Label                     | Semantics                                                                                                                       | Allowed Claims                                                                                       |
-| ----- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| **H** | Historical                | Recorded during a prior development phase. Not re-confirmed against the current codebase.                                       | "On date D, behavior X was observed." No claim about current behavior.                               |
-| **C** | Current                   | Recorded against the current codebase. Reproducible by re-running the same command at the same commit.                          | "At commit H, behavior X is confirmed."                                                              |
-| **S** | Simulated / Fake-runtime  | Recorded using `FakeAdapter`, mock objects, or simulated transport. No real network or hardware involved.                       | "The adapter's internal logic produces X when given input Y." No claim about real endpoint behavior. |
-| **R** | Real-live-runtime         | Recorded against a real transport endpoint with real network or hardware. Requires env vars, SDK, and physical/network access.  | "Against real endpoint E, behavior X was observed under conditions Y."                               |
+| Tier  | Label                    | Semantics                                                                                                                      | Allowed Claims                                                                                       |
+| ----- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| **H** | Historical               | Recorded during a prior development phase. Not re-confirmed against the current codebase.                                      | "On date D, behavior X was observed." No claim about current behavior.                               |
+| **C** | Current                  | Recorded against the current codebase. Reproducible by re-running the same command at the same commit.                         | "At commit H, behavior X is confirmed."                                                              |
+| **S** | Simulated / Fake-runtime | Recorded using `FakeAdapter`, mock objects, or simulated transport. No real network or hardware involved.                      | "The adapter's internal logic produces X when given input Y." No claim about real endpoint behavior. |
+| **R** | Real-live-runtime        | Recorded against a real transport endpoint with real network or hardware. Requires env vars, SDK, and physical/network access. | "Against real endpoint E, behavior X was observed under conditions Y."                               |
 
 ### 8.2 Classification Rules
 
@@ -280,10 +280,10 @@ Simulated evidence (S) SHALL NOT be upgraded to R without a real endpoint run.
 
 Each section in the runtime snapshot carries explicit provenance:
 
-| Field           | Values                                           | Semantics                                                       |
-| --------------- | ------------------------------------------------ | --------------------------------------------------------------- |
-| `scope`         | `"build"`, `"startup"`, `"process_local"`, `"live"` | When the data was captured or computed.                        |
-| `live_refresh`  | `bool`                                           | Whether MEDRE actively polled external adapter state.           |
+| Field          | Values                                              | Semantics                                             |
+| -------------- | --------------------------------------------------- | ----------------------------------------------------- |
+| `scope`        | `"build"`, `"startup"`, `"process_local"`, `"live"` | When the data was captured or computed.               |
+| `live_refresh` | `bool`                                              | Whether MEDRE actively polled external adapter state. |
 
 Scope semantics:
 
@@ -298,12 +298,12 @@ Scope semantics:
 
 No adapter, snapshot, or evidence path SHALL expose access tokens, private keys, identity material, authentication credentials, device keys, crypto material, or session keys through any diagnostic or evidence path. This applies to all log levels, including DEBUG.
 
-| Adapter    | Guarantee                                                    | Mechanism                                                                   |
-| ---------- | ------------------------------------------------------------ | --------------------------------------------------------------------------- |
-| Matrix     | No secrets, access tokens, keys, or private device material | Frozen dataclass; token/key fields never included; room names/IDs excluded  |
-| Meshtastic | No secrets, private keys, raw protobuf dumps, or sensitive radio identifiers | Frozen dataclass; node_id is public info; no packet payloads           |
-| MeshCore   | No secrets, private keys, or raw SDK internals               | Plain dict copy; no pubkey material                                         |
-| LXMF       | No secrets, private keys, identity material, or unsafe peer dumps | Frozen dataclass; identity hashes not included; mode is string         |
+| Adapter    | Guarantee                                                                    | Mechanism                                                                  |
+| ---------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Matrix     | No secrets, access tokens, keys, or private device material                  | Frozen dataclass; token/key fields never included; room names/IDs excluded |
+| Meshtastic | No secrets, private keys, raw protobuf dumps, or sensitive radio identifiers | Frozen dataclass; node_id is public info; no packet payloads               |
+| MeshCore   | No secrets, private keys, or raw SDK internals                               | Plain dict copy; no pubkey material                                        |
+| LXMF       | No secrets, private keys, identity material, or unsafe peer dumps            | Frozen dataclass; identity hashes not included; mode is string             |
 
 ### 9.2 No SDK Object Leakage
 

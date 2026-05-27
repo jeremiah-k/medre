@@ -25,14 +25,14 @@ class EventMetadata:
 
 ## 2. Namespace Definitions
 
-| Namespace            | Purpose                    | Example Fields                                                                                      |
-| -------------------- | -------------------------- | --------------------------------------------------------------------------------------------------- |
-| `metadata.transport` | Transport layer details    | `protocol`, `gateway_id`, `received_at`, `encoding`, `delivery_method`, `delivery_confirmed`       |
-| `metadata.routing`   | Routing context            | `matched_routes`, `fanout_group`, `bridge_id`                                                       |
-| `metadata.radio`     | Radio-specific data        | `frequency`, `modulation`, `snr`, `rssi`, `hop_limit`, `channel_index`                              |
-| `metadata.telemetry` | Device state at event time | `battery_percent`, `voltage_mv`, `uptime_seconds`, `air_util_tx`                                    |
-| `metadata.native`    | Unnormalized native fields | Adapter-specific raw fields that haven't been mapped to canonical fields yet                        |
-| `metadata.custom`    | Plugin/extension data      | Key-value pairs from plugins, using reverse-DNS namespacing                                         |
+| Namespace            | Purpose                    | Example Fields                                                                               |
+| -------------------- | -------------------------- | -------------------------------------------------------------------------------------------- |
+| `metadata.transport` | Transport layer details    | `protocol`, `gateway_id`, `received_at`, `encoding`, `delivery_method`, `delivery_confirmed` |
+| `metadata.routing`   | Routing context            | `matched_routes`, `fanout_group`, `bridge_id`                                                |
+| `metadata.radio`     | Radio-specific data        | `frequency`, `modulation`, `snr`, `rssi`, `hop_limit`, `channel_index`                       |
+| `metadata.telemetry` | Device state at event time | `battery_percent`, `voltage_mv`, `uptime_seconds`, `air_util_tx`                             |
+| `metadata.native`    | Unnormalized native fields | Adapter-specific raw fields that haven't been mapped to canonical fields yet                 |
+| `metadata.custom`    | Plugin/extension data      | Key-value pairs from plugins, using reverse-DNS namespacing                                  |
 
 The `metadata.native` namespace is a temporary holding area for fields that
 haven't been categorized yet. The enrichment stage normalizes `metadata.native`
@@ -42,12 +42,12 @@ fields into their proper namespaces when possible.
 
 Legacy flat namespaces map to the new structured model:
 
-| Old Path                      | New Path                      |
-| ----------------------------- | ----------------------------- |
-| `metadata.meshtastic.snr`     | `metadata.radio.snr`          |
-| `metadata.meshtastic.channel` | `metadata.radio.channel_index`|
-| `metadata.meshtastic.from`    | `metadata.transport.source_id`|
-| `metadata.meshtastic.telemetry.*` | `metadata.telemetry.*`    |
+| Old Path                          | New Path                       |
+| --------------------------------- | ------------------------------ |
+| `metadata.meshtastic.snr`         | `metadata.radio.snr`           |
+| `metadata.meshtastic.channel`     | `metadata.radio.channel_index` |
+| `metadata.meshtastic.from`        | `metadata.transport.source_id` |
+| `metadata.meshtastic.telemetry.*` | `metadata.telemetry.*`         |
 
 ## 4. Embedding Modes
 
@@ -56,12 +56,12 @@ messages on external platforms. The mode is configured per operator preference.
 
 ### 4.1 Privacy Modes
 
-| Mode       | Behavior                                                                                          |
-| ---------- | ------------------------------------------------------------------------------------------------- |
-| `off`      | Do not embed any runtime metadata. External platforms are purely display surfaces.                |
-| `minimal`  | Embed only `event_id` and `source_transport_id`. Less data exposed on redaction.                  |
-| `safe`     | Embed normalized metadata (event kind, source adapter, transport protocol, radio metrics).        |
-| `full`     | Embed all metadata. Maximum context for users, but all metadata is lost on redaction.             |
+| Mode      | Behavior                                                                                   |
+| --------- | ------------------------------------------------------------------------------------------ |
+| `off`     | Do not embed any runtime metadata. External platforms are purely display surfaces.         |
+| `minimal` | Embed only `event_id` and `source_transport_id`. Less data exposed on redaction.           |
+| `safe`    | Embed normalized metadata (event kind, source adapter, transport protocol, radio metrics). |
+| `full`    | Embed all metadata. Maximum context for users, but all metadata is lost on redaction.      |
 
 **Default**: `safe`. Operators SHOULD choose based on their threat model.
 

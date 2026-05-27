@@ -4,15 +4,15 @@ Setting up and running the MEDRE Matrix adapter against a real homeserver. Alpha
 
 ## Prerequisites
 
-| Requirement | Details |
-|------------|---------|
-| Matrix homeserver | Synapse or Conduit, local or reachable over the network |
-| Bot account | A dedicated Matrix user, not your personal account |
-| Python | 3.11 or later |
-| Package install | `pip install -e ".[matrix]"` (plaintext). `pip install -e ".[matrix-e2e]"` (adds Olm/Megolm crypto libs for encrypted rooms). |
-| Access token | Obtained via login API or Element UI |
-| A test room | Unencrypted, bot has joined it |
-| Network access | Your machine can reach the homeserver's HTTP(S) port |
+| Requirement       | Details                                                                                                                       |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Matrix homeserver | Synapse or Conduit, local or reachable over the network                                                                       |
+| Bot account       | A dedicated Matrix user, not your personal account                                                                            |
+| Python            | 3.11 or later                                                                                                                 |
+| Package install   | `pip install -e ".[matrix]"` (plaintext). `pip install -e ".[matrix-e2e]"` (adds Olm/Megolm crypto libs for encrypted rooms). |
+| Access token      | Obtained via login API or Element UI                                                                                          |
+| A test room       | Unencrypted, bot has joined it                                                                                                |
+| Network access    | Your machine can reach the homeserver's HTTP(S) port                                                                          |
 
 You do not need Docker, a domain name, or federation. A local homeserver on localhost is sufficient.
 
@@ -99,14 +99,14 @@ export MATRIX_ROOM_ALLOWLIST="!abc123:localhost,!def456:localhost"
 
 ### Environment Variables
 
-| Variable | Required | Default | Example | Notes |
-|----------|----------|---------|---------|-------|
-| `MATRIX_HOMESERVER` | Yes | | `http://localhost:8008` | Full URL, no trailing slash |
-| `MATRIX_USER_ID` | Yes | | `@bot:localhost` | Starts with `@` |
-| `MATRIX_ACCESS_TOKEN` | Yes | | `syt_xxxxxxxxxxxxx` | Keep it secret |
-| `MATRIX_ROOM_ALLOWLIST` | No | (all rooms) | `!abc:localhost,!def:localhost` | Comma-separated room IDs |
-| `MATRIX_ADAPTER_ID` | No | `matrix-alpha` | `my-adapter` | Adapter identifier for logging |
-| `MATRIX_SYNC_TIMEOUT_MS` | No | `30000` | `60000` | Sync long-poll timeout in ms |
+| Variable                 | Required | Default        | Example                         | Notes                          |
+| ------------------------ | -------- | -------------- | ------------------------------- | ------------------------------ |
+| `MATRIX_HOMESERVER`      | Yes      |                | `http://localhost:8008`         | Full URL, no trailing slash    |
+| `MATRIX_USER_ID`         | Yes      |                | `@bot:localhost`                | Starts with `@`                |
+| `MATRIX_ACCESS_TOKEN`    | Yes      |                | `syt_xxxxxxxxxxxxx`             | Keep it secret                 |
+| `MATRIX_ROOM_ALLOWLIST`  | No       | (all rooms)    | `!abc:localhost,!def:localhost` | Comma-separated room IDs       |
+| `MATRIX_ADAPTER_ID`      | No       | `matrix-alpha` | `my-adapter`                    | Adapter identifier for logging |
+| `MATRIX_SYNC_TIMEOUT_MS` | No       | `30000`        | `60000`                         | Sync long-poll timeout in ms   |
 
 ### Via medre run
 
@@ -154,12 +154,12 @@ INFO  medre  Matrix Operation Alpha shut down cleanly
 
 ## Health States
 
-| State | Meaning |
-|-------|---------|
-| `unknown` | Adapter has not started, or has been stopped |
-| `healthy` | Client is connected, logged in, and sync is running |
-| `degraded` | Sync is running but actively reconnecting after a transient failure |
-| `failed` | Sync task has crashed permanently, or client exists but is not logged in |
+| State      | Meaning                                                                  |
+| ---------- | ------------------------------------------------------------------------ |
+| `unknown`  | Adapter has not started, or has been stopped                             |
+| `healthy`  | Client is connected, logged in, and sync is running                      |
+| `degraded` | Sync is running but actively reconnecting after a transient failure      |
+| `failed`   | Sync task has crashed permanently, or client exists but is not logged in |
 
 When the adapter is in `degraded` state, it is actively attempting to restore the sync connection with exponential backoff. Once reconnection succeeds, the state returns to `healthy`. If the reconnect budget is exhausted, the state transitions to `failed` and requires manual restart.
 
@@ -224,12 +224,12 @@ While the test waits (30 s window), send a message from the second account. If n
 
 ### Diagnostics Counters
 
-| Counter | Description |
-|---------|-------------|
-| `inbound_published` | Events successfully published via `publish_inbound()` |
-| `inbound_suppressed_self` | Events dropped because sender == bot user_id |
+| Counter                       | Description                                                  |
+| ----------------------------- | ------------------------------------------------------------ |
+| `inbound_published`           | Events successfully published via `publish_inbound()`        |
+| `inbound_suppressed_self`     | Events dropped because sender == bot user_id                 |
 | `inbound_suppressed_envelope` | Events dropped because MEDRE envelope source_adapter matched |
-| `inbound_filtered_allowlist` | Events dropped because room was not in the allowlist |
+| `inbound_filtered_allowlist`  | Events dropped because room was not in the allowlist         |
 
 ## Known Limitations
 
@@ -243,15 +243,15 @@ While the test waits (30 s window), send a message from the second account. If n
 
 ## Troubleshooting
 
-| Symptom | Likely cause | Fix |
-|---------|-------------|-----|
-| `M_UNKNOWN_TOKEN` on startup | Expired or invalid access token | Generate a new token via login API or Element |
-| `M_FORBIDDEN Invalid username/password` | Wrong credentials | Verify user ID and password encoding |
-| Adapter enters `failed` state | Permanent sync error or exhausted reconnect budget | Check logs, fix underlying cause, restart |
-| No inbound events received | Room not in allowlist | Add room ID to `MATRIX_ROOM_ALLOWLIST` |
-| Self-messages not suppressed | sender mismatch | Verify `MATRIX_USER_ID` matches bot's MXID exactly |
-| `OlmUnverifiedDeviceError` in encrypted room | `ignore_unverified_devices` not applied | Update to current MEDRE version which handles this automatically |
-| `ENCRYPTION_ENABLED=False` in diagnostics | `.[matrix-e2e]` not installed | `pip install -e ".[matrix-e2e]"` |
+| Symptom                                      | Likely cause                                       | Fix                                                              |
+| -------------------------------------------- | -------------------------------------------------- | ---------------------------------------------------------------- |
+| `M_UNKNOWN_TOKEN` on startup                 | Expired or invalid access token                    | Generate a new token via login API or Element                    |
+| `M_FORBIDDEN Invalid username/password`      | Wrong credentials                                  | Verify user ID and password encoding                             |
+| Adapter enters `failed` state                | Permanent sync error or exhausted reconnect budget | Check logs, fix underlying cause, restart                        |
+| No inbound events received                   | Room not in allowlist                              | Add room ID to `MATRIX_ROOM_ALLOWLIST`                           |
+| Self-messages not suppressed                 | sender mismatch                                    | Verify `MATRIX_USER_ID` matches bot's MXID exactly               |
+| `OlmUnverifiedDeviceError` in encrypted room | `ignore_unverified_devices` not applied            | Update to current MEDRE version which handles this automatically |
+| `ENCRYPTION_ENABLED=False` in diagnostics    | `.[matrix-e2e]` not installed                      | `pip install -e ".[matrix-e2e]"`                                 |
 
 ## See Also
 

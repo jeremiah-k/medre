@@ -229,7 +229,7 @@ class TestConfigCheckExitCode:
         text = _read(OPS_DIR / "configuration.md")
         # Find the config check description area
         assert "code 2" in text, (
-        "configuration.md must document exit code 2 for config check "
+            "configuration.md must document exit code 2 for config check "
             "errors (EXIT_CONFIG = 2 in exit_codes.py)."
         )
         # Ensure we don't have the old incorrect value in that context

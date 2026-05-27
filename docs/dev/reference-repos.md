@@ -79,12 +79,12 @@ mechanism independently.
 MMRelay classifies each inbound Meshtastic packet into one of three
 dispositions. MEDRE uses four actions:
 
-| MMRelay              | MEDRE equivalent | Key difference                                |
-| -------------------- | ---------------- | --------------------------------------------- |
-| `RELAY`              | `relay`          | Same concept                                  |
-| `PLUGIN_ONLY`        | `deferred`       | MEDRE has no plugin system yet                |
-| `DROP`               | `drop` / `ignore`| MEDRE splits into malformed (drop) vs valid   |
-| (no equivalent)      | `ignore`         | Valid packets that don't need relay (ACKs, DM)|
+| MMRelay         | MEDRE equivalent  | Key difference                                 |
+| --------------- | ----------------- | ---------------------------------------------- |
+| `RELAY`         | `relay`           | Same concept                                   |
+| `PLUGIN_ONLY`   | `deferred`        | MEDRE has no plugin system yet                 |
+| `DROP`          | `drop` / `ignore` | MEDRE splits into malformed (drop) vs valid    |
+| (no equivalent) | `ignore`          | Valid packets that don't need relay (ACKs, DM) |
 
 Key design differences:
 

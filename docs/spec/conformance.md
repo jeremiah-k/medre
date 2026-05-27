@@ -153,12 +153,12 @@ Tests that verify replay behavior:
 
 Test evidence is classified into four tiers:
 
-| Tier | Label              | Meaning                                                  |
-| ---- | ------------------ | -------------------------------------------------------- |
-| **H** | Historical         | Recorded during a prior phase. May be stale.            |
-| **C** | Current            | Recorded against the current codebase. Reproducible.     |
-| **S** | Simulated          | Recorded using fake adapters or mocks. No real network.  |
-| **R** | Real-live          | Recorded against a real transport endpoint.              |
+| Tier  | Label      | Meaning                                                 |
+| ----- | ---------- | ------------------------------------------------------- |
+| **H** | Historical | Recorded during a prior phase. May be stale.            |
+| **C** | Current    | Recorded against the current codebase. Reproducible.    |
+| **S** | Simulated  | Recorded using fake adapters or mocks. No real network. |
+| **R** | Real-live  | Recorded against a real transport endpoint.             |
 
 Simulated evidence MUST NOT be used to support claims about real transport
 behavior. Real-live evidence is the only tier that supports claims about

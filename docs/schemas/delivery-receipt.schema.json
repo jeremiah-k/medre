@@ -42,7 +42,15 @@
     },
     "status": {
       "type": "string",
-      "enum": ["accepted", "queued", "sent", "confirmed", "failed", "dead_lettered", "suppressed"],
+      "enum": [
+        "accepted",
+        "queued",
+        "sent",
+        "confirmed",
+        "failed",
+        "dead_lettered",
+        "suppressed"
+      ],
       "default": "accepted",
       "description": "Current delivery status."
     },

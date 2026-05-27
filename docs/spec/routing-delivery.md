@@ -66,12 +66,12 @@ class RouteDestination:
 
 The `kind` field determines the addressing model:
 
-| kind                 | Addressing model      | Key fields                                                      |
-| -------------------- | --------------------- | --------------------------------------------------------------- |
-| `"channel"`          | Logical channel name  | `destination_name` holds the channel name                       |
-| `"lxmf_destination"` | LXMF destination hash | `destination_hash` holds the 16-byte hex hash                   |
-| `"meshcore_contact"` | MeshCore contact      | `destination_hash` or `destination_name` identifies the contact |
-| `"matrix_room"`      | Matrix room ID        | Resolved via adapter's `connection.rooms` config, not stored here|
+| kind                 | Addressing model      | Key fields                                                        |
+| -------------------- | --------------------- | ----------------------------------------------------------------- |
+| `"channel"`          | Logical channel name  | `destination_name` holds the channel name                         |
+| `"lxmf_destination"` | LXMF destination hash | `destination_hash` holds the 16-byte hex hash                     |
+| `"meshcore_contact"` | MeshCore contact      | `destination_hash` or `destination_name` identifies the contact   |
+| `"matrix_room"`      | Matrix room ID        | Resolved via adapter's `connection.rooms` config, not stored here |
 
 ### 2.4 Channel vs Destination Precedence
 
@@ -195,6 +195,7 @@ Routes are **non-exclusive** by default. If an event matches routes A and B, bot
 ### 3.3 Route Ordering
 
 Matching routes are sorted by `priority` (ascending, lower is higher priority) before delivery plan construction. This ordering influences:
+
 - Which delivery plans are constructed first.
 - The order in which the adapter execution stage dequeues and processes deliveries.
 - Policy evaluation order when per-route limits apply.
@@ -249,12 +250,12 @@ All loop-prevention mechanisms operate within a single MEDRE process only. If tw
 
 Native-ref duplicate suppression depends on adapters providing a stable, unique `native_message_id` via `source_native_ref`. Adapters that return `None` or an empty string for `native_message_id` bypass dedup entirely — every inbound event from that adapter is treated as novel.
 
-| Adapter    | Native ID field   | Stability         |
-| ---------- | ----------------- | ----------------- |
-| Matrix     | `event_id`        | Stable            |
-| Meshtastic | `packet_id`       | Stable per node   |
-| MeshCore   | `sender_timestamp`| Stable per sender |
-| LXMF       | `message_id` hex  | Stable            |
+| Adapter    | Native ID field    | Stability         |
+| ---------- | ------------------ | ----------------- |
+| Matrix     | `event_id`         | Stable            |
+| Meshtastic | `packet_id`        | Stable per node   |
+| MeshCore   | `sender_timestamp` | Stable per sender |
+| LXMF       | `message_id` hex   | Stable            |
 
 ## 6. DeliveryPlan
 
@@ -308,6 +309,7 @@ When primary delivery fails, the fallback resolution chain executes in order:
 3. If all fallbacks fail, mark the event as `dead_lettered`.
 
 Fallback types MAY include:
+
 - Retry with delay (same adapter, same strategy, after backoff)
 - Deliver to alternative channel (same adapter, different channel)
 - Convert to lower-fidelity format (e.g., strip rich content, send plain text)
@@ -352,16 +354,16 @@ Retry uses the `target_adapter` and `target_channel` from the original failed re
 
 ### 7.7 Retry Properties Summary
 
-| Property                     | Detail                                                                         |
-| ---------------------------- | ------------------------------------------------------------------------------ |
-| Single-process               | Retry is single-process, in-process, and bounded by `RetryPolicy`              |
-| Survives restart             | Persistent receipts with `next_retry_at` survive process restart               |
-| NOT EXISTS exclusion         | RetryWorker excludes receipts that already have a `dead_lettered` successor    |
-| Capacity rejection           | No new receipt is created; existing receipt is rescheduled                     |
-| Opt-in                       | Requires explicit `RetryPolicy`; no automatic retry without it                 |
-| Policy persistence           | Retry policy parameters are stored on first failure receipt                    |
-| Frozen target metadata       | Retry targets original adapter and channel from failed receipt                 |
-| Adapter existence validation | Missing adapters are dead-lettered before retry attempt                        |
+| Property                     | Detail                                                                      |
+| ---------------------------- | --------------------------------------------------------------------------- |
+| Single-process               | Retry is single-process, in-process, and bounded by `RetryPolicy`           |
+| Survives restart             | Persistent receipts with `next_retry_at` survive process restart            |
+| NOT EXISTS exclusion         | RetryWorker excludes receipts that already have a `dead_lettered` successor |
+| Capacity rejection           | No new receipt is created; existing receipt is rescheduled                  |
+| Opt-in                       | Requires explicit `RetryPolicy`; no automatic retry without it              |
+| Policy persistence           | Retry policy parameters are stored on first failure receipt                 |
+| Frozen target metadata       | Retry targets original adapter and channel from failed receipt              |
+| Adapter existence validation | Missing adapters are dead-lettered before retry attempt                     |
 
 ### 7.8 Backoff Formula
 
@@ -397,15 +399,15 @@ class DeliveryReceipt:
 
 Receipt status is a string literal constrained to seven values:
 
-| Status           | Meaning                                                       |
-| ---------------- | ------------------------------------------------------------- |
-| `accepted`       | Delivery plan created, not yet executed                       |
-| `queued`         | Delivery enqueued for adapter execution                       |
-| `sent`           | Adapter reported successful handoff                           |
-| `confirmed`      | Adapter reported confirmed delivery (transport-dependent)     |
-| `suppressed`     | Delivery denied by policy evaluation                          |
-| `failed`         | Delivery attempt failed                                       |
-| `dead_lettered`  | All retries exhausted; final terminal state                   |
+| Status          | Meaning                                                   |
+| --------------- | --------------------------------------------------------- |
+| `accepted`      | Delivery plan created, not yet executed                   |
+| `queued`        | Delivery enqueued for adapter execution                   |
+| `sent`          | Adapter reported successful handoff                       |
+| `confirmed`     | Adapter reported confirmed delivery (transport-dependent) |
+| `suppressed`    | Delivery denied by policy evaluation                      |
+| `failed`        | Delivery attempt failed                                   |
+| `dead_lettered` | All retries exhausted; final terminal state               |
 
 ### 8.2 Append-Only Semantics
 
@@ -447,10 +449,10 @@ CREATE TABLE delivery_receipts (
 
 `DeliveryReceipt` carries two fields for receipt chain ordering:
 
-| Field               | Type                           | Description                                                    |
-| ------------------- | ------------------------------ | -------------------------------------------------------------- |
-| `attempt_number`    | `int` (default `1`)            | 1-indexed attempt number. First attempt = 1.                   |
-| `parent_receipt_id` | `str | None` (default `None`)  | Receipt ID of the preceding attempt. `None` for first attempt. |
+| Field               | Type                | Description                                  |
+| ------------------- | ------------------- | -------------------------------------------- | -------------------------------------------------------------- |
+| `attempt_number`    | `int` (default `1`) | 1-indexed attempt number. First attempt = 1. |
+| `parent_receipt_id` | `str                | None`(default`None`)                         | Receipt ID of the preceding attempt. `None` for first attempt. |
 
 When retries are exhausted, the receipt chain ends with a `dead_lettered` receipt:
 
@@ -505,18 +507,18 @@ class DeliveryFailureKind(Enum):
 
 Classification rules:
 
-| Failure kind         | Pipeline stage     | Retryable | Auto-classified from exception                                                                                   |
-| -------------------- | ------------------ | --------- | ---------------------------------------------------------------------------------------------------------------- |
-| `PLANNER_FAILURE`    | Routing / planning | No        | Exception during `route_event()`                                                                                 |
-| `RENDERER_FAILURE`   | Rendering          | No        | Exception during `render()`                                                                                      |
-| `ADAPTER_TRANSIENT`  | Adapter delivery   | **Yes**   | `TimeoutError`, `ConnectionError`, `OSError` hierarchy                                                           |
-| `ADAPTER_PERMANENT`  | Adapter delivery   | No        | All other adapter exceptions                                                                                     |
-| `ADAPTER_MISSING`    | Adapter lookup     | No        | Target adapter ID has no runtime adapter instance                                                                |
-| `DEADLINE_EXCEEDED`  | Deadline check     | No        | `plan.deadline < now`                                                                                            |
-| `CAPACITY_REJECTION` | Capacity gate      | No        | Capacity controller semaphore exhausted or timed out                                                             |
-| `SHUTDOWN_REJECTION` | Capacity gate      | No        | Runtime shutdown cancelled delivery before capacity acquire                                                      |
-| `LOOP_SUPPRESSED`    | Loop prevention    | No        | Self-loop or route-trace guard fired                                                                             |
-| `POLICY_SUPPRESSED`  | Route policy       | No        | Route-policy evaluator denied delivery                                                                           |
+| Failure kind         | Pipeline stage     | Retryable | Auto-classified from exception                              |
+| -------------------- | ------------------ | --------- | ----------------------------------------------------------- |
+| `PLANNER_FAILURE`    | Routing / planning | No        | Exception during `route_event()`                            |
+| `RENDERER_FAILURE`   | Rendering          | No        | Exception during `render()`                                 |
+| `ADAPTER_TRANSIENT`  | Adapter delivery   | **Yes**   | `TimeoutError`, `ConnectionError`, `OSError` hierarchy      |
+| `ADAPTER_PERMANENT`  | Adapter delivery   | No        | All other adapter exceptions                                |
+| `ADAPTER_MISSING`    | Adapter lookup     | No        | Target adapter ID has no runtime adapter instance           |
+| `DEADLINE_EXCEEDED`  | Deadline check     | No        | `plan.deadline < now`                                       |
+| `CAPACITY_REJECTION` | Capacity gate      | No        | Capacity controller semaphore exhausted or timed out        |
+| `SHUTDOWN_REJECTION` | Capacity gate      | No        | Runtime shutdown cancelled delivery before capacity acquire |
+| `LOOP_SUPPRESSED`    | Loop prevention    | No        | Self-loop or route-trace guard fired                        |
+| `POLICY_SUPPRESSED`  | Route policy       | No        | Route-policy evaluator denied delivery                      |
 
 ## 11. DeliveryOutcome
 
@@ -563,12 +565,12 @@ When a single event matches a route with multiple destinations, each destination
 
 Policies are split into four stages that run at distinct pipeline positions:
 
-| Stage        | Pipeline Position                                 | Scope              | What It Controls                                                                                 |
-| ------------ | ------------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------ |
-| **ingress**  | Before storage                                    | Raw inbound events | Rejects malformed, unauthorized, or rate-limited ingress at the adapter boundary                 |
-| **event**    | After transforms                                  | Derived events     | Rate limiting, content filtering, permission checks, deduplication                                |
-| **route**    | After routing, before delivery planning           | Matched routes     | Per-route rate limits, quiet hours, permission checks, route-policy allowlist checks              |
-| **delivery** | Before adapter execution, after delivery planning | Delivery plans     | Adapter-specific size limits, capability downgrade, final content filtering                       |
+| Stage        | Pipeline Position                                 | Scope              | What It Controls                                                                     |
+| ------------ | ------------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------ |
+| **ingress**  | Before storage                                    | Raw inbound events | Rejects malformed, unauthorized, or rate-limited ingress at the adapter boundary     |
+| **event**    | After transforms                                  | Derived events     | Rate limiting, content filtering, permission checks, deduplication                   |
+| **route**    | After routing, before delivery planning           | Matched routes     | Per-route rate limits, quiet hours, permission checks, route-policy allowlist checks |
+| **delivery** | Before adapter execution, after delivery planning | Delivery plans     | Adapter-specific size limits, capability downgrade, final content filtering          |
 
 ### 12.2 Route Policy Evaluator
 
@@ -632,7 +634,7 @@ The routing layer does not alter the delivery semantics of any transport. Each a
 
 | Transport  | Adapter reports              | Routing layer records                           | Does routing upgrade?                    |
 | ---------- | ---------------------------- | ----------------------------------------------- | ---------------------------------------- |
-| Matrix     | `event_id` from homeserver   | `sent` or `confirmed` with `adapter_message_id` | No.                                       |
+| Matrix     | `event_id` from homeserver   | `sent` or `confirmed` with `adapter_message_id` | No.                                      |
 | Meshtastic | Local node acceptance only   | `sent` without confirmation                     | No. Radio best-effort stays best-effort. |
 | MeshCore   | Local node acceptance only   | `sent` without confirmation                     | No. Radio best-effort stays best-effort. |
 | LXMF       | Local `LXMRouter` acceptance | `sent` without confirmation                     | No. Store-and-forward stays eventual.    |
@@ -662,12 +664,12 @@ Receipts are the audit trail. They MUST be trustworthy. The runtime:
 
 ### 13.5 Per-Adapter Delivery Semantics
 
-| Adapter        | `deliver()` completion meaning                                      | `native_message_id` source                            | ACK limitation                                                                                         |
-| -------------- | ------------------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| **Matrix**     | SDK `room_send` returns `event_id`; homeserver accepted and stored  | Matrix event ID from `RoomSendResponse`               | Synchronous server ACK. Server received ≠ delivered to clients. No end-to-end delivery receipt.        |
-| **MeshCore**   | SDK `send_text()` / `send_data()` returns; message locally accepted | MeshCore message reference (timestamp-based)          | No end-to-end ACK. `delivery_note` documents local-acceptance only.                                    |
-| **Meshtastic** | Message locally enqueued to outbound queue                          | `None` — no native send confirmation at enqueue time  | Local-acceptance only. Actual radio send is async via queue worker. No platform ACK returned to caller. |
-| **LXMF**       | LXMF message dispatched to `LXMRouter`                              | LXMF message hash (hex of `LXMessage.hash`)           | Store-and-forward eventual delivery. Async state progression through delivered/failed.                  |
+| Adapter        | `deliver()` completion meaning                                      | `native_message_id` source                           | ACK limitation                                                                                          |
+| -------------- | ------------------------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| **Matrix**     | SDK `room_send` returns `event_id`; homeserver accepted and stored  | Matrix event ID from `RoomSendResponse`              | Synchronous server ACK. Server received ≠ delivered to clients. No end-to-end delivery receipt.         |
+| **MeshCore**   | SDK `send_text()` / `send_data()` returns; message locally accepted | MeshCore message reference (timestamp-based)         | No end-to-end ACK. `delivery_note` documents local-acceptance only.                                     |
+| **Meshtastic** | Message locally enqueued to outbound queue                          | `None` — no native send confirmation at enqueue time | Local-acceptance only. Actual radio send is async via queue worker. No platform ACK returned to caller. |
+| **LXMF**       | LXMF message dispatched to `LXMRouter`                              | LXMF message hash (hex of `LXMessage.hash`)          | Store-and-forward eventual delivery. Async state progression through delivered/failed.                  |
 
 **Key asymmetries:**
 
@@ -711,12 +713,12 @@ No outbound queue. `deliver()` calls `room_send` directly.
 
 #### Encrypted-Room Failure Classes
 
-| Failure                                            | Class                    | Recovery                                    |
-| -------------------------------------------------- | ------------------------ | ------------------------------------------- |
-| Missing crypto dependency (vodozemac)              | Permanent, startup-fatal | Install dependency and restart               |
-| Device not verified                                | Permanent per message    | Verify device via interactive verification   |
-| Megolm session not received                        | Transient                | Wait for session key from other device       |
-| `encryption_mode="e2ee_required"` + plaintext room | Permanent                | Adapter raises `AdapterPermanentError`       |
+| Failure                                            | Class                    | Recovery                                   |
+| -------------------------------------------------- | ------------------------ | ------------------------------------------ |
+| Missing crypto dependency (vodozemac)              | Permanent, startup-fatal | Install dependency and restart             |
+| Device not verified                                | Permanent per message    | Verify device via interactive verification |
+| Megolm session not received                        | Transient                | Wait for session key from other device     |
+| `encryption_mode="e2ee_required"` + plaintext room | Permanent                | Adapter raises `AdapterPermanentError`     |
 
 ### 14.2 Meshtastic
 
@@ -811,38 +813,38 @@ Effectively unbounded for propagated delivery. Multi-hop Reticulum transport can
 
 ## 15. Cross-Transport Failure Summary
 
-| Dimension                           | Matrix                                   | Meshtastic                             | MeshCore                                | LXMF                                    |
-| ----------------------------------- | ---------------------------------------- | -------------------------------------- | --------------------------------------- | --------------------------------------- |
-| **Transient failure primary cause** | Network/auth/rate-limit                  | Radio/link/serial                      | Radio/link/serial                       | Network/RNS transport                   |
-| **Permanent failure primary cause** | Auth revocation, config error            | Config error, port error               | Config error                            | Identity/RNS init error                 |
+| Dimension                           | Matrix                                   | Meshtastic                               | MeshCore                                 | LXMF                                     |
+| ----------------------------------- | ---------------------------------------- | ---------------------------------------- | ---------------------------------------- | ---------------------------------------- |
+| **Transient failure primary cause** | Network/auth/rate-limit                  | Radio/link/serial                        | Radio/link/serial                        | Network/RNS transport                    |
+| **Permanent failure primary cause** | Auth revocation, config error            | Config error, port error                 | Config error                             | Identity/RNS init error                  |
 | **Reconnect model**                 | Exponential backoff, 10 attempts, 1–60 s | Exponential backoff, 10 attempts, 1–30 s | Exponential backoff, 10 attempts, 1–30 s | Exponential backoff, 10 attempts, 1–30 s |
-| **Duplicate-send risk**             | Low–Medium                               | High                                   | Medium                                  | Low                                     |
-| **Outbound queue**                  | None (direct send)                       | Bounded retry (lossy drain)            | None (direct send)                      | None (router-managed)                   |
-| **Delivery confirmation**           | Server event_id (sync)                   | None (fire-and-forget)                 | None (fire-and-forget)                  | Async state callback                    |
-| **Uncertainty window**              | ~0 (server-side) to one sync cycle       | Unbounded                              | Unbounded                               | Unbounded                               |
-| **E2EE failure class**              | Megolm session loss, device verification | N/A                                    | N/A (radio-level, not MEDRE-managed)    | N/A (identity-based signing)            |
-| **ACK model**                       | HTTP response                            | LoRa hop-by-hop (unreliable)           | Link-level (unreliable)                 | Reticulum transport-dependent           |
+| **Duplicate-send risk**             | Low–Medium                               | High                                     | Medium                                   | Low                                      |
+| **Outbound queue**                  | None (direct send)                       | Bounded retry (lossy drain)              | None (direct send)                       | None (router-managed)                    |
+| **Delivery confirmation**           | Server event_id (sync)                   | None (fire-and-forget)                   | None (fire-and-forget)                   | Async state callback                     |
+| **Uncertainty window**              | ~0 (server-side) to one sync cycle       | Unbounded                                | Unbounded                                | Unbounded                                |
+| **E2EE failure class**              | Megolm session loss, device verification | N/A                                      | N/A (radio-level, not MEDRE-managed)     | N/A (identity-based signing)             |
+| **ACK model**                       | HTTP response                            | LoRa hop-by-hop (unreliable)             | Link-level (unreliable)                  | Reticulum transport-dependent            |
 
 ### 15.1 Route Policy Suppression (Cross-Transport)
 
 Route policy suppression is a cross-transport failure classification. It occurs when the route-policy evaluator denies a delivery after route matching but before delivery side effects.
 
-| Property        | Value                                                                                  |
-| --------------- | -------------------------------------------------------------------------------------- |
-| Failure kind    | `policy_suppressed`                                                                    |
-| Retryable       | No — permanent classification                                                          |
-| Pipeline stage  | Route policy (after route match, before delivery)                                      |
-| Receipt status  | `suppressed`                                                                           |
-| Receipt context | Includes `route_id`, `target_adapter`, `target_channel`, and the policy denial reason  |
+| Property        | Value                                                                                 |
+| --------------- | ------------------------------------------------------------------------------------- |
+| Failure kind    | `policy_suppressed`                                                                   |
+| Retryable       | No — permanent classification                                                         |
+| Pipeline stage  | Route policy (after route match, before delivery)                                     |
+| Receipt status  | `suppressed`                                                                          |
+| Receipt context | Includes `route_id`, `target_adapter`, `target_channel`, and the policy denial reason |
 
 ## 16. Duplicate-Send Risk Classification
 
-| Risk Level | Transport(s)     | Rationale                                                                                                   |
-| ---------- | ---------------- | ----------------------------------------------------------------------------------------------------------- |
-| Low        | LXMF             | Content-addressed message hashes naturally deduplicate. Session does not retry outbound sends automatically. |
-| Low–Medium | Matrix           | Server-assigned event IDs. Deterministic tx_id for dedup within homeserver window. Duplicates possible under timeout/retry or across restarts/replay. |
-| Medium     | MeshCore         | Session retries transient failures up to 3 times. ACK may have been lost. Consumers MUST tolerate duplicates. |
-| High       | Meshtastic       | Session retries transient failures up to 3 times. Radio ACKs unreliable. Firmware-level CSMA may independently retransmit. Consumers MUST tolerate duplicates. |
+| Risk Level | Transport(s) | Rationale                                                                                                                                                      |
+| ---------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Low        | LXMF         | Content-addressed message hashes naturally deduplicate. Session does not retry outbound sends automatically.                                                   |
+| Low–Medium | Matrix       | Server-assigned event IDs. Deterministic tx_id for dedup within homeserver window. Duplicates possible under timeout/retry or across restarts/replay.          |
+| Medium     | MeshCore     | Session retries transient failures up to 3 times. ACK may have been lost. Consumers MUST tolerate duplicates.                                                  |
+| High       | Meshtastic   | Session retries transient failures up to 3 times. Radio ACKs unreliable. Firmware-level CSMA may independently retransmit. Consumers MUST tolerate duplicates. |
 
 **General principle:** The runtime does not suppress duplicate sends. Retries after transient failures MAY produce duplicates if the first send succeeded but the response was lost. Radio operators expect duplicates. Bridge fan-out produces independent deliveries per target.
 

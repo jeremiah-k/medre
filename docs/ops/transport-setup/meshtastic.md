@@ -4,14 +4,14 @@ Setting up and running the MEDRE Meshtastic adapter against a real radio node. A
 
 ## Prerequisites
 
-| Requirement | Details |
-|------------|---------|
-| Meshtastic node | A real radio node (e.g. LilyGO T-Beam, Heltec v3, RAK WisBlock) accessible via TCP or serial |
-| Python | 3.11 or later |
-| Package install | Core: `pip install -e .` (fake mode). Real connectivity: `pip install -e ".[meshtastic]"` |
-| Network access (TCP) | Your machine can reach the node's IP address on port 4403 |
-| Serial access | USB cable connecting the node; user in `dialout` group on Linux |
-| Radio channel | A channel index (default 0) not used for critical or emergency communications |
+| Requirement          | Details                                                                                      |
+| -------------------- | -------------------------------------------------------------------------------------------- |
+| Meshtastic node      | A real radio node (e.g. LilyGO T-Beam, Heltec v3, RAK WisBlock) accessible via TCP or serial |
+| Python               | 3.11 or later                                                                                |
+| Package install      | Core: `pip install -e .` (fake mode). Real connectivity: `pip install -e ".[meshtastic]"`    |
+| Network access (TCP) | Your machine can reach the node's IP address on port 4403                                    |
+| Serial access        | USB cable connecting the node; user in `dialout` group on Linux                              |
+| Radio channel        | A channel index (default 0) not used for critical or emergency communications                |
 
 Fake mode is the default and recommended path for all development and testing. Real connectivity modes (TCP, serial) are opt-in for live validation only.
 
@@ -130,27 +130,27 @@ config = MeshtasticConfig(
 
 `MeshtasticConfig.validate()` enforces:
 
-| Connection type | Required fields |
-|----------------|-----------------|
-| `fake` | `adapter_id` only |
-| `tcp` | `adapter_id`, `host` |
-| `serial` | `adapter_id`, `serial_port` |
-| `ble` | `adapter_id`, `ble_address` |
+| Connection type | Required fields             |
+| --------------- | --------------------------- |
+| `fake`          | `adapter_id` only           |
+| `tcp`           | `adapter_id`, `host`        |
+| `serial`        | `adapter_id`, `serial_port` |
+| `ble`           | `adapter_id`, `ble_address` |
 
 Invalid configurations raise `MeshtasticConfigError` before any connection attempt.
 
 ## Environment Variables
 
-| Variable | Required for | Default | Example | Description |
-|----------|-------------|---------|---------|-------------|
-| `MESHTASTIC_CONNECTION_TYPE` | All | | `tcp` | Connection mode: `tcp`, `serial`, `ble` |
-| `MESHTASTIC_HOST` | TCP | | `meshtastic.local` | Node hostname or IP |
-| `MESHTASTIC_PORT` | TCP | `4403` | `4403` | TCP port |
-| `MESHTASTIC_SERIAL_PORT` | Serial | | `/dev/ttyUSB0` | Serial device path |
-| `MESHTASTIC_BLE_ADDRESS` | BLE | | `AA:BB:CC:DD:EE:FF` | BLE MAC address |
-| `MESHTASTIC_CHANNEL_INDEX` | All | `0` | `0` | Channel for test messages |
-| `MESHTASTIC_NODE_ID` | All | | `!25d6e474` | Meshtastic node ID |
-| `MESHTASTIC_LIVE_SEND` | Live TX | | `1` | Transmit guard. `1` enables RF transmission. |
+| Variable                     | Required for | Default | Example             | Description                                  |
+| ---------------------------- | ------------ | ------- | ------------------- | -------------------------------------------- |
+| `MESHTASTIC_CONNECTION_TYPE` | All          |         | `tcp`               | Connection mode: `tcp`, `serial`, `ble`      |
+| `MESHTASTIC_HOST`            | TCP          |         | `meshtastic.local`  | Node hostname or IP                          |
+| `MESHTASTIC_PORT`            | TCP          | `4403`  | `4403`              | TCP port                                     |
+| `MESHTASTIC_SERIAL_PORT`     | Serial       |         | `/dev/ttyUSB0`      | Serial device path                           |
+| `MESHTASTIC_BLE_ADDRESS`     | BLE          |         | `AA:BB:CC:DD:EE:FF` | BLE MAC address                              |
+| `MESHTASTIC_CHANNEL_INDEX`   | All          | `0`     | `0`                 | Channel for test messages                    |
+| `MESHTASTIC_NODE_ID`         | All          |         | `!25d6e474`         | Meshtastic node ID                           |
+| `MESHTASTIC_LIVE_SEND`       | Live TX      |         | `1`                 | Transmit guard. `1` enables RF transmission. |
 
 ### Multi-Instance Env Overrides
 
@@ -240,11 +240,11 @@ Shutdown is idempotent.
 
 ## Health States
 
-| State | Meaning |
-|-------|---------|
-| `unknown` | Adapter has not started, or has been stopped |
-| `healthy` | Adapter started successfully; client is connected |
-| `failed` | Client exists but start did not complete (subscription failure) |
+| State     | Meaning                                                         |
+| --------- | --------------------------------------------------------------- |
+| `unknown` | Adapter has not started, or has been stopped                    |
+| `healthy` | Adapter started successfully; client is connected               |
+| `failed`  | Client exists but start did not complete (subscription failure) |
 
 ## Delivery Semantics
 
@@ -268,16 +268,16 @@ The renderer applies a UTF-8 byte budget of 227 bytes (`max_text_bytes=227` defa
 
 The adapter exposes `queue_health` as a snapshot of the outbound queue:
 
-| Field | Meaning |
-|-------|---------|
-| `pending_count` | Items currently in the outbound queue |
-| `total_sent` | Cumulative successful sends |
-| `total_failed` | Cumulative send failures (after exhausting retries) |
-| `total_requeued` | Items requeued for retry after transient send failure |
-| `total_exhausted` | Items that exhausted `max_attempts` and were dropped |
-| `total_permanent_failed` | Items that failed permanently on first attempt |
-| `max_queue_size` | Maximum queue capacity |
-| `utilization_pct` | Current queue utilization as percentage |
+| Field                    | Meaning                                               |
+| ------------------------ | ----------------------------------------------------- |
+| `pending_count`          | Items currently in the outbound queue                 |
+| `total_sent`             | Cumulative successful sends                           |
+| `total_failed`           | Cumulative send failures (after exhausting retries)   |
+| `total_requeued`         | Items requeued for retry after transient send failure |
+| `total_exhausted`        | Items that exhausted `max_attempts` and were dropped  |
+| `total_permanent_failed` | Items that failed permanently on first attempt        |
+| `max_queue_size`         | Maximum queue capacity                                |
+| `utilization_pct`        | Current queue utilization as percentage               |
 
 ## Packet Classification
 

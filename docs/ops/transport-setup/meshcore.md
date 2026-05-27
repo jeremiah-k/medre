@@ -4,14 +4,14 @@ Setting up and running the MEDRE MeshCore adapter against a real radio node. Alp
 
 ## Prerequisites
 
-| Requirement | Details |
-|------------|---------|
-| MeshCore node | A MeshCore companion radio node accessible via TCP, serial, or BLE |
-| Python | 3.11 or later |
-| Package install | Core: `pip install -e .` (fake mode). Real connectivity: `pip install meshcore` (v2.3.7 audited) |
-| Network access (TCP) | Your machine can reach the node's IP address on port 4000 |
-| Serial access | USB cable connecting the node; user in `dialout` group on Linux |
-| BLE access | BLE-capable hardware and BlueZ on Linux (optional) |
+| Requirement          | Details                                                                                          |
+| -------------------- | ------------------------------------------------------------------------------------------------ |
+| MeshCore node        | A MeshCore companion radio node accessible via TCP, serial, or BLE                               |
+| Python               | 3.11 or later                                                                                    |
+| Package install      | Core: `pip install -e .` (fake mode). Real connectivity: `pip install meshcore` (v2.3.7 audited) |
+| Network access (TCP) | Your machine can reach the node's IP address on port 4000                                        |
+| Serial access        | USB cable connecting the node; user in `dialout` group on Linux                                  |
+| BLE access           | BLE-capable hardware and BlueZ on Linux (optional)                                               |
 
 Fake mode is the default and recommended path for all development and testing. Real connectivity modes are opt-in for live validation only.
 
@@ -144,14 +144,15 @@ config = MeshCoreConfig(
 
 `MeshCoreConfig.validate()` enforces:
 
-| Connection type | Required fields |
-|----------------|-----------------|
-| `fake` | `adapter_id` only |
-| `tcp` | `adapter_id`, `host` |
-| `serial` | `adapter_id`, `serial_port` |
-| `ble` | `adapter_id`, `ble_address` |
+| Connection type | Required fields             |
+| --------------- | --------------------------- |
+| `fake`          | `adapter_id` only           |
+| `tcp`           | `adapter_id`, `host`        |
+| `serial`        | `adapter_id`, `serial_port` |
+| `ble`           | `adapter_id`, `ble_address` |
 
 Additional rules:
+
 - `identity` (if provided) must be a non-empty string.
 - `pubkey` (if provided) must be a non-empty hex string.
 - `node_config` must not contain keys named `private_key`, `secret`, or `password`.
@@ -159,16 +160,16 @@ Additional rules:
 
 ## Environment Variables
 
-| Variable | Required for | Default | Example | Description |
-|----------|-------------|---------|---------|-------------|
-| `MESHCORE_CONNECTION_TYPE` | All | | `tcp` | Connection mode |
-| `MESHCORE_HOST` | TCP | | `192.168.1.100` | Node hostname or IP |
-| `MESHCORE_PORT` | TCP | `4000` | `4000` | TCP port |
-| `MESHCORE_SERIAL_PORT` | Serial | | `/dev/ttyUSB0` | Serial device path |
-| `MESHCORE_BLE_ADDRESS` | BLE | | `AA:BB:CC:DD:EE:FF` | BLE MAC address |
-| `MESHCORE_BLE_PIN` | BLE (optional) | | `123456` | BLE pairing PIN |
-| `MESHCORE_CHANNEL_INDEX` | All | `0` | `0` | Channel for test messages |
-| `MESHCORE_DESTINATION` | DM tests | | `a1b2c3...` | Hex pubkey prefix for direct message target |
+| Variable                   | Required for   | Default | Example             | Description                                 |
+| -------------------------- | -------------- | ------- | ------------------- | ------------------------------------------- |
+| `MESHCORE_CONNECTION_TYPE` | All            |         | `tcp`               | Connection mode                             |
+| `MESHCORE_HOST`            | TCP            |         | `192.168.1.100`     | Node hostname or IP                         |
+| `MESHCORE_PORT`            | TCP            | `4000`  | `4000`              | TCP port                                    |
+| `MESHCORE_SERIAL_PORT`     | Serial         |         | `/dev/ttyUSB0`      | Serial device path                          |
+| `MESHCORE_BLE_ADDRESS`     | BLE            |         | `AA:BB:CC:DD:EE:FF` | BLE MAC address                             |
+| `MESHCORE_BLE_PIN`         | BLE (optional) |         | `123456`            | BLE pairing PIN                             |
+| `MESHCORE_CHANNEL_INDEX`   | All            | `0`     | `0`                 | Channel for test messages                   |
+| `MESHCORE_DESTINATION`     | DM tests       |         | `a1b2c3...`         | Hex pubkey prefix for direct message target |
 
 ### Env-First Adapter Creation
 
@@ -247,11 +248,11 @@ Shutdown is idempotent. Start/stop cycles are safe.
 
 ## Health States
 
-| State | Meaning |
-|-------|---------|
+| State     | Meaning                                      |
+| --------- | -------------------------------------------- |
 | `unknown` | Adapter has not started, or has been stopped |
-| `healthy` | Adapter started successfully |
-| `failed` | Client exists but start did not complete |
+| `healthy` | Adapter started successfully                 |
+| `failed`  | Client exists but start did not complete     |
 
 No intermediate states. No `degraded` or `reconnecting` state.
 

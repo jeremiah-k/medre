@@ -6,13 +6,13 @@ in a document under this tree.
 
 ## Organization
 
-| Path | Purpose |
-|------|---------|
-| `spec/` | Normative specifications — runtime semantics, data models, contracts |
-| `schemas/` | Machine-readable JSON Schema definitions derived from source |
-| `ops/` | Operator documentation — how to install, run, and validate MEDRE |
-| `dev/` | Developer documentation — how to contribute, test, and author adapters |
-| `changes/` | Change fragments tracking spec and ops modifications |
+| Path       | Purpose                                                                |
+| ---------- | ---------------------------------------------------------------------- |
+| `spec/`    | Normative specifications — runtime semantics, data models, contracts   |
+| `schemas/` | Machine-readable JSON Schema definitions derived from source           |
+| `ops/`     | Operator documentation — how to install, run, and validate MEDRE       |
+| `dev/`     | Developer documentation — how to contribute, test, and author adapters |
+| `changes/` | Change fragments tracking spec and ops modifications                   |
 
 ## Reading Order
 

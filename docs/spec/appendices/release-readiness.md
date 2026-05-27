@@ -6,37 +6,37 @@ Transport maturity and readiness checklist for MEDRE release.
 
 ## 1. Capability Matrix
 
-| Capability                          | Matrix              | Meshtastic         | MeshCore     | LXMF        |
-| ----------------------------------- | --------------------| ------------------ | ------------ | ----------- |
-| Config load                         | live-validated       | fake-tested        | fake-tested  | fake-tested |
-| Instance-scoped env overrides       | live-validated       | fake-tested        | fake-tested  | fake-tested |
-| Env-first adapter creation          | fake-tested          | fake-tested        | fake-tested  | fake-tested |
-| Env-driven route creation           | fake-tested          | fake-tested        | fake-tested  | fake-tested |
-| Route policy enforcement            | fake-tested          | fake-tested        | fake-tested  | fake-tested |
-| Fake lifecycle                      | live-validated       | fake-tested        | fake-tested  | fake-tested |
-| Real adapter import safe            | live-validated       | opt-in live exists | designed     | designed    |
-| Live start/health                   | live-validated       | opt-in live exists | not started  | not started |
-| Outbound delivery                   | live-validated       | opt-in live exists | not started  | not started |
-| Inbound decode                      | live-validated       | opt-in live exists | not started  | not started |
-| Storage native refs                 | live-validated       | fake-tested        | fake-tested  | fake-tested |
-| Evidence bundle                     | live-validated       | fake-tested        | fake-tested  | fake-tested |
-| Delivery reliability                | fake-tested          | fake-tested        | designed     | designed    |
-| Delivery evidence (unified inspect) | fake-tested          | fake-tested        | not started  | not started |
-| Run-session path                    | live-validated       | not started        | not started  | not started |
-| Operator runbook                    | live-validated       | opt-in live exists | designed     | designed    |
-| Live validation recorded            | live-validated       | not started        | not started  | not started |
-| Local delivery outbox               | fake-tested          | fake-tested        | fake-tested  | fake-tested |
-| Matrix live adapter (local Synapse) | live-validated (Docker SDK-boundary) | | | |
+| Capability                          | Matrix                               | Meshtastic         | MeshCore    | LXMF        |
+| ----------------------------------- | ------------------------------------ | ------------------ | ----------- | ----------- |
+| Config load                         | live-validated                       | fake-tested        | fake-tested | fake-tested |
+| Instance-scoped env overrides       | live-validated                       | fake-tested        | fake-tested | fake-tested |
+| Env-first adapter creation          | fake-tested                          | fake-tested        | fake-tested | fake-tested |
+| Env-driven route creation           | fake-tested                          | fake-tested        | fake-tested | fake-tested |
+| Route policy enforcement            | fake-tested                          | fake-tested        | fake-tested | fake-tested |
+| Fake lifecycle                      | live-validated                       | fake-tested        | fake-tested | fake-tested |
+| Real adapter import safe            | live-validated                       | opt-in live exists | designed    | designed    |
+| Live start/health                   | live-validated                       | opt-in live exists | not started | not started |
+| Outbound delivery                   | live-validated                       | opt-in live exists | not started | not started |
+| Inbound decode                      | live-validated                       | opt-in live exists | not started | not started |
+| Storage native refs                 | live-validated                       | fake-tested        | fake-tested | fake-tested |
+| Evidence bundle                     | live-validated                       | fake-tested        | fake-tested | fake-tested |
+| Delivery reliability                | fake-tested                          | fake-tested        | designed    | designed    |
+| Delivery evidence (unified inspect) | fake-tested                          | fake-tested        | not started | not started |
+| Run-session path                    | live-validated                       | not started        | not started | not started |
+| Operator runbook                    | live-validated                       | opt-in live exists | designed    | designed    |
+| Live validation recorded            | live-validated                       | not started        | not started | not started |
+| Local delivery outbox               | fake-tested                          | fake-tested        | fake-tested | fake-tested |
+| Matrix live adapter (local Synapse) | live-validated (Docker SDK-boundary) |                    |             |             |
 
 ## 2. Status Definitions
 
-| Status                    | Meaning                                                                                                               |
-| ------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `not started`             | No implementation exists.                                                                                             |
-| `designed`                | Spec/contract exists. No working code.                                                                                |
-| `fake-tested`             | Works with fake adapters. Proves pipeline wiring, not SDK integration.                                                |
-| `opt-in live test exists` | Test harness exists, gated by env vars. Not yet run against a real transport with recorded results.                   |
-| `live-validated`          | Tested against a real transport with results recorded in the repository.                                              |
+| Status                    | Meaning                                                                                             |
+| ------------------------- | --------------------------------------------------------------------------------------------------- |
+| `not started`             | No implementation exists.                                                                           |
+| `designed`                | Spec/contract exists. No working code.                                                              |
+| `fake-tested`             | Works with fake adapters. Proves pipeline wiring, not SDK integration.                              |
+| `opt-in live test exists` | Test harness exists, gated by env vars. Not yet run against a real transport with recorded results. |
+| `live-validated`          | Tested against a real transport with results recorded in the repository.                            |
 
 Docker SDK-boundary evidence validates SDK integration and adapter wiring but
 not external network behavior, federation, or real-world rate limits.

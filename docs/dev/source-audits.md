@@ -11,14 +11,14 @@ document conflicts with the spec, the spec takes precedence.
 
 ## Audit Sources
 
-| Audit                                          | Scope                                       | Date       |
-| ---------------------------------------------- | ------------------------------------------- | ---------- |
-| Meshtastic Source-of-Truth Audit               | mtjk SDK, MMRelay reference, packet shapes  | 2026-05-26 |
-| LXMF Source-of-Truth Audit                     | LXMF/Reticulum SDKs, wire format            | 2026-05-08 |
-| MeshCore Source-of-Truth Audit                 | MeshCore SDK, wire format, send semantics   | 2026-05-26 |
-| Metadata Normalization Audit                   | Cross-transport metadata flow               | 2026-05-10 |
-| Diagnostics Consistency Audit                  | Cross-adapter diagnostics, sessions         | 2026-05-09 |
-| Dependency Reality Audit                       | Install friction, optional imports          | 2026-05-10 |
+| Audit                            | Scope                                      | Date       |
+| -------------------------------- | ------------------------------------------ | ---------- |
+| Meshtastic Source-of-Truth Audit | mtjk SDK, MMRelay reference, packet shapes | 2026-05-26 |
+| LXMF Source-of-Truth Audit       | LXMF/Reticulum SDKs, wire format           | 2026-05-08 |
+| MeshCore Source-of-Truth Audit   | MeshCore SDK, wire format, send semantics  | 2026-05-26 |
+| Metadata Normalization Audit     | Cross-transport metadata flow              | 2026-05-10 |
+| Diagnostics Consistency Audit    | Cross-adapter diagnostics, sessions        | 2026-05-09 |
+| Dependency Reality Audit         | Install friction, optional imports         | 2026-05-10 |
 
 ## Meshtastic
 
@@ -29,20 +29,20 @@ The Meshtastic audit verified MEDRE's adapter assumptions against the
 
 **Packet shapes confirmed from source:**
 
-| Field               | Source                                     | Status      |
-| ------------------- | ------------------------------------------ | ----------- |
-| `from` (int)        | protobuf `MeshPacket.from`                 | Confirmed   |
-| `to` (int)          | protobuf `MeshPacket.to`                   | Confirmed   |
-| `id` (int)          | protobuf `MeshPacket.id`                   | Confirmed   |
-| `channel` (int)     | protobuf `MeshPacket.channel`              | Confirmed   |
-| `decoded.portnum`   | `PortNum.Name()` string                    | Confirmed   |
-| `decoded.text`      | Added by `_on_text_receive` from payload   | Confirmed   |
-| `decoded.replyId`   | protobuf `Data.reply_id`, optional int     | Confirmed   |
-| `decoded.emoji`     | protobuf `Data.emoji`, optional int        | Confirmed   |
-| `fromId`/`toId`     | `_enrich_packet_identity` lookup           | Confirmed   |
-| `rxTime`            | protobuf `MeshPacket.rx_time`              | Confirmed   |
-| `rxSnr`/`rxRssi`    | Signal quality metrics                     | Confirmed   |
-| `encrypted` (bool)  | Protobuf field on real packets             | Confirmed   |
+| Field              | Source                                   | Status    |
+| ------------------ | ---------------------------------------- | --------- |
+| `from` (int)       | protobuf `MeshPacket.from`               | Confirmed |
+| `to` (int)         | protobuf `MeshPacket.to`                 | Confirmed |
+| `id` (int)         | protobuf `MeshPacket.id`                 | Confirmed |
+| `channel` (int)    | protobuf `MeshPacket.channel`            | Confirmed |
+| `decoded.portnum`  | `PortNum.Name()` string                  | Confirmed |
+| `decoded.text`     | Added by `_on_text_receive` from payload | Confirmed |
+| `decoded.replyId`  | protobuf `Data.reply_id`, optional int   | Confirmed |
+| `decoded.emoji`    | protobuf `Data.emoji`, optional int      | Confirmed |
+| `fromId`/`toId`    | `_enrich_packet_identity` lookup         | Confirmed |
+| `rxTime`           | protobuf `MeshPacket.rx_time`            | Confirmed |
+| `rxSnr`/`rxRssi`   | Signal quality metrics                   | Confirmed |
+| `encrypted` (bool) | Protobuf field on real packets           | Confirmed |
 
 **PortNum fallback map verified:** The `_NUMERIC_PORTNUM_FALLBACK` in
 `packet_classifier.py` is protocol-correct. All values match the protobuf
@@ -118,22 +118,22 @@ and Reticulum network stack.
 
 **Delivery methods confirmed:**
 
-| Method        | Characteristics                                       |
-| ------------- | ----------------------------------------------------- |
-| DIRECT        | Link-based, reliable, up to 319 bytes per packet      |
-| OPPORTUNISTIC | Single packet, fire-and-forget, max 295 bytes          |
-| PROPAGATED    | Store-and-forward via propagation node                 |
-| PAPER         | Offline transfer via QR code or URI                    |
+| Method        | Characteristics                                  |
+| ------------- | ------------------------------------------------ |
+| DIRECT        | Link-based, reliable, up to 319 bytes per packet |
+| OPPORTUNISTIC | Single packet, fire-and-forget, max 295 bytes    |
+| PROPAGATED    | Store-and-forward via propagation node           |
+| PAPER         | Offline transfer via QR code or URI              |
 
 ### What remains unverified
 
-| Area                                  | Risk   |
-| ------------------------------------- | ------ |
-| Real Reticulum thread callbacks       | Medium |
-| Delivery state progression to final   | Medium |
-| Propagation node operation            | Low    |
-| Multi-hop delivery                    | Low    |
-| Message signing verification          | Low    |
+| Area                                | Risk   |
+| ----------------------------------- | ------ |
+| Real Reticulum thread callbacks     | Medium |
+| Delivery state progression to final | Medium |
+| Propagation node operation          | Low    |
+| Multi-hop delivery                  | Low    |
+| Message signing verification        | Low    |
 
 ### Session hardening findings
 
@@ -178,13 +178,13 @@ The MeshCore audit verified assumptions against the MeshCore Python library
 
 ### What remains unverified
 
-| Area                                          | Risk   |
-| --------------------------------------------- | ------ |
-| Real callback packet shapes with hardware     | Medium |
-| Connection lifecycle nuances                   | Medium |
-| ACK correlation and timeout behavior           | Medium |
-| Contact-based sender resolution                | Low    |
-| Flood message handling                         | Low    |
+| Area                                      | Risk   |
+| ----------------------------------------- | ------ |
+| Real callback packet shapes with hardware | Medium |
+| Connection lifecycle nuances              | Medium |
+| ACK correlation and timeout behavior      | Medium |
+| Contact-based sender resolution           | Low    |
+| Flood message handling                    | Low    |
 
 ### Gaps closed in hardening
 
@@ -211,12 +211,12 @@ All event metadata lives in a structured `EventMetadata` with six namespaces:
 `transport`, `routing`, `radio`, `telemetry`, `native`, `custom`. Each
 adapter stores transport-specific details under `metadata.native.data[<transport>]`.
 
-| Transport    | Native namespace                 |
-| ------------ | -------------------------------- |
-| Matrix       | `metadata.native.data["matrix"]` |
-| Meshtastic   | `metadata.native.data["meshtastic"]` |
-| MeshCore     | `metadata.native.data["meshcore"]` |
-| LXMF         | `metadata.native.data["lxmf"]`   |
+| Transport  | Native namespace                     |
+| ---------- | ------------------------------------ |
+| Matrix     | `metadata.native.data["matrix"]`     |
+| Meshtastic | `metadata.native.data["meshtastic"]` |
+| MeshCore   | `metadata.native.data["meshcore"]`   |
+| LXMF       | `metadata.native.data["lxmf"]`       |
 
 ### What cannot be normalized
 
@@ -231,7 +231,7 @@ These are fundamentally different across transports and cannot be abstracted:
 5. **Native ID semantics**: globally unique vs session-scoped vs
    content-addressed vs collision-prone
 6. **Payload limits**: ~100KB (Matrix) vs ~228B (Meshtastic) vs 184B
-  (MeshCore) vs multi-KB (LXMF)
+   (MeshCore) vs multi-KB (LXMF)
 
 ### Outbound metadata embedding
 
@@ -267,12 +267,12 @@ All four sessions follow the same lifecycle: construction, `start()`,
 `stop()`, `diagnostics()`. All own their callbacks and reconnect logic.
 Parameters are nearly identical:
 
-| Session           | Max attempts | Backoff cap | Jitter  |
-| ----------------- | ------------ | ----------- | ------- |
-| Matrix            | 10           | 60s         | +-25%   |
-| Meshtastic        | 10           | 30s         | +-25%   |
-| MeshCore          | 10           | 30s         | +-25%   |
-| LXMF              | 10           | 30s         | +-25%   |
+| Session    | Max attempts | Backoff cap | Jitter |
+| ---------- | ------------ | ----------- | ------ |
+| Matrix     | 10           | 60s         | +-25%  |
+| Meshtastic | 10           | 30s         | +-25%  |
+| MeshCore   | 10           | 30s         | +-25%  |
+| LXMF       | 10           | 30s         | +-25%  |
 
 ### Observational caveat
 
@@ -290,13 +290,13 @@ Use the delivery receipt system for authoritative delivery state.
 
 ### Optional transport dependencies
 
-| Distribution      | Import name   | Friction | Docker (TCP) |
-| ----------------- | ------------- | -------- | ------------ |
-| `mindroom-nio`    | `nio`         | Low      | Good         |
-| `mindroom-nio[e2e]` | (same)      | High     | Moderate     |
-| `mtjk`            | `meshtastic`  | Low      | Good         |
-| `meshcore`        | `meshcore`    | Low      | Good         |
-| `lxmf`            | `LXMF`        | Moderate | Moderate     |
+| Distribution        | Import name  | Friction | Docker (TCP) |
+| ------------------- | ------------ | -------- | ------------ |
+| `mindroom-nio`      | `nio`        | Low      | Good         |
+| `mindroom-nio[e2e]` | (same)       | High     | Moderate     |
+| `mtjk`              | `meshtastic` | Low      | Good         |
+| `meshcore`          | `meshcore`   | Low      | Good         |
+| `lxmf`              | `LXMF`       | Moderate | Moderate     |
 
 Key observations:
 
@@ -326,5 +326,5 @@ A gap analysis is maintained at `/tmp/medre-spec-impl-gaps.md`. Notable items:
 3. **failure_kind casing** -- some docs use UPPERCASE (`"RENDERER_FAILURE"`)
    while others use lowercase snake_case (`renderer_failure`). The lowercase
    form is correct.
- 4. **Container evidence references** -- earlier runbooks referenced
-    legacy contract paths; these have been consolidated into `docs/spec/`.
+4. **Container evidence references** -- earlier runbooks referenced
+   legacy contract paths; these have been consolidated into `docs/spec/`.

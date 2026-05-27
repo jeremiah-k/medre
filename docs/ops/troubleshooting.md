@@ -6,23 +6,23 @@ MEDRE does not provide automated remediation, per-adapter restart, or self-heali
 
 ## Failure Category Quick Reference
 
-| Category | Exit code | Receipt status | Retry? | Where to inspect |
-|----------|-----------|---------------|--------|-----------------|
-| Config error | 2 | None (no runtime) | No | stderr, `medre config check` |
-| Build failure | 3 | None (no delivery) | No | `startup.build_failures`, logs |
-| Total startup failure | 4 | None (no delivery) | No | `startup.boot_summary`, logs |
-| Degraded startup | 0 | Partial | Yes (for started adapters) | `failed_adapter_ids`, `routes.startup_readiness` |
-| Renderer failure | 0 | `failed` (RENDERER_FAILURE) | No | `medre inspect receipts`, RouteStats |
-| Adapter permanent | 0 | `failed` (ADAPTER_PERMANENT) | No | receipt lineage, adapter `diagnostics()` |
-| Adapter transient | 0 | `sent` (after retry) or `failed` | Yes (up to max_attempts) | receipt `attempt_number`, `parent_receipt_id` |
-| Capacity exceeded | 0 | `failed` (delivery_capacity_exceeded) | No | `capacity_rejections` counter, logs |
-| Deadline exceeded | 0 | `failed` (DEADLINE_EXCEEDED) | No | delivery plan timestamps |
-| Shutdown rejection | 0 | `failed` (delivery_rejected_shutdown) | No | `outbound_failed` counter |
-| Replay capacity | 0 | `error` (replay_capacity_exceeded) | No | `capacity_rejections` counter |
-| Replay duplicate | 0 | `sent` (multiple receipts, source=replay) | N/A (by design) | receipt `replay_run_id` |
-| Loop prevented | 0 | `suppressed` receipt persisted | No | `loop_prevented` counter, RouteStats |
-| Degraded live health | 0 | N/A | No | `health.live_health.adapters[]` |
-| Failed live health | 0 | N/A | No | `health.live_health.adapters[]`, `.error` |
+| Category              | Exit code | Receipt status                            | Retry?                     | Where to inspect                                 |
+| --------------------- | --------- | ----------------------------------------- | -------------------------- | ------------------------------------------------ |
+| Config error          | 2         | None (no runtime)                         | No                         | stderr, `medre config check`                     |
+| Build failure         | 3         | None (no delivery)                        | No                         | `startup.build_failures`, logs                   |
+| Total startup failure | 4         | None (no delivery)                        | No                         | `startup.boot_summary`, logs                     |
+| Degraded startup      | 0         | Partial                                   | Yes (for started adapters) | `failed_adapter_ids`, `routes.startup_readiness` |
+| Renderer failure      | 0         | `failed` (RENDERER_FAILURE)               | No                         | `medre inspect receipts`, RouteStats             |
+| Adapter permanent     | 0         | `failed` (ADAPTER_PERMANENT)              | No                         | receipt lineage, adapter `diagnostics()`         |
+| Adapter transient     | 0         | `sent` (after retry) or `failed`          | Yes (up to max_attempts)   | receipt `attempt_number`, `parent_receipt_id`    |
+| Capacity exceeded     | 0         | `failed` (delivery_capacity_exceeded)     | No                         | `capacity_rejections` counter, logs              |
+| Deadline exceeded     | 0         | `failed` (DEADLINE_EXCEEDED)              | No                         | delivery plan timestamps                         |
+| Shutdown rejection    | 0         | `failed` (delivery_rejected_shutdown)     | No                         | `outbound_failed` counter                        |
+| Replay capacity       | 0         | `error` (replay_capacity_exceeded)        | No                         | `capacity_rejections` counter                    |
+| Replay duplicate      | 0         | `sent` (multiple receipts, source=replay) | N/A (by design)            | receipt `replay_run_id`                          |
+| Loop prevented        | 0         | `suppressed` receipt persisted            | No                         | `loop_prevented` counter, RouteStats             |
+| Degraded live health  | 0         | N/A                                       | No                         | `health.live_health.adapters[]`                  |
+| Failed live health    | 0         | N/A                                       | No                         | `health.live_health.adapters[]`, `.error`        |
 
 ## Config Failure Drills
 
@@ -298,12 +298,12 @@ Both config-time checks produce warnings only. They do not block startup.
 
 ### Loop Prevention Scope
 
-| Context | Mechanism | Blocks startup? | Blocks delivery? |
-|----------|-----------|-----------------|------------------|
-| Config-time | `check_route_loops` (direct + DFS) | No (warning only) | N/A |
-| Runtime | Route-trace loop prevention | N/A | Yes |
-| Runtime | Self-loop guard | N/A | Yes |
-| Replay | `_filter_replay_loops` | N/A | Yes |
+| Context     | Mechanism                          | Blocks startup?   | Blocks delivery? |
+| ----------- | ---------------------------------- | ----------------- | ---------------- |
+| Config-time | `check_route_loops` (direct + DFS) | No (warning only) | N/A              |
+| Runtime     | Route-trace loop prevention        | N/A               | Yes              |
+| Runtime     | Self-loop guard                    | N/A               | Yes              |
+| Replay      | `_filter_replay_loops`             | N/A               | Yes              |
 
 ## Route Lifecycle
 
@@ -357,13 +357,13 @@ For each matched route's targets:
 
 Every routed delivery carries attribution data:
 
-| Location | Field | Persisted? |
-|----------|-------|-----------|
-| Event metadata | `RoutingMetadata.route_trace` | No (ephemeral) |
-| Delivery receipts | `DeliveryReceipt.route_id` | Yes (SQLite) |
-| Delivery outcomes | `DeliveryOutcome.route_id` | No (consumed by pipeline) |
-| RouteStats | `RouteStats.snapshot()` | No (process-local) |
-| Replay results | `ReplayRouteAttribution` | No (in-memory) |
+| Location          | Field                         | Persisted?                |
+| ----------------- | ----------------------------- | ------------------------- |
+| Event metadata    | `RoutingMetadata.route_trace` | No (ephemeral)            |
+| Delivery receipts | `DeliveryReceipt.route_id`    | Yes (SQLite)              |
+| Delivery outcomes | `DeliveryOutcome.route_id`    | No (consumed by pipeline) |
+| RouteStats        | `RouteStats.snapshot()`       | No (process-local)        |
+| Replay results    | `ReplayRouteAttribution`      | No (in-memory)            |
 
 Route attribution is internal to MEDRE. It does not appear in radio packets, Matrix messages, LXMF messages, or any external output.
 
@@ -425,22 +425,22 @@ Route attribution is internal to MEDRE. It does not appear in radio packets, Mat
 
 ## Inspect Follow-Up Quick Reference
 
-| After this failure... | Run this to inspect |
-|----------------------|-------------------|
-| Config error (exit 2) | `medre config check --config <path>` |
-| Config error (drill) | `medre smoke --drill bad_route_config --json` |
-| Build failure (exit 3) | `medre diagnostics --config <path>` → `startup.build_failures` |
-| Total startup failure (exit 4) | `medre diagnostics --config <path>` → `startup.boot_summary` |
-| Degraded startup | `medre diagnostics --refresh-health` → `health.live_health` |
-| Renderer failure | `medre inspect receipts --event <id> --config <path>` |
-| Adapter permanent | `medre inspect receipts --event <id>` + adapter `diagnostics()` |
-| Adapter transient | Full receipt chain via `parent_receipt_id` |
-| Capacity exceeded | `capacity_rejections` counter in logs; tune `max_inflight_deliveries` |
-| Deadline exceeded | Delivery plan timestamps vs. actual adapter latency |
-| Shutdown rejection | `outbound_failed` counter; replay orphaned events after restart |
-| Replay duplicate | `medre inspect receipts --replay-run <id> --config <path>` |
-| Live health degraded | `medre diagnostics --refresh-health` → per-adapter `.error` |
-| Loop prevented | `RouteStats` → `loop_prevented`; `accounting.snapshot()` |
+| After this failure...          | Run this to inspect                                                   |
+| ------------------------------ | --------------------------------------------------------------------- |
+| Config error (exit 2)          | `medre config check --config <path>`                                  |
+| Config error (drill)           | `medre smoke --drill bad_route_config --json`                         |
+| Build failure (exit 3)         | `medre diagnostics --config <path>` → `startup.build_failures`        |
+| Total startup failure (exit 4) | `medre diagnostics --config <path>` → `startup.boot_summary`          |
+| Degraded startup               | `medre diagnostics --refresh-health` → `health.live_health`           |
+| Renderer failure               | `medre inspect receipts --event <id> --config <path>`                 |
+| Adapter permanent              | `medre inspect receipts --event <id>` + adapter `diagnostics()`       |
+| Adapter transient              | Full receipt chain via `parent_receipt_id`                            |
+| Capacity exceeded              | `capacity_rejections` counter in logs; tune `max_inflight_deliveries` |
+| Deadline exceeded              | Delivery plan timestamps vs. actual adapter latency                   |
+| Shutdown rejection             | `outbound_failed` counter; replay orphaned events after restart       |
+| Replay duplicate               | `medre inspect receipts --replay-run <id> --config <path>`            |
+| Live health degraded           | `medre diagnostics --refresh-health` → per-adapter `.error`           |
+| Loop prevented                 | `RouteStats` → `loop_prevented`; `accounting.snapshot()`              |
 
 ## Explicit Non-Guarantees
 

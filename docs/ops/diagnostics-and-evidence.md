@@ -6,31 +6,31 @@ How to collect, interpret, and reason about MEDRE pipeline evidence before and a
 
 Bridge behavior is validated at four fidelity levels. Each level adds constraints and reduces the gap between test and production:
 
-| Level | Environment | Transport | What it proves |
-|-------|------------|-----------|---------------|
-| **Fake bridge** | In-memory, fake adapters | Simulated | Pipeline routing, rendering, receipts, accounting, loop prevention |
-| **Adapter-wrapper** | Unit test, real adapter code | Mocked transport | Adapter codec, renderer, session logic |
-| **Docker SDK-boundary** | Container, real deps | Loopback | Dependency resolution, config loading, adapter lifecycle, real SDK boundary, pipeline routing through real adapters |
-| **Live network** | Real endpoints | Real transport | Actual connectivity, protocol compliance |
+| Level                   | Environment                  | Transport        | What it proves                                                                                                      |
+| ----------------------- | ---------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------- |
+| **Fake bridge**         | In-memory, fake adapters     | Simulated        | Pipeline routing, rendering, receipts, accounting, loop prevention                                                  |
+| **Adapter-wrapper**     | Unit test, real adapter code | Mocked transport | Adapter codec, renderer, session logic                                                                              |
+| **Docker SDK-boundary** | Container, real deps         | Loopback         | Dependency resolution, config loading, adapter lifecycle, real SDK boundary, pipeline routing through real adapters |
+| **Live network**        | Real endpoints               | Real transport   | Actual connectivity, protocol compliance                                                                            |
 
 Each provenance level also carries an environment-boundary sub-class for real-live evidence:
 
-| Sub-class | Meaning |
-|-----------|---------|
+| Sub-class               | Meaning                                                                                                      |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------ |
 | **Docker SDK-boundary** | Local Docker container running the transport server (e.g. Synapse). SDK boundary test — no external network. |
-| **External live** | Real external server over the network. |
-| **Hardware** | Physical radio hardware connected via serial/TCP/BLE. Real RF transmission or reception. |
+| **External live**       | Real external server over the network.                                                                       |
+| **Hardware**            | Physical radio hardware connected via serial/TCP/BLE. Real RF transmission or reception.                     |
 
 Do not treat Docker SDK-boundary evidence as equivalent to external live or hardware evidence. Each boundary validates different properties: SDK-boundary validates SDK integration and adapter wiring; external live validates network connectivity and real server behavior; hardware validates physical radio operation.
 
 ## Transport Evidence Matrix
 
-| Adapter | Fake callback | Wrapper callback | Docker SDK-boundary (outbound) | Docker SDK-boundary (inbound) | Live network/radio |
-|---------|:---:|:---:|:---:|:---:|:---:|
-| Matrix | proven | proven | proven | proven (sync_loop) | proven (Synapse) |
-| Meshtastic | proven | proven | proven | unconfirmed (2nd client) | not claimed |
-| MeshCore | proven | proven | no Docker setup | not claimed | not claimed |
-| LXMF | proven | proven | no Docker setup | not claimed | not claimed |
+| Adapter    | Fake callback | Wrapper callback | Docker SDK-boundary (outbound) | Docker SDK-boundary (inbound) | Live network/radio |
+| ---------- | :-----------: | :--------------: | :----------------------------: | :---------------------------: | :----------------: |
+| Matrix     |    proven     |      proven      |             proven             |      proven (sync_loop)       |  proven (Synapse)  |
+| Meshtastic |    proven     |      proven      |             proven             |   unconfirmed (2nd client)    |    not claimed     |
+| MeshCore   |    proven     |      proven      |        no Docker setup         |          not claimed          |    not claimed     |
+| LXMF       |    proven     |      proven      |        no Docker setup         |          not claimed          |    not claimed     |
 
 The authoritative per-transport, per-tier evidence matrix with test file cross-references lives in `docs/architecture/transport-validation-matrix.md`.
 
@@ -118,21 +118,21 @@ medre inspect receipts --event <event_id> --config my-bridge.toml
 
 ## Command Reference
 
-| Command | Storage | Starts adapters | Output | Exit codes |
-|---------|---------|-----------------|--------|------------|
-| `medre smoke --json` | In-memory | Fake only | passed/failed JSON | 0=passed, 1=failed |
-| `medre smoke --storage-path <db> --json` | SQLite | Fake only | passed/failed JSON + DB | 0=passed, 1=failed |
-| `medre smoke --drill <name> --json` | In-memory | Fake only | Drill report JSON | 0=passed, 1=failed |
-| `medre smoke --drill <name> --storage-path <db> --json` | SQLite | Fake only | Drill report JSON + DB | 0=passed, 1=failed |
-| `medre evidence --config <path> --json` | Per config | Fake only (or real with `--include-refresh-health`) | Full bundle JSON | 0=passed/partial, 2=config error |
-| `medre evidence --config <path> --event <id> --json` | Per config | No | Bundle with event/receipt lookup | 0=passed/partial, 2=config error |
-| `medre evidence --config <path> --include-refresh-health --json` | Per config | Yes (real or fake) | Full bundle + live health JSON | 0=passed/partial, 2=config error |
-| `medre inspect event <id> --config <path>` | Opens SQLite (RO) | No | Event JSON | 0=found, 2=no SQLite |
-| `medre inspect receipts --event <id> --config <path>` | Opens SQLite (RO) | No | Receipt array JSON | 0=found, 2=no SQLite |
-| `medre inspect receipts --replay-run <id> --storage-path <db>` | Opens SQLite (RO) | No | Receipt array JSON | 0=found, 2=no SQLite |
-| `medre inspect native-ref --adapter <name> --message <id> --storage-path <db>` | Opens SQLite (RO) | No | Ref JSON | 0=found, 2=no SQLite |
-| `medre diagnostics --config <path>` | None | No | Build-time snapshot JSON | 0=success, 2=config, 3=build |
-| `medre diagnostics --refresh-health --config <path>` | None | Yes (real or fake) | Live health snapshot JSON | 0=success, 2=config, 3=build, 4=startup |
+| Command                                                                        | Storage           | Starts adapters                                     | Output                           | Exit codes                              |
+| ------------------------------------------------------------------------------ | ----------------- | --------------------------------------------------- | -------------------------------- | --------------------------------------- |
+| `medre smoke --json`                                                           | In-memory         | Fake only                                           | passed/failed JSON               | 0=passed, 1=failed                      |
+| `medre smoke --storage-path <db> --json`                                       | SQLite            | Fake only                                           | passed/failed JSON + DB          | 0=passed, 1=failed                      |
+| `medre smoke --drill <name> --json`                                            | In-memory         | Fake only                                           | Drill report JSON                | 0=passed, 1=failed                      |
+| `medre smoke --drill <name> --storage-path <db> --json`                        | SQLite            | Fake only                                           | Drill report JSON + DB           | 0=passed, 1=failed                      |
+| `medre evidence --config <path> --json`                                        | Per config        | Fake only (or real with `--include-refresh-health`) | Full bundle JSON                 | 0=passed/partial, 2=config error        |
+| `medre evidence --config <path> --event <id> --json`                           | Per config        | No                                                  | Bundle with event/receipt lookup | 0=passed/partial, 2=config error        |
+| `medre evidence --config <path> --include-refresh-health --json`               | Per config        | Yes (real or fake)                                  | Full bundle + live health JSON   | 0=passed/partial, 2=config error        |
+| `medre inspect event <id> --config <path>`                                     | Opens SQLite (RO) | No                                                  | Event JSON                       | 0=found, 2=no SQLite                    |
+| `medre inspect receipts --event <id> --config <path>`                          | Opens SQLite (RO) | No                                                  | Receipt array JSON               | 0=found, 2=no SQLite                    |
+| `medre inspect receipts --replay-run <id> --storage-path <db>`                 | Opens SQLite (RO) | No                                                  | Receipt array JSON               | 0=found, 2=no SQLite                    |
+| `medre inspect native-ref --adapter <name> --message <id> --storage-path <db>` | Opens SQLite (RO) | No                                                  | Ref JSON                         | 0=found, 2=no SQLite                    |
+| `medre diagnostics --config <path>`                                            | None              | No                                                  | Build-time snapshot JSON         | 0=success, 2=config, 3=build            |
+| `medre diagnostics --refresh-health --config <path>`                           | None              | Yes (real or fake)                                  | Live health snapshot JSON        | 0=success, 2=config, 3=build, 4=startup |
 
 ## Report Shapes
 
@@ -231,46 +231,46 @@ The `medre evidence` command produces a structured bundle with per-section statu
 
 **Top-level fields:**
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `schema_version` | `int` | Bundle schema version |
-| `status` | `str` | Overall: `"passed"`, `"partial"`, or `"error"` |
-| `collected_at` | `str` | ISO-8601 UTC timestamp |
-| `medre_version` | `str` | Installed package version |
-| `config_source` | `str` | How the config file was found (`"cli_arg"`, `"xdg"`, etc.) |
-| `runtime_started` | `bool` | `true` only when `--include-refresh-health` was used |
-| `sections` | `dict` | Grouped evidence, each with its own status |
-| `errors` | `list[str]` | Flat list of error strings across all sections |
-| `limitations` | `list[str]` | What the evidence does not prove |
+| Field             | Type        | Description                                                |
+| ----------------- | ----------- | ---------------------------------------------------------- |
+| `schema_version`  | `int`       | Bundle schema version                                      |
+| `status`          | `str`       | Overall: `"passed"`, `"partial"`, or `"error"`             |
+| `collected_at`    | `str`       | ISO-8601 UTC timestamp                                     |
+| `medre_version`   | `str`       | Installed package version                                  |
+| `config_source`   | `str`       | How the config file was found (`"cli_arg"`, `"xdg"`, etc.) |
+| `runtime_started` | `bool`      | `true` only when `--include-refresh-health` was used       |
+| `sections`        | `dict`      | Grouped evidence, each with its own status                 |
+| `errors`          | `list[str]` | Flat list of error strings across all sections             |
+| `limitations`     | `list[str]` | What the evidence does not prove                           |
 
 **Sections:**
 
-| Section | Populated when | Key data fields |
-|---------|---------------|-----------------|
-| `config_summary` | Always (if config loads) | `adapters`, `routes`, `limits`, `storage_backend`, `storage_path` |
-| `route_validation` | Always (if config loads) | `route_count`, `valid`, `route_errors` |
-| `diagnostics_snapshot` | Always (if config loads) | Full `build_runtime_snapshot` output |
-| `live_health` | Only with `--include-refresh-health` | Full runtime snapshot with `health.live_health` populated |
-| `storage` | When config uses `sqlite` backend and DB exists | `db_exists`, `event_count`, `receipt_count`, `event`, `trace_event`, `trace_replay` |
+| Section                | Populated when                                  | Key data fields                                                                     |
+| ---------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `config_summary`       | Always (if config loads)                        | `adapters`, `routes`, `limits`, `storage_backend`, `storage_path`                   |
+| `route_validation`     | Always (if config loads)                        | `route_count`, `valid`, `route_errors`                                              |
+| `diagnostics_snapshot` | Always (if config loads)                        | Full `build_runtime_snapshot` output                                                |
+| `live_health`          | Only with `--include-refresh-health`            | Full runtime snapshot with `health.live_health` populated                           |
+| `storage`              | When config uses `sqlite` backend and DB exists | `db_exists`, `event_count`, `receipt_count`, `event`, `trace_event`, `trace_replay` |
 
 ## Interpreting the Bundle
 
 ### Status Values
 
-| Status | Meaning | Operator action |
-|--------|---------|----------------|
-| `passed` | All criteria met at the reported evidence level | Proceed to live runtime with caution |
-| `partial` | Some adapters/routes/drills failed but the runtime stayed up | Inspect `fail_reasons` and per-adapter `.error` fields |
-| `error` / `failed` | A required criterion was not met | Do not proceed. Fix config or environment, re-collect |
+| Status             | Meaning                                                      | Operator action                                        |
+| ------------------ | ------------------------------------------------------------ | ------------------------------------------------------ |
+| `passed`           | All criteria met at the reported evidence level              | Proceed to live runtime with caution                   |
+| `partial`          | Some adapters/routes/drills failed but the runtime stayed up | Inspect `fail_reasons` and per-adapter `.error` fields |
+| `error` / `failed` | A required criterion was not met                             | Do not proceed. Fix config or environment, re-collect  |
 
 ### What `sent` Means Per Transport
 
-| Transport | `sent` means | Remote receipt |
-|-----------|-------------|----------------|
-| Matrix | Homeserver accepted the event (event_id returned) | Not confirmed per-recipient |
-| Meshtastic | Local node queued the packet for LoRa transmission | Unknown. Fire-and-forget. |
-| MeshCore | Local node queued the packet | Unknown. Fire-and-forget. |
-| LXMF | Local LXMRouter accepted for propagation | Eventual, seconds to hours. |
+| Transport  | `sent` means                                       | Remote receipt              |
+| ---------- | -------------------------------------------------- | --------------------------- |
+| Matrix     | Homeserver accepted the event (event_id returned)  | Not confirmed per-recipient |
+| Meshtastic | Local node queued the packet for LoRa transmission | Unknown. Fire-and-forget.   |
+| MeshCore   | Local node queued the packet                       | Unknown. Fire-and-forget.   |
+| LXMF       | Local LXMRouter accepted for propagation           | Eventual, seconds to hours. |
 
 ### Why `--include-refresh-health` Starts Adapters
 
@@ -278,13 +278,13 @@ The `--include-refresh-health` flag causes `medre evidence` to build the runtime
 
 ### Inspect Output Interpretation
 
-| `medre inspect` output | What to look for |
-|------------------------|------------------|
-| `event` — source_adapter, event_kind, payload | Event was stored correctly before delivery |
-| `receipts` — status, failure_kind, attempt_number, parent_receipt_id | Full delivery lifecycle. `attempt_number > 1` with `parent_receipt_id` chain indicates retry. |
-| `receipts` — route_id | Which route triggered the delivery |
-| `native-ref` — native_message_id, canonical_event_id | Maps transport-native IDs to canonical events |
-| `receipts --replay-run` — source="replay", replay_run_id | Distinguishes replay from live. Multiple entries across different `replay_run_id` values = multiple BEST_EFFORT runs. |
+| `medre inspect` output                                               | What to look for                                                                                                      |
+| -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `event` — source_adapter, event_kind, payload                        | Event was stored correctly before delivery                                                                            |
+| `receipts` — status, failure_kind, attempt_number, parent_receipt_id | Full delivery lifecycle. `attempt_number > 1` with `parent_receipt_id` chain indicates retry.                         |
+| `receipts` — route_id                                                | Which route triggered the delivery                                                                                    |
+| `native-ref` — native_message_id, canonical_event_id                 | Maps transport-native IDs to canonical events                                                                         |
+| `receipts --replay-run` — source="replay", replay_run_id             | Distinguishes replay from live. Multiple entries across different `replay_run_id` values = multiple BEST_EFFORT runs. |
 
 ## Fake Bridge Smoke: Running the Tests
 
@@ -299,17 +299,17 @@ PYTHONPATH=src pytest tests/test_fake_bridge_smoke.py::TestMatrixToMeshtastic -v
 
 ### Test Coverage Matrix
 
-| Test Class | Flow | Key Assertions |
-|-----------|------|---------------|
-| `TestMatrixToMeshtastic` | Matrix -> Meshtastic | Event stored, receipt sent, native ref, accounting, route stats, no duplicate |
-| `TestMeshtasticToMatrix` | Meshtastic -> Matrix | Event stored, receipt sent, inbound native ref, outbound native ref, accounting |
-| `TestBidirectionalBridge` | Matrix <-> Meshtastic | Both directions deliver, no cross-contamination, two receipts |
-| `TestFanoutDelivery` | Matrix -> Meshtastic + MeshCore | Both targets receive delivery, two receipts, two native refs, error isolation |
-| `TestLoopPrevention` | Self-loop | Delivery skipped, loop_prevented counter incremented, `suppressed` receipt persisted |
-| `TestReplyRelationPreservation` | Reply event bridge | Relations preserved in storage, fallback text rendered correctly |
-| `TestRenderingContract` | Various | RenderingResult shape, empty payload handling, unsupported kind = failure, truncation |
-| `TestSnapshotReflectsBridgeFlow` | After delivery | Accounting counters, route stats, JSON-safe snapshot |
-| `TestRouteConfigThroughRuntime` | Config -> Routes | Config route registers, bidirectional expands, policy filters, disabled skipped |
+| Test Class                       | Flow                            | Key Assertions                                                                        |
+| -------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------- |
+| `TestMatrixToMeshtastic`         | Matrix -> Meshtastic            | Event stored, receipt sent, native ref, accounting, route stats, no duplicate         |
+| `TestMeshtasticToMatrix`         | Meshtastic -> Matrix            | Event stored, receipt sent, inbound native ref, outbound native ref, accounting       |
+| `TestBidirectionalBridge`        | Matrix <-> Meshtastic           | Both directions deliver, no cross-contamination, two receipts                         |
+| `TestFanoutDelivery`             | Matrix -> Meshtastic + MeshCore | Both targets receive delivery, two receipts, two native refs, error isolation         |
+| `TestLoopPrevention`             | Self-loop                       | Delivery skipped, loop_prevented counter incremented, `suppressed` receipt persisted  |
+| `TestReplyRelationPreservation`  | Reply event bridge              | Relations preserved in storage, fallback text rendered correctly                      |
+| `TestRenderingContract`          | Various                         | RenderingResult shape, empty payload handling, unsupported kind = failure, truncation |
+| `TestSnapshotReflectsBridgeFlow` | After delivery                  | Accounting counters, route stats, JSON-safe snapshot                                  |
+| `TestRouteConfigThroughRuntime`  | Config -> Routes                | Config route registers, bidirectional expands, policy filters, disabled skipped       |
 
 ### Operator Smoke Command
 
@@ -386,13 +386,13 @@ pytest -m "" -v
 
 ### Failure Interpretation
 
-| Symptom | Likely cause | Action |
-|---------|-------------|--------|
-| Docker tests skip with "Docker not available" | Docker daemon not running | Start Docker: `docker info` |
-| Docker tests skip with "mtjk not installed" | Meshtastic SDK not installed | `pip install -e ".[meshtastic]"` |
-| Docker tests skip with "mindroom-nio not installed" | Matrix SDK not installed | `pip install -e ".[matrix]"` |
-| Config validation exits 2 | TOML syntax or credential error | `medre config check --config <path>` |
-| Routes validate exits 2 | Unknown adapter ref in route | Check adapter IDs in routes match adapters section |
+| Symptom                                             | Likely cause                    | Action                                             |
+| --------------------------------------------------- | ------------------------------- | -------------------------------------------------- |
+| Docker tests skip with "Docker not available"       | Docker daemon not running       | Start Docker: `docker info`                        |
+| Docker tests skip with "mtjk not installed"         | Meshtastic SDK not installed    | `pip install -e ".[meshtastic]"`                   |
+| Docker tests skip with "mindroom-nio not installed" | Matrix SDK not installed        | `pip install -e ".[matrix]"`                       |
+| Config validation exits 2                           | TOML syntax or credential error | `medre config check --config <path>`               |
+| Routes validate exits 2                             | Unknown adapter ref in route    | Check adapter IDs in routes match adapters section |
 
 ## Diagnostics Commands
 
@@ -447,24 +447,24 @@ In addition to unidirectional criteria for each direction:
 
 ### Runtime Failure Drills
 
-| Drill name | What it proves |
-|-----------|---------------|
-| `renderer_failure` | Unhandled event kind produces `RENDERER_FAILURE` receipt, no retry |
+| Drill name                  | What it proves                                                               |
+| --------------------------- | ---------------------------------------------------------------------------- |
+| `renderer_failure`          | Unhandled event kind produces `RENDERER_FAILURE` receipt, no retry           |
 | `adapter_permanent_failure` | Non-recoverable adapter error produces `ADAPTER_PERMANENT` receipt, no retry |
-| `adapter_transient_failure` | Transient error triggers retry with `ADAPTER_TRANSIENT` receipt chain |
-| `capacity_rejection` | Delivery capacity exhaustion produces `delivery_capacity_exceeded` |
-| `shutdown_rejection` | In-flight deliveries during shutdown produce `delivery_rejected_shutdown` |
-| `replay_duplicate_risk` | BEST_EFFORT replay produces duplicate receipts per run |
-| `degraded_live_health` | Adapters can report degraded/failed health without runtime exit |
+| `adapter_transient_failure` | Transient error triggers retry with `ADAPTER_TRANSIENT` receipt chain        |
+| `capacity_rejection`        | Delivery capacity exhaustion produces `delivery_capacity_exceeded`           |
+| `shutdown_rejection`        | In-flight deliveries during shutdown produce `delivery_rejected_shutdown`    |
+| `replay_duplicate_risk`     | BEST_EFFORT replay produces duplicate receipts per run                       |
+| `degraded_live_health`      | Adapters can report degraded/failed health without runtime exit              |
 
 ### Pre-Runtime Drills
 
-| Drill name | What it proves |
-|-----------|---------------|
-| `bad_route_config` | Unknown adapter ref in route causes `RouteValidationError` |
-| `all_adapters_build_fail` | Total build failure causes all adapters to fail construction |
+| Drill name                 | What it proves                                                             |
+| -------------------------- | -------------------------------------------------------------------------- |
+| `bad_route_config`         | Unknown adapter ref in route causes `RouteValidationError`                 |
+| `all_adapters_build_fail`  | Total build failure causes all adapters to fail construction               |
 | `partial_degraded_startup` | Partial adapter start allows runtime to enter RUNNING with degraded health |
-| `all_adapters_start_fail` | Total startup failure prevents RUNNING state |
+| `all_adapters_start_fail`  | Total startup failure prevents RUNNING state                               |
 
 Run pre-runtime drills with:
 
@@ -489,19 +489,19 @@ Name files descriptively: `bundle-<date>.json`, `bundle-health-<date>.json`, `in
 
 ## What Remains Unproven
 
-| Capability | Status | Notes |
-|-----------|--------|-------|
-| Live external Matrix (beyond Docker localhost) | Not proven | Docker tests use loopback Synapse only |
-| Real radio hardware (Meshtastic/MeshCore/LXMF) | Not proven | No live hardware smoke test recorded |
-| Final delivery ACK / remote receipt | Not proven | Radio is fire-and-forget; Matrix is server-level only |
-| Replay deduplication | Not proven | Replay produces duplicates by design |
-| Active restart / supervision | Not proven | No per-adapter restart, no auto-remediation |
-| Background health polling | Not proven | Manual `--refresh-health` only |
-| Sustained throughput | Not proven | All tests are smoke tests, not load tests |
-| Network resilience / reconnection | Not proven | No live failure/reconnect test |
-| Cross-instance loop prevention | Not proven | Loop prevention is local-process only |
-| Third-party Matrix inbound | Not proven | Bridge smoke uses HTTP API sender, not a second Matrix client |
-| Full cross-transport relay | Not proven | Bridge smoke routes real Matrix to fake outbound |
+| Capability                                     | Status     | Notes                                                         |
+| ---------------------------------------------- | ---------- | ------------------------------------------------------------- |
+| Live external Matrix (beyond Docker localhost) | Not proven | Docker tests use loopback Synapse only                        |
+| Real radio hardware (Meshtastic/MeshCore/LXMF) | Not proven | No live hardware smoke test recorded                          |
+| Final delivery ACK / remote receipt            | Not proven | Radio is fire-and-forget; Matrix is server-level only         |
+| Replay deduplication                           | Not proven | Replay produces duplicates by design                          |
+| Active restart / supervision                   | Not proven | No per-adapter restart, no auto-remediation                   |
+| Background health polling                      | Not proven | Manual `--refresh-health` only                                |
+| Sustained throughput                           | Not proven | All tests are smoke tests, not load tests                     |
+| Network resilience / reconnection              | Not proven | No live failure/reconnect test                                |
+| Cross-instance loop prevention                 | Not proven | Loop prevention is local-process only                         |
+| Third-party Matrix inbound                     | Not proven | Bridge smoke uses HTTP API sender, not a second Matrix client |
+| Full cross-transport relay                     | Not proven | Bridge smoke routes real Matrix to fake outbound              |
 
 ## See Also
 

@@ -20,24 +20,24 @@ The initial and current backend is SQLite. The `StorageBackend` protocol (Sectio
 
 When `MEDRE_HOME` is not set, the runtime **MUST** follow the XDG Base Directory Specification. Each category resolves independently:
 
-| Category | Default Path | XDG Override |
-|----------|-------------|--------------|
-| Config | `~/.config/medre/` | `$XDG_CONFIG_HOME/medre/` |
-| State | `~/.local/state/medre/` | `$XDG_STATE_HOME/medre/` |
-| Data | `~/.local/share/medre/` | `$XDG_DATA_HOME/medre/` |
-| Cache | `~/.cache/medre/` | `$XDG_CACHE_HOME/medre/` |
+| Category | Default Path            | XDG Override              |
+| -------- | ----------------------- | ------------------------- |
+| Config   | `~/.config/medre/`      | `$XDG_CONFIG_HOME/medre/` |
+| State    | `~/.local/state/medre/` | `$XDG_STATE_HOME/medre/`  |
+| Data     | `~/.local/share/medre/` | `$XDG_DATA_HOME/medre/`   |
+| Cache    | `~/.cache/medre/`       | `$XDG_CACHE_HOME/medre/`  |
 
 ### 2.2 MEDRE_HOME Mode
 
 When the `MEDRE_HOME` environment variable is set to a non-empty value, all categories **MUST** resolve under that single root:
 
-| Category | Path |
-|----------|------|
-| Config | `$MEDRE_HOME/config.toml` |
-| State | `$MEDRE_HOME/state/` |
-| Data | `$MEDRE_HOME/data/` |
-| Cache | `$MEDRE_HOME/cache/` |
-| Logs | `$MEDRE_HOME/logs/` |
+| Category | Path                      |
+| -------- | ------------------------- |
+| Config   | `$MEDRE_HOME/config.toml` |
+| State    | `$MEDRE_HOME/state/`      |
+| Data     | `$MEDRE_HOME/data/`       |
+| Cache    | `$MEDRE_HOME/cache/`      |
+| Logs     | `$MEDRE_HOME/logs/`       |
 
 This mode is intended for container, Docker, Kubernetes, and portable deployments.
 
@@ -295,8 +295,8 @@ CREATE TABLE canonical_events (
 
 **Indexes:**
 
-| Index | Columns | Purpose |
-|-------|---------|---------|
+| Index                           | Columns                 | Purpose                      |
+| ------------------------------- | ----------------------- | ---------------------------- |
 | `idx_events_timestamp_event_id` | `(timestamp, event_id)` | ORDER BY timestamp ascending |
 
 `source_transport_id` identifies the native actor (who produced the event), not the native message. `source_channel_id` is the native channel/room/topic where the event originated; `NULL` if the transport has no channel concept.
@@ -328,8 +328,8 @@ CREATE TABLE event_relations (
 
 **Indexes:**
 
-| Index | Columns | Purpose |
-|-------|---------|---------|
+| Index                    | Columns          | Purpose                                                  |
+| ------------------------ | ---------------- | -------------------------------------------------------- |
 | `idx_relations_event_id` | `(event_id, id)` | list_relations(event_id) with deterministic row ordering |
 
 The `target_native_*` split columns store the `NativeRef` fields when the canonical event ID for the relation target is not yet known. When a relation is unresolved, `target_event_id` is `NULL` and the four `target_native_*` columns carry the native reference. The relation resolution stage resolves these by calling `resolve_native_ref`.
@@ -354,10 +354,10 @@ CREATE TABLE native_message_refs (
 
 **Indexes:**
 
-| Index | Columns | Purpose |
-|-------|---------|---------|
-| `idx_native_refs_event_id` | `(event_id)` | Reverse lookup from canonical event to native refs |
-| *(autoindex)* | `(adapter, native_channel_id, native_message_id)` | SQLite autoindex from UNIQUE constraint |
+| Index                      | Columns                                           | Purpose                                            |
+| -------------------------- | ------------------------------------------------- | -------------------------------------------------- |
+| `idx_native_refs_event_id` | `(event_id)`                                      | Reverse lookup from canonical event to native refs |
+| _(autoindex)_              | `(adapter, native_channel_id, native_message_id)` | SQLite autoindex from UNIQUE constraint            |
 
 The `UNIQUE(adapter, native_channel_id, native_message_id)` constraint is the foundation of idempotent correlation. Two calls to `store_native_ref` with the same adapter, channel, and message ID **MUST NOT** create duplicate rows.
 
@@ -365,12 +365,12 @@ The `UNIQUE(adapter, native_channel_id, native_message_id)` constraint is the fo
 
 Transport-specific examples:
 
-| Transport | native_channel_id | native_message_id |
-|-----------|-------------------|-------------------|
-| Matrix | Room ID (e.g., `!abc:server.org`) | Matrix event ID (e.g., `$abc123`) |
-| Meshtastic | Channel index | Packet ID |
-| MeshCore | Channel slot index | MeshCore message reference |
-| LXMF | Source hash (16-byte hex) | LXMF message ID |
+| Transport  | native_channel_id                 | native_message_id                 |
+| ---------- | --------------------------------- | --------------------------------- |
+| Matrix     | Room ID (e.g., `!abc:server.org`) | Matrix event ID (e.g., `$abc123`) |
+| Meshtastic | Channel index                     | Packet ID                         |
+| MeshCore   | Channel slot index                | MeshCore message reference        |
+| LXMF       | Source hash (16-byte hex)         | LXMF message ID                   |
 
 ### 4.4 delivery_receipts
 
@@ -424,11 +424,11 @@ CREATE TABLE delivery_receipts (
 
 **Indexes:**
 
-| Index | Columns | Purpose |
-|-------|---------|---------|
-| `idx_receipts_plan` | `(delivery_plan_id, target_adapter, target_channel, attempt_number, sequence)` | delivery_status view and list_receipts_for_plan |
-| `idx_receipts_event` | `(event_id, sequence)` | Receipt lookups by event |
-| `idx_receipts_source` | `(source, replay_run_id)` | Filtering receipts by replay run |
+| Index                 | Columns                                                                        | Purpose                                         |
+| --------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------- |
+| `idx_receipts_plan`   | `(delivery_plan_id, target_adapter, target_channel, attempt_number, sequence)` | delivery_status view and list_receipts_for_plan |
+| `idx_receipts_event`  | `(event_id, sequence)`                                                         | Receipt lookups by event                        |
+| `idx_receipts_source` | `(source, replay_run_id)`                                                      | Filtering receipts by replay run                |
 
 ### 4.5 delivery_status View
 
@@ -465,7 +465,7 @@ CREATE TABLE plugin_state (
 
 Scoped key-value storage for plugins. Keys are scoped to `plugin_id`. Plugins **MUST NOT** read or write state belonging to other plugins.
 
-### 4.7 _medre_schema_meta
+### 4.7 \_medre_schema_meta
 
 ```sql
 CREATE TABLE _medre_schema_meta (
@@ -582,16 +582,16 @@ CREATE TABLE delivery_outbox (
 
 **Statuses:**
 
-| Status | Meaning | Terminal |
-|--------|---------|----------|
-| `pending` | Work exists but has not started | No |
-| `in_progress` | Claimed by a worker for processing | No |
-| `queued` | Handed to adapter-local queue (e.g., Meshtastic) | No |
-| `sent` | Local SDK/client send returned success | Yes |
-| `retry_wait` | Transient failure, awaiting next attempt | No |
-| `dead_lettered` | Retries exhausted or terminal failure | Yes |
-| `cancelled` | Operator or shutdown cancelled | Yes |
-| `abandoned` | Drain timeout or ambiguous loss | Yes |
+| Status          | Meaning                                          | Terminal |
+| --------------- | ------------------------------------------------ | -------- |
+| `pending`       | Work exists but has not started                  | No       |
+| `in_progress`   | Claimed by a worker for processing               | No       |
+| `queued`        | Handed to adapter-local queue (e.g., Meshtastic) | No       |
+| `sent`          | Local SDK/client send returned success           | Yes      |
+| `retry_wait`    | Transient failure, awaiting next attempt         | No       |
+| `dead_lettered` | Retries exhausted or terminal failure            | Yes      |
+| `cancelled`     | Operator or shutdown cancelled                   | Yes      |
+| `abandoned`     | Drain timeout or ambiguous loss                  | Yes      |
 
 **NULL-channel uniqueness:** The `UNIQUE` constraint on `(delivery_plan_id, target_adapter, target_channel, attempt_number)` is supplemented by a partial unique index:
 
@@ -754,9 +754,11 @@ The outbox persists operational delivery work state. Outbox items are created af
 ### 9.2 Status Transitions
 
 **Terminal** (no further state changes; **MAY** be replaced on re-delivery):
+
 - `sent`, `dead_lettered`, `cancelled`, `abandoned`
 
 **Non-terminal** (may transition to other states):
+
 - `pending`, `in_progress`, `queued`, `retry_wait`
 
 ### 9.3 Idempotent Create with Reclaim
@@ -803,15 +805,15 @@ During the Persist phase of shutdown, the runtime **MUST** flush pending SQLite 
 
 The following runtime state is held in memory only and is never written to SQLite or disk:
 
-| State | Nature |
-|-------|--------|
-| In-flight deliveries | Semaphore-tracked coroutines |
-| Active replay runs | Async generator iterations |
-| `CapacityController` internal gauges | In-memory counters |
-| `RouteStats` per-route counters | In-memory counters |
-| `RuntimeAccounting` counters | In-memory counters |
-| Adapter health / connection state | In-memory |
-| Pipeline runner state | Ephemeral |
+| State                                | Nature                       |
+| ------------------------------------ | ---------------------------- |
+| In-flight deliveries                 | Semaphore-tracked coroutines |
+| Active replay runs                   | Async generator iterations   |
+| `CapacityController` internal gauges | In-memory counters           |
+| `RouteStats` per-route counters      | In-memory counters           |
+| `RuntimeAccounting` counters         | In-memory counters           |
+| Adapter health / connection state    | In-memory                    |
+| Pipeline runner state                | Ephemeral                    |
 
 All of these reset to zero or initial state on every startup. No history is retained across restarts.
 
@@ -821,22 +823,22 @@ All of these reset to zero or initial state on every startup. No history is reta
 
 The canonical event log supports replaying events through the pipeline. Replay is an ephemeral runtime operation, not a durable job system.
 
-| Property | Value |
-|----------|-------|
-| Replay request durability | Not persisted. Replay runs are initiated in-memory and lost on crash. |
-| Replay queue | Does not exist. |
-| Replay resume after crash | Not supported. Must be re-initiated manually. |
-| Replay deduplication | Not provided. Re-running replay **MAY** produce duplicate deliveries. |
+| Property                   | Value                                                                            |
+| -------------------------- | -------------------------------------------------------------------------------- |
+| Replay request durability  | Not persisted. Replay runs are initiated in-memory and lost on crash.            |
+| Replay queue               | Does not exist.                                                                  |
+| Replay resume after crash  | Not supported. Must be re-initiated manually.                                    |
+| Replay deduplication       | Not provided. Re-running replay **MAY** produce duplicate deliveries.            |
 | Replay receipt persistence | Yes. Receipts produced by replay are persisted to SQLite like any other receipt. |
 
 ### 13.2 Replay Modes
 
-| Mode | target_stages | Description |
-|------|---------------|-------------|
-| `DRY_RUN` | all | Debug current config against past events; no side effects |
-| `RE_RENDER` | render, deliver | Re-run rendering for existing events |
-| `RE_ROUTE` | route, plan | Re-evaluate routing rules against past events |
-| `BEST_EFFORT` | deliver | Re-deliver events, producing new receipts |
+| Mode          | target_stages   | Description                                               |
+| ------------- | --------------- | --------------------------------------------------------- |
+| `DRY_RUN`     | all             | Debug current config against past events; no side effects |
+| `RE_RENDER`   | render, deliver | Re-run rendering for existing events                      |
+| `RE_ROUTE`    | route, plan     | Re-evaluate routing rules against past events             |
+| `BEST_EFFORT` | deliver         | Re-deliver events, producing new receipts                 |
 
 ### 13.3 Replay Receipt Traceability
 
@@ -910,13 +912,13 @@ class StorageConfig:
 
 ## 15. Required Guarantees Summary
 
-| Guarantee | Requirement |
-|-----------|-------------|
-| Atomic writes | Events, native refs, and receipts **MUST** be written atomically. Partial writes **MUST NOT** leave the database inconsistent. |
-| Idempotent correlation | Duplicate `(adapter, native_channel_id, native_message_id)` tuples **MUST NOT** create duplicate rows. |
-| Ordered append | `canonical_events` ordered by `timestamp ASC`. `delivery_receipts` ordered by `sequence` (monotonic). |
-| Receipt immutability | Receipt rows are append-only. No `UPDATE` or `DELETE` on `delivery_receipts` (except `next_retry_at` via `update_retry_due`). |
-| Concurrent reads | WAL mode **MUST** be enabled for concurrent reads during writes. |
-| Replay support | Event log **MUST** support querying by time range, event kind, source adapter, and other filter criteria. |
-| Schema validation | `initialize()` **MUST** validate schema version and column shape. |
-| Single database | There **MUST NOT** be per-adapter databases. |
+| Guarantee              | Requirement                                                                                                                    |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Atomic writes          | Events, native refs, and receipts **MUST** be written atomically. Partial writes **MUST NOT** leave the database inconsistent. |
+| Idempotent correlation | Duplicate `(adapter, native_channel_id, native_message_id)` tuples **MUST NOT** create duplicate rows.                         |
+| Ordered append         | `canonical_events` ordered by `timestamp ASC`. `delivery_receipts` ordered by `sequence` (monotonic).                          |
+| Receipt immutability   | Receipt rows are append-only. No `UPDATE` or `DELETE` on `delivery_receipts` (except `next_retry_at` via `update_retry_due`).  |
+| Concurrent reads       | WAL mode **MUST** be enabled for concurrent reads during writes.                                                               |
+| Replay support         | Event log **MUST** support querying by time range, event kind, source adapter, and other filter criteria.                      |
+| Schema validation      | `initialize()` **MUST** validate schema version and column shape.                                                              |
+| Single database        | There **MUST NOT** be per-adapter databases.                                                                                   |

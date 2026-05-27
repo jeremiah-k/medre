@@ -129,12 +129,12 @@ medre trace replay <run_id> --storage-path /path/to/medre.db
 
 ### Timeline Entry Types
 
-| Entry type | What it shows |
-|---|---|
-| `event` | Canonical event (kind, source adapter, timestamp) |
+| Entry type   | What it shows                                                          |
+| ------------ | ---------------------------------------------------------------------- |
+| `event`      | Canonical event (kind, source adapter, timestamp)                      |
 | `native_ref` | Native transport references (Matrix event IDs, Meshtastic message IDs) |
-| `receipt` | Delivery receipts (status, target adapter, attempt count) |
-| `relation` | Relations to other events (replies, reactions) |
+| `receipt`    | Delivery receipts (status, target adapter, attempt count)              |
+| `relation`   | Relations to other events (replies, reactions)                         |
 
 ### Interpreting Timeline Gaps
 
@@ -148,28 +148,28 @@ medre trace replay <run_id> --storage-path /path/to/medre.db
 
 **DeliveryReceipt:**
 
-| Field | Description |
-|---|---|
-| `receipt_id` | Unique receipt identifier |
-| `event_id` | Canonical event |
-| `target_adapter` | Adapter that received the delivery |
-| `route_id` | Route that matched the event |
-| `status` | `sent`, `failed`, `suppressed`, etc. |
-| `failure_kind` | Failure classification or `null` |
-| `attempt_number` | 1 for first attempt, increments on retry |
-| `parent_receipt_id` | Links to previous receipt in retry chain |
-| `source` | `"live"`, `"retry"`, or `"replay"` |
-| `replay_run_id` | Groups receipts from one replay run (when `source == "replay"`) |
+| Field               | Description                                                     |
+| ------------------- | --------------------------------------------------------------- |
+| `receipt_id`        | Unique receipt identifier                                       |
+| `event_id`          | Canonical event                                                 |
+| `target_adapter`    | Adapter that received the delivery                              |
+| `route_id`          | Route that matched the event                                    |
+| `status`            | `sent`, `failed`, `suppressed`, etc.                            |
+| `failure_kind`      | Failure classification or `null`                                |
+| `attempt_number`    | 1 for first attempt, increments on retry                        |
+| `parent_receipt_id` | Links to previous receipt in retry chain                        |
+| `source`            | `"live"`, `"retry"`, or `"replay"`                              |
+| `replay_run_id`     | Groups receipts from one replay run (when `source == "replay"`) |
 
 **NativeMessageRef:**
 
-| Field | Description |
-|---|---|
-| `native_message_id` | Transport-native ID |
-| `native_channel_id` | Transport-native channel/room ID |
-| `canonical_event_id` | Links to canonical event |
-| `adapter` | Adapter that produced this mapping |
-| `direction` | `"inbound"` or `"outbound"` |
+| Field                | Description                        |
+| -------------------- | ---------------------------------- |
+| `native_message_id`  | Transport-native ID                |
+| `native_channel_id`  | Transport-native channel/room ID   |
+| `canonical_event_id` | Links to canonical event           |
+| `adapter`            | Adapter that produced this mapping |
+| `direction`          | `"inbound"` or `"outbound"`        |
 
 ### SQL Queries for Deep Tracing
 
@@ -244,13 +244,13 @@ medre evidence --storage-path /path/to/medre.db --replay-run <run_id> --json
 
 ### What Is in the Bundle
 
-| Section | Contents |
-|---|---|
-| `sections.config_summary` | Redacted runtime config and resolved paths |
-| `sections.route_validation` | Route definitions and validation status |
-| `sections.diagnostics_snapshot` | Per-adapter health and counters |
-| `sections.live_health` | Live adapter health (requires `--include-refresh-health`) |
-| `sections.storage` | Event and delivery records from SQLite |
+| Section                         | Contents                                                  |
+| ------------------------------- | --------------------------------------------------------- |
+| `sections.config_summary`       | Redacted runtime config and resolved paths                |
+| `sections.route_validation`     | Route definitions and validation status                   |
+| `sections.diagnostics_snapshot` | Per-adapter health and counters                           |
+| `sections.live_health`          | Live adapter health (requires `--include-refresh-health`) |
+| `sections.storage`              | Event and delivery records from SQLite                    |
 
 Top-level fields: `schema_version`, `medre_version`, `command`, `status`, `collected_at`, `config_source`, `errors`, `limitations`.
 
@@ -266,43 +266,43 @@ Always review the JSON output before sharing. Look for any field containing your
 
 ### Receipt Statuses
 
-| Status | Meaning |
-|---|---|
-| `accepted` | Delivery plan accepted |
-| `queued` | Enqueued for async delivery |
-| `sent` | Adapter confirmed delivery |
-| `failed` | Delivery failed — check `failure_kind` |
-| `dead_lettered` | All retries exhausted |
-| `suppressed` | Intentionally suppressed (loop prevention, policy, capacity, shutdown) |
+| Status          | Meaning                                                                |
+| --------------- | ---------------------------------------------------------------------- |
+| `accepted`      | Delivery plan accepted                                                 |
+| `queued`        | Enqueued for async delivery                                            |
+| `sent`          | Adapter confirmed delivery                                             |
+| `failed`        | Delivery failed — check `failure_kind`                                 |
+| `dead_lettered` | All retries exhausted                                                  |
+| `suppressed`    | Intentionally suppressed (loop prevention, policy, capacity, shutdown) |
 
 ### Failure Kinds
 
-| Kind | Retryable | When |
-|---|---|---|
-| `adapter_transient` | Yes | Timeout, network error, connection reset |
-| `adapter_permanent` | No | Malformed payload, business-logic rejection |
-| `adapter_missing` | No | Target adapter not registered |
-| `planner_failure` | No | Routing/planning misconfiguration |
-| `renderer_failure` | No | No renderer for event kind |
-| `deadline_exceeded` | No | Delivery plan deadline passed |
-| `capacity_rejection` | No | All in-flight slots occupied |
-| `shutdown_rejection` | No | Runtime shutdown cancelled delivery |
-| `loop_suppressed` | No | Route-trace or self-loop prevention |
-| `policy_suppressed` | No | Route-policy denial |
+| Kind                 | Retryable | When                                        |
+| -------------------- | --------- | ------------------------------------------- |
+| `adapter_transient`  | Yes       | Timeout, network error, connection reset    |
+| `adapter_permanent`  | No        | Malformed payload, business-logic rejection |
+| `adapter_missing`    | No        | Target adapter not registered               |
+| `planner_failure`    | No        | Routing/planning misconfiguration           |
+| `renderer_failure`   | No        | No renderer for event kind                  |
+| `deadline_exceeded`  | No        | Delivery plan deadline passed               |
+| `capacity_rejection` | No        | All in-flight slots occupied                |
+| `shutdown_rejection` | No        | Runtime shutdown cancelled delivery         |
+| `loop_suppressed`    | No        | Route-trace or self-loop prevention         |
+| `policy_suppressed`  | No        | Route-policy denial                         |
 
 Only `adapter_transient` is retryable.
 
 ### Common Failure Patterns
 
-| Pattern | Likely cause | What to check |
-|---|---|---|
-| `failed` with `AdapterPermanentError` | Bad room, forbidden | Target room/channel exists, bot has access |
-| `failed` with `AdapterSendError` (transient) | Network/homeserver error | Connectivity, homeserver health |
-| No receipt at all | Never reached delivery stage | Routing config, adapter health, pipeline logs |
-| `suppressed` with `loop_suppressed` | Circular routes | Route config for self-referencing adapters |
-| `suppressed` with `policy_suppressed` | Route-policy denial | Route's `[policy]` section in config |
-| Multiple receipts: `failed` then `sent` | Transient failure + successful retry | `parent_receipt_id` chain |
-| `source='replay'` with `failed` | Replay re-delivery failed | Target adapter healthy during replay |
+| Pattern                                      | Likely cause                         | What to check                                 |
+| -------------------------------------------- | ------------------------------------ | --------------------------------------------- |
+| `failed` with `AdapterPermanentError`        | Bad room, forbidden                  | Target room/channel exists, bot has access    |
+| `failed` with `AdapterSendError` (transient) | Network/homeserver error             | Connectivity, homeserver health               |
+| No receipt at all                            | Never reached delivery stage         | Routing config, adapter health, pipeline logs |
+| `suppressed` with `loop_suppressed`          | Circular routes                      | Route config for self-referencing adapters    |
+| `suppressed` with `policy_suppressed`        | Route-policy denial                  | Route's `[policy]` section in config          |
+| Multiple receipts: `failed` then `sent`      | Transient failure + successful retry | `parent_receipt_id` chain                     |
+| `source='replay'` with `failed`              | Replay re-delivery failed            | Target adapter healthy during replay          |
 
 ## Replay Workflow
 
@@ -316,15 +316,16 @@ Replay is a lower-level tool for recovery and verification, not part of daily op
 
 ### Replay Modes
 
-| Mode | Delivers? | Side effects | Use case |
-|---|---|---|---|
-| `DRY_RUN` | No | None | Preview |
-| `RE_ROUTE` | No | None | Re-evaluate route matching |
-| `BEST_EFFORT` | Yes | Real delivery | Re-deliver historical events |
+| Mode          | Delivers? | Side effects  | Use case                     |
+| ------------- | --------- | ------------- | ---------------------------- |
+| `DRY_RUN`     | No        | None          | Preview                      |
+| `RE_ROUTE`    | No        | None          | Re-evaluate route matching   |
+| `BEST_EFFORT` | Yes       | Real delivery | Re-deliver historical events |
 
 ### Procedure
 
 1. Dry run first:
+
    ```bash
    medre replay --mode DRY_RUN --config bridge.toml --event <event_id> --json
    ```
@@ -332,11 +333,13 @@ Replay is a lower-level tool for recovery and verification, not part of daily op
 2. Review output — check which routes match and which events would be re-delivered.
 
 3. If preview is correct, best-effort replay:
+
    ```bash
    medre replay --mode BEST_EFFORT --config bridge.toml --event <event_id> --json
    ```
 
 4. Trace the replayed events:
+
    ```bash
    medre inspect event <event_id> --timeline --storage-path /path/to/medre.db
    ```
@@ -401,12 +404,12 @@ Check diagnostics for `undecryptable_event_count`. Non-zero indicates E2EE decry
 
 The packet classifier examines every inbound packet and decides: `relay`, `ignore`, `drop`, or `deferred`. Check counters:
 
-| Counter | What it means |
-|---|---|
-| `classifier_packets_relayed` | Proceeding to pipeline |
-| `classifier_packets_ignored` | Skipped: ack/admin, telemetry, position, nodeinfo, DMs, empty text |
-| `classifier_packets_dropped` | Rejected: encrypted, malformed |
-| `classifier_packets_deferred` | Held for future: detection sensor, unknown portnum |
+| Counter                       | What it means                                                      |
+| ----------------------------- | ------------------------------------------------------------------ |
+| `classifier_packets_relayed`  | Proceeding to pipeline                                             |
+| `classifier_packets_ignored`  | Skipped: ack/admin, telemetry, position, nodeinfo, DMs, empty text |
+| `classifier_packets_dropped`  | Rejected: encrypted, malformed                                     |
+| `classifier_packets_deferred` | Held for future: detection sensor, unknown portnum                 |
 
 These are aggregate counters, not per-packet records. They reset on adapter restart.
 
@@ -473,13 +476,13 @@ Routes reference resolved adapter IDs (`radio-a`, `matrix-fake`), not env tokens
 
 ### Environment Variable Rules
 
-| Prefix | Purpose |
-|---|---|
-| `MEDRE_ADAPTER__<TOKEN>__<FIELD>` | Runtime adapter config |
-| `MEDRE_ROUTE__<TOKEN>__<FIELD>` | Runtime route config |
-| `MEDRE_RETRY__<FIELD>` | Runtime retry config |
-| `MATRIX_*`, `MESHTASTIC_*`, `MESHCORE_*`, `LXMF_*` | Pytest live-test convenience vars only |
-| `MEDRE_MESHTASTIC_*`, etc. | Unsupported legacy — rejected at startup |
+| Prefix                                             | Purpose                                  |
+| -------------------------------------------------- | ---------------------------------------- |
+| `MEDRE_ADAPTER__<TOKEN>__<FIELD>`                  | Runtime adapter config                   |
+| `MEDRE_ROUTE__<TOKEN>__<FIELD>`                    | Runtime route config                     |
+| `MEDRE_RETRY__<FIELD>`                             | Runtime retry config                     |
+| `MATRIX_*`, `MESHTASTIC_*`, `MESHCORE_*`, `LXMF_*` | Pytest live-test convenience vars only   |
+| `MEDRE_MESHTASTIC_*`, etc.                         | Unsupported legacy — rejected at startup |
 
 `MATRIX_*` variables are for pytest live-test convenience only. They are not read by `medre run`. To configure a Matrix adapter for runtime, use `MEDRE_ADAPTER__<TOKEN>__<FIELD>`.
 
@@ -610,12 +613,12 @@ Starts all enabled adapters, polls health once, prints snapshot with live health
 
 ### Interpreting Health
 
-| Value | Meaning |
-|---|---|
-| `healthy` | All started adapters report healthy |
+| Value      | Meaning                                                            |
+| ---------- | ------------------------------------------------------------------ |
+| `healthy`  | All started adapters report healthy                                |
 | `degraded` | Some adapters report degraded/failed. Runtime may still be usable. |
-| `failed` | All adapters failed or health checks could not complete |
-| `unknown` | No live health available |
+| `failed`   | All adapters failed or health checks could not complete            |
+| `unknown`  | No live health available                                           |
 
 `startup_health` is frozen at startup time. `live_health` reflects the current state at refresh time. They can differ.
 
@@ -637,16 +640,16 @@ sqlite3 {state}/medre.sqlite "SELECT status, COUNT(*) FROM delivery_outbox GROUP
 
 ### Outbox Statuses
 
-| Status | Meaning |
-|---|---|
-| `in_progress` | Live pipeline delivery in progress. Not claimable by retry worker unless lease expires. |
-| `pending` | Work exists but delivery attempt has not started. |
-| `retry_wait` | Transient failure; will retry automatically when retry worker is enabled and item becomes due. |
-| `queued` | Accepted by adapter-local queue. After crash, this state is ambiguous. |
-| `sent` | Local send succeeded (terminal). |
-| `dead_lettered` | Retries exhausted or permanent failure. Requires operator intervention. |
-| `cancelled` | Operator cancelled. |
-| `abandoned` | Drain timeout during shutdown. |
+| Status          | Meaning                                                                                        |
+| --------------- | ---------------------------------------------------------------------------------------------- |
+| `in_progress`   | Live pipeline delivery in progress. Not claimable by retry worker unless lease expires.        |
+| `pending`       | Work exists but delivery attempt has not started.                                              |
+| `retry_wait`    | Transient failure; will retry automatically when retry worker is enabled and item becomes due. |
+| `queued`        | Accepted by adapter-local queue. After crash, this state is ambiguous.                         |
+| `sent`          | Local send succeeded (terminal).                                                               |
+| `dead_lettered` | Retries exhausted or permanent failure. Requires operator intervention.                        |
+| `cancelled`     | Operator cancelled.                                                                            |
+| `abandoned`     | Drain timeout during shutdown.                                                                 |
 
 ### Crash Recovery
 
@@ -684,43 +687,43 @@ medre evidence --config /path/to/config.toml --json | jq '.sections.diagnostics_
 
 Primary counters:
 
-| Counter | What it means |
-|---|---|
-| `classifier_packets_seen` | Total packets examined |
-| `classifier_packets_relayed` | Proceeding to pipeline |
-| `classifier_packets_ignored` | Skipped: ack/admin, telemetry, position, nodeinfo, direct messages, empty text |
-| `classifier_packets_dropped` | Rejected: encrypted packets, malformed payloads |
-| `classifier_packets_deferred` | Held for future: detection sensor, unknown portnum, plugin-only |
+| Counter                       | What it means                                                                  |
+| ----------------------------- | ------------------------------------------------------------------------------ |
+| `classifier_packets_seen`     | Total packets examined                                                         |
+| `classifier_packets_relayed`  | Proceeding to pipeline                                                         |
+| `classifier_packets_ignored`  | Skipped: ack/admin, telemetry, position, nodeinfo, direct messages, empty text |
+| `classifier_packets_dropped`  | Rejected: encrypted packets, malformed payloads                                |
+| `classifier_packets_deferred` | Held for future: detection sensor, unknown portnum, plugin-only                |
 
 Sub-counters break down by reason:
 
-| Sub-counter | Classification reason |
-|---|---|
-| `classifier_packets_malformed` | Dropped: no valid decoded payload |
-| `classifier_packets_encrypted_dropped` | Dropped: packet is encrypted |
-| `classifier_packets_detection_sensor_deferred` | Deferred: detection sensor portnum |
-| `classifier_packets_dm_ignored` | Ignored: direct message to a specific node |
-| `classifier_packets_empty_text_ignored` | Ignored: text message with empty body |
-| `classifier_packets_unknown_portnum_deferred` | Deferred: unknown or custom portnum |
+| Sub-counter                                    | Classification reason                      |
+| ---------------------------------------------- | ------------------------------------------ |
+| `classifier_packets_malformed`                 | Dropped: no valid decoded payload          |
+| `classifier_packets_encrypted_dropped`         | Dropped: packet is encrypted               |
+| `classifier_packets_detection_sensor_deferred` | Deferred: detection sensor portnum         |
+| `classifier_packets_dm_ignored`                | Ignored: direct message to a specific node |
+| `classifier_packets_empty_text_ignored`        | Ignored: text message with empty body      |
+| `classifier_packets_unknown_portnum_deferred`  | Deferred: unknown or custom portnum        |
 
 These are aggregate counters, not per-packet records. They reset on adapter restart (in-memory only).
 
 ## Summary: Evidence Non-Guarantees
 
-| Question | Answer | Evidence available? |
-|---|---|---|
-| Delivered where? | Receipt shows target adapter, channel, native message ID, route | Yes (receipt + timeline) |
-| Retried why? | Receipt lineage shows failure kind, attempt number, retry policy | Yes (recovery context) |
-| Suppressed why (loop)? | Route-trace or self-loop guard fired | Yes (receipt failure_kind) |
-| Suppressed why (policy)? | Route-policy denial after route match | Yes (receipt failure_kind + reason) |
-| Suppressed why (duplicate)? | Native-ref dedup at ingress | No receipt — counters only |
-| Dead-lettered why? | Retry exhaustion after transient failures | Yes (receipt chain) |
-| Queued but RF-confirmed? | Meshtastic `sent` means local node only | Yes (queue stats, but no RF ack) |
-| Matrix tx_id used? | Deterministic dedup reduces duplicates | Yes (receipt metadata) |
-| Matrix tx_id exactly-once? | No — homeserver dedup window is finite | No — this is not guaranteed |
-| Matrix E2EE blocked? | Undecryptable events counted in diagnostics | Yes (undecryptable_event_count) |
-| Meshtastic classifier stats? | Aggregate inbound skip counts | Yes (diagnostics classifier_*) |
-| Classifier stats per-packet? | No — aggregate only, reset on restart | No — in-memory counters only |
+| Question                     | Answer                                                           | Evidence available?                 |
+| ---------------------------- | ---------------------------------------------------------------- | ----------------------------------- |
+| Delivered where?             | Receipt shows target adapter, channel, native message ID, route  | Yes (receipt + timeline)            |
+| Retried why?                 | Receipt lineage shows failure kind, attempt number, retry policy | Yes (recovery context)              |
+| Suppressed why (loop)?       | Route-trace or self-loop guard fired                             | Yes (receipt failure_kind)          |
+| Suppressed why (policy)?     | Route-policy denial after route match                            | Yes (receipt failure_kind + reason) |
+| Suppressed why (duplicate)?  | Native-ref dedup at ingress                                      | No receipt — counters only          |
+| Dead-lettered why?           | Retry exhaustion after transient failures                        | Yes (receipt chain)                 |
+| Queued but RF-confirmed?     | Meshtastic `sent` means local node only                          | Yes (queue stats, but no RF ack)    |
+| Matrix tx_id used?           | Deterministic dedup reduces duplicates                           | Yes (receipt metadata)              |
+| Matrix tx_id exactly-once?   | No — homeserver dedup window is finite                           | No — this is not guaranteed         |
+| Matrix E2EE blocked?         | Undecryptable events counted in diagnostics                      | Yes (undecryptable_event_count)     |
+| Meshtastic classifier stats? | Aggregate inbound skip counts                                    | Yes (diagnostics classifier\_\*)    |
+| Classifier stats per-packet? | No — aggregate only, reset on restart                            | No — in-memory counters only        |
 
 ## Quick Reference
 

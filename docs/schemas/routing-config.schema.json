@@ -62,18 +62,12 @@
           "description": "Optional destination room ID (alias for dest_channel)."
         },
         "policy": {
-          "oneOf": [
-            { "$ref": "#/$defs/BridgePolicy" },
-            { "type": "null" }
-          ],
+          "oneOf": [{ "$ref": "#/$defs/BridgePolicy" }, { "type": "null" }],
           "default": null,
           "description": "Optional static bridge policy. Null means no restrictions."
         },
         "retry": {
-          "oneOf": [
-            { "$ref": "#/$defs/RouteRetryConfig" },
-            { "type": "null" }
-          ],
+          "oneOf": [{ "$ref": "#/$defs/RouteRetryConfig" }, { "type": "null" }],
           "default": null,
           "description": "Optional per-route retry policy. Null means no retry scheduling."
         },
@@ -155,17 +149,11 @@
           "default": null
         },
         "policy": {
-          "oneOf": [
-            { "$ref": "#/$defs/BridgePolicy" },
-            { "type": "null" }
-          ],
+          "oneOf": [{ "$ref": "#/$defs/BridgePolicy" }, { "type": "null" }],
           "default": null
         },
         "retry": {
-          "oneOf": [
-            { "$ref": "#/$defs/RouteRetryConfig" },
-            { "type": "null" }
-          ],
+          "oneOf": [{ "$ref": "#/$defs/RouteRetryConfig" }, { "type": "null" }],
           "default": null
         },
         "channel_room_map": {

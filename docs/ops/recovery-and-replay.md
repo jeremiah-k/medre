@@ -55,19 +55,19 @@ What happened?
 
 On hard crash (kill -9, OOM, power loss):
 
-| State | Survived? | Notes |
-|-------|-----------|-------|
-| Canonical events | Yes | Written to SQLite before delivery |
-| Delivery receipts | Yes | Written after each delivery attempt |
-| Native message refs | Yes | Persisted in SQLite alongside receipts |
-| Receipt traceability (`source`, `replay_run_id`) | Yes | Stored on receipts in SQLite |
-| Matrix E2EE crypto keys | Yes | On disk under adapter state root |
-| LXMF identity files | Yes | On disk under adapter state root |
-| Logs (pre-crash) | Yes | Appended to `{log_dir}/medre.log` |
-| In-flight deliveries | Partial | No receipt, but an `in_progress` outbox row may survive. Expired leases are reclaimable by RetryWorker. Deliveries without outbox rows are fully lost. |
-| Active replay runs | No | Lost — must re-initiate manually |
-| Runtime counters (accounting) | No | Process-local counters reset after restart |
-| Adapter connection state | No | Adapters reconnect from scratch |
+| State                                            | Survived? | Notes                                                                                                                                                  |
+| ------------------------------------------------ | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Canonical events                                 | Yes       | Written to SQLite before delivery                                                                                                                      |
+| Delivery receipts                                | Yes       | Written after each delivery attempt                                                                                                                    |
+| Native message refs                              | Yes       | Persisted in SQLite alongside receipts                                                                                                                 |
+| Receipt traceability (`source`, `replay_run_id`) | Yes       | Stored on receipts in SQLite                                                                                                                           |
+| Matrix E2EE crypto keys                          | Yes       | On disk under adapter state root                                                                                                                       |
+| LXMF identity files                              | Yes       | On disk under adapter state root                                                                                                                       |
+| Logs (pre-crash)                                 | Yes       | Appended to `{log_dir}/medre.log`                                                                                                                      |
+| In-flight deliveries                             | Partial   | No receipt, but an `in_progress` outbox row may survive. Expired leases are reclaimable by RetryWorker. Deliveries without outbox rows are fully lost. |
+| Active replay runs                               | No        | Lost — must re-initiate manually                                                                                                                       |
+| Runtime counters (accounting)                    | No        | Process-local counters reset after restart                                                                                                             |
+| Adapter connection state                         | No        | Adapters reconnect from scratch                                                                                                                        |
 
 ### Crash Recovery Steps
 
@@ -194,13 +194,13 @@ grep "adapter_started.*adapter_id=<adapter_id>" {state}/logs/medre.log | tail -1
 
 ### Adapter Failure Recovery Matrix
 
-| Failure cause | Fix | Replay needed? |
-|--------------|-----|---------------|
-| Network outage | Restore network, restart runtime | Yes — events may have been received by other adapters but not delivered to the affected adapter |
-| Serial device disconnected | Reconnect device, restart runtime | Yes — inbound events from the disconnected adapter were lost |
-| Authentication failure | Renew credentials, restart runtime | No — events from other adapters were still processed |
-| SDK dependency missing | Install SDK, restart runtime | No — events were never received |
-| Adapter bug (crash loop) | Fix code or disable adapter, restart runtime | Partially — events from other adapters to this adapter's targets were lost |
+| Failure cause              | Fix                                          | Replay needed?                                                                                  |
+| -------------------------- | -------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Network outage             | Restore network, restart runtime             | Yes — events may have been received by other adapters but not delivered to the affected adapter |
+| Serial device disconnected | Reconnect device, restart runtime            | Yes — inbound events from the disconnected adapter were lost                                    |
+| Authentication failure     | Renew credentials, restart runtime           | No — events from other adapters were still processed                                            |
+| SDK dependency missing     | Install SDK, restart runtime                 | No — events were never received                                                                 |
+| Adapter bug (crash loop)   | Fix code or disable adapter, restart runtime | Partially — events from other adapters to this adapter's targets were lost                      |
 
 There is no per-adapter restart. Only full runtime stop/start is supported. All adapters restart together.
 
@@ -238,13 +238,13 @@ GROUP BY e.source_adapter;
 
 Not all events without receipts are truly orphaned:
 
-| Scenario | Has receipt? | Action |
-|----------|-------------|--------|
-| Event stored, delivery in progress when crash occurred | No | Replay candidate |
-| Event stored, no routes matched | No | Not an orphan — no routes were configured for this event's source |
-| Event stored, loop prevented delivery | `suppressed` receipt | Not an orphan — loop prevention worked correctly |
-| Event stored, capacity exceeded | `suppressed` receipt | Replay candidate (after increasing capacity limits) |
-| Event stored, delivery sent before crash | Yes (receipt written) | Not an orphan — check receipt status |
+| Scenario                                               | Has receipt?          | Action                                                            |
+| ------------------------------------------------------ | --------------------- | ----------------------------------------------------------------- |
+| Event stored, delivery in progress when crash occurred | No                    | Replay candidate                                                  |
+| Event stored, no routes matched                        | No                    | Not an orphan — no routes were configured for this event's source |
+| Event stored, loop prevented delivery                  | `suppressed` receipt  | Not an orphan — loop prevention worked correctly                  |
+| Event stored, capacity exceeded                        | `suppressed` receipt  | Replay candidate (after increasing capacity limits)               |
+| Event stored, delivery sent before crash               | Yes (receipt written) | Not an orphan — check receipt status                              |
 
 ### Replay Workflow for Orphans
 
@@ -312,11 +312,11 @@ medre run --config config.toml
 
 ## Replay Modes
 
-| Mode | Routes? | Delivers? | Side effects | Use case |
-|------|---------|-----------|-------------|----------|
-| `DRY_RUN` | Yes | Skip (no delivery) | None | Preview what replay would do. First step before any BEST_EFFORT. |
-| `RE_ROUTE` | Yes | No (read-only) | None | Re-evaluate route matching after a config change. No delivery. |
-| `BEST_EFFORT` | Yes | Yes | Real adapter delivery | Re-deliver historical events. Sends real messages. Produces fresh storage receipts with `source='replay'`. |
+| Mode          | Routes? | Delivers?          | Side effects          | Use case                                                                                                   |
+| ------------- | ------- | ------------------ | --------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `DRY_RUN`     | Yes     | Skip (no delivery) | None                  | Preview what replay would do. First step before any BEST_EFFORT.                                           |
+| `RE_ROUTE`    | Yes     | No (read-only)     | None                  | Re-evaluate route matching after a config change. No delivery.                                             |
+| `BEST_EFFORT` | Yes     | Yes                | Real adapter delivery | Re-deliver historical events. Sends real messages. Produces fresh storage receipts with `source='replay'`. |
 
 Always run `DRY_RUN` or `RE_ROUTE` first. Only use `BEST_EFFORT` when you have verified the route matching preview and accept the duplicate delivery risk.
 
@@ -326,26 +326,26 @@ Always run `DRY_RUN` or `RE_ROUTE` first. Only use `BEST_EFFORT` when you have v
 medre replay --mode <mode> [--event <event_id>] --config my-bridge.toml
 ```
 
-| Flag | Required | Description |
-|------|----------|-------------|
-| `--mode` | Yes | One of: `DRY_RUN`, `RE_ROUTE`, `BEST_EFFORT` |
-| `--event` | No | Specific event ID to replay. If omitted, replays all events in storage. |
-| `--config` | Yes | Path to TOML config (must use SQLite storage) |
+| Flag       | Required | Description                                                             |
+| ---------- | -------- | ----------------------------------------------------------------------- |
+| `--mode`   | Yes      | One of: `DRY_RUN`, `RE_ROUTE`, `BEST_EFFORT`                            |
+| `--event`  | No       | Specific event ID to replay. If omitted, replays all events in storage. |
+| `--config` | Yes      | Path to TOML config (must use SQLite storage)                           |
 
 Additional flags:
 
-| Flag | Description |
-|------|-------------|
-| `--from <timestamp>` | Replay events created after this ISO-8601 timestamp |
-| `--to <timestamp>` | Replay events created before this ISO-8601 timestamp |
-| `--route <route_id>` | Only replay events that match this route |
+| Flag                 | Description                                          |
+| -------------------- | ---------------------------------------------------- |
+| `--from <timestamp>` | Replay events created after this ISO-8601 timestamp  |
+| `--to <timestamp>`   | Replay events created before this ISO-8601 timestamp |
+| `--route <route_id>` | Only replay events that match this route             |
 
 ### Exit Codes
 
-| Code | Meaning |
-|------|---------|
-| 0 | Replay completed (may include partial failures in BEST_EFFORT) |
-| 2 | Config error, no SQLite backend, or database not found |
+| Code | Meaning                                                        |
+| ---- | -------------------------------------------------------------- |
+| 0    | Replay completed (may include partial failures in BEST_EFFORT) |
+| 2    | Config error, no SQLite backend, or database not found         |
 
 ## Replay Result Interpretation
 
@@ -419,10 +419,10 @@ BEST_EFFORT replay produces `DeliveryReceipt` records with these distinguishing 
 }
 ```
 
-| Field | Value for replay | Purpose |
-|-------|-----------------|---------|
-| `source` | `"replay"` | Distinguishes replay deliveries from live deliveries |
-| `replay_run_id` | Unique run identifier | Groups all receipts from the same replay run |
+| Field           | Value for replay      | Purpose                                              |
+| --------------- | --------------------- | ---------------------------------------------------- |
+| `source`        | `"replay"`            | Distinguishes replay deliveries from live deliveries |
+| `replay_run_id` | Unique run identifier | Groups all receipts from the same replay run         |
 
 Key distinctions:
 
@@ -470,12 +470,12 @@ Replay does not deduplicate. Every BEST_EFFORT replay produces new outbound mess
 
 ### When Duplicates Occur
 
-| Scenario | Risk level | Why |
-|----------|-----------|-----|
-| Replaying events that were never delivered | Low | No prior delivery exists |
-| Replaying events that were delivered before a crash | Medium | Some events may have been delivered but have no receipt |
-| Replaying events that have existing `sent` receipts | High | Events will be delivered again |
-| Multiple BEST_EFFORT replays of the same events | High | Each run produces new deliveries |
+| Scenario                                            | Risk level | Why                                                     |
+| --------------------------------------------------- | ---------- | ------------------------------------------------------- |
+| Replaying events that were never delivered          | Low        | No prior delivery exists                                |
+| Replaying events that were delivered before a crash | Medium     | Some events may have been delivered but have no receipt |
+| Replaying events that have existing `sent` receipts | High       | Events will be delivered again                          |
+| Multiple BEST_EFFORT replays of the same events     | High       | Each run produces new deliveries                        |
 
 ### Assessing Risk Before Replay
 
@@ -504,33 +504,33 @@ ORDER BY e.created_at DESC;
 
 ## Retry vs Replay
 
-| | Retry (automatic) | Replay (manual) |
-|---|---|---|
-| **Trigger** | `ADAPTER_TRANSIENT` failures only | Operator-initiated via CLI |
-| **Owner** | `RetryWorker` (background) | Operator |
-| **Lineage** | `source='retry'`, linked via `parent_receipt_id`, same delivery chain | `source='replay'`, `replay_run_id`, new delivery execution |
-| **Persistence** | Pending retry state (`next_retry_at`) survives restart | Receipts durable in SQLite. ReplaySummary is in-memory only. |
-| **Duplicate risk** | None — same delivery attempt | High — new outbound messages, no dedup |
-| **Bounded by** | `RetryPolicy` (max attempts, backoff) | Operator decides scope |
-| **Opt-in** | Yes — requires `RetryPolicy` config | Always available |
+|                    | Retry (automatic)                                                     | Replay (manual)                                              |
+| ------------------ | --------------------------------------------------------------------- | ------------------------------------------------------------ |
+| **Trigger**        | `ADAPTER_TRANSIENT` failures only                                     | Operator-initiated via CLI                                   |
+| **Owner**          | `RetryWorker` (background)                                            | Operator                                                     |
+| **Lineage**        | `source='retry'`, linked via `parent_receipt_id`, same delivery chain | `source='replay'`, `replay_run_id`, new delivery execution   |
+| **Persistence**    | Pending retry state (`next_retry_at`) survives restart                | Receipts durable in SQLite. ReplaySummary is in-memory only. |
+| **Duplicate risk** | None — same delivery attempt                                          | High — new outbound messages, no dedup                       |
+| **Bounded by**     | `RetryPolicy` (max attempts, backoff)                                 | Operator decides scope                                       |
+| **Opt-in**         | Yes — requires `RetryPolicy` config                                   | Always available                                             |
 
 ### Retry States
 
-| State | `status` | `next_retry_at` | `failure_kind` | Meaning |
-|-------|---------|-----------------|----------------|---------|
-| Pending retry | `failed` | Set (future time) | `adapter_transient` | RetryWorker will re-attempt |
-| Exhausted | `dead_lettered` | `NULL` | `adapter_transient` | Max retries exceeded; manual intervention needed |
-| Successful retry | `sent` or `confirmed` | `NULL` | `NULL` | Retry succeeded; check `parent_receipt_id` to trace back |
+| State            | `status`              | `next_retry_at`   | `failure_kind`      | Meaning                                                  |
+| ---------------- | --------------------- | ----------------- | ------------------- | -------------------------------------------------------- |
+| Pending retry    | `failed`              | Set (future time) | `adapter_transient` | RetryWorker will re-attempt                              |
+| Exhausted        | `dead_lettered`       | `NULL`            | `adapter_transient` | Max retries exceeded; manual intervention needed         |
+| Successful retry | `sent` or `confirmed` | `NULL`            | `NULL`              | Retry succeeded; check `parent_receipt_id` to trace back |
 
 ### When to Use Which
 
-| Scenario | Use | Why |
-|----------|-----|-----|
-| Transient adapter failure | Retry (automatic) | RetryWorker handles this |
-| Retry exhausted (dead-lettered) | Replay (manual) | After fixing the underlying cause |
+| Scenario                                  | Use                                             | Why                                         |
+| ----------------------------------------- | ----------------------------------------------- | ------------------------------------------- |
+| Transient adapter failure                 | Retry (automatic)                               | RetryWorker handles this                    |
+| Retry exhausted (dead-lettered)           | Replay (manual)                                 | After fixing the underlying cause           |
 | Event never delivered (orphaned by crash) | Replay (manual) or Retry (if outbox row exists) | If no outbox row, replay is the only option |
-| Permanent failure | Replay (manual) | After fixing the underlying cause |
-| Retry disabled (no RetryPolicy) | Replay (manual) | No RetryWorker running |
+| Permanent failure                         | Replay (manual)                                 | After fixing the underlying cause           |
+| Retry disabled (no RetryPolicy)           | Replay (manual)                                 | No RetryWorker running                      |
 
 ### Replay and Route-Level Retry Interaction
 
@@ -557,22 +557,22 @@ WHERE source = 'replay' AND next_retry_at IS NOT NULL;
 
 ## Recovery Commands Quick Reference
 
-| Scenario | Command |
-|----------|---------|
-| Verify database integrity | `sqlite3 {state}/medre.sqlite "PRAGMA integrity_check;"` |
-| Restart runtime | `medre run --config config.toml` |
-| Check adapter health | `medre diagnostics --refresh-health --config config.toml` |
-| Inspect an event | `medre inspect event <event_id> --storage-path <db>` |
-| Inspect with timeline | `medre inspect event <event_id> --timeline --storage-path <db>` |
-| Inspect with evidence | `medre inspect event <event_id> --evidence --storage-path <db>` |
-| Inspect with recovery | `medre inspect event <event_id> --recovery --storage-path <db>` |
-| Inspect delivery receipts | `medre inspect receipts --event <event_id> --storage-path <db>` |
-| Inspect replay receipts | `medre inspect receipts --replay-run <run_id> --storage-path <db>` |
-| Count orphaned events | SQL: `SELECT COUNT(*) FROM canonical_events e LEFT JOIN delivery_receipts r ON e.event_id = r.event_id WHERE r.event_id IS NULL;` |
-| Preview replay | `medre replay --mode DRY_RUN --config my-bridge.toml` |
-| Execute replay | `medre replay --mode BEST_EFFORT --config my-bridge.toml` |
-| Check recent errors | `grep ERROR {state}/logs/medre.log \| tail -20` |
-| Verify startup | `grep "Assembly complete" {state}/logs/medre.log \| tail -1` |
+| Scenario                  | Command                                                                                                                           |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Verify database integrity | `sqlite3 {state}/medre.sqlite "PRAGMA integrity_check;"`                                                                          |
+| Restart runtime           | `medre run --config config.toml`                                                                                                  |
+| Check adapter health      | `medre diagnostics --refresh-health --config config.toml`                                                                         |
+| Inspect an event          | `medre inspect event <event_id> --storage-path <db>`                                                                              |
+| Inspect with timeline     | `medre inspect event <event_id> --timeline --storage-path <db>`                                                                   |
+| Inspect with evidence     | `medre inspect event <event_id> --evidence --storage-path <db>`                                                                   |
+| Inspect with recovery     | `medre inspect event <event_id> --recovery --storage-path <db>`                                                                   |
+| Inspect delivery receipts | `medre inspect receipts --event <event_id> --storage-path <db>`                                                                   |
+| Inspect replay receipts   | `medre inspect receipts --replay-run <run_id> --storage-path <db>`                                                                |
+| Count orphaned events     | SQL: `SELECT COUNT(*) FROM canonical_events e LEFT JOIN delivery_receipts r ON e.event_id = r.event_id WHERE r.event_id IS NULL;` |
+| Preview replay            | `medre replay --mode DRY_RUN --config my-bridge.toml`                                                                             |
+| Execute replay            | `medre replay --mode BEST_EFFORT --config my-bridge.toml`                                                                         |
+| Check recent errors       | `grep ERROR {state}/logs/medre.log \| tail -20`                                                                                   |
+| Verify startup            | `grep "Assembly complete" {state}/logs/medre.log \| tail -1`                                                                      |
 
 ## Caveats
 

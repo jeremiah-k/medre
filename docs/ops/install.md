@@ -2,12 +2,12 @@
 
 ## Prerequisites
 
-| Requirement | Details |
-|---|---|
-| Python | 3.11 or later (3.12 tested) |
-| pip | `>= 21.3` for extras support |
-| git | For source checkout only |
-| Docker | Optional — for integration test configs referencing containerized Synapse or meshtasticd |
+| Requirement | Details                                                                                  |
+| ----------- | ---------------------------------------------------------------------------------------- |
+| Python      | 3.11 or later (3.12 tested)                                                              |
+| pip         | `>= 21.3` for extras support                                                             |
+| git         | For source checkout only                                                                 |
+| Docker      | Optional — for integration test configs referencing containerized Synapse or meshtasticd |
 
 ## Install Paths
 
@@ -42,13 +42,13 @@ Installed packages do not include the `examples/` directory. Use `medre config s
 
 Optional transport SDKs add real connectivity. Without them, only fake adapters are available.
 
-| Extra | Install command | Notes |
-|---|---|---|
-| `matrix` | `pip install -e ".[matrix]"` | Matrix plaintext via `mindroom-nio` |
-| `matrix-e2e` | `pip install -e ".[matrix-e2e]"` | Matrix E2EE (adds `vodozemac`; needs Rust toolchain on Alpine/ARM) |
+| Extra        | Install command                  | Notes                                                                |
+| ------------ | -------------------------------- | -------------------------------------------------------------------- |
+| `matrix`     | `pip install -e ".[matrix]"`     | Matrix plaintext via `mindroom-nio`                                  |
+| `matrix-e2e` | `pip install -e ".[matrix-e2e]"` | Matrix E2EE (adds `vodozemac`; needs Rust toolchain on Alpine/ARM)   |
 | `meshtastic` | `pip install -e ".[meshtastic]"` | Meshtastic LoRa via `mtjk`; serial requires `dialout` group on Linux |
-| `meshcore` | `pip install -e ".[meshcore]"` | MeshCore radio; serial requires `dialout` group |
-| `lxmf` | `pip install -e ".[lxmf]"` | LXMF / Reticulum; Reticulum uses a non-OSI license |
+| `meshcore`   | `pip install -e ".[meshcore]"`   | MeshCore radio; serial requires `dialout` group                      |
+| `lxmf`       | `pip install -e ".[lxmf]"`       | LXMF / Reticulum; Reticulum uses a non-OSI license                   |
 
 Combine as needed: `pip install -e ".[matrix,meshtastic,dev]"`.
 
@@ -223,17 +223,17 @@ medre config check --config examples/configs/meshtastic-serial.toml
 
 Available example configs:
 
-| Config | Purpose | Requires SDKs? |
-|---|---|---|
-| `fake-multi-adapter.toml` | All four fake adapters with routes | No |
-| `fake-bridge-smoke.toml` | Cross-adapter bridge patterns | No |
-| `fake-retry-smoke.toml` | Retry worker with fake adapters | No |
-| `matrix.toml` | Real Matrix adapter | Yes (matrix) |
-| `meshtastic-serial.toml` | Real Meshtastic serial adapter | Yes (meshtastic) |
-| `mixed-matrix-meshtastic.toml` | Mixed real Matrix + Meshtastic | Yes (both) |
-| `docker-matrix-bridge.toml` | Docker Synapse + Meshtastic | Yes + Docker |
-| `docker-meshtastic-bridge.toml` | Docker meshtasticd + Matrix | Yes + Docker |
-| `docker-bridge-smoke.toml` | Docker integration smoke test | Yes + Docker |
+| Config                          | Purpose                            | Requires SDKs?   |
+| ------------------------------- | ---------------------------------- | ---------------- |
+| `fake-multi-adapter.toml`       | All four fake adapters with routes | No               |
+| `fake-bridge-smoke.toml`        | Cross-adapter bridge patterns      | No               |
+| `fake-retry-smoke.toml`         | Retry worker with fake adapters    | No               |
+| `matrix.toml`                   | Real Matrix adapter                | Yes (matrix)     |
+| `meshtastic-serial.toml`        | Real Meshtastic serial adapter     | Yes (meshtastic) |
+| `mixed-matrix-meshtastic.toml`  | Mixed real Matrix + Meshtastic     | Yes (both)       |
+| `docker-matrix-bridge.toml`     | Docker Synapse + Meshtastic        | Yes + Docker     |
+| `docker-meshtastic-bridge.toml` | Docker meshtasticd + Matrix        | Yes + Docker     |
+| `docker-bridge-smoke.toml`      | Docker integration smoke test      | Yes + Docker     |
 
 ## Docker Validation (Optional)
 
@@ -273,16 +273,16 @@ PYTHONPATH=src pytest -m live -v
 
 ## Common Issues
 
-| Issue | Cause | Resolution |
-|---|---|---|
-| `ModuleNotFoundError: No module named 'nio'` | Matrix SDK not installed | `pip install -e ".[matrix]"` |
-| `ModuleNotFoundError: No module named 'meshtastic'` | Meshtastic SDK not installed | `pip install -e ".[meshtastic]"` |
-| `ListenerMismatchError` | Missing `pubsub` package | `pip install -e ".[meshtastic]"` (includes PyPubSub) |
-| `Permission denied: /dev/ttyACM0` | Serial permissions | `sudo usermod -aG dialout $USER`, re-login |
-| `OlmUnverifiedDeviceError` | Matrix E2EE strict device check | Adapter handles via `ignore_unverified_devices=True` |
-| `vodozemac` build failure | No Rust toolchain | Install Rust: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
-| `RNS.Identity.from_file()` returns `None` | Identity file not found or corrupted | Check path, verify file is 64 bytes, check permissions |
-| `ImportError: cannot import name 'HAS_E2EE'` | Old install without E2EE extra | `pip install -e ".[matrix-e2e]"` |
+| Issue                                               | Cause                                | Resolution                                                                      |
+| --------------------------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------- |
+| `ModuleNotFoundError: No module named 'nio'`        | Matrix SDK not installed             | `pip install -e ".[matrix]"`                                                    |
+| `ModuleNotFoundError: No module named 'meshtastic'` | Meshtastic SDK not installed         | `pip install -e ".[meshtastic]"`                                                |
+| `ListenerMismatchError`                             | Missing `pubsub` package             | `pip install -e ".[meshtastic]"` (includes PyPubSub)                            |
+| `Permission denied: /dev/ttyACM0`                   | Serial permissions                   | `sudo usermod -aG dialout $USER`, re-login                                      |
+| `OlmUnverifiedDeviceError`                          | Matrix E2EE strict device check      | Adapter handles via `ignore_unverified_devices=True`                            |
+| `vodozemac` build failure                           | No Rust toolchain                    | Install Rust: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
+| `RNS.Identity.from_file()` returns `None`           | Identity file not found or corrupted | Check path, verify file is 64 bytes, check permissions                          |
+| `ImportError: cannot import name 'HAS_E2EE'`        | Old install without E2EE extra       | `pip install -e ".[matrix-e2e]"`                                                |
 
 ## Quick Reference
 

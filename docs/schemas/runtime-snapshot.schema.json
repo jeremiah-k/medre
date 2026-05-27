@@ -36,25 +36,25 @@
     "route_topology": {
       "type": "object",
       "additionalProperties": true,
-      "default": {"status": "unavailable"},
+      "default": { "status": "unavailable" },
       "description": "Topology-aware route diagnostics from the Router."
     },
     "queue_status": {
       "type": "object",
-      "additionalProperties": {"type": "string"},
-      "default": {"status": "unavailable"},
+      "additionalProperties": { "type": "string" },
+      "default": { "status": "unavailable" },
       "description": "Queue status dict."
     },
     "backpressure_status": {
       "type": "object",
-      "additionalProperties": {"type": "string"},
-      "default": {"status": "unavailable"},
+      "additionalProperties": { "type": "string" },
+      "default": { "status": "unavailable" },
       "description": "Backpressure status dict."
     },
     "task_status": {
       "type": "object",
-      "additionalProperties": {"type": "string"},
-      "default": {"status": "unavailable"},
+      "additionalProperties": { "type": "string" },
+      "default": { "status": "unavailable" },
       "description": "Task status dict."
     }
   },

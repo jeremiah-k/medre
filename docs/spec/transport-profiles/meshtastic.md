@@ -12,47 +12,47 @@ The adapter delegates raw transport lifecycle to `MeshtasticSession`. The sessio
 
 ## Configuration Fields
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `adapter_id` | `str` | *(required)* | Unique adapter instance identifier |
-| `connection_type` | `Literal["fake","tcp","serial","ble"]` | `"fake"` | Connection mode |
-| `host` | `str \| None` | `None` | Hostname/IP for TCP (required when `connection_type="tcp"`) |
-| `port` | `int \| None` | `None` | Port for TCP (default 4403) |
-| `serial_port` | `str \| None` | `None` | Serial device path (required when `connection_type="serial"`) |
-| `ble_address` | `str \| None` | `None` | BLE MAC address (required when `connection_type="ble"`) |
-| `meshnet_name` | `str` | `""` | Human-readable meshnet name (informational) |
-| `default_channel` | `int` | `0` | Default radio channel index for outbound |
-| `channel_mapping` | `dict[int, str]` | `{}` | Display-label map (NOT a relay allowlist) |
-| `message_delay_seconds` | `float` | `0.5` | Minimum seconds between outbound messages |
-| `startup_backlog_suppress_seconds` | `float` | `5.0` | Window after start to suppress stale packets |
-| `sync_timeout_ms` | `int` | `30000` | Sync operation timeout |
-| `matrix_relay_prefix` | `str` | `"[{longname}/{meshnet_name}]: "` | Prefix template for Meshtastic→Matrix direction |
-| `radio_relay_prefix` | `str` | `"{shortname5}[M]: "` | Prefix template for Matrix→Meshtastic direction |
-| `mmrelay_compatibility` | `bool` | `False` | Embed mmrelay-compatible mesh metadata in Matrix events |
-| `max_text_bytes` | `int` | `227` | UTF-8 byte budget for final radio text |
-| `queue_send_max_attempts` | `int` | `3` | Max send attempts per queued item |
-| `outbound_mode` | `Literal["enabled","listen_only"]` | `"enabled"` | `"listen_only"` suppresses all radio sends |
+| Field                              | Type                                   | Default                           | Description                                                   |
+| ---------------------------------- | -------------------------------------- | --------------------------------- | ------------------------------------------------------------- |
+| `adapter_id`                       | `str`                                  | _(required)_                      | Unique adapter instance identifier                            |
+| `connection_type`                  | `Literal["fake","tcp","serial","ble"]` | `"fake"`                          | Connection mode                                               |
+| `host`                             | `str \| None`                          | `None`                            | Hostname/IP for TCP (required when `connection_type="tcp"`)   |
+| `port`                             | `int \| None`                          | `None`                            | Port for TCP (default 4403)                                   |
+| `serial_port`                      | `str \| None`                          | `None`                            | Serial device path (required when `connection_type="serial"`) |
+| `ble_address`                      | `str \| None`                          | `None`                            | BLE MAC address (required when `connection_type="ble"`)       |
+| `meshnet_name`                     | `str`                                  | `""`                              | Human-readable meshnet name (informational)                   |
+| `default_channel`                  | `int`                                  | `0`                               | Default radio channel index for outbound                      |
+| `channel_mapping`                  | `dict[int, str]`                       | `{}`                              | Display-label map (NOT a relay allowlist)                     |
+| `message_delay_seconds`            | `float`                                | `0.5`                             | Minimum seconds between outbound messages                     |
+| `startup_backlog_suppress_seconds` | `float`                                | `5.0`                             | Window after start to suppress stale packets                  |
+| `sync_timeout_ms`                  | `int`                                  | `30000`                           | Sync operation timeout                                        |
+| `matrix_relay_prefix`              | `str`                                  | `"[{longname}/{meshnet_name}]: "` | Prefix template for Meshtastic→Matrix direction               |
+| `radio_relay_prefix`               | `str`                                  | `"{shortname5}[M]: "`             | Prefix template for Matrix→Meshtastic direction               |
+| `mmrelay_compatibility`            | `bool`                                 | `False`                           | Embed mmrelay-compatible mesh metadata in Matrix events       |
+| `max_text_bytes`                   | `int`                                  | `227`                             | UTF-8 byte budget for final radio text                        |
+| `queue_send_max_attempts`          | `int`                                  | `3`                               | Max send attempts per queued item                             |
+| `outbound_mode`                    | `Literal["enabled","listen_only"]`     | `"enabled"`                       | `"listen_only"` suppresses all radio sends                    |
 
 ---
 
 ## Capabilities
 
-| Capability | Value |
-|---|---|
-| text | `True` |
-| replies | `"native"` |
-| reactions | `"native"` |
-| edits | `"unsupported"` |
-| deletes | `"unsupported"` |
-| attachments | `False` |
-| metadata_fields | `True` |
-| delivery_receipts | `False` |
-| store_and_forward | `False` |
-| direct_messages | `False` |
-| channels | `True` |
-| async_delivery | `True` |
-| mesh_routing | `True` |
-| max_text_bytes | Configurable (default 227) |
+| Capability        | Value                      |
+| ----------------- | -------------------------- |
+| text              | `True`                     |
+| replies           | `"native"`                 |
+| reactions         | `"native"`                 |
+| edits             | `"unsupported"`            |
+| deletes           | `"unsupported"`            |
+| attachments       | `False`                    |
+| metadata_fields   | `True`                     |
+| delivery_receipts | `False`                    |
+| store_and_forward | `False`                    |
+| direct_messages   | `False`                    |
+| channels          | `True`                     |
+| async_delivery    | `True`                     |
+| mesh_routing      | `True`                     |
+| max_text_bytes    | Configurable (default 227) |
 
 ---
 
@@ -60,20 +60,21 @@ The adapter delegates raw transport lifecycle to `MeshtasticSession`. The sessio
 
 The packet classifier (`MeshtasticPacketClassifier`) applies a 10-step conservative policy:
 
-| Priority | Condition | Action | Reason |
-|---|---|---|---|
-| 1 | Encrypted packet | **drop** | `"encrypted packet"` |
-| 2 | Malformed / no decoded payload | **drop** | `"malformed or missing decoded payload"` |
-| 3 | Detection sensor portnum | **deferred** | `"detection sensor packets are deferred"` |
-| 4 | ACK / admin | **ignore** | `"ack/admin/system message"` |
-| 5 | Unknown / custom portnum | **deferred** | `"unknown or custom portnum"` |
-| 6 | Telemetry / position / nodeinfo | **ignore** | `"non-chat message type"` |
-| 7 | Direct message (non-broadcast `toId`) | **ignore** | `"direct message to specific node"` |
-| 8 | Plugin-only portnum | **deferred** | `"plugin_only packets are deferred"` |
-| 9 | Empty text body | **ignore** | `"empty text"` |
-| 10 | Valid text message | **relay** | `"text message"` |
+| Priority | Condition                             | Action       | Reason                                    |
+| -------- | ------------------------------------- | ------------ | ----------------------------------------- |
+| 1        | Encrypted packet                      | **drop**     | `"encrypted packet"`                      |
+| 2        | Malformed / no decoded payload        | **drop**     | `"malformed or missing decoded payload"`  |
+| 3        | Detection sensor portnum              | **deferred** | `"detection sensor packets are deferred"` |
+| 4        | ACK / admin                           | **ignore**   | `"ack/admin/system message"`              |
+| 5        | Unknown / custom portnum              | **deferred** | `"unknown or custom portnum"`             |
+| 6        | Telemetry / position / nodeinfo       | **ignore**   | `"non-chat message type"`                 |
+| 7        | Direct message (non-broadcast `toId`) | **ignore**   | `"direct message to specific node"`       |
+| 8        | Plugin-only portnum                   | **deferred** | `"plugin_only packets are deferred"`      |
+| 9        | Empty text body                       | **ignore**   | `"empty text"`                            |
+| 10       | Valid text message                    | **relay**    | `"text message"`                          |
 
 Relayed packets are decoded by `MeshtasticCodec` into:
+
 - **`MESSAGE_CREATED`** — regular text messages and replies (`replyId` without `emoji`).
 - **`MESSAGE_REACTED`** — reaction messages (`replyId` with `emoji == 1`).
 
@@ -106,6 +107,7 @@ The Meshtastic renderer (`MeshtasticRenderer`) produces:
 **Actual send:** A background `_process_queue` task drains the queue at `message_delay_seconds` pace via `session.send()`. The session sends via the SDK (`sendText` or structured `_sendPacket`) with bounded retry (3 attempts, linear backoff 0.1 s × attempt).
 
 **Queue semantics:**
+
 - Bounded queue (default 1024 items); rejects with `MeshtasticSendError(transient=True)` when full.
 - Transient send failures: item is **front-requeued** up to `queue_send_max_attempts`; then dropped as exhausted.
 - Permanent failures: item dropped immediately.
@@ -131,39 +133,39 @@ The Meshtastic renderer (`MeshtasticRenderer`) produces:
 
 `adapter.diagnostics()` returns (no secrets, no raw protobuf):
 
-| Key | Type | Description |
-|---|---|---|
-| `adapter_id` | `str` | Adapter identifier |
-| `started` | `bool` | Adapter started flag |
-| `connection_type` | `str` | Config connection mode |
-| `queue_pending` | `int` | Items in outbound queue |
-| `queue_total_sent` | `int` | Successfully sent items |
-| `queue_total_failed` | `int` | Terminal failures |
-| `queue_total_enqueued` | `int` | Total enqueue successes |
-| `queue_total_dequeued` | `int` | Total dequeue operations |
-| `queue_total_rejected` | `int` | Enqueue rejections (full queue) |
-| `queue_total_requeued` | `int` | Transient-failure front-requeues |
-| `queue_total_exhausted` | `int` | Items dropped after max attempts |
-| `queue_total_permanent_failed` | `int` | Items dropped for permanent errors |
-| `queue_utilization_pct` | `float` | Queue fullness percentage |
-| `drain_task_running` | `bool` | Background drain task alive |
-| `classifier_packets_seen` | `int` | Total classified |
-| `classifier_packets_relayed` | `int` | Relay action count |
-| `classifier_packets_ignored` | `int` | Ignore action count |
-| `classifier_packets_dropped` | `int` | Drop action count |
-| `classifier_packets_deferred` | `int` | Deferred action count |
-| `classifier_packets_encrypted_dropped` | `int` | Encrypted drop sub-counter |
-| `classifier_packets_dm_ignored` | `int` | DM ignore sub-counter |
-| `classifier_packets_empty_text_ignored` | `int` | Empty text sub-counter |
-| `inbound_published` | `int` | Events published inbound |
-| `startup_backlog_packets_suppressed` | `int` | Stale backlog suppressions |
-| `outbound_mode` | `str` | Current outbound mode |
-| `outbound_gate_suppressed` | `int` | Listen-only suppressions |
-| `session.connected` | `bool` | Session connected |
-| `session.reconnecting` | `bool` | Reconnect in progress |
-| `session.reconnect_attempts` | `int` | Consecutive reconnect attempts |
-| `session.transient_delivery_failures` | `int` | Transient send errors |
-| `session.permanent_delivery_failures` | `int` | Permanent send errors |
+| Key                                     | Type    | Description                        |
+| --------------------------------------- | ------- | ---------------------------------- |
+| `adapter_id`                            | `str`   | Adapter identifier                 |
+| `started`                               | `bool`  | Adapter started flag               |
+| `connection_type`                       | `str`   | Config connection mode             |
+| `queue_pending`                         | `int`   | Items in outbound queue            |
+| `queue_total_sent`                      | `int`   | Successfully sent items            |
+| `queue_total_failed`                    | `int`   | Terminal failures                  |
+| `queue_total_enqueued`                  | `int`   | Total enqueue successes            |
+| `queue_total_dequeued`                  | `int`   | Total dequeue operations           |
+| `queue_total_rejected`                  | `int`   | Enqueue rejections (full queue)    |
+| `queue_total_requeued`                  | `int`   | Transient-failure front-requeues   |
+| `queue_total_exhausted`                 | `int`   | Items dropped after max attempts   |
+| `queue_total_permanent_failed`          | `int`   | Items dropped for permanent errors |
+| `queue_utilization_pct`                 | `float` | Queue fullness percentage          |
+| `drain_task_running`                    | `bool`  | Background drain task alive        |
+| `classifier_packets_seen`               | `int`   | Total classified                   |
+| `classifier_packets_relayed`            | `int`   | Relay action count                 |
+| `classifier_packets_ignored`            | `int`   | Ignore action count                |
+| `classifier_packets_dropped`            | `int`   | Drop action count                  |
+| `classifier_packets_deferred`           | `int`   | Deferred action count              |
+| `classifier_packets_encrypted_dropped`  | `int`   | Encrypted drop sub-counter         |
+| `classifier_packets_dm_ignored`         | `int`   | DM ignore sub-counter              |
+| `classifier_packets_empty_text_ignored` | `int`   | Empty text sub-counter             |
+| `inbound_published`                     | `int`   | Events published inbound           |
+| `startup_backlog_packets_suppressed`    | `int`   | Stale backlog suppressions         |
+| `outbound_mode`                         | `str`   | Current outbound mode              |
+| `outbound_gate_suppressed`              | `int`   | Listen-only suppressions           |
+| `session.connected`                     | `bool`  | Session connected                  |
+| `session.reconnecting`                  | `bool`  | Reconnect in progress              |
+| `session.reconnect_attempts`            | `int`   | Consecutive reconnect attempts     |
+| `session.transient_delivery_failures`   | `int`   | Transient send errors              |
+| `session.permanent_delivery_failures`   | `int`   | Permanent send errors              |
 
 ---
 
@@ -197,8 +199,8 @@ The Meshtastic renderer (`MeshtasticRenderer`) produces:
 
 ## Reference Libraries
 
-| Library | Purpose | Optional |
-|---|---|---|
-| `meshtastic` / `mtjk` | Meshtastic Python SDK (TCP, serial, BLE interfaces) | Yes (`medre[meshtastic]`) |
-| `pubsub` (pypubsub) | Meshtastic SDK callback subscription | Yes (via `meshtastic` dependency) |
-| `meshtastic.protobuf` | Protobuf `MeshPacket` / `Data` for structured send | Yes (via `meshtastic` dependency) |
+| Library               | Purpose                                             | Optional                          |
+| --------------------- | --------------------------------------------------- | --------------------------------- |
+| `meshtastic` / `mtjk` | Meshtastic Python SDK (TCP, serial, BLE interfaces) | Yes (`medre[meshtastic]`)         |
+| `pubsub` (pypubsub)   | Meshtastic SDK callback subscription                | Yes (via `meshtastic` dependency) |
+| `meshtastic.protobuf` | Protobuf `MeshPacket` / `Data` for structured send  | Yes (via `meshtastic` dependency) |

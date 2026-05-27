@@ -22,42 +22,42 @@ reconciliation is explicit and operator-auditable.
 
 ### 2.1 Matrix
 
-| Concept         | Representation  | Example               | Scope          |
-| --------------- | --------------- | --------------------- | -------------- |
-| User identity   | MXID            | `@alice:matrix.org`   | Global (federated) |
-| Room identity   | Room ID         | `!abc123:matrix.org`  | Global (federated) |
-| Event identity  | Event ID        | `$event_id_string`    | Global (federated) |
+| Concept        | Representation | Example              | Scope              |
+| -------------- | -------------- | -------------------- | ------------------ |
+| User identity  | MXID           | `@alice:matrix.org`  | Global (federated) |
+| Room identity  | Room ID        | `!abc123:matrix.org` | Global (federated) |
+| Event identity | Event ID       | `$event_id_string`   | Global (federated) |
 
 MXIDs are human-readable, stable, and globally unique within the Matrix
 federation. User identity is server-anchored.
 
 ### 2.2 Meshtastic
 
-| Concept         | Representation  | Example     | Scope                  |
-| --------------- | --------------- | ----------- | ---------------------- |
-| Node identity   | Node number     | `1234`      | Local mesh, session-scoped |
-| Channel         | Channel index   | `0` through `7` | Local mesh         |
+| Concept       | Representation | Example         | Scope                      |
+| ------------- | -------------- | --------------- | -------------------------- |
+| Node identity | Node number    | `1234`          | Local mesh, session-scoped |
+| Channel       | Channel index  | `0` through `7` | Local mesh                 |
 
 Node numbers are assigned dynamically. A node that rejoins the mesh MAY
 receive a different number. There is no global identity.
 
 ### 2.3 MeshCore
 
-| Concept         | Representation              | Example                | Scope                  |
-| --------------- | --------------------------- | ---------------------- | ---------------------- |
-| Node identity   | Ed25519 public key (hex)    | `"a1b2c3..."` (64 chars) | Global (cryptographic) |
-| Channel         | Channel name + index        | `"default"` / `0`      | Local mesh             |
+| Concept       | Representation           | Example                  | Scope                  |
+| ------------- | ------------------------ | ------------------------ | ---------------------- |
+| Node identity | Ed25519 public key (hex) | `"a1b2c3..."` (64 chars) | Global (cryptographic) |
+| Channel       | Channel name + index     | `"default"` / `0`        | Local mesh             |
 
 Identity is cryptographic. The public key is the identity. Contact lists map
 pubkeys to display names locally; this mapping is device-local and not shared.
 
 ### 2.4 LXMF
 
-| Concept         | Representation             | Example                  | Scope                  |
-| --------------- | -------------------------- | ------------------------ | ---------------------- |
-| Identity        | Reticulum Identity         | Internal keypair         | Global (cryptographic) |
-| Identity hash   | 16-byte hex string         | `"a1b2c3d4e5f6a7b8"`     | Global                 |
-| Destination     | Destination hash (16 bytes)| Same format as identity  | Global                 |
+| Concept       | Representation              | Example                 | Scope                  |
+| ------------- | --------------------------- | ----------------------- | ---------------------- |
+| Identity      | Reticulum Identity          | Internal keypair        | Global (cryptographic) |
+| Identity hash | 16-byte hex string          | `"a1b2c3d4e5f6a7b8"`    | Global                 |
+| Destination   | Destination hash (16 bytes) | Same format as identity | Global                 |
 
 Identity is cryptographic. The identity hash is derived from SHA-256 of the
 public key (first 16 bytes). There is no human-readable addressing at the
@@ -70,12 +70,12 @@ protocol level.
 The `source_transport_id` field on `CanonicalEvent` carries the native sender
 identity from the source transport. It is always a string.
 
-| Transport  | Value                         | Example                     |
-| ---------- | ----------------------------- | --------------------------- |
-| Matrix     | Sender MXID                   | `@alice:matrix.org`         |
-| Meshtastic | Node number (as string)       | `"1234"`                    |
-| MeshCore   | Ed25519 public key (hex)      | `"a1b2c3..."` (64 chars)    |
-| LXMF       | Source hash (16-byte hex)     | `"a1b2c3d4e5f6a7b8"`        |
+| Transport  | Value                     | Example                  |
+| ---------- | ------------------------- | ------------------------ |
+| Matrix     | Sender MXID               | `@alice:matrix.org`      |
+| Meshtastic | Node number (as string)   | `"1234"`                 |
+| MeshCore   | Ed25519 public key (hex)  | `"a1b2c3..."` (64 chars) |
+| LXMF       | Source hash (16-byte hex) | `"a1b2c3d4e5f6a7b8"`     |
 
 Rules:
 
@@ -91,12 +91,12 @@ Rules:
 The `source_channel_id` field carries the native channel, room, or topic where
 the event originated.
 
-| Transport  | Value                          | Example              |
-| ---------- | ------------------------------ | -------------------- |
-| Matrix     | Room ID                        | `!abc123:matrix.org` |
-| Meshtastic | Channel index (as string)      | `"0"`                |
-| MeshCore   | Channel name or index          | `"0"`                |
-| LXMF       | `None` (no channel concept)    | `None`               |
+| Transport  | Value                       | Example              |
+| ---------- | --------------------------- | -------------------- |
+| Matrix     | Room ID                     | `!abc123:matrix.org` |
+| Meshtastic | Channel index (as string)   | `"0"`                |
+| MeshCore   | Channel name or index       | `"0"`                |
+| LXMF       | `None` (no channel concept) | `None`               |
 
 `source_channel_id` MAY be `None` if the transport has no channel concept.
 Route matching evaluates this field for filtering.
@@ -148,10 +148,10 @@ class CanonicalActor:
 
 ### 4.4 Verification States
 
-| State          | Meaning                                                                      |
-| -------------- | ---------------------------------------------------------------------------- |
-| **Verified**   | Operator has confirmed this identity mapping.                                |
-| **Manual**     | Operator created or edited this mapping.                                     |
+| State          | Meaning                                                                     |
+| -------------- | --------------------------------------------------------------------------- |
+| **Verified**   | Operator has confirmed this identity mapping.                               |
+| **Manual**     | Operator created or edited this mapping.                                    |
 | **Auto**       | System auto-linked based on configurable rules. Subject to operator review. |
 | **Unverified** | No mapping exists. The native identity is treated as a standalone actor.    |
 
@@ -181,9 +181,9 @@ The following MUST NEVER appear in `CanonicalEvent.metadata` or any field of
 
 ## 7. Adapter Identity Concepts
 
-| Concept               | Scope           | What it identifies                                   |
-| --------------------- | --------------- | ---------------------------------------------------- |
-| `adapter_id`          | Transport-local | A specific adapter instance in this MEDRE process    |
-| `platform`            | Platform-level  | The protocol family (meshtastic, meshcore, matrix)   |
-| `source_transport_id` | Transport-local | Native actor identity (MXID, node number, pubkey)    |
-| `target_platform`     | Platform-level  | Renderer selection key (resolved from adapter_id)    |
+| Concept               | Scope           | What it identifies                                 |
+| --------------------- | --------------- | -------------------------------------------------- |
+| `adapter_id`          | Transport-local | A specific adapter instance in this MEDRE process  |
+| `platform`            | Platform-level  | The protocol family (meshtastic, meshcore, matrix) |
+| `source_transport_id` | Transport-local | Native actor identity (MXID, node number, pubkey)  |
+| `target_platform`     | Platform-level  | Renderer selection key (resolved from adapter_id)  |

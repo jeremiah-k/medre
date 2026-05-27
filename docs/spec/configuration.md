@@ -12,15 +12,15 @@ See also: [architecture.md](architecture.md), [adapter-runtime.md](adapter-runti
 
 The configuration system lives under `medre.config`:
 
-| Module        | Purpose                                                                                                     |
-| ------------- | ----------------------------------------------------------------------------------------------------------- |
-| `paths.py`    | XDG-compatible path resolution with `MEDRE_HOME` single-directory override                                  |
-| `model.py`    | Typed frozen-dataclass configuration models                                                                 |
-| `errors.py`   | Configuration error hierarchy (`ConfigError` -> `ConfigNotFoundError`, `ConfigValidationError`, `ConfigFileError`) |
-| `loader.py`   | TOML file loader with priority search order                                                                 |
-| `env.py`      | `MEDRE_*` environment variable override layer                                                               |
-| `sample.py`   | Sample config generator (`medre config sample`)                                                             |
-| `routes.py`   | Route configuration models (`RouteConfig`, `RouteConfigSet`, `RouteDirectionality`, `BridgePolicy`)         |
+| Module      | Purpose                                                                                                            |
+| ----------- | ------------------------------------------------------------------------------------------------------------------ |
+| `paths.py`  | XDG-compatible path resolution with `MEDRE_HOME` single-directory override                                         |
+| `model.py`  | Typed frozen-dataclass configuration models                                                                        |
+| `errors.py` | Configuration error hierarchy (`ConfigError` -> `ConfigNotFoundError`, `ConfigValidationError`, `ConfigFileError`) |
+| `loader.py` | TOML file loader with priority search order                                                                        |
+| `env.py`    | `MEDRE_*` environment variable override layer                                                                      |
+| `sample.py` | Sample config generator (`medre config sample`)                                                                    |
+| `routes.py` | Route configuration models (`RouteConfig`, `RouteConfigSet`, `RouteDirectionality`, `BridgePolicy`)                |
 
 Per-transport config dataclasses live in `medre.config.adapters.*`:
 `MatrixConfig`, `MeshtasticConfig`, `MeshCoreConfig`, `LxmfConfig`.
@@ -44,25 +44,25 @@ class RuntimeConfig:
 
 ### 2.1 RuntimeOptions
 
-| Field                      | Default   | Description                          |
-| -------------------------- | --------- | ------------------------------------ |
-| `name`                     | `"medre"` | Runtime name                         |
-| `shutdown_timeout_seconds` | `10`      | Graceful shutdown timeout            |
+| Field                      | Default   | Description               |
+| -------------------------- | --------- | ------------------------- |
+| `name`                     | `"medre"` | Runtime name              |
+| `shutdown_timeout_seconds` | `10`      | Graceful shutdown timeout |
 
 ### 2.2 LoggingConfig
 
-| Field       | Default   | Description                                              |
-| ----------- | --------- | -------------------------------------------------------- |
-| `level`     | `"INFO"`  | MEDRE namespace logger level                             |
-| `format`    | `"text"`  | Log format preset (`"text"` or `"json"`)                 |
-| `overrides` | `{}`      | Per-logger namespace level overrides (e.g., suppress nio) |
+| Field       | Default  | Description                                               |
+| ----------- | -------- | --------------------------------------------------------- |
+| `level`     | `"INFO"` | MEDRE namespace logger level                              |
+| `format`    | `"text"` | Log format preset (`"text"` or `"json"`)                  |
+| `overrides` | `{}`     | Per-logger namespace level overrides (e.g., suppress nio) |
 
 ### 2.3 StorageConfig
 
-| Field     | Default   | Description                                              |
-| --------- | --------- | -------------------------------------------------------- |
-| `backend` | `"sqlite"`| Storage backend (currently only `"sqlite"`)              |
-| `path`    | `None`    | Database path. `None` uses default: `{state}/medre.sqlite`|
+| Field     | Default    | Description                                                |
+| --------- | ---------- | ---------------------------------------------------------- |
+| `backend` | `"sqlite"` | Storage backend (currently only `"sqlite"`)                |
+| `path`    | `None`     | Database path. `None` uses default: `{state}/medre.sqlite` |
 
 ### 2.4 RuntimeLimits
 
@@ -75,11 +75,11 @@ class RuntimeConfig:
 
 ### 2.5 RetryConfig
 
-| Field              | Default | Description                              |
-| ------------------ | ------- | ---------------------------------------- |
-| `enabled`          | `False` | Whether the retry worker is active       |
-| `interval_seconds` | `10.0`  | Polling interval for due retry receipts  |
-| `batch_size`       | `20`    | Max retry receipts processed per cycle   |
+| Field              | Default | Description                                    |
+| ------------------ | ------- | ---------------------------------------------- |
+| `enabled`          | `False` | Whether the retry worker is active             |
+| `interval_seconds` | `10.0`  | Polling interval for due retry receipts        |
+| `batch_size`       | `20`    | Max retry receipts processed per cycle         |
 | `max_attempts`     | `3`     | Max total delivery attempts before dead-letter |
 
 ## 3. TOML Schema
@@ -176,10 +176,10 @@ frozen instance via `dataclasses.replace()`.
 
 ### 5.1 Core Overrides
 
-| Variable            | Target                    |
-| ------------------- | ------------------------- |
-| `MEDRE_DB_PATH`     | `config.storage.path`     |
-| `MEDRE_LOG_LEVEL`   | `config.logging.level`    |
+| Variable          | Target                 |
+| ----------------- | ---------------------- |
+| `MEDRE_DB_PATH`   | `config.storage.path`  |
+| `MEDRE_LOG_LEVEL` | `config.logging.level` |
 
 ### 5.2 Adapter Overrides
 
@@ -192,6 +192,7 @@ Env overrides do not create virtual adapter instances; the target adapter MUST
 already exist in TOML.
 
 Examples:
+
 - `MEDRE_ADAPTER__MATRIX_PRIMARY__ACCESS_TOKEN`
 - `MEDRE_ADAPTER__RADIO_A__SERIAL_PORT`
 - `MEDRE_ADAPTER__MESHCORE_TBEAM__BLE_ADDRESS`
@@ -208,15 +209,15 @@ migration guidance.
 
 ## 6. XDG Path Model
 
-| Category      | XDG Default                                          | MEDRE_HOME Mode                              |
-| ------------- | ---------------------------------------------------- | -------------------------------------------- |
-| Config        | `$XDG_CONFIG_HOME/medre/` or `~/.config/medre/`      | `$MEDRE_HOME/config.toml`                    |
-| State         | `$XDG_STATE_HOME/medre/` or `~/.local/state/medre/`  | `$MEDRE_HOME/state/`                         |
-| Data          | `$XDG_DATA_HOME/medre/` or `~/.local/share/medre/`   | `$MEDRE_HOME/data/`                          |
-| Cache         | `$XDG_CACHE_HOME/medre/` or `~/.cache/medre/`        | `$MEDRE_HOME/cache/`                         |
-| Logs          | `state_dir/logs`                                     | `$MEDRE_HOME/logs/`                          |
-| Database      | `state_dir/medre.sqlite`                             | `$MEDRE_HOME/state/medre.sqlite`             |
-| Matrix store  | `state_dir/adapters/<id>/matrix/store/`              | `$MEDRE_HOME/state/adapters/<id>/matrix/store/`|
+| Category     | XDG Default                                         | MEDRE_HOME Mode                                 |
+| ------------ | --------------------------------------------------- | ----------------------------------------------- |
+| Config       | `$XDG_CONFIG_HOME/medre/` or `~/.config/medre/`     | `$MEDRE_HOME/config.toml`                       |
+| State        | `$XDG_STATE_HOME/medre/` or `~/.local/state/medre/` | `$MEDRE_HOME/state/`                            |
+| Data         | `$XDG_DATA_HOME/medre/` or `~/.local/share/medre/`  | `$MEDRE_HOME/data/`                             |
+| Cache        | `$XDG_CACHE_HOME/medre/` or `~/.cache/medre/`       | `$MEDRE_HOME/cache/`                            |
+| Logs         | `state_dir/logs`                                    | `$MEDRE_HOME/logs/`                             |
+| Database     | `state_dir/medre.sqlite`                            | `$MEDRE_HOME/state/medre.sqlite`                |
+| Matrix store | `state_dir/adapters/<id>/matrix/store/`             | `$MEDRE_HOME/state/adapters/<id>/matrix/store/` |
 
 Path placeholders `{config}`, `{state}`, `{data}`, `{cache}`, `{logs}` are
 expanded via `MedrePaths.expand_placeholder()`. Directories are never created

@@ -43,43 +43,43 @@ class CanonicalEvent(msgspec.Struct, frozen=True):
 
 ### 1.2 Field Reference
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `event_id` | `str` | — | Globally unique identifier. MUST be UUIDv7 for time-ordering and uniqueness. MUST be a non-empty string. |
-| `event_kind` | `str` | — | Kind string from the event kind registry (Section 5). MUST be a non-empty string. |
-| `schema_version` | `int` | — | Schema version this event conforms to. MUST be `>= 1`. Current version: `1`. |
-| `timestamp` | `datetime` | — | When the event occurred. MUST be timezone-aware (UTC). |
-| `source_adapter` | `str` | — | Name of the adapter instance that produced this event. |
-| `source_transport_id` | `str` | — | Native actor/source identity on the transport. This identifies *who* sent the event, not the message ID. |
-| `source_channel_id` | `str \| None` | — | Native channel, room, or topic where the event originated. `None` when the transport has no channel concept. |
-| `source_native_ref` | `NativeRef \| None` | `None` | Structured native message reference carried from the adapter codec. Set during inbound processing by codecs (e.g., `MatrixCodec.decode()`). `None` for outbound or internally created events. |
-| `parent_event_id` | `str \| None` | — | ID of the parent event in the derivation chain. `None` for source events. |
-| `lineage` | `tuple[str, ...]` | — | Ordered chain of event IDs from origin to current. Every element MUST be a non-empty string. |
-| `relations` | `tuple[EventRelation, ...]` | — | First-class typed relations to other events. |
-| `payload` | `dict[str, object]` | — | Kind-specific data payload, validated per `event_kind` via the schema registry. |
-| `metadata` | `EventMetadata` | — | Structured metadata organized into namespaces (Section 4). |
-| `depth` | `int` | `0` | Depth in the derivation tree. MUST be `>= 0`. `0` for source events. |
-| `trace_id` | `str \| None` | `None` | Distributed tracing correlation ID, reserved for future protocol-neutral use. |
+| Field                 | Type                        | Default | Description                                                                                                                                                                                   |
+| --------------------- | --------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `event_id`            | `str`                       | —       | Globally unique identifier. MUST be UUIDv7 for time-ordering and uniqueness. MUST be a non-empty string.                                                                                      |
+| `event_kind`          | `str`                       | —       | Kind string from the event kind registry (Section 5). MUST be a non-empty string.                                                                                                             |
+| `schema_version`      | `int`                       | —       | Schema version this event conforms to. MUST be `>= 1`. Current version: `1`.                                                                                                                  |
+| `timestamp`           | `datetime`                  | —       | When the event occurred. MUST be timezone-aware (UTC).                                                                                                                                        |
+| `source_adapter`      | `str`                       | —       | Name of the adapter instance that produced this event.                                                                                                                                        |
+| `source_transport_id` | `str`                       | —       | Native actor/source identity on the transport. This identifies _who_ sent the event, not the message ID.                                                                                      |
+| `source_channel_id`   | `str \| None`               | —       | Native channel, room, or topic where the event originated. `None` when the transport has no channel concept.                                                                                  |
+| `source_native_ref`   | `NativeRef \| None`         | `None`  | Structured native message reference carried from the adapter codec. Set during inbound processing by codecs (e.g., `MatrixCodec.decode()`). `None` for outbound or internally created events. |
+| `parent_event_id`     | `str \| None`               | —       | ID of the parent event in the derivation chain. `None` for source events.                                                                                                                     |
+| `lineage`             | `tuple[str, ...]`           | —       | Ordered chain of event IDs from origin to current. Every element MUST be a non-empty string.                                                                                                  |
+| `relations`           | `tuple[EventRelation, ...]` | —       | First-class typed relations to other events.                                                                                                                                                  |
+| `payload`             | `dict[str, object]`         | —       | Kind-specific data payload, validated per `event_kind` via the schema registry.                                                                                                               |
+| `metadata`            | `EventMetadata`             | —       | Structured metadata organized into namespaces (Section 4).                                                                                                                                    |
+| `depth`               | `int`                       | `0`     | Depth in the derivation tree. MUST be `>= 0`. `0` for source events.                                                                                                                          |
+| `trace_id`            | `str \| None`               | `None`  | Distributed tracing correlation ID, reserved for future protocol-neutral use.                                                                                                                 |
 
 ### 1.3 Source Identity Examples
 
 `source_transport_id` identifies the native actor, not the native message:
 
-| Transport | `source_transport_id` | Example |
-|---|---|---|
-| Matrix | Sender MXID | `@user:server.org` |
-| LXMF | Source hash (16-byte hex) | `a1b2c3d4e5f6a7b8` |
-| Meshtastic | Node number (string) | `1234` |
-| MeshCore | Node number (string) | `1234` |
+| Transport  | `source_transport_id`     | Example            |
+| ---------- | ------------------------- | ------------------ |
+| Matrix     | Sender MXID               | `@user:server.org` |
+| LXMF       | Source hash (16-byte hex) | `a1b2c3d4e5f6a7b8` |
+| Meshtastic | Node number (string)      | `1234`             |
+| MeshCore   | Node number (string)      | `1234`             |
 
 `source_channel_id` identifies the native channel:
 
-| Transport | `source_channel_id` | Example |
-|---|---|---|
-| Matrix | Room ID | `!abc123:server.org` |
-| MeshCore | Channel slot index | `0` |
-| LXMF | Destination hash (inbound) | `e5f6a7b8c9d0e1f2` |
-| No channel concept | `None` | — |
+| Transport          | `source_channel_id`        | Example              |
+| ------------------ | -------------------------- | -------------------- |
+| Matrix             | Room ID                    | `!abc123:server.org` |
+| MeshCore           | Channel slot index         | `0`                  |
+| LXMF               | Destination hash (inbound) | `e5f6a7b8c9d0e1f2`   |
+| No channel concept | `None`                     | —                    |
 
 ### 1.4 Constructor Invariants
 
@@ -117,14 +117,14 @@ class EventRelation(msgspec.Struct, frozen=True):
 
 ### 2.2 Field Reference
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `relation_type` | `Literal["reply", "reaction", "edit", "delete", "thread"]` | — | Semantic type of the relation. MUST be one of the five known types. Invalid values raise `ValueError` at construction. |
-| `target_event_id` | `str \| None` | — | Canonical event ID this relation points to. Set after correlation by the relation resolution stage. |
-| `target_native_ref` | `NativeRef \| None` | — | Structured `NativeRef` identifying the native reference when the canonical event ID has not yet been resolved. The relation resolution stage resolves this to `target_event_id` via the `native_message_refs` table. |
-| `key` | `str \| None` | — | Type-specific data. For `reaction`, this is the emoji or reaction identifier. |
-| `fallback_text` | `str \| None` | — | Inline text used when the target adapter does not support this relation type natively (e.g., `[Alice] re: original msg > reply text`). |
-| `metadata` | `dict[str, object]` | `{}` | Arbitrary key-value metadata. Frozen via `_FrozenDict` at construction. |
+| Field               | Type                                                       | Default | Description                                                                                                                                                                                                          |
+| ------------------- | ---------------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `relation_type`     | `Literal["reply", "reaction", "edit", "delete", "thread"]` | —       | Semantic type of the relation. MUST be one of the five known types. Invalid values raise `ValueError` at construction.                                                                                               |
+| `target_event_id`   | `str \| None`                                              | —       | Canonical event ID this relation points to. Set after correlation by the relation resolution stage.                                                                                                                  |
+| `target_native_ref` | `NativeRef \| None`                                        | —       | Structured `NativeRef` identifying the native reference when the canonical event ID has not yet been resolved. The relation resolution stage resolves this to `target_event_id` via the `native_message_refs` table. |
+| `key`               | `str \| None`                                              | —       | Type-specific data. For `reaction`, this is the emoji or reaction identifier.                                                                                                                                        |
+| `fallback_text`     | `str \| None`                                              | —       | Inline text used when the target adapter does not support this relation type natively (e.g., `[Alice] re: original msg > reply text`).                                                                               |
+| `metadata`          | `dict[str, object]`                                        | `{}`    | Arbitrary key-value metadata. Frozen via `_FrozenDict` at construction.                                                                                                                                              |
 
 ### 2.3 Valid Relation Types
 
@@ -170,12 +170,12 @@ class NativeRef(msgspec.Struct, frozen=True):
 
 ### 3.2 Field Reference
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `adapter` | `str` | — | Name of the adapter that owns the native namespace. |
-| `native_channel_id` | `str \| None` | — | Channel or conversation ID in the adapter's native format. |
-| `native_message_id` | `str` | — | Message ID in the adapter's native format. |
-| `native_thread_id` | `str \| None` | `None` | Thread or parent message ID in the adapter's native format. Reserved — no adapter currently populates this field. |
+| Field               | Type          | Default | Description                                                                                                       |
+| ------------------- | ------------- | ------- | ----------------------------------------------------------------------------------------------------------------- |
+| `adapter`           | `str`         | —       | Name of the adapter that owns the native namespace.                                                               |
+| `native_channel_id` | `str \| None` | —       | Channel or conversation ID in the adapter's native format.                                                        |
+| `native_message_id` | `str`         | —       | Message ID in the adapter's native format.                                                                        |
+| `native_thread_id`  | `str \| None` | `None`  | Thread or parent message ID in the adapter's native format. Reserved — no adapter currently populates this field. |
 
 ### 3.3 Usage
 
@@ -205,14 +205,14 @@ class EventMetadata(msgspec.Struct, frozen=True):
 
 ### 4.2 Namespace Definitions
 
-| Namespace | Struct | Purpose | Example Fields |
-|---|---|---|---|
-| `transport` | `TransportMetadata` | Transport layer details | `protocol`, `substrate`, `gateway_id`, `delivery_method`, `delivery_confirmed`, `transport_encrypted`, `signature_valid`, `propagation_state` |
-| `routing` | `RoutingMetadata` | Routing context | `matched_routes` (tuple), `fanout_group`, `route_trace` (tuple) |
-| `radio` | `RadioMetadata` | Radio-specific data | `frequency`, `snr`, `rssi`, `channel_index` |
-| `telemetry` | `TelemetryMetadata` | Device state at event time | `metrics` dict (frozen) |
-| `native` | `NativeMetadata` | Unnormalized native fields | `data` dict (frozen) |
-| `custom` | `dict[str, object]` | Plugin/extension data | Key-value pairs, reverse-DNS namespaced (frozen) |
+| Namespace   | Struct              | Purpose                    | Example Fields                                                                                                                                |
+| ----------- | ------------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `transport` | `TransportMetadata` | Transport layer details    | `protocol`, `substrate`, `gateway_id`, `delivery_method`, `delivery_confirmed`, `transport_encrypted`, `signature_valid`, `propagation_state` |
+| `routing`   | `RoutingMetadata`   | Routing context            | `matched_routes` (tuple), `fanout_group`, `route_trace` (tuple)                                                                               |
+| `radio`     | `RadioMetadata`     | Radio-specific data        | `frequency`, `snr`, `rssi`, `channel_index`                                                                                                   |
+| `telemetry` | `TelemetryMetadata` | Device state at event time | `metrics` dict (frozen)                                                                                                                       |
+| `native`    | `NativeMetadata`    | Unnormalized native fields | `data` dict (frozen)                                                                                                                          |
+| `custom`    | `dict[str, object]` | Plugin/extension data      | Key-value pairs, reverse-DNS namespaced (frozen)                                                                                              |
 
 ### 4.3 Namespace Rules
 
@@ -302,26 +302,26 @@ The registry is extensible by plugins via `plugin.custom`.
 
 ### 5.1 Built-in Kinds
 
-| Kind | Description | Domain |
-|---|---|---|
-| `message.created` | A new message has entered the system | message |
-| `message.text` | Plain text message payload | message |
-| `message.reacted` | A reaction was attached to a message | message |
-| `message.edited` | An existing message body was edited | message |
-| `message.deleted` | A message was soft- or hard-deleted | message |
-| `message.file` | A file attachment message | message |
-| `telemetry.received` | Raw telemetry data received from a node | telemetry |
-| `telemetry.position` | Geographic-position telemetry report | telemetry |
-| `presence.changed` | A node or user's presence state changed | presence |
-| `identity.updated` | Identity material (keys, profile) was updated | identity |
-| `delivery.accepted` | Delivery plan accepted by target adapter | delivery |
-| `delivery.queued` | Message enqueued for delivery | delivery |
-| `delivery.sent` | Message handed off to transport layer | delivery |
-| `delivery.confirmed` | Transport-level acknowledgement received | delivery |
-| `delivery.failed` | Delivery attempt failed | delivery |
-| `system.audit` | Audit-log entry produced by the framework | system |
-| `system.lifecycle` | Lifecycle event (start, stop, reload) | system |
-| `plugin.custom` | Reserved for plugin-defined custom events | plugin |
+| Kind                 | Description                                   | Domain    |
+| -------------------- | --------------------------------------------- | --------- |
+| `message.created`    | A new message has entered the system          | message   |
+| `message.text`       | Plain text message payload                    | message   |
+| `message.reacted`    | A reaction was attached to a message          | message   |
+| `message.edited`     | An existing message body was edited           | message   |
+| `message.deleted`    | A message was soft- or hard-deleted           | message   |
+| `message.file`       | A file attachment message                     | message   |
+| `telemetry.received` | Raw telemetry data received from a node       | telemetry |
+| `telemetry.position` | Geographic-position telemetry report          | telemetry |
+| `presence.changed`   | A node or user's presence state changed       | presence  |
+| `identity.updated`   | Identity material (keys, profile) was updated | identity  |
+| `delivery.accepted`  | Delivery plan accepted by target adapter      | delivery  |
+| `delivery.queued`    | Message enqueued for delivery                 | delivery  |
+| `delivery.sent`      | Message handed off to transport layer         | delivery  |
+| `delivery.confirmed` | Transport-level acknowledgement received      | delivery  |
+| `delivery.failed`    | Delivery attempt failed                       | delivery  |
+| `system.audit`       | Audit-log entry produced by the framework     | system    |
+| `system.lifecycle`   | Lifecycle event (start, stop, reload)         | system    |
+| `plugin.custom`      | Reserved for plugin-defined custom events     | plugin    |
 
 ### 5.2 Registration
 
@@ -380,12 +380,12 @@ class EventRecordKind(Enum):
 
 ### 6.2 Storage Rules
 
-| Record Class | Storage |
-|---|---|
-| Source Event | MUST be stored in the canonical event log. |
-| Derived Event | Stored if semantically meaningful. Transient intermediates MAY be discarded. |
-| Delivery Artifact | Stored as a `rendered_payload` record, NOT as a canonical event. |
-| Receipt Event | Stored as rows in the `delivery_receipts` table. |
+| Record Class      | Storage                                                                      |
+| ----------------- | ---------------------------------------------------------------------------- |
+| Source Event      | MUST be stored in the canonical event log.                                   |
+| Derived Event     | Stored if semantically meaningful. Transient intermediates MAY be discarded. |
+| Delivery Artifact | Stored as a `rendered_payload` record, NOT as a canonical event.             |
+| Receipt Event     | Stored as rows in the `delivery_receipts` table.                             |
 
 ---
 
@@ -472,11 +472,11 @@ remains `1` throughout pre-release.
 
 ### 8.4 Handling Unknown Versions
 
-| Scenario | Behavior |
-|---|---|
-| Consumer sees higher version (future) | Treat all known fields normally, ignore unknown fields |
-| Consumer sees lower version (old) | Populate any new fields with defaults if possible, otherwise leave unset |
-| Consumer understands version N | Can read any version `<= N` |
+| Scenario                              | Behavior                                                                 |
+| ------------------------------------- | ------------------------------------------------------------------------ |
+| Consumer sees higher version (future) | Treat all known fields normally, ignore unknown fields                   |
+| Consumer sees lower version (old)     | Populate any new fields with defaults if possible, otherwise leave unset |
+| Consumer understands version N        | Can read any version `<= N`                                              |
 
 ---
 

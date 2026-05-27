@@ -43,6 +43,7 @@ except ImportError:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _read(path: Path) -> str:
     """Read file contents as UTF-8 string."""
     return path.read_text(encoding="utf-8")
@@ -126,9 +127,7 @@ class TestExamplesAreValidJson:
         try:
             _load_json(example_path)
         except json.JSONDecodeError as exc:
-            pytest.fail(
-                f"{example_path.name}: invalid JSON: {exc}"
-            )
+            pytest.fail(f"{example_path.name}: invalid JSON: {exc}")
 
 
 # ===========================================================================
@@ -153,6 +152,7 @@ class TestExamplesValidateAgainstSchemas:
 
         if _HAS_JSONSCHEMA:
             import jsonschema
+
             jsonschema.validate(instance=example, schema=schema)
         else:
             # Manual validation: check required fields exist
@@ -179,7 +179,9 @@ class TestExamplesValidateAgainstSchemas:
         examples = sorted(_EXAMPLES_DIR.glob("*.json"))
         for example in examples:
             name = example.stem
-            schema_stem = name[: -len("-example")] if name.endswith("-example") else name
+            schema_stem = (
+                name[: -len("-example")] if name.endswith("-example") else name
+            )
             schema = _SCHEMAS_DIR / f"{schema_stem}.schema.json"
             assert schema.exists(), (
                 f"No schema found for example {example.name}. "

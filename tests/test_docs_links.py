@@ -42,7 +42,9 @@ _LEGACY_DIRS = [
     _DOCS_DIR / "releases",
     _DOCS_DIR / "STATUS.md",
     _DOCS_DIR / "ARCHITECTURE_PLAN.md",
-    _DOCS_DIR / "spec" / "modular-event-engine-spec.md",  # old master spec, to be archived
+    _DOCS_DIR
+    / "spec"
+    / "modular-event-engine-spec.md",  # old master spec, to be archived
 ]
 
 
@@ -63,14 +65,12 @@ def _is_legacy(path: Path) -> bool:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _all_md_files() -> list[Path]:
     """Collect every .md file under docs/, excluding legacy directories."""
     if not _DOCS_DIR.is_dir():
         return []
-    return sorted(
-        f for f in _DOCS_DIR.rglob("*.md")
-        if not _is_legacy(f)
-    )
+    return sorted(f for f in _DOCS_DIR.rglob("*.md") if not _is_legacy(f))
 
 
 def _relative(path: Path) -> str:
@@ -130,9 +130,7 @@ class TestDocLinks:
                 )
 
         if failures:
-            pytest.fail(
-                "Broken markdown links found:\n  " + "\n  ".join(failures)
-            )
+            pytest.fail("Broken markdown links found:\n  " + "\n  ".join(failures))
 
     @pytest.mark.parametrize(
         "filepath",
@@ -154,9 +152,7 @@ class TestDocLinks:
                     )
 
         if failures:
-            pytest.fail(
-                "Legacy path references found:\n  " + "\n  ".join(failures)
-            )
+            pytest.fail("Legacy path references found:\n  " + "\n  ".join(failures))
 
 
 # ===========================================================================

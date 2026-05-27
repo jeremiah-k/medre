@@ -34,15 +34,15 @@ Runtime started — 2 adapter(s) in 457ms
 
 ### Startup Checklist
 
-| Element | Where to look | Healthy sign | Problem sign |
-|---|---|---|---|
-| Adapter count | Console first line | Matches config | Fewer (build failures) |
-| Build failures | Console `Build failures (N)` block | No block | `✗` entries present |
-| Routes | Console `Routes:` line | Expected count enabled | Zero enabled or errors |
-| Storage backend | Console `Storage:` line | `sqlite` | `memory` (no persistence) |
-| Limits | Console `Limits:` line | As configured | Unexpected defaults |
-| Per-adapter logs | `adapter_started` lines | All started | Any `adapter_failed` |
-| Assembly summary | `Assembly complete` line | `N/N adapters started` | `N/M started, K failed` |
+| Element          | Where to look                      | Healthy sign           | Problem sign              |
+| ---------------- | ---------------------------------- | ---------------------- | ------------------------- |
+| Adapter count    | Console first line                 | Matches config         | Fewer (build failures)    |
+| Build failures   | Console `Build failures (N)` block | No block               | `✗` entries present       |
+| Routes           | Console `Routes:` line             | Expected count enabled | Zero enabled or errors    |
+| Storage backend  | Console `Storage:` line            | `sqlite`               | `memory` (no persistence) |
+| Limits           | Console `Limits:` line             | As configured          | Unexpected defaults       |
+| Per-adapter logs | `adapter_started` lines            | All started            | Any `adapter_failed`      |
+| Assembly summary | `Assembly complete` line           | `N/N adapters started` | `N/M started, K failed`   |
 
 ### Degraded Startup
 
@@ -58,24 +58,24 @@ Diagnostic surfaces for degraded startup:
 
 ## Exit Codes
 
-| Code | Constant | Meaning |
-|---|---|---|
-| 0 | `EXIT_OK` | Successful run and clean shutdown. |
-| 2 | `EXIT_CONFIG` | Config not found, TOML parse error, validation error, or no adapters enabled. |
-| 3 | `EXIT_BUILD` | Runtime build failure — missing SDK, invalid storage path, or adapter construction error. Exits with this code only if all adapters fail to build. |
-| 4 | `EXIT_STARTUP` | Total startup failure — zero adapters started successfully. |
+| Code | Constant       | Meaning                                                                                                                                            |
+| ---- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | `EXIT_OK`      | Successful run and clean shutdown.                                                                                                                 |
+| 2    | `EXIT_CONFIG`  | Config not found, TOML parse error, validation error, or no adapters enabled.                                                                      |
+| 3    | `EXIT_BUILD`   | Runtime build failure — missing SDK, invalid storage path, or adapter construction error. Exits with this code only if all adapters fail to build. |
+| 4    | `EXIT_STARTUP` | Total startup failure — zero adapters started successfully.                                                                                        |
 
 Degraded startup does not exit — the runtime continues with `DEGRADED` health.
 
 ### Exit Codes by Command
 
-| Command | Config error | Build error | Startup error |
-|---|---|---|---|
-| `medre run` | 2 | 3 | 4 |
-| `medre diagnostics` | 2 | 3 | n/a |
-| `medre diagnostics --refresh-health` | 2 | 3 | 4 |
-| `medre config check` | 2 | n/a | n/a |
-| `medre routes validate` | 2 | n/a | n/a |
+| Command                              | Config error | Build error | Startup error |
+| ------------------------------------ | ------------ | ----------- | ------------- |
+| `medre run`                          | 2            | 3           | 4             |
+| `medre diagnostics`                  | 2            | 3           | n/a           |
+| `medre diagnostics --refresh-health` | 2            | 3           | 4             |
+| `medre config check`                 | 2            | n/a         | n/a           |
+| `medre routes validate`              | 2            | n/a         | n/a           |
 
 All commands print a human-readable error to stderr before exiting nonzero.
 
@@ -109,21 +109,21 @@ Shutdown complete — 2 adapter(s) stopped in 70ms, 0 error(s)
 
 ### Shutdown Checklist
 
-| Element | Clean sign | Problem sign |
-|---|---|---|
-| Adapter stop order | Reverse of startup | Missing stop lines |
-| Drain outcome | `completed` | `timed out` with abandoned count |
-| Error count | `0 error(s)` | Non-zero |
+| Element            | Clean sign         | Problem sign                     |
+| ------------------ | ------------------ | -------------------------------- |
+| Adapter stop order | Reverse of startup | Missing stop lines               |
+| Drain outcome      | `completed`        | `timed out` with abandoned count |
+| Error count        | `0 error(s)`       | Non-zero                         |
 
 ### What Gets Drained vs Cancelled
 
-| Category | Behaviour |
-|---|---|
-| In-flight adapter deliveries | Drained up to `shutdown_drain_timeout_seconds`, then cancelled |
-| Abandoned in-flight deliveries | Evidence persisted as `suppressed` receipts with `failure_kind=shutdown_rejection` |
-| Adapter receive loops | Cancelled immediately on adapter `stop()` |
-| Replay events | Cancelled; completed receipts preserved |
-| Route statistics, diagnostic counters | Lost — in-memory only |
+| Category                              | Behaviour                                                                          |
+| ------------------------------------- | ---------------------------------------------------------------------------------- |
+| In-flight adapter deliveries          | Drained up to `shutdown_drain_timeout_seconds`, then cancelled                     |
+| Abandoned in-flight deliveries        | Evidence persisted as `suppressed` receipts with `failure_kind=shutdown_rejection` |
+| Adapter receive loops                 | Cancelled immediately on adapter `stop()`                                          |
+| Replay events                         | Cancelled; completed receipts preserved                                            |
+| Route statistics, diagnostic counters | Lost — in-memory only                                                              |
 
 ### Signal Handling
 
@@ -141,14 +141,14 @@ medre run --config config.toml --snapshot-on-shutdown
 
 Writes a runtime snapshot JSON to `{state_dir}/shutdown-snapshot.json` after graceful shutdown. Contains:
 
-| Section | Content |
-|---|---|
-| `lifecycle` | Runtime and adapter lifecycle state at shutdown |
-| `accounting` | Final delivery counters |
-| `capacity` | Final capacity gauges |
-| `startup.boot_summary` | Frozen startup classification |
-| `diagnostics.runtime_events` | Bounded event buffer from the run |
-| `routes.stats` | Per-route delivery statistics |
+| Section                      | Content                                         |
+| ---------------------------- | ----------------------------------------------- |
+| `lifecycle`                  | Runtime and adapter lifecycle state at shutdown |
+| `accounting`                 | Final delivery counters                         |
+| `capacity`                   | Final capacity gauges                           |
+| `startup.boot_summary`       | Frozen startup classification                   |
+| `diagnostics.runtime_events` | Bounded event buffer from the run               |
+| `routes.stats`               | Per-route delivery statistics                   |
 
 Counters and events are process-local — without this flag, they are lost on exit.
 
@@ -158,22 +158,22 @@ Each transport has fundamentally different delivery guarantees. Understanding th
 
 ### Matrix
 
-| Property | Value |
-|---|---|
-| Server acknowledgment | Yes — Synapse returns `event_id` on successful `room_send` |
-| Delivery confirmation | Server-level only (not per-recipient) |
-| Duplicate risk | Low — retries after connection loss may produce duplicates |
+| Property               | Value                                                                |
+| ---------------------- | -------------------------------------------------------------------- |
+| Server acknowledgment  | Yes — Synapse returns `event_id` on successful `room_send`           |
+| Delivery confirmation  | Server-level only (not per-recipient)                                |
+| Duplicate risk         | Low — retries after connection loss may produce duplicates           |
 | Receipt interpretation | `sent` with `adapter_message_id` means homeserver accepted the event |
 
 Matrix is the only transport where `sent` implies server-verified persistence.
 
 ### Meshtastic
 
-| Property | Value |
-|---|---|
-| Server acknowledgment | None beyond local-node acceptance |
-| Delivery confirmation | None — whether any remote node received the packet is unknown |
-| Duplicate risk | High — radio environments cause packet loss; duplicates are normal practice |
+| Property               | Value                                                                                  |
+| ---------------------- | -------------------------------------------------------------------------------------- |
+| Server acknowledgment  | None beyond local-node acceptance                                                      |
+| Delivery confirmation  | None — whether any remote node received the packet is unknown                          |
+| Duplicate risk         | High — radio environments cause packet loss; duplicates are normal practice            |
 | Receipt interpretation | `sent` means local node accepted for transmission, not that any other node received it |
 
 ### MeshCore
@@ -182,10 +182,10 @@ Same discipline as Meshtastic — radio best-effort, no confirmation, duplicates
 
 ### LXMF (Reticulum)
 
-| Property | Value |
-|---|---|
-| Delivery confirmation | Eventual — propagation delays from seconds to hours |
-| Duplicate risk | Low |
+| Property               | Value                                                                                                 |
+| ---------------------- | ----------------------------------------------------------------------------------------------------- |
+| Delivery confirmation  | Eventual — propagation delays from seconds to hours                                                   |
+| Duplicate risk         | Low                                                                                                   |
 | Receipt interpretation | `sent` means local router accepted for propagation; delivery to destination may take significant time |
 
 ## Delivery Receipt States
@@ -197,14 +197,14 @@ accepted → queued → sent → confirmed
                   ↘ failed → dead_lettered
 ```
 
-| Status | Meaning |
-|---|---|
-| `accepted` | Pipeline accepted event for delivery. No transport contact yet. |
-| `queued` | Delivery plan created, waiting for adapter execution. |
-| `sent` | Adapter reported successful handoff to transport. See per-transport table for what this means. |
-| `confirmed` | Positive confirmation from external system. Only Matrix currently reaches this. |
-| `failed` | Adapter reported delivery failure. Classified by `failure_kind`. |
-| `dead_lettered` | Exhausted all retries. Permanently failed. |
+| Status          | Meaning                                                                                        |
+| --------------- | ---------------------------------------------------------------------------------------------- |
+| `accepted`      | Pipeline accepted event for delivery. No transport contact yet.                                |
+| `queued`        | Delivery plan created, waiting for adapter execution.                                          |
+| `sent`          | Adapter reported successful handoff to transport. See per-transport table for what this means. |
+| `confirmed`     | Positive confirmation from external system. Only Matrix currently reaches this.                |
+| `failed`        | Adapter reported delivery failure. Classified by `failure_kind`.                               |
+| `dead_lettered` | Exhausted all retries. Permanently failed.                                                     |
 
 Each receipt carries `attempt_number` and `parent_receipt_id` forming a retry lineage. The `source` column distinguishes origin: `"live"`, `"retry"`, or `"replay"`.
 
@@ -345,12 +345,12 @@ The pipeline uses semaphores to bound concurrent delivery and replay. When capac
 
 ### Diagnostics Counters
 
-| Counter | Description |
-|---|---|
-| `inbound_accepted` | Inbound events accepted |
-| `outbound_delivered` | Outbound successes |
-| `outbound_failed` | Outbound failures |
-| `loop_prevented` | Events blocked by self-loop guard |
+| Counter               | Description                                |
+| --------------------- | ------------------------------------------ |
+| `inbound_accepted`    | Inbound events accepted                    |
+| `outbound_delivered`  | Outbound successes                         |
+| `outbound_failed`     | Outbound failures                          |
+| `loop_prevented`      | Events blocked by self-loop guard          |
 | `capacity_rejections` | Operations rejected by capacity controller |
 
 ### Example Configurations
@@ -390,11 +390,11 @@ See [configuration.md](configuration.md) for retry configuration fields.
 
 Replay re-processes historical events through pipeline stages. Three modes:
 
-| Mode | Delivers? | Side effects | Use case |
-|---|---|---|---|
-| `DRY_RUN` | No | None | Preview what replay would do |
-| `RE_ROUTE` | No | None | Re-evaluate route matching after config change |
-| `BEST_EFFORT` | Yes | Real adapter delivery | Re-deliver historical events |
+| Mode          | Delivers? | Side effects          | Use case                                       |
+| ------------- | --------- | --------------------- | ---------------------------------------------- |
+| `DRY_RUN`     | No        | None                  | Preview what replay would do                   |
+| `RE_ROUTE`    | No        | None                  | Re-evaluate route matching after config change |
+| `BEST_EFFORT` | Yes       | Real adapter delivery | Re-deliver historical events                   |
 
 Always run `DRY_RUN` first. `BEST_EFFORT` produces real outbound messages without deduplication.
 
@@ -418,6 +418,7 @@ Multiple layers prevent routing loops:
 4. **Route-trace guard (per-delivery)** — if a route ID appears more than once in the event's route trace, delivery is skipped.
 
 What loop prevention does not cover:
+
 - Cross-instance loops (two separate MEDRE instances bridging the same transports).
 - Application-level loops (user commands triggering replies — normal bidirectional operation).
 
@@ -425,26 +426,26 @@ What loop prevention does not cover:
 
 ### What Persists Across Restarts
 
-| State | Location |
-|---|---|
-| Canonical events | SQLite (`{state}/medre.sqlite`) |
-| Delivery receipts | SQLite |
-| Route attribution on receipts | SQLite |
-| Matrix E2EE crypto keys | `{state}/adapters/{id}/matrix/store/` |
-| LXMF identities | `{state}/adapters/{id}/lxmf/` |
-| Log history | `{state}/logs/medre.log` |
+| State                         | Location                              |
+| ----------------------------- | ------------------------------------- |
+| Canonical events              | SQLite (`{state}/medre.sqlite`)       |
+| Delivery receipts             | SQLite                                |
+| Route attribution on receipts | SQLite                                |
+| Matrix E2EE crypto keys       | `{state}/adapters/{id}/matrix/store/` |
+| LXMF identities               | `{state}/adapters/{id}/lxmf/`         |
+| Log history                   | `{state}/logs/medre.log`              |
 
 ### What Is Lost on Process Termination
 
-| State | Nature |
-|---|---|
-| In-flight deliveries (no outbox row) | Fully lost — no receipt |
-| In-flight deliveries (with expired in_progress outbox row) | Reclaimable by RetryWorker |
-| Active replay runs | Must re-initiate manually |
-| Runtime counters | Reset to zero on startup |
-| RouteStats per-route counters | Reset to zero |
-| CapacityController gauges | Reset to zero |
-| Runtime events buffer | Lost unless captured via `--snapshot-on-shutdown` |
+| State                                                      | Nature                                            |
+| ---------------------------------------------------------- | ------------------------------------------------- |
+| In-flight deliveries (no outbox row)                       | Fully lost — no receipt                           |
+| In-flight deliveries (with expired in_progress outbox row) | Reclaimable by RetryWorker                        |
+| Active replay runs                                         | Must re-initiate manually                         |
+| Runtime counters                                           | Reset to zero on startup                          |
+| RouteStats per-route counters                              | Reset to zero                                     |
+| CapacityController gauges                                  | Reset to zero                                     |
+| Runtime events buffer                                      | Lost unless captured via `--snapshot-on-shutdown` |
 
 ### Crash Recovery Procedure
 
@@ -566,17 +567,17 @@ docker run --user 1000:1000 \
 
 ### Container Checklist
 
-| Concern | Mechanism |
-|---|---|
-| Persistent state | Mount volume at `MEDRE_HOME` |
-| SQLite durability | WAL mode, file on mounted volume |
-| Matrix crypto persistence | Auto-derived store path under adapter root |
-| Log persistence | `{log_dir}/medre.log` on mounted volume |
-| Serial device access | `--device` passthrough, correct permissions |
-| Deterministic paths | `MEDRE_HOME` set to fixed absolute path |
-| Adapter isolation | Unique `adapter_id` per adapter, path separator validation |
-| Idempotent startup | `_ensure_dirs()` uses `exist_ok=True` |
-| Config injection | Environment variables or mounted `config.toml` |
+| Concern                   | Mechanism                                                  |
+| ------------------------- | ---------------------------------------------------------- |
+| Persistent state          | Mount volume at `MEDRE_HOME`                               |
+| SQLite durability         | WAL mode, file on mounted volume                           |
+| Matrix crypto persistence | Auto-derived store path under adapter root                 |
+| Log persistence           | `{log_dir}/medre.log` on mounted volume                    |
+| Serial device access      | `--device` passthrough, correct permissions                |
+| Deterministic paths       | `MEDRE_HOME` set to fixed absolute path                    |
+| Adapter isolation         | Unique `adapter_id` per adapter, path separator validation |
+| Idempotent startup        | `_ensure_dirs()` uses `exist_ok=True`                      |
+| Config injection          | Environment variables or mounted `config.toml`             |
 
 ### Operational Procedures
 
@@ -677,18 +678,18 @@ MEDRE does not rotate logs internally. Use external log rotation (logrotate, Doc
 
 The `CapacityController` manages two independent semaphores:
 
-| Stream | Config field | Default bound | What it limits |
-|---|---|---|---|
-| Delivery | `max_inflight_deliveries` | 100 | Concurrent adapter `deliver()` calls across all adapters |
-| Replay | `max_inflight_replay_events` | 100 | Concurrent replay event deliveries |
+| Stream   | Config field                 | Default bound | What it limits                                           |
+| -------- | ---------------------------- | ------------- | -------------------------------------------------------- |
+| Delivery | `max_inflight_deliveries`    | 100           | Concurrent adapter `deliver()` calls across all adapters |
+| Replay   | `max_inflight_replay_events` | 100           | Concurrent replay event deliveries                       |
 
 When a delivery or replay event cannot acquire a slot within `delivery_acquire_timeout_seconds` (default 1.0s), the operation is rejected — permanent failure with diagnostics incremented. No retry.
 
 ### Adapter-Level Queue Bounds
 
-| Adapter | Queue mechanism | Default bound | Overflow policy |
-|---|---|---|---|
-| Meshtastic | Unbounded deque with explicit enqueue cap | 1024 items | Explicit rejection when full, `queue_total_rejected` counter incremented |
+| Adapter    | Queue mechanism                           | Default bound | Overflow policy                                                          |
+| ---------- | ----------------------------------------- | ------------- | ------------------------------------------------------------------------ |
+| Meshtastic | Unbounded deque with explicit enqueue cap | 1024 items    | Explicit rejection when full, `queue_total_rejected` counter incremented |
 
 Other adapters (Matrix, LXMF, MeshCore) rely on the `CapacityController` semaphore and their transport's own flow control.
 
@@ -696,15 +697,15 @@ Other adapters (Matrix, LXMF, MeshCore) rely on the `CapacityController` semapho
 
 Capacity counters are available in the `capacity` section of the runtime snapshot. The `medre diagnostics` command produces a build-time snapshot where these counters are zero — it does not start adapters. To inspect live capacity, use `--snapshot-on-shutdown` or the runtime snapshot from a running instance.
 
-| Counter | What it tells you |
-|---|---|
-| `delivery_current` | In-flight deliveries right now |
-| `inbound_accepted` | Inbound events accepted |
-| `outbound_delivered` | Outbound successes |
-| `outbound_failed` | Outbound failures |
-| `loop_prevented` | Events blocked by self-loop guard |
+| Counter               | What it tells you                          |
+| --------------------- | ------------------------------------------ |
+| `delivery_current`    | In-flight deliveries right now             |
+| `inbound_accepted`    | Inbound events accepted                    |
+| `outbound_delivered`  | Outbound successes                         |
+| `outbound_failed`     | Outbound failures                          |
+| `loop_prevented`      | Events blocked by self-loop guard          |
 | `capacity_rejections` | Operations rejected by capacity controller |
-| `replay_current` | In-flight replay events |
+| `replay_current`      | In-flight replay events                    |
 
 Sustained growth in `capacity_rejections` indicates the runtime is under more pressure than its configured limits can handle. Consider increasing `max_inflight_deliveries` or reducing the number of active routes.
 
@@ -722,12 +723,12 @@ Messages are rendered by transport-specific renderers when bridging between tran
 
 ### Reply Threading
 
-| Target renderer | Reply support |
-|---|---|
-| Matrix | Supported — `m.relates_to` with `m.in_reply_to` added; body includes quoted fallback |
-| Meshtastic | Not supported — reply relations ignored; plain text only |
-| MeshCore | Not supported — same as Meshtastic |
-| LXMF | Partial — relations recorded in fields envelope but not used for display |
+| Target renderer | Reply support                                                                        |
+| --------------- | ------------------------------------------------------------------------------------ |
+| Matrix          | Supported — `m.relates_to` with `m.in_reply_to` added; body includes quoted fallback |
+| Meshtastic      | Not supported — reply relations ignored; plain text only                             |
+| MeshCore        | Not supported — same as Meshtastic                                                   |
+| LXMF            | Partial — relations recorded in fields envelope but not used for display             |
 
 ### Source Adapter Label
 

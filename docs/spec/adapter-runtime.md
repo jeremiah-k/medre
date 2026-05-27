@@ -26,11 +26,11 @@ class AdapterRole(Enum):
     HYBRID       = "hybrid"
 ```
 
-| Role             | Responsibility                                                                                                                              | Examples                                                   |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| **TRANSPORT**    | Moves data to/from a physical or logical transport. Handles protocol specifics, connection management, and raw data encoding/decoding.     | Meshtastic, MeshCore, LXMF, MQTT, TCP serial bridge, AX.25 |
-| **PRESENTATION** | Presents events to human users. Handles formatting, rich content, threading, reactions, and user interaction.                               | Matrix, Discord, Telegram, Slack, Web UI                   |
-| **HYBRID**       | Both transports and presents. Acts as a message source and a display target simultaneously.                                                 | IRC, XMPP                                                  |
+| Role             | Responsibility                                                                                                                         | Examples                                                   |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| **TRANSPORT**    | Moves data to/from a physical or logical transport. Handles protocol specifics, connection management, and raw data encoding/decoding. | Meshtastic, MeshCore, LXMF, MQTT, TCP serial bridge, AX.25 |
+| **PRESENTATION** | Presents events to human users. Handles formatting, rich content, threading, reactions, and user interaction.                          | Matrix, Discord, Telegram, Slack, Web UI                   |
+| **HYBRID**       | Both transports and presents. Acts as a message source and a display target simultaneously.                                            | IRC, XMPP                                                  |
 
 TRANSPORT adapters typically ingest raw protocol data and produce canonical events. PRESENTATION adapters receive delivery plans and render events for human consumption. HYBRID adapters do both. The role determines which pipeline stages the adapter participates in and how the routing engine treats it.
 
@@ -175,15 +175,15 @@ class AdapterContext:
 
 ### 5.1 Field Semantics
 
-| Field                       | Purpose                                                                                                                |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `adapter_id`                | Unique identifier for this adapter instance.                                                                           |
-| `event_bus`                 | Opaque reference to the framework's internal event bus. Adapters **SHOULD** prefer `publish_inbound` over direct bus interaction. |
-| `publish_inbound`           | The ingress point. Call this with a `CanonicalEvent` to inject it into the pipeline. The event passes through ingress policy, storage, enrichment, transforms, and routing. |
-| `logger`                    | A pre-configured `logging.Logger` scoped to the adapter. Use this for all logging.                                     |
-| `clock`                     | Callable returning current UTC `datetime`. **MUST** be used instead of `datetime.utcnow()` for deterministic testing.  |
-| `shutdown_event`            | An `asyncio.Event` that the framework sets when a graceful shutdown is requested.                                      |
-| `record_outbound_native_ref` | Optional async callback for queue-based adapters to record delayed native message IDs after the platform confirms the send. `None` when not wired (e.g., in test mode). |
+| Field                        | Purpose                                                                                                                                                                     |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `adapter_id`                 | Unique identifier for this adapter instance.                                                                                                                                |
+| `event_bus`                  | Opaque reference to the framework's internal event bus. Adapters **SHOULD** prefer `publish_inbound` over direct bus interaction.                                           |
+| `publish_inbound`            | The ingress point. Call this with a `CanonicalEvent` to inject it into the pipeline. The event passes through ingress policy, storage, enrichment, transforms, and routing. |
+| `logger`                     | A pre-configured `logging.Logger` scoped to the adapter. Use this for all logging.                                                                                          |
+| `clock`                      | Callable returning current UTC `datetime`. **MUST** be used instead of `datetime.utcnow()` for deterministic testing.                                                       |
+| `shutdown_event`             | An `asyncio.Event` that the framework sets when a graceful shutdown is requested.                                                                                           |
+| `record_outbound_native_ref` | Optional async callback for queue-based adapters to record delayed native message IDs after the platform confirms the send. `None` when not wired (e.g., in test mode).     |
 
 ### 5.2 Adapter Restrictions
 
@@ -204,30 +204,30 @@ Adapters declare what they can do. The capability model drives delivery planning
 
 The following 22 capabilities **MUST** be declared by every adapter:
 
-| # | Capability           | Description                                                          |
-|---|----------------------|----------------------------------------------------------------------|
-| 1 | `TEXT`               | Plain text messages                                                  |
-| 2 | `TITLE`              | Explicit subject/title field                                         |
-| 3 | `METADATA_FIELDS`    | Arbitrary structured key-value metadata                              |
-| 4 | `REPLIES`            | Native reply threading                                               |
-| 5 | `REACTIONS`          | Emoji or keyword reactions                                           |
-| 6 | `EDITS`              | Message editing                                                      |
-| 7 | `DELETES`            | Message deletion                                                     |
-| 8 | `DELIVERY_RECEIPTS`  | Per-message delivery confirmation                                    |
-| 9 | `STORE_AND_FORWARD`  | Message storage for later retrieval                                  |
-| 10| `PROPAGATION`        | Propagation node support                                             |
-| 11| `DIRECT_MESSAGES`    | Point-to-point delivery                                              |
-| 12| `ATTACHMENTS`        | File/image/audio attachments                                         |
-| 13| `THREADS`            | Threaded conversations                                               |
-| 14| `CHANNELS`           | Channel, room, topic, or group-style destinations                    |
-| 15| `ACK_TRACKING`       | Transport-level acknowledgement tracking                             |
-| 16| `ASYNC_DELIVERY`     | Delivery completes asynchronously after handoff                      |
-| 17| `IDENTITY_ENCRYPTION`| Native identity-level encryption semantics                           |
-| 18| `PRESENCE`           | Presence or online state semantics                                   |
-| 19| `TOPIC_ROOMS`        | Named topic/room destinations                                        |
-| 20| `MESH_ROUTING`       | Mesh/radio routing semantics                                         |
-| 21| `PRIORITY_DELIVERY`  | Transport-level priority handling                                    |
-| 22| `SIZE_LIMITS`        | Configurable maximum payload size constraints (bytes and/or chars)   |
+| #   | Capability            | Description                                                        |
+| --- | --------------------- | ------------------------------------------------------------------ |
+| 1   | `TEXT`                | Plain text messages                                                |
+| 2   | `TITLE`               | Explicit subject/title field                                       |
+| 3   | `METADATA_FIELDS`     | Arbitrary structured key-value metadata                            |
+| 4   | `REPLIES`             | Native reply threading                                             |
+| 5   | `REACTIONS`           | Emoji or keyword reactions                                         |
+| 6   | `EDITS`               | Message editing                                                    |
+| 7   | `DELETES`             | Message deletion                                                   |
+| 8   | `DELIVERY_RECEIPTS`   | Per-message delivery confirmation                                  |
+| 9   | `STORE_AND_FORWARD`   | Message storage for later retrieval                                |
+| 10  | `PROPAGATION`         | Propagation node support                                           |
+| 11  | `DIRECT_MESSAGES`     | Point-to-point delivery                                            |
+| 12  | `ATTACHMENTS`         | File/image/audio attachments                                       |
+| 13  | `THREADS`             | Threaded conversations                                             |
+| 14  | `CHANNELS`            | Channel, room, topic, or group-style destinations                  |
+| 15  | `ACK_TRACKING`        | Transport-level acknowledgement tracking                           |
+| 16  | `ASYNC_DELIVERY`      | Delivery completes asynchronously after handoff                    |
+| 17  | `IDENTITY_ENCRYPTION` | Native identity-level encryption semantics                         |
+| 18  | `PRESENCE`            | Presence or online state semantics                                 |
+| 19  | `TOPIC_ROOMS`         | Named topic/room destinations                                      |
+| 20  | `MESH_ROUTING`        | Mesh/radio routing semantics                                       |
+| 21  | `PRIORITY_DELIVERY`   | Transport-level priority handling                                  |
+| 22  | `SIZE_LIMITS`         | Configurable maximum payload size constraints (bytes and/or chars) |
 
 ### 6.2 CapabilityLevel Enum
 
@@ -242,13 +242,13 @@ class CapabilityLevel(str, Enum):
     FUTURE                      = "future"
 ```
 
-| Level                            | Meaning                                                             |
-| -------------------------------- | ------------------------------------------------------------------- |
-| `TRUE`                           | Fully supported natively                                            |
-| `FALSE`                          | Not supported                                                       |
-| `METADATA_NATIVE`                | Supported via metadata fields (e.g., LXMF fields dict)             |
-| `METADATA_NATIVE_OR_FALLBACK`    | Metadata between aware peers, inline fallback otherwise             |
-| `FUTURE`                         | Planned, not yet implemented                                        |
+| Level                         | Meaning                                                 |
+| ----------------------------- | ------------------------------------------------------- |
+| `TRUE`                        | Fully supported natively                                |
+| `FALSE`                       | Not supported                                           |
+| `METADATA_NATIVE`             | Supported via metadata fields (e.g., LXMF fields dict)  |
+| `METADATA_NATIVE_OR_FALLBACK` | Metadata between aware peers, inline fallback otherwise |
+| `FUTURE`                      | Planned, not yet implemented                            |
 
 ### 6.3 AdapterCapabilities Mapping
 
@@ -275,13 +275,13 @@ The runtime reads capabilities from the cached `AdapterInfo` at delivery time. I
 
 ### 6.4 How Capabilities Drive Behavior
 
-| Capability   | `FALSE` Behavior                                                                      | `METADATA_NATIVE` Behavior                                    | `TRUE` Behavior                                |
-| ------------ | ------------------------------------------------------------------------------------- | ------------------------------------------------------------- | ---------------------------------------------- |
-| `REPLIES`    | Rendered as inline text (e.g., `[Alice] re: original msg > reply text`)               | Passed via metadata fields to aware peers                     | Native reply threading used                    |
-| `REACTIONS`  | Dropped for that target                                                               | Passed via metadata fields                                    | Native reactions used                          |
-| `EDITS`      | Rendered as new messages                                                              | Metadata signaling for aware peers, inline fallback otherwise | Native edit support used                       |
-| `DELETES`    | Not delivered                                                                         | Metadata signaling for aware peers, inline fallback otherwise | Native delete used                             |
-| `SIZE_LIMITS`| Truncation or splitting applied by `MaxLengthPolicy` when adapter declares byte limits | N/A                                                           | Unlimited or platform-handled                  |
+| Capability    | `FALSE` Behavior                                                                       | `METADATA_NATIVE` Behavior                                    | `TRUE` Behavior               |
+| ------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------- | ----------------------------- |
+| `REPLIES`     | Rendered as inline text (e.g., `[Alice] re: original msg > reply text`)                | Passed via metadata fields to aware peers                     | Native reply threading used   |
+| `REACTIONS`   | Dropped for that target                                                                | Passed via metadata fields                                    | Native reactions used         |
+| `EDITS`       | Rendered as new messages                                                               | Metadata signaling for aware peers, inline fallback otherwise | Native edit support used      |
+| `DELETES`     | Not delivered                                                                          | Metadata signaling for aware peers, inline fallback otherwise | Native delete used            |
+| `SIZE_LIMITS` | Truncation or splitting applied by `MaxLengthPolicy` when adapter declares byte limits | N/A                                                           | Unlimited or platform-handled |
 
 ---
 
@@ -306,14 +306,14 @@ Registered in the adapter registry at startup. Queried by the routing engine, de
 
 `health_check()` **MUST** return an `AdapterInfo` with `health` set to one of the following protocol-neutral strings:
 
-| State        | Meaning                                                               |
-| ------------ | --------------------------------------------------------------------- |
-| `"unknown"`  | Adapter not started, stopped, or health indeterminate                 |
-| `"healthy"`  | Transport connected and operational                                   |
+| State        | Meaning                                                                |
+| ------------ | ---------------------------------------------------------------------- |
+| `"unknown"`  | Adapter not started, stopped, or health indeterminate                  |
+| `"healthy"`  | Transport connected and operational                                    |
 | `"degraded"` | Transport partially functional (intermittent connection, high latency) |
-| `"failed"`   | Transport disconnected or non-functional                              |
-| `"starting"` | Adapter is initializing                                               |
-| `"stopping"` | Adapter is shutting down                                              |
+| `"failed"`   | Transport disconnected or non-functional                               |
+| `"starting"` | Adapter is initializing                                                |
+| `"stopping"` | Adapter is shutting down                                               |
 
 The adapter sets its own health state. The runtime reads it. The runtime **MUST NOT** set adapter health.
 
@@ -348,13 +348,13 @@ Any transition not listed above is a bug.
 
 ### 8.3 Behavior per State
 
-| State            | Ingress | Delivery                   | Notes                                                         |
-| ---------------- | ------- | -------------------------- | ------------------------------------------------------------- |
-| **INITIALIZING** | Buffer  | Buffer                     | Connection not yet established. `start()` has not returned.   |
-| **RUNNING**      | Accept  | Queue and deliver          | Normal operation.                                             |
-| **DEGRADED**     | Accept  | Queue, delay, may fallback | Connection unstable. Queue events for later delivery.         |
-| **DRAINING**     | Reject  | Complete in-flight only    | Graceful shutdown. Reject new work.                           |
-| **STOPPED**      | Reject  | None                       | Terminal state. No further activity.                          |
+| State            | Ingress | Delivery                   | Notes                                                       |
+| ---------------- | ------- | -------------------------- | ----------------------------------------------------------- |
+| **INITIALIZING** | Buffer  | Buffer                     | Connection not yet established. `start()` has not returned. |
+| **RUNNING**      | Accept  | Queue and deliver          | Normal operation.                                           |
+| **DEGRADED**     | Accept  | Queue, delay, may fallback | Connection unstable. Queue events for later delivery.       |
+| **DRAINING**     | Reject  | Complete in-flight only    | Graceful shutdown. Reject new work.                         |
+| **STOPPED**      | Reject  | None                       | Terminal state. No further activity.                        |
 
 ### 8.4 State Transition Events
 
@@ -377,13 +377,13 @@ Every lifecycle state change **MUST** emit a `system.lifecycle` canonical event:
 
 Adapters that require more granular lifecycle states (e.g., multi-phase connection handshakes) **MAY** define internal substates. These internal substates **MUST** map to the generic five-state model. The adapter reports internal state via `AdapterHealth.details` for observability. The lifecycle manager tracks only the generic states.
 
-| Internal Substates                                      | Maps To                      |
-| ------------------------------------------------------- | ---------------------------- |
-| DISCONNECTED, CONNECTING, AUTHENTICATING, SYNCING       | `INITIALIZING` or `DEGRADED` |
-| READY                                                   | `RUNNING`                    |
-| DEGRADED                                                | `DEGRADED`                   |
-| DRAINING                                                | `DRAINING`                   |
-| STOPPING                                                | `DRAINING` or `STOPPED`      |
+| Internal Substates                                | Maps To                      |
+| ------------------------------------------------- | ---------------------------- |
+| DISCONNECTED, CONNECTING, AUTHENTICATING, SYNCING | `INITIALIZING` or `DEGRADED` |
+| READY                                             | `RUNNING`                    |
+| DEGRADED                                          | `DEGRADED`                   |
+| DRAINING                                          | `DRAINING`                   |
+| STOPPING                                          | `DRAINING` or `STOPPED`      |
 
 ---
 
@@ -409,15 +409,15 @@ This is an immutable, frozen dataclass. The pipeline uses it to store `NativeMes
 
 ### 9.2 Field Semantics
 
-| Field                  | Semantics                                                                                                                                                                |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `native_message_id`    | Platform-native message ID assigned by the external system. **MUST** be platform-provided; adapters **MUST NOT** fabricate, synthesize, or locally-generate this value. `None` when unavailable. |
-| `native_channel_id`    | Platform-native channel/room/conversation ID. Always platform-provided. `None` when the platform did not return one. The pipeline **MUST NOT** backfill from route configuration. |
-| `native_thread_id`     | Platform-native thread or parent message ID. Reserved; currently always `None` at runtime.                                                                               |
-| `native_relation_id`   | Platform-native ID of the related entity (e.g., the message being replied to). Reserved; currently always `None` at runtime.                                             |
-| `delivery_note`        | Human-readable context about the delivery outcome. Informational only; consumers **MUST NOT** parse it for control-flow decisions.                                        |
-| `delivery_status`      | Adapter-level lifecycle state: `"sent"` (default, synchronous adapters) or `"enqueued"` (queue-based adapters that accepted locally but have not yet sent to the platform). |
-| `metadata`             | Immutable, namespaced delivery metadata. Transport-specific data **MUST** live under `metadata[<transport>]`. No loose ad-hoc fields.                                    |
+| Field                | Semantics                                                                                                                                                                                        |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `native_message_id`  | Platform-native message ID assigned by the external system. **MUST** be platform-provided; adapters **MUST NOT** fabricate, synthesize, or locally-generate this value. `None` when unavailable. |
+| `native_channel_id`  | Platform-native channel/room/conversation ID. Always platform-provided. `None` when the platform did not return one. The pipeline **MUST NOT** backfill from route configuration.                |
+| `native_thread_id`   | Platform-native thread or parent message ID. Reserved; currently always `None` at runtime.                                                                                                       |
+| `native_relation_id` | Platform-native ID of the related entity (e.g., the message being replied to). Reserved; currently always `None` at runtime.                                                                     |
+| `delivery_note`      | Human-readable context about the delivery outcome. Informational only; consumers **MUST NOT** parse it for control-flow decisions.                                                               |
+| `delivery_status`    | Adapter-level lifecycle state: `"sent"` (default, synchronous adapters) or `"enqueued"` (queue-based adapters that accepted locally but have not yet sent to the platform).                      |
+| `metadata`           | Immutable, namespaced delivery metadata. Transport-specific data **MUST** live under `metadata[<transport>]`. No loose ad-hoc fields.                                                            |
 
 ### 9.3 Delivery State Semantics
 
@@ -494,12 +494,12 @@ Rate limits are declared per adapter. The adapter is responsible for enforcing p
 
 When delivering to presentation adapters, metadata **MAY** be embedded in the native event content. The embedding mode is configurable per adapter.
 
-| Mode      | What Gets Embedded                                                                                                          | Use Case                                                   |
-| --------- | --------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| `off`     | Nothing                                                                                                                     | Pure display surface. All correlation through storage.     |
-| `minimal` | `event_id`, `source_transport_id`                                                                                           | Limited context, less exposure on redaction.               |
-| `safe`    | Normalized metadata (event kind, source adapter, transport protocol, radio metrics, telemetry). No secrets or raw payloads. | **RECOMMENDED** default.                                   |
-| `full`    | All metadata                                                                                                                | Maximum context. All metadata lost on platform redaction.  |
+| Mode      | What Gets Embedded                                                                                                          | Use Case                                                  |
+| --------- | --------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| `off`     | Nothing                                                                                                                     | Pure display surface. All correlation through storage.    |
+| `minimal` | `event_id`, `source_transport_id`                                                                                           | Limited context, less exposure on redaction.              |
+| `safe`    | Normalized metadata (event kind, source adapter, transport protocol, radio metrics, telemetry). No secrets or raw payloads. | **RECOMMENDED** default.                                  |
+| `full`    | All metadata                                                                                                                | Maximum context. All metadata lost on platform redaction. |
 
 ### 12.1 Never-Embed List
 
@@ -714,18 +714,18 @@ After an adapter codec produces a `CanonicalEvent` and the adapter publishes it 
 
 Every row in the following table is a hard boundary. Violations indicate a design error.
 
-| Concern                                                                  | Owner                   | Others May                               |
-| ------------------------------------------------------------------------ | ----------------------- | ---------------------------------------- |
-| Transport lifecycle (connect, disconnect, reconnect)                     | Adapter                 | Read health state                        |
-| Pacing, queueing, duty cycle management                                  | Adapter                 | Set rate limit config                    |
-| Payload formatting (text, rich content, transport-specific layout)       | Renderer                | Provide RenderingResult                  |
-| Payload encoding/decoding (native format to CanonicalEvent)              | Codec                   | Read codec output                        |
-| Packet classification (type detection, ACK detection)                    | Classifier              | Read classification result               |
-| Pipeline orchestration (routing, delivery planning, receipt tracking)    | Runtime                 | None; adapters **MUST NOT** bypass       |
-| Event authority, correlation, and lineage storage                        | Storage                 | Read via storage API                     |
-| Retry/backoff computation (stateless)                                    | Runtime (RetryExecutor) | Record on receipts                       |
-| Retry scheduling (timed re-attempt)                                      | Reserved for future     | Not yet implemented                      |
-| Native message reference persistence                                     | Storage                 | Read via storage API                     |
+| Concern                                                               | Owner                   | Others May                         |
+| --------------------------------------------------------------------- | ----------------------- | ---------------------------------- |
+| Transport lifecycle (connect, disconnect, reconnect)                  | Adapter                 | Read health state                  |
+| Pacing, queueing, duty cycle management                               | Adapter                 | Set rate limit config              |
+| Payload formatting (text, rich content, transport-specific layout)    | Renderer                | Provide RenderingResult            |
+| Payload encoding/decoding (native format to CanonicalEvent)           | Codec                   | Read codec output                  |
+| Packet classification (type detection, ACK detection)                 | Classifier              | Read classification result         |
+| Pipeline orchestration (routing, delivery planning, receipt tracking) | Runtime                 | None; adapters **MUST NOT** bypass |
+| Event authority, correlation, and lineage storage                     | Storage                 | Read via storage API               |
+| Retry/backoff computation (stateless)                                 | Runtime (RetryExecutor) | Record on receipts                 |
+| Retry scheduling (timed re-attempt)                                   | Reserved for future     | Not yet implemented                |
+| Native message reference persistence                                  | Storage                 | Read via storage API               |
 
 ---
 
@@ -759,15 +759,15 @@ Adapter type determines the role. The operator **MUST NOT** set `role` manually.
 ```yaml
 adapters:
   meshcore-radio-1:
-    type: meshcore       # role: TRANSPORT (inferred)
+    type: meshcore # role: TRANSPORT (inferred)
     connection: { ... }
 
   matrix-home:
-    type: matrix         # role: PRESENTATION (inferred)
+    type: matrix # role: PRESENTATION (inferred)
     homeserver: "https://matrix.example.com"
 
   irc-bridge:
-    type: irc            # role: HYBRID (inferred)
+    type: irc # role: HYBRID (inferred)
     server: "irc.example.com"
 ```
 

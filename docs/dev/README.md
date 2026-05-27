@@ -5,14 +5,14 @@ anyone extending the MEDRE runtime.
 
 ## Documents
 
-| Document | Purpose |
-|----------|---------|
-| `testing.md` | Test suite structure, patterns, and conventions |
-| `adapter-authoring.md` | How to write a new transport adapter |
-| `source-audits.md` | Audit evidence and review notes |
-| `reference-repos.md` | External reference implementations |
-| `documentation-style.md` | Conventions for writing MEDRE documentation |
-| `change-process.md` | How to propose and track documentation changes |
+| Document                 | Purpose                                         |
+| ------------------------ | ----------------------------------------------- |
+| `testing.md`             | Test suite structure, patterns, and conventions |
+| `adapter-authoring.md`   | How to write a new transport adapter            |
+| `source-audits.md`       | Audit evidence and review notes                 |
+| `reference-repos.md`     | External reference implementations              |
+| `documentation-style.md` | Conventions for writing MEDRE documentation     |
+| `change-process.md`      | How to propose and track documentation changes  |
 
 ## How to Add Documentation
 

@@ -24,11 +24,11 @@ Validates MeshtasticAdapter creates real `TCPInterface`, subscribes to pubsub, s
 
 ### What Docker Tests Prove
 
-| Path | Status | What is proven |
-|------|--------|---------------|
-| Docker SDK-boundary outbound | Proven | `deliver()` → enqueue → `send_one()` → real `sendText()` through `TCPInterface` to containerized meshtasticd. Returns real packet ID. |
-| Docker SDK-boundary lifecycle | Proven | Adapter creates real `TCPInterface`, subscribes to pubsub, reports healthy, stops cleanly. |
-| Docker SDK-boundary inbound (pubsub) | Not proven | meshtasticd simulation mode may not relay packets between TCP clients. Inbound always uses `simulate_inbound`. |
+| Path                                 | Status     | What is proven                                                                                                                        |
+| ------------------------------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Docker SDK-boundary outbound         | Proven     | `deliver()` → enqueue → `send_one()` → real `sendText()` through `TCPInterface` to containerized meshtasticd. Returns real packet ID. |
+| Docker SDK-boundary lifecycle        | Proven     | Adapter creates real `TCPInterface`, subscribes to pubsub, reports healthy, stops cleanly.                                            |
+| Docker SDK-boundary inbound (pubsub) | Not proven | meshtasticd simulation mode may not relay packets between TCP clients. Inbound always uses `simulate_inbound`.                        |
 
 ## Serial CLI Validation
 
@@ -54,35 +54,35 @@ meshtastic --port /dev/ttyACM0 --ch-index 0 --sendtext "MEDRE validation test"
 
 ## Environment Variables
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `MESHTASTIC_CONNECTION_TYPE` | Yes | | `tcp`, `serial`, or `ble` |
-| `MESHTASTIC_HOST` | TCP | | Node hostname or IP |
-| `MESHTASTIC_PORT` | TCP | `4403` | TCP port |
-| `MESHTASTIC_SERIAL_PORT` | Serial | | Serial device path |
-| `MESHTASTIC_BLE_ADDRESS` | BLE | | BLE MAC address |
-| `MESHTASTIC_CHANNEL_INDEX` | No | `0` | Channel for test messages |
-| `MESHTASTIC_NODE_ID` | No | | Meshtastic node ID |
-| `MESHTASTIC_LIVE_SEND` | TX | | `1` to enable RF transmission |
+| Variable                     | Required | Default | Description                   |
+| ---------------------------- | -------- | ------- | ----------------------------- |
+| `MESHTASTIC_CONNECTION_TYPE` | Yes      |         | `tcp`, `serial`, or `ble`     |
+| `MESHTASTIC_HOST`            | TCP      |         | Node hostname or IP           |
+| `MESHTASTIC_PORT`            | TCP      | `4403`  | TCP port                      |
+| `MESHTASTIC_SERIAL_PORT`     | Serial   |         | Serial device path            |
+| `MESHTASTIC_BLE_ADDRESS`     | BLE      |         | BLE MAC address               |
+| `MESHTASTIC_CHANNEL_INDEX`   | No       | `0`     | Channel for test messages     |
+| `MESHTASTIC_NODE_ID`         | No       |         | Meshtastic node ID            |
+| `MESHTASTIC_LIVE_SEND`       | TX       |         | `1` to enable RF transmission |
 
 ## Evidence Tiers Achieved
 
-| Tier | Sub-class | Date | Result |
-|------|-----------|------|--------|
-| R | Hardware (serial CLI) | 2026-05-12 | Device discovery, hardware/firmware capture, 1 outbound on ch0, 3 reconnect cycles. CLI-level only — not MEDRE adapter lifecycle. |
-| R | Docker SDK-boundary | — | Outbound + lifecycle proven. Inbound via pubsub not proven. |
-| — | MEDRE adapter live | — | NOT EXECUTED (mtjk not in project venv during validation session). |
+| Tier | Sub-class             | Date       | Result                                                                                                                            |
+| ---- | --------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| R    | Hardware (serial CLI) | 2026-05-12 | Device discovery, hardware/firmware capture, 1 outbound on ch0, 3 reconnect cycles. CLI-level only — not MEDRE adapter lifecycle. |
+| R    | Docker SDK-boundary   | —          | Outbound + lifecycle proven. Inbound via pubsub not proven.                                                                       |
+| —    | MEDRE adapter live    | —          | NOT EXECUTED (mtjk not in project venv during validation session).                                                                |
 
 ## Delivery Classification
 
 Based on CLI-level serial validation:
 
-| Aspect | Classification |
-|--------|---------------|
-| ACK reliability | UNRELIABLE — no ACK confirmation for broadcast sends |
-| Delivery guarantee | BEST EFFORT — fire-and-forget LoRa broadcast |
+| Aspect                      | Classification                                                |
+| --------------------------- | ------------------------------------------------------------- |
+| ACK reliability             | UNRELIABLE — no ACK confirmation for broadcast sends          |
+| Delivery guarantee          | BEST EFFORT — fire-and-forget LoRa broadcast                  |
 | Reconnect reliability (CLI) | RELIABLE — 4/4 serial connections succeeded across ~7.7 hours |
-| MEDRE adapter reliability | NOT ASSESSED |
+| MEDRE adapter reliability   | NOT ASSESSED                                                  |
 
 ## Known Gaps
 

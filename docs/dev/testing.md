@@ -492,7 +492,7 @@ always re-run suspect files in isolation to confirm.
 ### Failure interpretation
 
 | Symptom                                             | Likely cause                          | Action                                                                        |
-| --------------------------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------ |
+| --------------------------------------------------- | ------------------------------------- | ----------------------------------------------------------------------------- |
 | Docker tests skip with "Docker not available"       | Docker daemon not running             | `docker info`                                                                 |
 | Docker tests skip with "mtjk not installed"         | Meshtastic SDK not installed          | `pip install -e ".[meshtastic]"`                                              |
 | Docker tests skip with "mindroom-nio not installed" | Matrix SDK not installed              | `pip install -e ".[matrix]"`                                                  |

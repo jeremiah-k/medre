@@ -96,23 +96,23 @@ that the message was handed off to the local radio or router layer. It does not
 mean the message was received by any remote party.
 
 | Transport  | `success=True` means                                  |
-| ---------- | ------------------------------------------------------ |
-| Meshtastic | Local radio accepted the packet.                       |
-| MeshCore   | Local radio accepted the packet.                       |
-| LXMF       | Message was handed to the LXMRouter.                   |
-| Matrix     | Homeserver persisted the event and returned event_id.  |
+| ---------- | ----------------------------------------------------- |
+| Meshtastic | Local radio accepted the packet.                      |
+| MeshCore   | Local radio accepted the packet.                      |
+| LXMF       | Message was handed to the LXMRouter.                  |
+| Matrix     | Homeserver persisted the event and returned event_id. |
 
 This is an honest model. MEDRE reports what it knows (local handoff succeeded)
 and does not pretend to know what it cannot verify (remote receipt).
 
 ## 4. Startup Backlog Suppression
 
-| Transport  | Status       | Notes                                                                    |
-| ---------- | ------------ | ------------------------------------------------------------------------ |
-| Meshtastic | Implemented  | `startup_backlog_suppress_seconds` (default 5.0s), `rxTime`-based, best-effort |
-| MeshCore   | Deferred     | No message history, no store-and-forward. Suppressing live events would risk dropping fresh packets. |
-| Matrix     | Excluded     | Sync protocol handles message ordering and gap detection.                |
-| LXMF       | Deferred     | No reliable receive-time timestamps suitable for suppression.            |
+| Transport  | Status      | Notes                                                                                                |
+| ---------- | ----------- | ---------------------------------------------------------------------------------------------------- |
+| Meshtastic | Implemented | `startup_backlog_suppress_seconds` (default 5.0s), `rxTime`-based, best-effort                       |
+| MeshCore   | Deferred    | No message history, no store-and-forward. Suppressing live events would risk dropping fresh packets. |
+| Matrix     | Excluded    | Sync protocol handles message ordering and gap detection.                                            |
+| LXMF       | Deferred    | No reliable receive-time timestamps suitable for suppression.                                        |
 
 ## 5. Protocol-Neutral Abstractions
 

@@ -37,12 +37,11 @@ CHANGES_DIR = _ROOT / "docs" / "changes"
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _check_exists(path: Path, label: str) -> None:
     """Assert a path exists, failing with a descriptive message."""
     if not path.exists():
-        pytest.fail(
-            f"Required {label} not found: {path.relative_to(_ROOT)}"
-        )
+        pytest.fail(f"Required {label} not found: {path.relative_to(_ROOT)}")
 
 
 # ===========================================================================
@@ -112,9 +111,9 @@ class TestTransportProfiles:
 
     def test_transport_profiles_directory_exists(self) -> None:
         """docs/spec/transport-profiles/ directory must exist."""
-        assert TRANSPORT_PROFILES_DIR.is_dir(), (
-            f"Required directory missing: {TRANSPORT_PROFILES_DIR.relative_to(_ROOT)}"
-        )
+        assert (
+            TRANSPORT_PROFILES_DIR.is_dir()
+        ), f"Required directory missing: {TRANSPORT_PROFILES_DIR.relative_to(_ROOT)}"
 
 
 # ===========================================================================
@@ -145,9 +144,9 @@ class TestAppendixFiles:
 
     def test_appendices_directory_exists(self) -> None:
         """docs/spec/appendices/ directory must exist."""
-        assert APPENDICES_DIR.is_dir(), (
-            f"Required directory missing: {APPENDICES_DIR.relative_to(_ROOT)}"
-        )
+        assert (
+            APPENDICES_DIR.is_dir()
+        ), f"Required directory missing: {APPENDICES_DIR.relative_to(_ROOT)}"
 
 
 # ===========================================================================
@@ -180,9 +179,9 @@ class TestOpsFiles:
 
     def test_ops_directory_exists(self) -> None:
         """docs/ops/ directory must exist."""
-        assert OPS_DIR.is_dir(), (
-            f"Required directory missing: {OPS_DIR.relative_to(_ROOT)}"
-        )
+        assert (
+            OPS_DIR.is_dir()
+        ), f"Required directory missing: {OPS_DIR.relative_to(_ROOT)}"
 
 
 # ===========================================================================
@@ -213,9 +212,9 @@ class TestDevFiles:
 
     def test_dev_directory_exists(self) -> None:
         """docs/dev/ directory must exist."""
-        assert DEV_DIR.is_dir(), (
-            f"Required directory missing: {DEV_DIR.relative_to(_ROOT)}"
-        )
+        assert (
+            DEV_DIR.is_dir()
+        ), f"Required directory missing: {DEV_DIR.relative_to(_ROOT)}"
 
 
 # ===========================================================================
@@ -249,16 +248,16 @@ class TestSchemaFiles:
 
     def test_schemas_directory_exists(self) -> None:
         """docs/schemas/ directory must exist."""
-        assert SCHEMAS_DIR.is_dir(), (
-            f"Required directory missing: {SCHEMAS_DIR.relative_to(_ROOT)}"
-        )
+        assert (
+            SCHEMAS_DIR.is_dir()
+        ), f"Required directory missing: {SCHEMAS_DIR.relative_to(_ROOT)}"
 
     def test_examples_subdirectory_exists(self) -> None:
         """docs/schemas/examples/ directory must exist."""
         examples_dir = SCHEMAS_DIR / "examples"
-        assert examples_dir.is_dir(), (
-            f"Required directory missing: {examples_dir.relative_to(_ROOT)}"
-        )
+        assert (
+            examples_dir.is_dir()
+        ), f"Required directory missing: {examples_dir.relative_to(_ROOT)}"
 
 
 # ===========================================================================
@@ -271,9 +270,9 @@ class TestChangesStructure:
 
     def test_changes_directory_exists(self) -> None:
         """docs/changes/ directory must exist."""
-        assert CHANGES_DIR.is_dir(), (
-            f"Required directory missing: {CHANGES_DIR.relative_to(_ROOT)}"
-        )
+        assert (
+            CHANGES_DIR.is_dir()
+        ), f"Required directory missing: {CHANGES_DIR.relative_to(_ROOT)}"
 
     def test_changes_readme_exists(self) -> None:
         """docs/changes/README.md must exist."""
@@ -285,6 +284,6 @@ class TestChangesStructure:
     def test_unreleased_subdirectory_exists(self) -> None:
         """docs/changes/unreleased/ directory must exist."""
         unreleased = CHANGES_DIR / "unreleased"
-        assert unreleased.is_dir(), (
-            f"Required directory missing: {unreleased.relative_to(_ROOT)}"
-        )
+        assert (
+            unreleased.is_dir()
+        ), f"Required directory missing: {unreleased.relative_to(_ROOT)}"

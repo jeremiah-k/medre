@@ -36,19 +36,19 @@ responsibility and produces traceable output.
 
 ## 2. Stage Descriptions
 
-| Stage                           | Responsibility                                                                                                                                                          |
-| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Ingress Policy**              | Validate and filter raw inbound data before it enters the pipeline. Reject malformed, unauthorized, or rate-limited ingress at the boundary.                             |
-| **Store Source Event**          | Persist the source event to storage with a unique ID, timestamp, and schema version. This is the immutable record.                                                       |
-| **Enrichment**                  | Attach supplementary data: identity resolution, geo lookups, radio metadata normalization. Produces a derived event.                                                    |
-| **Semantic Transforms**         | Convert derived events into target event kinds (e.g., telemetry to message, telemetry to metrics). Each transform declares input/output kinds.                           |
-| **Event Policy**                | Rate limiting, content filtering, permission checks, and user-configurable rules on transformed events. Events may be dropped, flagged, or rate-limited.                |
-| **Routing**                     | Determine which adapters should receive the event. Evaluate structured source/target criteria, channel mapping, and bridge group resolution.                              |
-| **Route Policy**                | Per-route rules after routing but before delivery planning. Per-route rate limits, quiet hours, and permission checks on the route+adapter pair.                        |
-| **Delivery Planning**           | Construct delivery plans: primary method, fallback chain, retry strategy, ordering constraints, deduplication scope, and cross-adapter threading resolution.             |
-| **Delivery Policy / Rendering** | Adapter-specific content filtering, size limits, capability downgrade. Produce the final rendered payload for each adapter.                                             |
-| **Adapter Execution**           | Dequeue and execute delivery plans respecting adapter rate limits, connection state, and priority.                                                                       |
-| **Receipts / Correlation**      | Record delivery results and correlate back to the originating event. Failed deliveries trigger fallback plans or dead-letter processing.                                 |
+| Stage                           | Responsibility                                                                                                                                               |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Ingress Policy**              | Validate and filter raw inbound data before it enters the pipeline. Reject malformed, unauthorized, or rate-limited ingress at the boundary.                 |
+| **Store Source Event**          | Persist the source event to storage with a unique ID, timestamp, and schema version. This is the immutable record.                                           |
+| **Enrichment**                  | Attach supplementary data: identity resolution, geo lookups, radio metadata normalization. Produces a derived event.                                         |
+| **Semantic Transforms**         | Convert derived events into target event kinds (e.g., telemetry to message, telemetry to metrics). Each transform declares input/output kinds.               |
+| **Event Policy**                | Rate limiting, content filtering, permission checks, and user-configurable rules on transformed events. Events may be dropped, flagged, or rate-limited.     |
+| **Routing**                     | Determine which adapters should receive the event. Evaluate structured source/target criteria, channel mapping, and bridge group resolution.                 |
+| **Route Policy**                | Per-route rules after routing but before delivery planning. Per-route rate limits, quiet hours, and permission checks on the route+adapter pair.             |
+| **Delivery Planning**           | Construct delivery plans: primary method, fallback chain, retry strategy, ordering constraints, deduplication scope, and cross-adapter threading resolution. |
+| **Delivery Policy / Rendering** | Adapter-specific content filtering, size limits, capability downgrade. Produce the final rendered payload for each adapter.                                  |
+| **Adapter Execution**           | Dequeue and execute delivery plans respecting adapter rate limits, connection state, and priority.                                                           |
+| **Receipts / Correlation**      | Record delivery results and correlate back to the originating event. Failed deliveries trigger fallback plans or dead-letter processing.                     |
 
 ## 3. Data Flow Constraints
 
@@ -90,12 +90,12 @@ src/medre/
 
 ### 4.2 Import Rules
 
-| Layer            | May Import From                                            | Must Not Import From              |
-| ---------------- | ---------------------------------------------------------- | --------------------------------- |
-| `core/`          | `core/` only                                               | `adapters/`, `config/`, `runtime/`|
-| `config/`        | `config/` (including `config.adapters`, `config.routes`)   | `adapters/`, `runtime/`           |
-| `adapters/`      | `core.contracts.adapter`, `config.adapters.*`, `core.*`    | Other adapter packages, `runtime/`|
-| `runtime/`       | `core.*`, `config.*`, `adapters.*`                         | —                                 |
+| Layer       | May Import From                                          | Must Not Import From               |
+| ----------- | -------------------------------------------------------- | ---------------------------------- |
+| `core/`     | `core/` only                                             | `adapters/`, `config/`, `runtime/` |
+| `config/`   | `config/` (including `config.adapters`, `config.routes`) | `adapters/`, `runtime/`            |
+| `adapters/` | `core.contracts.adapter`, `config.adapters.*`, `core.*`  | Other adapter packages, `runtime/` |
+| `runtime/`  | `core.*`, `config.*`, `adapters.*`                       | —                                  |
 
 ### 4.3 Key Invariants
 
@@ -109,20 +109,20 @@ src/medre/
 
 ## 5. Adapter Roles
 
-| Role             | Description                                                                    | Examples                                    |
-| ---------------- | ------------------------------------------------------------------------------ | ------------------------------------------- |
-| **TRANSPORT**    | Moves data to/from a physical or logical transport layer.                     | Meshtastic, MeshCore, LXMF, MQTT            |
-| **PRESENTATION** | Presents events to human users. Handles formatting, threading, reactions.     | Matrix, Discord, Telegram, Web UI           |
-| **HYBRID**       | Both transports and presents simultaneously.                                   | IRC, XMPP                                   |
+| Role             | Description                                                               | Examples                          |
+| ---------------- | ------------------------------------------------------------------------- | --------------------------------- |
+| **TRANSPORT**    | Moves data to/from a physical or logical transport layer.                 | Meshtastic, MeshCore, LXMF, MQTT  |
+| **PRESENTATION** | Presents events to human users. Handles formatting, threading, reactions. | Matrix, Discord, Telegram, Web UI |
+| **HYBRID**       | Both transports and presents simultaneously.                              | IRC, XMPP                         |
 
 ## 6. Cross-Transport Comparison
 
-| Dimension         | Matrix                    | Meshtastic           | MeshCore             | LXMF                 |
-| ----------------- | ------------------------- | -------------------- | -------------------- | -------------------- |
-| Role              | Presentation              | Transport            | Transport            | Transport            |
-| Identity          | MXID                      | NodeNum / fromId     | Ed25519 pubkey       | Destination hash     |
-| Payload limit     | ~100 KB                   | ~227 bytes           | 184 bytes            | Variable             |
-| Reply mechanism   | `m.in_reply_to`           | `replyId`            | None native          | None native          |
-| Encryption        | TLS / Megolm              | Optional per-packet  | Always-on E2EE       | Reticulum link-layer |
-| ACK model         | Sync `/sync` confirm      | Async LoRa ACK       | Async ACK + CRC      | Link-level ACK       |
-| Send returns      | Event ID string           | MeshPacket protobuf  | Event + ACK info     | Delivery status      |
+| Dimension       | Matrix               | Meshtastic          | MeshCore         | LXMF                 |
+| --------------- | -------------------- | ------------------- | ---------------- | -------------------- |
+| Role            | Presentation         | Transport           | Transport        | Transport            |
+| Identity        | MXID                 | NodeNum / fromId    | Ed25519 pubkey   | Destination hash     |
+| Payload limit   | ~100 KB              | ~227 bytes          | 184 bytes        | Variable             |
+| Reply mechanism | `m.in_reply_to`      | `replyId`           | None native      | None native          |
+| Encryption      | TLS / Megolm         | Optional per-packet | Always-on E2EE   | Reticulum link-layer |
+| ACK model       | Sync `/sync` confirm | Async LoRa ACK      | Async ACK + CRC  | Link-level ACK       |
+| Send returns    | Event ID string      | MeshPacket protobuf | Event + ACK info | Delivery status      |

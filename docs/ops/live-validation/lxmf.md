@@ -25,6 +25,7 @@ pytest tests/test_lxmf_live.py -m live -v
    - Local `rnsd` daemon (but be aware of singleton constraint — MEDRE may conflict).
 
 2. **Identity file.** Create one before first run:
+
    ```python
    import RNS
    identity = RNS.Identity()
@@ -49,7 +50,7 @@ Both machines auto-discover each other via IPv6 link-local multicast. No manual 
 # Process A
 python -c "import RNS; r = RNS.Reticulum('/tmp/ret_a'); import time; time.sleep(9999)" &
 
-# Process B  
+# Process B
 python -c "import RNS; r = RNS.Reticulum('/tmp/ret_b'); import time; time.sleep(9999)" &
 ```
 
@@ -111,12 +112,12 @@ config = LxmfConfig(
 
 ## Evidence Tiers Achieved
 
-| Tier | Sub-class | Date | Result |
-|------|-----------|------|--------|
-| S | Fake callback | — | Proven: simulate_inbound → codec → pipeline → fake outbound |
-| S | Wrapper callback | — | Proven: _on_packet → LxmfCodec.decode → pipeline routing → fake outbound |
-| — | Docker SDK-boundary | — | Not proven (no containerized Reticulum/LXMF router) |
-| — | Live network | — | Not proven |
+| Tier | Sub-class           | Date | Result                                                                    |
+| ---- | ------------------- | ---- | ------------------------------------------------------------------------- |
+| S    | Fake callback       | —    | Proven: simulate_inbound → codec → pipeline → fake outbound               |
+| S    | Wrapper callback    | —    | Proven: \_on_packet → LxmfCodec.decode → pipeline routing → fake outbound |
+| —    | Docker SDK-boundary | —    | Not proven (no containerized Reticulum/LXMF router)                       |
+| —    | Live network        | —    | Not proven                                                                |
 
 ## Known Gaps
 

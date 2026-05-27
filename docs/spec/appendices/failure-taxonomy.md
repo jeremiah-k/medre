@@ -32,36 +32,36 @@ implications.
 
 ### 1.4 Queue-Drain Semantics
 
-| Category          | Definition                                                                    |
-| ----------------- | ----------------------------------------------------------------------------- |
-| **FIFO drain**    | Messages drained in order; no reordering under normal conditions.             |
-| **Lossy drain**   | Some messages may be silently dropped during drain (e.g., queue overflow).    |
-| **No queue**      | No outbound queue; sends are immediate and fire-and-forget.                   |
-| **Scaffold queue**| Outbound queue with bounded retry; exhausted and permanent failures dropped.  |
+| Category           | Definition                                                                   |
+| ------------------ | ---------------------------------------------------------------------------- |
+| **FIFO drain**     | Messages drained in order; no reordering under normal conditions.            |
+| **Lossy drain**    | Some messages may be silently dropped during drain (e.g., queue overflow).   |
+| **No queue**       | No outbound queue; sends are immediate and fire-and-forget.                  |
+| **Scaffold queue** | Outbound queue with bounded retry; exhausted and permanent failures dropped. |
 
 ## 2. Cross-Transport Failure Summary
 
-| Dimension                     | Matrix              | Meshtastic       | MeshCore         | LXMF              |
-| ----------------------------- | --------------------| ---------------- | ---------------- | ----------------- |
-| **Transient cause**           | Network/auth/rate    | Radio/link/serial| Radio/link/serial| Network/RNS       |
-| **Permanent cause**           | Auth revocation      | Config/port error| Config error     | Identity/RNS init |
-| **Reconnect model**           | Exp backoff, 10 att  | Exp backoff, 10  | Exp backoff, 10  | Exp backoff, 10   |
-| **Duplicate-send risk**       | Low-Medium           | High             | Medium           | Low               |
-| **Outbound queue**            | None (direct send)   | Scaffold (lossy) | None (direct)    | None (router-managed) |
-| **Delivery confirmation**     | Server event_id      | None             | None             | Async state callback |
-| **Uncertainty window**        | ~0 to one sync cycle | Unbounded        | Unbounded        | Unbounded         |
+| Dimension                 | Matrix               | Meshtastic        | MeshCore          | LXMF                  |
+| ------------------------- | -------------------- | ----------------- | ----------------- | --------------------- |
+| **Transient cause**       | Network/auth/rate    | Radio/link/serial | Radio/link/serial | Network/RNS           |
+| **Permanent cause**       | Auth revocation      | Config/port error | Config error      | Identity/RNS init     |
+| **Reconnect model**       | Exp backoff, 10 att  | Exp backoff, 10   | Exp backoff, 10   | Exp backoff, 10       |
+| **Duplicate-send risk**   | Low-Medium           | High              | Medium            | Low                   |
+| **Outbound queue**        | None (direct send)   | Scaffold (lossy)  | None (direct)     | None (router-managed) |
+| **Delivery confirmation** | Server event_id      | None              | None              | Async state callback  |
+| **Uncertainty window**    | ~0 to one sync cycle | Unbounded         | Unbounded         | Unbounded             |
 
 ## 3. Matrix Failure Detail
 
 ### Connection Failures
 
-| Failure                | Transient/Permanent | Reconnectable |
-| ---------------------- | ------------------- | ------------- |
-| Network unreachable    | Transient           | Yes           |
-| DNS resolution failure | Transient           | Yes           |
+| Failure                | Transient/Permanent | Reconnectable   |
+| ---------------------- | ------------------- | --------------- |
+| Network unreachable    | Transient           | Yes             |
+| DNS resolution failure | Transient           | Yes             |
 | TLS handshake failure  | Transient (or perm) | Yes (transient) |
-| HTTP 429 (rate limit)  | Transient           | Yes           |
-| HTTP 401/403 (auth)    | Permanent           | No            |
+| HTTP 429 (rate limit)  | Transient           | Yes             |
+| HTTP 401/403 (auth)    | Permanent           | No              |
 
 ### Send Failures
 
@@ -72,12 +72,12 @@ implications.
 
 ### E2EE Failure Classes
 
-| Failure                               | Class             | Recovery                        |
-| ------------------------------------- | ----------------- | ------------------------------- |
-| Missing crypto dependency             | Permanent, fatal  | Install deps and restart        |
-| Device not verified                   | Permanent per msg | Interactive verification        |
-| Megolm session not received           | Transient         | Wait for key delivery           |
-| `e2ee_required` + plaintext room      | Permanent         | Use encrypted room              |
+| Failure                          | Class             | Recovery                 |
+| -------------------------------- | ----------------- | ------------------------ |
+| Missing crypto dependency        | Permanent, fatal  | Install deps and restart |
+| Device not verified              | Permanent per msg | Interactive verification |
+| Megolm session not received      | Transient         | Wait for key delivery    |
+| `e2ee_required` + plaintext room | Permanent         | Use encrypted room       |
 
 ## 4. Meshtastic Failure Detail
 
@@ -112,11 +112,11 @@ Route policy suppression is a cross-transport failure classification. It
 occurs when the route-policy evaluator denies a delivery after route matching
 but before delivery side effects.
 
-| Property       | Value                                        |
-| -------------- | -------------------------------------------- |
-| Failure kind   | `policy_suppressed`                          |
-| Retryable      | No (permanent)                               |
-| Receipt status | `suppressed`                                 |
+| Property       | Value               |
+| -------------- | ------------------- |
+| Failure kind   | `policy_suppressed` |
+| Retryable      | No (permanent)      |
+| Receipt status | `suppressed`        |
 
 Denial reason codes: `source_adapter_not_allowed`, `dest_adapter_not_allowed`,
 `sender_not_allowed`, `room_not_allowed`, `channel_not_allowed`.

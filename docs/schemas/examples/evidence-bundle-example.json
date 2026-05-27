@@ -36,14 +36,14 @@
       "error": null,
       "data": {
         "adapters": [],
-        "renderer_registry": {"status": "unavailable"},
-        "event_bus_status": {"status": "unavailable"},
-        "storage_backend_status": {"status": "unavailable"},
-        "replay_backend_status": {"status": "unavailable"},
-        "route_topology": {"status": "unavailable"},
-        "queue_status": {"status": "unavailable"},
-        "backpressure_status": {"status": "unavailable"},
-        "task_status": {"status": "unavailable"}
+        "renderer_registry": { "status": "unavailable" },
+        "event_bus_status": { "status": "unavailable" },
+        "storage_backend_status": { "status": "unavailable" },
+        "replay_backend_status": { "status": "unavailable" },
+        "route_topology": { "status": "unavailable" },
+        "queue_status": { "status": "unavailable" },
+        "backpressure_status": { "status": "unavailable" },
+        "task_status": { "status": "unavailable" }
       }
     },
     "live_health": {

@@ -1,3 +1,4 @@
+# yamllint disable rule:quoted-strings
 # YAML representation of canonical-event.schema.json
 # See canonical-event.schema.json for the authoritative definition.
 # Generated from source: src/medre/core/events/canonical.py, metadata.py
@@ -134,7 +135,8 @@ $defs:
         additionalProperties: true
         default: {}
         description: Arbitrary key-value metadata attached to this relation.
-    required: [relation_type, target_event_id, target_native_ref, key, fallback_text]
+    required:
+      [relation_type, target_event_id, target_native_ref, key, fallback_text]
     additionalProperties: false
 
   EventMetadata:

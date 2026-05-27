@@ -12,39 +12,39 @@ The adapter delegates all client lifecycle (creation, login, sync, teardown) to 
 
 ## Configuration Fields
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `adapter_id` | `str` | *(required)* | Unique adapter instance identifier |
-| `homeserver` | `str` | *(required)* | Matrix homeserver URL (`https://…` or `http://…`) |
-| `user_id` | `str` | *(required)* | Fully-qualified Matrix user ID (must start with `@`) |
-| `device_id` | `str \| None` | `None` | Internal — discovered via `whoami()` when needed |
-| `access_token` | `str` | `""` | Access token for authentication; sidecar fallback supported |
-| `room_allowlist` | `set[str] \| None` | `None` | Optional set of room IDs to accept; `None` = all rooms |
-| `metadata_embedding_mode` | `str` | `"safe"` | How metadata is embedded in messages |
-| `store_path` | `str \| None` | `None` | Internal — derived under `{state}/adapters/{id}/matrix/store` |
-| `sync_timeout_ms` | `int` | `30000` | Long-polling sync timeout in milliseconds |
-| `encryption_mode` | `Literal["plaintext","e2ee_required","e2ee_optional"]` | `"plaintext"` | E2EE policy |
-| `require_encrypted_rooms` | `bool` | `False` | If `True`, reject plaintext rooms; invalid with `encryption_mode="plaintext"` |
-| `auto_join_rooms` | `tuple[str, ...]` | `()` | Canonical room IDs (`!localpart:server`) to auto-join on startup and via invite |
+| Field                     | Type                                                   | Default       | Description                                                                     |
+| ------------------------- | ------------------------------------------------------ | ------------- | ------------------------------------------------------------------------------- |
+| `adapter_id`              | `str`                                                  | _(required)_  | Unique adapter instance identifier                                              |
+| `homeserver`              | `str`                                                  | _(required)_  | Matrix homeserver URL (`https://…` or `http://…`)                               |
+| `user_id`                 | `str`                                                  | _(required)_  | Fully-qualified Matrix user ID (must start with `@`)                            |
+| `device_id`               | `str \| None`                                          | `None`        | Internal — discovered via `whoami()` when needed                                |
+| `access_token`            | `str`                                                  | `""`          | Access token for authentication; sidecar fallback supported                     |
+| `room_allowlist`          | `set[str] \| None`                                     | `None`        | Optional set of room IDs to accept; `None` = all rooms                          |
+| `metadata_embedding_mode` | `str`                                                  | `"safe"`      | How metadata is embedded in messages                                            |
+| `store_path`              | `str \| None`                                          | `None`        | Internal — derived under `{state}/adapters/{id}/matrix/store`                   |
+| `sync_timeout_ms`         | `int`                                                  | `30000`       | Long-polling sync timeout in milliseconds                                       |
+| `encryption_mode`         | `Literal["plaintext","e2ee_required","e2ee_optional"]` | `"plaintext"` | E2EE policy                                                                     |
+| `require_encrypted_rooms` | `bool`                                                 | `False`       | If `True`, reject plaintext rooms; invalid with `encryption_mode="plaintext"`   |
+| `auto_join_rooms`         | `tuple[str, ...]`                                      | `()`          | Canonical room IDs (`!localpart:server`) to auto-join on startup and via invite |
 
 ---
 
 ## Capabilities
 
-| Capability | Value |
-|---|---|
-| text | `True` |
-| replies | `"native"` |
-| reactions | `"native"` |
-| edits | `"unsupported"` |
-| deletes | `"unsupported"` |
-| attachments | `False` |
-| delivery_receipts | `True` |
-| store_and_forward | `False` |
-| direct_messages | `True` |
-| channels | `True` |
-| async_delivery | `True` |
-| topic_rooms | `True` |
+| Capability        | Value           |
+| ----------------- | --------------- |
+| text              | `True`          |
+| replies           | `"native"`      |
+| reactions         | `"native"`      |
+| edits             | `"unsupported"` |
+| deletes           | `"unsupported"` |
+| attachments       | `False`         |
+| delivery_receipts | `True`          |
+| store_and_forward | `False`         |
+| direct_messages   | `True`          |
+| channels          | `True`          |
+| async_delivery    | `True`          |
+| topic_rooms       | `True`          |
 
 ---
 
@@ -81,7 +81,7 @@ The Matrix renderer (`MatrixRenderer`) produces:
 
 **Local acceptance:** `deliver()` performs a synchronous `room_send` with bounded retry (up to 3 attempts, exponential backoff 500 ms → 1 s → 2 s with ±25 % jitter). Success means the homeserver accepted the event and returned an `event_id`.
 
-**Remote delivery:** The homeserver is responsible for fan-out. MEDRE treats the returned `event_id` as confirmation of *local acceptance only* — it does not track whether other federation servers or clients received the event.
+**Remote delivery:** The homeserver is responsible for fan-out. MEDRE treats the returned `event_id` as confirmation of _local acceptance only_ — it does not track whether other federation servers or clients received the event.
 
 **Rate-limit handling:** `M_LIMIT_EXCEEDED` / HTTP 429 raises `AdapterSendError(transient=True)` immediately so the pipeline retry worker can honour `retry_after_ms`.
 
@@ -99,6 +99,7 @@ The Matrix renderer (`MatrixRenderer`) produces:
 6. **Stopped** — `stop()` cancels sync task, disconnects client, nulls session. Idempotent.
 
 **E2EE modes:**
+
 - `plaintext` — No crypto; `ignore_unverified_devices=False`.
 - `e2ee_required` — Fails if `mindroom-nio[e2e]` not installed or crypto subsystem broken.
 - `e2ee_optional` — Attempts crypto; falls back to plaintext with `crypto_enabled=False` on failure.
@@ -109,34 +110,34 @@ The Matrix renderer (`MatrixRenderer`) produces:
 
 `adapter.diagnostics()` returns a dict (no secrets):
 
-| Key | Type | Description |
-|---|---|---|
-| `connected` | `bool` | Session has active client |
-| `logged_in` | `bool` | Client reports authenticated |
-| `sync_task_running` | `bool` | Sync asyncio task alive |
-| `last_sync_error` | `str \| None` | Last sync failure message |
-| `store_path_configured` | `bool` | E2EE store path set |
-| `device_id_configured` | `bool` | Device ID known |
-| `encryption_mode` | `str` | Current E2EE mode |
-| `crypto_enabled` | `bool` | Crypto subsystem active |
-| `last_crypto_error` | `str \| None` | Last crypto error |
-| `encrypted_room_seen` | `bool` | At least one encrypted room detected |
-| `undecryptable_event_count` | `int` | MegolmEvents that could not be decrypted |
-| `sync_running` | `bool` | Sync loop active |
-| `reconnecting` | `bool` | Reconnect backoff in progress |
-| `reconnect_attempts` | `int` | Consecutive reconnect attempts |
-| `last_successful_sync` | `float \| None` | Monotonic time of last good sync |
-| `crypto_store_loaded` | `bool` | Olm/store initialised |
-| `olm_loaded` | `bool` | Olm subsystem loaded |
-| `encrypted_room_count` | `int` | Rooms tracked as encrypted |
-| `plaintext_room_count` | `int` | Rooms tracked as plaintext |
-| `transient_delivery_failures` | `int` | Transient outbound errors |
-| `permanent_delivery_failures` | `int` | Permanent outbound errors |
-| `inbound_published` | `int` | Events published inbound |
-| `inbound_suppressed_self` | `int` | Self-message suppressions |
-| `inbound_suppressed_envelope` | `int` | MEDRE-origin loop hint suppressions |
-| `inbound_filtered_allowlist` | `int` | Room allowlist rejections |
-| `inbound_suppressed_startup` | `int` | Backlog events before first live sync |
+| Key                           | Type            | Description                              |
+| ----------------------------- | --------------- | ---------------------------------------- |
+| `connected`                   | `bool`          | Session has active client                |
+| `logged_in`                   | `bool`          | Client reports authenticated             |
+| `sync_task_running`           | `bool`          | Sync asyncio task alive                  |
+| `last_sync_error`             | `str \| None`   | Last sync failure message                |
+| `store_path_configured`       | `bool`          | E2EE store path set                      |
+| `device_id_configured`        | `bool`          | Device ID known                          |
+| `encryption_mode`             | `str`           | Current E2EE mode                        |
+| `crypto_enabled`              | `bool`          | Crypto subsystem active                  |
+| `last_crypto_error`           | `str \| None`   | Last crypto error                        |
+| `encrypted_room_seen`         | `bool`          | At least one encrypted room detected     |
+| `undecryptable_event_count`   | `int`           | MegolmEvents that could not be decrypted |
+| `sync_running`                | `bool`          | Sync loop active                         |
+| `reconnecting`                | `bool`          | Reconnect backoff in progress            |
+| `reconnect_attempts`          | `int`           | Consecutive reconnect attempts           |
+| `last_successful_sync`        | `float \| None` | Monotonic time of last good sync         |
+| `crypto_store_loaded`         | `bool`          | Olm/store initialised                    |
+| `olm_loaded`                  | `bool`          | Olm subsystem loaded                     |
+| `encrypted_room_count`        | `int`           | Rooms tracked as encrypted               |
+| `plaintext_room_count`        | `int`           | Rooms tracked as plaintext               |
+| `transient_delivery_failures` | `int`           | Transient outbound errors                |
+| `permanent_delivery_failures` | `int`           | Permanent outbound errors                |
+| `inbound_published`           | `int`           | Events published inbound                 |
+| `inbound_suppressed_self`     | `int`           | Self-message suppressions                |
+| `inbound_suppressed_envelope` | `int`           | MEDRE-origin loop hint suppressions      |
+| `inbound_filtered_allowlist`  | `int`           | Room allowlist rejections                |
+| `inbound_suppressed_startup`  | `int`           | Backlog events before first live sync    |
 
 ---
 
@@ -167,7 +168,7 @@ The Matrix renderer (`MatrixRenderer`) produces:
 
 ## Reference Libraries
 
-| Library | Purpose | Optional |
-|---|---|---|
-| `mindroom-nio` | Async Matrix client (sync, send, E2EE) | Yes (`medre[matrix]`) |
-| `mindroom-nio[e2e]` | E2EE crypto (vodozemac + Olm) | Yes (`medre[matrix-e2e]`) |
+| Library             | Purpose                                | Optional                  |
+| ------------------- | -------------------------------------- | ------------------------- |
+| `mindroom-nio`      | Async Matrix client (sync, send, E2EE) | Yes (`medre[matrix]`)     |
+| `mindroom-nio[e2e]` | E2EE crypto (vodozemac + Olm)          | Yes (`medre[matrix-e2e]`) |

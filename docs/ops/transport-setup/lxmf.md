@@ -4,14 +4,14 @@ Setting up and running the MEDRE LXMF adapter against a real Reticulum network. 
 
 ## Prerequisites
 
-| Requirement | Details |
-|------------|---------|
-| Reticulum instance | A running Reticulum transport layer (local `rnsd`, `AutoInterface` on LAN, or TCP to remote node) |
-| LXMF router storage | A writable directory for `LXMRouter` persistent state |
-| Reticulum identity | A 64-byte private key file. Created on first run if none exists. |
-| Python | 3.12 or later |
-| Package install | Core: `pip install -e .` (fake mode). Real connectivity: `pip install lxmf` (installs `rns` as dependency). Alternative: `pip install rnspure` for pure-Python crypto (slower). |
-| Network access | At least one Reticulum transport interface configured |
+| Requirement         | Details                                                                                                                                                                         |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Reticulum instance  | A running Reticulum transport layer (local `rnsd`, `AutoInterface` on LAN, or TCP to remote node)                                                                               |
+| LXMF router storage | A writable directory for `LXMRouter` persistent state                                                                                                                           |
+| Reticulum identity  | A 64-byte private key file. Created on first run if none exists.                                                                                                                |
+| Python              | 3.12 or later                                                                                                                                                                   |
+| Package install     | Core: `pip install -e .` (fake mode). Real connectivity: `pip install lxmf` (installs `rns` as dependency). Alternative: `pip install rnspure` for pure-Python crypto (slower). |
+| Network access      | At least one Reticulum transport interface configured                                                                                                                           |
 
 Fake mode is the default and recommended path for all development and testing. Real Reticulum connectivity is opt-in for live validation.
 
@@ -70,12 +70,12 @@ MEDRE never handles `RNS.Identity` or `RNS.Destination` objects directly. The ad
 
 LXMF supports four delivery methods. The semantics are fundamentally asynchronous and store-and-forward.
 
-| Method | Code | Behavior | Reliability | Latency |
-|--------|------|----------|-------------|---------|
-| DIRECT | `0x02` | Establishes `RNS.Link`, sends via link packet or `RNS.Resource` | High. Retries up to 5. Proof receipts confirm delivery. | Seconds to minutes |
-| OPPORTUNISTIC | `0x01` | Single RNS packet, no link. Embedded in route data. | Best-effort. No ACK, no retry. Max 1 attempt. | Seconds if peer online |
-| PROPAGATED | `0x03` | Delivered to propagation node. Node stores for recipient. | Moderate. Delivery to node is reliable. Recipient syncs later. | Minutes to hours |
-| PAPER | `0x05` | Encoded as QR code or `lxm://` URI. No network. | None. Physical delivery only. | N/A |
+| Method        | Code   | Behavior                                                        | Reliability                                                    | Latency                |
+| ------------- | ------ | --------------------------------------------------------------- | -------------------------------------------------------------- | ---------------------- |
+| DIRECT        | `0x02` | Establishes `RNS.Link`, sends via link packet or `RNS.Resource` | High. Retries up to 5. Proof receipts confirm delivery.        | Seconds to minutes     |
+| OPPORTUNISTIC | `0x01` | Single RNS packet, no link. Embedded in route data.             | Best-effort. No ACK, no retry. Max 1 attempt.                  | Seconds if peer online |
+| PROPAGATED    | `0x03` | Delivered to propagation node. Node stores for recipient.       | Moderate. Delivery to node is reliable. Recipient syncs later. | Minutes to hours       |
+| PAPER         | `0x05` | Encoded as QR code or `lxm://` URI. No network.                 | None. Physical delivery only.                                  | N/A                    |
 
 ### MEDRE Config
 
@@ -128,12 +128,12 @@ On first run, Reticulum creates a default config at `~/.reticulum/config` with `
 
 ### Two-Node Minimum for Delivery Validation
 
-| Setup | How | Complexity |
-|-------|-----|-----------|
-| Two processes, same machine | Custom config dirs with TCPClientInterface/TCPServerInterface | Medium |
-| Two machines, same LAN | Both use default AutoInterface | Low |
-| Two machines, TCP | One runs TCPServerInterface, other TCPClientInterface | Low |
-| Radio link | Both have RNode or compatible radio hardware | High |
+| Setup                       | How                                                           | Complexity |
+| --------------------------- | ------------------------------------------------------------- | ---------- |
+| Two processes, same machine | Custom config dirs with TCPClientInterface/TCPServerInterface | Medium     |
+| Two machines, same LAN      | Both use default AutoInterface                                | Low        |
+| Two machines, TCP           | One runs TCPServerInterface, other TCPClientInterface         | Low        |
+| Radio link                  | Both have RNode or compatible radio hardware                  | High       |
 
 **Simplest viable topology:** two machines on the same LAN with default AutoInterface configs.
 
@@ -148,11 +148,11 @@ On first run, Reticulum creates a default config at `~/.reticulum/config` with `
 
 `rnsd` is the Reticulum Network Stack daemon — it holds a `RNS.Reticulum()` instance alive for transport and announce propagation. It does not handle LXMF messages or provide LXMF services.
 
-| Scenario | Use rnsd? | Why |
-|----------|----------|-----|
-| MEDRE runs continuously | Optional | The adapter's `LxmfSession` creates its own `RNS.Reticulum()` |
-| Multiple local programs need RNS | Yes | rnsd acts as shared instance master |
-| Development/testing | Usually no | MEDRE creates its own instance; rnsd conflicts (singleton) |
+| Scenario                         | Use rnsd?  | Why                                                           |
+| -------------------------------- | ---------- | ------------------------------------------------------------- |
+| MEDRE runs continuously          | Optional   | The adapter's `LxmfSession` creates its own `RNS.Reticulum()` |
+| Multiple local programs need RNS | Yes        | rnsd acts as shared instance master                           |
+| Development/testing              | Usually no | MEDRE creates its own instance; rnsd conflicts (singleton)    |
 
 Do not run rnsd during MEDRE live harness execution — the harness needs to own its Reticulum instance with a custom `configdir` for test isolation.
 

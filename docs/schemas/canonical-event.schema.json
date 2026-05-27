@@ -65,10 +65,7 @@
       "$ref": "#/$defs/EventMetadata"
     },
     "source_native_ref": {
-      "oneOf": [
-        { "$ref": "#/$defs/NativeRef" },
-        { "type": "null" }
-      ],
+      "oneOf": [{ "$ref": "#/$defs/NativeRef" }, { "type": "null" }],
       "description": "Inbound native message reference carried from codec. None for outbound/internal events."
     },
     "depth": {
@@ -140,10 +137,7 @@
           "description": "The canonical event ID of the target event, if known."
         },
         "target_native_ref": {
-          "oneOf": [
-            { "$ref": "#/$defs/NativeRef" },
-            { "type": "null" }
-          ],
+          "oneOf": [{ "$ref": "#/$defs/NativeRef" }, { "type": "null" }],
           "description": "A native-space reference to the target, used when the canonical ID has not been resolved."
         },
         "key": {
@@ -184,18 +178,12 @@
           "description": "Transport-layer metadata."
         },
         "routing": {
-          "oneOf": [
-            { "$ref": "#/$defs/RoutingMetadata" },
-            { "type": "null" }
-          ],
+          "oneOf": [{ "$ref": "#/$defs/RoutingMetadata" }, { "type": "null" }],
           "default": null,
           "description": "Routing-layer metadata."
         },
         "radio": {
-          "oneOf": [
-            { "$ref": "#/$defs/RadioMetadata" },
-            { "type": "null" }
-          ],
+          "oneOf": [{ "$ref": "#/$defs/RadioMetadata" }, { "type": "null" }],
           "default": null,
           "description": "RF-layer metadata."
         },
@@ -208,10 +196,7 @@
           "description": "Telemetry metrics namespace."
         },
         "native": {
-          "oneOf": [
-            { "$ref": "#/$defs/NativeMetadata" },
-            { "type": "null" }
-          ],
+          "oneOf": [{ "$ref": "#/$defs/NativeMetadata" }, { "type": "null" }],
           "default": null,
           "description": "Opaque adapter-specific data."
         },

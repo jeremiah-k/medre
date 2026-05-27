@@ -415,9 +415,9 @@ When porting the live-test harness into a transport-specific adapter branch, fol
 
 ## 11. Related Documentation
 
-| Document                                  | What it covers                                                |
-| ----------------------------------------- | ------------------------------------------------------------- |
-| `docs/dev/TESTING_GUIDE.md`               | General testing guide (tiers, style, async mocking, fixtures) |
-| `docs/ops/operator-workflows.md`       | Operator guide (smoke tests, evidence, tracing, diagnosis)    |
-| `docs/ops/transport-setup/matrix.md`   | Full Matrix setup and operation                               |
-| `docs/ops/live-validation/matrix.md`   | Matrix live smoke test instructions                           |
+| Document                             | What it covers                                                |
+| ------------------------------------ | ------------------------------------------------------------- |
+| `docs/dev/TESTING_GUIDE.md`          | General testing guide (tiers, style, async mocking, fixtures) |
+| `docs/ops/operator-workflows.md`     | Operator guide (smoke tests, evidence, tracing, diagnosis)    |
+| `docs/ops/transport-setup/matrix.md` | Full Matrix setup and operation                               |
+| `docs/ops/live-validation/matrix.md` | Matrix live smoke test instructions                           |

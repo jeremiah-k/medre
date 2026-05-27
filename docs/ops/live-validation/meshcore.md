@@ -36,16 +36,16 @@ asyncio.run(check())
 
 ## Environment Variables
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `MESHCORE_CONNECTION_TYPE` | Yes | | `tcp`, `serial`, or `ble` |
-| `MESHCORE_HOST` | TCP | | Node hostname or IP |
-| `MESHCORE_PORT` | TCP | `4000` | TCP port |
-| `MESHCORE_SERIAL_PORT` | Serial | | Serial device path |
-| `MESHCORE_BLE_ADDRESS` | BLE | | BLE MAC address |
-| `MESHCORE_BLE_PIN` | BLE (optional) | | BLE pairing PIN |
-| `MESHCORE_CHANNEL_INDEX` | No | `0` | Channel for test messages |
-| `MESHCORE_DESTINATION` | DM tests | | Hex pubkey prefix for direct message target |
+| Variable                   | Required       | Default | Description                                 |
+| -------------------------- | -------------- | ------- | ------------------------------------------- |
+| `MESHCORE_CONNECTION_TYPE` | Yes            |         | `tcp`, `serial`, or `ble`                   |
+| `MESHCORE_HOST`            | TCP            |         | Node hostname or IP                         |
+| `MESHCORE_PORT`            | TCP            | `4000`  | TCP port                                    |
+| `MESHCORE_SERIAL_PORT`     | Serial         |         | Serial device path                          |
+| `MESHCORE_BLE_ADDRESS`     | BLE            |         | BLE MAC address                             |
+| `MESHCORE_BLE_PIN`         | BLE (optional) |         | BLE pairing PIN                             |
+| `MESHCORE_CHANNEL_INDEX`   | No             | `0`     | Channel for test messages                   |
+| `MESHCORE_DESTINATION`     | DM tests       |         | Hex pubkey prefix for direct message target |
 
 ## Wrapper Callback Bridge Evidence
 
@@ -67,12 +67,12 @@ pytest tests/test_meshcore_live.py -m live -v
 
 ## Evidence Tiers Achieved
 
-| Tier | Sub-class | Date | Result |
-|------|-----------|------|--------|
-| S | Fake callback | — | Proven: simulate_inbound → codec → pipeline → fake outbound |
-| S | Wrapper callback | — | Proven: _on_message → MeshCoreCodec.decode → pipeline routing → fake outbound |
-| — | Docker SDK-boundary | — | Not proven (no containerized MeshCore node) |
-| — | Live network/radio | — | Not proven |
+| Tier | Sub-class           | Date | Result                                                                         |
+| ---- | ------------------- | ---- | ------------------------------------------------------------------------------ |
+| S    | Fake callback       | —    | Proven: simulate_inbound → codec → pipeline → fake outbound                    |
+| S    | Wrapper callback    | —    | Proven: \_on_message → MeshCoreCodec.decode → pipeline routing → fake outbound |
+| —    | Docker SDK-boundary | —    | Not proven (no containerized MeshCore node)                                    |
+| —    | Live network/radio  | —    | Not proven                                                                     |
 
 ## Known Gaps
 

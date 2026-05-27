@@ -23,11 +23,11 @@ Each adapter has four components:
 
 Every adapter declares a role:
 
-| Role             | Description                                                                                                                                  | Examples                                                   |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| **TRANSPORT**    | Moves data to/from a physical or logical transport. Handles protocol specifics, connection management, and raw data encoding/decoding.       | Meshtastic, MeshCore, LXMF, MQTT, TCP serial bridge, AX.25 |
-| **PRESENTATION** | Presents events to human users. Handles formatting, rich content, threading, reactions, and user interaction.                                | Matrix, Discord, Telegram, Slack, Web UI                   |
-| **HYBRID**       | Both transports and presents. Can act as a message source and a display target simultaneously.                                               | IRC, XMPP                                                  |
+| Role             | Description                                                                                                                            | Examples                                                   |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| **TRANSPORT**    | Moves data to/from a physical or logical transport. Handles protocol specifics, connection management, and raw data encoding/decoding. | Meshtastic, MeshCore, LXMF, MQTT, TCP serial bridge, AX.25 |
+| **PRESENTATION** | Presents events to human users. Handles formatting, rich content, threading, reactions, and user interaction.                          | Matrix, Discord, Telegram, Slack, Web UI                   |
+| **HYBRID**       | Both transports and presents. Can act as a message source and a display target simultaneously.                                         | IRC, XMPP                                                  |
 
 The role is inferred from the adapter type at configuration load time. Operators
 do not set it manually.
@@ -221,14 +221,14 @@ _capabilities = AdapterCapabilities(
 
 ### Capability support levels
 
-| Level                            | Meaning                                                    |
-| -------------------------------- | ---------------------------------------------------------- |
-| `True`                           | Fully supported natively                                   |
-| `"native"`                       | Full native support                                        |
-| `"fallback"`                     | Supported via inline text fallback                         |
-| `"metadata_native"`              | Supported via metadata fields (e.g., LXMF fields dict)    |
-| `"metadata_native_or_fallback"`  | Metadata between aware peers, inline fallback otherwise    |
-| `False` / `"unsupported"`       | Not supported                                              |
+| Level                           | Meaning                                                 |
+| ------------------------------- | ------------------------------------------------------- |
+| `True`                          | Fully supported natively                                |
+| `"native"`                      | Full native support                                     |
+| `"fallback"`                    | Supported via inline text fallback                      |
+| `"metadata_native"`             | Supported via metadata fields (e.g., LXMF fields dict)  |
+| `"metadata_native_or_fallback"` | Metadata between aware peers, inline fallback otherwise |
+| `False` / `"unsupported"`       | Not supported                                           |
 
 ### How capabilities drive behavior
 
@@ -254,23 +254,23 @@ logic, and send operations. All four existing adapters follow the same pattern:
 
 ### Reconnect parameters
 
-| Parameter     | Typical value                      |
-| ------------- | ---------------------------------- |
-| Max attempts  | 10                                 |
-| Backoff cap   | 30s (60s for Matrix)               |
-| Jitter        | +-25%                              |
+| Parameter    | Typical value        |
+| ------------ | -------------------- |
+| Max attempts | 10                   |
+| Backoff cap  | 30s (60s for Matrix) |
+| Jitter       | +-25%                |
 
 ### Connection modes
 
 Every adapter supports `"fake"` mode for testing. Real connection types
 vary by transport:
 
-| Transport    | Real modes                           |
-| ------------ | ------------------------------------ |
-| Matrix       | nio sync                             |
-| Meshtastic   | TCP, Serial, BLE                     |
-| MeshCore     | TCP, Serial, BLE                     |
-| LXMF         | Reticulum                            |
+| Transport  | Real modes       |
+| ---------- | ---------------- |
+| Matrix     | nio sync         |
+| Meshtastic | TCP, Serial, BLE |
+| MeshCore   | TCP, Serial, BLE |
+| LXMF       | Reticulum        |
 
 When `connection_type` is `"fake"`, the adapter uses a fake client that
 does not require any SDK dependency.
@@ -324,7 +324,7 @@ Add the adapter type to the configuration:
 ```yaml
 adapters:
   my-transport-1:
-    type: my_transport  # role: TRANSPORT (inferred)
+    type: my_transport # role: TRANSPORT (inferred)
     connection:
       type: tcp
       host: "192.168.1.100"
@@ -367,13 +367,13 @@ reference implementation. They demonstrate the contract:
 
 ### Test your adapter with these tiers
 
-| Tier | What to test                                                            |
-| ---- | ----------------------------------------------------------------------- |
-| 1    | Pipeline processes your canonical events correctly                      |
-| 2    | `simulate_inbound()` produces the same results as direct injection      |
-| 3    | SDK callback wiring works with mocked SDK                               |
-| 4    | Real SDK works against containerized services (`@pytest.mark.docker`)   |
-| 5    | Real adapter against real endpoint (`@pytest.mark.live`)                |
+| Tier | What to test                                                          |
+| ---- | --------------------------------------------------------------------- |
+| 1    | Pipeline processes your canonical events correctly                    |
+| 2    | `simulate_inbound()` produces the same results as direct injection    |
+| 3    | SDK callback wiring works with mocked SDK                             |
+| 4    | Real SDK works against containerized services (`@pytest.mark.docker`) |
+| 5    | Real adapter against real endpoint (`@pytest.mark.live`)              |
 
 ### Codec tests
 
@@ -409,13 +409,13 @@ objects with `relation_type="reply"`.
 Each adapter receives an `AdapterContext` on startup. This is the adapter's
 only window into the runtime.
 
-| Field             | Purpose                                                                    |
-| ----------------- | -------------------------------------------------------------------------- |
-| `adapter_id`      | Unique identifier for this adapter instance                                |
-| `publish_inbound` | The ingress point. Call with a `CanonicalEvent` to inject into pipeline    |
-| `logger`          | A pre-configured `logging.Logger` scoped to the adapter                    |
-| `clock`           | Callable returning current UTC `datetime` (for deterministic testing)      |
-| `shutdown_event`  | An `asyncio.Event` set when graceful shutdown is requested                 |
+| Field             | Purpose                                                                 |
+| ----------------- | ----------------------------------------------------------------------- |
+| `adapter_id`      | Unique identifier for this adapter instance                             |
+| `publish_inbound` | The ingress point. Call with a `CanonicalEvent` to inject into pipeline |
+| `logger`          | A pre-configured `logging.Logger` scoped to the adapter                 |
+| `clock`           | Callable returning current UTC `datetime` (for deterministic testing)   |
+| `shutdown_event`  | An `asyncio.Event` set when graceful shutdown is requested              |
 
 ### What adapters cannot do
 
@@ -429,14 +429,14 @@ only window into the runtime.
 Adapters populate the structured metadata namespaces defined by `EventMetadata`.
 All transport-specific details go into `metadata.native.data[<transport_name>]`.
 
-| Namespace   | Purpose                    | Example fields                                              |
-| ----------- | -------------------------- | ----------------------------------------------------------- |
-| `transport` | Transport layer details    | `protocol`, `gateway_id`, `received_at`, `encoding`         |
-| `routing`   | Routing context            | `matched_routes`, `fanout_group`, `bridge_id`               |
-| `radio`     | Radio-specific data        | `frequency`, `modulation`, `snr`, `rssi`, `hop_limit`       |
-| `telemetry` | Device state at event time | `battery_percent`, `voltage_mv`, `uptime_seconds`           |
-| `native`    | Unnormalized native fields | Adapter-specific raw fields not yet mapped                  |
-| `custom`    | Plugin/extension data      | Key-value pairs using reverse-DNS namespacing               |
+| Namespace   | Purpose                    | Example fields                                        |
+| ----------- | -------------------------- | ----------------------------------------------------- |
+| `transport` | Transport layer details    | `protocol`, `gateway_id`, `received_at`, `encoding`   |
+| `routing`   | Routing context            | `matched_routes`, `fanout_group`, `bridge_id`         |
+| `radio`     | Radio-specific data        | `frequency`, `modulation`, `snr`, `rssi`, `hop_limit` |
+| `telemetry` | Device state at event time | `battery_percent`, `voltage_mv`, `uptime_seconds`     |
+| `native`    | Unnormalized native fields | Adapter-specific raw fields not yet mapped            |
+| `custom`    | Plugin/extension data      | Key-value pairs using reverse-DNS namespacing         |
 
 No adapter injects loose transport-specific fields directly onto
 `CanonicalEvent` or top-level `EventMetadata`. All transport data goes
@@ -446,13 +446,13 @@ through `metadata.native.data[<transport_name>]`.
 
 Adapters report their state through `health_check()` and diagnostics:
 
-| State            | Ingress | Delivery                   | Notes                                       |
-| ---------------- | ------- | -------------------------- | ------------------------------------------- |
-| **INITIALIZING** | Buffer  | Buffer                     | `start()` has not returned yet              |
-| **RUNNING**      | Accept  | Queue and deliver          | Normal operation                            |
-| **DEGRADED**     | Accept  | Queue, delay, may fallback | Connection unstable                         |
-| **DRAINING**     | Reject  | Complete in-flight only    | Graceful shutdown. Reject new work.         |
-| **STOPPED**      | Reject  | None                       | Terminal state                              |
+| State            | Ingress | Delivery                   | Notes                               |
+| ---------------- | ------- | -------------------------- | ----------------------------------- |
+| **INITIALIZING** | Buffer  | Buffer                     | `start()` has not returned yet      |
+| **RUNNING**      | Accept  | Queue and deliver          | Normal operation                    |
+| **DEGRADED**     | Accept  | Queue, delay, may fallback | Connection unstable                 |
+| **DRAINING**     | Reject  | Complete in-flight only    | Graceful shutdown. Reject new work. |
+| **STOPPED**      | Reject  | None                       | Terminal state                      |
 
 Every state change emits a `system.lifecycle` canonical event.
 
@@ -479,11 +479,11 @@ The runtime handles all of it:
 The `src/medre/adapters/fakes/` directory contains working reference
 implementations:
 
-| File              | Purpose                                                      |
-| ----------------- | ------------------------------------------------------------ |
-| `transport.py`    | `FakeTransportAdapter` -- minimal TRANSPORT adapter          |
-| `presentation.py` | `FakePresentationAdapter` -- minimal PRESENTATION adapter    |
-| `meshcore.py`     | Fake MeshCore adapter with queue tracking                    |
-| `meshtastic.py`   | Fake Meshtastic adapter with outbound queue                  |
-| `matrix.py`       | Fake Matrix adapter with session diagnostics                 |
-| `lxmf.py`         | Fake LXMF adapter with delivery state tracking               |
+| File              | Purpose                                                   |
+| ----------------- | --------------------------------------------------------- |
+| `transport.py`    | `FakeTransportAdapter` -- minimal TRANSPORT adapter       |
+| `presentation.py` | `FakePresentationAdapter` -- minimal PRESENTATION adapter |
+| `meshcore.py`     | Fake MeshCore adapter with queue tracking                 |
+| `meshtastic.py`   | Fake Meshtastic adapter with outbound queue               |
+| `matrix.py`       | Fake Matrix adapter with session diagnostics              |
+| `lxmf.py`         | Fake LXMF adapter with delivery state tracking            |

@@ -14,45 +14,45 @@ The adapter delegates SDK client lifecycle to `MeshCoreSession`. The session own
 
 ## Configuration Fields
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `adapter_id` | `str` | *(required)* | Unique adapter instance identifier |
-| `connection_type` | `Literal["fake","tcp","serial","ble"]` | `"fake"` | Connection mode |
-| `host` | `str \| None` | `None` | Hostname/IP for TCP (required when `connection_type="tcp"`) |
-| `port` | `int \| None` | `None` | Port for TCP (default 4403) |
-| `serial_port` | `str \| None` | `None` | Serial device path (required when `connection_type="serial"`) |
-| `serial_baudrate` | `int` | `115200` | Baud rate for serial |
-| `ble_address` | `str \| None` | `None` | BLE MAC address (required when `connection_type="ble"`) |
-| `meshnet_name` | `str` | `""` | Human-readable meshnet name |
-| `default_channel` | `int` | `0` | Default channel index for outbound |
-| `channel_mapping` | `dict[int, str]` | `{}` | Channel index → display name map |
-| `message_delay_seconds` | `float` | `0.5` | Minimum delay between outbound messages |
-| `sync_timeout_ms` | `int` | `30000` | Sync operation timeout |
-| `identity` | `str \| None` | `None` | Optional node identity string |
-| `pubkey` | `str \| None` | `None` | Optional public key (hex string) |
-| `node_config` | `dict[str, object]` | `{}` | Opaque node settings; must not contain secret keys |
-| `max_text_bytes` | `int` | `512` | UTF-8 byte budget for rendered radio text |
+| Field                   | Type                                   | Default      | Description                                                   |
+| ----------------------- | -------------------------------------- | ------------ | ------------------------------------------------------------- |
+| `adapter_id`            | `str`                                  | _(required)_ | Unique adapter instance identifier                            |
+| `connection_type`       | `Literal["fake","tcp","serial","ble"]` | `"fake"`     | Connection mode                                               |
+| `host`                  | `str \| None`                          | `None`       | Hostname/IP for TCP (required when `connection_type="tcp"`)   |
+| `port`                  | `int \| None`                          | `None`       | Port for TCP (default 4403)                                   |
+| `serial_port`           | `str \| None`                          | `None`       | Serial device path (required when `connection_type="serial"`) |
+| `serial_baudrate`       | `int`                                  | `115200`     | Baud rate for serial                                          |
+| `ble_address`           | `str \| None`                          | `None`       | BLE MAC address (required when `connection_type="ble"`)       |
+| `meshnet_name`          | `str`                                  | `""`         | Human-readable meshnet name                                   |
+| `default_channel`       | `int`                                  | `0`          | Default channel index for outbound                            |
+| `channel_mapping`       | `dict[int, str]`                       | `{}`         | Channel index → display name map                              |
+| `message_delay_seconds` | `float`                                | `0.5`        | Minimum delay between outbound messages                       |
+| `sync_timeout_ms`       | `int`                                  | `30000`      | Sync operation timeout                                        |
+| `identity`              | `str \| None`                          | `None`       | Optional node identity string                                 |
+| `pubkey`                | `str \| None`                          | `None`       | Optional public key (hex string)                              |
+| `node_config`           | `dict[str, object]`                    | `{}`         | Opaque node settings; must not contain secret keys            |
+| `max_text_bytes`        | `int`                                  | `512`        | UTF-8 byte budget for rendered radio text                     |
 
 ---
 
 ## Capabilities
 
-| Capability | Value |
-|---|---|
-| text | `True` |
-| replies | `"unsupported"` |
-| reactions | `"unsupported"` |
-| edits | `"unsupported"` |
-| deletes | `"unsupported"` |
-| attachments | `False` |
-| metadata_fields | `False` |
-| delivery_receipts | `False` |
-| store_and_forward | `False` |
-| direct_messages | `False` (outbound; inbound PRIV relayed) |
-| channels | `True` |
-| async_delivery | `True` |
-| mesh_routing | `True` |
-| max_text_bytes | Configurable (default 512) |
+| Capability        | Value                                    |
+| ----------------- | ---------------------------------------- |
+| text              | `True`                                   |
+| replies           | `"unsupported"`                          |
+| reactions         | `"unsupported"`                          |
+| edits             | `"unsupported"`                          |
+| deletes           | `"unsupported"`                          |
+| attachments       | `False`                                  |
+| metadata_fields   | `False`                                  |
+| delivery_receipts | `False`                                  |
+| store_and_forward | `False`                                  |
+| direct_messages   | `False` (outbound; inbound PRIV relayed) |
+| channels          | `True`                                   |
+| async_delivery    | `True`                                   |
+| mesh_routing      | `True`                                   |
+| max_text_bytes    | Configurable (default 512)               |
 
 ---
 
@@ -60,17 +60,18 @@ The adapter delegates SDK client lifecycle to `MeshCoreSession`. The session own
 
 The packet classifier (`MeshCorePacketClassifier`) applies a structured policy:
 
-| Condition | Action | Category | Reason |
-|---|---|---|---|
-| `code` field present | **ignore** | `ack` | `"ack_packet"` |
-| Non-empty text + `type="PRIV"` | **relay** | `direct_message` | `"direct_text_packet"` |
-| Non-empty text + `type="CHAN"` | **relay** | `text` | `"channel_text_packet"` |
-| Non-empty text + unknown/missing type | **relay** | `text` | `"channel_text_packet"` |
-| Empty/whitespace text | **ignore** | (preserved) | `"empty_text_packet"` |
-| Unrecognised type (not PRIV/CHAN) | **deferred** | `unknown` | `"unknown_packet"` |
-| No text, no code | **drop** | `malformed` | `"malformed_packet"` |
+| Condition                             | Action       | Category         | Reason                  |
+| ------------------------------------- | ------------ | ---------------- | ----------------------- |
+| `code` field present                  | **ignore**   | `ack`            | `"ack_packet"`          |
+| Non-empty text + `type="PRIV"`        | **relay**    | `direct_message` | `"direct_text_packet"`  |
+| Non-empty text + `type="CHAN"`        | **relay**    | `text`           | `"channel_text_packet"` |
+| Non-empty text + unknown/missing type | **relay**    | `text`           | `"channel_text_packet"` |
+| Empty/whitespace text                 | **ignore**   | (preserved)      | `"empty_text_packet"`   |
+| Unrecognised type (not PRIV/CHAN)     | **deferred** | `unknown`        | `"unknown_packet"`      |
+| No text, no code                      | **drop**     | `malformed`      | `"malformed_packet"`    |
 
 Relayed packets are decoded by `MeshCoreCodec` into:
+
 - **`MESSAGE_CREATED`** — all text-shaped packets (channel and direct message).
 
 ---
@@ -122,28 +123,28 @@ No reply or reaction rendering — capabilities declare both as `"unsupported"`.
 
 `adapter.diagnostics()` returns (no secrets, no raw SDK objects):
 
-| Key | Type | Description |
-|---|---|---|
-| `adapter_id` | `str` | Adapter identifier |
-| `started` | `bool` | Adapter started flag |
-| `mode` | `str` | Config connection type |
-| `classifier_packets_seen` | `int` | Total classified |
-| `classifier_packets_relayed` | `int` | Relay action count |
-| `classifier_packets_ignored` | `int` | Ignore action count |
-| `classifier_packets_dropped` | `int` | Drop action count |
-| `classifier_packets_deferred` | `int` | Deferred action count |
-| `classifier_packets_ack_ignored` | `int` | ACK sub-counter |
-| `classifier_packets_empty_text_ignored` | `int` | Empty text sub-counter |
-| `classifier_packets_unknown_deferred` | `int` | Unknown packet sub-counter |
-| `classifier_packets_dm_relayed` | `int` | DM relay sub-counter |
-| `classifier_packets_malformed` | `int` | Malformed sub-counter |
-| `inbound_published` | `int` | Events published inbound |
-| `session.connected` | `bool` | Session connected |
-| `session.reconnecting` | `bool` | Reconnect in progress |
-| `session.reconnect_attempts` | `int` | Consecutive reconnect attempts |
-| `session.last_error` | `str \| None` | Last error description |
-| `session.transient_delivery_failures` | `int` | Transient send errors |
-| `session.permanent_delivery_failures` | `int` | Permanent send errors |
+| Key                                     | Type          | Description                    |
+| --------------------------------------- | ------------- | ------------------------------ |
+| `adapter_id`                            | `str`         | Adapter identifier             |
+| `started`                               | `bool`        | Adapter started flag           |
+| `mode`                                  | `str`         | Config connection type         |
+| `classifier_packets_seen`               | `int`         | Total classified               |
+| `classifier_packets_relayed`            | `int`         | Relay action count             |
+| `classifier_packets_ignored`            | `int`         | Ignore action count            |
+| `classifier_packets_dropped`            | `int`         | Drop action count              |
+| `classifier_packets_deferred`           | `int`         | Deferred action count          |
+| `classifier_packets_ack_ignored`        | `int`         | ACK sub-counter                |
+| `classifier_packets_empty_text_ignored` | `int`         | Empty text sub-counter         |
+| `classifier_packets_unknown_deferred`   | `int`         | Unknown packet sub-counter     |
+| `classifier_packets_dm_relayed`         | `int`         | DM relay sub-counter           |
+| `classifier_packets_malformed`          | `int`         | Malformed sub-counter          |
+| `inbound_published`                     | `int`         | Events published inbound       |
+| `session.connected`                     | `bool`        | Session connected              |
+| `session.reconnecting`                  | `bool`        | Reconnect in progress          |
+| `session.reconnect_attempts`            | `int`         | Consecutive reconnect attempts |
+| `session.last_error`                    | `str \| None` | Last error description         |
+| `session.transient_delivery_failures`   | `int`         | Transient send errors          |
+| `session.permanent_delivery_failures`   | `int`         | Permanent send errors          |
 
 ---
 
@@ -177,6 +178,6 @@ No reply or reaction rendering — capabilities declare both as `"unsupported"`.
 
 ## Reference Libraries
 
-| Library | Purpose | Optional |
-|---|---|---|
+| Library    | Purpose                                                           | Optional                |
+| ---------- | ----------------------------------------------------------------- | ----------------------- |
 | `meshcore` | MeshCore Python SDK (`MeshCore` factory, `EventType`, `commands`) | Yes (`medre[meshcore]`) |

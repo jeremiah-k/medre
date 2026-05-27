@@ -30,10 +30,10 @@ name = "medre"                  # instance name (informational)
 shutdown_timeout_seconds = 10   # graceful shutdown deadline in seconds
 ```
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `name` | string | `"medre"` | Instance name used in logs and diagnostics. |
-| `shutdown_timeout_seconds` | int | `10` | Maximum seconds to wait for adapters to stop before forcing exit. |
+| Field                      | Type   | Default   | Description                                                       |
+| -------------------------- | ------ | --------- | ----------------------------------------------------------------- |
+| `name`                     | string | `"medre"` | Instance name used in logs and diagnostics.                       |
+| `shutdown_timeout_seconds` | int    | `10`      | Maximum seconds to wait for adapters to stop before forcing exit. |
 
 ### `[logging]`
 
@@ -43,10 +43,10 @@ level = "INFO"    # INFO, DEBUG, WARNING, ERROR
 format = "text"   # text or json
 ```
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `level` | string | `"INFO"` | Log level for the `medre.*` logger namespace. One of `INFO`, `DEBUG`, `WARNING`, `ERROR`. |
-| `format` | string | `"text"` | Output format. `text` for human-readable, `json` for structured logging. |
+| Field    | Type   | Default  | Description                                                                               |
+| -------- | ------ | -------- | ----------------------------------------------------------------------------------------- |
+| `level`  | string | `"INFO"` | Log level for the `medre.*` logger namespace. One of `INFO`, `DEBUG`, `WARNING`, `ERROR`. |
+| `format` | string | `"text"` | Output format. `text` for human-readable, `json` for structured logging.                  |
 
 `level` controls MEDRE logs only — dependency libraries (nio, meshtastic, aiohttp, etc.) inherit the root logger level (`WARNING`) unless explicitly configured via `[logging.overrides]`.
 
@@ -56,17 +56,17 @@ Per-logger level overrides for dependency libraries. Each key is a Python logger
 
 **Default dependency log levels** (applied automatically):
 
-| Logger | Default Level | Reason |
-|---|---|---|
-| `nio` | `WARNING` | Crypto key and sync noise at INFO |
-| `nio.crypto.log` | `ERROR` | Olm/Megolm session warnings; extremely noisy at lower levels |
-| `meshtastic` | `WARNING` | SDK prints every radio packet at INFO |
-| `aiohttp` | `WARNING` | HTTP access logs at INFO |
-| `peewee` | `WARNING` | Query logging at DEBUG, noisy at INFO |
-| `urllib3` | `WARNING` | Noisy HTTP/retry logs |
-| `serial` | `WARNING` | Verbose device I/O |
-| `serial_asyncio` | `WARNING` | Verbose async serial/device I/O |
-| `asyncio` | `WARNING` | Event-loop/debug chatter |
+| Logger           | Default Level | Reason                                                       |
+| ---------------- | ------------- | ------------------------------------------------------------ |
+| `nio`            | `WARNING`     | Crypto key and sync noise at INFO                            |
+| `nio.crypto.log` | `ERROR`       | Olm/Megolm session warnings; extremely noisy at lower levels |
+| `meshtastic`     | `WARNING`     | SDK prints every radio packet at INFO                        |
+| `aiohttp`        | `WARNING`     | HTTP access logs at INFO                                     |
+| `peewee`         | `WARNING`     | Query logging at DEBUG, noisy at INFO                        |
+| `urllib3`        | `WARNING`     | Noisy HTTP/retry logs                                        |
+| `serial`         | `WARNING`     | Verbose device I/O                                           |
+| `serial_asyncio` | `WARNING`     | Verbose async serial/device I/O                              |
+| `asyncio`        | `WARNING`     | Event-loop/debug chatter                                     |
 
 Example troubleshooting config (remove after debugging):
 
@@ -86,10 +86,10 @@ backend = "sqlite"
 path = "{state}/medre.sqlite"
 ```
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `backend` | string | `"sqlite"` | Storage backend. Currently only `sqlite` is supported. |
-| `path` | string | `None` | Database file path. Supports [path placeholders](#path-placeholders). Defaults to `{state}/medre.sqlite`. |
+| Field     | Type   | Default    | Description                                                                                               |
+| --------- | ------ | ---------- | --------------------------------------------------------------------------------------------------------- |
+| `backend` | string | `"sqlite"` | Storage backend. Currently only `sqlite` is supported.                                                    |
+| `path`    | string | `None`     | Database file path. Supports [path placeholders](#path-placeholders). Defaults to `{state}/medre.sqlite`. |
 
 MEDRE uses a single configured storage backend holding canonical events, delivery receipts, native references, replay state, and cross-adapter relationships. There is no per-adapter database. Transport-owned local files (Matrix crypto stores, LXMF identities) live under adapter state roots.
 
@@ -110,19 +110,19 @@ sync_timeout_ms = 30000
 encryption_mode = "plaintext"
 ```
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `enabled` | bool | `true` | Whether this adapter instance is active. |
-| `adapter_kind` | string | `"real"` | `"real"` builds the live adapter; `"fake"` builds a simulated adapter. |
-| `adapter_id` | string | instance name | Unique identifier. Defaults to the TOML table key. |
-| `homeserver` | string | *(required)* | Matrix homeserver URL. Must start with `http://` or `https://`. |
-| `user_id` | string | *(required)* | Fully-qualified Matrix user ID. |
-| `access_token` | string | `""` | Access token. Treat as a secret. |
-| `room_allowlist` | list of string | `None` | Room IDs to accept. `None` means all rooms. |
-| `metadata_embedding_mode` | string | `"safe"` | How metadata is embedded in messages. |
-| `sync_timeout_ms` | int | `30000` | Long-polling sync timeout in milliseconds. |
-| `encryption_mode` | string | `"plaintext"` | `plaintext`, `e2ee_required`, or `e2ee_optional`. |
-| `require_encrypted_rooms` | bool | `false` | When `true`, only operate in encrypted rooms. Invalid with `encryption_mode="plaintext"`. |
+| Field                     | Type           | Default       | Description                                                                               |
+| ------------------------- | -------------- | ------------- | ----------------------------------------------------------------------------------------- |
+| `enabled`                 | bool           | `true`        | Whether this adapter instance is active.                                                  |
+| `adapter_kind`            | string         | `"real"`      | `"real"` builds the live adapter; `"fake"` builds a simulated adapter.                    |
+| `adapter_id`              | string         | instance name | Unique identifier. Defaults to the TOML table key.                                        |
+| `homeserver`              | string         | _(required)_  | Matrix homeserver URL. Must start with `http://` or `https://`.                           |
+| `user_id`                 | string         | _(required)_  | Fully-qualified Matrix user ID.                                                           |
+| `access_token`            | string         | `""`          | Access token. Treat as a secret.                                                          |
+| `room_allowlist`          | list of string | `None`        | Room IDs to accept. `None` means all rooms.                                               |
+| `metadata_embedding_mode` | string         | `"safe"`      | How metadata is embedded in messages.                                                     |
+| `sync_timeout_ms`         | int            | `30000`       | Long-polling sync timeout in milliseconds.                                                |
+| `encryption_mode`         | string         | `"plaintext"` | `plaintext`, `e2ee_required`, or `e2ee_optional`.                                         |
+| `require_encrypted_rooms` | bool           | `false`       | When `true`, only operate in encrypted rooms. Invalid with `encryption_mode="plaintext"`. |
 
 `device_id` and `store_path` are not operator-facing — the runtime derives them automatically.
 
@@ -147,31 +147,31 @@ sync_timeout_ms = 30000
 outbound_mode = "enabled"
 ```
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `enabled` | bool | `true` | Active status. |
-| `adapter_kind` | string | `"real"` | `"real"` or `"fake"`. |
-| `adapter_id` | string | instance name | Unique identifier. |
-| `connection_type` | string | `"fake"` | `fake`, `tcp`, `serial`, or `ble`. |
-| `host` | string | `None` | Hostname or IP for TCP. Required when `connection_type="tcp"`. |
-| `port` | int | `None` | Port for TCP. |
-| `serial_port` | string | `None` | Serial device path. Required when `connection_type="serial"`. |
-| `ble_address` | string | `None` | BLE MAC address. Required when `connection_type="ble"`. |
-| `meshnet_name` | string | `""` | Human-readable meshnet name (informational). |
-| `default_channel` | int | `0` | Default radio channel index for outbound messages. |
-| `channel_mapping` | dict of int→string | `{}` | Maps channel indices to human-readable names. |
-| `message_delay_seconds` | float | `0.5` | Minimum delay between outbound messages (pacing). |
-| `startup_backlog_suppress_seconds` | float | `5.0` | Seconds after start to suppress stale backlog packets. |
-| `sync_timeout_ms` | int | `30000` | Timeout for sync operations in milliseconds. |
-| `max_text_bytes` | int | `227` | Maximum UTF-8 byte budget for final radio text. |
-| `outbound_mode` | string | `"enabled"` | `"enabled"` allows RF transmission; `"listen_only"` suppresses all outbound delivery. |
+| Field                              | Type               | Default       | Description                                                                           |
+| ---------------------------------- | ------------------ | ------------- | ------------------------------------------------------------------------------------- |
+| `enabled`                          | bool               | `true`        | Active status.                                                                        |
+| `adapter_kind`                     | string             | `"real"`      | `"real"` or `"fake"`.                                                                 |
+| `adapter_id`                       | string             | instance name | Unique identifier.                                                                    |
+| `connection_type`                  | string             | `"fake"`      | `fake`, `tcp`, `serial`, or `ble`.                                                    |
+| `host`                             | string             | `None`        | Hostname or IP for TCP. Required when `connection_type="tcp"`.                        |
+| `port`                             | int                | `None`        | Port for TCP.                                                                         |
+| `serial_port`                      | string             | `None`        | Serial device path. Required when `connection_type="serial"`.                         |
+| `ble_address`                      | string             | `None`        | BLE MAC address. Required when `connection_type="ble"`.                               |
+| `meshnet_name`                     | string             | `""`          | Human-readable meshnet name (informational).                                          |
+| `default_channel`                  | int                | `0`           | Default radio channel index for outbound messages.                                    |
+| `channel_mapping`                  | dict of int→string | `{}`          | Maps channel indices to human-readable names.                                         |
+| `message_delay_seconds`            | float              | `0.5`         | Minimum delay between outbound messages (pacing).                                     |
+| `startup_backlog_suppress_seconds` | float              | `5.0`         | Seconds after start to suppress stale backlog packets.                                |
+| `sync_timeout_ms`                  | int                | `30000`       | Timeout for sync operations in milliseconds.                                          |
+| `max_text_bytes`                   | int                | `227`         | Maximum UTF-8 byte budget for final radio text.                                       |
+| `outbound_mode`                    | string             | `"enabled"`   | `"enabled"` allows RF transmission; `"listen_only"` suppresses all outbound delivery. |
 
 #### Outbound Gate Semantics (Meshtastic)
 
-| Value | Inbound | Outbound | Delivery receipt |
-|---|---|---|---|
-| `"enabled"` | Normal | Normal | Normal |
-| `"listen_only"` | Normal | Suppressed — non-retryable failure | `outbound suppressed: listen_only mode` |
+| Value           | Inbound | Outbound                           | Delivery receipt                        |
+| --------------- | ------- | ---------------------------------- | --------------------------------------- |
+| `"enabled"`     | Normal  | Normal                             | Normal                                  |
+| `"listen_only"` | Normal  | Suppressed — non-retryable failure | `outbound suppressed: listen_only mode` |
 
 ### `[adapters.meshcore.INSTANCE_NAME]`
 
@@ -196,22 +196,22 @@ pubkey = "abcdef0123456789"
 node_config = {}
 ```
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `enabled` | bool | `true` | Active status. |
-| `adapter_kind` | string | `"real"` | `"real"` or `"fake"`. |
-| `adapter_id` | string | instance name | Unique identifier. |
-| `connection_type` | string | `"fake"` | `fake`, `tcp`, `serial`, or `ble`. |
-| `host` / `port` / `serial_port` / `ble_address` | string/int | `None` | Connection parameters. |
-| `meshnet_name` | string | `""` | Informational. |
-| `default_channel` | int | `0` | Default outbound channel. |
-| `channel_mapping` | dict | `{}` | Channel index → name mapping. |
-| `message_delay_seconds` | float | `0.5` | Pacing. |
-| `startup_backlog_suppress_seconds` | float | `5.0` | Backlog suppression window. |
-| `sync_timeout_ms` | int | `30000` | Sync timeout. |
-| `identity` | string | `None` | MeshCore node identity string. |
-| `pubkey` | string | `None` | Public key as hex string. |
-| `node_config` | dict | `{}` | Opaque node-specific settings. No secret keys. |
+| Field                                           | Type       | Default       | Description                                    |
+| ----------------------------------------------- | ---------- | ------------- | ---------------------------------------------- |
+| `enabled`                                       | bool       | `true`        | Active status.                                 |
+| `adapter_kind`                                  | string     | `"real"`      | `"real"` or `"fake"`.                          |
+| `adapter_id`                                    | string     | instance name | Unique identifier.                             |
+| `connection_type`                               | string     | `"fake"`      | `fake`, `tcp`, `serial`, or `ble`.             |
+| `host` / `port` / `serial_port` / `ble_address` | string/int | `None`        | Connection parameters.                         |
+| `meshnet_name`                                  | string     | `""`          | Informational.                                 |
+| `default_channel`                               | int        | `0`           | Default outbound channel.                      |
+| `channel_mapping`                               | dict       | `{}`          | Channel index → name mapping.                  |
+| `message_delay_seconds`                         | float      | `0.5`         | Pacing.                                        |
+| `startup_backlog_suppress_seconds`              | float      | `5.0`         | Backlog suppression window.                    |
+| `sync_timeout_ms`                               | int        | `30000`       | Sync timeout.                                  |
+| `identity`                                      | string     | `None`        | MeshCore node identity string.                 |
+| `pubkey`                                        | string     | `None`        | Public key as hex string.                      |
+| `node_config`                                   | dict       | `{}`          | Opaque node-specific settings. No secret keys. |
 
 ### `[adapters.lxmf.INSTANCE_NAME]`
 
@@ -231,20 +231,20 @@ metadata_embedding = true
 identity_path = "{state}/lxmf/identity"
 ```
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `enabled` | bool | `true` | Active status. |
-| `adapter_kind` | string | `"real"` | `"real"` or `"fake"`. |
-| `adapter_id` | string | instance name | Unique identifier. |
-| `connection_type` | string | `"fake"` | `fake` or `reticulum`. |
-| `display_name` | string | `""` | Display name for LXMF announces. |
-| `stamp_cost` | int | `8` | Stamp cost. `0` means no stamp required. |
-| `default_delivery_method` | string | `"direct"` | `direct`, `opportunistic`, `propagated`, or `paper`. |
-| `meshnet_name` | string | `""` | Informational. |
-| `default_channel` | int | `0` | Default outbound channel. |
-| `message_delay_seconds` | float | `0.5` | Pacing. |
-| `metadata_embedding` | bool | `true` | Whether to embed MEDRE metadata in LXMF fields. |
-| `identity_path` | string | `None` | Path to Reticulum identity file. Supports path placeholders. |
+| Field                     | Type   | Default       | Description                                                  |
+| ------------------------- | ------ | ------------- | ------------------------------------------------------------ |
+| `enabled`                 | bool   | `true`        | Active status.                                               |
+| `adapter_kind`            | string | `"real"`      | `"real"` or `"fake"`.                                        |
+| `adapter_id`              | string | instance name | Unique identifier.                                           |
+| `connection_type`         | string | `"fake"`      | `fake` or `reticulum`.                                       |
+| `display_name`            | string | `""`          | Display name for LXMF announces.                             |
+| `stamp_cost`              | int    | `8`           | Stamp cost. `0` means no stamp required.                     |
+| `default_delivery_method` | string | `"direct"`    | `direct`, `opportunistic`, `propagated`, or `paper`.         |
+| `meshnet_name`            | string | `""`          | Informational.                                               |
+| `default_channel`         | int    | `0`           | Default outbound channel.                                    |
+| `message_delay_seconds`   | float  | `0.5`         | Pacing.                                                      |
+| `metadata_embedding`      | bool   | `true`        | Whether to embed MEDRE metadata in LXMF fields.              |
+| `identity_path`           | string | `None`        | Path to Reticulum identity file. Supports path placeholders. |
 
 ### `[routes.ROUTE_ID]`
 
@@ -265,26 +265,26 @@ dest_channel = "1"
 allowed_event_types = ["message.created"]
 ```
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `source_adapters` | list of string | *(required)* | Adapter IDs that originate events. No overlap with `dest_adapters`. |
-| `dest_adapters` | list of string | *(required)* | Adapter IDs that receive events. No overlap with `source_adapters`. |
-| `directionality` | string | `"source_to_dest"` | `source_to_dest`, `dest_to_source`, or `bidirectional`. |
-| `enabled` | bool | `true` | Active at startup. Disabled routes are validated but not registered. |
-| `source_room` / `dest_room` / `source_channel` / `dest_channel` | string | `None` | Room/channel targeting. `source_room` is an alias for `source_channel`, `dest_room` for `dest_channel`. |
+| Field                                                           | Type           | Default            | Description                                                                                             |
+| --------------------------------------------------------------- | -------------- | ------------------ | ------------------------------------------------------------------------------------------------------- |
+| `source_adapters`                                               | list of string | _(required)_       | Adapter IDs that originate events. No overlap with `dest_adapters`.                                     |
+| `dest_adapters`                                                 | list of string | _(required)_       | Adapter IDs that receive events. No overlap with `source_adapters`.                                     |
+| `directionality`                                                | string         | `"source_to_dest"` | `source_to_dest`, `dest_to_source`, or `bidirectional`.                                                 |
+| `enabled`                                                       | bool           | `true`             | Active at startup. Disabled routes are validated but not registered.                                    |
+| `source_room` / `dest_room` / `source_channel` / `dest_channel` | string         | `None`             | Room/channel targeting. `source_room` is an alias for `source_channel`, `dest_room` for `dest_channel`. |
 
 #### Route Policy (`[routes.ROUTE_ID.policy]`)
 
 Optional static allowlist policy. A policy denial produces a `status="suppressed"` receipt with `failure_kind="policy_suppressed"` — not retryable. All policy fields are config-file-only (not settable via environment variables).
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `allowed_event_types` | list of string | `[]` | Event kinds this route permits. Empty = all events. |
-| `allowed_source_adapters` | list of string | `[]` | Source adapter names to permit. Empty = any. |
-| `allowed_dest_adapters` | list of string | `[]` | Destination adapter names to permit. Empty = any. |
-| `sender_allowlist` | list of string | `[]` | Permitted sender identities. Empty = any sender. |
-| `room_allowlist` | list of string | `[]` | Permitted room identifiers. Empty = any room. |
-| `channel_allowlist` | list of string | `[]` | Permitted channel identifiers. Empty = any channel. |
+| Field                     | Type           | Default | Description                                         |
+| ------------------------- | -------------- | ------- | --------------------------------------------------- |
+| `allowed_event_types`     | list of string | `[]`    | Event kinds this route permits. Empty = all events. |
+| `allowed_source_adapters` | list of string | `[]`    | Source adapter names to permit. Empty = any.        |
+| `allowed_dest_adapters`   | list of string | `[]`    | Destination adapter names to permit. Empty = any.   |
+| `sender_allowlist`        | list of string | `[]`    | Permitted sender identities. Empty = any sender.    |
+| `room_allowlist`          | list of string | `[]`    | Permitted room identifiers. Empty = any room.       |
+| `channel_allowlist`       | list of string | `[]`    | Permitted channel identifiers. Empty = any channel. |
 
 Unknown keys are rejected at config load time. Allowlist values must be arrays of strings.
 
@@ -301,13 +301,13 @@ max_delay_seconds = 60.0
 jitter = false
 ```
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `enabled` | bool | `true` | Retry scheduling active for this route. |
-| `max_attempts` | int | `3` | Maximum total delivery attempts (including initial). |
-| `backoff_base` | float | `2.0` | Base delay in seconds for exponential backoff. |
-| `max_delay_seconds` | float | `60.0` | Upper bound for backoff delay. |
-| `jitter` | bool | `false` | Whether to add jitter to backoff. |
+| Field               | Type  | Default | Description                                          |
+| ------------------- | ----- | ------- | ---------------------------------------------------- |
+| `enabled`           | bool  | `true`  | Retry scheduling active for this route.              |
+| `max_attempts`      | int   | `3`     | Maximum total delivery attempts (including initial). |
+| `backoff_base`      | float | `2.0`   | Base delay in seconds for exponential backoff.       |
+| `max_delay_seconds` | float | `60.0`  | Upper bound for backoff delay.                       |
+| `jitter`            | bool  | `false` | Whether to add jitter to backoff.                    |
 
 #### channel_room_map Shorthand
 
@@ -323,6 +323,7 @@ channel_room_map = {0 = "!general:example.com", 1 = "!admin:example.com"}
 ```
 
 Limitations:
+
 - Room IDs must be canonical (`!` prefix). Aliases not supported.
 - Mutually exclusive with `source_room`, `dest_room`, `source_channel`, `dest_channel`.
 - Route must have exactly one source and one destination adapter.
@@ -341,12 +342,12 @@ shutdown_drain_timeout_seconds = 10.0    # seconds to drain in-flight deliveries
 delivery_acquire_timeout_seconds = 1.0   # seconds to wait for a delivery slot (default: 1.0)
 ```
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `max_inflight_deliveries` | int | `100` | Maximum concurrent adapter `deliver()` calls. Capacity is acquired per delivery target. |
-| `max_inflight_replay_events` | int | `100` | Maximum concurrent replay event deliveries. |
-| `shutdown_drain_timeout_seconds` | float | `10.0` | Seconds to wait for in-flight work to complete during shutdown. |
-| `delivery_acquire_timeout_seconds` | float | `1.0` | Seconds to wait for a delivery semaphore slot before rejecting. |
+| Field                              | Type  | Default | Description                                                                             |
+| ---------------------------------- | ----- | ------- | --------------------------------------------------------------------------------------- |
+| `max_inflight_deliveries`          | int   | `100`   | Maximum concurrent adapter `deliver()` calls. Capacity is acquired per delivery target. |
+| `max_inflight_replay_events`       | int   | `100`   | Maximum concurrent replay event deliveries.                                             |
+| `shutdown_drain_timeout_seconds`   | float | `10.0`  | Seconds to wait for in-flight work to complete during shutdown.                         |
+| `delivery_acquire_timeout_seconds` | float | `1.0`   | Seconds to wait for a delivery semaphore slot before rejecting.                         |
 
 When capacity is exhausted, new deliveries are permanently rejected with `error="delivery_capacity_exceeded"` — no retry.
 
@@ -362,12 +363,12 @@ batch_size = 20
 max_attempts = 3
 ```
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `enabled` | bool | `false` | Whether the RetryWorker runs. |
-| `interval_seconds` | float | `10.0` | Polling interval. |
-| `batch_size` | int | `20` | Max receipts processed per cycle. |
-| `max_attempts` | int | `3` | Global max attempts before dead-lettering. Each route may override. |
+| Field              | Type  | Default | Description                                                         |
+| ------------------ | ----- | ------- | ------------------------------------------------------------------- |
+| `enabled`          | bool  | `false` | Whether the RetryWorker runs.                                       |
+| `interval_seconds` | float | `10.0`  | Polling interval.                                                   |
+| `batch_size`       | int   | `20`    | Max receipts processed per cycle.                                   |
+| `max_attempts`     | int   | `3`     | Global max attempts before dead-lettering. Each route may override. |
 
 Both the route retry and the global retry need to be enabled for automatic retry to occur.
 
@@ -384,15 +385,15 @@ Cache:     $XDG_CACHE_HOME/medre/     or  ~/.cache/medre/
 
 Runtime paths derived from the resolved state directory (`{state}`):
 
-| Path | Description |
-|---|---|
-| `{state}/medre.sqlite` | Single global storage backend |
-| `{state}/logs/medre.log` | Global log file |
-| `{state}/adapters/{adapter_id}/` | Per-adapter state root |
-| `{state}/adapters/{adapter_id}/matrix/store/` | Matrix E2EE crypto store |
-| `{state}/adapters/{adapter_id}/meshtastic/` | Meshtastic transport state |
-| `{state}/adapters/{adapter_id}/meshcore/` | MeshCore transport state |
-| `{state}/adapters/{adapter_id}/lxmf/` | LXMF transport state |
+| Path                                          | Description                   |
+| --------------------------------------------- | ----------------------------- |
+| `{state}/medre.sqlite`                        | Single global storage backend |
+| `{state}/logs/medre.log`                      | Global log file               |
+| `{state}/adapters/{adapter_id}/`              | Per-adapter state root        |
+| `{state}/adapters/{adapter_id}/matrix/store/` | Matrix E2EE crypto store      |
+| `{state}/adapters/{adapter_id}/meshtastic/`   | Meshtastic transport state    |
+| `{state}/adapters/{adapter_id}/meshcore/`     | MeshCore transport state      |
+| `{state}/adapters/{adapter_id}/lxmf/`         | LXMF transport state          |
 
 There are no per-adapter databases. Adapter-local filesystem state is transport-owned.
 
@@ -420,13 +421,13 @@ medre run      # reads /opt/medre/config.toml
 
 TOML config values for filesystem paths support placeholder expansion:
 
-| Placeholder | Expands to |
-|---|---|
-| `{config}` | Config directory |
-| `{state}` | State directory |
-| `{data}` | Data directory |
-| `{cache}` | Cache directory |
-| `{logs}` | Log directory |
+| Placeholder | Expands to       |
+| ----------- | ---------------- |
+| `{config}`  | Config directory |
+| `{state}`   | State directory  |
+| `{data}`    | Data directory   |
+| `{cache}`   | Cache directory  |
+| `{logs}`    | Log directory    |
 
 Example:
 
@@ -452,16 +453,16 @@ Three categories:
 
 ### Core Environment Variables
 
-| Variable | Maps to | Default |
-|---|---|---|
-| `MEDRE_HOME` | Single-directory root path | *(not set)* |
-| `MEDRE_CONFIG` | Config file path | *(not set)* |
-| `MEDRE_DB_PATH` | `storage.path` | `{state}/medre.sqlite` |
-| `MEDRE_LOG_LEVEL` | `logging.level` | `INFO` |
-| `MEDRE_RUNTIME_MAX_INFLIGHT_DELIVERIES` | `limits.max_inflight_deliveries` | *(TOML default)* |
-| `MEDRE_RUNTIME_MAX_INFLIGHT_REPLAY_EVENTS` | `limits.max_inflight_replay_events` | *(TOML default)* |
-| `MEDRE_RUNTIME_SHUTDOWN_DRAIN_TIMEOUT_SECONDS` | `limits.shutdown_drain_timeout_seconds` | *(TOML default)* |
-| `MEDRE_RUNTIME_DELIVERY_ACQUIRE_TIMEOUT_SECONDS` | `limits.delivery_acquire_timeout_seconds` | *(TOML default)* |
+| Variable                                         | Maps to                                   | Default                |
+| ------------------------------------------------ | ----------------------------------------- | ---------------------- |
+| `MEDRE_HOME`                                     | Single-directory root path                | _(not set)_            |
+| `MEDRE_CONFIG`                                   | Config file path                          | _(not set)_            |
+| `MEDRE_DB_PATH`                                  | `storage.path`                            | `{state}/medre.sqlite` |
+| `MEDRE_LOG_LEVEL`                                | `logging.level`                           | `INFO`                 |
+| `MEDRE_RUNTIME_MAX_INFLIGHT_DELIVERIES`          | `limits.max_inflight_deliveries`          | _(TOML default)_       |
+| `MEDRE_RUNTIME_MAX_INFLIGHT_REPLAY_EVENTS`       | `limits.max_inflight_replay_events`       | _(TOML default)_       |
+| `MEDRE_RUNTIME_SHUTDOWN_DRAIN_TIMEOUT_SECONDS`   | `limits.shutdown_drain_timeout_seconds`   | _(TOML default)_       |
+| `MEDRE_RUNTIME_DELIVERY_ACQUIRE_TIMEOUT_SECONDS` | `limits.delivery_acquire_timeout_seconds` | _(TOML default)_       |
 
 ### Retry Config via Env
 
@@ -482,11 +483,11 @@ Format: `MEDRE_ADAPTER__<TOKEN>__<FIELD>=<value>`
 
 #### Token Normalisation
 
-| `adapter_id` | Normalised token |
-|---|---|
-| `main` | `MAIN` |
+| `adapter_id`     | Normalised token |
+| ---------------- | ---------------- |
+| `main`           | `MAIN`           |
 | `matrix-primary` | `MATRIX_PRIMARY` |
-| `radio.a` | `RADIO_A` |
+| `radio.a`        | `RADIO_A`        |
 
 Token collisions are detected at startup and raise `ConfigValidationError`.
 
@@ -500,45 +501,45 @@ Token collisions are detected at startup and raise `ConfigValidationError`.
 
 **Matrix** (`MatrixConfig`):
 
-| Field | Env var example |
-|---|---|
-| `enabled` | `MEDRE_ADAPTER__MAIN__ENABLED=true` |
-| `homeserver` | `MEDRE_ADAPTER__MAIN__HOMESERVER=https://matrix.example.com` |
-| `user_id` | `MEDRE_ADAPTER__MAIN__USER_ID=@bot:example.com` |
-| `access_token` | `MEDRE_ADAPTER__MAIN__ACCESS_TOKEN=syt_...` |
-| `room_allowlist` | `MEDRE_ADAPTER__MAIN__ROOM_ALLOWLIST=!room:example.com,!other:...` |
-| `encryption_mode` | `MEDRE_ADAPTER__MAIN__ENCRYPTION_MODE=plaintext` |
-| `sync_timeout_ms` | `MEDRE_ADAPTER__MAIN__SYNC_TIMEOUT_MS=30000` |
+| Field             | Env var example                                                    |
+| ----------------- | ------------------------------------------------------------------ |
+| `enabled`         | `MEDRE_ADAPTER__MAIN__ENABLED=true`                                |
+| `homeserver`      | `MEDRE_ADAPTER__MAIN__HOMESERVER=https://matrix.example.com`       |
+| `user_id`         | `MEDRE_ADAPTER__MAIN__USER_ID=@bot:example.com`                    |
+| `access_token`    | `MEDRE_ADAPTER__MAIN__ACCESS_TOKEN=syt_...`                        |
+| `room_allowlist`  | `MEDRE_ADAPTER__MAIN__ROOM_ALLOWLIST=!room:example.com,!other:...` |
+| `encryption_mode` | `MEDRE_ADAPTER__MAIN__ENCRYPTION_MODE=plaintext`                   |
+| `sync_timeout_ms` | `MEDRE_ADAPTER__MAIN__SYNC_TIMEOUT_MS=30000`                       |
 
 **Meshtastic** (`MeshtasticConfig`):
 
-| Field | Env var example |
-|---|---|
-| `enabled` | `MEDRE_ADAPTER__RADIO__ENABLED=true` |
-| `connection_type` | `MEDRE_ADAPTER__RADIO__CONNECTION_TYPE=tcp` |
-| `host` | `MEDRE_ADAPTER__RADIO__HOST=meshtastic.local` |
-| `port` | `MEDRE_ADAPTER__RADIO__PORT=4403` |
-| `serial_port` | `MEDRE_ADAPTER__RADIO__SERIAL_PORT=/dev/ttyACM0` |
-| `outbound_mode` | `MEDRE_ADAPTER__RADIO__OUTBOUND_MODE=listen_only` |
+| Field             | Env var example                                   |
+| ----------------- | ------------------------------------------------- |
+| `enabled`         | `MEDRE_ADAPTER__RADIO__ENABLED=true`              |
+| `connection_type` | `MEDRE_ADAPTER__RADIO__CONNECTION_TYPE=tcp`       |
+| `host`            | `MEDRE_ADAPTER__RADIO__HOST=meshtastic.local`     |
+| `port`            | `MEDRE_ADAPTER__RADIO__PORT=4403`                 |
+| `serial_port`     | `MEDRE_ADAPTER__RADIO__SERIAL_PORT=/dev/ttyACM0`  |
+| `outbound_mode`   | `MEDRE_ADAPTER__RADIO__OUTBOUND_MODE=listen_only` |
 
 **MeshCore** (`MeshCoreConfig`):
 
-| Field | Env var example |
-|---|---|
-| `enabled` | `MEDRE_ADAPTER__RADIO__ENABLED=true` |
-| `connection_type` | `MEDRE_ADAPTER__RADIO__CONNECTION_TYPE=tcp` |
-| `host` | `MEDRE_ADAPTER__RADIO__HOST=meshcore.local` |
-| `identity` | `MEDRE_ADAPTER__RADIO__IDENTITY=my-node` |
-| `pubkey` | `MEDRE_ADAPTER__RADIO__PUBKEY=abcdef0123456789` |
+| Field             | Env var example                                 |
+| ----------------- | ----------------------------------------------- |
+| `enabled`         | `MEDRE_ADAPTER__RADIO__ENABLED=true`            |
+| `connection_type` | `MEDRE_ADAPTER__RADIO__CONNECTION_TYPE=tcp`     |
+| `host`            | `MEDRE_ADAPTER__RADIO__HOST=meshcore.local`     |
+| `identity`        | `MEDRE_ADAPTER__RADIO__IDENTITY=my-node`        |
+| `pubkey`          | `MEDRE_ADAPTER__RADIO__PUBKEY=abcdef0123456789` |
 
 **LXMF** (`LxmfConfig`):
 
-| Field | Env var example |
-|---|---|
-| `enabled` | `MEDRE_ADAPTER__LOCAL__ENABLED=true` |
-| `connection_type` | `MEDRE_ADAPTER__LOCAL__CONNECTION_TYPE=reticulum` |
-| `display_name` | `MEDRE_ADAPTER__LOCAL__DISPLAY_NAME=MEDRE` |
-| `identity_path` | `MEDRE_ADAPTER__LOCAL__IDENTITY_PATH={state}/lxmf/identity` |
+| Field             | Env var example                                             |
+| ----------------- | ----------------------------------------------------------- |
+| `enabled`         | `MEDRE_ADAPTER__LOCAL__ENABLED=true`                        |
+| `connection_type` | `MEDRE_ADAPTER__LOCAL__CONNECTION_TYPE=reticulum`           |
+| `display_name`    | `MEDRE_ADAPTER__LOCAL__DISPLAY_NAME=MEDRE`                  |
+| `identity_path`   | `MEDRE_ADAPTER__LOCAL__IDENTITY_PATH={state}/lxmf/identity` |
 
 Dict fields (`channel_mapping`, `node_config`) and tuple fields (`auto_join_rooms`) cannot be set via env vars — use TOML instead.
 
@@ -546,12 +547,12 @@ Dict fields (`channel_mapping`, `node_config`) and tuple fields (`auto_join_room
 
 These are **rejected at startup**:
 
-| Rejected pattern | Correct form |
-|---|---|
-| `MEDRE_MATRIX_*` | `MEDRE_ADAPTER__<TOKEN>__<FIELD>` |
+| Rejected pattern     | Correct form                      |
+| -------------------- | --------------------------------- |
+| `MEDRE_MATRIX_*`     | `MEDRE_ADAPTER__<TOKEN>__<FIELD>` |
 | `MEDRE_MESHTASTIC_*` | `MEDRE_ADAPTER__<TOKEN>__<FIELD>` |
-| `MEDRE_MESHCORE_*` | `MEDRE_ADAPTER__<TOKEN>__<FIELD>` |
-| `MEDRE_LXMF_*` | `MEDRE_ADAPTER__<TOKEN>__<FIELD>` |
+| `MEDRE_MESHCORE_*`   | `MEDRE_ADAPTER__<TOKEN>__<FIELD>` |
+| `MEDRE_LXMF_*`       | `MEDRE_ADAPTER__<TOKEN>__<FIELD>` |
 
 Migration example:
 
@@ -642,8 +643,8 @@ export MEDRE_ROUTE__RADIO_TO_MATRIX__ENABLED=true
 
 **Matrix:**
 
-| Secret | Handling |
-|---|---|
+| Secret       | Handling                                                                            |
+| ------------ | ----------------------------------------------------------------------------------- |
 | Access token | Set via `MEDRE_ADAPTER__MAIN__ACCESS_TOKEN` env var. Never logged. Never committed. |
 
 The runtime derives device ID via `whoami()` and uses an internal store path. The crypto store directory contains sensitive key material — exclude it from version control.
@@ -682,8 +683,8 @@ Use a dedicated Matrix bot account for MEDRE — never a personal account. Test 
 
 **LXMF:**
 
-| Secret | Handling |
-|---|---|
+| Secret        | Handling                                                                                                                                                  |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Identity file | 64-byte private key file. Restrictive permissions (`chmod 600`). Never committed. Never logged. Never copied between instances — each identity is unique. |
 
 ```bash
