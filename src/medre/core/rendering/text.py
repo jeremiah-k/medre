@@ -227,7 +227,11 @@ class TextRenderer:
         tuple[str, bool]
             The (possibly truncated) text and whether truncation occurred.
         """
-        limit = max_text_chars if max_text_chars is not None else _MAX_TEXT_LENGTH
+        limit = max(
+            0, max_text_chars if max_text_chars is not None else _MAX_TEXT_LENGTH
+        )
+        if limit == 0 and text:
+            return "", True
         if len(text) <= limit:
             return text, False
         return text[:limit], True

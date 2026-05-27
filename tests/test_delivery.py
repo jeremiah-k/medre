@@ -1356,6 +1356,7 @@ class TestRouteStats:
             "skipped": 0,
             "loop_prevented": 0,
             "policy_suppressed": 0,
+            "capability_suppressed": 0,
         }
         assert snap["r2"]["failed"] == 1
         assert snap["r3"]["loop_prevented"] == 1

@@ -18,20 +18,23 @@ exercise the real pipeline with fake adapters and storage, verifying:
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
 from medre.adapters.fakes.presentation import FakePresentationAdapter
 from medre.core.contracts.adapter import AdapterCapabilities
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.planning.delivery_plan import DeliveryFailureKind
+from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage import SQLiteStorage
 from medre.core.storage.replay import (
     ReplayEngine,
     ReplayMode,
     ReplayRequest,
-    collect_replay_summary,
 )
+from medre.core.supervision.accounting import RuntimeAccounting
 from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
 
 # ===================================================================
@@ -484,18 +487,17 @@ class TestReplayCapabilityAwareness:
                 run_id="run-replay-cap-001",
                 correlation_ids=["replay-cap-001"],
             )
-            summary = await collect_replay_summary(replay.replay(request))
-
-            # Event was replayed (at least store stage).
-            assert summary.events_replayed >= 1
-
-            # The deliver stage should be skipped due to capability
-            # suppression — all plans filtered out.
-            # Collect results to inspect.
+            # Materialise results once — do not call replay() twice.
             results: list = []
             async for r in replay.replay(request):
                 results.append(r)
 
+            # Event was replayed (at least store stage).
+            store_results = [r for r in results if r.stage == "store"]
+            assert len(store_results) >= 1
+
+            # The deliver stage should be skipped due to capability
+            # suppression — all plans filtered out.
             deliver_results = [r for r in results if r.stage == "deliver"]
             assert len(deliver_results) >= 1
 
@@ -506,5 +508,94 @@ class TestReplayCapabilityAwareness:
 
             # Adapter never called.
             assert len(adapter.delivered_payloads) == 0
+        finally:
+            await runner.stop()
+
+
+# ===================================================================
+# TestNegativeMaxTextChars
+# ===================================================================
+
+
+class TestNegativeMaxTextChars:
+    """Regression: negative max_text_chars is clamped to zero."""
+
+    def test_negative_max_text_chars_clamped_to_zero(self) -> None:
+        """max_text_chars=-1 → empty output, truncated=True."""
+        renderer = TextRenderer()
+        text, truncated = renderer._truncate("hello", max_text_chars=-1)
+        assert text == ""
+        assert truncated is True
+
+    def test_zero_max_text_chars_returns_empty(self) -> None:
+        """max_text_chars=0 with non-empty text → empty string, truncated=True."""
+        renderer = TextRenderer()
+        text, truncated = renderer._truncate("hello", max_text_chars=0)
+        assert text == ""
+        assert truncated is True
+
+    def test_zero_max_text_chars_empty_input(self) -> None:
+        """max_text_chars=0 with empty text → empty string, truncated=False."""
+        renderer = TextRenderer()
+        text, truncated = renderer._truncate("", max_text_chars=0)
+        assert text == ""
+        assert truncated is False
+
+
+# ===================================================================
+# TestCapabilitySuppressedCapacityAccounting
+# ===================================================================
+
+
+class TestCapabilitySuppressedCapacityAccounting:
+    """Regression: capability suppression does not increment capacity_rejections."""
+
+    @pytest.mark.asyncio
+    async def test_capability_suppressed_does_not_increment_capacity_rejections(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """capability_suppressed=1 and capacity_rejections=0 after suppression."""
+        adapter = FakePresentationAdapter(adapter_id="dest")
+        adapter._capabilities = AdapterCapabilities(
+            text=True,
+            reactions="unsupported",
+        )
+
+        route = Route(
+            id="cap-accounting-route",
+            source=RouteSource(
+                adapter="src",
+                event_kinds=("message.reacted",),
+                channel=None,
+            ),
+            targets=[RouteTarget(adapter="dest")],
+        )
+        router = Router(routes=[route])
+        accounting = RuntimeAccounting()
+
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router,
+            adapters={"dest": adapter},
+        )
+        config = dataclasses.replace(config, runtime_accounting=accounting)
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = make_event(
+            event_id="cap-accounting-001",
+            event_kind="message.reacted",
+            source_adapter="src",
+            source_channel_id="ch-0",
+            payload={"emoji": "\U0001f44d"},
+        )
+
+        try:
+            await runner.handle_ingress(event)
+
+            snap = accounting.snapshot()
+            assert snap["capability_suppressed"] == 1
+            assert snap["capacity_rejections"] == 0
         finally:
             await runner.stop()

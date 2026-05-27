@@ -47,6 +47,7 @@ from medre.core.events.canonical import (
 )
 from medre.core.events.kinds import EventKind
 from medre.core.observability.metrics import Diagnostician
+from medre.core.planning.capabilities import capability_unsupported
 from medre.core.planning.delivery_plan import (
     DeliveryFailureKind,
     DeliveryOutcome,
@@ -1594,8 +1595,16 @@ class PipelineRunner:
             # delivery features.  Runs after route-policy checks but
             # BEFORE capacity acquisition so that capability-unsupported
             # targets never consume capacity or increment counters.
-            _caps = self._get_adapter_capabilities(target)
-            _unsupported = _capability_unsupported(event, _caps)
+            #
+            # IMPORTANT: Only run the capability check for adapters
+            # that are actually registered.  Unknown / missing adapters
+            # must NOT be capability-suppressed — they need to fall
+            # through to deliver_to_target() which produces the correct
+            # ADAPTER_MISSING outcome with a meaningful error message.
+            _unsupported: str | None = None
+            if adapter_id and adapter_id in self._config.adapters:
+                _caps = self._get_adapter_capabilities(target)
+                _unsupported = capability_unsupported(event, _caps)
             if _unsupported is not None:
                 self._log.info(
                     "capability_suppressed: route_id=%s event_id=%s "
@@ -2567,50 +2576,3 @@ class PipelineRunner:
             if isinstance(caps, AdapterCapabilities):
                 return caps
         return AdapterCapabilities()
-
-
-# ---------------------------------------------------------------------------
-# Capability-to-event-kind mapping
-# ---------------------------------------------------------------------------
-
-
-def _capability_unsupported(
-    event: CanonicalEvent,
-    caps: AdapterCapabilities,
-) -> str | None:
-    """Return a human-readable reason if *event* is unsupported by *caps*.
-
-    Returns ``None`` when the event kind is supported (or unknown, which
-    is treated as a passthrough to avoid breaking future event kinds).
-    """
-    kind = event.event_kind
-
-    if kind == EventKind.MESSAGE_REACTED and caps.reactions == "unsupported":
-        return f"reactions unsupported by adapter (event_kind={kind})"
-
-    if kind == EventKind.MESSAGE_EDITED and caps.edits == "unsupported":
-        return f"edits unsupported by adapter (event_kind={kind})"
-
-    if kind == EventKind.MESSAGE_DELETED and caps.deletes == "unsupported":
-        return f"deletes unsupported by adapter (event_kind={kind})"
-
-    if kind == EventKind.MESSAGE_FILE and not caps.attachments:
-        return f"attachments unsupported by adapter (event_kind={kind})"
-
-    if kind in (EventKind.MESSAGE_CREATED, EventKind.MESSAGE_TEXT) and not caps.text:
-        return f"text unsupported by adapter (event_kind={kind})"
-
-    if kind == EventKind.PRESENCE_CHANGED and not caps.presence:
-        return f"presence unsupported by adapter (event_kind={kind})"
-
-    if kind in (EventKind.TELEMETRY_RECEIVED, EventKind.TELEMETRY_POSITION):
-        if not caps.metadata_fields:
-            return f"metadata_fields unsupported by adapter (event_kind={kind})"
-
-    # Reply-carrying events require reply support.
-    if event.relations:
-        for rel in event.relations:
-            if rel.relation_type == "reply" and caps.replies == "unsupported":
-                return "replies unsupported by adapter (event has reply relation)"
-
-    return None

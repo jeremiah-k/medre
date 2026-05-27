@@ -2117,7 +2117,7 @@ def _filter_plans_by_capability(
     """
     # Import here to avoid circular imports at module level.
     from medre.core.contracts.adapter import AdapterCapabilities
-    from medre.core.engine.pipeline import _capability_unsupported
+    from medre.core.planning.capabilities import capability_unsupported
 
     if pipeline is None or not hasattr(pipeline, "_get_adapter_capabilities"):
         return plans
@@ -2137,7 +2137,7 @@ def _filter_plans_by_capability(
             continue
 
         caps: AdapterCapabilities = pipeline._get_adapter_capabilities(target)
-        reason = _capability_unsupported(event, caps)
+        reason = capability_unsupported(event, caps)
         if reason is None:
             result.append(item)
         # else: capability-suppressed — exclude from delivery

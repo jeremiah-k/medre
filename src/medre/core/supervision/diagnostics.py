@@ -419,8 +419,8 @@ def capture_route_topology(
     * **Live counters** – when *route_stats* (a
       :class:`~medre.core.routing.stats.RouteStats`) is provided, each
         per-route entry is enriched with ``delivered``, ``failed``,
-        ``skipped``, ``loop_prevented``, ``policy_suppressed``, and
-        ``last_error`` from the live
+        ``skipped``, ``loop_prevented``, ``policy_suppressed``,
+        ``capability_suppressed``, and ``last_error`` from the live
       counters.  When *route_stats* is ``None``, counters remain zeroed
       and ``last_error`` is omitted.
 
@@ -488,6 +488,7 @@ def capture_route_topology(
             skipped = live.get("skipped", 0)
             loop_prevented = live.get("loop_prevented", 0)
             policy_suppressed = live.get("policy_suppressed", 0)
+            capability_suppressed = live.get("capability_suppressed", 0)
             last_error = live.get("last_error")
         else:
             delivered = 0
@@ -495,6 +496,7 @@ def capture_route_topology(
             skipped = 0
             loop_prevented = 0
             policy_suppressed = 0
+            capability_suppressed = 0
             last_error = None
 
         route_entry: dict[str, Any] = {
@@ -511,6 +513,7 @@ def capture_route_topology(
             "skipped": skipped,
             "loop_prevented": loop_prevented,
             "policy_suppressed": policy_suppressed,
+            "capability_suppressed": capability_suppressed,
             "error_count": failed,
             "event_count": delivered,
         }
@@ -535,7 +538,7 @@ def capture_route_topology(
                     warning = _check_capability_warning(ek, caps, ta)
                     if warning is not None:
                         capability_warnings.append(warning)
-        route_entry["capability_warnings"] = sorted(capability_warnings)
+        route_entry["capability_warnings"] = sorted(set(capability_warnings))
 
         per_route.append(route_entry)
 

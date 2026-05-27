@@ -10,8 +10,11 @@ events are delivered to adapters.  Package-level imports:
   ``FallbackResolver``.
 * From :mod:`~medre.core.planning.relation_resolution`:
   ``RelationResolver``.
+* From :mod:`~medre.core.planning.capabilities`:
+  ``capability_unsupported``.
 """
 
+from medre.core.planning.capabilities import capability_unsupported
 from medre.core.planning.delivery_plan import (
     DeliveryFailureKind,
     DeliveryOutcome,
@@ -32,4 +35,5 @@ __all__ = [
     "RelationResolver",
     "RetryExecutor",
     "RetryPolicy",
+    "capability_unsupported",
 ]

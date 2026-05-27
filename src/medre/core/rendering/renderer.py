@@ -26,6 +26,7 @@ Public symbols
 
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
@@ -283,11 +284,19 @@ class RenderingPipeline:
 
         for _pri, _seq, renderer in self._renderers:
             if renderer.can_render(event, target_adapter, platform):
+                # Only pass max_text_chars if the renderer accepts it.
+                sig = inspect.signature(renderer.render)
+                if "max_text_chars" in sig.parameters:
+                    return await renderer.render(
+                        event,
+                        target_adapter,
+                        target_channel,
+                        max_text_chars=max_text_chars,
+                    )
                 return await renderer.render(
                     event,
                     target_adapter,
                     target_channel,
-                    max_text_chars=max_text_chars,
                 )
 
         raise ValueError(
