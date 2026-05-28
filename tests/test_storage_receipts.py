@@ -1,11 +1,13 @@
 """Tests for SQLiteStorage: delivery receipts, append-only receipts,
 ordering guarantees, receipt lineage, receipt query helpers,
 receipt sequence monotonicity, receipt source/replay_run_id,
-delivery_status failure_kind, and list_due_retry_receipts integration.
+delivery_status failure_kind, list_due_retry_receipts integration,
+and rendering_evidence persistence round-trip.
 """
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 from medre.core.events import (
@@ -1292,3 +1294,178 @@ class TestListDueRetryReceiptsIntegration:
         results = await temp_storage.list_due_retry_receipts(now)
         assert count == 2
         assert len(results) == 2
+
+
+# ===================================================================
+# Rendering evidence persistence
+# ===================================================================
+
+
+class TestReceiptRenderingEvidence:
+    """Rendering evidence persistence round-trip through SQLite."""
+
+    @staticmethod
+    def _sample_evidence_json() -> str:
+        """Return a sample rendering evidence JSON string."""
+        return json.dumps({
+            "schema_version": "1",
+            "renderer": "text",
+            "delivery_strategy": "direct",
+            "target_adapter": "fake_presentation",
+            "target_platform": None,
+            "target_channel": "ch-1",
+            "max_text_chars": None,
+            "max_text_bytes": None,
+            "capability_level": "native",
+            "fallback_applied": None,
+            "truncated": False,
+            "rendered_text_chars": 5,
+            "rendered_text_bytes": 5,
+            "original_text_chars": None,
+        })
+
+    async def test_sent_receipt_with_evidence_persists(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """A sent receipt with rendering_evidence survives store/readback."""
+        event = make_storage_event(event_id="evt-rev-ev")
+        await temp_storage.append(event)
+
+        evidence_json = self._sample_evidence_json()
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-rev-1",
+            event_id="evt-rev-ev",
+            delivery_plan_id="plan-rev",
+            target_adapter="fake_presentation",
+            status="sent",
+            rendering_evidence=evidence_json,
+        )
+        await temp_storage.append_receipt(receipt)
+
+        # Read back via delivery_status.
+        status = await temp_storage.delivery_status("plan-rev", "fake_presentation")
+        assert status is not None
+        assert status.receipt_id == "rcpt-rev-1"
+        assert status.rendering_evidence is not None
+        assert status.rendering_evidence == evidence_json
+
+        # Verify the stored JSON is valid and parseable.
+        parsed = json.loads(status.rendering_evidence)
+        assert parsed["renderer"] == "text"
+        assert parsed["truncated"] is False
+
+    async def test_none_evidence_persists_as_none(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """A receipt without rendering_evidence reads back as None."""
+        event = make_storage_event(event_id="evt-no-ev")
+        await temp_storage.append(event)
+
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-no-ev",
+            event_id="evt-no-ev",
+            delivery_plan_id="plan-no-ev",
+            target_adapter="fake_presentation",
+            status="sent",
+            # rendering_evidence left as default None
+        )
+        await temp_storage.append_receipt(receipt)
+
+        status = await temp_storage.delivery_status("plan-no-ev", "fake_presentation")
+        assert status is not None
+        assert status.rendering_evidence is None
+
+    async def test_suppressed_receipt_evidence_none(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Suppressed receipts never carry rendering evidence."""
+        event = make_storage_event(event_id="evt-supp-ev")
+        await temp_storage.append(event)
+
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-supp-ev",
+            event_id="evt-supp-ev",
+            delivery_plan_id="plan-supp-ev",
+            target_adapter="fake_presentation",
+            status="suppressed",
+            error="capability_suppressed",
+            failure_kind="capability_suppressed",
+        )
+        await temp_storage.append_receipt(receipt)
+
+        status = await temp_storage.delivery_status("plan-supp-ev", "fake_presentation")
+        assert status is not None
+        assert status.status == "suppressed"
+        assert status.rendering_evidence is None
+
+    async def test_list_receipts_preserves_evidence(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """list_receipts_for_event returns receipts with rendering_evidence intact."""
+        event = make_storage_event(event_id="evt-list-ev")
+        await temp_storage.append(event)
+
+        evidence_json = self._sample_evidence_json()
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-list-ev",
+            event_id="evt-list-ev",
+            delivery_plan_id="plan-list-ev",
+            target_adapter="fake_presentation",
+            status="sent",
+            rendering_evidence=evidence_json,
+        )
+        await temp_storage.append_receipt(receipt)
+
+        receipts = await temp_storage.list_receipts_for_event("evt-list-ev")
+        assert len(receipts) == 1
+        assert receipts[0].rendering_evidence is not None
+        assert receipts[0].rendering_evidence == evidence_json
+        parsed = json.loads(receipts[0].rendering_evidence)
+        assert parsed["schema_version"] == "1"
+
+    async def test_failed_receipt_evidence_none(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Failed receipts have rendering_evidence=None (not populated)."""
+        event = make_storage_event(event_id="evt-fail-ev")
+        await temp_storage.append(event)
+
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-fail-ev",
+            event_id="evt-fail-ev",
+            delivery_plan_id="plan-fail-ev",
+            target_adapter="fake_presentation",
+            status="failed",
+            error="TimeoutError: timed out",
+            failure_kind="adapter_transient",
+        )
+        await temp_storage.append_receipt(receipt)
+
+        receipts = await temp_storage.list_receipts_for_event("evt-fail-ev")
+        assert len(receipts) == 1
+        assert receipts[0].rendering_evidence is None
+
+    async def test_queued_receipt_with_evidence_persists(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """A queued receipt with rendering_evidence survives store/readback."""
+        event = make_storage_event(event_id="evt-queued-ev")
+        await temp_storage.append(event)
+
+        evidence_json = self._sample_evidence_json()
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-queued-ev",
+            event_id="evt-queued-ev",
+            delivery_plan_id="plan-queued-ev",
+            target_adapter="fake_presentation",
+            status="queued",
+            rendering_evidence=evidence_json,
+        )
+        await temp_storage.append_receipt(receipt)
+
+        status = await temp_storage.delivery_status(
+            "plan-queued-ev", "fake_presentation"
+        )
+        assert status is not None
+        assert status.status == "queued"
+        assert status.rendering_evidence == evidence_json
