@@ -16,6 +16,7 @@ from medre.adapters.fakes.transport import FakeTransportAdapter
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.events import CanonicalEvent, EventMetadata, NativeRef
 from medre.core.events.bus import EventBus
+from medre.core.planning.delivery_plan import DeliveryPlan, DeliveryStrategy
 from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.routing.stats import RouteStats
@@ -976,5 +977,190 @@ class TestRouteAttribution:
             assert "loop-stats-route" in snap
             assert snap["loop-stats-route"]["loop_prevented"] == 1
             assert snap["loop-stats-route"]["delivered"] == 0
+        finally:
+            await runner.stop()
+
+
+# ===================================================================
+# TestDeliveryGather
+# ===================================================================
+
+
+class TestDeliveryGather:
+    """Verify _deliver_all gather semantics (line 2557).
+
+    Tests that concurrent delivery via asyncio.gather isolates failures
+    and handles edge cases correctly.
+    """
+
+    @pytest.mark.asyncio
+    async def test_one_failure_does_not_block_others(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """If one target fails in _deliver_all, other deliveries still complete."""
+        good = FakePresentationAdapter(adapter_id="good")
+        bad = FakePresentationAdapter(adapter_id="bad")
+        # Override deliver to raise on the bad adapter.
+        original_deliver = bad.deliver
+
+        async def _failing_deliver(result: object) -> None:
+            raise RuntimeError("forced failure in gather test")
+
+        bad.deliver = _failing_deliver  # type: ignore[assignment]
+
+        route = Route(
+            id="gather-fail-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[
+                RouteTarget(adapter="good"),
+                RouteTarget(adapter="bad"),
+            ],
+        )
+        router = Router(routes=[route])
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router,
+            adapters={"good": good, "bad": bad},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = make_event(
+            event_id="gather-fail-001",
+            source_adapter="src",
+            payload={"text": "gather test"},
+        )
+
+        try:
+            # Build delivery plans manually for _deliver_all.
+            plan_good = DeliveryPlan(
+                plan_id="gather-fail-route__good__0",
+                event_id=event.event_id,
+                target=RouteTarget(adapter="good"),
+                primary_strategy=DeliveryStrategy(method="direct"),
+            )
+            plan_bad = DeliveryPlan(
+                plan_id="gather-fail-route__bad__1",
+                event_id=event.event_id,
+                target=RouteTarget(adapter="bad"),
+                primary_strategy=DeliveryStrategy(method="direct"),
+            )
+            deliveries = [
+                (route, plan_good),
+                (route, plan_bad),
+            ]
+
+            results = await runner._deliver_all(event, deliveries)
+
+            assert len(results) == 2
+            # Good delivery succeeded — non-None receipt.
+            assert results[0] is not None
+            assert results[0].status == "sent"
+            # Bad delivery failed — None because _safe_deliver caught the exception.
+            assert results[1] is None
+
+            # Good adapter actually received the payload.
+            assert len(good.delivered_payloads) == 1
+        finally:
+            await runner.stop()
+
+    @pytest.mark.asyncio
+    async def test_empty_delivery_list_returns_empty(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Empty deliveries -> empty result list."""
+        adapter = FakePresentationAdapter(adapter_id="dest")
+
+        route = Route(
+            id="gather-empty-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[RouteTarget(adapter="dest")],
+        )
+        router = Router(routes=[route])
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router,
+            adapters={"dest": adapter},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = make_event(
+            event_id="gather-empty-001",
+            source_adapter="src",
+        )
+
+        try:
+            results = await runner._deliver_all(event, [])
+            assert results == []
+        finally:
+            await runner.stop()
+
+    @pytest.mark.asyncio
+    async def test_all_succeed_returns_all_receipts(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """All deliveries succeed -> all non-None receipts."""
+        pres_a = FakePresentationAdapter(adapter_id="pa")
+        pres_b = FakePresentationAdapter(adapter_id="pb")
+
+        route = Route(
+            id="gather-ok-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[
+                RouteTarget(adapter="pa"),
+                RouteTarget(adapter="pb"),
+            ],
+        )
+        router = Router(routes=[route])
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router,
+            adapters={"pa": pres_a, "pb": pres_b},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = make_event(
+            event_id="gather-ok-001",
+            source_adapter="src",
+            payload={"text": "both ok"},
+        )
+
+        try:
+            plan_a = DeliveryPlan(
+                plan_id="gather-ok-route__pa__0",
+                event_id=event.event_id,
+                target=RouteTarget(adapter="pa"),
+                primary_strategy=DeliveryStrategy(method="direct"),
+            )
+            plan_b = DeliveryPlan(
+                plan_id="gather-ok-route__pb__1",
+                event_id=event.event_id,
+                target=RouteTarget(adapter="pb"),
+                primary_strategy=DeliveryStrategy(method="direct"),
+            )
+            deliveries = [
+                (route, plan_a),
+                (route, plan_b),
+            ]
+
+            results = await runner._deliver_all(event, deliveries)
+
+            assert len(results) == 2
+            assert all(r is not None for r in results)
+            assert all(r.status == "sent" for r in results)
+
+            assert len(pres_a.delivered_payloads) == 1
+            assert len(pres_b.delivered_payloads) == 1
         finally:
             await runner.stop()

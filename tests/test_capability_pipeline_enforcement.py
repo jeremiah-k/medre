@@ -28,6 +28,7 @@ from medre.core.engine.pipeline import PipelineRunner
 from medre.core.planning.delivery_plan import DeliveryFailureKind
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
+from medre.core.routing.stats import RouteStats
 from medre.core.storage import SQLiteStorage
 from medre.core.storage.replay import (
     ReplayEngine,
@@ -765,3 +766,203 @@ class TestCapabilitySuppressedCapacityAccounting:
             assert snap["capacity_rejections"] == 0
         finally:
             await runner.stop()
+
+
+# ===================================================================
+# TestCapabilitySuppressionRecording
+# ===================================================================
+
+
+class TestCapabilitySuppressionRecording:
+    """Verify route stats and runtime accounting are updated on
+    capability suppression (lines 1617-1618, 1619-1620).
+    """
+
+    @pytest.mark.asyncio
+    async def test_route_stats_recorded_on_capability_suppression(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """RouteStats.record_capability_suppressed is called."""
+        from medre.core.routing.stats import RouteStats
+
+        adapter = FakePresentationAdapter(adapter_id="dest")
+        adapter._capabilities = AdapterCapabilities(
+            text=True,
+            reactions="unsupported",
+        )
+
+        route = Route(
+            id="cap-stats-route",
+            source=RouteSource(
+                adapter="src",
+                event_kinds=("message.reacted",),
+                channel=None,
+            ),
+            targets=[RouteTarget(adapter="dest")],
+        )
+        router = Router(routes=[route])
+        stats = RouteStats()
+
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router,
+            adapters={"dest": adapter},
+        )
+        config = dataclasses.replace(config, route_stats=stats)
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = make_event(
+            event_id="cap-stats-001",
+            event_kind="message.reacted",
+            source_adapter="src",
+            source_channel_id="ch-0",
+            payload={"emoji": "\U0001f44d"},
+        )
+
+        try:
+            await runner.handle_ingress(event)
+
+            snap = stats.snapshot()
+            assert "cap-stats-route" in snap
+            assert snap["cap-stats-route"]["capability_suppressed"] == 1
+            assert snap["cap-stats-route"]["delivered"] == 0
+        finally:
+            await runner.stop()
+
+    @pytest.mark.asyncio
+    async def test_runtime_accounting_recorded_on_capability_suppression(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """RuntimeAccounting.record_capability_suppressed is called."""
+        acc = RuntimeAccounting()
+        adapter = FakePresentationAdapter(adapter_id="dest")
+        adapter._capabilities = AdapterCapabilities(
+            text=True,
+            attachments=False,
+        )
+
+        route = Route(
+            id="cap-acc-route",
+            source=RouteSource(
+                adapter="src",
+                event_kinds=("message.file",),
+                channel=None,
+            ),
+            targets=[RouteTarget(adapter="dest")],
+        )
+        router = Router(routes=[route])
+
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router,
+            adapters={"dest": adapter},
+        )
+        config = dataclasses.replace(config, runtime_accounting=acc)
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = make_event(
+            event_id="cap-acc-001",
+            event_kind="message.file",
+            source_adapter="src",
+            source_channel_id="ch-0",
+            payload={"filename": "doc.pdf", "url": "https://example.com/doc.pdf"},
+        )
+
+        try:
+            await runner.handle_ingress(event)
+
+            snap = acc.snapshot()
+            assert snap["capability_suppressed"] == 1
+        finally:
+            await runner.stop()
+
+    @pytest.mark.asyncio
+    async def test_no_crash_when_stats_and_accounting_are_none(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Capability suppression doesn't crash when stats/accounting are None."""
+        adapter = FakePresentationAdapter(adapter_id="dest")
+        adapter._capabilities = AdapterCapabilities(
+            text=True,
+            reactions="unsupported",
+        )
+
+        route = Route(
+            id="cap-none-route",
+            source=RouteSource(
+                adapter="src",
+                event_kinds=("message.reacted",),
+                channel=None,
+            ),
+            targets=[RouteTarget(adapter="dest")],
+        )
+        router = Router(routes=[route])
+
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router,
+            adapters={"dest": adapter},
+        )
+        # route_stats and runtime_accounting default to None in PipelineConfig.
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = make_event(
+            event_id="cap-none-001",
+            event_kind="message.reacted",
+            source_adapter="src",
+            source_channel_id="ch-0",
+            payload={"emoji": "\U0001f44d"},
+        )
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+
+            # Should still produce a valid outcome, not crash.
+            assert len(outcomes) == 1
+            assert outcomes[0].status == "skipped"
+            assert (
+                outcomes[0].failure_kind
+                is DeliveryFailureKind.CAPABILITY_SUPPRESSED
+            )
+        finally:
+            await runner.stop()
+
+
+# ===================================================================
+# TestRouteStatsCapabilitySuppressed
+# ===================================================================
+
+
+class TestRouteStatsCapabilitySuppressed:
+    """Verify RouteStats.record_capability_suppressed behavior."""
+
+    def test_new_route_increments_only_capability(self):
+        stats = RouteStats()
+        stats.record_capability_suppressed("r1")
+        snap = stats.snapshot()
+        assert snap["r1"]["capability_suppressed"] == 1
+        assert snap["r1"]["delivered"] == 0
+        assert snap["r1"]["failed"] == 0
+
+    def test_existing_route_preserves_other_counters(self):
+        stats = RouteStats()
+        stats.record_delivered("r1")
+        stats.record_capability_suppressed("r1")
+        stats.record_capability_suppressed("r1")
+        snap = stats.snapshot()
+        assert snap["r1"]["delivered"] == 1
+        assert snap["r1"]["capability_suppressed"] == 2
+
+    def test_multiple_routes_independent(self):
+        stats = RouteStats()
+        stats.record_capability_suppressed("r1")
+        stats.record_capability_suppressed("r2")
+        snap = stats.snapshot()
+        assert snap["r1"]["capability_suppressed"] == 1
+        assert snap["r2"]["capability_suppressed"] == 1

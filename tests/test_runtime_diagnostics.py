@@ -884,3 +884,120 @@ class TestRealDataPassthrough:
         assert result["queue_status"] == {"status": "unavailable"}
         assert result["backpressure_status"] == {"status": "unavailable"}
         assert result["task_status"] == {"status": "unavailable"}
+
+
+# ===================================================================
+# _check_capability_warning
+# ===================================================================
+
+
+class TestDiagnosticsCapabilityWarning:
+    """Tests for _check_capability_warning helper."""
+
+    def test_returns_none_when_supported(self) -> None:
+        """_check_capability_warning returns None for supported event kind."""
+        from medre.core.supervision.diagnostics import _check_capability_warning
+
+        caps = AdapterCapabilities(text=True, reactions="native")
+        result = _check_capability_warning("message.text", caps, "adapter-1")
+        assert result is None
+
+    def test_returns_formatted_warning_when_unsupported(self) -> None:
+        """Returns formatted string with event_kind and adapter_id."""
+        from medre.core.supervision.diagnostics import _check_capability_warning
+
+        caps = AdapterCapabilities(text=False)
+        result = _check_capability_warning("message.text", caps, "adapter-1")
+        assert result is not None
+        assert "message.text" in result
+        assert "adapter-1" in result
+        assert "text unsupported" in result
+
+    def test_reply_relations_not_triggered(self) -> None:
+        """Minimal synthetic event has empty relations, so reply check passes."""
+        from medre.core.supervision.diagnostics import _check_capability_warning
+
+        caps = AdapterCapabilities(replies="unsupported")
+        result = _check_capability_warning("message.text", caps, "adapter-1")
+        assert result is None
+
+    def test_unsupported_reactions_produces_warning(self) -> None:
+        """reactions=unsupported with message.reacted event kind → warning."""
+        from medre.core.supervision.diagnostics import _check_capability_warning
+
+        caps = AdapterCapabilities(reactions="unsupported")
+        result = _check_capability_warning("message.reacted", caps, "adapter-x")
+        assert result is not None
+        assert "message.reacted" in result
+        assert "adapter-x" in result
+
+
+# ===================================================================
+# capture_route_topology capability warnings
+# ===================================================================
+
+
+class TestRouteTopologyCapabilityWarnings:
+    """Tests for capability_warnings in capture_route_topology."""
+
+    def test_no_warnings_when_capabilities_is_none(self) -> None:
+        """When capabilities=None, no warnings generated."""
+        route = _make_route(route_id="r1")
+        router = Router(routes=[route])
+        topo = capture_route_topology(router, capabilities=None)
+        for entry in topo["routes"]:
+            assert entry["capability_warnings"] == []
+
+    def test_warning_generated_for_unsupported_event_kind(self) -> None:
+        """Capability mismatch produces warning."""
+        caps = {"target-adapter": AdapterCapabilities(attachments=False)}
+        route = _make_route(
+            route_id="r1",
+            source_adapter="src-adapter",
+            event_kinds=("message.file",),
+            target_adapter="target-adapter",
+        )
+        router = Router(routes=[route])
+        topo = capture_route_topology(router, capabilities=caps)
+        assert len(topo["routes"][0]["capability_warnings"]) == 1
+
+    def test_no_warning_when_adapter_not_in_capabilities(self) -> None:
+        """Missing adapter in capabilities dict produces no warning."""
+        caps: dict[str, Any] = {}
+        route = _make_route(
+            route_id="r1",
+            source_adapter="src-adapter",
+            event_kinds=("message.text",),
+            target_adapter="target-adapter",
+        )
+        router = Router(routes=[route])
+        topo = capture_route_topology(router, capabilities=caps)
+        assert topo["routes"][0]["capability_warnings"] == []
+
+    def test_no_warning_when_capabilities_support_event(self) -> None:
+        """Supported event kind produces no warning."""
+        caps = {"target-adapter": AdapterCapabilities(text=True)}
+        route = _make_route(
+            route_id="r1",
+            source_adapter="src-adapter",
+            event_kinds=("message.text",),
+            target_adapter="target-adapter",
+        )
+        router = Router(routes=[route])
+        topo = capture_route_topology(router, capabilities=caps)
+        assert topo["routes"][0]["capability_warnings"] == []
+
+    def test_multiple_event_kinds_multiple_warnings(self) -> None:
+        """Multiple unsupported event kinds produce multiple warnings."""
+        caps = {
+            "tgt": AdapterCapabilities(text=False, attachments=False),
+        }
+        route = _make_route(
+            route_id="r1",
+            source_adapter="src",
+            event_kinds=("message.text", "message.file"),
+            target_adapter="tgt",
+        )
+        router = Router(routes=[route])
+        topo = capture_route_topology(router, capabilities=caps)
+        assert len(topo["routes"][0]["capability_warnings"]) == 2
