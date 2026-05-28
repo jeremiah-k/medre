@@ -1086,10 +1086,14 @@ class TestRendererReceivesEnrichedRelation:
 
             name = "spy"
 
-            def can_render(self, _event: CanonicalEvent, _ctx: RenderingContext) -> bool:
+            def can_render(
+                self, _event: CanonicalEvent, _ctx: RenderingContext
+            ) -> bool:
                 return True
 
-            async def render(self, event: CanonicalEvent, ctx: RenderingContext) -> RenderingResult:
+            async def render(
+                self, event: CanonicalEvent, ctx: RenderingContext
+            ) -> RenderingResult:
                 rendered_events.append(event)
                 return RenderingResult(
                     event_id=event.event_id,

@@ -190,7 +190,7 @@ LXMF is a transport adapter with no native relation support beyond basic text de
 | Reactions     | `"unsupported"`  | `skip`   | No delivery. Reaction events targeting this adapter are suppressed.       |
 | Edits         | `"unsupported"`  | `skip`   | No delivery. Edit events targeting this adapter are suppressed.           |
 | Deletes       | `"unsupported"`  | `skip`   | No delivery. Delete events targeting this adapter are suppressed.         |
-| Threads       | _deferred_       | —        | Reserved. LXMF has no thread concept.                              |
+| Threads       | _deferred_       | —        | Reserved. LXMF has no thread concept.                                     |
 
 LXMF does not currently declare the `"fallback"` capability level for any relation type in its capability JSON. All relations are unsupported. Events carrying relation context (replies, reactions, edits, deletes) are skipped at the planning stage when the target is an LXMF adapter. Because the capability profile does not advertise fallback, the live planner will not normally select `fallback_text` for this adapter. The `message.created` and `message.text` kinds are delivered normally as they do not require relation support.
 

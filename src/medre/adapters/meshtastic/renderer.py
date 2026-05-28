@@ -493,9 +493,7 @@ class MeshtasticRenderer:
                 return self._extract_text(event)
             target_marker = self._resolve_reply_target_marker(rel)
             if target_marker:
-                body = str(
-                    event.payload.get("text", event.payload.get("body", ""))
-                )
+                body = str(event.payload.get("text", event.payload.get("body", "")))
                 return f"[replying to: {target_marker}] {body}"
             return self._extract_text(event)
 

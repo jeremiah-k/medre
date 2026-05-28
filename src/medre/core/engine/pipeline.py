@@ -2433,9 +2433,7 @@ class PipelineRunner:
                 f"Invalid delivery strategy method "
                 f"{_strategy_method!r}: not a known strategy"
             )
-            self._diagnostician.record_planner_failure(
-                event.event_id, _invalid_error
-            )
+            self._diagnostician.record_planner_failure(event.event_id, _invalid_error)
             receipt = DeliveryReceipt(
                 sequence=0,
                 receipt_id=receipt_id,

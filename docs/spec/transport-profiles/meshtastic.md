@@ -183,7 +183,7 @@ Meshtastic is a transport adapter with selective native relation support. The Me
 | Reactions     | `"native"`       | `direct` | `reply_id` + `emoji=1` for Meshtastic-originated tapbacks; descriptive text for cross-platform |
 | Edits         | `"unsupported"`  | `skip`   | No delivery. Edit events targeting this adapter are suppressed.                                |
 | Deletes       | `"unsupported"`  | `skip`   | No delivery. Delete events targeting this adapter are suppressed.                              |
-| Threads       | _deferred_       | —        | Reserved. Meshtastic has no thread concept.                        |
+| Threads       | _deferred_       | —        | Reserved. Meshtastic has no thread concept.                                                    |
 
 Meshtastic does not currently declare the `"fallback"` capability level for any relation type in its capability JSON. All relations are either native or unsupported. When a relation type is unsupported, the delivery is skipped entirely at the planning stage. Because the capability profile does not advertise fallback, the live planner will not normally select `fallback_text` for this adapter.
 

@@ -1268,9 +1268,10 @@ class TestValidateStrategyMethod:
 
     def test_accepts_all_known_strategies(self) -> None:
         """All DeliveryStrategyMethod literals pass validation."""
+        from typing import get_args
+
         from medre.core.engine.pipeline import _validate_strategy_method
         from medre.core.rendering.renderer import DeliveryStrategyMethod
-        from typing import get_args
 
         for method in get_args(DeliveryStrategyMethod):
             result = _validate_strategy_method(method)

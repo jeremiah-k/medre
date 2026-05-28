@@ -168,7 +168,7 @@ MeshCore is a transport adapter with no native relation support. All relation ty
 | Reactions     | `"unsupported"`  | `skip`   | No delivery. Reaction events targeting this adapter are suppressed.       |
 | Edits         | `"unsupported"`  | `skip`   | No delivery. Edit events targeting this adapter are suppressed.           |
 | Deletes       | `"unsupported"`  | `skip`   | No delivery. Delete events targeting this adapter are suppressed.         |
-| Threads       | _deferred_       | —        | Reserved. MeshCore has no thread concept.                           |
+| Threads       | _deferred_       | —        | Reserved. MeshCore has no thread concept.                                 |
 
 MeshCore does not currently declare the `"fallback"` capability level for any relation type in its capability JSON. All relations are unsupported. Events carrying relation context are skipped at the planning stage. Because the capability profile does not advertise fallback, the live planner will not normally select `fallback_text` for this adapter. Only `message.created` and `message.text` kinds are delivered, as they do not require relation support.
 

@@ -1263,9 +1263,7 @@ class TestFallbackTextReplyRelationContext:
             relations=(rel,),
             payload={"body": "my reply"},
             metadata=EventMetadata(
-                native=NativeMetadata(
-                    data={"shortname": "Test", "from_id": "1"}
-                )
+                native=NativeMetadata(data={"shortname": "Test", "from_id": "1"})
             ),
         )
         result = await renderer.render(
