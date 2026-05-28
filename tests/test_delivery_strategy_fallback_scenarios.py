@@ -866,3 +866,16 @@ class TestRenderingContextStrategyValidation:
                 target_adapter="dest",
             )
             assert ctx.delivery_strategy == strategy
+
+    def test_empty_string_rejected(self) -> None:
+        """Passing '' (empty string) as delivery_strategy raises ValueError.
+
+        The pipeline normalisation uses ``is None`` (not falsy) to
+        default to "direct", so an empty string must be caught by
+        RenderingContext validation rather than silently converted.
+        """
+        with pytest.raises(ValueError, match="Unknown delivery_strategy"):
+            RenderingContext(
+                delivery_strategy="",  # type: ignore[arg-type]
+                target_adapter="dest",
+            )

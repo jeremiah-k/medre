@@ -276,11 +276,17 @@ class _RendererDeliveryError(Exception):
     """
 
     def __init__(
-        self, adapter_id: str, error: str, *, receipt: DeliveryReceipt | None = None
+        self,
+        adapter_id: str,
+        error: str,
+        *,
+        receipt: DeliveryReceipt | None = None,
+        failure_kind: DeliveryFailureKind | None = None,
     ) -> None:
         self.adapter_id = adapter_id
         self.error = error
         self.receipt = receipt
+        self.failure_kind = failure_kind
         super().__init__(error)
 
 
@@ -1927,7 +1933,12 @@ class PipelineRunner:
                     elapsed = (time.monotonic() - t0) * 1000.0
                     _outcome_receipt = exc.receipt
                     _outcome_error = exc.error
-                    _outcome_failure_kind_val = DeliveryFailureKind.RENDERER_FAILURE
+                    _resolved_failure_kind = (
+                        exc.failure_kind
+                        if exc.failure_kind is not None
+                        else DeliveryFailureKind.RENDERER_FAILURE
+                    )
+                    _outcome_failure_kind_val = _resolved_failure_kind
                     if self._route_stats is not None:
                         self._route_stats.record_failed(route.id, exc.error)
                     if self._runtime_accounting is not None:
@@ -1939,7 +1950,7 @@ class PipelineRunner:
                         route_id=route.id,
                         delivery_plan_id=route_plan.plan_id,
                         status="permanent_failure",
-                        failure_kind=DeliveryFailureKind.RENDERER_FAILURE,
+                        failure_kind=_resolved_failure_kind,
                         receipt=None,
                         error=exc.error,
                         duration_ms=elapsed,
@@ -2464,7 +2475,10 @@ class PipelineRunner:
             )
             await self._config.storage.append_receipt(receipt)
             raise _RendererDeliveryError(
-                adapter_id or "", _invalid_error, receipt=receipt
+                adapter_id or "",
+                _invalid_error,
+                receipt=receipt,
+                failure_kind=DeliveryFailureKind.PLANNER_FAILURE,
             ) from None
 
         try:

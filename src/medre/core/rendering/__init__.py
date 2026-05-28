@@ -29,6 +29,7 @@ from medre.core.rendering.renderer import (
     RenderingResult,
 )
 from medre.core.rendering.text import TextRenderer
+from medre.core.rendering.text_helpers import extract_relation_text, truncate_text
 
 __all__ = [
     "CapabilityLevel",
@@ -38,4 +39,6 @@ __all__ = [
     "RenderingPipeline",
     "RenderingResult",
     "TextRenderer",
+    "extract_relation_text",
+    "truncate_text",
 ]

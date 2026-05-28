@@ -22,7 +22,7 @@ from typing import Any, Mapping
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
 from medre.core.events import CanonicalEvent, EventRelation
 from medre.core.rendering.renderer import RenderingContext, RenderingResult
-from medre.core.rendering.text import TextRenderer
+from medre.core.rendering.text_helpers import extract_relation_text, truncate_text
 from medre.interop.mmrelay import (
     EMOJI_FLAG_VALUE,
     KEY_EMOJI,
@@ -299,8 +299,8 @@ class MatrixRenderer:
 
         Sets ``fallback_applied="strategy_fallback_text"`` on the result.
         """
-        # Reuse TextRenderer's deterministic wording for degraded relations
-        degraded_text = TextRenderer._extract_text(event)
+        # Reuse deterministic wording for degraded relations
+        degraded_text = extract_relation_text(event)
 
         # Apply relay prefix for mesh→Matrix direction BEFORE truncation
         # so that the final body (prefix + text) respects the text budget.
@@ -311,7 +311,7 @@ class MatrixRenderer:
         truncated = False
         original_length = len(body)
         if ctx.max_text_chars is not None:
-            body, truncated = TextRenderer._truncate(
+            body, truncated = truncate_text(
                 body,
                 max_text_chars=ctx.max_text_chars,
             )

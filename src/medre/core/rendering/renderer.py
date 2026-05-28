@@ -39,7 +39,7 @@ Public symbols
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import ClassVar, Literal, Protocol, runtime_checkable
+from typing import ClassVar, Literal, Protocol, get_args, runtime_checkable
 
 from medre.core.events import CanonicalEvent
 
@@ -143,7 +143,7 @@ class RenderingContext:
     capability_policy: str | None = None
 
     _VALID_STRATEGIES: ClassVar[frozenset[str]] = frozenset(
-        {"direct", "fallback_text", "skip", "propagated", "opportunistic", "paper"}
+        get_args(DeliveryStrategyMethod)
     )
 
     def __post_init__(self) -> None:
@@ -436,7 +436,9 @@ class RenderingPipeline:
         )
 
         # Normalise delivery_strategy: default to "direct" when unset.
-        strategy: DeliveryStrategyMethod = delivery_strategy or "direct"
+        strategy: DeliveryStrategyMethod = (
+            "direct" if delivery_strategy is None else delivery_strategy
+        )
 
         ctx = RenderingContext(
             delivery_strategy=strategy,
