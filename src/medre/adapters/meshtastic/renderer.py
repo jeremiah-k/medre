@@ -486,6 +486,17 @@ class MeshtasticRenderer:
         """
         if rel.relation_type == "reply":
             # Reply degraded to text: include "[replying to: …]" prefix.
+            # When fallback_text is present, _extract_text handles it.
+            # When absent, resolve a deterministic marker from target_event_id
+            # or target_native_ref so relation context is never lost.
+            if rel.fallback_text:
+                return self._extract_text(event)
+            target_marker = self._resolve_reply_target_marker(rel)
+            if target_marker:
+                body = str(
+                    event.payload.get("text", event.payload.get("body", ""))
+                )
+                return f"[replying to: {target_marker}] {body}"
             return self._extract_text(event)
 
         if rel.relation_type == "reaction":
@@ -511,6 +522,28 @@ class MeshtasticRenderer:
 
         # Other relation types: standard text extraction.
         return self._extract_text(event)
+
+    @staticmethod
+    def _resolve_reply_target_marker(rel: EventRelation) -> str | None:
+        """Resolve a deterministic target identifier for a reply relation.
+
+        Used by ``_render_fallback_text`` when ``rel.fallback_text`` is
+        absent but the relation still carries enough context to identify
+        the target message.
+
+        Resolution order:
+        1. ``rel.target_native_ref.native_message_id`` (if present).
+        2. ``rel.target_event_id`` (if present).
+        3. ``None`` — no usable identifier.
+        """
+        ref = rel.target_native_ref
+        if ref is not None:
+            mid = getattr(ref, "native_message_id", None)
+            if mid is not None:
+                return str(mid)
+        if rel.target_event_id is not None:
+            return rel.target_event_id
+        return None
 
     # ------------------------------------------------------------------
     # Private helpers

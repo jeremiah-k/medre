@@ -796,3 +796,205 @@ class TestRuntimeAssemblySourceConfig:
         # No mmrelay metadata (no matching source_config)
         assert "meshtastic_id" not in result.payload
         assert "meshtastic_meshnet" not in result.payload
+
+
+# ---------------------------------------------------------------------------
+# Fallback-text strategy tests
+# ---------------------------------------------------------------------------
+
+
+class TestMatrixFallbackText:
+    """MatrixRenderer fallback_text strategy: degraded relation text rendering.
+
+    Tests that truncation applies to the final body (including relay prefix),
+    original_length metadata is correct, and envelope/mmrelay metadata remain
+    intact.
+    """
+
+    @staticmethod
+    def _make_fallback_event(
+        body: str = "hello",
+        *,
+        source_adapter: str = "transport",
+        native_data: dict | None = None,
+        fallback_text: str = "original message",
+    ) -> CanonicalEvent:
+        """Build an event with a reply relation for fallback_text strategy."""
+        metadata = EventMetadata()
+        if native_data:
+            metadata = EventMetadata(native=NativeMetadata(data=native_data))
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="orig-001",
+            target_native_ref=NativeRef(
+                adapter="mesh-1",
+                native_channel_id="ch-0",
+                native_message_id="mesh-42",
+            ),
+            key=None,
+            fallback_text=fallback_text,
+        )
+        return CanonicalEvent(
+            event_id="evt-fb-1",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter=source_adapter,
+            source_transport_id="node-1",
+            source_channel_id="ch-0",
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"body": body},
+            metadata=metadata,
+        )
+
+    async def test_fallback_text_basic_body(self) -> None:
+        """Fallback-text strategy renders degraded text without m.relates_to."""
+        renderer = MatrixRenderer()
+        event = self._make_fallback_event(body="my reply")
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="matrix-1",
+                delivery_strategy="fallback_text",
+            ),
+        )
+        assert result.payload["msgtype"] == "m.text"
+        assert "m.relates_to" not in result.payload
+        assert result.fallback_applied == "strategy_fallback_text"
+        # Body should contain degraded relation info and original text
+        assert "my reply" in result.payload["body"]
+
+    async def test_fallback_text_envelope_present(self) -> None:
+        """Fallback-text strategy still embeds the MEDRE metadata envelope."""
+        renderer = MatrixRenderer()
+        event = self._make_fallback_event()
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="matrix-1",
+                delivery_strategy="fallback_text",
+            ),
+        )
+        assert "medre" in result.payload
+        assert "envelope" in result.payload["medre"]
+
+    async def test_fallback_text_truncation_respects_max_text_chars(self) -> None:
+        """Truncation applies to the final body including relay prefix."""
+        renderer = MatrixRenderer(
+            source_configs={
+                "transport": _StubMeshtasticConfig(
+                    adapter_id="transport",
+                    matrix_relay_prefix="[Alice]: ",
+                ),
+            },
+        )
+        event = self._make_fallback_event(
+            body="hello world",
+            source_adapter="transport",
+            native_data={"longname": "Alice"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="matrix-1",
+                delivery_strategy="fallback_text",
+                max_text_chars=10,
+            ),
+        )
+        body: str = result.payload["body"]
+        # The final body must respect max_text_chars=10 including prefix
+        assert len(body) <= 10
+        # Truncation occurred
+        assert result.truncated is True
+
+    async def test_fallback_text_truncation_original_length_includes_prefix(
+        self,
+    ) -> None:
+        """original_length metadata reflects the full pre-truncate body (prefix + text)."""
+        prefix = "[Alice]: "
+        renderer = MatrixRenderer(
+            source_configs={
+                "transport": _StubMeshtasticConfig(
+                    adapter_id="transport",
+                    matrix_relay_prefix=prefix,
+                ),
+            },
+        )
+        event = self._make_fallback_event(
+            body="hello world",
+            source_adapter="transport",
+            native_data={"longname": "Alice"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="matrix-1",
+                delivery_strategy="fallback_text",
+                max_text_chars=5,
+            ),
+        )
+        # original_length should be the full prefixed body length
+        # (before truncation, after prefix application)
+        assert "original_length" in result.metadata
+        # degraded_text from TextRenderer._extract_text includes reply prefix
+        # so we check that original_length >= len(prefix + "hello world")
+        assert result.metadata["original_length"] >= len(prefix + "hello world")
+
+    async def test_fallback_text_no_truncation_when_within_budget(self) -> None:
+        """No truncation when the prefixed body fits within max_text_chars."""
+        renderer = MatrixRenderer(
+            source_configs={
+                "transport": _StubMeshtasticConfig(
+                    adapter_id="transport",
+                    matrix_relay_prefix="[Al]: ",
+                ),
+            },
+        )
+        event = self._make_fallback_event(
+            body="hi",
+            source_adapter="transport",
+            native_data={"longname": "Al"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="matrix-1",
+                delivery_strategy="fallback_text",
+                max_text_chars=500,
+            ),
+        )
+        assert result.truncated is False
+        assert "original_length" not in result.metadata
+
+    async def test_fallback_text_mmrelay_metadata_preserved(self) -> None:
+        """mmrelay metadata injection is preserved under fallback_text strategy."""
+        renderer = MatrixRenderer(
+            source_configs={
+                "transport": _StubMeshtasticConfig(
+                    adapter_id="transport",
+                    mmrelay_compatibility=True,
+                ),
+            },
+        )
+        event = self._make_fallback_event(
+            source_adapter="transport",
+            native_data={
+                "longname": "Alice",
+                "shortname": "A",
+                "packet_id": "99",
+            },
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="matrix-1",
+                delivery_strategy="fallback_text",
+            ),
+        )
+        # mmrelay metadata keys should be present
+        assert "meshtastic_id" in result.payload
+        assert result.payload["meshtastic_id"] == "99"
+        assert result.payload["meshtastic_longname"] == "Alice"
+        assert result.payload["meshtastic_shortname"] == "A"

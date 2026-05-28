@@ -24,6 +24,7 @@ from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.events.canonical import EventRelation, NativeRef
 from medre.core.rendering.renderer import (
+    CapabilityLevel,
     DeliveryStrategyMethod,
     RenderingContext,
 )
@@ -41,7 +42,7 @@ def _ctx(
     target_platform: str | None = None,
     max_text_chars: int | None = None,
     max_text_bytes: int | None = None,
-    capability_level: str = "native",
+    capability_level: CapabilityLevel = "native",
 ) -> RenderingContext:
     """Build a frozen RenderingContext for unit tests."""
     return RenderingContext(
@@ -51,7 +52,7 @@ def _ctx(
         target_platform=target_platform,
         max_text_chars=max_text_chars,
         max_text_bytes=max_text_bytes,
-        capability_level=capability_level,  # type: ignore[arg-type]
+        capability_level=capability_level,
     )
 
 

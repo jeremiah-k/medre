@@ -1025,3 +1025,277 @@ class TestCrossPlatformReactionDescriptive:
         )
         assert result.payload["reply_id"] == 88
         assert "emoji" not in result.payload
+
+
+# ===================================================================
+# Fallback-text delivery strategy: reply relation context preservation
+# ===================================================================
+
+
+class TestFallbackTextReplyRelationContext:
+    """fallback_text delivery strategy must preserve reply relation context
+    even when rel.fallback_text is absent.  The marker uses
+    target_native_ref.native_message_id or target_event_id as a
+    deterministic identifier.  No native reply_id is emitted.
+    """
+
+    async def test_reply_with_fallback_text_present(self) -> None:
+        """When rel.fallback_text exists, marker uses fallback_text value."""
+        renderer = _make_renderer("mesh-1")
+        rel = _make_relation(
+            relation_type="reply",
+            native_message_id="42",
+            fallback_text="original msg",
+        )
+        event = _make_event(
+            payload={"body": "my reply"},
+            relations=(rel,),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="mesh-1", delivery_strategy="fallback_text"
+            ),
+        )
+        text = result.payload["text"]
+        assert "[replying to: original msg]" in text
+        assert "my reply" in text
+        # No native reply_id under fallback_text mode
+        assert "reply_id" not in result.payload
+
+    async def test_reply_without_fallback_text_with_native_ref(self) -> None:
+        """When fallback_text is absent but target_native_ref exists,
+        marker uses native_message_id."""
+        renderer = _make_renderer("mesh-1")
+        native_ref = NativeRef(
+            adapter="mesh-1",
+            native_channel_id="0",
+            native_message_id="42",
+        )
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-0",
+            target_native_ref=native_ref,
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"body": "my reply"},
+            relations=(rel,),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="mesh-1", delivery_strategy="fallback_text"
+            ),
+        )
+        text = result.payload["text"]
+        assert "[replying to: 42]" in text
+        assert "my reply" in text
+        # No native reply_id under fallback_text mode
+        assert "reply_id" not in result.payload
+
+    async def test_reply_without_fallback_text_with_target_event_id(
+        self,
+    ) -> None:
+        """When fallback_text and target_native_ref are both absent,
+        marker uses target_event_id."""
+        renderer = _make_renderer("mesh-1")
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-abc123",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"body": "my reply"},
+            relations=(rel,),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="mesh-1", delivery_strategy="fallback_text"
+            ),
+        )
+        text = result.payload["text"]
+        assert "[replying to: evt-abc123]" in text
+        assert "my reply" in text
+        assert "reply_id" not in result.payload
+
+    async def test_reply_no_target_info_plain_text(self) -> None:
+        """When no fallback_text, no native_ref, no target_event_id,
+        no marker is prepended — plain body text."""
+        renderer = _make_renderer("mesh-1")
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id=None,
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"body": "my reply"},
+            relations=(rel,),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="mesh-1", delivery_strategy="fallback_text"
+            ),
+        )
+        text = result.payload["text"]
+        assert text == "my reply"
+        assert "[replying to:" not in text
+        assert "reply_id" not in result.payload
+
+    async def test_native_ref_preferred_over_target_event_id(self) -> None:
+        """When both target_native_ref and target_event_id exist,
+        native_message_id is preferred for the marker."""
+        renderer = _make_renderer("mesh-1")
+        native_ref = NativeRef(
+            adapter="mesh-1",
+            native_channel_id="0",
+            native_message_id="99",
+        )
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-override",
+            target_native_ref=native_ref,
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"body": "my reply"},
+            relations=(rel,),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="mesh-1", delivery_strategy="fallback_text"
+            ),
+        )
+        text = result.payload["text"]
+        assert "[replying to: 99]" in text
+        assert "evt-override" not in text
+
+    async def test_preserves_channel_index_and_meshnet_name(self) -> None:
+        """Fallback-text reply preserves channel_index and meshnet_name."""
+        renderer = _make_renderer("mesh-1", meshnet_name="testnet")
+        rel = _make_relation(
+            relation_type="reply",
+            native_message_id="42",
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"body": "my reply"},
+            relations=(rel,),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="mesh-1",
+                delivery_strategy="fallback_text",
+                target_channel="3",
+            ),
+        )
+        assert result.payload["channel_index"] == 3
+        assert result.payload["meshnet_name"] == "testnet"
+        assert "reply_id" not in result.payload
+
+    async def test_byte_truncation_preserved(self) -> None:
+        """Fallback-text reply respects byte truncation budget."""
+        renderer = _make_renderer("mesh-1", max_text_bytes=30)
+        native_ref = NativeRef(
+            adapter="mesh-1",
+            native_channel_id="0",
+            native_message_id="42",
+        )
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-0",
+            target_native_ref=native_ref,
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"body": "A" * 200},
+            relations=(rel,),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="mesh-1", delivery_strategy="fallback_text"
+            ),
+        )
+        assert len(result.payload["text"].encode("utf-8")) <= 30
+        assert result.truncated is True
+        assert "reply_id" not in result.payload
+
+    async def test_prefix_applied_to_fallback_reply(self) -> None:
+        """Fallback-text reply gets radio_relay_prefix prepended."""
+        renderer = _make_renderer(
+            "mesh-1",
+            radio_relay_prefix="[{shortname5}] ",
+        )
+        native_ref = NativeRef(
+            adapter="mesh-1",
+            native_channel_id="0",
+            native_message_id="42",
+        )
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-0",
+            target_native_ref=native_ref,
+            key=None,
+            fallback_text=None,
+        )
+        event = CanonicalEvent(
+            event_id="evt-1",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="matrix-1",
+            source_transport_id="@user:example.com",
+            source_channel_id="!room:example.com",
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"body": "my reply"},
+            metadata=EventMetadata(
+                native=NativeMetadata(
+                    data={"shortname": "Test", "from_id": "1"}
+                )
+            ),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="mesh-1", delivery_strategy="fallback_text"
+            ),
+        )
+        text = result.payload["text"]
+        assert text.startswith("[Test] ")
+        assert "[replying to: 42]" in text
+        assert "reply_id" not in result.payload
+
+    async def test_metadata_includes_delivery_strategy(self) -> None:
+        """Fallback-text rendering metadata includes delivery_strategy."""
+        renderer = _make_renderer("mesh-1")
+        rel = _make_relation(
+            relation_type="reply",
+            native_message_id="42",
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"body": "my reply"},
+            relations=(rel,),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="mesh-1", delivery_strategy="fallback_text"
+            ),
+        )
+        assert result.metadata.get("delivery_strategy") == "fallback_text"
+        assert result.fallback_applied == "strategy_fallback_text"

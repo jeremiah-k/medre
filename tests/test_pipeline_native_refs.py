@@ -30,7 +30,7 @@ from medre.core.events import (
 from medre.core.events.bus import EventBus
 from medre.core.events.metadata import NativeMetadata
 from medre.core.planning import FallbackResolver, RelationResolver
-from medre.core.rendering.renderer import RenderingResult
+from medre.core.rendering.renderer import RenderingContext, RenderingResult
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage import SQLiteStorage
 from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
@@ -1086,10 +1086,10 @@ class TestRendererReceivesEnrichedRelation:
 
             name = "spy"
 
-            def can_render(self, event, ctx):
+            def can_render(self, _event: CanonicalEvent, _ctx: RenderingContext) -> bool:
                 return True
 
-            async def render(self, event, ctx):
+            async def render(self, event: CanonicalEvent, ctx: RenderingContext) -> RenderingResult:
                 rendered_events.append(event)
                 return RenderingResult(
                     event_id=event.event_id,

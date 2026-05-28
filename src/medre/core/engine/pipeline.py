@@ -1712,6 +1712,10 @@ class PipelineRunner:
                     adapter_id,
                     route_plan.plan_id,
                 )
+                if self._route_stats is not None:
+                    self._route_stats.record_capability_suppressed(route.id)
+                if self._runtime_accounting is not None:
+                    self._runtime_accounting.record_capability_suppressed()
                 elapsed = (time.monotonic() - t0) * 1000.0
                 skip_error = (
                     f"plan_skip: delivery strategy is 'skip' "

@@ -14,6 +14,8 @@ protocol — no legacy positional-arg signatures.
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
 from medre.adapters.fakes.presentation import FakePresentationAdapter
@@ -28,7 +30,9 @@ from medre.core.rendering.renderer import (
 )
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
+from medre.core.routing.stats import RouteStats
 from medre.core.storage import SQLiteStorage
+from medre.core.supervision.accounting import RuntimeAccounting
 from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
 
 # ===================================================================
@@ -352,5 +356,116 @@ class TestSkipStrategyDefenseInDepth:
             outbox_items = await temp_storage.list_outbox_items()
             skipped_items = [i for i in outbox_items if i.event_id == event.event_id]
             assert len(skipped_items) == 0
+        finally:
+            await runner.stop()
+
+
+# ===================================================================
+# TestPlanSkipAccounting
+# ===================================================================
+
+
+class TestPlanSkipAccounting:
+    """Verify plan-level skip (Phase 2.75) updates RouteStats and
+    RuntimeAccounting counters, mirroring Phase 2.5 capability suppression.
+    """
+
+    @pytest.mark.asyncio
+    async def test_plan_skip_updates_route_stats(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Plan-level skip increments RouteStats.capability_suppressed."""
+        adapter = FakePresentationAdapter(adapter_id="dest")
+        adapter._capabilities = AdapterCapabilities(
+            text=True,
+            reactions="unsupported",
+        )
+
+        route = Route(
+            id="skip-stats-route",
+            source=RouteSource(
+                adapter="src",
+                event_kinds=("message.reacted",),
+                channel=None,
+            ),
+            targets=[RouteTarget(adapter="dest")],
+        )
+        router = Router(routes=[route])
+        stats = RouteStats()
+
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router,
+            adapters={"dest": adapter},
+        )
+        config = dataclasses.replace(config, route_stats=stats)
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = make_event(
+            event_id="skip-stats-001",
+            event_kind="message.reacted",
+            source_adapter="src",
+            source_channel_id="ch-0",
+            payload={"emoji": "\U0001f44d"},
+        )
+
+        try:
+            await runner.handle_ingress(event)
+
+            snap = stats.snapshot()
+            assert "skip-stats-route" in snap
+            assert snap["skip-stats-route"]["capability_suppressed"] == 1
+            assert snap["skip-stats-route"]["delivered"] == 0
+        finally:
+            await runner.stop()
+
+    @pytest.mark.asyncio
+    async def test_plan_skip_updates_runtime_accounting(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Plan-level skip increments RuntimeAccounting.capability_suppressed."""
+        acc = RuntimeAccounting()
+        adapter = FakePresentationAdapter(adapter_id="dest")
+        adapter._capabilities = AdapterCapabilities(
+            text=True,
+            reactions="unsupported",
+        )
+
+        route = Route(
+            id="skip-acc-route",
+            source=RouteSource(
+                adapter="src",
+                event_kinds=("message.reacted",),
+                channel=None,
+            ),
+            targets=[RouteTarget(adapter="dest")],
+        )
+        router = Router(routes=[route])
+
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router,
+            adapters={"dest": adapter},
+        )
+        config = dataclasses.replace(config, runtime_accounting=acc)
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = make_event(
+            event_id="skip-acc-001",
+            event_kind="message.reacted",
+            source_adapter="src",
+            source_channel_id="ch-0",
+            payload={"emoji": "\U0001f44d"},
+        )
+
+        try:
+            await runner.handle_ingress(event)
+
+            snap = acc.snapshot()
+            assert snap["capability_suppressed"] == 1
         finally:
             await runner.stop()

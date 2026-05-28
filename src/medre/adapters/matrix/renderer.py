@@ -302,16 +302,19 @@ class MatrixRenderer:
         # Reuse TextRenderer's deterministic wording for degraded relations
         degraded_text = TextRenderer._extract_text(event)
 
-        # Truncate when the context imposes a text budget
+        # Apply relay prefix for mesh→Matrix direction BEFORE truncation
+        # so that the final body (prefix + text) respects the text budget.
+        body = self._apply_matrix_relay_prefix(event, degraded_text)
+
+        # Truncate the final body (including relay prefix) when the
+        # context imposes a text budget.
         truncated = False
+        original_length = len(body)
         if ctx.max_text_chars is not None:
-            degraded_text, truncated = TextRenderer._truncate(
-                degraded_text,
+            body, truncated = TextRenderer._truncate(
+                body,
                 max_text_chars=ctx.max_text_chars,
             )
-
-        # Apply relay prefix for mesh→Matrix direction
-        body = self._apply_matrix_relay_prefix(event, degraded_text)
 
         content: dict[str, object] = {
             "msgtype": "m.text",
@@ -336,7 +339,7 @@ class MatrixRenderer:
             "renderer": self.name,
         }
         if truncated:
-            result_metadata["original_length"] = len(degraded_text)
+            result_metadata["original_length"] = original_length
 
         return RenderingResult(
             event_id=event.event_id,
