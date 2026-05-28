@@ -5,24 +5,24 @@ representation — message lifecycle events and presence changes — and convert
 them into a simple ``{"text": ...}`` payload suitable for text-only targets
 such as Meshtastic radio transports, SMS gateways, or terminal adapters.
 
-Text is capped at a default of **500 characters**.  The cap can be overridden
-per-call via ``max_text_chars`` (from adapter capabilities).  Negative or
+Text is capped at a default of **500 characters**.  The cap is overridden
+by ``RenderingContext.max_text_chars`` from adapter capabilities.  Negative or
 zero caps are clamped to zero, producing empty output.  When truncation
 occurs the resulting :class:`~medre.core.rendering.renderer.RenderingResult`
 has its ``truncated`` flag set to ``True`` and the ``metadata`` dict includes
 the original content length.
 
-**Strategy fallback**: when ``delivery_strategy="fallback_text"`` is passed,
-the renderer sets ``fallback_applied="strategy_fallback_text"`` on the result,
-indicating degraded rendering was used because the target adapter lacks
-native support for the event's relation type (reactions, edits, deletes,
-replies).
+**Strategy fallback**: when ``RenderingContext.delivery_strategy`` is
+``"fallback_text"``, the renderer sets ``fallback_applied="strategy_fallback_text"``
+on the result, indicating degraded rendering was used because the target
+adapter lacks native support for the event's relation type (reactions,
+edits, deletes, replies).
 """
 
 from __future__ import annotations
 
-from medre.core.events import CanonicalEvent, EventKind
-from medre.core.rendering.renderer import RenderingResult
+from medre.core.events import CanonicalEvent, EventKind, EventRelation
+from medre.core.rendering.renderer import RenderingContext, RenderingResult
 
 # Maximum characters for rendered text before truncation.
 _MAX_TEXT_LENGTH: int = 500
@@ -34,6 +34,13 @@ class TextRenderer:
     Handles ``message.text``, ``message.created``, ``message.edited``,
     ``message.deleted``, ``message.reacted``, ``presence.changed``, and
     ``plugin.custom`` events.
+
+    **Relation degradation** — When a canonical event carries relations
+    (reply, reaction, edit, delete, thread) only the **first** relation
+    is processed.  Each relation type produces deterministic degraded
+    text that never emits empty or ambiguous output, even when relation
+    metadata is partially missing.  See :meth:`_extract_text` for the
+    exact fallback format per relation type.
     """
 
     name: str = "text"
@@ -45,24 +52,22 @@ class TextRenderer:
     def can_render(
         self,
         event: CanonicalEvent,
-        target_adapter: str,
-        target_platform: str | None = None,
+        ctx: RenderingContext,
     ) -> bool:
         """Return ``True`` for event kinds that have a plain-text representation.
 
         This renderer is platform-agnostic — it handles events based on
-        event kind, not target adapter identity.  The *target_adapter* and
-        *target_platform* parameters are accepted for protocol compatibility
-        but are not used for discrimination.
+        event kind, not target adapter identity.  The rendering context
+        is accepted for protocol compliance but is not used for
+        discrimination.
 
         Parameters
         ----------
         event:
             The canonical event to check.
-        target_adapter:
-            Name of the target adapter (not used for discrimination).
-        target_platform:
-            Platform name (not used for discrimination).
+        ctx:
+            Frozen rendering context with target identity, delivery
+            strategy, and capability metadata.
 
         Returns
         -------
@@ -86,11 +91,7 @@ class TextRenderer:
     async def render(
         self,
         event: CanonicalEvent,
-        target_adapter: str,
-        target_channel: str | None = None,
-        *,
-        max_text_chars: int | None = None,
-        delivery_strategy: str | None = None,
+        ctx: RenderingContext,
     ) -> RenderingResult:
         """Render a canonical event as plain text.
 
@@ -102,11 +103,23 @@ class TextRenderer:
         * ``presence.changed`` — format as ``"{user} is now {status}"``.
         * ``plugin.custom`` — extract ``payload["text"]`` if available.
 
-        **Relation fallback rendering** — when the event carries relations:
+        **Relation fallback rendering** — when the event carries relations,
+        only the **first** relation is processed:
 
-        * *reply* — ``"[replying to: {fallback_text}] {payload_text}"``
-        * *reaction* — ``"{actor} reacted with {key}"``
-        * *edit* — ``"[edited] {payload_text}"``
+        * *reply* — ``"[replying to: {target}] {payload_text}"`` with
+          optional ``"by {sender}"`` enrichment when relation metadata
+          carries ``sender_displayname`` / ``displayname`` / ``sender``.
+          Target is resolved from ``fallback_text``, ``target_event_id``
+          (abbreviated), or ``target_native_ref``.
+        * *reaction* — ``"{actor} reacted with {key}"``.  Key is resolved
+          from ``rel.key``, ``payload["emoji"]``, or ``payload["body"]``.
+          When no key exists, produces ``"{actor} reacted"``.
+        * *edit* — ``"[edited] {payload_text}"``, or ``"[edited]"`` when
+          the edit carries no body.
+        * *delete* — ``"[deleted: {target}]"`` when target context is
+          available, or ``"[deleted]"`` when it is not.
+        * *thread* — ``"[thread: {target}] {payload_text}"``, degraded
+          similarly to reply.
 
         Text exceeding the character limit is truncated and the ``truncated``
         flag is set on the result.
@@ -117,16 +130,9 @@ class TextRenderer:
         ----------
         event:
             The canonical event to render.
-        target_adapter:
-            Name of the adapter the rendered payload is intended for.
-        target_channel:
-            Optional channel / conversation on the target adapter.
-        max_text_chars:
-            Per-call character cap for the rendered text.  When ``None``
-            (the default), the 500-character module-level default is used.
-            When provided, the text is truncated to this many characters
-            and the ``truncated`` flag is set on the result when
-            truncation occurs.
+        ctx:
+            Frozen rendering context carrying the target adapter, delivery
+            strategy, and text budget.
 
         Returns
         -------
@@ -134,7 +140,9 @@ class TextRenderer:
             The rendered text payload wrapped in a standard result.
         """
         raw_text = self._extract_text(event)
-        text, truncated = self._truncate(raw_text, max_text_chars=max_text_chars)
+        text, truncated = self._truncate(
+            raw_text, max_text_chars=ctx.max_text_chars
+        )
 
         metadata: dict[str, object] = {
             "renderer": self.name,
@@ -144,17 +152,31 @@ class TextRenderer:
         fallback_applied: str | None = None
         if event.relations:
             rel = event.relations[0]
-            if rel.relation_type in ("reply", "reaction", "edit"):
+            if rel.relation_type in (
+                "reply",
+                "reaction",
+                "edit",
+                "delete",
+                "thread",
+            ):
                 fallback_applied = f"relation_{rel.relation_type}"
 
         # Strategy fallback takes precedence over relation-based fallback.
-        if delivery_strategy == "fallback_text":
+        # When strategy_fallback_text overrides a relation-based fallback,
+        # preserve the underlying relation type in metadata so that
+        # diagnostics and consumers can identify both the strategy and the
+        # degraded relation in a single result.
+        if ctx.delivery_strategy == "fallback_text":
+            if fallback_applied is not None:
+                metadata["strategy_relation_type"] = event.relations[
+                    0
+                ].relation_type
             fallback_applied = "strategy_fallback_text"
 
         return RenderingResult(
             event_id=event.event_id,
-            target_adapter=target_adapter,
-            target_channel=target_channel,
+            target_adapter=ctx.target_adapter,
+            target_channel=ctx.target_channel,
             payload={"text": text},
             metadata=metadata,
             truncated=truncated,
@@ -164,6 +186,71 @@ class TextRenderer:
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _resolve_target_display(rel: EventRelation) -> str:
+        """Resolve a human-readable display string for the relation target.
+
+        Resolution order:
+
+        1. ``rel.fallback_text`` — pre-computed fallback from the upstream
+           codec.
+        2. ``rel.target_event_id`` — abbreviated to first 8 characters for
+           readability (with ``…`` when truncated).
+        3. ``rel.target_native_ref.native_message_id`` — native-space ID
+           when the canonical ID has not been resolved.
+        4. Literal ``"unknown message"`` — explicit degraded text when no
+           target reference is available at all.
+        """
+        if rel.fallback_text:
+            return rel.fallback_text
+        if rel.target_event_id:
+            eid = rel.target_event_id
+            return f"{eid[:8]}…" if len(eid) > 8 else eid
+        if (
+            rel.target_native_ref is not None
+            and rel.target_native_ref.native_message_id
+        ):
+            return rel.target_native_ref.native_message_id
+        return "unknown message"
+
+    @staticmethod
+    def _resolve_actor(event: CanonicalEvent) -> str:
+        """Resolve the best available actor display name.
+
+        Tries ``payload["displayname"]``, ``payload["user"]``, then
+        falls back to ``event.source_adapter``.
+        """
+        return str(
+            event.payload.get("displayname")
+            or event.payload.get("user")
+            or event.source_adapter
+        )
+
+    @staticmethod
+    def _resolve_reaction_key(
+        rel: EventRelation, event: CanonicalEvent
+    ) -> str | None:
+        """Resolve the reaction key (emoji or label).
+
+        Resolution order:
+
+        1. ``rel.key`` — canonical reaction key set by the codec.
+        2. ``payload["emoji"]`` — common convention for emoji payload.
+        3. ``payload["body"]`` — last-resort text body.
+
+        Returns ``None`` only when no key-like value exists in any of
+        these locations.
+        """
+        if rel.key:
+            return rel.key
+        emoji = event.payload.get("emoji")
+        if emoji:
+            return str(emoji)
+        body = event.payload.get("body")
+        if body:
+            return str(body)
+        return None
 
     @staticmethod
     def _extract_text(event: CanonicalEvent) -> str:
@@ -176,27 +263,81 @@ class TextRenderer:
         adapters use either key depending on their native format (Matrix
         and Meshtastic codecs store text under ``"body"``, others may
         use ``"text"``).
+
+        **Relation handling** — When ``event.relations`` is non-empty
+        only the **first** relation is processed.  This is a deliberate
+        design choice: canonical events may carry multiple relations but
+        the generic text renderer produces degraded output for a single
+        relation to keep the text readable on constrained displays.
+        Events carrying more than one relation should be handled by
+        platform-specific renderers where possible.
         """
         kind = event.event_kind
 
         # -- Relation fallback rendering ------------------------------------
+        #
+        # Only the first relation is processed.  See docstring above for
+        # rationale.  Each branch produces deterministic, meaningful
+        # degraded text even when relation metadata is partially or
+        # fully missing — the renderer never emits empty or ambiguous
+        # fallback when relation payload data exists.
         if event.relations:
             rel = event.relations[0]
-            if rel.relation_type == "reply" and rel.fallback_text:
+
+            if rel.relation_type == "reply":
                 payload_text = str(
                     event.payload.get("text", event.payload.get("body", ""))
                 )
-                return f"[replying to: {rel.fallback_text}] {payload_text}"
+                target = TextRenderer._resolve_target_display(rel)
+                # Enrich with sender/displayname from relation metadata
+                # when the upstream codec populated it.
+                sender_display = (
+                    rel.metadata.get("sender_displayname")
+                    or rel.metadata.get("displayname")
+                    or rel.metadata.get("sender")
+                )
+                prefix = f"[replying to: {target}"
+                if sender_display:
+                    prefix += f" by {sender_display}"
+                prefix += "]"
+                if payload_text:
+                    return f"{prefix} {payload_text}"
+                return prefix
 
-            if rel.relation_type == "reaction" and rel.key:
-                actor = str(event.payload.get("user", event.source_adapter))
-                return f"{actor} reacted with {rel.key}"
+            if rel.relation_type == "reaction":
+                actor = TextRenderer._resolve_actor(event)
+                key = TextRenderer._resolve_reaction_key(rel, event)
+                if key:
+                    return f"{actor} reacted with {key}"
+                # Degraded: payload has reaction relation but no
+                # identifiable key/emoji/body.  Produce meaningful text
+                # rather than falling through to kind-based rendering.
+                return f"{actor} reacted"
 
             if rel.relation_type == "edit":
                 payload_text = str(
                     event.payload.get("text", event.payload.get("body", ""))
                 )
-                return f"[edited] {payload_text}"
+                if payload_text:
+                    return f"[edited] {payload_text}"
+                # Deterministic degraded output when edit carries no body.
+                return "[edited]"
+
+            if rel.relation_type == "delete":
+                target = TextRenderer._resolve_target_display(rel)
+                # Include target/original context when available.
+                if target != "unknown message":
+                    return f"[deleted: {target}]"
+                return "[deleted]"
+
+            if rel.relation_type == "thread":
+                payload_text = str(
+                    event.payload.get("text", event.payload.get("body", ""))
+                )
+                target = TextRenderer._resolve_target_display(rel)
+                if payload_text:
+                    return f"[thread: {target}] {payload_text}"
+                return f"[thread: {target}]"
 
         # -- Kind-based rendering -------------------------------------------
         if kind in (EventKind.MESSAGE_TEXT, EventKind.MESSAGE_CREATED):

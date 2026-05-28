@@ -14,7 +14,7 @@ from medre.core.events import (
     NativeMetadata,
     NativeRef,
 )
-from medre.core.rendering.renderer import RenderingResult
+from medre.core.rendering.renderer import RenderingContext, RenderingResult
 
 
 def _make_event(
@@ -50,7 +50,7 @@ class TestMatrixRenderer:
         renderer = MatrixRenderer()
         event = _make_event()
         assert (
-            renderer.can_render(event, "chat-instance", target_platform="matrix")
+            renderer.can_render(event, RenderingContext(target_adapter="chat-instance", delivery_strategy="direct", target_platform="matrix"))
             is True
         )
 
@@ -58,7 +58,7 @@ class TestMatrixRenderer:
         renderer = MatrixRenderer()
         event = _make_event()
         assert (
-            renderer.can_render(event, "fake_presentation", target_platform="fake")
+            renderer.can_render(event, RenderingContext(target_adapter="fake_presentation", delivery_strategy="direct", target_platform="fake"))
             is False
         )
 
@@ -66,12 +66,12 @@ class TestMatrixRenderer:
         """Without platform info, renderer cannot match (no prefix fallback)."""
         renderer = MatrixRenderer()
         event = _make_event()
-        assert renderer.can_render(event, "matrix_instance") is False
+        assert renderer.can_render(event, RenderingContext(target_adapter="matrix_instance", delivery_strategy="direct")) is False
 
     async def test_render_simple_message(self) -> None:
         renderer = MatrixRenderer()
         event = _make_event(payload={"body": "hello matrix"})
-        result = await renderer.render(event, "matrix_instance")
+        result = await renderer.render(event, RenderingContext(target_adapter="matrix_instance", delivery_strategy="direct"))
         assert isinstance(result, RenderingResult)
         assert result.payload["msgtype"] == "m.text"
         assert result.payload["body"] == "hello matrix"
@@ -79,13 +79,13 @@ class TestMatrixRenderer:
     async def test_render_includes_msgtype(self) -> None:
         renderer = MatrixRenderer()
         event = _make_event()
-        result = await renderer.render(event, "matrix_instance")
+        result = await renderer.render(event, RenderingContext(target_adapter="matrix_instance", delivery_strategy="direct"))
         assert result.payload["msgtype"] == "m.text"
 
     async def test_render_includes_body(self) -> None:
         renderer = MatrixRenderer()
         event = _make_event(payload={"body": "specific body"})
-        result = await renderer.render(event, "matrix_instance")
+        result = await renderer.render(event, RenderingContext(target_adapter="matrix_instance", delivery_strategy="direct"))
         assert result.payload["body"] == "specific body"
 
     async def test_render_with_reply_relation(self) -> None:
@@ -105,7 +105,7 @@ class TestMatrixRenderer:
             payload={"body": "my reply"},
             relations=(relation,),
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(event, RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"))
         assert "m.relates_to" in result.payload
         relates = result.payload["m.relates_to"]
         assert "m.in_reply_to" in relates
@@ -132,7 +132,7 @@ class TestMatrixRenderer:
             payload={"body": "👍"},
             relations=(relation,),
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(event, RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"))
         assert result.payload["_matrix_event_type"] == "m.reaction"
         assert result.payload["m.relates_to"] == {
             "rel_type": "m.annotation",
@@ -145,7 +145,7 @@ class TestMatrixRenderer:
     async def test_render_with_envelope(self) -> None:
         renderer = MatrixRenderer()
         event = _make_event()
-        result = await renderer.render(event, "matrix_instance")
+        result = await renderer.render(event, RenderingContext(target_adapter="matrix_instance", delivery_strategy="direct"))
         assert "medre" in result.payload
         assert "envelope" in result.payload["medre"]
 
@@ -153,14 +153,14 @@ class TestMatrixRenderer:
         renderer = MatrixRenderer()
         long_body = "x" * 200_000
         event = _make_event(payload={"body": long_body})
-        result = await renderer.render(event, "matrix_instance")
+        result = await renderer.render(event, RenderingContext(target_adapter="matrix_instance", delivery_strategy="direct"))
         # Renderer passes body through without truncation
         assert result.payload["body"] == long_body
 
     async def test_render_returns_rendering_result(self) -> None:
         renderer = MatrixRenderer()
         event = _make_event()
-        result = await renderer.render(event, "matrix_instance")
+        result = await renderer.render(event, RenderingContext(target_adapter="matrix_instance", delivery_strategy="direct"))
         assert isinstance(result, RenderingResult)
         assert result.event_id == "evt-1"
         assert result.target_adapter == "matrix_instance"
@@ -183,7 +183,7 @@ class TestMatrixRendererForeignRefs:
             fallback_text="original",
         )
         event = _make_event(payload={"body": "hello"}, relations=(rel,))
-        result = await renderer.render(event, "matrix_instance")
+        result = await renderer.render(event, RenderingContext(target_adapter="matrix_instance", delivery_strategy="direct"))
         assert "m.relates_to" not in result.payload
 
     async def test_foreign_native_ref_not_used_for_reaction(self) -> None:
@@ -200,7 +200,7 @@ class TestMatrixRendererForeignRefs:
             fallback_text=None,
         )
         event = _make_event(payload={"body": "👍"}, relations=(rel,))
-        result = await renderer.render(event, "matrix_instance")
+        result = await renderer.render(event, RenderingContext(target_adapter="matrix_instance", delivery_strategy="direct"))
         assert "_matrix_event_type" not in result.payload
         assert result.payload.get("msgtype") == "m.emote"
 
@@ -219,7 +219,7 @@ class TestMatrixRendererForeignRefs:
             metadata={"meshtastic_reply_id": "42"},
         )
         event = _make_event(payload={"body": "hello"}, relations=(rel,))
-        result = await renderer.render(event, "matrix_instance")
+        result = await renderer.render(event, RenderingContext(target_adapter="matrix_instance", delivery_strategy="direct"))
         assert "meshtastic_replyId" in result.payload
         assert result.payload["meshtastic_replyId"] == "42"
 
@@ -249,7 +249,7 @@ class TestMatrixRendererReplySender:
             payload={"body": "my reply"},
             relations=(relation,),
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(event, RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"))
         assert result.payload["body"] == "my reply"
 
     async def test_reply_body_no_fallback_quote(self) -> None:
@@ -270,7 +270,7 @@ class TestMatrixRendererReplySender:
             payload={"body": "my reply"},
             relations=(relation,),
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(event, RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"))
         body = result.payload["body"]
         assert "> <" not in body
 
@@ -311,7 +311,7 @@ class TestMatrixRendererReplySender:
                 native=NativeMetadata(data={"longname": "TadChilly"})
             ),
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(event, RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"))
         body = result.payload["body"]
         assert body == "[TadChilly] my reply"
         assert "> <" not in body
@@ -334,7 +334,7 @@ class TestMatrixRendererReplySender:
             payload={"body": "my reply"},
             relations=(relation,),
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(event, RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"))
         assert (
             result.payload["m.relates_to"]["m.in_reply_to"]["event_id"]
             == "$orig-native"
@@ -359,7 +359,7 @@ class TestMatrixRendererReplySender:
             payload={"body": "my reply"},
             relations=(relation,),
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(event, RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"))
         assert "meshtastic_replyId" in result.payload
         assert result.payload["meshtastic_replyId"] == "42"
 
@@ -383,7 +383,7 @@ class TestMatrixRendererReplySender:
             payload={"body": "my reply"},
             relations=(relation,),
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(event, RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"))
         body = result.payload["body"]
         assert "> <matrix>" not in body
         assert "> <matrix-1>" not in body
@@ -463,7 +463,7 @@ class TestMultiRadioSourceConfig:
             source_adapter="radio-alpha",
             native_data={"longname": "Alice"},
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(event, RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"))
         assert result.payload["body"] == "[Alice/AlphaNet]: hello mesh"
 
     async def test_bravo_source_uses_bravo_prefix(self) -> None:
@@ -473,7 +473,7 @@ class TestMultiRadioSourceConfig:
             source_adapter="radio-bravo",
             native_data={"longname": "Bob"},
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(event, RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"))
         assert result.payload["body"] == "[Bob/BravoNet]: hello mesh"
 
     async def test_unknown_source_renders_plain_output(self) -> None:
@@ -483,7 +483,7 @@ class TestMultiRadioSourceConfig:
             source_adapter="radio-charlie",
             native_data={"longname": "Charlie"},
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(event, RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"))
         # Unknown source → no prefix, plain body
         assert result.payload["body"] == "hello mesh"
         # No mmrelay metadata (no source config match)
@@ -496,7 +496,7 @@ class TestMultiRadioSourceConfig:
             source_adapter="radio-alpha",
             native_data={"longname": "Alice", "shortname": "A", "packet_id": "99"},
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(event, RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"))
         # mmrelay_compat=True → mesh provenance keys injected
         assert "meshtastic_id" in result.payload
         assert result.payload["meshtastic_id"] == "99"
@@ -508,7 +508,7 @@ class TestMultiRadioSourceConfig:
             source_adapter="radio-bravo",
             native_data={"longname": "Bob", "shortname": "B", "packet_id": "88"},
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(event, RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"))
         # mmrelay_compat=False → no mesh provenance keys
         assert "meshtastic_id" not in result.payload
 
@@ -532,7 +532,7 @@ class TestMultiRadioSourceConfig:
             payload={"body": "👍"},
             relations=(relation,),
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(event, RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"))
         body = result.payload["body"]
         # mmrelay_compat default is True for alpha → emote fallback
         assert "Alice/AlphaNet" in body
@@ -558,7 +558,7 @@ class TestMultiRadioSourceConfig:
             payload={"body": "👍"},
             relations=(relation,),
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(event, RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"))
         # Bravo has mmrelay_compat=False → reaction fallback emote
         # but KEY_MESHNET should still be BravoNet from source config
         assert result.payload["meshtastic_meshnet"] == "BravoNet"
@@ -570,7 +570,7 @@ class TestMultiRadioSourceConfig:
             event_id="evt-plain-1",
             payload={"body": "Hello from elsewhere"},
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(event, RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"))
         # Plain output — no relay prefix from any Meshtastic config
         assert result.payload["body"] == "Hello from elsewhere"
         # No Meshtastic metadata keys
@@ -617,7 +617,7 @@ class TestRuntimeAssemblySourceConfig:
             source_adapter="radio-alpha",
             native_data={"longname": "Alice", "shortname": "A", "packet_id": "42"},
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(event, RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"))
         assert result.payload["body"] == "[Alice/AlphaNet]: hello mesh"
         # alpha has mmrelay_compat=True → mesh metadata injected
         assert "meshtastic_id" in result.payload
@@ -631,7 +631,7 @@ class TestRuntimeAssemblySourceConfig:
             source_adapter="radio-bravo",
             native_data={"longname": "Bob", "shortname": "B", "packet_id": "88"},
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(event, RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"))
         assert result.payload["body"] == "[Bob/BravoNet]: hello mesh"
         # bravo has mmrelay_compat=False → no mesh metadata
         assert "meshtastic_id" not in result.payload
@@ -644,7 +644,7 @@ class TestRuntimeAssemblySourceConfig:
             event_id="evt-matrix-1",
             payload={"body": "Hello from Matrix"},
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(event, RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"))
         # Plain output — no relay prefix
         assert result.payload["body"] == "Hello from Matrix"
         # No Meshtastic metadata keys
@@ -663,7 +663,7 @@ class TestRuntimeAssemblySourceConfig:
             source_adapter="radio-charlie",
             native_data={"longname": "Charlie", "packet_id": "77"},
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(event, RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"))
         # No prefix (source_configs has no matching entry)
         assert result.payload["body"] == "hello mesh"
         # No mmrelay metadata (no matching source_config)

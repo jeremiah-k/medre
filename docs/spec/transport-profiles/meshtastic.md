@@ -173,6 +173,26 @@ The Meshtastic renderer (`MeshtasticRenderer`) produces:
 
 ---
 
+## Relation Degradation Behavior
+
+Meshtastic is a transport adapter with selective native relation support. The Meshtastic renderer handles all rendering within its native format.
+
+| Relation type | Capability level | Strategy      | Rendering path                                                                                      |
+| ------------- | ---------------- | ------------- | --------------------------------------------------------------------------------------------------- |
+| Replies       | `"native"`       | `direct`      | `reply_id` (int) set from relation's Meshtastic native ref; plain text body                        |
+| Reactions     | `"native"`       | `direct`      | `reply_id` + `emoji=1` for Meshtastic-originated tapbacks; descriptive text for cross-platform     |
+| Edits         | `"unsupported"`  | `skip`        | No delivery. Edit events targeting this adapter are suppressed.                                     |
+| Deletes       | `"unsupported"`  | `skip`        | No delivery. Delete events targeting this adapter are suppressed.                                   |
+| Threads       | N/A              | `skip`        | Not applicable. Meshtastic has no thread concept.                                                   |
+
+Meshtastic does not use the `"fallback"` capability level for any relation type. All relations are either native or unsupported. When a relation type is unsupported, the delivery is skipped entirely at the planning stage. No fallback text rendering occurs.
+
+**Cross-platform reaction note:** When a reaction originates from a non-Meshtastic source, the Meshtastic renderer produces a descriptive text reaction (`"reacted {emoji} to \"{text}\""`) with `reply_id` but without `emoji=1`. This is still a native Meshtastic payload, not a fallback text payload. The renderer operates within its native format.
+
+**Payload requirement:** The Meshtastic renderer produces Meshtastic-native payloads (text body with optional `reply_id`/`emoji` fields, truncated to `max_text_bytes`). The adapter enqueues these payloads via `MeshtasticOutboundQueue` without modification.
+
+---
+
 ## Known Limitations
 
 - **No delivery confirmation.** Meshtastic `sendText` returns a packet object but does not guarantee the recipient received it. There is no ACK-based confirmation in the current implementation.

@@ -145,6 +145,24 @@ The Matrix renderer (`MatrixRenderer`) produces:
 
 ---
 
+## Relation Degradation Behavior
+
+Matrix is a presentation adapter with rich native relation support. The Matrix renderer handles all rendering within its native format.
+
+| Relation type | Capability level | Strategy      | Rendering path                                                    |
+| ------------- | ---------------- | ------------- | ----------------------------------------------------------------- |
+| Replies       | `"native"`       | `direct`      | `m.in_reply_to` with `event_id` in `m.relates_to`                |
+| Reactions     | `"native"`       | `direct`      | `m.reaction` event type with `m.annotation`                      |
+| Edits         | `"unsupported"`  | `skip`        | No delivery. Edit events targeting this adapter are suppressed.   |
+| Deletes       | `"unsupported"`  | `skip`        | No delivery. Delete events targeting this adapter are suppressed. |
+| Threads       | `"native"`       | `direct`      | Thread relation via `m.relates_to` with `rel_type: m.thread`     |
+
+Matrix does not use the `"fallback"` capability level for any relation type. All relations are either native or unsupported. When a relation type is unsupported, the delivery is skipped entirely at the planning stage. No fallback text rendering occurs.
+
+**Payload requirement:** The Matrix renderer produces Matrix-native payloads (`m.room.message` with msgtype/body/`m.relates_to`). The adapter transports these payloads via `room_send` without modification.
+
+---
+
 ## Known Limitations
 
 - **No edits or deletes.** The capabilities declare `edits="unsupported"` and `deletes="unsupported"`.

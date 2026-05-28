@@ -941,10 +941,10 @@ class TestRendererDowngradeFallback:
 
             name = "failing"
 
-            def can_render(self, event, target_adapter, target_platform=None):
+            def can_render(self, event, ctx):
                 return True
 
-            async def render(self, event, target_adapter, target_channel=None):
+            async def render(self, event, ctx):
                 raise RuntimeError("renderer unavailable")
 
         adapter = FakePresentationAdapter(adapter_id="target")

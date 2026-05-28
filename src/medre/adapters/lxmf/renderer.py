@@ -11,8 +11,20 @@ Selection is via the rendering pipeline's platform registry: when the
 pipeline populates the adapter's platform as ``"lxmf"``, the renderer
 matches on that platform string directly.
 
-**Tranche 1 scope**: text messages with optional title and fields
-envelope.  Length-limit enforcement is noted but not applied.
+**Strict RenderingContext protocol**
+
+Both ``can_render`` and ``render`` accept a frozen
+:class:`~medre.core.rendering.renderer.RenderingContext` carrying all
+dispatch metadata — delivery strategy, target identity, capability
+constraints, and text budgets.  No legacy signature parameters.
+
+**fallback_text strategy**
+
+When ``delivery_strategy == "fallback_text"``, relation semantics are
+degraded into inline text within the LXMF content field while
+preserving LXMF payload ownership (content, title, fields,
+destination_hash).  The result carries
+``fallback_applied="strategy_fallback_text"``.
 """
 
 from __future__ import annotations
@@ -21,7 +33,7 @@ from typing import Any
 
 from medre.adapters.lxmf.fields import LxmfFieldsHelper
 from medre.core.events import CanonicalEvent
-from medre.core.rendering.renderer import RenderingResult
+from medre.core.rendering.renderer import RenderingContext, RenderingResult
 
 
 class LxmfRenderer:
@@ -61,27 +73,24 @@ class LxmfRenderer:
     def can_render(
         self,
         event: CanonicalEvent,
-        target_adapter: str,
-        target_platform: str | None = None,
+        ctx: RenderingContext,
     ) -> bool:
-        """Return ``True`` when *target_platform* is ``"lxmf"``.
+        """Return ``True`` when the context's target platform is ``"lxmf"``.
 
         Parameters
         ----------
         event:
             The canonical event to check (not used for discrimination).
-        target_adapter:
-            Name of the target adapter.
-        target_platform:
-            Platform name of the target adapter, supplied by the
-            rendering pipeline's platform registry.
+        ctx:
+            Frozen rendering context with target identity, delivery
+            strategy, and capability metadata.
 
         Returns
         -------
         bool
-            Whether this renderer handles events for the given adapter.
+            Whether this renderer handles events for the given context.
         """
-        return target_platform == self._PLATFORM
+        return ctx.target_platform == self._PLATFORM
 
     # ------------------------------------------------------------------
     # Rendering
@@ -90,29 +99,21 @@ class LxmfRenderer:
     async def render(
         self,
         event: CanonicalEvent,
-        target_adapter: str,
-        target_channel: str | None = None,
-        *,
-        max_text_chars: int | None = None,
-        delivery_strategy: str | None = None,
+        ctx: RenderingContext,
     ) -> RenderingResult:
         """Render a canonical event into an LXMF content payload.
 
-        The rendered payload includes:
-
-        * ``content``: extracted text from the event payload.
-        * ``title``: title from the event payload, or empty string.
-        * ``fields``: dict with optional MEDRE envelope.
-        * ``destination_hash``: empty string placeholder.
+        Under ``ctx.delivery_strategy == "fallback_text"``, relation
+        semantics are degraded into inline text while the payload retains
+        LXMF-native structure (content, title, fields, destination_hash).
 
         Parameters
         ----------
         event:
             The canonical event to render.
-        target_adapter:
-            Name of the adapter the payload is intended for.
-        target_channel:
-            Target channel identifier (unused for LXMF, carried through).
+        ctx:
+            Frozen rendering context with target identity, delivery
+            strategy, capability metadata, and text budgets.
 
         Returns
         -------
@@ -140,6 +141,12 @@ class LxmfRenderer:
                 lineage=event.lineage,
             )
 
+        # Determine fallback behaviour
+        is_fallback = ctx.delivery_strategy == "fallback_text"
+
+        if is_fallback:
+            text = self._degrade_relations_inline(event, text)
+
         content: dict[str, object] = {
             "content": text,
             "title": title,
@@ -151,13 +158,76 @@ class LxmfRenderer:
             "renderer": self.name,
         }
 
-        truncated = False
-
         return RenderingResult(
             event_id=event.event_id,
-            target_adapter=target_adapter,
-            target_channel=target_channel,
+            target_adapter=ctx.target_adapter,
+            target_channel=ctx.target_channel,
             payload=content,
             metadata=metadata,
-            truncated=truncated,
+            truncated=False,
+            fallback_applied="strategy_fallback_text" if is_fallback else None,
         )
+
+    # ------------------------------------------------------------------
+    # Fallback helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _degrade_relations_inline(
+        event: CanonicalEvent,
+        text: str,
+    ) -> str:
+        """Degrade relation semantics into inline text.
+
+        Appends human-readable relation descriptions to *text* so that
+        relation information is preserved in the content body when
+        native relation handling is unavailable.
+
+        Ensures the result is non-empty when relation data exists,
+        preventing false sent-receipt appearance from empty content.
+
+        Parameters
+        ----------
+        event:
+            The canonical event whose relations to degrade.
+        text:
+            The existing content text.
+
+        Returns
+        -------
+        str
+            Content text with inline relation descriptions appended.
+        """
+        if not event.relations:
+            return text
+
+        parts: list[str] = []
+        for rel in event.relations:
+            target = (
+                rel.fallback_text
+                or rel.target_event_id
+                or (
+                    rel.target_native_ref.native_message_id
+                    if rel.target_native_ref is not None
+                    else None
+                )
+                or "?"
+            )
+            if rel.relation_type == "reply":
+                parts.append(f"[reply to: {target}]")
+            elif rel.relation_type == "reaction":
+                emoji = rel.key or "∟"
+                parts.append(f"[reaction {emoji} to: {target}]")
+            elif rel.relation_type == "edit":
+                parts.append(f"[edit of: {target}]")
+            elif rel.relation_type == "delete":
+                parts.append(f"[delete of: {target}]")
+            elif rel.relation_type == "thread":
+                parts.append(f"[thread on: {target}]")
+            else:
+                parts.append(f"[{rel.relation_type}: {target}]")
+
+        inline = " ".join(parts)
+        if text:
+            return f"{text} {inline}"
+        return inline

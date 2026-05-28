@@ -19,6 +19,22 @@ pipeline populates the adapter's platform as ``"meshcore"``, the renderer
 matches on that platform string directly.  This decouples renderer
 selection from adapter naming conventions.
 
+**Strict RenderingContext protocol**
+
+Both ``can_render`` and ``render`` accept a frozen
+:class:`~medre.core.rendering.renderer.RenderingContext` carrying all
+dispatch metadata — delivery strategy, target identity, capability
+constraints, and text budgets.  No legacy signature parameters.
+
+**fallback_text strategy**
+
+When ``delivery_strategy == "fallback_text"``, relation semantics are
+degraded into inline text within the MeshCore content body while
+preserving MeshCore payload ownership (``text``, ``channel_index``,
+``meshnet_name``).  Contact/channel/destination semantics and target
+addressing are retained in the native MeshCore structure.  The result
+carries ``fallback_applied="strategy_fallback_text"``.
+
 Text messages are supported.  UTF-8 byte-budget truncation is applied
 after final text rendering using :attr:`MeshCoreConfig.max_text_bytes`.
 Multi-byte UTF-8 codepoints are never split.  Truncation metadata and
@@ -33,7 +49,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Mapping
 
 from medre.core.events import CanonicalEvent
-from medre.core.rendering.renderer import RenderingResult
+from medre.core.rendering.renderer import RenderingContext, RenderingResult
 
 if TYPE_CHECKING:
     from medre.config.adapters.meshcore import MeshCoreConfig
@@ -83,28 +99,25 @@ class MeshCoreRenderer:
     def can_render(
         self,
         event: CanonicalEvent,
-        target_adapter: str,
-        target_platform: str | None = None,
+        ctx: RenderingContext,
     ) -> bool:
-        """Return ``True`` when *target_platform* is ``"meshcore"``
+        """Return ``True`` when the context's target platform is ``"meshcore"``
         and *target_adapter* has a registered config.
 
         Parameters
         ----------
         event:
             The canonical event to check.
-        target_adapter:
-            Name of the target adapter.
-        target_platform:
-            Platform name of the target adapter, supplied by the
-            rendering pipeline's platform registry.
+        ctx:
+            Frozen rendering context with target identity, delivery
+            strategy, and capability metadata.
 
         Returns
         -------
         bool
-            Whether this renderer handles events for the given adapter.
+            Whether this renderer handles events for the given context.
         """
-        return target_platform == self._PLATFORM and target_adapter in self._configs
+        return ctx.target_platform == self._PLATFORM and ctx.target_adapter in self._configs
 
     # ------------------------------------------------------------------
     # Rendering
@@ -113,11 +126,7 @@ class MeshCoreRenderer:
     async def render(
         self,
         event: CanonicalEvent,
-        target_adapter: str,
-        target_channel: str | None = None,
-        *,
-        max_text_chars: int | None = None,
-        delivery_strategy: str | None = None,
+        ctx: RenderingContext,
     ) -> RenderingResult:
         """Render a canonical event into a MeshCore content payload.
 
@@ -125,22 +134,28 @@ class MeshCoreRenderer:
 
         * ``text``: extracted text from the event payload, truncated
           to the configured ``max_text_bytes`` UTF-8 byte budget.
-        * ``channel_index``: parsed from *target_channel* or ``config.default_channel``.
+        * ``channel_index``: parsed from ``ctx.target_channel`` or
+          ``config.default_channel``.
         * ``meshnet_name``: the configured mesh network name.
 
+        Under ``ctx.delivery_strategy == "fallback_text"``, relation
+        semantics are degraded into inline text while the payload retains
+        MeshCore-native structure (``text``, ``channel_index``,
+        ``meshnet_name``).  Contact/channel/destination semantics and
+        target addressing are preserved.
+
         **Target-aware config resolution.** The renderer resolves the
-        config for *target_adapter* from the ``configs`` mapping supplied
-        at construction.  If *target_adapter* is not found, a
-        :class:`KeyError` is raised — there is no fallback.
+        config for ``ctx.target_adapter`` from the ``configs`` mapping
+        supplied at construction.  If ``ctx.target_adapter`` is not
+        found, a :class:`KeyError` is raised — there is no fallback.
 
         Parameters
         ----------
         event:
             The canonical event to render.
-        target_adapter:
-            Name of the adapter the payload is intended for.
-        target_channel:
-            Target channel identifier; parsed as an integer channel index.
+        ctx:
+            Frozen rendering context with target identity, delivery
+            strategy, capability metadata, and text budgets.
 
         Returns
         -------
@@ -148,6 +163,7 @@ class MeshCoreRenderer:
             The rendered MeshCore content dict wrapped in a result.
         """
         # Resolve target-adapter-specific config.
+        target_adapter = ctx.target_adapter
         try:
             adapter_config = self._configs[target_adapter]
         except KeyError:
@@ -158,15 +174,26 @@ class MeshCoreRenderer:
             ) from None
 
         meshnet_name = adapter_config.meshnet_name
-        max_text_bytes = adapter_config.max_text_bytes
+        # Use context budget if provided, else adapter config budget.
+        max_text_bytes = (
+            ctx.max_text_bytes
+            if ctx.max_text_bytes is not None
+            else adapter_config.max_text_bytes
+        )
 
         text = str(event.payload.get("body", event.payload.get("text", "")))
 
-        # Parse channel index from target_channel
+        # Parse channel index from ctx.target_channel
         try:
-            channel_index = int(target_channel)  # type: ignore[arg-type]
+            channel_index = int(ctx.target_channel)  # type: ignore[arg-type]
         except (ValueError, TypeError):
             channel_index = adapter_config.default_channel
+
+        # Determine fallback behaviour
+        is_fallback = ctx.delivery_strategy == "fallback_text"
+
+        if is_fallback:
+            text = self._degrade_relations_inline(event, text)
 
         # -- UTF-8 byte-budget truncation after final rendering ------
         truncated_text, was_truncated, original_bytes, rendered_bytes = (
@@ -192,15 +219,76 @@ class MeshCoreRenderer:
         return RenderingResult(
             event_id=event.event_id,
             target_adapter=target_adapter,
-            target_channel=target_channel,
+            target_channel=ctx.target_channel,
             payload=content,
             metadata=metadata,
             truncated=was_truncated,
+            fallback_applied="strategy_fallback_text" if is_fallback else None,
         )
 
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _degrade_relations_inline(
+        event: CanonicalEvent,
+        text: str,
+    ) -> str:
+        """Degrade relation semantics into inline text.
+
+        Appends human-readable relation descriptions to *text* so that
+        relation information is preserved in the content body when
+        native relation handling is unavailable.
+
+        Ensures the result is non-empty when relation data exists,
+        preventing false sent-receipt appearance from empty content.
+
+        Parameters
+        ----------
+        event:
+            The canonical event whose relations to degrade.
+        text:
+            The existing content text.
+
+        Returns
+        -------
+        str
+            Content text with inline relation descriptions appended.
+        """
+        if not event.relations:
+            return text
+
+        parts: list[str] = []
+        for rel in event.relations:
+            target = (
+                rel.fallback_text
+                or rel.target_event_id
+                or (
+                    rel.target_native_ref.native_message_id
+                    if rel.target_native_ref is not None
+                    else None
+                )
+                or "?"
+            )
+            if rel.relation_type == "reply":
+                parts.append(f"[reply to: {target}]")
+            elif rel.relation_type == "reaction":
+                emoji = rel.key or "∟"
+                parts.append(f"[reaction {emoji} to: {target}]")
+            elif rel.relation_type == "edit":
+                parts.append(f"[edit of: {target}]")
+            elif rel.relation_type == "delete":
+                parts.append(f"[delete of: {target}]")
+            elif rel.relation_type == "thread":
+                parts.append(f"[thread on: {target}]")
+            else:
+                parts.append(f"[{rel.relation_type}: {target}]")
+
+        inline = " ".join(parts)
+        if text:
+            return f"{text} {inline}"
+        return inline
 
     @staticmethod
     def _truncate_utf8_bytes(text: str, max_bytes: int) -> tuple[str, bool, int, int]:

@@ -33,6 +33,7 @@ from medre.interop.mmrelay import (
     KEY_TEXT,
     PORTNUM_TEXT,
 )
+from medre.core.rendering.renderer import RenderingContext
 
 # ---------------------------------------------------------------------------
 # Helpers (duplicated from test_matrix_reaction_mmrelay.py for standalone use)
@@ -266,7 +267,7 @@ class TestMeshtasticToMatrixMappedReaction:
             fallback_text=original_text,
             rel_metadata={"meshtastic_reply_id": "2728143522"},
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(event, RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"))
 
         payload = result.payload
         # msgtype must be m.emote, not m.text
@@ -336,7 +337,7 @@ class TestMeshtasticToMatrixMappedReaction:
                 )
             ),
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(event, RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"))
 
         # Even with a Matrix target ref, mmrelay_compat=True → emote
         assert result.payload["msgtype"] == "m.emote"
@@ -367,7 +368,7 @@ class TestMeshtasticToMatrixUnknownReplyIdFallback:
                 "from_id": "!node1",
             },
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(event, RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"))
 
         assert result.payload["msgtype"] == "m.emote"
         assert KEY_EMOJI in result.payload
@@ -383,7 +384,7 @@ class TestMeshtasticToMatrixUnknownReplyIdFallback:
             body="🔥",
             native_data={},
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(event, RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"))
 
         assert result.payload["msgtype"] == "m.emote"
         assert KEY_EMOJI in result.payload
@@ -402,7 +403,7 @@ class TestRendererEmitsReactionKey:
     async def test_emote_fallback_emits_key_reaction_key(self) -> None:
         renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
         event = _make_mesh_reaction(key="👍", body="👍", fallback_text="hello")
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(event, RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"))
 
         assert result.payload[KEY_EMOJI] == EMOJI_FLAG_VALUE
         assert result.payload[KEY_REACTION_KEY] == "👍"
@@ -412,7 +413,7 @@ class TestRendererEmitsReactionKey:
         """KEY_REACTION_KEY carries the symbol, not the emote body text."""
         renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
         event = _make_mesh_reaction(key="❤️", body="❤️", fallback_text="a message")
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(event, RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"))
 
         assert result.payload[KEY_REACTION_KEY] == "❤️"
         # body is the full emote text, not just the emoji
@@ -424,7 +425,7 @@ class TestRendererEmitsReactionKey:
         """No-target emote fallback also emits KEY_REACTION_KEY."""
         renderer = MatrixRenderer()
         event = _make_canonical_reaction_no_target(key="🔥", body="🔥")
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(event, RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"))
 
         assert result.payload[KEY_EMOJI] == EMOJI_FLAG_VALUE
         assert result.payload[KEY_REACTION_KEY] == "🔥"

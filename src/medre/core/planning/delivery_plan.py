@@ -46,13 +46,18 @@ class DeliveryStrategy:
         * ``"direct"`` — normal/native rendering path.  The event is
           rendered through the standard renderer pipeline and delivered
           natively to the adapter.
-        * ``"fallback_text"`` — degraded text rendering.  The rendering
-          pipeline forces the text renderer (``name == "text"``),
-          bypassing platform-specific renderers, and the adapter receives
-          a plain-text representation rather than a native relation.
-        * ``"skip"`` — delivery suppressed due to capability mismatch
-          or policy.  The pipeline records a ``CAPABILITY_SUPPRESSED``
-          receipt and does not invoke the renderer or adapter.
+        * ``"fallback_text"`` — degraded text rendering within the
+          target-native format.  The target-native renderer produces its
+          native output but embeds relation context as inline text drawn
+          from ``EventRelation.fallback_text``.  The pipeline does not
+          bypass the target-native renderer or switch to a generic text
+          renderer.  The adapter still receives a payload in its native
+          format.
+        * ``"skip"`` — delivery suppressed before rendering and adapter
+          invocation.  Used when the target adapter's capability for the
+          event's relation type is ``"unsupported"``, or when pre-outbox
+          guards prevent delivery.  No renderer is invoked.  No adapter
+          call is made.
         * ``"propagated"`` — relayed through an intermediate hop.
         * ``"opportunistic"`` — best-effort, no delivery guarantee.
         * ``"paper"`` — store-and-forward.

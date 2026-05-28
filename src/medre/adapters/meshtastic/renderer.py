@@ -60,7 +60,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Mapping
 
 from medre.core.events import CanonicalEvent, EventKind, EventRelation
-from medre.core.rendering.renderer import RenderingResult
+from medre.core.rendering.renderer import RenderingContext, RenderingResult
 
 if TYPE_CHECKING:
     from medre.config.adapters.meshtastic import MeshtasticConfig
@@ -125,21 +125,18 @@ class MeshtasticRenderer:
     def can_render(
         self,
         event: CanonicalEvent,
-        target_adapter: str,
-        target_platform: str | None = None,
+        ctx: RenderingContext,
     ) -> bool:
-        """Return ``True`` when *target_platform* is ``"meshtastic"``
+        """Return ``True`` when *ctx.target_platform* is ``"meshtastic"``
         and the event kind is supported.
 
         Parameters
         ----------
         event:
             The canonical event to check.
-        target_adapter:
-            Name of the target adapter.
-        target_platform:
-            Platform name of the target adapter, supplied by the
-            rendering pipeline's platform registry.
+        ctx:
+            Frozen rendering context with target identity and delivery
+            metadata.
 
         Returns
         -------
@@ -147,7 +144,7 @@ class MeshtasticRenderer:
             Whether this renderer handles events for the given adapter.
         """
         return (
-            target_platform == self._PLATFORM
+            ctx.target_platform == self._PLATFORM
             and event.event_kind in self._SUPPORTED_KINDS
         )
 
@@ -234,11 +231,7 @@ class MeshtasticRenderer:
     async def render(
         self,
         event: CanonicalEvent,
-        target_adapter: str,
-        target_channel: str | None = None,
-        *,
-        max_text_chars: int | None = None,
-        delivery_strategy: str | None = None,
+        ctx: RenderingContext,
     ) -> RenderingResult:
         """Render a canonical event into a Meshtastic content payload.
 
@@ -247,15 +240,25 @@ class MeshtasticRenderer:
         * ``text``: extracted text from the event payload, with the
           configured ``radio_relay_prefix`` prepended if set.
         * ``channel_index``: the adapter's ``default_channel``, overridden
-          only when *target_channel* is a valid numeric value.
+          only when *ctx.target_channel* is a valid numeric value.
         * ``meshnet_name``: the configured mesh network name.
 
         **Target-aware config resolution.** The renderer resolves the
-        config for *target_adapter* from the ``configs`` mapping supplied
-        at construction.  If *target_adapter* is not found, a
+        config for *ctx.target_adapter* from the ``configs`` mapping
+        supplied at construction.  If the adapter is not found, a
         :class:`KeyError` is raised — there is no fallback.
 
-        **Relation rendering** — when the event carries relations:
+        **Fallback-text mode** — when ``ctx.delivery_strategy`` is
+        ``"fallback_text"``, relation semantics are degraded into plain
+        text within the native Meshtastic payload.  Native relation
+        fields (``reply_id``, ``emoji``) are suppressed; relation
+        context is expressed as readable text instead.  All Meshtastic
+        payload ownership is preserved: ``channel_index``,
+        ``meshnet_name``, prefix rules, and UTF-8 byte-safe truncation.
+
+        **Direct mode** — when ``ctx.delivery_strategy`` is ``"direct"``
+        (or any non-fallback strategy), the renderer uses native
+        Meshtastic relation fields:
 
         * *reply* with a numeric ``target_native_ref.native_message_id`` —
           sets ``reply_id`` (int) and emits plain text without fallback
@@ -285,18 +288,21 @@ class MeshtasticRenderer:
         ----------
         event:
             The canonical event to render.
-        target_adapter:
-            Name of the adapter the payload is intended for.
-        target_channel:
-            Target channel identifier; when present and a valid integer,
-            overrides the adapter's ``default_channel``.  Invalid or
-            non-numeric values fall back to ``default_channel``.
+        ctx:
+            Frozen rendering context with target identity, delivery
+            strategy, capability metadata, and text budgets.
 
         Returns
         -------
         RenderingResult
             The rendered Meshtastic content dict wrapped in a result.
         """
+        # Unpack context.
+        target_adapter = ctx.target_adapter
+        target_channel = ctx.target_channel
+        delivery_strategy = ctx.delivery_strategy
+        is_fallback = delivery_strategy == "fallback_text"
+
         # Resolve target-adapter-specific config.
         try:
             adapter_config = self._configs[target_adapter]
@@ -329,59 +335,61 @@ class MeshtasticRenderer:
         # -- Structured reply / reaction rendering ----------------------------
         is_structured_reaction = False
         is_descriptive_reaction = False
+
         if event.relations:
             rel = event.relations[0]
-            reply_id = self._meshtastic_reply_id_from_relation(rel, target_adapter)
 
-            if rel.relation_type == "reply":
-                # Reply: plain text, optionally with native reply_id.
-                # Always use _plain_text (stripped body from fix B) to
-                # avoid "[replying to: …]" text prefix on the mesh.
-                content["text"] = self._plain_text(event)
-                if reply_id is not None:
-                    content["reply_id"] = reply_id
-            elif rel.relation_type == "reaction":
-                emoji_text = rel.key or str(
-                    event.payload.get("key", event.payload.get("body", ""))
+            if is_fallback:
+                # -- fallback_text: degrade relations into plain text --------
+                content["text"] = self._render_fallback_text(
+                    event, rel, prefix, meshnet_name, target_adapter,
                 )
-                if self._is_native_reaction(event, target_adapter):
-                    # Native Meshtastic tapback — emoji text, reply_id, emoji=1
-                    if reply_id is not None:
-                        content["text"] = emoji_text
-                        content["reply_id"] = reply_id
-                        content["emoji"] = 1
-                        is_structured_reaction = True
-                    else:
-                        # Fallback readable reaction text, no emoji field
-                        content["text"] = f"[reacted: {emoji_text}]"
-                else:
-                    # Cross-platform (e.g. Matrix→Meshtastic) MMRelay-style
-                    # descriptive reaction — NOT a native tapback.
-                    orig_preview = self._abbreviated_original_text(event, rel)
-                    compact_prefix = self._format_prefix_for(
-                        event,
-                        prefix,
-                        meshnet_name,
-                        compact=True,
-                    )
-                    # Add a separator space between prefix and "reacted"
-                    # only when the prefix exists and doesn't already end
-                    # with whitespace (e.g. "[Foo] " already has one).
-                    sep = ""
-                    if compact_prefix and not compact_prefix[-1:].isspace():
-                        sep = " "
-                    desc_text = (
-                        f"{compact_prefix}{sep}reacted {emoji_text} "
-                        f'to "{orig_preview}"'
-                    )
-                    content["text"] = desc_text
-                    if reply_id is not None:
-                        content["reply_id"] = reply_id
-                    # NO emoji=1 — this is descriptive text, not a tapback.
+                if rel.relation_type == "reaction" and not self._is_native_reaction(
+                    event, target_adapter,
+                ):
                     is_descriptive_reaction = True
             else:
-                # Other relation types or reply without native ref — fallback
-                content["text"] = self._extract_text(event)
+                # -- direct: native Meshtastic relation fields ---------------
+                reply_id = self._meshtastic_reply_id_from_relation(
+                    rel, target_adapter,
+                )
+
+                if rel.relation_type == "reply":
+                    # Reply: plain text, optionally with native reply_id.
+                    content["text"] = self._plain_text(event)
+                    if reply_id is not None:
+                        content["reply_id"] = reply_id
+                elif rel.relation_type == "reaction":
+                    emoji_text = rel.key or str(
+                        event.payload.get("key", event.payload.get("body", ""))
+                    )
+                    if self._is_native_reaction(event, target_adapter):
+                        # Native Meshtastic tapback
+                        if reply_id is not None:
+                            content["text"] = emoji_text
+                            content["reply_id"] = reply_id
+                            content["emoji"] = 1
+                            is_structured_reaction = True
+                        else:
+                            content["text"] = f"[reacted: {emoji_text}]"
+                    else:
+                        # Cross-platform MMRelay-style descriptive reaction
+                        orig_preview = self._abbreviated_original_text(event, rel)
+                        compact_prefix = self._format_prefix_for(
+                            event, prefix, meshnet_name, compact=True,
+                        )
+                        sep = ""
+                        if compact_prefix and not compact_prefix[-1:].isspace():
+                            sep = " "
+                        content["text"] = (
+                            f"{compact_prefix}{sep}reacted {emoji_text} "
+                            f'to "{orig_preview}"'
+                        )
+                        if reply_id is not None:
+                            content["reply_id"] = reply_id
+                        is_descriptive_reaction = True
+                else:
+                    content["text"] = self._extract_text(event)
         else:
             content["text"] = self._extract_text(event)
 
@@ -418,6 +426,8 @@ class MeshtasticRenderer:
             metadata["radio_relay_prefix"] = formatted_prefix
         if is_descriptive_reaction:
             metadata["descriptive_reaction"] = True
+        if is_fallback:
+            metadata["delivery_strategy"] = delivery_strategy
 
         return RenderingResult(
             event_id=event.event_id,
@@ -426,7 +436,72 @@ class MeshtasticRenderer:
             payload=content,
             metadata=metadata,
             truncated=was_truncated,
+            fallback_applied="strategy_fallback_text" if is_fallback else None,
         )
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _render_fallback_text(
+        self,
+        event: CanonicalEvent,
+        rel: EventRelation,
+        prefix: str,
+        meshnet_name: str,
+        target_adapter: str,
+    ) -> str:
+        """Render relation semantics as degraded text for fallback_text mode.
+
+        In fallback_text mode, native relation fields (``reply_id``,
+        ``emoji``) are suppressed.  Relation context is expressed as
+        readable text instead, preserving Meshtastic payload ownership.
+
+        Parameters
+        ----------
+        event:
+            The canonical event being rendered.
+        rel:
+            The first relation on the event.
+        prefix:
+            Radio relay prefix template from adapter config.
+        meshnet_name:
+            Mesh network name from adapter config.
+        target_adapter:
+            The target adapter identifier.
+
+        Returns
+        -------
+        str
+            Text with relation semantics degraded into readable form.
+        """
+        if rel.relation_type == "reply":
+            # Reply degraded to text: include "[replying to: …]" prefix.
+            return self._extract_text(event)
+
+        if rel.relation_type == "reaction":
+            emoji_text = rel.key or str(
+                event.payload.get("key", event.payload.get("body", ""))
+            )
+            if self._is_native_reaction(event, target_adapter):
+                # Native reaction degraded to readable text (no tapback).
+                return f"[reacted: {emoji_text}]"
+            # Cross-platform reaction: MMRelay-style descriptive text,
+            # but without native reply_id.
+            orig_preview = self._abbreviated_original_text(event, rel)
+            compact_prefix = self._format_prefix_for(
+                event, prefix, meshnet_name, compact=True,
+            )
+            sep = ""
+            if compact_prefix and not compact_prefix[-1:].isspace():
+                sep = " "
+            return (
+                f"{compact_prefix}{sep}reacted {emoji_text} "
+                f'to "{orig_preview}"'
+            )
+
+        # Other relation types: standard text extraction.
+        return self._extract_text(event)
 
     # ------------------------------------------------------------------
     # Private helpers

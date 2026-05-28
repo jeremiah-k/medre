@@ -26,7 +26,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Literal, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Literal, TypedDict, cast, get_args
 
 import msgspec
 
@@ -61,7 +61,7 @@ from medre.core.planning.delivery_plan import (
 from medre.core.planning.fallback_resolution import FallbackResolver
 from medre.core.planning.relation_resolution import RelationResolver
 from medre.core.policies.route_policy import BLOCKED_VALUE_CUTOFF, evaluate_route_policy
-from medre.core.rendering.renderer import RenderingPipeline
+from medre.core.rendering.renderer import DeliveryStrategyMethod, RenderingPipeline
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing.models import Route, RouteTarget
 from medre.core.routing.router import Router
@@ -85,6 +85,36 @@ _logger = logging.getLogger(__name__)
 
 _OUTBOX_RENEWAL_INTERVAL_SECONDS: int = 30  # seconds between lease renewals
 _OUTBOX_RENEWAL_DURATION_SECONDS: int = 60  # lease TTL (kept short; renewed)
+
+# ---------------------------------------------------------------------------
+# Delivery strategy method validation
+# ---------------------------------------------------------------------------
+
+#: Mapping from raw strategy strings to their :data:`DeliveryStrategyMethod`
+#: typed values.  Used by :func:`_validate_strategy_method` to validate and
+#: narrow ``DeliveryStrategy.method`` (typed ``str``) to the strict
+#: ``DeliveryStrategyMethod`` literal accepted by
+#: :meth:`RenderingPipeline.render`.
+_VALID_DELIVERY_STRATEGIES: dict[str, DeliveryStrategyMethod] = {
+    m: m for m in get_args(DeliveryStrategyMethod)
+}
+
+
+def _validate_strategy_method(method: str) -> DeliveryStrategyMethod:
+    """Validate *method* against known delivery strategy literals.
+
+    Returns the :data:`DeliveryStrategyMethod`-typed value on success so
+    callers can pass it directly to :meth:`RenderingPipeline.render`.
+
+    Raises :class:`ValueError` for unknown strategy strings.
+    """
+    try:
+        return _VALID_DELIVERY_STRATEGIES[method]
+    except KeyError:
+        raise ValueError(
+            f"Unknown delivery strategy method: {method!r}"
+        ) from None
+
 
 # ---------------------------------------------------------------------------
 # Pipeline config
@@ -1647,6 +1677,63 @@ class PipelineRunner:
                     duration_ms=elapsed,
                 )
 
+            # ── Phase 2.75: Plan-level skip (no state mutation) ────────
+
+            # Plan-level skip: when the delivery plan's primary strategy
+            # is "skip", produce a suppressed/skipped DeliveryOutcome
+            # BEFORE capacity acquisition, outbox creation, rendering,
+            # and success accounting.  This is the canonical skip path;
+            # the defense-in-depth skip inside deliver_to_target() exists
+            # only for direct calls that bypass _deliver_one().
+            #
+            # IMPORTANT: Only apply plan-level skip for adapters that
+            # are actually registered, mirroring the Phase 2.5 capability
+            # guard.  Unknown / missing adapters must NOT be classified as
+            # CAPABILITY_SUPPRESSED here — they need to fall through to
+            # deliver_to_target() which produces the correct ADAPTER_MISSING
+            # permanent failure with a meaningful error message.
+            if (
+                route_plan.primary_strategy.method == "skip"
+                and adapter_id
+                and adapter_id in self._config.adapters
+            ):
+                self._log.info(
+                    "plan_skip: route_id=%s event_id=%s target_adapter=%s "
+                    "plan_id=%s strategy_method=skip",
+                    route.id,
+                    event.event_id,
+                    adapter_id,
+                    route_plan.plan_id,
+                )
+                elapsed = (time.monotonic() - t0) * 1000.0
+                skip_error = (
+                    f"plan_skip: delivery strategy is 'skip' "
+                    f"(event_kind={event.event_kind})"
+                )
+                skip_receipt = await self._persist_suppression_receipt(
+                    event_id=event.event_id,
+                    delivery_plan_id=route_plan.plan_id,
+                    target_adapter=adapter_id,
+                    target_channel=target.channel,
+                    route_id=route.id,
+                    failure_kind=DeliveryFailureKind.CAPABILITY_SUPPRESSED,
+                    error=skip_error,
+                    source=source,
+                    replay_run_id=replay_run_id,
+                )
+                return DeliveryOutcome(
+                    event_id=event.event_id,
+                    target_adapter=adapter_id,
+                    target_channel=target.channel,
+                    route_id=route.id,
+                    delivery_plan_id=route_plan.plan_id,
+                    status="skipped",
+                    failure_kind=DeliveryFailureKind.CAPABILITY_SUPPRESSED,
+                    receipt=skip_receipt,
+                    error=skip_error,
+                    duration_ms=elapsed,
+                )
+
             # ── Phase 3: Capacity acquisition ────────────────────────
 
             # Per-target capacity guard: acquire a slot before any work.
@@ -2273,19 +2360,21 @@ class PipelineRunner:
         _caps = self._get_adapter_capabilities(target)
         _max_text_chars = _caps.max_text_chars
 
-        # Honor the delivery plan's strategy: thread the resolved method
-        # into rendering so renderers can degrade or skip as needed.
+        # Honor the delivery plan's strategy: validate and narrow the
+        # method string to a typed DeliveryStrategyMethod before passing
+        # it to the rendering pipeline.
         _strategy_method = plan.primary_strategy.method
 
         if _strategy_method == "skip":
-            # Defense-in-depth: the capability_suppressed check upstream
-            # should already have caught this, but honor the plan.
+            # Defense-in-depth only: the canonical skip path is in
+            # _deliver_one() Phase 2.75 which runs BEFORE outbox
+            # creation, capacity acquisition, and rendering.  This block
+            # handles edge cases where deliver_to_target() is called
+            # directly (e.g. via _deliver_all).  A plan-level skip is
+            # NOT a renderer failure — it is a suppressed delivery.
             _skip_error = (
                 f"delivery_skipped: plan strategy is 'skip' "
                 f"(event_kind={event.event_kind})"
-            )
-            self._diagnostician.record_renderer_failure(
-                event.event_id, adapter_id or "", _skip_error
             )
             _skip_receipt = DeliveryReceipt(
                 sequence=0,
@@ -2318,6 +2407,56 @@ class PipelineRunner:
             await self._config.storage.append_receipt(_skip_receipt)
             return _skip_receipt
 
+        # Validate the strategy method against the strict
+        # DeliveryStrategyMethod literal type accepted by
+        # RenderingPipeline.render().  Unknown methods are treated as
+        # renderer failures because rendering cannot proceed without a
+        # valid strategy context.
+        try:
+            _validated_strategy: DeliveryStrategyMethod = (
+                _validate_strategy_method(_strategy_method)
+            )
+        except ValueError:
+            _invalid_error = (
+                f"Rendering failed: unknown delivery strategy "
+                f"method {_strategy_method!r}"
+            )
+            self._diagnostician.record_renderer_failure(
+                event.event_id, adapter_id or "", _invalid_error
+            )
+            receipt = DeliveryReceipt(
+                sequence=0,
+                receipt_id=receipt_id,
+                event_id=event.event_id,
+                delivery_plan_id=plan.plan_id,
+                target_adapter=adapter_id or "",
+                target_channel=target.channel,
+                route_id=route.id,
+                status="failed",
+                error=_invalid_error,
+                failure_kind=DeliveryFailureKind.RENDERER_FAILURE.value,
+                next_retry_at=None,
+                created_at=now,
+                attempt_number=attempt_number,
+                parent_receipt_id=parent_receipt_id,
+                source=source,
+                replay_run_id=replay_run_id,
+                retry_max_attempts=(
+                    plan.retry_policy.max_attempts if plan.retry_policy else None
+                ),
+                retry_backoff_base=(
+                    plan.retry_policy.backoff_base if plan.retry_policy else None
+                ),
+                retry_max_delay=(
+                    plan.retry_policy.max_delay_seconds if plan.retry_policy else None
+                ),
+                retry_jitter=(plan.retry_policy.jitter if plan.retry_policy else None),
+            )
+            await self._config.storage.append_receipt(receipt)
+            raise _RendererDeliveryError(
+                adapter_id or "", _invalid_error, receipt=receipt
+            ) from None
+
         try:
             rendering_result = await self._rendering_pipeline.render(
                 render_event,
@@ -2325,7 +2464,7 @@ class PipelineRunner:
                 target.channel,
                 target_platform=platform_param,
                 max_text_chars=_max_text_chars,
-                delivery_strategy=_strategy_method,
+                delivery_strategy=_validated_strategy,
             )
         except Exception as exc:
             rendering_error = f"Rendering failed: {type(exc).__name__}: {exc}"

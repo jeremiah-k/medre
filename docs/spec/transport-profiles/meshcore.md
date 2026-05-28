@@ -158,6 +158,24 @@ No reply or reaction rendering — capabilities declare both as `"unsupported"`.
 
 ---
 
+## Relation Degradation Behavior
+
+MeshCore is a transport adapter with no native relation support. All relation types are unsupported.
+
+| Relation type | Capability level | Strategy      | Rendering path                                                    |
+| ------------- | ---------------- | ------------- | ----------------------------------------------------------------- |
+| Replies       | `"unsupported"`  | `skip`        | No delivery. Reply-carrying events targeting this adapter are suppressed. |
+| Reactions     | `"unsupported"`  | `skip`        | No delivery. Reaction events targeting this adapter are suppressed. |
+| Edits         | `"unsupported"`  | `skip`        | No delivery. Edit events targeting this adapter are suppressed.   |
+| Deletes       | `"unsupported"`  | `skip`        | No delivery. Delete events targeting this adapter are suppressed. |
+| Threads       | N/A              | `skip`        | Not applicable. MeshCore has no thread concept.                    |
+
+MeshCore does not use the `"fallback"` capability level for any relation type. All relations are unsupported. Events carrying relation context are skipped at the planning stage. Only `message.created` and `message.text` kinds are delivered, as they do not require relation support.
+
+**Payload requirement:** The MeshCore renderer produces MeshCore-native payloads (text body, truncated to `max_text_bytes`, with `channel_index` or `contact_id`). The adapter dispatches these payloads via `session.send_text` without modification.
+
+---
+
 ## Known Limitations
 
 - **Alpha maturity.** No end-to-end delivery confirmation; `delivery_status` is always `"local_accepted"`.

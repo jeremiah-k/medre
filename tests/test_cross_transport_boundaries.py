@@ -37,7 +37,7 @@ import pytest
 from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.events import CanonicalEvent, EventMetadata
-from medre.core.rendering.renderer import RenderingResult
+from medre.core.rendering.renderer import RenderingContext, RenderingResult
 from medre.runtime.architecture_report import _SDK_PACKAGES
 
 # ---------------------------------------------------------------------------
@@ -434,7 +434,7 @@ class TestRendererBoundary:
             payload={"body": "test"},
             metadata=EventMetadata(),
         )
-        result = await renderer.render(event, f"{_transport}_node")
+        result = await renderer.render(event, RenderingContext(target_adapter=f"{_transport}_node", delivery_strategy="direct"))
         assert isinstance(result, RenderingResult)
         assert not isinstance(result, CanonicalEvent)
 

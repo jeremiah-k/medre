@@ -21,14 +21,20 @@ Exported names
 """
 
 from medre.core.rendering.renderer import (
+    CapabilityLevel,
+    DeliveryStrategyMethod,
     Renderer,
+    RenderingContext,
     RenderingPipeline,
     RenderingResult,
 )
 from medre.core.rendering.text import TextRenderer
 
 __all__ = [
+    "CapabilityLevel",
+    "DeliveryStrategyMethod",
     "Renderer",
+    "RenderingContext",
     "RenderingPipeline",
     "RenderingResult",
     "TextRenderer",

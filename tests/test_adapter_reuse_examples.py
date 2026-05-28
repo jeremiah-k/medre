@@ -26,7 +26,7 @@ from medre.adapters.meshtastic.renderer import MeshtasticRenderer
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.metadata import EventMetadata
-from medre.core.rendering.renderer import RenderingResult
+from medre.core.rendering.renderer import RenderingContext, RenderingResult
 from medre.interop.mmrelay import (
     EMOJI_FLAG_VALUE,
     KEY_EMOJI,
@@ -78,7 +78,7 @@ class TestMatrixRendererStandalone:
             payload={"body": "hello from mesh"},
         )
         renderer = MatrixRenderer()
-        result = await renderer.render(event, target_adapter="matrix-1")
+        result = await renderer.render(event, RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"))
 
         assert isinstance(result, RenderingResult)
         assert result.payload["msgtype"] == "m.text"
@@ -105,7 +105,7 @@ class TestMeshtasticRendererStandalone:
             }
         )
         result = await renderer.render(
-            event, target_adapter="mesh-1", target_channel="3"
+            event, RenderingContext(target_adapter="mesh-1", target_channel="3", delivery_strategy="direct")
         )
 
         assert isinstance(result, RenderingResult)

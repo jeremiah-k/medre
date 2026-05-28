@@ -112,7 +112,7 @@ class EventRelation(msgspec.Struct, frozen=True):
     target_event_id: str | None           # Canonical event ID of the target
     target_native_ref: NativeRef | None    # Native reference when canonical ID not yet resolved
     key: str | None                       # Relation-specific key (e.g., emoji for reactions)
-    fallback_text: str | None             # Inline text when target adapter lacks native support
+    fallback_text: str | None             # Degraded text representation for relation types the target cannot render natively
     metadata: dict[str, object] = {}      # Arbitrary key-value metadata (frozen)
 ```
 
@@ -124,7 +124,7 @@ class EventRelation(msgspec.Struct, frozen=True):
 | `target_event_id`   | `str \| None`                                              | —       | Canonical event ID this relation points to. Set after correlation by the relation resolution stage.                                                                                                                  |
 | `target_native_ref` | `NativeRef \| None`                                        | —       | Structured `NativeRef` identifying the native reference when the canonical event ID has not yet been resolved. The relation resolution stage resolves this to `target_event_id` via the `native_message_refs` table. |
 | `key`               | `str \| None`                                              | —       | Type-specific data. For `reaction`, this is the emoji or reaction identifier.                                                                                                                                        |
-| `fallback_text`     | `str \| None`                                              | —       | Inline text used when the target adapter does not support this relation type natively (e.g., `[Alice] re: original msg > reply text`).                                                                               |
+| `fallback_text`     | `str \| None`                                              | —       | Human-readable text carrying the semantic content of this relation when the target adapter's capability level is `"fallback"`. Used by the target-native renderer to produce degraded text output within its native format (e.g., inline `[Alice] re: original msg > reply text` inside a Matrix message body). Not a generic text payload. Not used when capability is `"native"` or `"unsupported"`. |
 | `metadata`          | `dict[str, object]`                                        | `{}`    | Arbitrary key-value metadata. Frozen via `_FrozenDict` at construction.                                                                                                                                              |
 
 ### 2.3 Valid Relation Types
@@ -152,6 +152,42 @@ the five known types raise `ValueError`.
 4. If not found, the relation remains unresolved. The native ref is preserved.
    Routing and rendering continue without error. `fallback_text` MAY be used by
    the delivery stage.
+
+### 2.5 Fallback Text and Relation Degradation
+
+`fallback_text` on `EventRelation` carries a human-readable representation of
+the relation's semantic content. Its purpose is to preserve relation meaning
+when the target transport cannot express the relation type through its native
+mechanism.
+
+**fallback_text is not a generic text payload.** It does not bypass the
+target-native renderer. When the target adapter's capability for a relation
+type is at level `"fallback"`, the target-native renderer (e.g. MatrixRenderer
+for Matrix, MeshtasticRenderer for Meshtastic) consumes `fallback_text` and
+produces degraded text output within its own native format. The rendered
+payload is still adapter-native; only the relation representation degrades to
+inline text.
+
+**Capability-driven degradation rules:**
+
+| Target capability level | Delivery strategy | Rendering behaviour                                           |
+| ----------------------- | ----------------- | ------------------------------------------------------------- |
+| `"native"`              | `direct`          | Native relation rendering (e.g. `m.in_reply_to` on Matrix)   |
+| `"fallback"`            | `fallback_text`   | Target-native renderer produces its format with inline text   |
+| `"unsupported"`         | `skip`            | No rendering; delivery suppressed before adapter invocation   |
+
+A transport that declares `"unsupported"` for a relation type receives no
+delivery for events carrying that relation. A transport that declares
+`"native"` never uses `fallback_text`. Only the `"fallback"` level triggers
+degraded text rendering via the target-native renderer.
+
+**Example:** A `reply` relation with `fallback_text = "original msg text"`
+routed to a Matrix adapter (replies = `"native"`) is rendered as a native
+`m.in_reply_to` relation. The same event routed to a MeshCore adapter
+(replies = `"unsupported"`) is skipped entirely. If a hypothetical adapter
+declared replies = `"fallback"`, the MeshCore renderer would produce its
+native channel message format with the reply context embedded as inline text
+drawn from `fallback_text`.
 
 ---
 

@@ -179,6 +179,24 @@ Session also exposes `diagnostics()` and `delivery_state_counts()` with addition
 
 ---
 
+## Relation Degradation Behavior
+
+LXMF is a transport adapter with no native relation support beyond basic text delivery. All relation types are unsupported.
+
+| Relation type | Capability level | Strategy      | Rendering path                                                    |
+| ------------- | ---------------- | ------------- | ----------------------------------------------------------------- |
+| Replies       | `"unsupported"`  | `skip`        | No delivery. Reply-carrying events targeting this adapter are suppressed. |
+| Reactions     | `"unsupported"`  | `skip`        | No delivery. Reaction events targeting this adapter are suppressed. |
+| Edits         | `"unsupported"`  | `skip`        | No delivery. Edit events targeting this adapter are suppressed.   |
+| Deletes       | `"unsupported"`  | `skip`        | No delivery. Delete events targeting this adapter are suppressed. |
+| Threads       | N/A              | `skip`        | Not applicable. LXMF has no thread concept.                       |
+
+LXMF does not use the `"fallback"` capability level for any relation type. All relations are unsupported. Events carrying relation context (replies, reactions, edits, deletes) are skipped at the planning stage when the target is an LXMF adapter. The `message.created` and `message.text` kinds are delivered normally as they do not require relation support.
+
+**Payload requirement:** The LXMF renderer produces LXMF-native payloads (`content` body, optional `title`, optional MEDRE metadata envelope in `fields[0xFD]`). The adapter dispatches these payloads to the LXMRouter via `handle_outbound` without modification.
+
+---
+
 ## Known Limitations
 
 - **No reply or reaction support.** Capabilities declare both as `"unsupported"`. LXMF has no built-in threading mechanism; relation reconstruction from fields envelope is deferred.

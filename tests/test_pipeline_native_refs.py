@@ -1086,15 +1086,15 @@ class TestRendererReceivesEnrichedRelation:
 
             name = "spy"
 
-            def can_render(self, event, target_adapter, target_platform=None):
+            def can_render(self, event, ctx):
                 return True
 
-            async def render(self, event, target_adapter, target_channel=None):
+            async def render(self, event, ctx):
                 rendered_events.append(event)
                 return RenderingResult(
                     event_id=event.event_id,
-                    target_adapter=target_adapter,
-                    target_channel=target_channel,
+                    target_adapter=ctx.target_adapter,
+                    target_channel=ctx.target_channel,
                     payload=dict(event.payload),
                 )
 

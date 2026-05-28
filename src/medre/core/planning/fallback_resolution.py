@@ -8,11 +8,12 @@ Three-level capability semantics (reactions, edits, deletes, replies):
 
 * ``"native"``      → ``"direct"`` strategy — normal/native rendering.
 * ``"fallback"``    → ``"fallback_text"`` strategy — degraded text
-  rendering via the text renderer, bypassing platform-specific
-  renderers.  The adapter receives a textual representation rather
-  than a native relation.
+  rendering within the target-native format.  The target-native
+  renderer produces its native output but embeds relation context as
+  inline text.  The adapter receives a payload in its native format,
+  not a generic text envelope.
 * ``"unsupported"`` → ``"skip"`` strategy — delivery suppressed
-  before rendering.
+  before rendering.  No renderer or adapter invocation.
 
 Fallback rules (Phase 1):
 

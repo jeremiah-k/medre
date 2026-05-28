@@ -289,6 +289,20 @@ class DeliveryStrategy:
 
 `DeliveryStrategy` defines how a single delivery attempt works. The `method` field is interpreted by the target adapter. The `primary_strategy` is the first attempt. If it fails, each entry in `fallback_chain` is tried in order.
 
+### 6.2.1 Delivery Strategy Method Vocabulary
+
+The `method` field is a closed vocabulary. Implementations MUST treat unknown
+method values as configuration errors. The well-known methods are:
+
+| Method           | Semantics                                                                                                                                                                                                                                                                                       |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"direct"`       | Target-native rendering. The event is rendered through the standard renderer pipeline (the target-native renderer matching the adapter's platform) and delivered natively. This is the default strategy when the target adapter supports the event's relation types at capability level `"native"`. |
+| `"fallback_text"` | Degraded text rendering within the target-native format. The target-native renderer produces its native output format but embeds relation context as inline text drawn from `EventRelation.fallback_text`. The pipeline does **not** bypass the target-native renderer or switch to a generic text renderer. The adapter still receives a payload in its native format, not a generic `{"text": ...}` envelope. |
+| `"skip"`         | Delivery suppressed before rendering and adapter invocation. Used when the target adapter's capability for the event's relation type is `"unsupported"`, or when pre-outbox guards (loop prevention, policy denial, capacity exhaustion) prevent delivery. No renderer is invoked. No adapter call is made. A receipt with `status="suppressed"` is recorded when the suppression occurs after the planning stage. Pre-planning skips (no matching route) produce no receipt at all. |
+| `"propagated"`   | Relayed through an intermediate hop (e.g. LXMF propagation node). Reserved for future use.                                                                                                                                                                                                      |
+| `"opportunistic"` | Best-effort delivery with no guarantee. Reserved for future use.                                                                                                                                                                                                                               |
+| `"paper"`        | Store-and-forward. Reserved for future use.                                                                                                                                                                                                                                                     |
+
 ### 6.3 RetryPolicy
 
 ```python
@@ -312,7 +326,7 @@ Fallback types MAY include:
 
 - Retry with delay (same adapter, same strategy, after backoff)
 - Deliver to alternative channel (same adapter, different channel)
-- Convert to lower-fidelity format (e.g., strip rich content, send plain text)
+- Degraded text rendering via `fallback_text` strategy (target-native renderer embeds relation context as inline text)
 - Store for later delivery (queue until adapter recovers)
 
 The fallback chain is part of the `DeliveryPlan`. It is constructed at planning time, not at execution time. The executor walks the chain and reports receipts for each attempt.
@@ -553,9 +567,9 @@ When a single event matches a route with multiple destinations, each destination
 | `queued`            | Delivery enqueued for execution.                                                  | Yes                | N/A                    |
 | `transient_failure` | Adapter reported a recoverable error (timeout, connection reset).                 | Yes                | Yes, per `RetryPolicy` |
 | `permanent_failure` | Adapter reported an unrecoverable error, or delivery exhausted retries.           | Yes (last attempt) | No                     |
-| `skipped`           | Delivery was skipped before adapter invocation. Reason recorded in `error` field. | No                 | No                     |
+| `skipped`           | Delivery was suppressed before renderer or adapter invocation. Occurs at the pre-outbox stage: capability mismatch (`CAPABILITY_SUPPRESSED`), or before capacity acquisition for loop prevention, route-trace guard, or policy filtering. Reason recorded in `error` field. No renderer runs. No adapter call is made. | No                 | No                     |
 
-`skipped` outcomes are produced by: self-loop guard, route-trace loop prevention, or policy filtering. No adapter call is made for skipped deliveries.
+`skipped` outcomes are produced by: self-loop guard, route-trace loop prevention, policy filtering, or capability suppression (`CAPABILITY_SUPPRESSED`). Skip is a pre-outbox decision. It occurs before the rendering stage, before capacity acquisition, and before any adapter call. A skipped delivery is not a success, not a renderer failure, and not an adapter failure. It represents a decision by the planning or policy layer that the delivery should not proceed.
 
 ## 12. Policy Pipeline
 

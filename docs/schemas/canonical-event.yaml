@@ -130,7 +130,12 @@ $defs:
         description: Optional discriminator (e.g. emoji for a reaction).
       fallback_text:
         type: ["string", "null"]
-        description: Human-readable fallback text for the target.
+        description: >-
+          Human-readable text carrying the semantic content of this relation
+          when the target adapter's capability level is 'fallback'. Used by
+          the target-native renderer to produce degraded text output within
+          its native format. Not a generic text payload. Not used when
+          capability is 'native' or 'unsupported'.
       metadata:
         type: object
         additionalProperties: true

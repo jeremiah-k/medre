@@ -21,7 +21,8 @@ from typing import Any, Mapping
 
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
 from medre.core.events import CanonicalEvent, EventRelation
-from medre.core.rendering.renderer import RenderingResult
+from medre.core.rendering.renderer import RenderingContext, RenderingResult
+from medre.core.rendering.text import TextRenderer
 from medre.interop.mmrelay import (
     EMOJI_FLAG_VALUE,
     KEY_EMOJI,
@@ -115,27 +116,24 @@ class MatrixRenderer:
     def can_render(
         self,
         event: CanonicalEvent,
-        target_adapter: str,
-        target_platform: str | None = None,
+        ctx: RenderingContext,
     ) -> bool:
-        """Return ``True`` when *target_platform* is ``"matrix"``.
+        """Return ``True`` when *ctx.target_platform* is ``"matrix"``.
 
         Parameters
         ----------
         event:
             The canonical event to check (not used for discrimination).
-        target_adapter:
-            Name of the target adapter.
-        target_platform:
-            Platform name of the target adapter, supplied by the
-            rendering pipeline's platform registry.
+        ctx:
+            Frozen rendering context with target identity, delivery
+            strategy, and capability metadata.
 
         Returns
         -------
         bool
             Whether this renderer handles events for the given adapter.
         """
-        return target_platform == self._PLATFORM
+        return ctx.target_platform == self._PLATFORM
 
     # ------------------------------------------------------------------
     # Rendering
@@ -144,11 +142,7 @@ class MatrixRenderer:
     async def render(
         self,
         event: CanonicalEvent,
-        target_adapter: str,
-        target_channel: str | None = None,
-        *,
-        max_text_chars: int | None = None,
-        delivery_strategy: str | None = None,
+        ctx: RenderingContext,
     ) -> RenderingResult:
         """Render a canonical event into a Matrix content payload.
 
@@ -157,32 +151,52 @@ class MatrixRenderer:
         * ``msgtype``: ``"m.text"`` (or ``"m.emote"`` for reaction fallback)
         * ``body``: extracted text from the event payload
         * ``medre.envelope``: provenance metadata
-        * ``m.relates_to``: added for replies and reactions
+        * ``m.relates_to``: added for replies and reactions (native mode only)
 
-        **Replies** preserve ``m.in_reply_to`` and inject ``KEY_REPLY_ID``
-        from native/relation metadata when available.
+        **Strategy fallback** — when ``ctx.delivery_strategy`` is
+        ``"fallback_text"``, relation semantics are degraded into plain
+        text within the Matrix payload body.  Native ``m.relates_to`` and
+        ``_matrix_event_type`` fields are **not** emitted.  The body is
+        produced using the same deterministic wording as
+        :class:`~medre.core.rendering.text.TextRenderer` so that relation
+        information is preserved as readable text.  The result carries
+        ``fallback_applied="strategy_fallback_text"``.
 
-        **Reactions** render as true ``m.reaction`` (with internal
-        ``_matrix_event_type='m.reaction'``) when a target event/native
-        Matrix id is available and mmrelay_compat is false.  When
-        mmrelay_compat is true or the target is missing, an ``m.emote``
-        fallback is rendered with ``KEY_REPLY_ID``, ``KEY_TEXT``,
-        ``KEY_EMOJI=1`` and existing fields.
+        **Native / direct mode** — replies preserve ``m.in_reply_to``
+        and inject ``KEY_REPLY_ID`` from native/relation metadata when
+        available.  Reactions render as true ``m.reaction`` (with
+        internal ``_matrix_event_type='m.reaction'``) when a target
+        event/native Matrix id is available and mmrelay_compat is false.
+        When mmrelay_compat is true or the target is missing, an
+        ``m.emote`` fallback is rendered with MMRelay keys.
 
         Parameters
         ----------
         event:
             The canonical event to render.
-        target_adapter:
-            Name of the adapter the payload is intended for.
-        target_channel:
-            Target room ID, if known.
+        ctx:
+            Frozen rendering context with target identity, delivery
+            strategy, capability metadata, and text budgets.
 
         Returns
         -------
         RenderingResult
             The rendered Matrix content dict wrapped in a result.
         """
+        target_adapter = ctx.target_adapter
+        target_channel = ctx.target_channel
+        delivery_strategy = ctx.delivery_strategy
+        is_fallback = delivery_strategy == "fallback_text"
+
+        # ------------------------------------------------------------------
+        # Fallback-text path: degrade relations into plain text body
+        # ------------------------------------------------------------------
+        if is_fallback and event.relations:
+            return self._render_fallback_text(event, ctx)
+
+        # ------------------------------------------------------------------
+        # Native / direct path
+        # ------------------------------------------------------------------
         body = str(event.payload.get("body", event.payload.get("text", "")))
 
         # Apply relay prefix for mesh→Matrix direction
@@ -253,12 +267,84 @@ class MatrixRenderer:
             "renderer": self.name,
         }
 
+        fallback_applied: str | None = None
+        if is_fallback:
+            fallback_applied = "strategy_fallback_text"
+
         return RenderingResult(
             event_id=event.event_id,
             target_adapter=target_adapter,
             target_channel=target_channel,
             payload=content,
             metadata=metadata,
+            fallback_applied=fallback_applied,
+        )
+
+    # ------------------------------------------------------------------
+    # Fallback-text rendering
+    # ------------------------------------------------------------------
+
+    def _render_fallback_text(
+        self,
+        event: CanonicalEvent,
+        ctx: RenderingContext,
+    ) -> RenderingResult:
+        """Render event with degraded relation text for fallback_text strategy.
+
+        Produces a valid Matrix content payload (``msgtype``/``body``/MEDRE
+        envelope) without native ``m.relates_to`` or reaction-specific
+        ``_matrix_event_type`` fields.  Relation semantics are expressed as
+        deterministic plain text in the ``body`` using the same wording as
+        :class:`~medre.core.rendering.text.TextRenderer`.
+
+        Sets ``fallback_applied="strategy_fallback_text"`` on the result.
+        """
+        # Reuse TextRenderer's deterministic wording for degraded relations
+        degraded_text = TextRenderer._extract_text(event)
+
+        # Truncate when the context imposes a text budget
+        truncated = False
+        if ctx.max_text_chars is not None:
+            degraded_text, truncated = TextRenderer._truncate(
+                degraded_text, max_text_chars=ctx.max_text_chars,
+            )
+
+        # Apply relay prefix for mesh→Matrix direction
+        body = self._apply_matrix_relay_prefix(event, degraded_text)
+
+        content: dict[str, object] = {
+            "msgtype": "m.text",
+            "body": body,
+        }
+
+        # Embed metadata envelope
+        envelope = MatrixMetadataEnvelope(
+            canonical_event_id=event.event_id,
+            source_adapter=event.source_adapter,
+            source_channel=event.source_channel_id or "",
+            metadata_mode="safe",
+        )
+        content.update(envelope.to_content())
+
+        # Inject mmrelay-compatible metadata when enabled — relation
+        # rendering is degraded but transport metadata is still valid.
+        if self._get_mmrelay_compat(event):
+            self._inject_mmrelay_metadata(event, content)
+
+        result_metadata: dict[str, object] = {
+            "renderer": self.name,
+        }
+        if truncated:
+            result_metadata["original_length"] = len(degraded_text)
+
+        return RenderingResult(
+            event_id=event.event_id,
+            target_adapter=ctx.target_adapter,
+            target_channel=ctx.target_channel,
+            payload=content,
+            metadata=result_metadata,
+            truncated=truncated,
+            fallback_applied="strategy_fallback_text",
         )
 
     # ------------------------------------------------------------------
