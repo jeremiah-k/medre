@@ -2272,6 +2272,52 @@ class PipelineRunner:
         # Resolve adapter capabilities to pass max_text_chars to renderers.
         _caps = self._get_adapter_capabilities(target)
         _max_text_chars = _caps.max_text_chars
+
+        # Honor the delivery plan's strategy: thread the resolved method
+        # into rendering so renderers can degrade or skip as needed.
+        _strategy_method = plan.primary_strategy.method
+
+        if _strategy_method == "skip":
+            # Defense-in-depth: the capability_suppressed check upstream
+            # should already have caught this, but honor the plan.
+            _skip_error = (
+                f"delivery_skipped: plan strategy is 'skip' "
+                f"(event_kind={event.event_kind})"
+            )
+            self._diagnostician.record_renderer_failure(
+                event.event_id, adapter_id or "", _skip_error
+            )
+            _skip_receipt = DeliveryReceipt(
+                sequence=0,
+                receipt_id=receipt_id,
+                event_id=event.event_id,
+                delivery_plan_id=plan.plan_id,
+                target_adapter=adapter_id or "",
+                target_channel=target.channel,
+                route_id=route.id,
+                status="suppressed",
+                error=_skip_error,
+                failure_kind=DeliveryFailureKind.CAPABILITY_SUPPRESSED.value,
+                next_retry_at=None,
+                created_at=now,
+                attempt_number=attempt_number,
+                parent_receipt_id=parent_receipt_id,
+                source=source,
+                replay_run_id=replay_run_id,
+                retry_max_attempts=(
+                    plan.retry_policy.max_attempts if plan.retry_policy else None
+                ),
+                retry_backoff_base=(
+                    plan.retry_policy.backoff_base if plan.retry_policy else None
+                ),
+                retry_max_delay=(
+                    plan.retry_policy.max_delay_seconds if plan.retry_policy else None
+                ),
+                retry_jitter=(plan.retry_policy.jitter if plan.retry_policy else None),
+            )
+            await self._config.storage.append_receipt(_skip_receipt)
+            return _skip_receipt
+
         try:
             rendering_result = await self._rendering_pipeline.render(
                 render_event,
@@ -2279,6 +2325,7 @@ class PipelineRunner:
                 target.channel,
                 target_platform=platform_param,
                 max_text_chars=_max_text_chars,
+                delivery_strategy=_strategy_method,
             )
         except Exception as exc:
             rendering_error = f"Rendering failed: {type(exc).__name__}: {exc}"

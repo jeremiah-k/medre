@@ -148,6 +148,7 @@ class MatrixRenderer:
         target_channel: str | None = None,
         *,
         max_text_chars: int | None = None,
+        delivery_strategy: str | None = None,
     ) -> RenderingResult:
         """Render a canonical event into a Matrix content payload.
 

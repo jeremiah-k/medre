@@ -82,6 +82,7 @@ class TextRenderer:
         target_channel: str | None = None,
         *,
         max_text_chars: int | None = None,
+        delivery_strategy: str | None = None,
     ) -> RenderingResult:
         """Render a canonical event as plain text.
 
@@ -137,6 +138,10 @@ class TextRenderer:
             rel = event.relations[0]
             if rel.relation_type in ("reply", "reaction", "edit"):
                 fallback_applied = f"relation_{rel.relation_type}"
+
+        # Strategy fallback takes precedence over relation-based fallback.
+        if delivery_strategy == "fallback_text":
+            fallback_applied = "strategy_fallback_text"
 
         return RenderingResult(
             event_id=event.event_id,

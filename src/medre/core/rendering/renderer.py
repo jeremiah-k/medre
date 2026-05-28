@@ -125,6 +125,7 @@ class Renderer(Protocol):
         target_channel: str | None = None,
         *,
         max_text_chars: int | None = None,
+        delivery_strategy: str | None = None,
     ) -> RenderingResult:
         """Render *event* for delivery.  Must not mutate the original event."""
         ...
@@ -167,6 +168,7 @@ class RenderingPipeline:
     def __init__(self) -> None:
         self._renderers: list[_PrioritisedRenderer] = []
         self._supports_max_text_chars: list[bool] = []
+        self._supports_delivery_strategy: list[bool] = []
         self._seq: int = 0
         self._adapter_platforms: dict[str, str] = {}
 
@@ -183,13 +185,22 @@ class RenderingPipeline:
         self._renderers.append((priority, self._seq, renderer))
         sig = inspect.signature(renderer.render)
         self._supports_max_text_chars.append("max_text_chars" in sig.parameters)
+        self._supports_delivery_strategy.append("delivery_strategy" in sig.parameters)
         self._seq += 1
         # Stable sort: priority first, registration order breaks ties.
-        # Re-sort both parallel lists together.
-        paired = list(zip(self._renderers, self._supports_max_text_chars, strict=False))
+        # Re-sort all parallel lists together.
+        paired = list(
+            zip(
+                self._renderers,
+                self._supports_max_text_chars,
+                self._supports_delivery_strategy,
+                strict=False,
+            )
+        )
         paired.sort(key=lambda t: (t[0][0], t[0][1]))
         self._renderers = [p[0] for p in paired]
         self._supports_max_text_chars = [p[1] for p in paired]
+        self._supports_delivery_strategy = [p[2] for p in paired]
 
     # -- Platform registry --------------------------------------------------
 
@@ -251,6 +262,7 @@ class RenderingPipeline:
         *,
         target_platform: str | None = None,
         max_text_chars: int | None = None,
+        delivery_strategy: str | None = None,
     ) -> RenderingResult:
         """Try renderers in priority order until one can render.
 
@@ -271,6 +283,10 @@ class RenderingPipeline:
             Optional maximum text length from the target adapter's
             capabilities.  Passed through to renderers that support
             truncation (e.g. :class:`~medre.core.rendering.text.TextRenderer`).
+        delivery_strategy:
+            Optional delivery strategy hint.  When ``"fallback_text"``,
+            only the text renderer (``name == "text"``) is used,
+            skipping platform-specific renderers.
 
         Returns
         -------
@@ -290,14 +306,36 @@ class RenderingPipeline:
         )
 
         for idx, (_pri, _seq, renderer) in enumerate(self._renderers):
+            # When fallback_text strategy is active, skip non-text renderers.
+            if delivery_strategy == "fallback_text" and renderer.name != "text":
+                continue
+
             if renderer.can_render(event, target_adapter, platform):
-                # Use cached signature check instead of inspecting on every call.
-                if self._supports_max_text_chars[idx]:
+                # Build call based on cached signature introspection.
+                sup_mtc = self._supports_max_text_chars[idx]
+                sup_ds = self._supports_delivery_strategy[idx]
+
+                if sup_mtc and sup_ds:
                     return await renderer.render(
                         event,
                         target_adapter,
                         target_channel,
                         max_text_chars=max_text_chars,
+                        delivery_strategy=delivery_strategy,
+                    )
+                if sup_mtc:
+                    return await renderer.render(
+                        event,
+                        target_adapter,
+                        target_channel,
+                        max_text_chars=max_text_chars,
+                    )
+                if sup_ds:
+                    return await renderer.render(
+                        event,
+                        target_adapter,
+                        target_channel,
+                        delivery_strategy=delivery_strategy,
                     )
                 return await renderer.render(
                     event,
