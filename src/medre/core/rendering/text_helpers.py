@@ -27,10 +27,7 @@ def _resolve_target_display(rel: EventRelation) -> str:
     if rel.target_event_id:
         eid = rel.target_event_id
         return f"{eid[:8]}…" if len(eid) > 8 else eid
-    if (
-        rel.target_native_ref is not None
-        and rel.target_native_ref.native_message_id
-    ):
+    if rel.target_native_ref is not None and rel.target_native_ref.native_message_id:
         return rel.target_native_ref.native_message_id
     return "unknown message"
 
@@ -97,9 +94,7 @@ def extract_relation_text(event: CanonicalEvent) -> str:
         rel = event.relations[0]
 
         if rel.relation_type == "reply":
-            payload_text = str(
-                event.payload.get("text", event.payload.get("body", ""))
-            )
+            payload_text = str(event.payload.get("text", event.payload.get("body", "")))
             target = _resolve_target_display(rel)
             sender_display = (
                 rel.metadata.get("sender_displayname")
@@ -122,9 +117,7 @@ def extract_relation_text(event: CanonicalEvent) -> str:
             return f"{actor} reacted"
 
         if rel.relation_type == "edit":
-            payload_text = str(
-                event.payload.get("text", event.payload.get("body", ""))
-            )
+            payload_text = str(event.payload.get("text", event.payload.get("body", "")))
             if payload_text:
                 return f"[edited] {payload_text}"
             return "[edited]"
@@ -136,9 +129,7 @@ def extract_relation_text(event: CanonicalEvent) -> str:
             return "[deleted]"
 
         if rel.relation_type == "thread":
-            payload_text = str(
-                event.payload.get("text", event.payload.get("body", ""))
-            )
+            payload_text = str(event.payload.get("text", event.payload.get("body", "")))
             target = _resolve_target_display(rel)
             if payload_text:
                 return f"[thread: {target}] {payload_text}"

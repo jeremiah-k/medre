@@ -54,10 +54,7 @@ def degrade_relations_inline(event: CanonicalEvent, text: str) -> str:
             parts.append(f"[reply to: {target}]")
         elif rel.relation_type == "reaction":
             emoji = (
-                rel.key
-                or event.payload.get("key")
-                or event.payload.get("emoji")
-                or "∟"
+                rel.key or event.payload.get("key") or event.payload.get("emoji") or "∟"
             )
             parts.append(f"[reaction {emoji} to: {target}]")
         elif rel.relation_type == "edit":
