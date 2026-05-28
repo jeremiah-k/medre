@@ -54,6 +54,16 @@ class DeliveryStrategy:
     max_retries: int = 3
     timeout_seconds: float = 30.0
 
+    #: Well-known method values.  ``method`` is a free-form string; the
+    #: following values have defined semantics:
+    #:
+    #: * ``"direct"``        – native delivery.
+    #: * ``"fallback_text"`` – degraded / textual fallback rendering.
+    #: * ``"propagated"``    – relayed through an intermediate hop.
+    #: * ``"opportunistic"`` – best-effort, no delivery guarantee.
+    #: * ``"paper"``         – store-and-forward.
+    #: * ``"skip"``          – delivery suppressed (capability mismatch).
+
 
 # ---------------------------------------------------------------------------
 # Retry policy

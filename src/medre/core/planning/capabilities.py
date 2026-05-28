@@ -92,13 +92,14 @@ def capability_unsupported(
 def resolve_adapter_capabilities(
     adapters: dict[str, Any],
     target: Any,
-) -> AdapterCapabilities:
+) -> AdapterCapabilities | None:
     """Resolve the :class:`AdapterCapabilities` for a target adapter.
 
     Looks up the target's adapter in the *adapters* registry and
-    returns its declared capabilities.  Returns a default (conservative)
-    :class:`AdapterCapabilities` when the adapter is not found or does
-    not report capabilities.
+    returns its declared capabilities.  Returns ``None`` when the
+    adapter is not in the registry (truly missing).  Returns a default
+    :class:`AdapterCapabilities` when the adapter exists but does not
+    report capabilities.
 
     Parameters
     ----------
@@ -110,16 +111,18 @@ def resolve_adapter_capabilities(
 
     Returns
     -------
-    AdapterCapabilities
-        The resolved capabilities, or a default instance.
+    AdapterCapabilities | None
+        The resolved capabilities, ``None`` when the adapter is missing
+        from the registry, or a default instance when the adapter exists
+        but has no ``_capabilities`` attribute.
     """
     adapter_id = getattr(target, "adapter", None)
     if adapter_id is None:
-        return AdapterCapabilities()
+        return None
 
     adapter = adapters.get(adapter_id)
     if adapter is None:
-        return AdapterCapabilities()
+        return None
 
     caps = getattr(adapter, "_capabilities", None)
     if isinstance(caps, AdapterCapabilities):

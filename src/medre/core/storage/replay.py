@@ -1786,14 +1786,17 @@ class ReplayEngine:
                 _cfg = getattr(self._pipeline, "_config", None)
                 if _cfg is not None:
                     _adapters = getattr(_cfg, "adapters", None)
+            _before_filter = len(plan_result)
             plan_result = _filter_plans_by_capability(
                 event,
                 plan_result,
                 _adapters,
             )
-            if not plan_result:
-                if self._accounting is not None:
+            _suppressed = _before_filter - len(plan_result)
+            if _suppressed > 0 and self._accounting is not None:
+                for _ in range(_suppressed):
                     self._accounting.record_capability_suppressed()
+            if not plan_result:
                 return ReplayResult(
                     event_id=event.event_id,
                     stage="deliver",
@@ -2147,6 +2150,11 @@ def _filter_plans_by_capability(
             continue
 
         caps = resolve_adapter_capabilities(adapters, target)
+        if caps is None:
+            # Adapter is missing from the registry — include conservatively
+            # rather than suppressing based on default (all-false) caps.
+            result.append(item)
+            continue
         reason = capability_unsupported(event, caps)
         if reason is None:
             result.append(item)

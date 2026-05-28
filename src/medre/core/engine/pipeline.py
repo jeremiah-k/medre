@@ -2563,6 +2563,12 @@ class PipelineRunner:
         """Retrieve the :class:`AdapterCapabilities` for a target adapter.
 
         Delegates to :func:`~medre.core.planning.capabilities.resolve_adapter_capabilities`
-        with the configured adapter registry.
+        with the configured adapter registry.  When the adapter is missing
+        from the registry (returns ``None``), falls back to a default
+        :class:`AdapterCapabilities` for backward compatibility — the
+        pipeline has its own adapter-missing check at Phase 2.5.
         """
-        return resolve_adapter_capabilities(self._config.adapters, target)
+        caps = resolve_adapter_capabilities(self._config.adapters, target)
+        if caps is None:
+            return AdapterCapabilities()
+        return caps

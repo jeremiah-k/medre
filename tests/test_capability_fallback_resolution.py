@@ -70,15 +70,15 @@ class TestFallbackResolverEventKindSupport:
             # -- Reactions (3-level string: native/fallback → direct, unsupported → skip) ---
             ("message.reacted", "reactions", "native", "direct"),
             ("message.reacted", "reactions", "unsupported", "skip"),
-            ("message.reacted", "reactions", "fallback", "direct"),
+            ("message.reacted", "reactions", "fallback", "fallback_text"),
             # -- Edits --------------------------------------------------------
             ("message.edited", "edits", "native", "direct"),
             ("message.edited", "edits", "unsupported", "skip"),
-            ("message.edited", "edits", "fallback", "direct"),
+            ("message.edited", "edits", "fallback", "fallback_text"),
             # -- Deletes ------------------------------------------------------
             ("message.deleted", "deletes", "native", "direct"),
             ("message.deleted", "deletes", "unsupported", "skip"),
-            ("message.deleted", "deletes", "fallback", "direct"),
+            ("message.deleted", "deletes", "fallback", "fallback_text"),
             # -- File / attachments -------------------------------------------
             ("message.file", "attachments", True, "direct"),
             ("message.file", "attachments", False, "skip"),

@@ -99,8 +99,8 @@ class TextRenderer:
         * *reaction* — ``"{actor} reacted with {key}"``
         * *edit* — ``"[edited] {payload_text}"``
 
-        Text exceeding 500 characters is truncated with an ellipsis marker
-        and the ``truncated`` flag is set on the result.
+        Text exceeding the character limit is truncated and the ``truncated``
+        flag is set on the result.
 
         The original event is **never** mutated.
 
@@ -112,6 +112,12 @@ class TextRenderer:
             Name of the adapter the rendered payload is intended for.
         target_channel:
             Optional channel / conversation on the target adapter.
+        max_text_chars:
+            Per-call character cap for the rendered text.  When ``None``
+            (the default), the 500-character module-level default is used.
+            When provided, the text is truncated to this many characters
+            and the ``truncated`` flag is set on the result when
+            truncation occurs.
 
         Returns
         -------

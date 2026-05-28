@@ -378,14 +378,10 @@ def _check_capability_warning(
     )
     reason = capability_unsupported(event, caps)
     if reason is None:
-        # Explicit check for reply support: the shared capability_unsupported
-        # only detects unsupported replies when relations are non-empty, but
-        # the diagnostics synthetic event has no relations.  Check directly.
-        if caps.replies == "unsupported":
-            return (
-                f"event_kind '{event_kind}' not supported by target adapter "
-                f"'{adapter_id}': replies unsupported by adapter"
-            )
+        # Route-level warnings are event-kind level and cannot fully
+        # evaluate relation-specific requirements.  Reply support is
+        # only meaningful when the event carries a reply relation, which
+        # the synthetic diagnostic event never does.
         return None
     return f"event_kind '{event_kind}' not supported by target adapter '{adapter_id}': {reason}"
 

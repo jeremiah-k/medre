@@ -114,14 +114,20 @@ class FallbackResolver:
         if kind == EventKind.MESSAGE_REACTED:
             if caps.reactions == "unsupported":
                 return DeliveryStrategy(method="skip")
+            if caps.reactions == "fallback":
+                return DeliveryStrategy(method="fallback_text")
 
         if kind == EventKind.MESSAGE_EDITED:
             if caps.edits == "unsupported":
                 return DeliveryStrategy(method="skip")
+            if caps.edits == "fallback":
+                return DeliveryStrategy(method="fallback_text")
 
         if kind == EventKind.MESSAGE_DELETED:
             if caps.deletes == "unsupported":
                 return DeliveryStrategy(method="skip")
+            if caps.deletes == "fallback":
+                return DeliveryStrategy(method="fallback_text")
 
         if kind == EventKind.MESSAGE_FILE:
             if not caps.attachments:
@@ -149,6 +155,8 @@ class FallbackResolver:
             for rel in event.relations:
                 if rel.relation_type == "reply" and caps.replies == "unsupported":
                     return DeliveryStrategy(method="skip")
+                if rel.relation_type == "reply" and caps.replies == "fallback":
+                    return DeliveryStrategy(method="fallback_text")
 
         # -- Identity / delivery / system / plugin → passthrough ---------------
 

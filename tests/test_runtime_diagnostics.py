@@ -914,13 +914,15 @@ class TestDiagnosticsCapabilityWarning:
         assert "text unsupported" in result
 
     def test_reply_relations_not_triggered(self) -> None:
-        """replies=unsupported always produces a warning regardless of relations."""
+        """replies=unsupported without reply relations → no warning.
+
+        Route-level diagnostics cannot evaluate relation-specific requirements
+        without a concrete event; the synthetic event has no relations."""
         from medre.core.supervision.diagnostics import _check_capability_warning
 
         caps = AdapterCapabilities(replies="unsupported")
         result = _check_capability_warning("message.text", caps, "adapter-1")
-        assert result is not None
-        assert "replies unsupported" in result
+        assert result is None
 
     def test_unsupported_reactions_produces_warning(self) -> None:
         """reactions=unsupported with message.reacted event kind → warning."""

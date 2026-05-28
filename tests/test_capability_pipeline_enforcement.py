@@ -3,7 +3,7 @@ decisions end-to-end.
 
 Proves that capability suppression fires through PipelineRunner._deliver_one()
 and ReplayEngine._stage_deliver(), not just the pure capability-check helpers
-in ``medre.core.engine.pipeline._capability_unsupported``.  These tests
+in ``medre.core.planning.capabilities.capability_unsupported``.  These tests
 exercise the real pipeline with fake adapters and storage, verifying:
 
 * Unsupported event kinds produce status="skipped" with
@@ -1035,3 +1035,65 @@ class TestRouteStatsCapabilitySuppressed:
         snap = stats.snapshot()
         assert snap["r1"]["capability_suppressed"] == 1
         assert snap["r2"]["capability_suppressed"] == 1
+
+
+# ===================================================================
+# TestUnknownAdapterNotCapabilitySuppressed
+# ===================================================================
+
+
+class TestUnknownAdapterNotCapabilitySuppressed:
+    """Missing adapter produces ADAPTER_MISSING, not CAPABILITY_SUPPRESSED."""
+
+    @pytest.mark.asyncio
+    async def test_unknown_adapter_not_capability_suppressed(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Missing adapter produces ADAPTER_MISSING, not CAPABILITY_SUPPRESSED.
+
+        Routes an adapter ID that is NOT present in the adapters dict.
+        The event kind is message.file (which default caps would suppress),
+        but because the adapter is missing, the pipeline should return
+        ADAPTER_MISSING rather than CAPABILITY_SUPPRESSED.
+        """
+        route = Route(
+            id="missing-adapter-route",
+            source=RouteSource(
+                adapter="src",
+                event_kinds=("message.file",),
+                channel=None,
+            ),
+            targets=[RouteTarget(adapter="nonexistent_adapter")],
+        )
+        router = Router(routes=[route])
+
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router,
+            adapters={},  # Empty — no adapters registered at all.
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        event = make_event(
+            event_id="missing-adapter-001",
+            event_kind="message.file",
+            source_adapter="src",
+            source_channel_id="ch-0",
+            payload={"filename": "photo.jpg", "url": "https://example.com/photo.jpg"},
+        )
+
+        try:
+            outcomes = await runner.handle_ingress(event)
+
+            assert len(outcomes) == 1
+            outcome = outcomes[0]
+            assert outcome.status == "permanent_failure"
+            assert outcome.failure_kind is DeliveryFailureKind.ADAPTER_MISSING
+            assert outcome.failure_kind is not DeliveryFailureKind.CAPABILITY_SUPPRESSED
+            assert outcome.target_adapter == "nonexistent_adapter"
+            assert outcome.error is not None
+            assert "not registered" in outcome.error
+        finally:
+            await runner.stop()
