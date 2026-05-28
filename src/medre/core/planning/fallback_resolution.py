@@ -103,8 +103,10 @@ class FallbackResolver:
 
         For capability fields that use the three-level string scheme
         (``"native"``, ``"fallback"``, ``"unsupported"``), both
-        ``"native"`` and ``"fallback"`` are treated as supported;
-        only ``"unsupported"`` triggers a skip.
+        ``"native"`` and ``"fallback"`` are treated as supported.
+        ``"unsupported"`` triggers event-specific behavior (currently
+        ``"direct"`` for lifecycle events and ``"skip"`` for
+        hard-incompatible capabilities).
         """
         kind = event.event_kind
 

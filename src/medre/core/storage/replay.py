@@ -1786,6 +1786,8 @@ class ReplayEngine:
                 self._pipeline,
             )
             if not plan_result:
+                if self._accounting is not None:
+                    self._accounting.record_capability_suppressed()
                 return ReplayResult(
                     event_id=event.event_id,
                     stage="deliver",

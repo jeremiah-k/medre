@@ -118,6 +118,7 @@ class LxmfRenderer:
         RenderingResult
             The rendered LXMF content dict wrapped in a result.
         """
+        _ = max_text_chars  # reserved for unified renderer contract
         text = str(event.payload.get("body", event.payload.get("text", "")))
         title = str(event.payload.get("title", ""))
 
