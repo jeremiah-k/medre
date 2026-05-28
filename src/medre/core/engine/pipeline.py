@@ -2407,6 +2407,22 @@ class PipelineRunner:
         ):
             _adapter_message_id = adapter_result.native_message_id
 
+        # Serialize rendering evidence from the rendering result into the
+        # receipt.  Only attached on successful deliveries (sent / queued);
+        # suppressed, skipped, rendering-failure, and adapter-failure receipts
+        # naturally leave rendering_evidence=None.  Uses getattr for forward
+        # compatibility when RenderingResult.rendering_evidence has not yet
+        # been added by the parallel evidence model task.
+        _rendering_evidence: str | None = None
+        if status in ("sent", "queued"):
+            _raw_evidence = getattr(rendering_result, "rendering_evidence", None)
+            if _raw_evidence is not None:
+                _rendering_evidence = (
+                    _raw_evidence
+                    if isinstance(_raw_evidence, str)
+                    else msgspec.json.encode(_raw_evidence).decode()
+                )
+
         receipt = DeliveryReceipt(
             sequence=0,
             receipt_id=receipt_id,
@@ -2435,6 +2451,7 @@ class PipelineRunner:
                 plan.retry_policy.max_delay_seconds if plan.retry_policy else None
             ),
             retry_jitter=(plan.retry_policy.jitter if plan.retry_policy else None),
+            rendering_evidence=_rendering_evidence,
         )
         await self._config.storage.append_receipt(receipt)
 

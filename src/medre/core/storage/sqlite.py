@@ -132,6 +132,7 @@ CREATE TABLE IF NOT EXISTS delivery_receipts (
     retry_backoff_base REAL,
     retry_max_delay REAL,
     retry_jitter INTEGER,
+    rendering_evidence TEXT,
     created_at TEXT NOT NULL
 );
 
@@ -147,7 +148,7 @@ SELECT dr.sequence, dr.receipt_id, dr.event_id, dr.delivery_plan_id,
        dr.adapter_message_id, dr.next_retry_at, dr.attempt_number,
        dr.parent_receipt_id, dr.source, dr.replay_run_id,
        dr.retry_max_attempts, dr.retry_backoff_base,
-       dr.retry_max_delay, dr.retry_jitter, dr.created_at
+       dr.retry_max_delay, dr.retry_jitter, dr.rendering_evidence, dr.created_at
 FROM delivery_receipts dr
 JOIN (
     SELECT delivery_plan_id, target_adapter, target_channel, MAX(sequence) AS max_seq
@@ -332,6 +333,7 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
             "retry_backoff_base",
             "retry_max_delay",
             "retry_jitter",
+            "rendering_evidence",
             "created_at",
         }
     ),
@@ -417,8 +419,8 @@ INSERT INTO delivery_receipts
      target_channel, route_id, status, error, failure_kind, adapter_message_id,
      next_retry_at, attempt_number, parent_receipt_id, source,
      replay_run_id, retry_max_attempts, retry_backoff_base,
-     retry_max_delay, retry_jitter, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     retry_max_delay, retry_jitter, rendering_evidence, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 _SELECT_EVENT = "SELECT * FROM canonical_events WHERE event_id = ?"
@@ -578,6 +580,7 @@ def _row_to_receipt(row: dict[str, Any]) -> DeliveryReceipt:
         retry_backoff_base=row.get("retry_backoff_base"),
         retry_max_delay=row.get("retry_max_delay"),
         retry_jitter=jitter_val,
+        rendering_evidence=row.get("rendering_evidence"),
         created_at=datetime.fromisoformat(row["created_at"]),
     )
 
@@ -1388,6 +1391,7 @@ class SQLiteStorage:
                     if receipt.retry_jitter is True
                     else (0 if receipt.retry_jitter is False else None)
                 ),
+                receipt.rendering_evidence,
                 receipt.created_at.isoformat(),
             ),
         )

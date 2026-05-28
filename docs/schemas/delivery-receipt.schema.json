@@ -107,6 +107,11 @@
       "default": null,
       "description": "Whether jitter is enabled from the route retry policy, if applicable."
     },
+    "rendering_evidence": {
+      "type": ["string", "null"],
+      "default": null,
+      "description": "Serialized rendering evidence (JSON string) attached on successful deliveries. None for suppressed, skipped, rendering-failure, and adapter-failure receipts."
+    },
     "created_at": {
       "type": "string",
       "format": "date-time",

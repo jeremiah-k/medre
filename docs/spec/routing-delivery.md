@@ -412,6 +412,7 @@ class DeliveryReceipt:
     retry_backoff_base: float | None = None # Persisted retry policy: backoff base
     retry_max_delay: float | None = None   # Persisted retry policy: max delay
     retry_jitter: bool | None = None       # Persisted retry policy: jitter enabled
+    rendering_evidence: str | None = None  # Structured rendering evidence for this attempt
     created_at: datetime = ...             # Timestamp when this receipt was created
 ```
 
@@ -457,9 +458,22 @@ CREATE TABLE delivery_receipts (
     retry_backoff_base REAL,
     retry_max_delay REAL,
     retry_jitter INTEGER,
+    rendering_evidence TEXT,
     created_at TEXT NOT NULL
 );
 ```
+
+### 8.3.1 Rendering Evidence and Receipts
+
+Each delivery attempt passes through the rendering pipeline before reaching the adapter. The rendering pipeline produces a `RenderingResult` whose `truncated` and `fallback_applied` fields are evidence signals explaining the rendering decision. These signals are durable: the `rendering_evidence` column on `delivery_receipts` stores a structured record of the rendering evidence for each delivery attempt.
+
+When inspecting a receipt, operators can determine:
+
+- Whether the rendered content was truncated.
+- Whether fallback rendering was applied and which kind.
+- What delivery strategy governed the render.
+
+For the full rendering evidence semantics, payload vs evidence distinction, and replay-readiness limits, see the Diagnostics and Evidence Specification, § 14.
 
 ### 8.4 Receipt Lineage
 

@@ -513,6 +513,30 @@ The renderer owns payload construction. The adapter owns transport delivery.
 - When `delivery_strategy` is `"fallback_text"`, the target-native renderer already embedded the degraded relation text in the payload. The adapter does not need to handle fallback logic.
 - The rendering pipeline selects the renderer. Adapters **MUST NOT** influence renderer selection or inspect `RenderingResult.metadata` to decide formatting.
 
+### 10.5 Rendering Evidence and Inspectability
+
+`RenderingContext` and `RenderingResult` together form an evidence trail for rendering decisions. The context explains the constraints that governed the render call; the result records whether adjustments were made.
+
+**Evidence signals on `RenderingResult`:**
+
+| Field              | Signal                                                         |
+| ------------------ | -------------------------------------------------------------- |
+| `truncated`        | `True` when the renderer shortened content to fit a budget.   |
+| `fallback_applied` | Identifies which fallback was used, or `None` if none.        |
+
+These fields are not operational flags. They are evidence that lets operators understand why a particular rendering output looks the way it does. `truncated=True` means content was lost to fit adapter constraints. `fallback_applied="strategy_fallback_text"` means the target-native renderer degraded relation context to inline text. The `FallbackApplied` literal vocabulary (`"relation_reply"`, `"relation_reaction"`, `"relation_edit"`, `"relation_delete"`, `"relation_thread"`, `"strategy_fallback_text"`) is a closed set of fallback reasons.
+
+**Evidence signals on `RenderingContext`:**
+
+| Field               | Signal                                                  |
+| ------------------- | ------------------------------------------------------- |
+| `delivery_strategy` | The strategy that governed rendering.                   |
+| `max_text_chars`    | Character budget that may have caused truncation.       |
+| `max_text_bytes`    | UTF-8 byte budget that may have caused truncation.      |
+| `capability_level`  | Target's capability level for the event's relation type. |
+
+The payload (`RenderingResult.payload`) is the rendered content. It is not evidence. Evidence is the explanation of decisions, carried by `truncated`, `fallback_applied`, and the context fields. For the full evidence semantics, receipt attachment, and replay-readiness limits, see the Diagnostics and Evidence Specification, § 14.
+
 ---
 
 ## 11. RateLimitConfig

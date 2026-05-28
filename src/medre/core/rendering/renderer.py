@@ -38,10 +38,13 @@ Public symbols
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import ClassVar, Literal, Protocol, get_args, runtime_checkable
+from dataclasses import dataclass, field, replace
+from typing import TYPE_CHECKING, ClassVar, Literal, Protocol, get_args, runtime_checkable
 
 from medre.core.events import CanonicalEvent
+
+if TYPE_CHECKING:
+    from medre.core.rendering.evidence import RenderingEvidence
 
 # ---------------------------------------------------------------------------
 # Strategy and capability types
@@ -189,6 +192,10 @@ class RenderingResult:
         Whether the rendered content was truncated.
     fallback_applied:
         Which fallback strategy was applied, if any.
+    rendering_evidence:
+        Immutable evidence snapshot built by the pipeline after a
+        renderer returns.  ``None`` when the result was not produced
+        by :meth:`RenderingPipeline.render` (e.g. manually constructed).
     """
 
     event_id: str
@@ -198,6 +205,7 @@ class RenderingResult:
     metadata: dict[str, object] = field(default_factory=dict)
     truncated: bool = False
     fallback_applied: FallbackApplied | None = None
+    rendering_evidence: RenderingEvidence | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -466,7 +474,16 @@ class RenderingPipeline:
 
         for _pri, _seq, renderer in self._renderers:
             if renderer.can_render(event, ctx):
-                return await renderer.render(event, ctx)
+                result = await renderer.render(event, ctx)
+                # Local import to avoid circular dependency with evidence.py.
+                from medre.core.rendering.evidence import RenderingEvidence as _RE
+
+                evidence = _RE.from_context_and_result(
+                    renderer_name=renderer.name,
+                    ctx=ctx,
+                    result=result,
+                )
+                return replace(result, rendering_evidence=evidence)
 
         raise ValueError(
             f"No renderer registered for event_kind={event.event_kind!r} "

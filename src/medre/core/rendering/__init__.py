@@ -24,6 +24,8 @@ Exported names
   well-known delivery strategy method values.
 * :class:`~medre.core.rendering.renderer.FallbackApplied` –
   fallback reason tag on rendering results.
+* :class:`~medre.core.rendering.evidence.RenderingEvidence` –
+  immutable evidence snapshot attached to rendering results.
 * :class:`~medre.core.rendering.text.TextRenderer` – concrete
   renderer for plain-text targets.
 * :func:`~medre.core.rendering.text_helpers.extract_relation_text` –
@@ -43,6 +45,7 @@ from medre.core.rendering.renderer import (
     RenderingPipeline,
     RenderingResult,
 )
+from medre.core.rendering.evidence import RenderingEvidence
 from medre.core.rendering.text import TextRenderer
 from medre.core.rendering.text_helpers import (
     extract_relation_text,
@@ -56,6 +59,7 @@ __all__ = [
     "FallbackApplied",
     "Renderer",
     "RenderingContext",
+    "RenderingEvidence",
     "RenderingPipeline",
     "RenderingResult",
     "TextRenderer",
