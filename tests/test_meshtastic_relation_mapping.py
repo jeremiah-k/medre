@@ -46,7 +46,7 @@ from medre.core.events import (
 )
 from medre.core.events.bus import EventBus
 from medre.core.planning import FallbackResolver, RelationResolver
-from medre.core.rendering.renderer import RenderingPipeline
+from medre.core.rendering.renderer import RenderingContext, RenderingPipeline
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite import SQLiteStorage
@@ -719,7 +719,9 @@ class TestMeshtasticRendererEnrichedReactionText:
             metadata=EventMetadata(),
         )
 
-        result = await renderer.render(event, "mesh-1")
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         text = str(result.payload["text"])
 
         # Should contain the reaction key and the original text preview.

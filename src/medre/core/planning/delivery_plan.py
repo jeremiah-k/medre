@@ -41,8 +41,26 @@ class DeliveryStrategy:
     Attributes
     ----------
     method:
-        The delivery approach – ``"direct"``, ``"propagated"``,
-        ``"opportunistic"``, or ``"paper"`` (store-and-forward).
+        The delivery approach.  Well-known values with defined semantics:
+
+        * ``"direct"`` — normal/native rendering path.  The event is
+          rendered through the standard renderer pipeline and delivered
+          natively to the adapter.
+        * ``"fallback_text"`` — degraded text rendering within the
+          target-native format.  The target-native renderer produces its
+          native output but embeds relation context as inline text drawn
+          from ``EventRelation.fallback_text``.  The pipeline does not
+          bypass the target-native renderer or switch to a generic text
+          renderer.  The adapter still receives a payload in its native
+          format.
+        * ``"skip"`` — delivery suppressed before rendering and adapter
+          invocation.  Used when the target adapter's capability for the
+          event's relation type is ``"unsupported"``, or when pre-outbox
+          guards prevent delivery.  No renderer is invoked.  No adapter
+          call is made.
+        * ``"propagated"`` — relayed through an intermediate hop.
+        * ``"opportunistic"`` — best-effort, no delivery guarantee.
+        * ``"paper"`` — store-and-forward.
     max_retries:
         Maximum number of retry attempts before marking the delivery
         as permanently failed.
@@ -54,15 +72,7 @@ class DeliveryStrategy:
     max_retries: int = 3
     timeout_seconds: float = 30.0
 
-    #: Well-known method values.  ``method`` is a free-form string; the
-    #: following values have defined semantics:
-    #:
-    #: * ``"direct"``        – native delivery.
-    #: * ``"fallback_text"`` – degraded / textual fallback rendering.
-    #: * ``"propagated"``    – relayed through an intermediate hop.
-    #: * ``"opportunistic"`` – best-effort, no delivery guarantee.
-    #: * ``"paper"``         – store-and-forward.
-    #: * ``"skip"``          – delivery suppressed (capability mismatch).
+    #: Well-known method values — see the class docstring for full semantics.
 
 
 # ---------------------------------------------------------------------------

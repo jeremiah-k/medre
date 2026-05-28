@@ -100,8 +100,11 @@ class EventRelation(msgspec.Struct, frozen=True):
     key:
         Optional discriminator (e.g. the emoji for a reaction relation).
     fallback_text:
-        Human-readable fallback text for the target when the event body
-        is not available.
+        Human-readable text describing the relation's semantic meaning,
+        used by fallback rendering strategies when the target adapter
+        cannot represent the relation natively.  Typically a short
+        summary of the target event (e.g. the first few words of the
+        original message for a reply, or the emoji for a reaction).
     metadata:
         Arbitrary key-value metadata attached to this relation.
     """

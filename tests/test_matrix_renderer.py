@@ -14,7 +14,7 @@ from medre.core.events import (
     NativeMetadata,
     NativeRef,
 )
-from medre.core.rendering.renderer import RenderingResult
+from medre.core.rendering.renderer import RenderingContext, RenderingResult
 
 
 def _make_event(
@@ -50,7 +50,14 @@ class TestMatrixRenderer:
         renderer = MatrixRenderer()
         event = _make_event()
         assert (
-            renderer.can_render(event, "chat-instance", target_platform="matrix")
+            renderer.can_render(
+                event,
+                RenderingContext(
+                    target_adapter="chat-instance",
+                    delivery_strategy="direct",
+                    target_platform="matrix",
+                ),
+            )
             is True
         )
 
@@ -58,7 +65,14 @@ class TestMatrixRenderer:
         renderer = MatrixRenderer()
         event = _make_event()
         assert (
-            renderer.can_render(event, "fake_presentation", target_platform="fake")
+            renderer.can_render(
+                event,
+                RenderingContext(
+                    target_adapter="fake_presentation",
+                    delivery_strategy="direct",
+                    target_platform="fake",
+                ),
+            )
             is False
         )
 
@@ -66,12 +80,25 @@ class TestMatrixRenderer:
         """Without platform info, renderer cannot match (no prefix fallback)."""
         renderer = MatrixRenderer()
         event = _make_event()
-        assert renderer.can_render(event, "matrix_instance") is False
+        assert (
+            renderer.can_render(
+                event,
+                RenderingContext(
+                    target_adapter="matrix_instance", delivery_strategy="direct"
+                ),
+            )
+            is False
+        )
 
     async def test_render_simple_message(self) -> None:
         renderer = MatrixRenderer()
         event = _make_event(payload={"body": "hello matrix"})
-        result = await renderer.render(event, "matrix_instance")
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="matrix_instance", delivery_strategy="direct"
+            ),
+        )
         assert isinstance(result, RenderingResult)
         assert result.payload["msgtype"] == "m.text"
         assert result.payload["body"] == "hello matrix"
@@ -79,13 +106,23 @@ class TestMatrixRenderer:
     async def test_render_includes_msgtype(self) -> None:
         renderer = MatrixRenderer()
         event = _make_event()
-        result = await renderer.render(event, "matrix_instance")
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="matrix_instance", delivery_strategy="direct"
+            ),
+        )
         assert result.payload["msgtype"] == "m.text"
 
     async def test_render_includes_body(self) -> None:
         renderer = MatrixRenderer()
         event = _make_event(payload={"body": "specific body"})
-        result = await renderer.render(event, "matrix_instance")
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="matrix_instance", delivery_strategy="direct"
+            ),
+        )
         assert result.payload["body"] == "specific body"
 
     async def test_render_with_reply_relation(self) -> None:
@@ -105,7 +142,10 @@ class TestMatrixRenderer:
             payload={"body": "my reply"},
             relations=(relation,),
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
         assert "m.relates_to" in result.payload
         relates = result.payload["m.relates_to"]
         assert "m.in_reply_to" in relates
@@ -132,7 +172,10 @@ class TestMatrixRenderer:
             payload={"body": "👍"},
             relations=(relation,),
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
         assert result.payload["_matrix_event_type"] == "m.reaction"
         assert result.payload["m.relates_to"] == {
             "rel_type": "m.annotation",
@@ -145,7 +188,12 @@ class TestMatrixRenderer:
     async def test_render_with_envelope(self) -> None:
         renderer = MatrixRenderer()
         event = _make_event()
-        result = await renderer.render(event, "matrix_instance")
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="matrix_instance", delivery_strategy="direct"
+            ),
+        )
         assert "medre" in result.payload
         assert "envelope" in result.payload["medre"]
 
@@ -153,14 +201,24 @@ class TestMatrixRenderer:
         renderer = MatrixRenderer()
         long_body = "x" * 200_000
         event = _make_event(payload={"body": long_body})
-        result = await renderer.render(event, "matrix_instance")
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="matrix_instance", delivery_strategy="direct"
+            ),
+        )
         # Renderer passes body through without truncation
         assert result.payload["body"] == long_body
 
     async def test_render_returns_rendering_result(self) -> None:
         renderer = MatrixRenderer()
         event = _make_event()
-        result = await renderer.render(event, "matrix_instance")
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="matrix_instance", delivery_strategy="direct"
+            ),
+        )
         assert isinstance(result, RenderingResult)
         assert result.event_id == "evt-1"
         assert result.target_adapter == "matrix_instance"
@@ -183,7 +241,12 @@ class TestMatrixRendererForeignRefs:
             fallback_text="original",
         )
         event = _make_event(payload={"body": "hello"}, relations=(rel,))
-        result = await renderer.render(event, "matrix_instance")
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="matrix_instance", delivery_strategy="direct"
+            ),
+        )
         assert "m.relates_to" not in result.payload
 
     async def test_foreign_native_ref_not_used_for_reaction(self) -> None:
@@ -200,7 +263,12 @@ class TestMatrixRendererForeignRefs:
             fallback_text=None,
         )
         event = _make_event(payload={"body": "👍"}, relations=(rel,))
-        result = await renderer.render(event, "matrix_instance")
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="matrix_instance", delivery_strategy="direct"
+            ),
+        )
         assert "_matrix_event_type" not in result.payload
         assert result.payload.get("msgtype") == "m.emote"
 
@@ -219,7 +287,12 @@ class TestMatrixRendererForeignRefs:
             metadata={"meshtastic_reply_id": "42"},
         )
         event = _make_event(payload={"body": "hello"}, relations=(rel,))
-        result = await renderer.render(event, "matrix_instance")
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="matrix_instance", delivery_strategy="direct"
+            ),
+        )
         assert "meshtastic_replyId" in result.payload
         assert result.payload["meshtastic_replyId"] == "42"
 
@@ -249,7 +322,10 @@ class TestMatrixRendererReplySender:
             payload={"body": "my reply"},
             relations=(relation,),
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
         assert result.payload["body"] == "my reply"
 
     async def test_reply_body_no_fallback_quote(self) -> None:
@@ -270,7 +346,10 @@ class TestMatrixRendererReplySender:
             payload={"body": "my reply"},
             relations=(relation,),
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
         body = result.payload["body"]
         assert "> <" not in body
 
@@ -311,7 +390,10 @@ class TestMatrixRendererReplySender:
                 native=NativeMetadata(data={"longname": "TadChilly"})
             ),
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
         body = result.payload["body"]
         assert body == "[TadChilly] my reply"
         assert "> <" not in body
@@ -334,7 +416,10 @@ class TestMatrixRendererReplySender:
             payload={"body": "my reply"},
             relations=(relation,),
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
         assert (
             result.payload["m.relates_to"]["m.in_reply_to"]["event_id"]
             == "$orig-native"
@@ -359,7 +444,10 @@ class TestMatrixRendererReplySender:
             payload={"body": "my reply"},
             relations=(relation,),
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
         assert "meshtastic_replyId" in result.payload
         assert result.payload["meshtastic_replyId"] == "42"
 
@@ -383,7 +471,10 @@ class TestMatrixRendererReplySender:
             payload={"body": "my reply"},
             relations=(relation,),
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
         body = result.payload["body"]
         assert "> <matrix>" not in body
         assert "> <matrix-1>" not in body
@@ -463,7 +554,10 @@ class TestMultiRadioSourceConfig:
             source_adapter="radio-alpha",
             native_data={"longname": "Alice"},
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
         assert result.payload["body"] == "[Alice/AlphaNet]: hello mesh"
 
     async def test_bravo_source_uses_bravo_prefix(self) -> None:
@@ -473,7 +567,10 @@ class TestMultiRadioSourceConfig:
             source_adapter="radio-bravo",
             native_data={"longname": "Bob"},
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
         assert result.payload["body"] == "[Bob/BravoNet]: hello mesh"
 
     async def test_unknown_source_renders_plain_output(self) -> None:
@@ -483,7 +580,10 @@ class TestMultiRadioSourceConfig:
             source_adapter="radio-charlie",
             native_data={"longname": "Charlie"},
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
         # Unknown source → no prefix, plain body
         assert result.payload["body"] == "hello mesh"
         # No mmrelay metadata (no source config match)
@@ -496,7 +596,10 @@ class TestMultiRadioSourceConfig:
             source_adapter="radio-alpha",
             native_data={"longname": "Alice", "shortname": "A", "packet_id": "99"},
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
         # mmrelay_compat=True → mesh provenance keys injected
         assert "meshtastic_id" in result.payload
         assert result.payload["meshtastic_id"] == "99"
@@ -508,7 +611,10 @@ class TestMultiRadioSourceConfig:
             source_adapter="radio-bravo",
             native_data={"longname": "Bob", "shortname": "B", "packet_id": "88"},
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
         # mmrelay_compat=False → no mesh provenance keys
         assert "meshtastic_id" not in result.payload
 
@@ -532,7 +638,10 @@ class TestMultiRadioSourceConfig:
             payload={"body": "👍"},
             relations=(relation,),
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
         body = result.payload["body"]
         # mmrelay_compat default is True for alpha → emote fallback
         assert "Alice/AlphaNet" in body
@@ -558,7 +667,10 @@ class TestMultiRadioSourceConfig:
             payload={"body": "👍"},
             relations=(relation,),
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
         # Bravo has mmrelay_compat=False → reaction fallback emote
         # but KEY_MESHNET should still be BravoNet from source config
         assert result.payload["meshtastic_meshnet"] == "BravoNet"
@@ -570,7 +682,10 @@ class TestMultiRadioSourceConfig:
             event_id="evt-plain-1",
             payload={"body": "Hello from elsewhere"},
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
         # Plain output — no relay prefix from any Meshtastic config
         assert result.payload["body"] == "Hello from elsewhere"
         # No Meshtastic metadata keys
@@ -617,7 +732,10 @@ class TestRuntimeAssemblySourceConfig:
             source_adapter="radio-alpha",
             native_data={"longname": "Alice", "shortname": "A", "packet_id": "42"},
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
         assert result.payload["body"] == "[Alice/AlphaNet]: hello mesh"
         # alpha has mmrelay_compat=True → mesh metadata injected
         assert "meshtastic_id" in result.payload
@@ -631,7 +749,10 @@ class TestRuntimeAssemblySourceConfig:
             source_adapter="radio-bravo",
             native_data={"longname": "Bob", "shortname": "B", "packet_id": "88"},
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
         assert result.payload["body"] == "[Bob/BravoNet]: hello mesh"
         # bravo has mmrelay_compat=False → no mesh metadata
         assert "meshtastic_id" not in result.payload
@@ -644,7 +765,10 @@ class TestRuntimeAssemblySourceConfig:
             event_id="evt-matrix-1",
             payload={"body": "Hello from Matrix"},
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
         # Plain output — no relay prefix
         assert result.payload["body"] == "Hello from Matrix"
         # No Meshtastic metadata keys
@@ -663,9 +787,422 @@ class TestRuntimeAssemblySourceConfig:
             source_adapter="radio-charlie",
             native_data={"longname": "Charlie", "packet_id": "77"},
         )
-        result = await renderer.render(event, "matrix-1")
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
         # No prefix (source_configs has no matching entry)
         assert result.payload["body"] == "hello mesh"
         # No mmrelay metadata (no matching source_config)
         assert "meshtastic_id" not in result.payload
         assert "meshtastic_meshnet" not in result.payload
+
+
+# ---------------------------------------------------------------------------
+# Fallback-text strategy tests
+# ---------------------------------------------------------------------------
+
+
+class TestMatrixFallbackText:
+    """MatrixRenderer fallback_text strategy: degraded relation text rendering.
+
+    Tests that truncation applies to the final body (including relay prefix),
+    original_length metadata is correct, and envelope/mmrelay metadata remain
+    intact.
+    """
+
+    @staticmethod
+    def _make_fallback_event(
+        body: str = "hello",
+        *,
+        source_adapter: str = "transport",
+        native_data: dict | None = None,
+        fallback_text: str = "original message",
+    ) -> CanonicalEvent:
+        """Build an event with a reply relation for fallback_text strategy."""
+        metadata = EventMetadata()
+        if native_data:
+            metadata = EventMetadata(native=NativeMetadata(data=native_data))
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="orig-001",
+            target_native_ref=NativeRef(
+                adapter="mesh-1",
+                native_channel_id="ch-0",
+                native_message_id="mesh-42",
+            ),
+            key=None,
+            fallback_text=fallback_text,
+        )
+        return CanonicalEvent(
+            event_id="evt-fb-1",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter=source_adapter,
+            source_transport_id="node-1",
+            source_channel_id="ch-0",
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"body": body},
+            metadata=metadata,
+        )
+
+    async def test_fallback_text_basic_body(self) -> None:
+        """Fallback-text strategy renders degraded text without m.relates_to."""
+        renderer = MatrixRenderer()
+        event = self._make_fallback_event(body="my reply")
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="matrix-1",
+                delivery_strategy="fallback_text",
+            ),
+        )
+        assert result.payload["msgtype"] == "m.text"
+        assert "m.relates_to" not in result.payload
+        assert result.fallback_applied == "strategy_fallback_text"
+        # Body should contain degraded relation info and original text
+        assert "my reply" in result.payload["body"]
+
+    async def test_fallback_text_envelope_present(self) -> None:
+        """Fallback-text strategy still embeds the MEDRE metadata envelope."""
+        renderer = MatrixRenderer()
+        event = self._make_fallback_event()
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="matrix-1",
+                delivery_strategy="fallback_text",
+            ),
+        )
+        assert "medre" in result.payload
+        assert "envelope" in result.payload["medre"]
+
+    async def test_fallback_text_truncation_respects_max_text_chars(self) -> None:
+        """Truncation applies to the final body including relay prefix."""
+        renderer = MatrixRenderer(
+            source_configs={
+                "transport": _StubMeshtasticConfig(
+                    adapter_id="transport",
+                    matrix_relay_prefix="[Alice]: ",
+                ),
+            },
+        )
+        event = self._make_fallback_event(
+            body="hello world",
+            source_adapter="transport",
+            native_data={"longname": "Alice"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="matrix-1",
+                delivery_strategy="fallback_text",
+                max_text_chars=10,
+            ),
+        )
+        body: str = result.payload["body"]
+        # The final body must respect max_text_chars=10 including prefix
+        assert len(body) <= 10
+        # Truncation occurred
+        assert result.truncated is True
+
+    async def test_fallback_text_truncation_original_length_includes_prefix(
+        self,
+    ) -> None:
+        """original_length metadata reflects the full pre-truncate body (prefix + text)."""
+        prefix = "[Alice]: "
+        renderer = MatrixRenderer(
+            source_configs={
+                "transport": _StubMeshtasticConfig(
+                    adapter_id="transport",
+                    matrix_relay_prefix=prefix,
+                ),
+            },
+        )
+        event = self._make_fallback_event(
+            body="hello world",
+            source_adapter="transport",
+            native_data={"longname": "Alice"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="matrix-1",
+                delivery_strategy="fallback_text",
+                max_text_chars=5,
+            ),
+        )
+        # original_length should be the full prefixed body length
+        # (before truncation, after prefix application)
+        assert "original_length" in result.metadata
+        # degraded_text from TextRenderer._extract_text includes reply prefix
+        # so we check that original_length >= len(prefix + "hello world")
+        assert result.metadata["original_length"] >= len(prefix + "hello world")
+
+    async def test_fallback_text_no_truncation_when_within_budget(self) -> None:
+        """No truncation when the prefixed body fits within max_text_chars."""
+        renderer = MatrixRenderer(
+            source_configs={
+                "transport": _StubMeshtasticConfig(
+                    adapter_id="transport",
+                    matrix_relay_prefix="[Al]: ",
+                ),
+            },
+        )
+        event = self._make_fallback_event(
+            body="hi",
+            source_adapter="transport",
+            native_data={"longname": "Al"},
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="matrix-1",
+                delivery_strategy="fallback_text",
+                max_text_chars=500,
+            ),
+        )
+        assert result.truncated is False
+        assert "original_length" not in result.metadata
+
+    async def test_fallback_text_mmrelay_metadata_preserved(self) -> None:
+        """mmrelay metadata injection is preserved under fallback_text strategy."""
+        renderer = MatrixRenderer(
+            source_configs={
+                "transport": _StubMeshtasticConfig(
+                    adapter_id="transport",
+                    mmrelay_compatibility=True,
+                ),
+            },
+        )
+        event = self._make_fallback_event(
+            source_adapter="transport",
+            native_data={
+                "longname": "Alice",
+                "shortname": "A",
+                "packet_id": "99",
+            },
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="matrix-1",
+                delivery_strategy="fallback_text",
+            ),
+        )
+        # mmrelay metadata keys should be present
+        assert "meshtastic_id" in result.payload
+        assert result.payload["meshtastic_id"] == "99"
+        assert result.payload["meshtastic_longname"] == "Alice"
+        assert result.payload["meshtastic_shortname"] == "A"
+
+    async def test_fallback_without_relations_uses_fallback_path(self) -> None:
+        """Fallback_text strategy without relations still uses _render_fallback_text."""
+        renderer = MatrixRenderer()
+        event = _make_event(payload={"body": "plain message"})
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="matrix-1",
+                delivery_strategy="fallback_text",
+            ),
+        )
+        assert result.fallback_applied == "strategy_fallback_text"
+        assert result.payload["msgtype"] == "m.text"
+        assert "m.relates_to" not in result.payload
+
+    async def test_fallback_byte_truncation_applies(self) -> None:
+        """Byte budget truncation applies to fallback body and reports metadata."""
+        renderer = MatrixRenderer()
+        # Create event with multi-byte content
+        body = "hello" + "é" * 100  # each é is 2 UTF-8 bytes
+        event = self._make_fallback_event(body=body)
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="matrix-1",
+                delivery_strategy="fallback_text",
+                max_text_bytes=20,
+            ),
+        )
+        rendered_body: str = result.payload["body"]
+        assert len(rendered_body.encode("utf-8")) <= 20
+        assert result.truncated is True
+        assert "original_text_bytes" in result.metadata
+        assert "rendered_text_bytes" in result.metadata
+
+    async def test_fallback_byte_truncation_no_truncate_when_within_budget(self) -> None:
+        """No byte truncation when body fits within max_text_bytes."""
+        renderer = MatrixRenderer()
+        event = self._make_fallback_event(body="short")
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="matrix-1",
+                delivery_strategy="fallback_text",
+                max_text_bytes=1000,
+            ),
+        )
+        assert result.truncated is False
+
+
+class TestMatrixReactionEmojiPrecedence:
+    """Reaction emoji extraction follows precedence: rel.key, payload['key'],
+    payload['emoji'], payload['body'], fallback."""
+
+    async def test_emoji_from_rel_key(self) -> None:
+        """rel.key takes highest precedence."""
+        renderer = MatrixRenderer()
+        relation = EventRelation(
+            relation_type="reaction",
+            target_event_id="orig-001",
+            target_native_ref=NativeRef(
+                adapter="matrix-1",
+                native_channel_id="!room:server",
+                native_message_id="$orig-native",
+            ),
+            key="❤️",
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"key": "👍", "emoji": "🎉", "body": "plain"},
+            relations=(relation,),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
+        assert result.payload["m.relates_to"]["key"] == "❤️"
+
+    async def test_emoji_from_payload_key(self) -> None:
+        """payload['key'] is used when rel.key is None."""
+        renderer = MatrixRenderer()
+        relation = EventRelation(
+            relation_type="reaction",
+            target_event_id="orig-001",
+            target_native_ref=NativeRef(
+                adapter="matrix-1",
+                native_channel_id="!room:server",
+                native_message_id="$orig-native",
+            ),
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"key": "👍", "emoji": "🎉", "body": "plain"},
+            relations=(relation,),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
+        assert result.payload["m.relates_to"]["key"] == "👍"
+
+    async def test_emoji_from_payload_emoji(self) -> None:
+        """payload['emoji'] is used when rel.key and payload['key'] are absent."""
+        renderer = MatrixRenderer()
+        relation = EventRelation(
+            relation_type="reaction",
+            target_event_id="orig-001",
+            target_native_ref=NativeRef(
+                adapter="matrix-1",
+                native_channel_id="!room:server",
+                native_message_id="$orig-native",
+            ),
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"emoji": "🎉", "body": "plain"},
+            relations=(relation,),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
+        assert result.payload["m.relates_to"]["key"] == "🎉"
+
+    async def test_emoji_from_payload_body(self) -> None:
+        """payload['body'] is used when all higher-precedence sources are absent."""
+        renderer = MatrixRenderer()
+        relation = EventRelation(
+            relation_type="reaction",
+            target_event_id="orig-001",
+            target_native_ref=NativeRef(
+                adapter="matrix-1",
+                native_channel_id="!room:server",
+                native_message_id="$orig-native",
+            ),
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"body": "👍"},
+            relations=(relation,),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
+        assert result.payload["m.relates_to"]["key"] == "👍"
+
+    async def test_emoji_fallback_when_all_blank(self) -> None:
+        """Falls back to ⚠️ when all sources are blank."""
+        renderer = MatrixRenderer()
+        relation = EventRelation(
+            relation_type="reaction",
+            target_event_id="orig-001",
+            target_native_ref=NativeRef(
+                adapter="matrix-1",
+                native_channel_id="!room:server",
+                native_message_id="$orig-native",
+            ),
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"body": " "},  # whitespace-only body → stripped to blank
+            relations=(relation,),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+        )
+        assert result.payload["m.relates_to"]["key"] == "\u26a0\ufe0f"
+
+
+class TestFallbackAppliedTyping:
+    """fallback_applied uses FallbackApplied literals."""
+
+    async def test_fallback_applied_is_strategy_literal(self) -> None:
+        """fallback_applied for strategy_fallback_text is the correct literal."""
+        from medre.core.rendering.renderer import FallbackApplied
+
+        renderer = MatrixRenderer()
+        event = _make_event(payload={"body": "hello"})
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="matrix-1",
+                delivery_strategy="fallback_text",
+            ),
+        )
+        assert result.fallback_applied == "strategy_fallback_text"
+        # Type check: the value is one of the FallbackApplied literals
+        assert result.fallback_applied in FallbackApplied.__args__
+
+    async def test_direct_strategy_has_no_fallback(self) -> None:
+        """Direct strategy yields fallback_applied=None."""
+        renderer = MatrixRenderer()
+        event = _make_event(payload={"body": "hello"})
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="matrix-1",
+                delivery_strategy="direct",
+            ),
+        )
+        assert result.fallback_applied is None

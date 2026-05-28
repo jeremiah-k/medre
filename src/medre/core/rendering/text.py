@@ -5,19 +5,43 @@ representation — message lifecycle events and presence changes — and convert
 them into a simple ``{"text": ...}`` payload suitable for text-only targets
 such as Meshtastic radio transports, SMS gateways, or terminal adapters.
 
-Text is capped at **500 characters**.  When truncation occurs the resulting
-:class:`~medre.core.rendering.renderer.RenderingResult` has its
-``truncated`` flag set to ``True`` and the ``metadata`` dict includes the
-original content length.
+Text is capped at a default of **500 characters** (defined in
+``text_helpers._DEFAULT_MAX_TEXT_LENGTH``).  The cap is overridden
+by ``RenderingContext.max_text_chars`` from adapter capabilities.  Negative or
+zero caps are clamped to zero, producing empty output.  When truncation
+occurs the resulting :class:`~medre.core.rendering.renderer.RenderingResult`
+has its ``truncated`` flag set to ``True`` and the ``metadata`` dict includes
+the original content length.
+
+**Strategy fallback**: when ``RenderingContext.delivery_strategy`` is
+``"fallback_text"``, the renderer sets ``fallback_applied="strategy_fallback_text"``
+on the result, indicating degraded rendering was used because the target
+adapter lacks native support for the event's relation type (reactions,
+edits, deletes, replies).
 """
 
 from __future__ import annotations
 
 from medre.core.events import CanonicalEvent, EventKind
-from medre.core.rendering.renderer import RenderingResult
+from medre.core.rendering.renderer import (
+    FallbackApplied,
+    RenderingContext,
+    RenderingResult,
+)
+from medre.core.rendering.text_helpers import (
+    extract_relation_text,
+    truncate_text as _shared_truncate_text,
+)
 
-# Maximum characters for rendered text before truncation.
-_MAX_TEXT_LENGTH: int = 500
+
+#: Mapping from relation type to the canonical :data:`FallbackApplied` value.
+_RELATION_FALLBACK_MAP: dict[str, FallbackApplied] = {
+    "reply": "relation_reply",
+    "reaction": "relation_reaction",
+    "edit": "relation_edit",
+    "delete": "relation_delete",
+    "thread": "relation_thread",
+}
 
 
 class TextRenderer:
@@ -26,6 +50,13 @@ class TextRenderer:
     Handles ``message.text``, ``message.created``, ``message.edited``,
     ``message.deleted``, ``message.reacted``, ``presence.changed``, and
     ``plugin.custom`` events.
+
+    **Relation degradation** — When a canonical event carries relations
+    (reply, reaction, edit, delete, thread) only the **first** relation
+    is processed.  Each relation type produces deterministic degraded
+    text that never emits empty or ambiguous output, even when relation
+    metadata is partially missing.  See :meth:`_extract_text` for the
+    exact fallback format per relation type.
     """
 
     name: str = "text"
@@ -37,24 +68,22 @@ class TextRenderer:
     def can_render(
         self,
         event: CanonicalEvent,
-        target_adapter: str,
-        target_platform: str | None = None,
+        ctx: RenderingContext,
     ) -> bool:
         """Return ``True`` for event kinds that have a plain-text representation.
 
         This renderer is platform-agnostic — it handles events based on
-        event kind, not target adapter identity.  The *target_adapter* and
-        *target_platform* parameters are accepted for protocol compatibility
-        but are not used for discrimination.
+        event kind, not target adapter identity.  The rendering context
+        is accepted for protocol compliance but is not used for
+        discrimination.
 
         Parameters
         ----------
         event:
             The canonical event to check.
-        target_adapter:
-            Name of the target adapter (not used for discrimination).
-        target_platform:
-            Platform name (not used for discrimination).
+        ctx:
+            Frozen rendering context with target identity, delivery
+            strategy, and capability metadata.
 
         Returns
         -------
@@ -78,10 +107,7 @@ class TextRenderer:
     async def render(
         self,
         event: CanonicalEvent,
-        target_adapter: str,
-        target_channel: str | None = None,
-        *,
-        max_text_chars: int | None = None,
+        ctx: RenderingContext,
     ) -> RenderingResult:
         """Render a canonical event as plain text.
 
@@ -93,11 +119,23 @@ class TextRenderer:
         * ``presence.changed`` — format as ``"{user} is now {status}"``.
         * ``plugin.custom`` — extract ``payload["text"]`` if available.
 
-        **Relation fallback rendering** — when the event carries relations:
+        **Relation fallback rendering** — when the event carries relations,
+        only the **first** relation is processed:
 
-        * *reply* — ``"[replying to: {fallback_text}] {payload_text}"``
-        * *reaction* — ``"{actor} reacted with {key}"``
-        * *edit* — ``"[edited] {payload_text}"``
+        * *reply* — ``"[replying to: {target}] {payload_text}"`` with
+          optional ``"by {sender}"`` enrichment when relation metadata
+          carries ``sender_displayname`` / ``displayname`` / ``sender``.
+          Target is resolved from ``fallback_text``, ``target_event_id``
+          (abbreviated), or ``target_native_ref``.
+        * *reaction* — ``"{actor} reacted with {key}"``.  Key is resolved
+          from ``rel.key``, ``payload["emoji"]``, or ``payload["body"]``.
+          When no key exists, produces ``"{actor} reacted"``.
+        * *edit* — ``"[edited] {payload_text}"``, or ``"[edited]"`` when
+          the edit carries no body.
+        * *delete* — ``"[deleted: {target}]"`` when target context is
+          available, or ``"[deleted]"`` when it is not.
+        * *thread* — ``"[thread: {target}] {payload_text}"``, degraded
+          similarly to reply.
 
         Text exceeding the character limit is truncated and the ``truncated``
         flag is set on the result.
@@ -108,16 +146,9 @@ class TextRenderer:
         ----------
         event:
             The canonical event to render.
-        target_adapter:
-            Name of the adapter the rendered payload is intended for.
-        target_channel:
-            Optional channel / conversation on the target adapter.
-        max_text_chars:
-            Per-call character cap for the rendered text.  When ``None``
-            (the default), the 500-character module-level default is used.
-            When provided, the text is truncated to this many characters
-            and the ``truncated`` flag is set on the result when
-            truncation occurs.
+        ctx:
+            Frozen rendering context carrying the target adapter, delivery
+            strategy, and text budget.
 
         Returns
         -------
@@ -125,23 +156,32 @@ class TextRenderer:
             The rendered text payload wrapped in a standard result.
         """
         raw_text = self._extract_text(event)
-        text, truncated = self._truncate(raw_text, max_text_chars=max_text_chars)
+        text, truncated = self._truncate(raw_text, max_text_chars=ctx.max_text_chars)
 
         metadata: dict[str, object] = {
             "renderer": self.name,
             "original_length": len(raw_text),
         }
 
-        fallback_applied: str | None = None
+        fallback_applied: FallbackApplied | None = None
         if event.relations:
             rel = event.relations[0]
-            if rel.relation_type in ("reply", "reaction", "edit"):
-                fallback_applied = f"relation_{rel.relation_type}"
+            fallback_applied = _RELATION_FALLBACK_MAP.get(rel.relation_type)
+
+        # Strategy fallback takes precedence over relation-based fallback.
+        # When strategy_fallback_text overrides a relation-based fallback,
+        # preserve the underlying relation type in metadata so that
+        # diagnostics and consumers can identify both the strategy and the
+        # degraded relation in a single result.
+        if ctx.delivery_strategy == "fallback_text":
+            if fallback_applied is not None:
+                metadata["strategy_relation_type"] = event.relations[0].relation_type
+            fallback_applied = "strategy_fallback_text"
 
         return RenderingResult(
             event_id=event.event_id,
-            target_adapter=target_adapter,
-            target_channel=target_channel,
+            target_adapter=ctx.target_adapter,
+            target_channel=ctx.target_channel,
             payload={"text": text},
             metadata=metadata,
             truncated=truncated,
@@ -156,62 +196,9 @@ class TextRenderer:
     def _extract_text(event: CanonicalEvent) -> str:
         """Extract the raw (pre-truncation) text from *event*.
 
-        When the event carries relations the text is augmented with
-        fallback formatting before kind-based logic is applied.
-
-        Both ``payload["text"]`` and ``payload["body"]`` are checked —
-        adapters use either key depending on their native format (Matrix
-        and Meshtastic codecs store text under ``"body"``, others may
-        use ``"text"``).
+        Delegates to :func:`~medre.core.rendering.text_helpers.extract_relation_text`.
         """
-        kind = event.event_kind
-
-        # -- Relation fallback rendering ------------------------------------
-        if event.relations:
-            rel = event.relations[0]
-            if rel.relation_type == "reply" and rel.fallback_text:
-                payload_text = str(
-                    event.payload.get("text", event.payload.get("body", ""))
-                )
-                return f"[replying to: {rel.fallback_text}] {payload_text}"
-
-            if rel.relation_type == "reaction" and rel.key:
-                actor = str(event.payload.get("user", event.source_adapter))
-                return f"{actor} reacted with {rel.key}"
-
-            if rel.relation_type == "edit":
-                payload_text = str(
-                    event.payload.get("text", event.payload.get("body", ""))
-                )
-                return f"[edited] {payload_text}"
-
-        # -- Kind-based rendering -------------------------------------------
-        if kind in (EventKind.MESSAGE_TEXT, EventKind.MESSAGE_CREATED):
-            return str(event.payload.get("text", event.payload.get("body", "")))
-
-        if kind == EventKind.MESSAGE_EDITED:
-            return "[edited] " + str(
-                event.payload.get("text", event.payload.get("body", ""))
-            )
-
-        if kind == EventKind.MESSAGE_DELETED:
-            return "[deleted]"
-
-        if kind == EventKind.MESSAGE_REACTED:
-            # Without a relation, render the payload text if present.
-            return str(event.payload.get("text", event.payload.get("body", "")))
-
-        if kind == EventKind.PRESENCE_CHANGED:
-            user = str(event.payload.get("user", "unknown"))
-            status = str(event.payload.get("status", "unknown"))
-            return f"{user} is now {status}"
-
-        if kind == EventKind.PLUGIN_CUSTOM:
-            return str(event.payload.get("text", event.payload.get("body", "")))
-
-        # Defensive fallback for unrecognised kinds that slip through
-        # can_render (should not happen in practice).
-        return str(event.payload.get("text", event.payload.get("body", "")))
+        return extract_relation_text(event)
 
     @staticmethod
     def _truncate(
@@ -221,24 +208,6 @@ class TextRenderer:
     ) -> tuple[str, bool]:
         """Cap *text* at the configured character limit.
 
-        Parameters
-        ----------
-        text:
-            The text to potentially truncate.
-        max_text_chars:
-            Maximum characters to allow.  When ``None``, falls back to
-            the module-level default :data:`_MAX_TEXT_LENGTH` (500).
-
-        Returns
-        -------
-        tuple[str, bool]
-            The (possibly truncated) text and whether truncation occurred.
+        Delegates to :func:`~medre.core.rendering.text_helpers.truncate_text`.
         """
-        limit = max(
-            0, max_text_chars if max_text_chars is not None else _MAX_TEXT_LENGTH
-        )
-        if limit == 0 and text:
-            return "", True
-        if len(text) <= limit:
-            return text, False
-        return text[:limit], True
+        return _shared_truncate_text(text, max_text_chars=max_text_chars)

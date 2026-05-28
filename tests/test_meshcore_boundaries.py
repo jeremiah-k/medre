@@ -33,7 +33,7 @@ from medre.adapters.meshcore.renderer import MeshCoreRenderer
 from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.core.contracts.adapter import AdapterPermanentError, AdapterSendError
 from medre.core.events import CanonicalEvent, EventMetadata
-from medre.core.rendering.renderer import RenderingResult
+from medre.core.rendering.renderer import RenderingContext, RenderingResult
 
 
 def _read_module_source(module) -> str:
@@ -450,7 +450,12 @@ class TestMeshCoreRendererIsolation:
             payload={"body": "test"},
             metadata=EventMetadata(),
         )
-        result = await renderer.render(event, "meshcore_node")
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="meshcore_node", delivery_strategy="direct"
+            ),
+        )
         assert isinstance(result, RenderingResult)
         assert not isinstance(result, CanonicalEvent)
 

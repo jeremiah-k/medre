@@ -173,6 +173,30 @@ The Meshtastic renderer (`MeshtasticRenderer`) produces:
 
 ---
 
+## Relation Degradation Behavior
+
+Meshtastic is a transport adapter with selective native relation support. The Meshtastic renderer handles all rendering within its native format.
+
+| Relation type | Capability level | Strategy | Rendering path                                                                                 |
+| ------------- | ---------------- | -------- | ---------------------------------------------------------------------------------------------- |
+| Replies       | `"native"`       | `direct` | `reply_id` (int) set from relation's Meshtastic native ref; plain text body                    |
+| Reactions     | `"native"`       | `direct` | `reply_id` + `emoji=1` for Meshtastic-originated tapbacks; descriptive text for cross-platform |
+| Edits         | `"unsupported"`  | `skip`   | No delivery. Edit events targeting this adapter are suppressed.                                |
+| Deletes       | `"unsupported"`  | `skip`   | No delivery. Delete events targeting this adapter are suppressed.                              |
+| Threads       | _deferred_       | —        | Reserved. Meshtastic has no thread concept.                                                    |
+
+Meshtastic does not currently declare the `"fallback"` capability level for any relation type in its capability JSON. All relations are either native or unsupported. When a relation type is unsupported, the delivery is skipped entirely at the planning stage. Because the capability profile does not advertise fallback, the live planner will not normally select `fallback_text` for this adapter.
+
+If a future profile revision or a directly constructed `RenderingContext` supplies `fallback_text` for a relation, the Meshtastic renderer would produce its native payload format with the relation context embedded as inline text. This is a renderer contract, not a test-only quirk; any code path that populates `fallback_text` on a routed relation triggers the same inline-text rendering path.
+
+**Thread deferral:** The `"thread"` relation type is defined in the canonical event model (`VALID_RELATION_TYPES`), but no adapter currently renders thread relations natively. However, fallback-text rendering for threads is implemented: when `delivery_strategy == "fallback_text"`, thread relations are degraded into inline text (e.g. `[thread: {target}] {payload_text}`). Thread capability requires a future `AdapterCapabilities.threads` field and planner-level thread routing before any adapter can advertise or render threads natively.
+
+**Cross-platform reaction note:** When a reaction originates from a non-Meshtastic source, the Meshtastic renderer produces a descriptive text reaction (`"reacted {emoji} to \"{text}\""`) with `reply_id` but without `emoji=1`. This is still a native Meshtastic payload, not a fallback text payload. The renderer operates within its native format.
+
+**Payload requirement:** The Meshtastic renderer produces Meshtastic-native payloads (text body with optional `reply_id`/`emoji` fields, truncated to `max_text_bytes`). The adapter enqueues these payloads via `MeshtasticOutboundQueue` without modification.
+
+---
+
 ## Known Limitations
 
 - **No delivery confirmation.** Meshtastic `sendText` returns a packet object but does not guarantee the recipient received it. There is no ACK-based confirmation in the current implementation.

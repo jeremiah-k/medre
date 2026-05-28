@@ -1,9 +1,9 @@
 """Runtime transport capability metadata.
 
-Capabilities are descriptive metadata only.  They make adapter behaviour
-visible to diagnostics, tests, and operators; they do **not** negotiate
-features, trigger routing decisions, or enable transport behaviour by
-themselves.
+Capabilities are declarative runtime metadata used by diagnostics,
+planning, routing suppression, rendering constraints, and replay
+filtering.  They describe adapter behaviour; they do not enable
+transport features by themselves.
 """
 
 from __future__ import annotations

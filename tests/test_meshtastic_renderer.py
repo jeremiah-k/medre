@@ -17,7 +17,7 @@ from medre.core.events import (
     NativeMetadata,
     NativeRef,
 )
-from medre.core.rendering.renderer import RenderingResult
+from medre.core.rendering.renderer import RenderingContext, RenderingResult
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -124,7 +124,12 @@ class TestMeshtasticRendererConstructor:
         renderer = MeshtasticRenderer(configs={"radio-a": config})
         event = _make_event()
         with pytest.raises(KeyError, match="radio-a"):
-            await renderer.render(event, "unknown-radio")
+            await renderer.render(
+                event,
+                RenderingContext(
+                    target_adapter="unknown-radio", delivery_strategy="direct"
+                ),
+            )
 
 
 # ===================================================================
@@ -144,7 +149,14 @@ class TestMeshtasticRenderer:
         renderer = _make_renderer("mesh-node")
         event = _make_event()
         assert (
-            renderer.can_render(event, "local-radio", target_platform="meshtastic")
+            renderer.can_render(
+                event,
+                RenderingContext(
+                    target_adapter="local-radio",
+                    delivery_strategy="direct",
+                    target_platform="meshtastic",
+                ),
+            )
             is True
         )
 
@@ -152,7 +164,14 @@ class TestMeshtasticRenderer:
         renderer = _make_renderer("mesh-node")
         event = _make_event()
         assert (
-            renderer.can_render(event, "fake_presentation", target_platform="fake")
+            renderer.can_render(
+                event,
+                RenderingContext(
+                    target_adapter="fake_presentation",
+                    delivery_strategy="direct",
+                    target_platform="fake",
+                ),
+            )
             is False
         )
 
@@ -160,7 +179,14 @@ class TestMeshtasticRenderer:
         renderer = _make_renderer("mesh-node")
         event = _make_event()
         assert (
-            renderer.can_render(event, "matrix_instance", target_platform="matrix")
+            renderer.can_render(
+                event,
+                RenderingContext(
+                    target_adapter="matrix_instance",
+                    delivery_strategy="direct",
+                    target_platform="matrix",
+                ),
+            )
             is False
         )
 
@@ -168,12 +194,23 @@ class TestMeshtasticRenderer:
         """Without platform info, renderer cannot match (no prefix fallback)."""
         renderer = _make_renderer("mesh-node")
         event = _make_event()
-        assert renderer.can_render(event, "meshtastic_node") is False
+        assert (
+            renderer.can_render(
+                event,
+                RenderingContext(
+                    target_adapter="meshtastic_node", delivery_strategy="direct"
+                ),
+            )
+            is False
+        )
 
     async def test_render_basic_text(self) -> None:
         renderer = _make_renderer("mesh-node")
         event = _make_event(payload={"body": "hello mesh"})
-        result = await renderer.render(event, "mesh-node")
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="mesh-node", delivery_strategy="direct"),
+        )
         assert isinstance(result, RenderingResult)
         assert result.payload["text"] == "hello mesh"
         assert result.payload["channel_index"] == 0
@@ -181,45 +218,74 @@ class TestMeshtasticRenderer:
     async def test_render_empty_text(self) -> None:
         renderer = _make_renderer("mesh-node")
         event = _make_event(payload={"body": ""})
-        result = await renderer.render(event, "mesh-node")
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="mesh-node", delivery_strategy="direct"),
+        )
         assert result.payload["text"] == ""
 
     async def test_render_extracts_body_field(self) -> None:
         renderer = _make_renderer("mesh-node")
         event = _make_event(payload={"body": "specific body"})
-        result = await renderer.render(event, "mesh-node")
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="mesh-node", delivery_strategy="direct"),
+        )
         assert "body" not in result.payload
         assert result.payload["text"] == "specific body"
 
     async def test_render_falls_back_to_text_field(self) -> None:
         renderer = _make_renderer("mesh-node")
         event = _make_event(payload={"text": "fallback text"})
-        result = await renderer.render(event, "mesh-node")
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="mesh-node", delivery_strategy="direct"),
+        )
         assert result.payload["text"] == "fallback text"
 
     async def test_render_target_channel_propagation(self) -> None:
         renderer = _make_renderer("mesh-node")
         event = _make_event()
-        result = await renderer.render(event, "mesh-node", target_channel="3")
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="mesh-node",
+                delivery_strategy="direct",
+                target_channel="3",
+            ),
+        )
         assert result.target_channel == "3"
         assert result.payload["channel_index"] == 3
 
     async def test_render_default_channel_when_no_target(self) -> None:
         renderer = _make_renderer("mesh-node")
         event = _make_event()
-        result = await renderer.render(event, "mesh-node")
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="mesh-node", delivery_strategy="direct"),
+        )
         assert result.payload["channel_index"] == 0
 
     async def test_render_non_numeric_channel_defaults_to_zero(self) -> None:
         renderer = _make_renderer("mesh-node")
         event = _make_event()
-        result = await renderer.render(event, "mesh-node", target_channel="abc")
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="mesh-node",
+                delivery_strategy="direct",
+                target_channel="abc",
+            ),
+        )
         assert result.payload["channel_index"] == 0
 
     async def test_render_returns_rendering_result(self) -> None:
         renderer = _make_renderer("mesh-node")
         event = _make_event()
-        result = await renderer.render(event, "mesh-node")
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="mesh-node", delivery_strategy="direct"),
+        )
         assert isinstance(result, RenderingResult)
         assert result.event_id == "evt-1"
         assert result.target_adapter == "mesh-node"
@@ -227,21 +293,30 @@ class TestMeshtasticRenderer:
     async def test_render_includes_meshnet_name(self) -> None:
         renderer = _make_renderer("mesh-node")
         event = _make_event()
-        result = await renderer.render(event, "mesh-node")
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="mesh-node", delivery_strategy="direct"),
+        )
         assert "meshnet_name" in result.payload
         assert result.payload["meshnet_name"] == ""
 
     async def test_render_metadata_includes_renderer(self) -> None:
         renderer = _make_renderer("mesh-node")
         event = _make_event()
-        result = await renderer.render(event, "mesh-node")
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="mesh-node", delivery_strategy="direct"),
+        )
         assert result.metadata["renderer"] == "meshtastic"
 
     async def test_render_long_text_truncated_to_byte_budget(self) -> None:
         renderer = _make_renderer("mesh-node")
         long_text = "x" * 500
         event = _make_event(payload={"body": long_text})
-        result = await renderer.render(event, "mesh-node")
+        result = await renderer.render(
+            event,
+            RenderingContext(target_adapter="mesh-node", delivery_strategy="direct"),
+        )
         # Default max_text_bytes is 227; text should be truncated
         assert len(result.payload["text"].encode("utf-8")) <= 227
         assert result.truncated is True
@@ -341,7 +416,9 @@ class TestRendererStructuredReply:
             payload={"body": "my reply"},
             relations=(rel,),
         )
-        result = await renderer.render(event, "mesh-1")
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         assert result.payload["reply_id"] == 99
         assert result.payload["text"] == "my reply"
         # No fallback prefix when native ref available
@@ -362,7 +439,9 @@ class TestRendererStructuredReply:
             payload={"body": "my reply"},
             relations=(rel,),
         )
-        result = await renderer.render(event, "mesh-1")
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         assert "reply_id" not in result.payload
         # No "[replying to: …]" prefix — plain text only.
         assert result.payload["text"] == "my reply"
@@ -379,7 +458,9 @@ class TestRendererStructuredReply:
             payload={"body": "my reply"},
             relations=(rel,),
         )
-        result = await renderer.render(event, "mesh-1")
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         assert "reply_id" not in result.payload
         # No "[replying to: …]" prefix — plain text only.
         assert result.payload["text"] == "my reply"
@@ -395,7 +476,12 @@ class TestRendererStructuredReply:
             payload={"body": "reply msg"},
             relations=(rel,),
         )
-        result = await renderer.render(event, "mesh-1", target_channel="2")
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="mesh-1", delivery_strategy="direct", target_channel="2"
+            ),
+        )
         assert result.payload["reply_id"] == 10
         assert result.payload["channel_index"] == 2
 
@@ -420,7 +506,9 @@ class TestRendererStructuredReaction:
             payload={"body": "👍"},
             relations=(rel,),
         )
-        result = await renderer.render(event, "mesh-1")
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         assert result.payload["reply_id"] == 55
         assert result.payload["emoji"] == 1
         assert result.payload["text"] == "👍"
@@ -437,7 +525,9 @@ class TestRendererStructuredReaction:
             payload={"body": "unused"},
             relations=(rel,),
         )
-        result = await renderer.render(event, "mesh-1")
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         assert result.payload["text"] == "❤️"
 
     async def test_reaction_falls_back_to_payload_key(self) -> None:
@@ -452,7 +542,9 @@ class TestRendererStructuredReaction:
             payload={"key": "🎉"},
             relations=(rel,),
         )
-        result = await renderer.render(event, "mesh-1")
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         assert result.payload["text"] == "🎉"
 
     async def test_reaction_without_native_ref_readable_fallback(self) -> None:
@@ -467,7 +559,9 @@ class TestRendererStructuredReaction:
             payload={"body": "unused"},
             relations=(rel,),
         )
-        result = await renderer.render(event, "mesh-1")
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         assert "reply_id" not in result.payload
         assert "emoji" not in result.payload
         assert "[reacted: 👍]" in result.payload["text"]
@@ -484,7 +578,12 @@ class TestRendererStructuredReaction:
             payload={"body": "😀"},
             relations=(rel,),
         )
-        result = await renderer.render(event, "mesh-1", target_channel="4")
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="mesh-1", delivery_strategy="direct", target_channel="4"
+            ),
+        )
         assert result.payload["channel_index"] == 4
         assert "meshnet_name" in result.payload
 
@@ -506,7 +605,9 @@ class TestMeshtasticRendererForeignRefs:
             fallback_text="orig msg",
         )
         event = _make_event(payload={"body": "hello"}, relations=(rel,))
-        result = await renderer.render(event, "mesh-1")
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         assert "reply_id" not in result.payload
         # Plain text only — no "[replying to: …]" prefix for non-native replies.
         assert result.payload["text"] == "hello"
@@ -525,7 +626,9 @@ class TestMeshtasticRendererForeignRefs:
             fallback_text=None,
         )
         event = _make_event(payload={"body": "unused"}, relations=(rel,))
-        result = await renderer.render(event, "mesh-1")
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         assert "reply_id" not in result.payload
         assert "emoji" not in result.payload
         assert "[reacted: 👍]" in result.payload["text"]
@@ -542,7 +645,9 @@ class TestMeshtasticRendererForeignRefs:
             metadata={"meshtastic_reply_id": "42"},
         )
         event = _make_event(payload={"body": "reply text"}, relations=(rel,))
-        result = await renderer.render(event, "mesh-1")
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         assert result.payload["reply_id"] == 42
 
     async def test_mmrelay_metadata_fallback_for_reaction(self) -> None:
@@ -557,7 +662,9 @@ class TestMeshtasticRendererForeignRefs:
             metadata={"meshtastic_reply_id": "77"},
         )
         event = _make_event(payload={"body": "🔥"}, relations=(rel,))
-        result = await renderer.render(event, "mesh-1")
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         assert result.payload["reply_id"] == 77
         assert result.payload["emoji"] == 1
 
@@ -573,7 +680,9 @@ class TestMeshtasticRendererForeignRefs:
             metadata={"meshtastic_reply_id": "not-a-number"},
         )
         event = _make_event(payload={"body": "🔥"}, relations=(rel,))
-        result = await renderer.render(event, "mesh-1")
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         assert "reply_id" not in result.payload
         assert "emoji" not in result.payload
 
@@ -659,7 +768,9 @@ class TestCrossPlatformReactionDescriptive:
             meshtastic_reply_id="42",
         )
         event = _make_matrix_event(relations=(rel,))
-        result = await renderer.render(event, "mesh-1")
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
 
         # reply_id is set (mapped Meshtastic packet ID)
         assert result.payload["reply_id"] == 42
@@ -679,7 +790,9 @@ class TestCrossPlatformReactionDescriptive:
             meshtastic_reply_id=None,
         )
         event = _make_matrix_event(relations=(rel,))
-        result = await renderer.render(event, "mesh-1")
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
 
         assert "reply_id" not in result.payload
         assert "emoji" not in result.payload
@@ -695,7 +808,9 @@ class TestCrossPlatformReactionDescriptive:
             meshtastic_reply_id="99",
         )
         event = _make_matrix_event(relations=(rel,))
-        result = await renderer.render(event, "mesh-1")
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         assert result.payload.get("emoji") is None
 
     async def test_compact_prefix_strips_spaces_preserves_casing(self) -> None:
@@ -716,7 +831,9 @@ class TestCrossPlatformReactionDescriptive:
             display_name="Display Name",
             relations=(rel,),
         )
-        result = await renderer.render(event, "mesh-1")
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         text = result.payload["text"]
         assert "[DisplayName] reacted" in text
         # NOT lowercased
@@ -734,7 +851,9 @@ class TestCrossPlatformReactionDescriptive:
             display_name="Mesh User",
             relations=(rel,),
         )
-        result = await renderer.render(event, "mesh-1")
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         text = result.payload["text"]
         assert "[MeshUser] reacted" in text
 
@@ -747,7 +866,9 @@ class TestCrossPlatformReactionDescriptive:
             fallback_text=long_text,
         )
         event = _make_matrix_event(relations=(rel,))
-        result = await renderer.render(event, "mesh-1")
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         text = result.payload["text"]
         # Should contain abbreviated text (40 chars + "...")
         assert "A" * 40 + '..."' in text
@@ -762,7 +883,9 @@ class TestCrossPlatformReactionDescriptive:
             fallback_text="short msg",
         )
         event = _make_matrix_event(relations=(rel,))
-        result = await renderer.render(event, "mesh-1")
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         text = result.payload["text"]
         assert 'reacted 👍 to "short msg"' in text
 
@@ -774,7 +897,9 @@ class TestCrossPlatformReactionDescriptive:
             fallback_text="line one\nline two\nline three",
         )
         event = _make_matrix_event(relations=(rel,))
-        result = await renderer.render(event, "mesh-1")
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         text = result.payload["text"]
         assert "\n" not in text.split('to "')[1]
         assert "line one line two line three" in text
@@ -787,7 +912,9 @@ class TestCrossPlatformReactionDescriptive:
             fallback_text="> quoted line\nactual message",
         )
         event = _make_matrix_event(relations=(rel,))
-        result = await renderer.render(event, "mesh-1")
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         text = result.payload["text"]
         assert "> quoted" not in text
         assert "actual message" in text
@@ -811,7 +938,9 @@ class TestCrossPlatformReactionDescriptive:
             metadata=meta,
         )
         event = _make_matrix_event(relations=(rel2,))
-        result = await renderer.render(event, "mesh-1")
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         text = result.payload["text"]
         assert "metadata original" in text
         assert "fallback text" not in text
@@ -827,7 +956,9 @@ class TestCrossPlatformReactionDescriptive:
             payload={"body": "payload body text"},
             relations=(rel,),
         )
-        result = await renderer.render(event, "mesh-1")
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         text = result.payload["text"]
         assert "payload body text" in text
 
@@ -840,7 +971,12 @@ class TestCrossPlatformReactionDescriptive:
             meshtastic_reply_id="7",
         )
         event = _make_matrix_event(relations=(rel,))
-        result = await renderer.render(event, "mesh-1", target_channel="4")
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="mesh-1", delivery_strategy="direct", target_channel="4"
+            ),
+        )
         assert result.payload["channel_index"] == 4
         assert "meshnet_name" in result.payload
 
@@ -852,7 +988,9 @@ class TestCrossPlatformReactionDescriptive:
             fallback_text="test",
         )
         event = _make_matrix_event(relations=(rel,))
-        result = await renderer.render(event, "mesh-1")
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         assert result.metadata.get("descriptive_reaction") is True
 
     async def test_no_radio_relay_prefix_in_metadata_for_descriptive(self) -> None:
@@ -863,7 +1001,9 @@ class TestCrossPlatformReactionDescriptive:
             fallback_text="test",
         )
         event = _make_matrix_event(relations=(rel,))
-        result = await renderer.render(event, "mesh-1")
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         assert "radio_relay_prefix" not in result.metadata
 
     async def test_mmrelay_metadata_reply_id_still_works(self) -> None:
@@ -880,6 +1020,417 @@ class TestCrossPlatformReactionDescriptive:
             metadata={"meshtastic_reply_id": "88"},
         )
         event = _make_matrix_event(relations=(rel,))
-        result = await renderer.render(event, "mesh-1")
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
         assert result.payload["reply_id"] == 88
         assert "emoji" not in result.payload
+
+
+# ===================================================================
+# Fallback-text delivery strategy: reply relation context preservation
+# ===================================================================
+
+
+class TestFallbackTextReplyRelationContext:
+    """fallback_text delivery strategy must preserve reply relation context
+    even when rel.fallback_text is absent.  The marker uses
+    target_native_ref.native_message_id or target_event_id as a
+    deterministic identifier.  No native reply_id is emitted.
+    """
+
+    async def test_reply_with_fallback_text_present(self) -> None:
+        """When rel.fallback_text exists, marker uses fallback_text value."""
+        renderer = _make_renderer("mesh-1")
+        rel = _make_relation(
+            relation_type="reply",
+            native_message_id="42",
+            fallback_text="original msg",
+        )
+        event = _make_event(
+            payload={"body": "my reply"},
+            relations=(rel,),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="mesh-1", delivery_strategy="fallback_text"
+            ),
+        )
+        text = result.payload["text"]
+        assert "[replying to: original msg]" in text
+        assert "my reply" in text
+        # No native reply_id under fallback_text mode
+        assert "reply_id" not in result.payload
+
+    async def test_reply_without_fallback_text_with_native_ref(self) -> None:
+        """When fallback_text and target_event_id are both absent,
+        marker uses native_message_id from target_native_ref."""
+        renderer = _make_renderer("mesh-1")
+        native_ref = NativeRef(
+            adapter="mesh-1",
+            native_channel_id="0",
+            native_message_id="42",
+        )
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id=None,
+            target_native_ref=native_ref,
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"body": "my reply"},
+            relations=(rel,),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="mesh-1", delivery_strategy="fallback_text"
+            ),
+        )
+        text = result.payload["text"]
+        assert "[replying to: 42]" in text
+        assert "my reply" in text
+        # No native reply_id under fallback_text mode
+        assert "reply_id" not in result.payload
+
+    async def test_reply_without_fallback_text_with_target_event_id(
+        self,
+    ) -> None:
+        """When fallback_text and target_native_ref are both absent,
+        marker uses target_event_id."""
+        renderer = _make_renderer("mesh-1")
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-abc123",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"body": "my reply"},
+            relations=(rel,),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="mesh-1", delivery_strategy="fallback_text"
+            ),
+        )
+        text = result.payload["text"]
+        assert "[replying to: evt-abc123]" in text
+        assert "my reply" in text
+        assert "reply_id" not in result.payload
+
+    async def test_reply_no_target_info_plain_text(self) -> None:
+        """When no fallback_text, no native_ref, no target_event_id,
+        no marker is prepended — plain body text."""
+        renderer = _make_renderer("mesh-1")
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id=None,
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"body": "my reply"},
+            relations=(rel,),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="mesh-1", delivery_strategy="fallback_text"
+            ),
+        )
+        text = result.payload["text"]
+        assert text == "my reply"
+        assert "[replying to:" not in text
+        assert "reply_id" not in result.payload
+
+    async def test_target_event_id_preferred_over_native_ref(self) -> None:
+        """When both target_event_id and target_native_ref exist,
+        target_event_id is preferred for the marker."""
+        renderer = _make_renderer("mesh-1")
+        native_ref = NativeRef(
+            adapter="mesh-1",
+            native_channel_id="0",
+            native_message_id="99",
+        )
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-override",
+            target_native_ref=native_ref,
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"body": "my reply"},
+            relations=(rel,),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="mesh-1", delivery_strategy="fallback_text"
+            ),
+        )
+        text = result.payload["text"]
+        assert "[replying to: evt-override]" in text
+        assert "99" not in text
+
+    async def test_preserves_channel_index_and_meshnet_name(self) -> None:
+        """Fallback-text reply preserves channel_index and meshnet_name."""
+        renderer = _make_renderer("mesh-1", meshnet_name="testnet")
+        rel = _make_relation(
+            relation_type="reply",
+            native_message_id="42",
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"body": "my reply"},
+            relations=(rel,),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="mesh-1",
+                delivery_strategy="fallback_text",
+                target_channel="3",
+            ),
+        )
+        assert result.payload["channel_index"] == 3
+        assert result.payload["meshnet_name"] == "testnet"
+        assert "reply_id" not in result.payload
+
+    async def test_byte_truncation_preserved(self) -> None:
+        """Fallback-text reply respects byte truncation budget."""
+        renderer = _make_renderer("mesh-1", max_text_bytes=30)
+        native_ref = NativeRef(
+            adapter="mesh-1",
+            native_channel_id="0",
+            native_message_id="42",
+        )
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id="evt-0",
+            target_native_ref=native_ref,
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"body": "A" * 200},
+            relations=(rel,),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="mesh-1", delivery_strategy="fallback_text"
+            ),
+        )
+        assert len(result.payload["text"].encode("utf-8")) <= 30
+        assert result.truncated is True
+        assert "reply_id" not in result.payload
+
+    async def test_prefix_applied_to_fallback_reply(self) -> None:
+        """Fallback-text reply gets radio_relay_prefix prepended."""
+        renderer = _make_renderer(
+            "mesh-1",
+            radio_relay_prefix="[{shortname5}] ",
+        )
+        native_ref = NativeRef(
+            adapter="mesh-1",
+            native_channel_id="0",
+            native_message_id="42",
+        )
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id=None,
+            target_native_ref=native_ref,
+            key=None,
+            fallback_text=None,
+        )
+        event = CanonicalEvent(
+            event_id="evt-1",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="matrix-1",
+            source_transport_id="@user:example.com",
+            source_channel_id="!room:example.com",
+            parent_event_id=None,
+            lineage=(),
+            relations=(rel,),
+            payload={"body": "my reply"},
+            metadata=EventMetadata(
+                native=NativeMetadata(data={"shortname": "Test", "from_id": "1"})
+            ),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="mesh-1", delivery_strategy="fallback_text"
+            ),
+        )
+        text = result.payload["text"]
+        assert text.startswith("[Test] ")
+        assert "[replying to: 42]" in text
+        assert "reply_id" not in result.payload
+
+    async def test_metadata_includes_delivery_strategy(self) -> None:
+        """Fallback-text rendering metadata includes delivery_strategy."""
+        renderer = _make_renderer("mesh-1")
+        rel = _make_relation(
+            relation_type="reply",
+            native_message_id="42",
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"body": "my reply"},
+            relations=(rel,),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="mesh-1", delivery_strategy="fallback_text"
+            ),
+        )
+        assert result.metadata.get("delivery_strategy") == "fallback_text"
+        assert result.fallback_applied == "strategy_fallback_text"
+
+
+# ===================================================================
+# Targeted coverage: reaction emoji body fallback, unknown relation
+# catch-all, _resolve_reply_target_marker
+# ===================================================================
+
+
+class TestTargetedCoveragePaths:
+    """Pinpoint tests for code paths that previously lacked coverage."""
+
+    async def test_direct_reaction_emoji_falls_back_to_payload_body(
+        self,
+    ) -> None:
+        """When rel.key is None and payload lacks 'key', emoji resolves to
+        payload['body'] via the step-by-step resolution order:
+        rel.key → payload["key"] → payload["emoji"] → payload["body"].
+        """
+        renderer = _make_renderer("mesh-1")
+        rel = _make_relation(
+            relation_type="reaction",
+            native_message_id="99",
+            key=None,
+        )
+        # payload has no "key" field — should fall back to "body"
+        event = _make_event(
+            payload={"body": "🔥"},
+            relations=(rel,),
+        )
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
+        assert result.payload["text"] == "🔥"
+        assert result.payload["reply_id"] == 99
+        assert result.payload["emoji"] == 1
+
+    async def test_direct_unknown_relation_type_delegates_to_extract_text(
+        self,
+    ) -> None:
+        """An unrecognised relation type (e.g. 'thread') hits the else catch-all
+        which delegates to _extract_text.  No native reply_id or emoji fields
+        are emitted for unknown relation types.
+        """
+        renderer = _make_renderer("mesh-1")
+        rel = _make_relation(
+            relation_type="thread",
+            native_message_id="10",
+        )
+        event = _make_event(
+            payload={"body": "thread message content"},
+            relations=(rel,),
+        )
+        result = await renderer.render(
+            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+        )
+        assert result.payload["text"] == "thread message content"
+        # No reply_id or emoji fields for unknown relation types
+        assert "reply_id" not in result.payload
+        assert "emoji" not in result.payload
+
+    def test_resolve_reply_target_marker_returns_native_message_id(self) -> None:
+        """_resolve_reply_target_marker returns native_message_id when
+        target_event_id is absent.
+
+        Exercises renderer.py lines:
+            ref = rel.target_native_ref
+            if ref is not None:
+                mid = getattr(ref, "native_message_id", None)
+                if mid is not None:
+                    return str(mid)
+        """
+        native_ref = NativeRef(
+            adapter="mesh-1",
+            native_channel_id="0",
+            native_message_id="42",
+        )
+        rel = EventRelation(
+            relation_type="reply",
+            target_event_id=None,
+            target_native_ref=native_ref,
+            key=None,
+            fallback_text=None,
+        )
+        result = MeshtasticRenderer._resolve_reply_target_marker(rel)
+        assert result == "42"
+
+
+# ===================================================================
+# Fallback-text delivery strategy: edit, delete, thread relation types
+# ===================================================================
+
+
+class TestFallbackTextOtherRelationTypes:
+    """fallback_text delivery strategy for edit, delete, and thread
+    relation types.  These hit the explicit branches in _render_fallback_text.
+    """
+
+    @pytest.mark.parametrize(
+        ("relation_type", "body", "expected_in_text"),
+        [
+            ("edit", "updated content", "[edited] updated content"),
+            ("delete", "unused", "[deleted: evt-0]"),
+            ("thread", "thread reply text", "[thread: evt-0] thread reply text"),
+        ],
+        ids=["edit", "delete", "thread"],
+    )
+    async def test_fallback_text_passthrough_for_relation_type(
+        self,
+        relation_type: str,
+        body: str,
+        expected_in_text: str,
+    ) -> None:
+        """edit/delete/thread relations in fallback_text mode pass through
+        to _extract_text.  No native reply_id or emoji fields are emitted.
+        """
+        renderer = _make_renderer("mesh-1")
+        rel = EventRelation(
+            relation_type=relation_type,
+            target_event_id="evt-0",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"body": body},
+            relations=(rel,),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="mesh-1", delivery_strategy="fallback_text"
+            ),
+        )
+        assert expected_in_text in result.payload["text"]
+        assert "reply_id" not in result.payload
+        assert "emoji" not in result.payload
+        assert result.fallback_applied == "strategy_fallback_text"

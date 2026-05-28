@@ -18,7 +18,7 @@ from medre.core.contracts.adapter import (
 )
 from medre.core.events import CanonicalEvent, EventMetadata, EventRelation, NativeRef
 from medre.core.events.kinds import EventKind
-from medre.core.rendering.renderer import RenderingResult
+from medre.core.rendering.renderer import RenderingContext, RenderingResult
 from medre.core.rendering.text import TextRenderer
 
 
@@ -282,8 +282,11 @@ class TestRenderingBoundary:
             payload={"text": "a reply"},
             metadata=EventMetadata(),
         )
-        assert renderer.can_render(event, "fake_transport")
-        result = await renderer.render(event, "fake_transport")
+        ctx = RenderingContext(
+            target_adapter="fake_transport", delivery_strategy="direct"
+        )
+        assert renderer.can_render(event, ctx)
+        result = await renderer.render(event, ctx)
         assert result.payload["text"] == "[replying to: original message text] a reply"
         assert result.fallback_applied == "relation_reply"
 
@@ -315,8 +318,11 @@ class TestRenderingBoundary:
             payload={"text": "👍"},
             metadata=EventMetadata(),
         )
-        assert renderer.can_render(event, "fake_transport")
-        result = await renderer.render(event, "fake_transport")
+        ctx = RenderingContext(
+            target_adapter="fake_transport", delivery_strategy="direct"
+        )
+        assert renderer.can_render(event, ctx)
+        result = await renderer.render(event, ctx)
         assert result.payload["text"] == "alice reacted with 👍"
         assert result.fallback_applied == "relation_reaction"
 

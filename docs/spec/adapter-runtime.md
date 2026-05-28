@@ -92,7 +92,7 @@ No orphaned asyncio tasks **MUST** remain after `stop()` returns. Leaked tasks a
 async def deliver(self, result: RenderingResult) -> AdapterDeliveryResult | None
 ```
 
-The pipeline guarantees that `result` has already been rendered by a `Renderer`. The adapter **MUST NOT** re-render, reformat, or inspect the event kind to decide formatting. It **SHALL** merely transport the pre-rendered payload to the external platform.
+The pipeline guarantees that `result` has already been rendered by a `Renderer` operating within a strict `RenderingContext`. The adapter **MUST NOT** re-render, reformat, or inspect the event kind to decide formatting. It **SHALL** merely transport the pre-rendered payload to the external platform.
 
 On success, the adapter **MUST** return an `AdapterDeliveryResult` populated with platform-native IDs, or `None` when the adapter has no native ID to report.
 
@@ -242,13 +242,15 @@ class CapabilityLevel(str, Enum):
     FUTURE                      = "future"
 ```
 
-| Level                         | Meaning                                                 |
-| ----------------------------- | ------------------------------------------------------- |
-| `TRUE`                        | Fully supported natively                                |
-| `FALSE`                       | Not supported                                           |
-| `METADATA_NATIVE`             | Supported via metadata fields (e.g., LXMF fields dict)  |
-| `METADATA_NATIVE_OR_FALLBACK` | Metadata between aware peers, inline fallback otherwise |
-| `FUTURE`                      | Planned, not yet implemented                            |
+| Level                         | Meaning                                                                                              |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `TRUE`                        | Fully supported natively                                                                             |
+| `FALSE`                       | Not supported                                                                                        |
+| `METADATA_NATIVE`             | Target-native renderer degrades relation context into inline text within the native payload format   |
+| `METADATA_NATIVE_OR_FALLBACK` | Native rendering when available, inline text degradation within native payload format otherwise      |
+
+> **Note on `METADATA_*` naming.** The `METADATA_NATIVE` and `METADATA_NATIVE_OR_FALLBACK` level names are historical. They originated when relation context was primarily carried as metadata fields. In the current architecture, both levels mean **inline fallback semantics**: the target-native renderer embeds relation context as inline text within its own native payload format (e.g. a Meshtastic renderer produces Meshtastic text with `[replying to: …]` prefixes). The renderer owns the degradation logic; the adapter sees only a normal native payload. The `METADATA_` prefix is retained for enum stability but should be read as "inline fallback within native format."
+| `FUTURE`                      | Planned, not yet implemented                                                                         |
 
 ### 6.3 AdapterCapabilities Mapping
 
@@ -275,13 +277,13 @@ The runtime reads capabilities from the cached `AdapterInfo` at delivery time. I
 
 ### 6.4 How Capabilities Drive Behavior
 
-| Capability    | `FALSE` Behavior                                                                       | `METADATA_NATIVE` Behavior                                    | `TRUE` Behavior               |
-| ------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------- | ----------------------------- |
-| `REPLIES`     | Rendered as inline text (e.g., `[Alice] re: original msg > reply text`)                | Passed via metadata fields to aware peers                     | Native reply threading used   |
-| `REACTIONS`   | Dropped for that target                                                                | Passed via metadata fields                                    | Native reactions used         |
-| `EDITS`       | Rendered as new messages                                                               | Metadata signaling for aware peers, inline fallback otherwise | Native edit support used      |
-| `DELETES`     | Not delivered                                                                          | Metadata signaling for aware peers, inline fallback otherwise | Native delete used            |
-| `SIZE_LIMITS` | Truncation or splitting applied by `MaxLengthPolicy` when adapter declares byte limits | N/A                                                           | Unlimited or platform-handled |
+| Capability    | `unsupported` Behavior                                                                 | `fallback` Behavior                                                                           | `native` Behavior             |
+| ------------- | -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ----------------------------- |
+| `REPLIES`     | Skip: delivery suppressed. No renderer invoked.                                        | Target-native renderer embeds reply context as inline text within native payload format       | Native reply threading used   |
+| `REACTIONS`   | Skip: delivery suppressed. No renderer invoked.                                        | Target-native renderer embeds reaction as inline text within native payload format            | Native reactions used         |
+| `EDITS`       | Skip: delivery suppressed. No renderer invoked.                                        | Target-native renderer embeds edit context as inline text within native payload format        | Native edit support used      |
+| `DELETES`     | Skip: delivery suppressed. No renderer invoked.                                        | Target-native renderer embeds delete notice as inline text within native payload format       | Native delete used            |
+| `SIZE_LIMITS` | Truncation or splitting applied by `MaxLengthPolicy` when adapter declares byte limits | N/A                                                                                           | Unlimited or platform-handled |
 
 ---
 
@@ -448,7 +450,36 @@ All adapters implement bounded retry with acknowledged duplicate-send risk. This
 
 ---
 
-## 10. RenderingResult
+## 10. Rendering Contract
+
+The rendering pipeline converts canonical events into adapter-ready payloads. The contract has three components: the rendering context, the rendering result, and the boundary rules.
+
+### 10.1 RenderingContext
+
+Every renderer invocation receives a frozen `RenderingContext` carrying all dispatch metadata. The pipeline builds one context per render call and passes it to both `can_render` and `render`. Renderers MUST NOT rely on external state or perform signature introspection.
+
+```python
+@dataclass(frozen=True)
+class RenderingContext:
+    delivery_strategy: DeliveryStrategyMethod  # "direct", "fallback_text", "skip", etc.
+    target_adapter: str                        # Target adapter instance name
+    target_channel: str | None                 # Target channel, if applicable
+    target_platform: str | None                # Platform name (e.g. "matrix", "meshtastic")
+    max_text_chars: int | None                 # Character budget from adapter capabilities
+    max_text_bytes: int | None                 # UTF-8 byte budget from adapter capabilities
+    capability_level: CapabilityLevel          # "native", "fallback", or "unsupported"
+    capability_policy: str | None              # Optional policy hint (e.g. "strict", "lenient")
+```
+
+`delivery_strategy` is a **context hint, not a renderer selector**. When the strategy is `"fallback_text"`, the target-native renderer still produces its native output format (e.g. a Matrix renderer produces Matrix msgtype/body, a Meshtastic renderer produces Meshtastic text). The pipeline does **not** bypass target-native renderers or switch to a generic text renderer based on this field. Instead, the target-native renderer uses the hint to degrade relation rendering to inline text within its own format.
+
+`delivery_strategy` is the **authoritative dispatch signal** for renderers. The pipeline populates it from the delivery plan, which is derived from adapter capabilities and routing policy. Renderers **SHOULD** use it as the primary input for deciding how to render.
+
+`max_text_bytes` is wired from the target adapter's `SIZE_LIMITS` capability by the pipeline. When the adapter declares a byte limit, this field carries it; otherwise it is `None`.
+
+`capability_level` and `capability_policy` are **reserved fields**. They are defined in `RenderingContext` for forward compatibility and caller-provided plumbing, but the default pipeline does **not** populate them from adapter capabilities. `capability_level` defaults to `"native"` and `capability_policy` defaults to `None`. These fields only carry meaning when a caller or future pipeline stage sets them explicitly. Renderers **MUST NOT** depend on `capability_level` for dispatch decisions unless they also control the code that populates it.
+
+### 10.2 RenderingResult
 
 The `RenderingResult` is the output of a rendering pass, ready for adapter delivery. It is produced by the `RenderingPipeline` and consumed by adapters.
 
@@ -461,10 +492,10 @@ class RenderingResult:
     payload:          dict[str, object]          # Rendered payload in adapter-ready format
     metadata:         dict[str, object] = field(default_factory=dict)
     truncated:        bool = False               # Whether content was truncated
-    fallback_applied: str | None = None          # Fallback strategy applied, if any
+    fallback_applied: FallbackApplied | None = None          # Fallback strategy applied, if any
 ```
 
-### 10.1 Rendering Boundary
+### 10.3 Rendering Boundary
 
 The rendering boundary is strictly enforced:
 
@@ -472,6 +503,15 @@ The rendering boundary is strictly enforced:
 - No adapter **SHALL** perform rendering logic.
 - No renderer **SHALL** deliver.
 - Adapters **MUST NOT** re-render, reformat, or inspect the event kind to decide formatting inside `deliver()`.
+
+### 10.4 Payload Ownership Boundary
+
+The renderer owns payload construction. The adapter owns transport delivery.
+
+- The renderer produces the complete `RenderingResult.payload` dict. This dict is the adapter-ready payload in the target's native format. The adapter **MUST NOT** modify, augment, or restructure the payload.
+- The adapter receives the `RenderingResult` and transports the payload as-is to the external platform. The adapter's `deliver()` method is a transport boundary, not a formatting boundary.
+- When `delivery_strategy` is `"fallback_text"`, the target-native renderer already embedded the degraded relation text in the payload. The adapter does not need to handle fallback logic.
+- The rendering pipeline selects the renderer. Adapters **MUST NOT** influence renderer selection or inspect `RenderingResult.metadata` to decide formatting.
 
 ---
 
@@ -718,7 +758,9 @@ Every row in the following table is a hard boundary. Violations indicate a desig
 | --------------------------------------------------------------------- | ----------------------- | ---------------------------------- |
 | Transport lifecycle (connect, disconnect, reconnect)                  | Adapter                 | Read health state                  |
 | Pacing, queueing, duty cycle management                               | Adapter                 | Set rate limit config              |
+| Payload construction within RenderingContext constraints              | Renderer                | Provide RenderingResult            |
 | Payload formatting (text, rich content, transport-specific layout)    | Renderer                | Provide RenderingResult            |
+| Payload transport delivery (send to external platform)                | Adapter                 | None; receives pre-rendered result |
 | Payload encoding/decoding (native format to CanonicalEvent)           | Codec                   | Read codec output                  |
 | Packet classification (type detection, ACK detection)                 | Classifier              | Read classification result         |
 | Pipeline orchestration (routing, delivery planning, receipt tracking) | Runtime                 | None; adapters **MUST NOT** bypass |

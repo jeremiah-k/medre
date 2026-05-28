@@ -16,20 +16,50 @@ Exported names
   ordered dispatcher across registered renderers.
 * :class:`~medre.core.rendering.renderer.RenderingResult` –
   output of a rendering pass.
+* :class:`~medre.core.rendering.renderer.RenderingContext` –
+  frozen context for a single render invocation.
+* :class:`~medre.core.rendering.renderer.CapabilityLevel` –
+  adapter capability levels (native, fallback_text, unsupported).
+* :class:`~medre.core.rendering.renderer.DeliveryStrategyMethod` –
+  well-known delivery strategy method values.
+* :class:`~medre.core.rendering.renderer.FallbackApplied` –
+  fallback reason tag on rendering results.
 * :class:`~medre.core.rendering.text.TextRenderer` – concrete
   renderer for plain-text targets.
+* :func:`~medre.core.rendering.text_helpers.extract_relation_text` –
+  extract raw text with relation prefixes.
+* :func:`~medre.core.rendering.text_helpers.truncate_text` –
+  cap text at a character limit.
+* :func:`~medre.core.rendering.text_helpers.truncate_text_bytes` –
+  cap text at a UTF-8 byte limit.
 """
 
 from medre.core.rendering.renderer import (
+    CapabilityLevel,
+    DeliveryStrategyMethod,
+    FallbackApplied,
     Renderer,
+    RenderingContext,
     RenderingPipeline,
     RenderingResult,
 )
 from medre.core.rendering.text import TextRenderer
+from medre.core.rendering.text_helpers import (
+    extract_relation_text,
+    truncate_text,
+    truncate_text_bytes,
+)
 
 __all__ = [
+    "CapabilityLevel",
+    "DeliveryStrategyMethod",
+    "FallbackApplied",
     "Renderer",
+    "RenderingContext",
     "RenderingPipeline",
     "RenderingResult",
     "TextRenderer",
+    "extract_relation_text",
+    "truncate_text",
+    "truncate_text_bytes",
 ]
