@@ -33,6 +33,8 @@ from medre.core.rendering.renderer import (
     CapabilityLevel,
     DeliveryStrategyMethod,
     RenderingContext,
+    RenderingPipeline,
+    RenderingResult,
 )
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
@@ -879,3 +881,56 @@ class TestRenderingContextStrategyValidation:
                 delivery_strategy="",  # type: ignore[arg-type]
                 target_adapter="dest",
             )
+
+
+# ===================================================================
+# TestSkipDeliveryGuard
+# ===================================================================
+
+
+class TestSkipDeliveryGuard:
+    """Verify RenderingPipeline.render() rejects delivery_strategy='skip'.
+
+    The skip strategy must be handled upstream (by the delivery plan /
+    pipeline runner) before any rendering attempt.  Calling render() with
+    ``"skip"`` raises ValueError and never invokes a registered renderer.
+    """
+
+    @pytest.mark.asyncio
+    async def test_skip_strategy_raises_value_error(self) -> None:
+        """RenderingPipeline.render(..., delivery_strategy='skip') raises
+        ValueError and no renderer is called."""
+        call_count = 0
+
+        class SpyRenderer:
+            name = "spy"
+
+            def can_render(self, event, ctx):
+                return True
+
+            async def render(self, event, ctx):
+                nonlocal call_count
+                call_count += 1
+                return RenderingResult(
+                    event_id=event.event_id,
+                    target_adapter=ctx.target_adapter,
+                    target_channel=ctx.target_channel,
+                    payload={},
+                )
+
+        pipeline = RenderingPipeline()
+        pipeline.register(SpyRenderer(), priority=1)
+
+        event = _make_text_event(event_id="skip-guard-001", body="hello")
+
+        with pytest.raises(
+            ValueError,
+            match="delivery_strategy='skip' must be handled before rendering",
+        ):
+            await pipeline.render(
+                event,
+                target_adapter="dest",
+                delivery_strategy="skip",
+            )
+
+        assert call_count == 0, "No renderer should have been called"

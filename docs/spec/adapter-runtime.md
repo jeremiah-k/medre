@@ -242,13 +242,13 @@ class CapabilityLevel(str, Enum):
     FUTURE                      = "future"
 ```
 
-| Level                         | Meaning                                                 |
-| ----------------------------- | ------------------------------------------------------- |
-| `TRUE`                        | Fully supported natively                                |
-| `FALSE`                       | Not supported                                           |
-| `METADATA_NATIVE`             | Supported via metadata fields (e.g., LXMF fields dict)  |
-| `METADATA_NATIVE_OR_FALLBACK` | Metadata between aware peers, inline fallback otherwise |
-| `FUTURE`                      | Planned, not yet implemented                            |
+| Level                         | Meaning                                                                                              |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `TRUE`                        | Fully supported natively                                                                             |
+| `FALSE`                       | Not supported                                                                                        |
+| `METADATA_NATIVE`             | Target-native renderer degrades relation context into inline text within the native payload format   |
+| `METADATA_NATIVE_OR_FALLBACK` | Native rendering when available, inline text degradation within native payload format otherwise      |
+| `FUTURE`                      | Planned, not yet implemented                                                                         |
 
 ### 6.3 AdapterCapabilities Mapping
 
@@ -275,13 +275,13 @@ The runtime reads capabilities from the cached `AdapterInfo` at delivery time. I
 
 ### 6.4 How Capabilities Drive Behavior
 
-| Capability    | `unsupported` Behavior                                                                 | `fallback` Behavior                                           | `native` Behavior             |
-| ------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------- | ----------------------------- |
-| `REPLIES`     | Skip: delivery suppressed. No renderer invoked.                                        | Passed via metadata fields to aware peers                     | Native reply threading used   |
-| `REACTIONS`   | Skip: delivery suppressed. No renderer invoked.                                        | Passed via metadata fields                                    | Native reactions used         |
-| `EDITS`       | Skip: delivery suppressed. No renderer invoked.                                        | Metadata signaling for aware peers, inline fallback otherwise | Native edit support used      |
-| `DELETES`     | Skip: delivery suppressed. No renderer invoked.                                        | Metadata signaling for aware peers, inline fallback otherwise | Native delete used            |
-| `SIZE_LIMITS` | Truncation or splitting applied by `MaxLengthPolicy` when adapter declares byte limits | N/A                                                           | Unlimited or platform-handled |
+| Capability    | `unsupported` Behavior                                                                 | `fallback` Behavior                                                                           | `native` Behavior             |
+| ------------- | -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ----------------------------- |
+| `REPLIES`     | Skip: delivery suppressed. No renderer invoked.                                        | Target-native renderer embeds reply context as inline text within native payload format       | Native reply threading used   |
+| `REACTIONS`   | Skip: delivery suppressed. No renderer invoked.                                        | Target-native renderer embeds reaction as inline text within native payload format            | Native reactions used         |
+| `EDITS`       | Skip: delivery suppressed. No renderer invoked.                                        | Target-native renderer embeds edit context as inline text within native payload format        | Native edit support used      |
+| `DELETES`     | Skip: delivery suppressed. No renderer invoked.                                        | Target-native renderer embeds delete notice as inline text within native payload format       | Native delete used            |
+| `SIZE_LIMITS` | Truncation or splitting applied by `MaxLengthPolicy` when adapter declares byte limits | N/A                                                                                           | Unlimited or platform-handled |
 
 ---
 

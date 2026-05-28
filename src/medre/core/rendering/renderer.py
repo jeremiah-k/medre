@@ -64,6 +64,16 @@ DeliveryStrategyMethod = Literal[
 #: for targets that cannot handle the event at all.
 CapabilityLevel = Literal["native", "fallback", "unsupported"]
 
+#: Well-known ``fallback_applied`` values recorded on :class:`RenderingResult`.
+FallbackApplied = Literal[
+    "relation_reply",
+    "relation_reaction",
+    "relation_edit",
+    "relation_delete",
+    "relation_thread",
+    "strategy_fallback_text",
+]
+
 
 # ---------------------------------------------------------------------------
 # Rendering context
@@ -187,7 +197,7 @@ class RenderingResult:
     payload: dict[str, object]
     metadata: dict[str, object] = field(default_factory=dict)
     truncated: bool = False
-    fallback_applied: str | None = None
+    fallback_applied: FallbackApplied | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -257,7 +267,7 @@ class Renderer(Protocol):
         event: CanonicalEvent,
         ctx: RenderingContext,
     ) -> RenderingResult:
-        """Render *event* for delivery.  Must not mutate the original event.
+        """Render *event* for delivery.
 
         Parameters
         ----------
@@ -439,6 +449,11 @@ class RenderingPipeline:
         strategy: DeliveryStrategyMethod = (
             "direct" if delivery_strategy is None else delivery_strategy
         )
+
+        if strategy == "skip":
+            raise ValueError(
+                "delivery_strategy='skip' must be handled before rendering"
+            )
 
         ctx = RenderingContext(
             delivery_strategy=strategy,
