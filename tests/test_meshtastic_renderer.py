@@ -1311,12 +1311,9 @@ class TestTargetedCoveragePaths:
     async def test_direct_reaction_emoji_falls_back_to_payload_body(
         self,
     ) -> None:
-        """When rel.key is None and payload lacks 'key', emoji resolves to payload['body'].
-
-        Exercises renderer.py lines 368-371:
-            emoji_text = rel.key or str(
-                event.payload.get("key", event.payload.get("body", ""))
-            )
+        """When rel.key is None and payload lacks 'key', emoji resolves to
+        payload['body'] via the step-by-step resolution order:
+        rel.key → payload["key"] → payload["emoji"] → payload["body"].
         """
         renderer = _make_renderer("mesh-1")
         rel = _make_relation(
@@ -1339,11 +1336,9 @@ class TestTargetedCoveragePaths:
     async def test_direct_unknown_relation_type_delegates_to_extract_text(
         self,
     ) -> None:
-        """An unrecognised relation type (e.g. 'thread') hits the else catch-all.
-
-        Exercises renderer.py lines 400-401:
-            else:
-                content["text"] = self._extract_text(event)
+        """An unrecognised relation type (e.g. 'thread') hits the else catch-all
+        which delegates to _extract_text.  No native reply_id or emoji fields
+        are emitted for unknown relation types.
         """
         renderer = _make_renderer("mesh-1")
         rel = _make_relation(
@@ -1400,7 +1395,7 @@ class TestFallbackTextOtherRelationTypes:
     """
 
     @pytest.mark.parametrize(
-        "relation_type, body, expected_in_text",
+        ("relation_type", "body", "expected_in_text"),
         [
             ("edit", "updated content", "[edited] updated content"),
             ("delete", "unused", "[deleted: evt-0]"),

@@ -56,8 +56,10 @@ def _resolve_reaction_key(rel: EventRelation, event: CanonicalEvent) -> str | No
     Whitespace is stripped from resolved values.  Returns ``None`` only
     when no non-empty key-like value exists.
     """
-    if rel.key:
-        return rel.key.strip()
+    if rel.key is not None:
+        stripped = rel.key.strip()
+        if stripped:
+            return stripped
     key = event.payload.get("key")
     if key:
         return str(key).strip()

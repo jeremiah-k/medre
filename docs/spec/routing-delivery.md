@@ -591,6 +591,18 @@ Delivery suppression falls into three distinct categories:
 
 **Post-planning direct-call suppression.** Suppression that occurs after the planning stage, where recording a receipt provides defense-in-depth audit value. Produces `DeliveryReceipt(status="suppressed")`. The receipt includes `route_id`, `target_adapter`, `target_channel`, and the suppression reason. This category is distinct from pre-outbox skip: a receipt MAY exist, but no renderer or adapter was invoked.
 
+#### 11.2.2 Skip and Suppression Examples
+
+The following table shows concrete scenarios and which suppression category applies:
+
+| Scenario | Guard / Trigger | Outcome | Receipt? | Renderer? | Adapter? |
+| --- | --- | --- | --- | --- | --- |
+| Meshtastic reaction → Meshtastic target where target has `reactions="unsupported"` | Capability `"unsupported"` for reaction relation type | `DeliveryOutcome(status="skipped")`, `failure_kind="capability_suppressed"` | No | No | No |
+| Matrix message routed back to same Matrix adapter (`target == source`) | Self-loop guard (`target_adapter == source_adapter`) | `DeliveryOutcome(status="skipped")`, `failure_kind="loop_suppressed"` | No | No | No |
+| Route-policy `sender_allowlist` denies sender | Route-policy evaluator denial | `DeliveryOutcome(status="skipped")`, `failure_kind="policy_suppressed"` | No | No | No |
+| Delivery plan constructed with `method="skip"` after Phase 2.75 planning | Post-planning skip gate | `DeliveryReceipt(status="suppressed")`, `failure_kind="capability_suppressed"` | Yes (defense-in-depth) | No | No |
+| Event matches zero routes | No matching route in routing engine | No `DeliveryOutcome` produced | None | No | No |
+
 ## 12. Policy Pipeline
 
 ### 12.1 Four-Stage Architecture

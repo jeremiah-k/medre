@@ -355,6 +355,8 @@ class MatrixRenderer:
             result_metadata["original_length"] = original_length
             result_metadata["original_text_bytes"] = original_text_bytes
             result_metadata["rendered_text_bytes"] = rendered_text_bytes
+            if ctx.max_text_bytes is not None:
+                result_metadata["max_text_bytes"] = ctx.max_text_bytes
 
         return RenderingResult(
             event_id=event.event_id,

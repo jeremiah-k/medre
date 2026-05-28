@@ -169,12 +169,13 @@ class TestResolveReactionKey:
         event = _evt(payload={"emoji": "  🔥  "})
         assert _resolve_reaction_key(rel, event) == "🔥"
 
-    def test_whitespace_only_key_returns_empty(self) -> None:
-        """A whitespace-only rel.key is truthy so it returns empty after strip."""
+    def test_whitespace_only_key_falls_through(self) -> None:
+        """A whitespace-only rel.key is stripped to empty and falls through
+        to the next resolution source."""
         rel = _rel(relation_type="reaction", key="   ")
         event = _evt(payload={"emoji": "👍"})
-        # "   " is truthy → returns "   ".strip() → ""
-        assert _resolve_reaction_key(rel, event) == ""
+        # "   ".strip() → "" (falsy) → falls through to payload["emoji"]
+        assert _resolve_reaction_key(rel, event) == "👍"
 
 
 # ===================================================================
@@ -195,6 +196,28 @@ class TestExtractRelationTextReply:
         event = _evt(relations=(rel,), payload={"text": "hello"})
         result = extract_relation_text(event)
         assert result == "[replying to: short by Alice] hello"
+
+    def test_reply_with_original_sender_displayname(self) -> None:
+        """Reply with original_sender_displayname in metadata produces full prefix."""
+        rel = _rel(
+            relation_type="reply",
+            target_event_id="short",
+            metadata={"original_sender_displayname": "Alice"},
+        )
+        event = _evt(relations=(rel,), payload={"text": "hello"})
+        result = extract_relation_text(event)
+        assert result == "[replying to: short by Alice] hello"
+
+    def test_reply_original_sender_displayname_empty_body(self) -> None:
+        """Reply with original_sender_displayname and empty body returns prefix only."""
+        rel = _rel(
+            relation_type="reply",
+            target_event_id="short",
+            metadata={"original_sender_displayname": "Bob"},
+        )
+        event = _evt(relations=(rel,), payload={})
+        result = extract_relation_text(event)
+        assert result == "[replying to: short by Bob]"
 
     def test_reply_empty_payload_text(self) -> None:
         """Reply with no payload text returns just the prefix."""

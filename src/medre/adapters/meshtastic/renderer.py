@@ -373,23 +373,7 @@ class MeshtasticRenderer:
                     if reply_id is not None:
                         content["reply_id"] = reply_id
                 elif rel.relation_type == "reaction":
-                    # Step-by-step resolution matching text_helpers._resolve_reaction_key
-                    emoji_text: str | None = None
-                    if rel.key:
-                        emoji_text = rel.key.strip()
-                    if not emoji_text:
-                        _val = event.payload.get("key")
-                        if _val:
-                            emoji_text = str(_val).strip()
-                    if not emoji_text:
-                        _val = event.payload.get("emoji")
-                        if _val:
-                            emoji_text = str(_val).strip()
-                    if not emoji_text:
-                        _val = event.payload.get("body")
-                        if _val:
-                            emoji_text = str(_val).strip()
-                    emoji_text = emoji_text or ""
+                    emoji_text = self._resolve_emoji_text(rel, event) or ""
                     if self._is_native_reaction(event, target_adapter):
                         # Native Meshtastic tapback
                         if reply_id is not None:
@@ -519,23 +503,7 @@ class MeshtasticRenderer:
             return self._extract_text(event)
 
         if rel.relation_type == "reaction":
-            # Step-by-step resolution matching text_helpers._resolve_reaction_key
-            emoji_text: str | None = None
-            if rel.key:
-                emoji_text = rel.key.strip()
-            if not emoji_text:
-                _val = event.payload.get("key")
-                if _val:
-                    emoji_text = str(_val).strip()
-            if not emoji_text:
-                _val = event.payload.get("emoji")
-                if _val:
-                    emoji_text = str(_val).strip()
-            if not emoji_text:
-                _val = event.payload.get("body")
-                if _val:
-                    emoji_text = str(_val).strip()
-            emoji_text = emoji_text or ""
+            emoji_text = self._resolve_emoji_text(rel, event) or ""
             if self._is_native_reaction(event, target_adapter):
                 # Native reaction degraded to readable text (no tapback).
                 return f"[reacted: {emoji_text}]"
@@ -776,6 +744,29 @@ class MeshtasticRenderer:
             except (ValueError, TypeError):
                 pass
 
+        return None
+
+    @staticmethod
+    def _resolve_emoji_text(
+        rel: EventRelation, event: CanonicalEvent
+    ) -> str | None:
+        """Resolve the reaction emoji/text using the standard priority order.
+
+        Resolution order: ``rel.key`` → ``payload["key"]`` →
+        ``payload["emoji"]`` → ``payload["body"]``.
+        Each value is stripped; only non-empty results are returned.
+        Returns ``None`` when no source yields a non-empty string.
+        """
+        if rel.key is not None:
+            stripped = rel.key.strip()
+            if stripped:
+                return stripped
+        for field in ("key", "emoji", "body"):
+            _val = event.payload.get(field)
+            if _val:
+                stripped = str(_val).strip()
+                if stripped:
+                    return stripped
         return None
 
     @staticmethod

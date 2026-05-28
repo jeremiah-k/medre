@@ -179,11 +179,13 @@ class MeshCoreRenderer:
 
         meshnet_name = adapter_config.meshnet_name
         # Use context budget if provided, else adapter config budget.
-        max_text_bytes = (
+        # Clamp to non-negative to guard against misconfiguration.
+        selected_max_text_bytes = (
             ctx.max_text_bytes
             if ctx.max_text_bytes is not None
             else adapter_config.max_text_bytes
         )
+        max_text_bytes = max(0, selected_max_text_bytes)
 
         text = str(event.payload.get("text", event.payload.get("body", "")))
 

@@ -248,6 +248,8 @@ class CapabilityLevel(str, Enum):
 | `FALSE`                       | Not supported                                                                                        |
 | `METADATA_NATIVE`             | Target-native renderer degrades relation context into inline text within the native payload format   |
 | `METADATA_NATIVE_OR_FALLBACK` | Native rendering when available, inline text degradation within native payload format otherwise      |
+
+> **Note on `METADATA_*` naming.** The `METADATA_NATIVE` and `METADATA_NATIVE_OR_FALLBACK` level names are historical. They originated when relation context was primarily carried as metadata fields. In the current architecture, both levels mean **inline fallback semantics**: the target-native renderer embeds relation context as inline text within its own native payload format (e.g. a Meshtastic renderer produces Meshtastic text with `[replying to: …]` prefixes). The renderer owns the degradation logic; the adapter sees only a normal native payload. The `METADATA_` prefix is retained for enum stability but should be read as "inline fallback within native format."
 | `FUTURE`                      | Planned, not yet implemented                                                                         |
 
 ### 6.3 AdapterCapabilities Mapping

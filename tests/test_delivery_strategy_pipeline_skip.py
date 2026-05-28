@@ -49,11 +49,11 @@ class _FakeCtxRenderer:
 
     name: str = "fake_ctx"
 
-    def can_render(self, event: "CanonicalEvent", ctx: RenderingContext) -> bool:
+    def can_render(self, event: CanonicalEvent, ctx: RenderingContext) -> bool:
         return True
 
     async def render(
-        self, event: "CanonicalEvent", ctx: RenderingContext
+        self, event: CanonicalEvent, ctx: RenderingContext
     ) -> RenderingResult:
         return RenderingResult(
             event_id=event.event_id,
