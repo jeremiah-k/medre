@@ -194,7 +194,7 @@ class RenderingPipeline:
                 self._renderers,
                 self._supports_max_text_chars,
                 self._supports_delivery_strategy,
-                strict=False,
+                strict=True,
             )
         )
         paired.sort(key=lambda t: (t[0][0], t[0][1]))
@@ -284,9 +284,12 @@ class RenderingPipeline:
             capabilities.  Passed through to renderers that support
             truncation (e.g. :class:`~medre.core.rendering.text.TextRenderer`).
         delivery_strategy:
-            Optional delivery strategy hint.  When ``"fallback_text"``,
-            only the text renderer (``name == "text"``) is used,
-            skipping platform-specific renderers.
+            Optional delivery strategy hint from the delivery plan.
+            When ``"fallback_text"``, platform-specific renderers are
+            skipped and only the text renderer (``name == "text"``) is
+            used, ensuring degraded textual output suitable for adapters
+            that lack native relation support.  ``None`` or ``"direct"``
+            uses normal renderer priority order.
 
         Returns
         -------

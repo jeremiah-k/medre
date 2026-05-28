@@ -5,10 +5,18 @@ representation — message lifecycle events and presence changes — and convert
 them into a simple ``{"text": ...}`` payload suitable for text-only targets
 such as Meshtastic radio transports, SMS gateways, or terminal adapters.
 
-Text is capped at **500 characters**.  When truncation occurs the resulting
-:class:`~medre.core.rendering.renderer.RenderingResult` has its
-``truncated`` flag set to ``True`` and the ``metadata`` dict includes the
-original content length.
+Text is capped at a default of **500 characters**.  The cap can be overridden
+per-call via ``max_text_chars`` (from adapter capabilities).  Negative or
+zero caps are clamped to zero, producing empty output.  When truncation
+occurs the resulting :class:`~medre.core.rendering.renderer.RenderingResult`
+has its ``truncated`` flag set to ``True`` and the ``metadata`` dict includes
+the original content length.
+
+**Strategy fallback**: when ``delivery_strategy="fallback_text"`` is passed,
+the renderer sets ``fallback_applied="strategy_fallback_text"`` on the result,
+indicating degraded rendering was used because the target adapter lacks
+native support for the event's relation type (reactions, edits, deletes,
+replies).
 """
 
 from __future__ import annotations

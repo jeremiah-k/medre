@@ -41,8 +41,21 @@ class DeliveryStrategy:
     Attributes
     ----------
     method:
-        The delivery approach – ``"direct"``, ``"propagated"``,
-        ``"opportunistic"``, or ``"paper"`` (store-and-forward).
+        The delivery approach.  Well-known values with defined semantics:
+
+        * ``"direct"`` — normal/native rendering path.  The event is
+          rendered through the standard renderer pipeline and delivered
+          natively to the adapter.
+        * ``"fallback_text"`` — degraded text rendering.  The rendering
+          pipeline forces the text renderer (``name == "text"``),
+          bypassing platform-specific renderers, and the adapter receives
+          a plain-text representation rather than a native relation.
+        * ``"skip"`` — delivery suppressed due to capability mismatch
+          or policy.  The pipeline records a ``CAPABILITY_SUPPRESSED``
+          receipt and does not invoke the renderer or adapter.
+        * ``"propagated"`` — relayed through an intermediate hop.
+        * ``"opportunistic"`` — best-effort, no delivery guarantee.
+        * ``"paper"`` — store-and-forward.
     max_retries:
         Maximum number of retry attempts before marking the delivery
         as permanently failed.
@@ -54,15 +67,7 @@ class DeliveryStrategy:
     max_retries: int = 3
     timeout_seconds: float = 30.0
 
-    #: Well-known method values.  ``method`` is a free-form string; the
-    #: following values have defined semantics:
-    #:
-    #: * ``"direct"``        – native delivery.
-    #: * ``"fallback_text"`` – degraded / textual fallback rendering.
-    #: * ``"propagated"``    – relayed through an intermediate hop.
-    #: * ``"opportunistic"`` – best-effort, no delivery guarantee.
-    #: * ``"paper"``         – store-and-forward.
-    #: * ``"skip"``          – delivery suppressed (capability mismatch).
+    #: Well-known method values — see the class docstring for full semantics.
 
 
 # ---------------------------------------------------------------------------
