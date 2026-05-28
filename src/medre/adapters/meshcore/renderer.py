@@ -277,7 +277,12 @@ class MeshCoreRenderer:
             if rel.relation_type == "reply":
                 parts.append(f"[reply to: {target}]")
             elif rel.relation_type == "reaction":
-                emoji = rel.key or "∟"
+                emoji = (
+                    rel.key
+                    or event.payload.get("key")
+                    or event.payload.get("emoji")
+                    or "∟"
+                )
                 parts.append(f"[reaction {emoji} to: {target}]")
             elif rel.relation_type == "edit":
                 parts.append(f"[edit of: {target}]")

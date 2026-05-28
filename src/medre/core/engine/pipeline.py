@@ -2421,20 +2421,20 @@ class PipelineRunner:
 
         # Validate the strategy method against the strict
         # DeliveryStrategyMethod literal type accepted by
-        # RenderingPipeline.render().  Unknown methods are treated as
-        # renderer failures because rendering cannot proceed without a
-        # valid strategy context.
+        # RenderingPipeline.render().  Unknown methods are pipeline
+        # configuration errors — the strategy string is invalid before
+        # any rendering is attempted.
         try:
             _validated_strategy: DeliveryStrategyMethod = _validate_strategy_method(
                 _strategy_method
             )
         except ValueError:
             _invalid_error = (
-                f"Rendering failed: unknown delivery strategy "
-                f"method {_strategy_method!r}"
+                f"Invalid delivery strategy method "
+                f"{_strategy_method!r}: not a known strategy"
             )
-            self._diagnostician.record_renderer_failure(
-                event.event_id, adapter_id or "", _invalid_error
+            self._diagnostician.record_planner_failure(
+                event.event_id, _invalid_error
             )
             receipt = DeliveryReceipt(
                 sequence=0,
@@ -2446,7 +2446,7 @@ class PipelineRunner:
                 route_id=route.id,
                 status="failed",
                 error=_invalid_error,
-                failure_kind=DeliveryFailureKind.RENDERER_FAILURE.value,
+                failure_kind=DeliveryFailureKind.PLANNER_FAILURE.value,
                 next_retry_at=None,
                 created_at=now,
                 attempt_number=attempt_number,
