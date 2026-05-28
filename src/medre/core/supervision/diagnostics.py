@@ -355,6 +355,10 @@ def _check_capability_warning(
 
     Delegates to the shared :func:`capability_unsupported` and formats
     the result with adapter identity for diagnostics.
+
+    Also checks reply support explicitly, because the shared
+    ``capability_unsupported`` only checks replies when ``relations``
+    is non-empty, but the synthetic event used here has ``relations=()``.
     """
     # Construct a minimal event for the shared check (only event_kind and
     # relations matter for capability checking).
@@ -374,6 +378,14 @@ def _check_capability_warning(
     )
     reason = capability_unsupported(event, caps)
     if reason is None:
+        # Explicit check for reply support: the shared capability_unsupported
+        # only detects unsupported replies when relations are non-empty, but
+        # the diagnostics synthetic event has no relations.  Check directly.
+        if caps.replies == "unsupported":
+            return (
+                f"event_kind '{event_kind}' not supported by target adapter "
+                f"'{adapter_id}': replies unsupported by adapter"
+            )
         return None
     return f"event_kind '{event_kind}' not supported by target adapter '{adapter_id}': {reason}"
 

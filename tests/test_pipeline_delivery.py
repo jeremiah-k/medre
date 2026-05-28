@@ -1002,7 +1002,6 @@ class TestDeliveryGather:
         good = FakePresentationAdapter(adapter_id="good")
         bad = FakePresentationAdapter(adapter_id="bad")
         # Override deliver to raise on the bad adapter.
-        original_deliver = bad.deliver
 
         async def _failing_deliver(result: object) -> None:
             raise RuntimeError("forced failure in gather test")

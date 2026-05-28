@@ -1780,10 +1780,16 @@ class ReplayEngine:
         # with a descriptive error when the adapter lacks the required
         # capability.  Non-BEST_EFFORT modes are not affected.
         if mode is ReplayMode.BEST_EFFORT:
+            # Extract adapters dict from the pipeline collaborator.
+            _adapters: dict[str, Any] | None = None
+            if self._pipeline is not None:
+                _cfg = getattr(self._pipeline, "_config", None)
+                if _cfg is not None:
+                    _adapters = getattr(_cfg, "adapters", None)
             plan_result = _filter_plans_by_capability(
                 event,
                 plan_result,
-                self._pipeline,
+                _adapters,
             )
             if not plan_result:
                 if self._accounting is not None:
@@ -2090,15 +2096,14 @@ def _filter_plans_by_adapter(
 def _filter_plans_by_capability(
     event: CanonicalEvent,
     plans: list[Any],
-    pipeline: Any,
+    adapters: dict[str, Any] | None = None,
 ) -> list[Any]:
     """Filter delivery plans to those whose target adapter supports the event.
 
     For each plan, resolves the target adapter's capabilities and checks
     whether the event kind is supported.  Plans with unsupported event
-    kinds are excluded.  When the pipeline does not expose a
-    ``_get_adapter_capabilities`` method, or when the adapter is unknown,
-    plans are included conservatively (include rather than exclude).
+    kinds are excluded.  When *adapters* is ``None``, plans are included
+    conservatively (include rather than exclude).
 
     Only meaningful for BEST_EFFORT mode; the caller is responsible for
     gating on mode.
@@ -2109,8 +2114,9 @@ def _filter_plans_by_capability(
         The canonical event being replayed.
     plans:
         Delivery plans to filter.
-    pipeline:
-        The pipeline collaborator (may be ``None``).
+    adapters:
+        Mapping of adapter ID to adapter instance, or ``None`` when
+        unavailable (in which case all plans are included).
 
     Returns
     -------
@@ -2118,10 +2124,12 @@ def _filter_plans_by_capability(
         Plans whose target adapters support the event kind.
     """
     # Import here to avoid circular imports at module level.
-    from medre.core.contracts.adapter import AdapterCapabilities
-    from medre.core.planning.capabilities import capability_unsupported
+    from medre.core.planning.capabilities import (
+        capability_unsupported,
+        resolve_adapter_capabilities,
+    )
 
-    if pipeline is None or not hasattr(pipeline, "_get_adapter_capabilities"):
+    if adapters is None:
         return plans
 
     result: list[Any] = []
@@ -2138,7 +2146,7 @@ def _filter_plans_by_capability(
             result.append(item)
             continue
 
-        caps: AdapterCapabilities = pipeline._get_adapter_capabilities(target)
+        caps = resolve_adapter_capabilities(adapters, target)
         reason = capability_unsupported(event, caps)
         if reason is None:
             result.append(item)

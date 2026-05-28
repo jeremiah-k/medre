@@ -6,12 +6,12 @@ the delivery strategy to the closest supported alternative.
 
 Fallback rules (Phase 1):
 
-* ``message.reacted`` → deliver as ``message.text`` when the target
-  does not support reactions.
-* ``message.edited`` → deliver as a new ``message.text`` when the
-  target does not support edits.
-* ``message.deleted`` → deliver as ``message.text`` fallback when the
-  target does not support deletions.
+* ``message.reacted`` → skip when the target does not support
+  reactions (pipeline suppresses before delivery).
+* ``message.edited`` → skip when the target does not support
+  edits (pipeline suppresses before delivery).
+* ``message.deleted`` → skip when the target does not support
+  deletions (pipeline suppresses before delivery).
 * ``message.file`` → skip delivery when the target does not support
   attachments.
 * ``message.created`` / ``message.text`` → skip when the adapter
@@ -53,7 +53,7 @@ class FallbackResolver:
     >>> caps = AdapterCapabilities(reactions="unsupported")
     >>> plan = resolver.resolve_fallback(reaction_event, target, caps)
     >>> plan.primary_strategy.method
-    'direct'
+    'skip'
     """
 
     def resolve_fallback(
@@ -104,9 +104,8 @@ class FallbackResolver:
         For capability fields that use the three-level string scheme
         (``"native"``, ``"fallback"``, ``"unsupported"``), both
         ``"native"`` and ``"fallback"`` are treated as supported.
-        ``"unsupported"`` triggers event-specific behavior (currently
-        ``"direct"`` for lifecycle events and ``"skip"`` for
-        hard-incompatible capabilities).
+        ``"unsupported"`` triggers event-specific behavior (``"skip"``
+        for both lifecycle events and hard-incompatible capabilities).
         """
         kind = event.event_kind
 
@@ -114,15 +113,15 @@ class FallbackResolver:
 
         if kind == EventKind.MESSAGE_REACTED:
             if caps.reactions == "unsupported":
-                return DeliveryStrategy(method="direct")
+                return DeliveryStrategy(method="skip")
 
         if kind == EventKind.MESSAGE_EDITED:
             if caps.edits == "unsupported":
-                return DeliveryStrategy(method="direct")
+                return DeliveryStrategy(method="skip")
 
         if kind == EventKind.MESSAGE_DELETED:
             if caps.deletes == "unsupported":
-                return DeliveryStrategy(method="direct")
+                return DeliveryStrategy(method="skip")
 
         if kind == EventKind.MESSAGE_FILE:
             if not caps.attachments:

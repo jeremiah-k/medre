@@ -7,54 +7,21 @@ producing the expected delivery method (``"direct"`` or ``"skip"``).
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 import pytest
 
 from medre.core.contracts.adapter import AdapterCapabilities
 from medre.core.engine.pipeline import PipelineRunner
-from medre.core.events.canonical import CanonicalEvent, EventRelation, NativeRef
-from medre.core.events.metadata import EventMetadata
+from medre.core.events.canonical import EventRelation, NativeRef
 from medre.core.planning.capabilities import capability_unsupported
 from medre.core.planning.delivery_plan import DeliveryPlan
 from medre.core.planning.fallback_resolution import FallbackResolver
 from medre.core.routing import Route, Router, RouteSource
 from medre.core.routing.models import RouteTarget
-from tests.helpers.pipeline import make_pipeline_config_for_pipeline
+from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-_SEQ = 0
-
-
-def _next_id() -> str:
-    global _SEQ
-    _SEQ += 1
-    return f"evt-{_SEQ:04d}"
-
-
-def make_event(
-    event_kind: str = "message.text",
-    relations: tuple[EventRelation, ...] = (),
-) -> CanonicalEvent:
-    """Build a minimal :class:`CanonicalEvent` for testing."""
-    return CanonicalEvent(
-        event_id=_next_id(),
-        event_kind=event_kind,
-        schema_version=1,
-        timestamp=datetime.now(timezone.utc),
-        source_adapter="test_source",
-        source_transport_id="transport-0",
-        source_channel_id="ch-0",
-        parent_event_id=None,
-        lineage=(),
-        relations=relations,
-        payload={"text": "hello"},
-        metadata=EventMetadata(),
-    )
-
 
 _REPLY_RELATION = EventRelation(
     relation_type="reply",
@@ -100,16 +67,18 @@ class TestFallbackResolverEventKindSupport:
             ("message.text", "text", False, "skip"),
             ("message.created", "text", True, "direct"),
             ("message.created", "text", False, "skip"),
-            # -- Reactions (3-level string: native/fallback → direct, unsupported → direct fallback) ---
+            # -- Reactions (3-level string: native/fallback → direct, unsupported → skip) ---
             ("message.reacted", "reactions", "native", "direct"),
-            ("message.reacted", "reactions", "unsupported", "direct"),
+            ("message.reacted", "reactions", "unsupported", "skip"),
             ("message.reacted", "reactions", "fallback", "direct"),
             # -- Edits --------------------------------------------------------
             ("message.edited", "edits", "native", "direct"),
-            ("message.edited", "edits", "unsupported", "direct"),
+            ("message.edited", "edits", "unsupported", "skip"),
+            ("message.edited", "edits", "fallback", "direct"),
             # -- Deletes ------------------------------------------------------
             ("message.deleted", "deletes", "native", "direct"),
-            ("message.deleted", "deletes", "unsupported", "direct"),
+            ("message.deleted", "deletes", "unsupported", "skip"),
+            ("message.deleted", "deletes", "fallback", "direct"),
             # -- File / attachments -------------------------------------------
             ("message.file", "attachments", True, "direct"),
             ("message.file", "attachments", False, "skip"),
@@ -119,6 +88,8 @@ class TestFallbackResolverEventKindSupport:
             # -- Telemetry ----------------------------------------------------
             ("telemetry.received", "metadata_fields", True, "direct"),
             ("telemetry.received", "metadata_fields", False, "skip"),
+            ("telemetry.position", "metadata_fields", True, "direct"),
+            ("telemetry.position", "metadata_fields", False, "skip"),
             # -- Unknown / passthrough ----------------------------------------
             ("plugin.custom", "text", False, "direct"),
             ("identity.updated", "text", False, "direct"),
@@ -155,7 +126,10 @@ class TestFallbackResolverReplyRelation:
         """Text event with reply relation and native replies → direct."""
         caps = AdapterCapabilities(replies="native")
         resolver = FallbackResolver()
-        event = make_event(event_kind="message.text", relations=(_REPLY_RELATION,))
+        event = make_event(
+            event_kind="message.text",
+            relations=(_REPLY_RELATION,),
+        )
         strategy = resolver._resolve_strategy(event, caps)
         assert strategy.method == "direct"
 
@@ -163,7 +137,10 @@ class TestFallbackResolverReplyRelation:
         """Text event with reply relation and unsupported replies → skip."""
         caps = AdapterCapabilities(replies="unsupported")
         resolver = FallbackResolver()
-        event = make_event(event_kind="message.text", relations=(_REPLY_RELATION,))
+        event = make_event(
+            event_kind="message.text",
+            relations=(_REPLY_RELATION,),
+        )
         strategy = resolver._resolve_strategy(event, caps)
         assert strategy.method == "skip"
 
@@ -181,12 +158,15 @@ class TestFallbackResolverReplyRelation:
             relation_type="reaction",
             target_event_id="evt-parent",
             target_native_ref=None,
-            key="👍",
+            key="\U0001f44d",
             fallback_text=None,
         )
         caps = AdapterCapabilities(replies="unsupported")
         resolver = FallbackResolver()
-        event = make_event(event_kind="message.text", relations=(reaction_rel,))
+        event = make_event(
+            event_kind="message.text",
+            relations=(reaction_rel,),
+        )
         strategy = resolver._resolve_strategy(event, caps)
         assert strategy.method == "direct"
 
@@ -298,7 +278,7 @@ class TestFallbackResolverCapabilitySuppressionReceipt:
         assert strategy.method == "skip"
 
     def test_capability_suppressed_receipt_scenario_text(self) -> None:
-        """End-to-end: text=False produces a plan with skip method."""
+        """Integration: text=False produces a plan with skip method."""
         resolver = FallbackResolver()
         event = make_event(event_kind="message.text")
         caps = AdapterCapabilities(text=False)
@@ -306,7 +286,7 @@ class TestFallbackResolverCapabilitySuppressionReceipt:
         assert plan.primary_strategy.method == "skip"
 
     def test_capability_suppressed_receipt_scenario_telemetry(self) -> None:
-        """End-to-end: metadata_fields=False produces skip for telemetry."""
+        """Integration: metadata_fields=False produces skip for telemetry."""
         resolver = FallbackResolver()
         event = make_event(event_kind="telemetry.received")
         caps = AdapterCapabilities(metadata_fields=False)
@@ -314,7 +294,7 @@ class TestFallbackResolverCapabilitySuppressionReceipt:
         assert plan.primary_strategy.method == "skip"
 
     def test_capability_suppressed_receipt_scenario_reply(self) -> None:
-        """End-to-end: replies=unsupported with reply relation → skip."""
+        """Integration: replies=unsupported with reply relation → skip."""
         resolver = FallbackResolver()
         event = make_event(
             event_kind="message.text",
@@ -494,37 +474,44 @@ class TestPipelineGetAdapterCapabilities:
 class TestCapabilityUnsupportedReason:
     """Verify capability_unsupported returns correct reason strings."""
 
-    @pytest.mark.parametrize("event_kind,cap_field,cap_value,expect_none", [
-        ("message.edited", "edits", "unsupported", False),
-        ("message.edited", "edits", "native", True),
-        ("message.edited", "edits", "fallback", True),
-        ("message.deleted", "deletes", "unsupported", False),
-        ("message.deleted", "deletes", "native", True),
-        ("message.file", "attachments", True, True),
-        ("message.file", "attachments", False, False),
-        ("message.created", "text", True, True),
-        ("message.created", "text", False, False),
-        ("presence.changed", "presence", True, True),
-        ("presence.changed", "presence", False, False),
-        ("telemetry.received", "metadata_fields", True, True),
-        ("telemetry.received", "metadata_fields", False, False),
-        ("telemetry.position", "metadata_fields", True, True),
-        ("telemetry.position", "metadata_fields", False, False),
-    ])
+    @pytest.mark.parametrize(
+        "event_kind,cap_field,cap_value,expect_none",
+        [
+            ("message.edited", "edits", "unsupported", False),
+            ("message.edited", "edits", "native", True),
+            ("message.edited", "edits", "fallback", True),
+            ("message.deleted", "deletes", "unsupported", False),
+            ("message.deleted", "deletes", "native", True),
+            ("message.file", "attachments", True, True),
+            ("message.file", "attachments", False, False),
+            ("message.created", "text", True, True),
+            ("message.created", "text", False, False),
+            ("presence.changed", "presence", True, True),
+            ("presence.changed", "presence", False, False),
+            ("telemetry.received", "metadata_fields", True, True),
+            ("telemetry.received", "metadata_fields", False, False),
+            ("telemetry.position", "metadata_fields", True, True),
+            ("telemetry.position", "metadata_fields", False, False),
+        ],
+    )
     def test_capability_unsupported_reason(
-        self, event_kind, cap_field, cap_value, expect_none,
+        self,
+        event_kind,
+        cap_field,
+        cap_value,
+        expect_none,
     ):
         caps = AdapterCapabilities(**{cap_field: cap_value})
         event = make_event(event_kind=event_kind)
         result = capability_unsupported(event, caps)
         if expect_none:
-            assert result is None, (
-                f"Expected None for {event_kind} with {cap_field}={cap_value}"
-            )
+            assert (
+                result is None
+            ), f"Expected None for {event_kind} with {cap_field}={cap_value}"
         else:
-            assert result is not None, (
-                f"Expected reason for {event_kind} with {cap_field}={cap_value}"
-            )
+            assert (
+                result is not None
+            ), f"Expected reason for {event_kind} with {cap_field}={cap_value}"
             assert event_kind in result
 
     def test_reply_relation_triggers_unsupported(self):

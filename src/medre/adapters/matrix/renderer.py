@@ -182,7 +182,6 @@ class MatrixRenderer:
         RenderingResult
             The rendered Matrix content dict wrapped in a result.
         """
-        _ = max_text_chars  # reserved for unified renderer contract
         body = str(event.payload.get("body", event.payload.get("text", "")))
 
         # Apply relay prefix for mesh→Matrix direction

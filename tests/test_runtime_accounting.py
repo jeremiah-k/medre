@@ -131,6 +131,11 @@ class TestIndividualIncrements:
         assert c.capacity_rejections == 0
         assert c.outbound_failed == 0
 
+    def test_record_capability_suppressed(self) -> None:
+        acc = RuntimeAccounting()
+        acc.record_capability_suppressed()
+        assert acc.snapshot()["capability_suppressed"] == 1
+
 
 # ---------------------------------------------------------------------------
 # Accumulation

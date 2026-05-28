@@ -1,4 +1,4 @@
-"""Shared capability-checking helpers for adapter event-kind support.
+"""Capability checking helpers for adapter event-kind support.
 
 This module provides the single source of truth for determining whether
 a given event kind is supported (natively or via fallback) by an
@@ -19,9 +19,13 @@ Public symbols
 --------------
 * :func:`capability_unsupported` – return a reason string when the
   event kind is unsupported by the given capabilities.
+* :func:`resolve_adapter_capabilities` – resolve the
+  :class:`AdapterCapabilities` for a target from the adapter registry.
 """
 
 from __future__ import annotations
+
+from typing import Any
 
 from medre.core.contracts.adapter import AdapterCapabilities
 from medre.core.events.canonical import CanonicalEvent
@@ -83,3 +87,41 @@ def capability_unsupported(
                 return "replies unsupported by adapter (event has reply relation)"
 
     return None
+
+
+def resolve_adapter_capabilities(
+    adapters: dict[str, Any],
+    target: Any,
+) -> AdapterCapabilities:
+    """Resolve the :class:`AdapterCapabilities` for a target adapter.
+
+    Looks up the target's adapter in the *adapters* registry and
+    returns its declared capabilities.  Returns a default (conservative)
+    :class:`AdapterCapabilities` when the adapter is not found or does
+    not report capabilities.
+
+    Parameters
+    ----------
+    adapters:
+        Mapping of adapter ID to adapter instance.
+    target:
+        A :class:`~medre.core.routing.models.RouteTarget` (or any
+        object with an ``adapter`` attribute).
+
+    Returns
+    -------
+    AdapterCapabilities
+        The resolved capabilities, or a default instance.
+    """
+    adapter_id = getattr(target, "adapter", None)
+    if adapter_id is None:
+        return AdapterCapabilities()
+
+    adapter = adapters.get(adapter_id)
+    if adapter is None:
+        return AdapterCapabilities()
+
+    caps = getattr(adapter, "_capabilities", None)
+    if isinstance(caps, AdapterCapabilities):
+        return caps
+    return AdapterCapabilities()

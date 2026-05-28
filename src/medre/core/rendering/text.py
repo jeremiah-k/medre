@@ -24,7 +24,8 @@ class TextRenderer:
     """Renderer for text-only targets (radio transports, fallback channels).
 
     Handles ``message.text``, ``message.created``, ``message.edited``,
-    ``message.deleted``, ``presence.changed``, and ``plugin.custom`` events.
+    ``message.deleted``, ``message.reacted``, ``presence.changed``, and
+    ``plugin.custom`` events.
     """
 
     name: str = "text"

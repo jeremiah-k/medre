@@ -400,9 +400,7 @@ class TestCapabilitySuppressionReceipt:
 
             assert suppressed_outcome.receipt is not None
             assert suppressed_outcome.receipt.status == "suppressed"
-            assert (
-                suppressed_outcome.receipt.failure_kind == "capability_suppressed"
-            )
+            assert suppressed_outcome.receipt.failure_kind == "capability_suppressed"
         finally:
             await runner.stop()
 
@@ -588,6 +586,80 @@ class TestCapabilityRenderingConstraint:
             assert rendered_text == medium_text
             assert len(rendered_text) == 200
             assert rendered.truncated is False
+        finally:
+            await runner.stop()
+
+    @pytest.mark.asyncio
+    async def test_truncation_at_500_when_no_max_set(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """500 chars passes, 501 truncates when max_text_chars=None."""
+        adapter = FakePresentationAdapter(adapter_id="dest")
+        adapter._capabilities = AdapterCapabilities(
+            text=True,
+            reactions="native",
+            max_text_chars=None,
+        )
+
+        route = Route(
+            id="boundary-500-route",
+            source=RouteSource(
+                adapter="src",
+                event_kinds=("message.created",),
+                channel=None,
+            ),
+            targets=[RouteTarget(adapter="dest")],
+        )
+        router = Router(routes=[route])
+
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=router,
+            adapters={"dest": adapter},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        text_500 = "C" * 500
+        event_500 = make_event(
+            event_id="boundary-500-pass",
+            event_kind="message.created",
+            source_adapter="src",
+            source_channel_id="ch-0",
+            payload={"text": text_500},
+        )
+
+        text_501 = "D" * 501
+        event_501 = make_event(
+            event_id="boundary-501-trunc",
+            event_kind="message.created",
+            source_adapter="src",
+            source_channel_id="ch-0",
+            payload={"text": text_501},
+        )
+
+        try:
+            # 500 chars → no truncation
+            outcomes_500 = await runner.handle_ingress(event_500)
+            assert len(outcomes_500) == 1
+            assert outcomes_500[0].status == "success"
+            assert len(adapter.delivered_payloads) == 1
+            rendered_500 = adapter.delivered_payloads[0]
+            assert len(rendered_500.payload.get("text", "")) == 500
+            assert rendered_500.truncated is False
+
+            # Reset adapter state for second event
+            adapter.delivered_payloads.clear()
+
+            # 501 chars → truncated to 500
+            outcomes_501 = await runner.handle_ingress(event_501)
+            assert len(outcomes_501) == 1
+            assert outcomes_501[0].status == "success"
+            assert len(adapter.delivered_payloads) == 1
+            rendered_501 = adapter.delivered_payloads[0]
+            assert len(rendered_501.payload.get("text", "")) == 500
+            assert rendered_501.truncated is True
         finally:
             await runner.stop()
 
@@ -926,10 +998,7 @@ class TestCapabilitySuppressionRecording:
             # Should still produce a valid outcome, not crash.
             assert len(outcomes) == 1
             assert outcomes[0].status == "skipped"
-            assert (
-                outcomes[0].failure_kind
-                is DeliveryFailureKind.CAPABILITY_SUPPRESSED
-            )
+            assert outcomes[0].failure_kind is DeliveryFailureKind.CAPABILITY_SUPPRESSED
         finally:
             await runner.stop()
 

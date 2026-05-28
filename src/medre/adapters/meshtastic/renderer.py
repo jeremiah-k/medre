@@ -296,7 +296,6 @@ class MeshtasticRenderer:
         RenderingResult
             The rendered Meshtastic content dict wrapped in a result.
         """
-        _ = max_text_chars  # reserved for unified renderer contract
         # Resolve target-adapter-specific config.
         try:
             adapter_config = self._configs[target_adapter]

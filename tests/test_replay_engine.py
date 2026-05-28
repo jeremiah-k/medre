@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock
 
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.rendering import RenderingPipeline
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage import EventFilter, SQLiteStorage
 from medre.core.storage.replay import (
     ReplayMode,
@@ -985,9 +985,7 @@ class TestFilterPlansByAdapter:
         from medre.core.storage.replay import _filter_plans_by_adapter
 
         plan = _make_delivery_plan(adapter="matrix-bridge")
-        result = _filter_plans_by_adapter(
-            [("route-stub", plan)], ["matrix-bridge"]
-        )
+        result = _filter_plans_by_adapter([("route-stub", plan)], ["matrix-bridge"])
         assert len(result) == 1
 
     def test_tuple_plan_non_matching_excluded(self) -> None:
@@ -995,9 +993,7 @@ class TestFilterPlansByAdapter:
         from medre.core.storage.replay import _filter_plans_by_adapter
 
         plan = _make_delivery_plan(adapter="matrix-bridge")
-        result = _filter_plans_by_adapter(
-            [("route-stub", plan)], ["other-adapter"]
-        )
+        result = _filter_plans_by_adapter([("route-stub", plan)], ["other-adapter"])
         assert len(result) == 0
 
 
@@ -1026,24 +1022,19 @@ class TestFilterPlansByCapability:
         )
 
     def test_returns_plans_when_pipeline_is_none(self) -> None:
-        """When pipeline is None, all plans pass through."""
+        """When adapters is None, all plans pass through."""
         from medre.core.storage.replay import _filter_plans_by_capability
 
         plans = [_make_delivery_plan()]
-        result = _filter_plans_by_capability(self._make_event(), plans, pipeline=None)
+        result = _filter_plans_by_capability(self._make_event(), plans, adapters=None)
         assert result == plans
 
     def test_returns_plans_when_pipeline_lacks_method(self) -> None:
-        """Pipeline without _get_adapter_capabilities passes everything."""
+        """Empty adapters dict passes everything conservatively."""
         from medre.core.storage.replay import _filter_plans_by_capability
 
-        class NoCapPipeline:
-            pass
-
         plans = [_make_delivery_plan()]
-        result = _filter_plans_by_capability(
-            self._make_event(), plans, NoCapPipeline()
-        )
+        result = _filter_plans_by_capability(self._make_event(), plans, adapters={})
         assert result == plans
 
     def test_supported_event_kind_passes(self) -> None:
@@ -1053,14 +1044,12 @@ class TestFilterPlansByCapability:
 
         caps = AdapterCapabilities(text=True)
 
-        class CapPipeline:
-            def _get_adapter_capabilities(self, target: Any) -> AdapterCapabilities:
-                return caps
+        class _CapAdapter:
+            _capabilities = caps
 
+        adapters = {"adapter-1": _CapAdapter()}
         plan = _make_delivery_plan(adapter="adapter-1")
-        result = _filter_plans_by_capability(
-            self._make_event(), [plan], CapPipeline()
-        )
+        result = _filter_plans_by_capability(self._make_event(), [plan], adapters=adapters)
         assert len(result) == 1
 
     def test_unsupported_event_kind_filtered(self) -> None:
@@ -1070,14 +1059,12 @@ class TestFilterPlansByCapability:
 
         caps = AdapterCapabilities(text=False)
 
-        class CapPipeline:
-            def _get_adapter_capabilities(self, target: Any) -> AdapterCapabilities:
-                return caps
+        class _CapAdapter:
+            _capabilities = caps
 
+        adapters = {"adapter-1": _CapAdapter()}
         plan = _make_delivery_plan(adapter="adapter-1")
-        result = _filter_plans_by_capability(
-            self._make_event(), [plan], CapPipeline()
-        )
+        result = _filter_plans_by_capability(self._make_event(), [plan], adapters=adapters)
         assert len(result) == 0
 
 
@@ -1112,11 +1099,14 @@ class TestStageDeliverCapabilityFilter:
 
         caps = AdapterCapabilities(text=False)
 
+        class _CapAdapter:
+            _capabilities = caps
+
+        class _Config:
+            adapters = {"target-adapter": _CapAdapter()}
+
         class CapStubPipeline(StubPipeline):
-            def _get_adapter_capabilities(
-                self, target: Any
-            ) -> AdapterCapabilities:
-                return caps
+            _config = _Config()
 
         pipeline = CapStubPipeline(router=router)
         engine = make_engine(temp_storage, pipeline=pipeline)
@@ -1153,11 +1143,14 @@ class TestStageDeliverCapabilityFilter:
 
         caps = AdapterCapabilities(text=False)
 
+        class _CapAdapter:
+            _capabilities = caps
+
+        class _Config:
+            adapters = {"target-adapter": _CapAdapter()}
+
         class CapStubPipeline(StubPipeline):
-            def _get_adapter_capabilities(
-                self, target: Any
-            ) -> AdapterCapabilities:
-                return caps
+            _config = _Config()
 
         pipeline = CapStubPipeline(router=router)
         engine = make_engine(temp_storage, pipeline=pipeline)
@@ -1194,17 +1187,18 @@ class TestStageDeliverCapabilityFilter:
 
         caps = AdapterCapabilities(text=False)
 
+        class _CapAdapter:
+            _capabilities = caps
+
+        class _Config:
+            adapters = {"target-adapter": _CapAdapter()}
+
         class CapStubPipeline(StubPipeline):
-            def _get_adapter_capabilities(
-                self, target: Any
-            ) -> AdapterCapabilities:
-                return caps
+            _config = _Config()
 
         accounting = RuntimeAccounting()
         pipeline = CapStubPipeline(router=router)
-        engine = make_engine(
-            temp_storage, pipeline=pipeline, accounting=accounting
-        )
+        engine = make_engine(temp_storage, pipeline=pipeline, accounting=accounting)
         await temp_storage.append(sample_event)
 
         request = ReplayRequest(mode=ReplayMode.BEST_EFFORT)

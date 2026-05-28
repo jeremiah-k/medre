@@ -166,6 +166,7 @@ class RenderingPipeline:
 
     def __init__(self) -> None:
         self._renderers: list[_PrioritisedRenderer] = []
+        self._supports_max_text_chars: list[bool] = []
         self._seq: int = 0
         self._adapter_platforms: dict[str, str] = {}
 
@@ -180,9 +181,15 @@ class RenderingPipeline:
             Lower values are checked first.  Defaults to ``100``.
         """
         self._renderers.append((priority, self._seq, renderer))
+        sig = inspect.signature(renderer.render)
+        self._supports_max_text_chars.append("max_text_chars" in sig.parameters)
         self._seq += 1
         # Stable sort: priority first, registration order breaks ties.
-        self._renderers.sort(key=lambda t: (t[0], t[1]))
+        # Re-sort both parallel lists together.
+        paired = list(zip(self._renderers, self._supports_max_text_chars, strict=False))
+        paired.sort(key=lambda t: (t[0][0], t[0][1]))
+        self._renderers = [p[0] for p in paired]
+        self._supports_max_text_chars = [p[1] for p in paired]
 
     # -- Platform registry --------------------------------------------------
 
@@ -282,11 +289,10 @@ class RenderingPipeline:
             else self._adapter_platforms.get(target_adapter)
         )
 
-        for _pri, _seq, renderer in self._renderers:
+        for idx, (_pri, _seq, renderer) in enumerate(self._renderers):
             if renderer.can_render(event, target_adapter, platform):
-                # Only pass max_text_chars if the renderer accepts it.
-                sig = inspect.signature(renderer.render)
-                if "max_text_chars" in sig.parameters:
+                # Use cached signature check instead of inspecting on every call.
+                if self._supports_max_text_chars[idx]:
                     return await renderer.render(
                         event,
                         target_adapter,

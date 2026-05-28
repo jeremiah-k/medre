@@ -47,7 +47,10 @@ from medre.core.events.canonical import (
 )
 from medre.core.events.kinds import EventKind
 from medre.core.observability.metrics import Diagnostician
-from medre.core.planning.capabilities import capability_unsupported
+from medre.core.planning.capabilities import (
+    capability_unsupported,
+    resolve_adapter_capabilities,
+)
 from medre.core.planning.delivery_plan import (
     DeliveryFailureKind,
     DeliveryOutcome,
@@ -1601,25 +1604,25 @@ class PipelineRunner:
             # must NOT be capability-suppressed — they need to fall
             # through to deliver_to_target() which produces the correct
             # ADAPTER_MISSING outcome with a meaningful error message.
-            _unsupported: str | None = None
+            _suppression_reason: str | None = None
             if adapter_id and adapter_id in self._config.adapters:
                 _caps = self._get_adapter_capabilities(target)
-                _unsupported = capability_unsupported(event, _caps)
-            if _unsupported is not None:
+                _suppression_reason = capability_unsupported(event, _caps)
+            if _suppression_reason is not None:
                 self._log.info(
                     "capability_suppressed: route_id=%s event_id=%s "
                     "target_adapter=%s reason=%s",
                     route.id,
                     event.event_id,
                     adapter_id,
-                    _unsupported,
+                    _suppression_reason,
                 )
                 if self._route_stats is not None:
                     self._route_stats.record_capability_suppressed(route.id)
                 if self._runtime_accounting is not None:
                     self._runtime_accounting.record_capability_suppressed()
                 elapsed = (time.monotonic() - t0) * 1000.0
-                cap_error = f"capability_suppressed: {_unsupported}"
+                cap_error = f"capability_suppressed: {_suppression_reason}"
                 cap_receipt = await self._persist_suppression_receipt(
                     event_id=event.event_id,
                     delivery_plan_id=route_plan.plan_id,
@@ -2559,20 +2562,7 @@ class PipelineRunner:
     def _get_adapter_capabilities(self, target: RouteTarget) -> AdapterCapabilities:
         """Retrieve the :class:`AdapterCapabilities` for a target adapter.
 
-        Returns a default (conservative) :class:`AdapterCapabilities`
-        instance if the adapter is not found or does not report
-        capabilities.
+        Delegates to :func:`~medre.core.planning.capabilities.resolve_adapter_capabilities`
+        with the configured adapter registry.
         """
-        adapter_id = target.adapter
-        if adapter_id is None:
-            return AdapterCapabilities()
-
-        adapter = self._config.adapters.get(adapter_id)
-        if adapter is None:
-            return AdapterCapabilities()
-
-        if hasattr(adapter, "_capabilities"):
-            caps = adapter._capabilities  # type: ignore[attr-defined]
-            if isinstance(caps, AdapterCapabilities):
-                return caps
-        return AdapterCapabilities()
+        return resolve_adapter_capabilities(self._config.adapters, target)
