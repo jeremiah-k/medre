@@ -23,6 +23,7 @@ Exported names
 from medre.core.rendering.renderer import (
     CapabilityLevel,
     DeliveryStrategyMethod,
+    FallbackApplied,
     Renderer,
     RenderingContext,
     RenderingPipeline,
@@ -34,6 +35,7 @@ from medre.core.rendering.text_helpers import extract_relation_text, truncate_te
 __all__ = [
     "CapabilityLevel",
     "DeliveryStrategyMethod",
+    "FallbackApplied",
     "Renderer",
     "RenderingContext",
     "RenderingPipeline",

@@ -18,6 +18,7 @@ from medre.core.events import CanonicalEvent, EventKind, EventRelation, NativeRe
 from medre.core.events.metadata import EventMetadata
 from medre.core.rendering.renderer import RenderingContext
 from medre.core.rendering.text import TextRenderer
+from medre.core.rendering.text_helpers import _resolve_reaction_key
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -138,14 +139,14 @@ def test_resolve_reaction_key_returns_body_when_no_key_no_emoji() -> None:
     """Lines 248-250: payload["body"] used when no rel.key, payload["key"], payload["emoji"]."""
     rel = _rel("reaction", key=None)
     event = _event(payload={"body": "thumbsup"})
-    assert TextRenderer._resolve_reaction_key(rel, event) == "thumbsup"
+    assert _resolve_reaction_key(rel, event) == "thumbsup"
 
 
 def test_resolve_reaction_key_returns_none_when_nothing_present() -> None:
     """Line 251: returns None when no key source exists at all."""
     rel = _rel("reaction", key=None)
     event = _event(payload={})
-    assert TextRenderer._resolve_reaction_key(rel, event) is None
+    assert _resolve_reaction_key(rel, event) is None
 
 
 # ===================================================================

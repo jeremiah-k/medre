@@ -21,7 +21,7 @@ edits, deletes, replies).
 
 from __future__ import annotations
 
-from medre.core.events import CanonicalEvent, EventKind, EventRelation
+from medre.core.events import CanonicalEvent, EventKind
 from medre.core.rendering.renderer import (
     FallbackApplied,
     RenderingContext,
@@ -192,73 +192,6 @@ class TextRenderer:
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
-
-    @staticmethod
-    def _resolve_target_display(rel: EventRelation) -> str:
-        """Resolve a human-readable display string for the relation target.
-
-        Resolution order:
-
-        1. ``rel.fallback_text`` — pre-computed fallback from the upstream
-           codec.
-        2. ``rel.target_event_id`` — abbreviated to first 8 characters for
-           readability (with ``…`` when truncated).
-        3. ``rel.target_native_ref.native_message_id`` — native-space ID
-           when the canonical ID has not been resolved.
-        4. Literal ``"unknown message"`` — explicit degraded text when no
-           target reference is available at all.
-        """
-        if rel.fallback_text:
-            return rel.fallback_text
-        if rel.target_event_id:
-            eid = rel.target_event_id
-            return f"{eid[:8]}…" if len(eid) > 8 else eid
-        if (
-            rel.target_native_ref is not None
-            and rel.target_native_ref.native_message_id
-        ):
-            return rel.target_native_ref.native_message_id
-        return "unknown message"
-
-    @staticmethod
-    def _resolve_actor(event: CanonicalEvent) -> str:
-        """Resolve the best available actor display name.
-
-        Tries ``payload["displayname"]``, ``payload["user"]``, then
-        falls back to ``event.source_adapter``.
-        """
-        return str(
-            event.payload.get("displayname")
-            or event.payload.get("user")
-            or event.source_adapter
-        )
-
-    @staticmethod
-    def _resolve_reaction_key(rel: EventRelation, event: CanonicalEvent) -> str | None:
-        """Resolve the reaction key (emoji or label).
-
-        Resolution order:
-
-        1. ``rel.key`` — canonical reaction key set by the codec.
-        2. ``payload["key"]`` — reaction key from the event payload.
-        3. ``payload["emoji"]`` — common convention for emoji payload.
-        4. ``payload["body"]`` — last-resort text body.
-
-        Returns ``None`` only when no key-like value exists in any of
-        these locations.
-        """
-        if rel.key:
-            return rel.key
-        key = event.payload.get("key")
-        if key:
-            return str(key)
-        emoji = event.payload.get("emoji")
-        if emoji:
-            return str(emoji)
-        body = event.payload.get("body")
-        if body:
-            return str(body)
-        return None
 
     @staticmethod
     def _extract_text(event: CanonicalEvent) -> str:

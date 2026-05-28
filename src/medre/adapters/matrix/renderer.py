@@ -22,7 +22,6 @@ from typing import Any, Mapping
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
 from medre.core.events import CanonicalEvent, EventRelation
 from medre.core.rendering.renderer import (
-    FallbackApplied,
     RenderingContext,
     RenderingResult,
 )
@@ -275,17 +274,13 @@ class MatrixRenderer:
             "renderer": self.name,
         }
 
-        fallback_applied: FallbackApplied | None = None
-        if is_fallback:
-            fallback_applied = "strategy_fallback_text"
-
         return RenderingResult(
             event_id=event.event_id,
             target_adapter=target_adapter,
             target_channel=target_channel,
             payload=content,
             metadata=metadata,
-            fallback_applied=fallback_applied,
+            fallback_applied=None,
         )
 
     # ------------------------------------------------------------------

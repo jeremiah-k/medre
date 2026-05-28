@@ -1387,3 +1387,56 @@ class TestTargetedCoveragePaths:
         )
         result = MeshtasticRenderer._resolve_reply_target_marker(rel)
         assert result == "42"
+
+
+# ===================================================================
+# Fallback-text delivery strategy: edit, delete, thread relation types
+# ===================================================================
+
+
+class TestFallbackTextOtherRelationTypes:
+    """fallback_text delivery strategy for edit, delete, and thread
+    relation types.  These hit the passthrough to _extract_text path
+    in _render_fallback_text.
+    """
+
+    @pytest.mark.parametrize(
+        "relation_type, body, expected_in_text",
+        [
+            ("edit", "updated content", "updated content"),
+            ("delete", "unused", "unused"),
+            ("thread", "thread reply text", "thread reply text"),
+        ],
+        ids=["edit", "delete", "thread"],
+    )
+    async def test_fallback_text_passthrough_for_relation_type(
+        self,
+        relation_type: str,
+        body: str,
+        expected_in_text: str,
+    ) -> None:
+        """edit/delete/thread relations in fallback_text mode pass through
+        to _extract_text.  No native reply_id or emoji fields are emitted.
+        """
+        renderer = _make_renderer("mesh-1")
+        rel = EventRelation(
+            relation_type=relation_type,
+            target_event_id="evt-0",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(
+            payload={"body": body},
+            relations=(rel,),
+        )
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="mesh-1", delivery_strategy="fallback_text"
+            ),
+        )
+        assert expected_in_text in result.payload["text"]
+        assert "reply_id" not in result.payload
+        assert "emoji" not in result.payload
+        assert result.fallback_applied == "strategy_fallback_text"

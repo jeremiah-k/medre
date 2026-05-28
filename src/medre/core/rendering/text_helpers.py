@@ -42,18 +42,29 @@ def _resolve_actor(event: CanonicalEvent) -> str:
 
 
 def _resolve_reaction_key(rel: EventRelation, event: CanonicalEvent) -> str | None:
-    """Resolve the reaction key (emoji or label)."""
+    """Resolve the reaction key (emoji or label).
+
+    Resolution order:
+
+    1. ``rel.key`` — canonical reaction key set by the codec.
+    2. ``payload["key"]`` — reaction key from the event payload.
+    3. ``payload["emoji"]`` — common convention for emoji payload.
+    4. ``payload["body"]`` — last-resort text body.
+
+    Whitespace is stripped from resolved values.  Returns ``None`` only
+    when no non-empty key-like value exists.
+    """
     if rel.key:
-        return rel.key
+        return rel.key.strip()
     key = event.payload.get("key")
     if key:
-        return str(key)
+        return str(key).strip()
     emoji = event.payload.get("emoji")
     if emoji:
-        return str(emoji)
+        return str(emoji).strip()
     body = event.payload.get("body")
     if body:
-        return str(body)
+        return str(body).strip()
     return None
 
 
@@ -222,9 +233,9 @@ def truncate_text_bytes(
     if original_bytes <= max_text_bytes:
         return text, False, original_bytes, original_bytes
 
-    # Binary-search for the longest prefix that fits within *max_text_bytes*.
-    # UTF-8 characters are 1–4 bytes; slicing at a mid-character boundary
-    # would raise, so we trim one char at a time from the right.
+    # Linear trim from the right until the remaining prefix fits within
+    # *max_text_bytes*.  UTF-8 characters are 1–4 bytes; slicing at a
+    # mid-character boundary would raise, so we trim one char at a time.
     truncated = text
     while len(truncated.encode("utf-8")) > max_text_bytes and truncated:
         truncated = truncated[:-1]

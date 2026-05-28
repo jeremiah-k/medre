@@ -490,7 +490,7 @@ class RenderingResult:
     payload:          dict[str, object]          # Rendered payload in adapter-ready format
     metadata:         dict[str, object] = field(default_factory=dict)
     truncated:        bool = False               # Whether content was truncated
-    fallback_applied: str | None = None          # Fallback strategy applied, if any
+    fallback_applied: FallbackApplied | None = None          # Fallback strategy applied, if any
 ```
 
 ### 10.3 Rendering Boundary
